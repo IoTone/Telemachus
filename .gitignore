@@ -1,0 +1,34 @@
+# Racket build artifacts
+compiled/
+*.zo
+*.dep
+doc/
+
+# Local data (all user/runtime data stays local)
+data/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Environment / secrets
+.env
+!.env.example
+secrets.env
+!secrets.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+.claude/
+
+# Nix
+result
+result-*
+.direnv/
