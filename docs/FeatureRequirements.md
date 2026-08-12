@@ -25,11 +25,16 @@
       frontends and backends.
 - [ ] **Persistence** — SQLite for prototyping, PostgreSQL as the target; schema
       abstraction so no SQLite-only assumptions leak in.
+- [ ] **Queuing** of resources to enable workload distribution, enforcement of
+      any custom policy  for system use
+
 
 ## Generic applications (to specify)
 - [ ] **Chat**
 - [ ] **Research**
 - [ ] **Document translation**
+- [ ] **Document Search**
+- [ ] **Knowledge Graph**
 
 ## Out of scope / non-goals (to specify)
 - [ ] (e.g., open-core tiers — explicitly a non-goal.)

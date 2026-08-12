@@ -70,4 +70,4 @@ review of the predecessor system.
 
 ## License
 
-[MIT](LICENSE) © 2026 David J Kordsmeier
+[MIT](LICENSE) © 2026 IoTone, Inc.
