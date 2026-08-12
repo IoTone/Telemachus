@@ -81,6 +81,8 @@ predecessor system; the Racket reference implementation is underway under
 
 - `docs/FeatureRequirements.md` — the requirements for Telemachus (authored from
   a review of the predecessor's feature inventory).
+- `docs/design/` — platform design (RBAC & teams, quotas, AI queue & governor):
+  proposals with data shapes and contracts, pending review.
 
 ## License
 
