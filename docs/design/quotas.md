@@ -64,7 +64,7 @@ quota_assignments(id pk, policy_id fk, subject_type, subject_id,   -- subject_ty
                   effective_from, uniq(subject_type, subject_id))
 
 usage_ledger(id pk, team_id, user_id, dimension, amount,           -- append-only meter events
-             model nullable, endpoint_id nullable, request_id, at, meta json)
+             model nullable, executor_id nullable, request_id, at, meta json)
 
 usage_counters(subject_type, subject_id, dimension, window_key,    -- materialized aggregate
                amount, updated_at,
@@ -80,7 +80,7 @@ counts rather than a ledger.
 ```
 QuotaService:
   check(subject, dimension, amount=1) -> Decision{allowed, remaining, reset_at, reason}
-  record(event: {subject, dimension, amount, model?, endpoint?, request_id, meta})
+  record(event: {subject, dimension, amount, model?, executor?, request_id, meta})
   usage(subject, dimension, window) -> {used, limit, remaining, reset_at}
   effective_limit(subject, dimension) -> {limit, window} | none
   assign(policy, subject) / policies_crud(...)

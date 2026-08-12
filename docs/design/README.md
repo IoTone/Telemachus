@@ -9,7 +9,7 @@ genuine policy forks flagged **Decisions to confirm** in each doc.
 |---|---|---|
 | [rbac-and-teams.md](rbac-and-teams.md) | **RBAC & Teams** | Who exists, what they may do, whose data is whose. |
 | [quotas.md](quotas.md) | **Quotas** | What is metered per user/team, and the limits. |
-| [ai-queue-and-concurrency.md](ai-queue-and-concurrency.md) | **AI queue & governor** | Admission, concurrency caps, and workload distribution so nothing self-DDOSes. |
+| [ai-queue-and-concurrency.md](ai-queue-and-concurrency.md) | **AI workload scheduler** | Admission, placement & concurrency caps — a workload queue (SLURM/k8s-style), not a message bus; local now, federation-ready. |
 
 ## How they interlock
 
@@ -19,13 +19,17 @@ genuine policy forks flagged **Decisions to confirm** in each doc.
 - **Quotas set the caps** (tokens/day, max concurrency, storage). The **governor
   enforces** the concurrency/rate portion at admission time; the quota service
   owns the accounting and the periodic budgets.
-- **The governor distributes** admitted work across model endpoints and holds a
-  slot only per step, so long agent flows don't starve others.
+- **The scheduler places** admitted work on an **executor** (a compute resource)
+  and holds a slot only per step, so long agent flows don't starve others. It is a
+  *workload* queue (schedules jobs onto resources, SLURM/k8s-style), **not** a
+  message queue (0mq/NATS); a message transport may later be the *wire* to remote
+  executors, but that is deferred and out of RI scope.
 
 ```
-request ─▶ RBAC check ─▶ quota check ─▶ queue admission ─▶ governor slot ─▶ model
-             (may?)        (budget?)      (fair? depth?)     (endpoint)
-                └──────────────── audit_log (every decision) ────────────────┘
+request ─▶ RBAC check ─▶ quota check ─▶ scheduler admission ─▶ executor slot ─▶ model
+             (may?)        (budget?)      (place? fair? depth?)   (local now;
+                                                                  remote later)
+                └──────────────── audit_log (every decision) ─────────────────┘
 ```
 
 ## Cross-cutting tenets baked in
