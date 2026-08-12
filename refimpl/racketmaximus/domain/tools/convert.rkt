@@ -8,7 +8,7 @@
 ;; on the resolved tool type.
 ;;
 ;; Provenance: the agent-loop / tool-execution *patterns* this participates in
-;; descend from opencode (MIT). See ../../../ACKNOWLEDGMENTS.md.
+;; descend from opencode (MIT). See ../../../../ACKNOWLEDGMENTS.md.
 ;;
 ;; NOTE: `alias-map`, `tool-tags`, and `builtin-email` below are PROVISIONAL
 ;; routing data carried over as a working set. They will be reconciled with

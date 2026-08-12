@@ -15,10 +15,10 @@ If you believe something here is mis-attributed or missing, please open an issue
 - **[opencode](https://github.com/anomalyco/opencode)** — open-source AI coding
   agent (originally [opencode-ai/opencode](https://github.com/opencode-ai/opencode)).
   Copyright © the opencode authors. **MIT License.** The agent-loop and
-  tool-execution *patterns* in `racket/domain/agent/loop.rkt` and
-  `racket/domain/tools/convert.rkt` descend from opencode (by way of the
-  predecessor project's agent core). No opencode source is included; this credit
-  satisfies the MIT attribution requirement for the reflected design.
+  tool-execution *patterns* in `refimpl/racketmaximus/domain/agent/loop.rkt` and
+  `refimpl/racketmaximus/domain/tools/convert.rkt` descend from opencode (by way
+  of the predecessor project's agent core). No opencode source is included; this
+  credit satisfies the MIT attribution requirement for the reflected design.
 
 The MIT License requires preserving the original copyright and permission
 notice. The standard MIT text, applicable to the opencode-derived patterns above:

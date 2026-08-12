@@ -60,10 +60,24 @@ Start on **SQLite** for prototyping; design the persistence layer to **move to
 PostgreSQL** as the scale/team story requires. The data model should not assume
 SQLite-only semantics.
 
+## Repository layout
+
+Design docs live at the repo **root**; each backend / reference implementation
+lives under `refimpl/<name>/`.
+
+- `README.md`, `ACKNOWLEDGMENTS.md`, `docs/` — project design docs & attribution.
+- `docs/FeatureRequirements.md` — the requirements (authored from the predecessor review).
+- `refimpl/racketmaximus/` — the first reference implementation (Racket); has its own README.
+
+Additional reference implementations (a different backend, or another engineer's
+design) slot in as sibling `refimpl/<name>/` directories against the same
+contracts — nothing about the platform is tied to any one of them.
+
 ## Status
 
-Prototyping / pre-implementation. Requirements are being derived from a feature
-review of the predecessor system.
+Prototyping. Requirements are being derived from a feature review of the
+predecessor system; the Racket reference implementation is underway under
+`refimpl/racketmaximus/` (library seed + agent-engine nucleus landed).
 
 - `docs/FeatureRequirements.md` — the requirements for Telemachus (authored from
   a review of the predecessor's feature inventory).

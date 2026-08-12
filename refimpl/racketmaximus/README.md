@@ -1,11 +1,12 @@
-# Telemachus — Racket prototype
+# racketmaximus — Telemachus Racket reference implementation
 
-The first-prototype backend, in Racket. Layout mirrors a strangler-free
-greenfield: reusable, spin-out-able packages under `pkgs/`; app-specific glue in
-`config.rkt`; CLIs and the HTTP server added on top.
+The first-prototype backend, in Racket, and the first entry under the repo's
+`refimpl/` (reference implementations of the same contracts; others may follow in
+other languages). Layout: reusable, spin-out-able packages under `pkgs/`;
+app-specific glue in `config.rkt`; CLIs and the HTTP server added on top.
 
 ```
-racket/
+refimpl/racketmaximus/
   pkgs/            # app-agnostic, publishable libraries
     cli-kit/       #   JSON-emitting CLI scaffolding (run harness, pretty JSON)
     db-kit/        #   DATABASE_URL → connection + SQL coercers (sqlite today)
@@ -30,7 +31,7 @@ racket/
 Requires Racket 9.x CS (`racket --version`).
 
 ```bash
-# from racket/ — link the local packages so `(require cli-kit)` etc. resolve
+# from refimpl/racketmaximus/ — link local packages so `(require cli-kit)` resolves
 raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
 
 # compile everything
@@ -55,9 +56,9 @@ end-to-end checks without ollama.
 `pkgs/`, `config.rkt`, and the `domain/` engine are original Racket authored by
 the maintainer — no third-party source is copied. The agent-loop / tool-execution
 *patterns* in `domain/agent/loop.rkt` and `domain/tools/convert.rkt` descend from
-opencode (MIT); that design lineage is credited in `../ACKNOWLEDGMENTS.md`, which
-satisfies the MIT attribution requirement. Rationale and the fuller plan live in
-`../../odysseus/TelemachusMigration.md`.
+opencode (MIT); that design lineage is credited in `../../ACKNOWLEDGMENTS.md`,
+which satisfies the MIT attribution requirement. Rationale and the fuller plan
+live in `../../../odysseus/TelemachusMigration.md`.
 
 ## Data layer
 

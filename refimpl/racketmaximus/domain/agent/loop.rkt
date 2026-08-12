@@ -16,7 +16,7 @@
 ;; at the edges. Tool calls arrive as `tool-block`s (from domain/tools/convert).
 ;;
 ;; Provenance: the agent-loop / tool-execution *patterns* here descend from
-;; opencode (MIT). See ../../../ACKNOWLEDGMENTS.md.
+;; opencode (MIT). See ../../../../ACKNOWLEDGMENTS.md.
 
 (require racket/match
          racket/string
