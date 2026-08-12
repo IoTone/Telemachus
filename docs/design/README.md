@@ -1,15 +1,17 @@
 # Telemachus — Platform Design
 
-Design docs for the three interlocking platform subsystems that make Telemachus a
-**team** platform rather than a single-user workspace. These are *proposals with
-data shapes and contracts* for review — concrete enough to build from, with the
-genuine policy forks flagged **Decisions to confirm** in each doc.
+Design docs for the platform subsystems that make Telemachus a **team** platform
+rather than a single-user workspace, plus the **Localization** flagship that
+proves the platform can build real tools. These are *proposals with data shapes
+and contracts* for review — concrete enough to build from, with the genuine policy
+forks flagged **Decisions to confirm** in each doc.
 
 | Doc | Subsystem | One line |
 |---|---|---|
 | [rbac-and-teams.md](rbac-and-teams.md) | **RBAC & Teams** | Who exists, what they may do, whose data is whose. |
 | [quotas.md](quotas.md) | **Quotas** | What is metered per user/team, and the limits. |
 | [ai-queue-and-concurrency.md](ai-queue-and-concurrency.md) | **AI workload scheduler** | Admission, placement & concurrency caps — a workload queue (SLURM/k8s-style), not a message bus; local now, federation-ready. |
+| [localization.md](localization.md) | **Localization** | i18n top-to-bottom + a manager tool (extract → team-complete → CI-gate); English at launch, ja/nl/es-419 built *by the tool*. |
 
 ## How they interlock
 
@@ -24,6 +26,11 @@ genuine policy forks flagged **Decisions to confirm** in each doc.
   *workload* queue (schedules jobs onto resources, SLURM/k8s-style), **not** a
   message queue (0mq/NATS); a message transport may later be the *wire* to remote
   executors, but that is deferred and out of RI scope.
+- **Localization is composed from the other three**, not new infra: the manager is
+  RBAC-gated (who edits which locale), meters AI drafts through **quotas**, runs
+  bulk drafts as **scheduler** jobs, and ships as an **SDK** localization
+  extension. That it needs no new plumbing is the proof — the platform builds a
+  real tool out of its own primitives, and that tool then produces ja/nl/es-419.
 
 ```
 request ─▶ RBAC check ─▶ quota check ─▶ scheduler admission ─▶ executor slot ─▶ model
@@ -58,6 +65,16 @@ single implicit organization (the deployment). Multiple independent orgs sharing
 one instance is treated as a *future additive layer* (`org_id` on `teams`), not
 v1. Confirm this is the right scope, or say if multi-org isolation is required
 now (it changes isolation checks everywhere).
+
+## Follow-up design items (noted, not yet drafted)
+
+- **Documentation generation.** The project needs generated docs (SDK contracts,
+  backend APIs, tool catalog, permission catalog) emitted as **localizable**
+  Markdown that flows into the localization pipeline (§localization → Documentation).
+  Its own design doc is a planned follow-up.
+- **Management-contract & audit.** The uniform per-feature management/activate
+  interface and the shared `audit_log` are referenced by every doc; they may earn a
+  short dedicated spec.
 
 ## Status
 

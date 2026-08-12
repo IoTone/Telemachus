@@ -27,6 +27,11 @@
       abstraction so no SQLite-only assumptions leak in.
 - [ ] **Queuing** of resources to enable workload distribution, enforcement of
       any custom policy  for system use
+- [ ] **Localization (i18n), top to bottom** — every user-facing surface
+      localizable; English at launch; then Japanese, Dutch, Latin American Spanish
+      produced *by the localization tool*. (Design: `design/localization.md`.)
+- [ ] **Documentation** — generated, localizable project docs (SDK contracts,
+      APIs, tool & permission catalogs).
 
 
 ## Generic applications (to specify)
@@ -35,6 +40,9 @@
 - [ ] **Document translation**
 - [ ] **Document Search**
 - [ ] **Knowledge Graph**
+- [ ] **Localization Manager** — extract unlocalized strings, team-managed
+      translation completion, AI-assisted drafts, CI gate on commits. Flagship
+      that proves the platform can build tools. (Design: `design/localization.md`.)
 
 ## Out of scope / non-goals (to specify)
 - [ ] (e.g., open-core tiers — explicitly a non-goal.)
