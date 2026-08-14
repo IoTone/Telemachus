@@ -147,7 +147,16 @@ refimpl/racketmaximus/
   behind producing our ja/nl/es-419 files. UI: a **Translate** tab (source → target,
   glossary editor, recent).
 
-62 unit tests pass + a 40-assertion server integration test
+- **Executor federation (slice 18)** — the pluggable compute seam (`domain/exec/federation.rkt`).
+  The reference impl runs on one local node, but you can register additional **named
+  executors** — extra OpenAI-compatible backends (a second GPU box, a remote inference
+  node, an HPC gateway) — in `executors.json` (`TELEMACHUS_EXECUTORS`). `run-chat` routes
+  to a named backend via `#:executor`; `POST /api/ai/chat {…, "executor":"gpu-node"}` picks
+  one (operator-gated — routing to specific compute is an `instance:manage` decision).
+  `GET /api/executors` lists local + federated; the Admin tab shows a Compute table.
+  Standing up real remote/HPC compute plugs in behind this seam without touching call sites.
+
+64 unit tests pass + a 42-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

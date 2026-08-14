@@ -14,7 +14,8 @@
 ;; the per-team concurrency cap exactly like the simulated job did.
 
 (require racket/string
-         "../agent/llm.rkt")            ; http-post-json
+         "../agent/llm.rkt"             ; http-post-json
+         "../exec/federation.rkt")      ; executor-config — route to a named backend
 
 (provide model-configured? model-info run-chat run-chat-stream parse-chat-response estimate-tokens
          model-url model-name model-key)
@@ -44,32 +45,40 @@
   (define t (hash-ref (hash-ref resp 'usage (hasheq)) 'total_tokens #f))
   (values reply (and (number? t) t)))
 
-(define (headers)
+(define (headers* key)
   (append (list "Content-Type: application/json")
-          (if (model-key) (list (string-append "Authorization: Bearer " (model-key))) '())))
+          (if key (list (string-append "Authorization: Bearer " key)) '())))
 
-;; run-chat : string -> (values reply-text tokens-used)
-(define (run-chat prompt #:system [system #f] #:temperature [temp 0.7])
+;; resolve a backend: a named federated executor, else the env-configured local.
+;; -> (values url model key configured?)
+(define (backend name)
   (cond
-    [(not (model-configured?))
+    [(and name (executor-config name)) => (lambda (c) (values (car c) (cadr c) (caddr c) #t))]
+    [else (values (model-url) (model-name) (model-key) (model-configured?))]))
+
+;; run-chat : string -> (values reply-text tokens-used).  #:executor routes to a
+;; named federated backend; #f uses the local node.
+(define (run-chat prompt #:system [system #f] #:temperature [temp 0.7] #:executor [executor #f])
+  (define-values (url mdl key conf?) (backend executor))
+  (cond
+    [(not conf?)
      (values (string-upcase prompt) (estimate-tokens prompt))]     ; simulated fallback
     [else
      (define msgs
        (append (if system (list (hasheq 'role "system" 'content system)) '())
                (list (hasheq 'role "user" 'content prompt))))
      (define-values (code resp)
-       (http-post-json (model-url)
-                       (hasheq 'model (model-name) 'messages msgs 'temperature temp 'stream #f)
-                       (headers)))
+       (http-post-json url (hasheq 'model mdl 'messages msgs 'temperature temp 'stream #f) (headers* key)))
      (unless (= code 200) (error 'run-chat "model endpoint returned HTTP ~a" code))
      (define-values (reply tokens) (parse-chat-response resp))
      (values reply (or tokens (estimate-tokens prompt reply)))]))
 
 ;; run-chat-stream : string × (string -> void) -> tokens-used
 ;; calls `on-token` with each chunk as it arrives; returns the token estimate.
-(define (run-chat-stream prompt on-token #:system [system #f] #:temperature [temp 0.7])
+(define (run-chat-stream prompt on-token #:system [system #f] #:temperature [temp 0.7] #:executor [executor #f])
+  (define-values (url mdl key conf?) (backend executor))
   (cond
-    [(not (model-configured?))
+    [(not conf?)
      (define reply (string-upcase prompt))                     ; simulated: stream word by word
      (for ([w (in-list (string-split reply))]) (on-token (string-append w " ")) (sleep 0.06))
      (estimate-tokens prompt)]
@@ -79,6 +88,6 @@
      (define msgs
        (append (if system (list (hasheq 'role "system" 'content system)) '())
                (list (hasheq 'role "user" 'content prompt))))
-     ((openai-llm-stream #:endpoint (model-url) #:model (model-name) #:api-key (model-key)
+     ((openai-llm-stream #:endpoint url #:model mdl #:api-key key
                          #:temperature temp #:on-content tap) msgs)
      (estimate-tokens prompt (get-output-string acc))]))

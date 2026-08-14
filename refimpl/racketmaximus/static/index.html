@@ -274,7 +274,16 @@ async function doToggleTool(name,enabled){ const r=await api('/api/tools/'+name,
 async function adminView(){
   const r=await api('/api/admin/status');
   const body = r.ok ? `<div class="row"><div class="card"><label>users</label><h2>${r.json.users}</h2></div><div class="card"><label>teams</label><h2>${r.json.teams}</h2></div></div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
-  return `<h2>${t('admin')}</h2>${body}`;
+  const xr=await api('/api/executors');
+  let compute='';
+  if(xr.ok){
+    const loc=xr.json.local, rem=xr.json.executors||[];
+    const rows=[`<tr><td><span class="badge ok">local</span></td><td class="mono">${esc(loc.model)}</td><td class="mono muted">${loc.configured?'configured':'fallback'}</td></tr>`]
+      .concat(rem.map(e=>`<tr><td><span class="badge">🛰️ ${esc(e.name)}</span></td><td class="mono">${esc(e.model)}</td><td class="mono muted">${esc(e.url)}</td></tr>`)).join('');
+    compute=`<div class="card" style="margin-top:14px"><h3>Compute <span class="muted" style="font-size:13px">— federated executors</span></h3>
+      <table><thead><tr><th>executor</th><th>model</th><th>endpoint</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  return `<h2>${t('admin')}</h2>${body}${compute}`;
 }
 
 // ---------- render ----------

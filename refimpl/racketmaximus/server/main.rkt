@@ -35,6 +35,7 @@
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
          "../domain/ai/executor.rkt"
+         "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/agent/run.rkt"
          "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
          "../domain/agent/plugins.rkt"            ; load-plugins!, loaded-plugins
@@ -311,29 +312,47 @@
                                   'concurrent inflight
                                   'remaining_tokens (hash-ref after 'remaining)))))]))))
 
+;; federated executor selection: 'executor in the body picks a named backend;
+;; #f (absent / "" / "local") means the local node.
+(define (pick-executor b)
+  (define e (hash-ref b 'executor #f))
+  (and e (let ([n (format "~a" e)]) (and (not (member n '("" "local"))) n))))
+(define (executor-model ex)
+  (if ex (let ([c (executor-config ex)]) (if c (cadr c) ex)) (hash-ref (model-info) 'model)))
+
+(define (ep-executors req)
+  (with-auth req (lambda (p)
+    (json-response (hasheq 'local (hasheq 'name "local" 'model (hash-ref (model-info) 'model)
+                                          'configured (model-configured?) 'remote #f)
+                           'executors (list-executors))))))
+
 ;; real model call (falls back to simulated when no model is configured)
 (define (ep-ai-chat req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
+    (define ex (pick-executor b))
+    (when ex (require-perm db-conn p "instance:manage"))          ; routing to specific compute = operator
     (define est (estimate-tokens prompt))
     (define sid (principal-team-id p))
     (define rq (quota-check db-conn "team" sid "ai.requests" 1))
     (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
     (cond
+      [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
       [else
        (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
        (with-slot GOV (string-append "team:" sid) (or climit 2)
          (lambda (inflight)
-           (define-values (reply tokens) (run-chat prompt))          ; real model or fallback
+           (define-values (reply tokens) (run-chat prompt #:executor ex))   ; local or federated
            (quota-record! db-conn "team" sid "ai.requests" 1)
            (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
            (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
            (json-response (hasheq 'reply reply 'tokens_used tokens
-                                  'model (hash-ref (model-info) 'model)
+                                  'model (executor-model ex)
+                                  'executor (or ex "local")
                                   'concurrent inflight
                                   'remaining_tokens (hash-ref after 'remaining)))))]))))
 
@@ -346,11 +365,14 @@
     (require-perm db-conn p "chat:use")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
+    (define ex (pick-executor b))
+    (when ex (require-perm db-conn p "instance:manage"))
     (define est (estimate-tokens prompt))
     (define sid (principal-team-id p))
     (define rq (quota-check db-conn "team" sid "ai.requests" 1))
     (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
     (cond
+      [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
       [else
@@ -359,12 +381,13 @@
         (lambda (emit)
           (with-slot GOV (string-append "team:" sid) (or climit 2)
             (lambda (inflight)
-              (define tokens (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok)))))
+              (define tokens (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok))) #:executor ex))
               (quota-record! db-conn "team" sid "ai.requests" 1)
               (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
               (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
               (emit (hasheq 'done #t 'tokens_used tokens
-                            'model (hash-ref (model-info) 'model)
+                            'model (executor-model ex)
+                            'executor (or ex "local")
                             'remaining_tokens (hash-ref after 'remaining)))))))]))))
 
 ;; agent mode: the model uses tools (RBAC-checked per tool) to operate the platform.
@@ -548,6 +571,7 @@
     [(and (POST? m) (equal? segs '("api" "glossary")))     (ep-glossary-add req)]
     [(and (GET? m)  (equal? segs '("api" "glossary")))     (ep-glossary-list req)]
     [(and (GET? m)  (equal? segs '("api" "ai" "model")))   (ep-ai-model req)]
+    [(and (GET? m)  (equal? segs '("api" "executors")))    (ep-executors req)]
     [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
     [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]
     [(and (GET? m)  (equal? segs '("api" "tools")))        (ep-tools-list req)]
@@ -575,6 +599,9 @@
   (define oop-config (let ([e (env* "TELEMACHUS_OOP")]) (if e (string->path e) (build-path impl-root "oop.json"))))
   (define oops (connect-oop-plugins! oop-config #:log (lambda (s) (printf "  oop: ~a\n" s))))
   (when (pair? oops) (printf "connected ~a sandboxed plugin(s)\n" (length oops)))
+  (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
+  (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
+  (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
   (define tls? (tls-on?))
   (define ip (bind-ip))
   (when tls? (ensure-cert!))
