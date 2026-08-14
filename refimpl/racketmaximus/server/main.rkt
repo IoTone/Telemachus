@@ -36,6 +36,7 @@
          "../domain/ai/executor.rkt"
          "../domain/agent/run.rkt"
          "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
+         "../domain/agent/plugins.rkt"            ; load-plugins!, loaded-plugins
          "../domain/i18n/i18n.rkt"
          "../surface/messages.rkt")
 
@@ -402,6 +403,9 @@
   (with-auth req (lambda (p)
     (json-response (hasheq 'tools (tool-settings-for db-conn (principal-team-id p)))))))
 
+(define (ep-plugins req)
+  (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins))))))
+
 (define (ep-tool-toggle req name)
   (with-auth req (lambda (p)
     (require-perm db-conn p "settings:manage")
@@ -466,6 +470,7 @@
     [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
     [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]
     [(and (GET? m)  (equal? segs '("api" "tools")))        (ep-tools-list req)]
+    [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
     [(and (POST? m) (tool-path segs))                      (ep-tool-toggle req (tool-path segs))]
     [else (err "not found" 404)]))
 
@@ -478,6 +483,9 @@
 
 (module+ main
   (init-db!)
+  (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
+  (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
+  (when (pair? plugins) (printf "loaded ~a plugin(s) from ~a\n" (length plugins) plugins-dir))
   (define tls? (tls-on?))
   (define ip (bind-ip))
   (when tls? (ensure-cert!))

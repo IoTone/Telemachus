@@ -1,0 +1,7 @@
+{
+  "id": "example-tools",
+  "name": "Example Tools",
+  "version": "0.1.0",
+  "description": "A sample third-party plugin: adds a word_count tool.",
+  "entry": "main.rkt"
+}

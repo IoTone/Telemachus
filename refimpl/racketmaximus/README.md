@@ -108,9 +108,31 @@ refimpl/racketmaximus/
   `GET /api/tools` + `POST /api/tools/:name` (settings:manage) and a Tools card in
   the Usage tab. Built-ins: `create_note`, `update_note`, `list_notes`, `get_usage`.
 
-52 unit tests pass + a 29-assertion server integration test
+- **Third-party plugins (slice 13)** — tools can live **out-of-tree** and load at
+  startup from a `plugins/` directory (`domain/agent/plugins.rkt`, `TELEMACHUS_PLUGINS`
+  to override). A plugin is a folder with `plugin.json` + a Racket module that
+  `(provide tools)` — `(list (list name schema permission handler) …)`. They register
+  through the same registry, so they get RBAC + per-team activation, tagged with the
+  plugin id as `source`. `GET /api/plugins` lists them; the Tools card shows a 🔌
+  source badge. Ships an `example-tools` plugin (`word_count`).
+
+53 unit tests pass + a 31-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
+
+### Writing a plugin
+
+```
+plugins/my-plugin/plugin.json    {"id":"my-plugin","name":"…","version":"0.1.0","entry":"main.rkt"}
+plugins/my-plugin/main.rkt       #lang racket/base
+                                 (provide tools)   ; (list (list name schema-jsexpr permission handler) …)
+                                 ; handler : (conn principal args) -> string
+```
+
+Drop the folder in `plugins/`, restart — the tool appears in `/api/tools`, is
+RBAC-checked, activatable per team, and usable by the agent. (In-process plugins
+run with platform trust; installing one is the consent. Sandboxed out-of-process
+plugins are future hardening.)
 
 Point at a real model (chat answers come from it, metered + governed):
 

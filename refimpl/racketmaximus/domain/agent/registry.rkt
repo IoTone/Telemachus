@@ -18,14 +18,15 @@
          tool-enabled? set-tool-enabled!
          enabled-tools enabled-tool-schemas tool-settings-for)
 
-(struct tool (name schema perm handler) #:transparent)
+(struct tool (name schema perm handler source) #:transparent)
 
 (define *registry* (box '()))
 
-;; register (or replace) a tool by name; preserves declaration order
-(define (register-tool! name schema perm handler)
+;; register (or replace) a tool by name; preserves declaration order.
+;; `source` is "built-in" for core tools, or a plugin id for loaded plugins.
+(define (register-tool! name schema perm handler #:source [source "built-in"])
   (define without (filter (lambda (t) (not (string=? (tool-name t) name))) (unbox *registry*)))
-  (set-box! *registry* (append without (list (tool name schema perm handler)))))
+  (set-box! *registry* (append without (list (tool name schema perm handler source)))))
 
 (define (all-tools) (unbox *registry*))
 (define (tool-by-name name) (findf (lambda (t) (string=? (tool-name t) name)) (all-tools)))
@@ -51,5 +52,5 @@
 ;; for the management UI: every tool with its permission + current enabled state
 (define (tool-settings-for conn team-id)
   (for/list ([t (in-list (all-tools))])
-    (hasheq 'name (tool-name t) 'permission (tool-perm t)
+    (hasheq 'name (tool-name t) 'permission (tool-perm t) 'source (tool-source t)
             'enabled (tool-enabled? conn team-id (tool-name t)))))
