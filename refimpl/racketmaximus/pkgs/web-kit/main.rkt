@@ -30,10 +30,12 @@
 (define (request-path req)
   (map path/param-path (url-path (request-uri req))))
 
-;; Route every request to `handler`; don't pop a browser.
-(define (serve handler #:port [port 8099] #:listen-ip [ip "127.0.0.1"])
-  (serve/servlet handler
-                 #:servlet-regexp #rx""
-                 #:port port
-                 #:listen-ip ip
-                 #:command-line? #t))
+;; Route every request to `handler`; don't pop a browser. Pass both ssl-cert and
+;; ssl-key (PEM paths) to serve over HTTPS.
+(define (serve handler #:port [port 8099] #:listen-ip [ip "127.0.0.1"]
+               #:ssl-cert [ssl-cert #f] #:ssl-key [ssl-key #f])
+  (if (and ssl-cert ssl-key)
+      (serve/servlet handler #:servlet-regexp #rx"" #:port port #:listen-ip ip
+                     #:command-line? #t #:ssl-cert ssl-cert #:ssl-key ssl-key)
+      (serve/servlet handler #:servlet-regexp #rx"" #:port port #:listen-ip ip
+                     #:command-line? #t)))

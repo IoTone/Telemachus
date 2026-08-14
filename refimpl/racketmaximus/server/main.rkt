@@ -19,6 +19,8 @@
 
 (require racket/string
          racket/file
+         racket/system
+         racket/port
          db
          web-server/http
          json
@@ -27,6 +29,7 @@
          "../config.rkt"
          "../domain/db/migrations.rkt"
          "../domain/authz/authz.rkt"
+         "../domain/authz/passwords.rkt"          ; kdf-name
          "../domain/notes/notes.rkt"
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
@@ -46,6 +49,22 @@
   (define dir (let-values ([(base name dir?) (split-path db-path)]) base))
   (when (path? dir) (make-directory* dir))
   (migrate! db-conn all-migrations))
+
+;; ---- TLS --------------------------------------------------------------------
+(define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
+(define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
+(define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
+(define (tls-key)  (or (env* "TELEMACHUS_TLS_KEY")  (path->string (build-path (data-dir) "key.pem"))))
+(define (ensure-cert!)
+  (unless (and (file-exists? (tls-cert)) (file-exists? (tls-key)))
+    (make-directory* (data-dir))
+    (define ok (parameterize ([current-output-port (open-output-nowhere)]
+                              [current-error-port (open-output-nowhere)])
+                 (system* (find-executable-path "openssl")
+                          "req" "-x509" "-newkey" "rsa:2048" "-nodes"
+                          "-keyout" (tls-key) "-out" (tls-cert)
+                          "-days" "365" "-subj" "/CN=localhost")))
+    (unless ok (error 'tls "openssl certificate generation failed"))))
 
 ;; ---- request helpers --------------------------------------------------------
 (define (req-header req name-bytes)
@@ -109,7 +128,8 @@
 
 ;; ---- endpoints --------------------------------------------------------------
 (define (ep-health)
-  (json-response (hasheq 'ok #t 'service "telemachus" 'version app-version)))
+  (json-response (hasheq 'ok #t 'service "telemachus" 'version app-version
+                         'tls (tls-on?) 'kdf (kdf-name))))
 
 (define (ep-bootstrap req)
   (define body (read-json-body req))
@@ -401,6 +421,11 @@
 
 (module+ main
   (init-db!)
-  (printf "telemachus server on http://127.0.0.1:8080  (db: ~a)\n" db-path)
+  (define tls? (tls-on?))
+  (when tls? (ensure-cert!))
+  (printf "telemachus server on ~a://127.0.0.1:8080  (db: ~a · kdf: ~a · tls: ~a)\n"
+          (if tls? "https" "http") db-path (kdf-name) (if tls? "on" "off"))
   (flush-output)
-  (serve handle #:port 8080))
+  (if tls?
+      (serve handle #:port 8080 #:ssl-cert (tls-cert) #:ssl-key (tls-key))
+      (serve handle #:port 8080)))

@@ -87,6 +87,11 @@ refimpl/racketmaximus/
 - **Streaming chat (slice 9)** — `POST /api/ai/chat/stream` streams tokens as
   Server-Sent Events (still through RBAC → quota → governor, metered at the end);
   the UI renders them live token-by-token.
+- **Hardening (slice 10)** — **TLS**: `TELEMACHUS_TLS=1` serves HTTPS, auto-
+  generating a self-signed cert (openssl) on first run. **KDF**: password hashing
+  is a versioned, prefix-dispatched provider — **argon2id** auto-engages when the
+  `crypto` package is installed (self-tested at load), else hardened **PBKDF2**
+  (100k iters). `GET /health` reports `{tls, kdf}`.
 
 49 unit tests pass + a 23-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
@@ -97,6 +102,13 @@ Point at a real model (chat answers come from it, metered + governed):
 ```bash
 TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions \
 TELEMACHUS_MODEL=qwen2.5:7b  racket server/main.rkt
+```
+
+Serve over HTTPS (self-signed cert auto-generated in `data/`); install argon2id:
+
+```bash
+TELEMACHUS_TLS=1 racket server/main.rkt          # https://localhost:8080
+raco pkg install crypto                          # → password hashing auto-upgrades to argon2id
 ```
 
 ### Localization CLI
