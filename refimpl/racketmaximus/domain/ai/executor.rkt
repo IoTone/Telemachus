@@ -16,7 +16,8 @@
 (require racket/string
          "../agent/llm.rkt")            ; http-post-json
 
-(provide model-configured? model-info run-chat run-chat-stream parse-chat-response estimate-tokens)
+(provide model-configured? model-info run-chat run-chat-stream parse-chat-response estimate-tokens
+         model-url model-name model-key)
 
 (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 (define (model-url)  (env "TELEMACHUS_MODEL_URL"))

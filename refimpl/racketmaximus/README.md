@@ -93,7 +93,14 @@ refimpl/racketmaximus/
   `crypto` package is installed (self-tested at load), else hardened **PBKDF2**
   (100k iters). `GET /health` reports `{tls, kdf}`.
 
-49 unit tests pass + a 23-assertion server integration test
+- **Agent mode (slice 11)** — `POST /api/agent` (SSE): the model uses **tools**
+  to operate the platform (`create_note`, `list_notes`, `get_usage` to start),
+  each **RBAC-checked at dispatch** and quota-metered, run through the pure
+  `run-agent` spine. Streams the thinking, each tool call + result, and the final
+  answer. This is the seed of the plugin SDK: a new tool = a `define-tool` schema
+  + a permission + a handler. `domain/agent/{tools,run}.rkt`.
+
+51 unit tests pass + a 27-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

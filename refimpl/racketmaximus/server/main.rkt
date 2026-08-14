@@ -34,6 +34,7 @@
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
          "../domain/ai/executor.rkt"
+         "../domain/agent/run.rkt"
          "../domain/i18n/i18n.rkt"
          "../surface/messages.rkt")
 
@@ -361,6 +362,30 @@
                             'model (hash-ref (model-info) 'model)
                             'remaining_tokens (hash-ref after 'remaining)))))))]))))
 
+;; agent mode: the model uses tools (RBAC-checked per tool) to operate the platform.
+(define (ep-agent req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "chat:use")
+    (cond
+      [(not (agent-configured?))
+       (err "agent mode requires a configured model (set TELEMACHUS_MODEL_URL)" 503)]
+      [else
+       (define b (read-json-body req))
+       (define prompt (hash-ref b 'prompt ""))
+       (define sid (principal-team-id p))
+       (define rq (quota-check db-conn "team" sid "ai.requests" 1))
+       (cond
+         [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
+         [else
+          (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
+          (sse-response
+           (lambda (emit)
+             (with-slot GOV (string-append "team:" sid) (or climit 2)
+               (lambda (inflight)
+                 (run-agent-flow db-conn p prompt (lambda (ev) (emit ev)))
+                 (quota-record! db-conn "team" sid "ai.requests" 1)
+                 (quota-record! db-conn "team" sid "ai.tokens.total" (max (estimate-tokens prompt) 50))))))])]))))
+
 (define (ep-usage req)
   (with-auth req (lambda (p)
     (define sid (principal-team-id p))
@@ -420,6 +445,7 @@
     [(and (POST? m) (equal? segs '("api" "ai" "echo")))    (ep-ai-echo req)]
     [(and (POST? m) (equal? segs '("api" "ai" "chat")))    (ep-ai-chat req)]
     [(and (POST? m) (equal? segs '("api" "ai" "chat" "stream"))) (ep-ai-chat-stream req)]
+    [(and (POST? m) (equal? segs '("api" "agent")))        (ep-agent req)]
     [(and (GET? m)  (equal? segs '("api" "ai" "model")))   (ep-ai-model req)]
     [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
     [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]

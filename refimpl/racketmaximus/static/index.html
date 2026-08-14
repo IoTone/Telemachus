@@ -49,13 +49,13 @@
 <script>
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null };
 const L = {
-  en:{tagline:'Team AI platform — reference implementation',chat:'Chat',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
+  en:{tagline:'Team AI platform — reference implementation',chat:'Chat',agent:'Agent',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
       createop:'Create operator',send:'Send',prompt:'Prompt',reply:'Reply',newnote:'New note',title:'Title',body:'Body',
       visibility:'Visibility',create:'Create',share:'Share',del:'Delete',members:'Members',addmember:'Add member',role:'Role',
       setquota:'Set limit',dimension:'Dimension',limit:'Limit',logout:'Sign out',operator:'operator',model:'Model',
       chpw:'Change your password',curpw:'Current password',newpw:'New password',updpw:'Update password'},
-  ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
+  ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
       visibility:'公開範囲',create:'作成',share:'共有',del:'削除',members:'メンバー',addmember:'メンバー追加',role:'ロール',
@@ -116,7 +116,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
+  const tabs=['chat','agent','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
       <span class="sp"></span>
@@ -158,6 +158,31 @@ async function doChat(){
     } }
 }
 
+async function agentView(){
+  return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
+    <div class="card"><label>${t('prompt')}</label>
+      <textarea id="ap" rows="3">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
+      <button class="btn" onclick="doAgent()">${t('send')}</button></div><div id="agentlog"></div>`;
+}
+async function doAgent(){
+  const prompt=val('ap'); const log=document.getElementById('agentlog'); const id='g'+Date.now();
+  log.insertAdjacentHTML('afterbegin', `<div class="bubble" id="${id}"><div class="q">${esc(prompt)}</div><div class="steps"></div><div class="rep" style="margin-top:6px"></div></div>`);
+  const steps=document.querySelector('#'+id+' .steps'), rep=document.querySelector('#'+id+' .rep');
+  const headers={'X-Telemachus-Locale':S.lang,'Content-Type':'application/json'}; if(S.token) headers['Authorization']='Bearer '+S.token;
+  let res; try{ res=await fetch('/api/agent',{method:'POST',headers,body:JSON.stringify({prompt})}); }
+  catch(e){ toast('network error'); document.getElementById(id).remove(); return; }
+  if(!res.ok){ let j={}; try{j=await res.json()}catch(e){} toast((j.error||'error')+(j.dimension?` (${j.dimension})`:'')); document.getElementById(id).remove(); return; }
+  const reader=res.body.getReader(), dec=new TextDecoder(); let buf='';
+  for(;;){ const {value,done}=await reader.read(); if(done) break; buf+=dec.decode(value,{stream:true});
+    let i; while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
+      if(!line.startsWith('data:')) continue; let ev={}; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+      if(ev.type==='assistant' && ev.text) steps.insertAdjacentHTML('beforeend', `<div class="muted" style="margin:3px 0">💭 ${esc(ev.text)}</div>`);
+      if(ev.type==='tool') steps.insertAdjacentHTML('beforeend', `<div style="margin:3px 0">🔧 <b>${esc(ev.name)}</b> <span class="mono muted">${esc(JSON.stringify(ev.args))}</span></div>`);
+      if(ev.type==='tool_result') steps.insertAdjacentHTML('beforeend', `<div class="mono" style="margin:0 0 6px 20px;color:var(--ok);white-space:pre-wrap">${esc(ev.result)}</div>`);
+      if(ev.type==='done') rep.innerHTML = `<div>${esc(ev.reply)}</div><div class="muted" style="font-size:12px;margin-top:4px">${ev.rounds} rounds</div>`;
+      if(ev.error) toast(ev.error);
+    } }
+}
 async function notesView(){
   const r=await api('/api/notes'); const notes=r.ok?r.json.notes:[];
   const mem=await api('/api/members'); const members=mem.ok?mem.json.members:[];
@@ -233,13 +258,13 @@ async function adminView(){
 async function refreshMe(){ if(!S.token){S.me=null;return;} const r=await api('/api/whoami');
   if(r.ok) S.me=r.json; else { S.token=null; localStorage.removeItem('tmx_token'); S.me=null; } }
 async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
-  el.innerHTML = await ({chat:chatView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+  el.innerHTML = await ({chat:chatView,agent:agentView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
 async function render(){ await refreshMe();
   const app=document.getElementById('app');
   if(!S.me){ app.innerHTML=authView(); return; }
   app.innerHTML=appShell(); renderTab(); }
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
-window.doChat=doChat; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
+window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw;
 render();
 </script>
