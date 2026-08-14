@@ -38,6 +38,7 @@
          "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
          "../domain/agent/plugins.rkt"            ; load-plugins!, loaded-plugins
          "../domain/mcp/connect.rkt"              ; connect-mcp-servers!, mcp-servers
+         "../domain/oop/host.rkt"                 ; connect-oop-plugins!, loaded-oop-plugins
          "../domain/i18n/i18n.rkt"
          "../surface/messages.rkt")
 
@@ -410,6 +411,10 @@
 (define (ep-mcp req)
   (with-auth req (lambda (p) (json-response (hasheq 'servers (mcp-servers))))))
 
+(define (ep-oop req)
+  (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-oop-plugins)
+                                                    'capabilities (capability-names))))))
+
 (define (ep-tool-toggle req name)
   (with-auth req (lambda (p)
     (require-perm db-conn p "settings:manage")
@@ -476,6 +481,7 @@
     [(and (GET? m)  (equal? segs '("api" "tools")))        (ep-tools-list req)]
     [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
     [(and (GET? m)  (equal? segs '("api" "mcp")))          (ep-mcp req)]
+    [(and (GET? m)  (equal? segs '("api" "oop")))          (ep-oop req)]
     [(and (POST? m) (tool-path segs))                      (ep-tool-toggle req (tool-path segs))]
     [else (err "not found" 404)]))
 
@@ -494,6 +500,9 @@
   (define mcp-config (let ([e (env* "TELEMACHUS_MCP")]) (if e (string->path e) (build-path impl-root "mcp.json"))))
   (define mcps (connect-mcp-servers! mcp-config #:log (lambda (s) (printf "  mcp: ~a\n" s))))
   (when (pair? mcps) (printf "connected ~a MCP server(s)\n" (length mcps)))
+  (define oop-config (let ([e (env* "TELEMACHUS_OOP")]) (if e (string->path e) (build-path impl-root "oop.json"))))
+  (define oops (connect-oop-plugins! oop-config #:log (lambda (s) (printf "  oop: ~a\n" s))))
+  (when (pair? oops) (printf "connected ~a sandboxed plugin(s)\n" (length oops)))
   (define tls? (tls-on?))
   (define ip (bind-ip))
   (when tls? (ensure-cert!))

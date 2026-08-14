@@ -126,7 +126,18 @@ refimpl/racketmaximus/
   (`test/mock-mcp{,-http}.rkt`); the stdio one is wired by default so the agent can
   call `mcp__mock__add`.
 
-56 unit tests pass + a 33-assertion server integration test
+- **Sandboxed out-of-process plugins (slice 16)** — untrusted plugins run as
+  **subprocesses with no database handle** (`domain/oop/host.rkt`). A plugin declares
+  its tools and the capability **scopes** it needs; to touch the platform it asks the
+  host over the pipe, and the host runs the request through a small **capability API**
+  that is **double-gated**: the plugin must have declared the scope **and** the calling
+  user must hold the matching RBAC permission (`notes.create` → `notes:write`, etc.).
+  Configure in `oop.json` (`TELEMACHUS_OOP` overrides); `GET /api/oop` lists plugins +
+  their declared scopes (visible consent); the Tools card shows a 🛡️ badge. Ships a
+  `notes-helper` plugin that saves an idea **only** via the mediated `notes.create`
+  capability — it never sees the DB.
+
+58 unit tests pass + a 36-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 
