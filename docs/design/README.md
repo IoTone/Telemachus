@@ -76,6 +76,11 @@ now (it changes isolation checks everywhere).
   interface and the shared `audit_log` are referenced by every doc; they may earn a
   short dedicated spec.
 
+## Kickoff decisions
+
+All the choices needed to start building — with recommendations and a decision log
+— are compiled in **[decisions.md](decisions.md)**.
+
 ## Status
 
 Proposals, pending your review. Nothing here is built yet; the Racket engine
