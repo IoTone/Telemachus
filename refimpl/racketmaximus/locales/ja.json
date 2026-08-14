@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "fallback": "en",
+    "locale": "ja"
+  },
+  "messages": {
+    "greeting.hello": {
+      "text": "こんにちは、{name}さん！",
+      "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
+    },
+    "authz.bootstrap_done": {
+      "text": "",
+      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "authz.forbidden": {
+      "text": "禁止されています: {perm}",
+      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "notes.saved": {
+      "text": "",
+      "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
+    },
+    "inbox.summary": {
+      "text": "",
+      "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
+    }
+  }
+}

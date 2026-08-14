@@ -21,10 +21,14 @@ refimpl/racketmaximus/
       prompt-security.rkt  # untrusted-context wrapper
     db/            #   ids (UUIDv4) + schema migrations
     authz/         #   RBAC: permission catalog + AuthzService
+    i18n/          #   Localizer (ICU MessageFormat), catalogs, lint/extract
+  surface/         # user-facing strings, localized via `t` — the l10n surface
+  locales/         # message catalogs: en.json (base) + ja.json …
+  cli/
+    telemachus-localize.rkt  # extract / sync-locale / check / report (CI gate)
   config.rkt       # the only app-branded shared module (paths, version, app db)
   info.rkt         # the `telemachus` app collection
   test/            # rackunit suites + scripted mock-LLM server
-  cli/             # (planned) telemachus-* command-line tools
   server/          # (planned) the HTTP surface
 ```
 
@@ -38,8 +42,36 @@ refimpl/racketmaximus/
   operator tier (`instance:*` operator-only), `can?`/`require-perm`, resource
   grants (sharing), API tokens capped by *issuer-perms ∩ scopes*, and an audit log.
   See `docs/design/rbac-and-teams.md`.
+- **Localization (slice 2)** — a `Localizer` (`t`/`no-i18n`) with an ICU
+  MessageFormat subset (interpolation, plurals, select) and locale fallback
+  (`es-419 → es → en`); JSON catalogs with source-hash staleness; a reader-based
+  linter that flags unlocalized literals; and the `telemachus-localize` CLI
+  (`extract`/`sync-locale`/`check`/`report`) that gates commits. English is the
+  externalized baseline; `ja`/`nl`/`es-419` are produced by the tool. See
+  `docs/design/localization.md`.
 
-29 tests pass (21 engine + 8 RBAC/persistence).
+35 tests pass (21 engine + 8 RBAC + 6 localization).
+
+### Localization CLI
+
+```bash
+# build the English base catalog from the surface modules
+racket cli/telemachus-localize.rkt extract surface --locales locales
+# scaffold a target locale (all strings empty), then translators fill them
+racket cli/telemachus-localize.rkt sync-locale ja surface --locales locales
+# coverage per locale
+racket cli/telemachus-localize.rkt report surface --locales locales
+# CI gate — fails (exit 1) on unlocalized literals; --required makes a locale blocking
+racket cli/telemachus-localize.rkt check surface --locales locales
+```
+
+Wire `check` as a git pre-commit hook or CI step:
+
+```bash
+# .git/hooks/pre-commit
+exec racket refimpl/racketmaximus/cli/telemachus-localize.rkt \
+     check refimpl/racketmaximus/surface --locales refimpl/racketmaximus/locales
+```
 
 ## Dev setup
 

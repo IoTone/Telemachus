@@ -1,0 +1,27 @@
+{
+  "meta": {
+    "locale": "en"
+  },
+  "messages": {
+    "greeting.hello": {
+      "text": "Hello, {name}!",
+      "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
+    },
+    "authz.bootstrap_done": {
+      "text": "Created operator {user} and team {team}.",
+      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "authz.forbidden": {
+      "text": "Forbidden: {perm}",
+      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "notes.saved": {
+      "text": "Note saved.",
+      "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
+    },
+    "inbox.summary": {
+      "text": "You have {count, plural, one {# new message} other {# new messages}}.",
+      "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
+    }
+  }
+}
