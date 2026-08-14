@@ -30,6 +30,7 @@
          "../domain/notes/notes.rkt"
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
+         "../domain/ai/executor.rkt"
          "../domain/i18n/i18n.rkt"
          "../surface/messages.rkt")
 
@@ -240,6 +241,35 @@
                                   'concurrent inflight
                                   'remaining_tokens (hash-ref after 'remaining)))))]))))
 
+;; real model call (falls back to simulated when no model is configured)
+(define (ep-ai-chat req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "chat:use")
+    (define b (read-json-body req))
+    (define prompt (hash-ref b 'prompt ""))
+    (define est (estimate-tokens prompt))
+    (define sid (principal-team-id p))
+    (define rq (quota-check db-conn "team" sid "ai.requests" 1))
+    (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
+    (cond
+      [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
+      [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
+      [else
+       (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
+       (with-slot GOV (string-append "team:" sid) (or climit 2)
+         (lambda (inflight)
+           (define-values (reply tokens) (run-chat prompt))          ; real model or fallback
+           (quota-record! db-conn "team" sid "ai.requests" 1)
+           (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
+           (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
+           (json-response (hasheq 'reply reply 'tokens_used tokens
+                                  'model (hash-ref (model-info) 'model)
+                                  'concurrent inflight
+                                  'remaining_tokens (hash-ref after 'remaining)))))]))))
+
+(define (ep-ai-model req)
+  (with-auth req (lambda (p) (json-response (model-info)))))
+
 (define (ep-usage req)
   (with-auth req (lambda (p)
     (define sid (principal-team-id p))
@@ -293,6 +323,8 @@
     [(and (PUT? m)    (note-id segs))                      (ep-notes-update req (note-id segs))]
     [(and (DELETE? m) (note-id segs))                      (ep-notes-delete req (note-id segs))]
     [(and (POST? m) (equal? segs '("api" "ai" "echo")))    (ep-ai-echo req)]
+    [(and (POST? m) (equal? segs '("api" "ai" "chat")))    (ep-ai-chat req)]
+    [(and (GET? m)  (equal? segs '("api" "ai" "model")))   (ep-ai-model req)]
     [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
     [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]
     [else (err "not found" 404)]))

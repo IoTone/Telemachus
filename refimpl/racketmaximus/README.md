@@ -68,13 +68,24 @@ refimpl/racketmaximus/
   RBAC → quota check → governor slot → meter; over budget → **429**. Plus
   `GET /api/usage`, `POST /api/quota` (operator).
 
+- **Model executor (slice 7)** — `POST /api/ai/chat` calls a real OpenAI-compatible
+  model (llama-server / ollama / vLLM) via `TELEMACHUS_MODEL_URL`, through the same
+  quota + governor path; falls back to a simulated reply when unset, so it runs
+  anywhere. `GET /api/ai/model` reports config.
+
   Endpoints: `/health`, `/api/bootstrap`, `/api/login`, `/api/2fa/enable`,
   `/api/whoami`, `/api/members`, `/api/admin/status`, `/api/notes…`,
-  `/api/ai/echo`, `/api/usage`, `/api/quota`.
+  `/api/ai/echo`, `/api/ai/chat`, `/api/ai/model`, `/api/usage`, `/api/quota`.
 
-45 unit tests pass (21 engine + 8 RBAC + 6 localization + 4 auth + 3 notes + 3
-quota/governor) + an 18-assertion server integration test (`test/server-smoke.sh`),
-which includes a live proof that the governor never exceeds the concurrency cap.
+49 unit tests pass (+4 executor) + a 20-assertion server integration test
+(`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
+
+Point at a real model:
+
+```bash
+TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions \
+TELEMACHUS_MODEL=qwen2.5:7b  racket server/main.rkt
+```
 
 ### Localization CLI
 
