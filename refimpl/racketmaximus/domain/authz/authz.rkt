@@ -151,11 +151,15 @@
       [else
        (define granted (user-permissions conn (principal-user-id p) (principal-team-id p)))
        (for/or ([g (in-list granted)]) (perm-matches? g required))]))
+  ;; a resource owner has full rights on their own resource (non-instance)
+  (define owner-ok
+    (and resource (not (instance-perm? required))
+         (equal? (hash-ref resource 'owner_user_id #f) (principal-user-id p))))
   ;; a token caps its issuer: the scope list must also cover the permission
   (define scope-ok
     (or (not (principal-token-scopes p))
         (for/or ([s (in-list (principal-token-scopes p))]) (perm-matches? s required))))
-  (and base-ok scope-ok (resource-reachable? conn p resource required)))
+  (and (or base-ok owner-ok) scope-ok (resource-reachable? conn p resource required)))
 
 (define (require-perm conn p required #:resource [resource #f])
   (unless (can? conn p required #:resource resource)

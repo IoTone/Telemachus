@@ -27,6 +27,7 @@
          "../config.rkt"
          "../domain/db/migrations.rkt"
          "../domain/authz/authz.rkt"
+         "../domain/notes/notes.rkt"
          "../domain/i18n/i18n.rkt"
          "../surface/messages.rkt")
 
@@ -161,9 +162,59 @@
      (json-response (hasheq 'secret secret 'otpauth_uri uri
                             'note "2FA enabled — future logins for this user require a TOTP code"))]))
 
+;; ---- notes (ownable/shareable resource) -------------------------------------
+(define (with-auth req proc)
+  (define p (current-principal req))
+  (if (not p) (unauthorized) (proc p)))
+
+(define (ep-notes-create req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (json-response (notes-create db-conn p #:title (hash-ref b 'title "")
+                                 #:body (hash-ref b 'body "") #:visibility (hash-ref b 'visibility "team"))
+                   #:code 201))))
+
+(define (ep-notes-list req)
+  (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p))))))
+
+(define (ep-notes-get req id)
+  (with-auth req (lambda (p)
+    (define n (notes-get db-conn p id))
+    (if n (json-response n) (err "not found" 404)))))
+
+(define (ep-notes-update req id)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define n (notes-update db-conn p id #:title (hash-ref b 'title #f)
+                            #:body (hash-ref b 'body #f) #:visibility (hash-ref b 'visibility #f)))
+    (if n (json-response n) (err "not found" 404)))))
+
+(define (ep-notes-delete req id)
+  (with-auth req (lambda (p)
+    (if (notes-delete db-conn p id) (json-response (hasheq 'deleted #t)) (err "not found" 404)))))
+
+(define (ep-notes-share req id)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define target (hash-ref b 'user_id #f))
+    (cond
+      [(not target) (err "user_id required" 400)]
+      [(notes-share db-conn p id #:user target #:permission (hash-ref b 'permission "notes:read"))
+       (json-response (hasheq 'shared #t))]
+      [else (err "not found" 404)]))))
+
 ;; ---- routing ----------------------------------------------------------------
 (define (GET? m) (bytes=? m #"GET"))
 (define (POST? m) (bytes=? m #"POST"))
+(define (PUT? m) (bytes=? m #"PUT"))
+(define (DELETE? m) (bytes=? m #"DELETE"))
+
+;; /api/notes/<id> → id ; /api/notes/<id>/share → id
+(define (note-id segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "notes") (caddr segs)))
+(define (share-id segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
+       (equal? (list-ref segs 3) "share") (list-ref segs 2)))
 
 (define (route req)
   (define m (request-method req))
@@ -176,6 +227,12 @@
     [(and (GET? m)  (equal? segs '("api" "whoami")))        (ep-whoami req)]
     [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
+    [(and (POST? m) (equal? segs '("api" "notes")))        (ep-notes-create req)]
+    [(and (GET? m)  (equal? segs '("api" "notes")))        (ep-notes-list req)]
+    [(and (POST? m) (share-id segs))                       (ep-notes-share req (share-id segs))]
+    [(and (GET? m)    (note-id segs))                      (ep-notes-get req (note-id segs))]
+    [(and (PUT? m)    (note-id segs))                      (ep-notes-update req (note-id segs))]
+    [(and (DELETE? m) (note-id segs))                      (ep-notes-delete req (note-id segs))]
     [else (err "not found" 404)]))
 
 (define (handle req)

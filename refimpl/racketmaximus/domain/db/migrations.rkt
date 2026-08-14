@@ -110,4 +110,23 @@
         "  meta TEXT)")
        "CREATE INDEX idx_audit_team ON audit_log(team_id)"))))
 
-(define all-migrations (list m-0001-core))
+;; 0002 — notes: a first ownable/shareable resource (slice 5). Carries the
+;; through-line every app resource has: team_id + owner_user_id + visibility.
+(define m-0002-notes
+  (migration "0002-notes"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE notes ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  owner_user_id TEXT NOT NULL,"
+        "  visibility TEXT NOT NULL DEFAULT 'team',"   ; team | private | shared
+        "  title TEXT NOT NULL DEFAULT '',"
+        "  body TEXT NOT NULL DEFAULT '',"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_notes_team ON notes(team_id)"
+       "CREATE INDEX idx_notes_owner ON notes(owner_user_id)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes))

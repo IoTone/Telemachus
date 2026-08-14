@@ -57,11 +57,16 @@ refimpl/racketmaximus/
 - **Auth (slice 4)** — real password hashing (**PBKDF2-HMAC-SHA1**, RFC-6070
   verified) and **TOTP 2FA** (RFC-6238), both self-contained (built-in `sha1`, no
   native deps); `POST /api/login` (password + optional `code`), `POST /api/2fa/enable`.
-  Endpoints: `/health`, `/api/bootstrap`, `/api/login`, `/api/2fa/enable`,
-  `/api/whoami`, `/api/members`, `/api/admin/status`.
+- **Notes (slice 5)** — the first ownable/shareable resource, end to end through
+  RBAC: `team`/`private`/`shared` visibility, owner-implicit rights, and
+  `resource_grants` sharing. `POST/GET /api/notes`, `GET/PUT/DELETE /api/notes/:id`,
+  `POST /api/notes/:id/share`.
 
-39 unit tests pass (21 engine + 8 RBAC + 6 localization + 4 auth) + a 13-assertion
-server integration test (`test/server-smoke.sh`).
+  Endpoints: `/health`, `/api/bootstrap`, `/api/login`, `/api/2fa/enable`,
+  `/api/whoami`, `/api/members`, `/api/admin/status`, `/api/notes…`.
+
+42 unit tests pass (21 engine + 8 RBAC + 6 localization + 4 auth + 3 notes) + a
+15-assertion server integration test (`test/server-smoke.sh`).
 
 ### Localization CLI
 
