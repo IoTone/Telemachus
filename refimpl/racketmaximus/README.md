@@ -160,6 +160,12 @@ refimpl/racketmaximus/
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 
+- **End-to-end feature tour (`test/e2e`)** — a headless Playwright walk through the
+  whole UI against a real running server: bootstrap → chat → agent tool use →
+  translation → notes → teams/RBAC → quotas & tool registry → federated compute →
+  Japanese localization. It asserts each state and assembles a self-contained
+  **screenshot catalog** (`bash test/e2e/run.sh` → `catalog/catalog.html`).
+
 ### Writing a plugin
 
 ```

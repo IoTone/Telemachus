@@ -130,10 +130,12 @@ function appShell(){
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
       <button class="btn ghost sm" onclick="logout()">${t('logout')}</button>
     </header>
-    <nav class="tabs">${tabs.map(x=>`<button class="${S.tab===x?'active':''}" onclick="go('${x}')">${t(x)}</button>`).join('')}</nav>
+    <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" onclick="go('${x}')">${t(x)}</button>`).join('')}</nav>
     <main class="wrap" id="main"></main>`;
 }
-function go(tab){ S.tab=tab; renderTab(); }
+function go(tab){ S.tab=tab;
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  renderTab(); }
 
 // ---------- tabs ----------
 async function chatView(){
