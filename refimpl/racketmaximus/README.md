@@ -137,7 +137,17 @@ refimpl/racketmaximus/
   `notes-helper` plugin that saves an idea **only** via the mediated `notes.create`
   capability — it never sees the DB.
 
-58 unit tests pass + a 36-assertion server integration test
+- **Translation app (slice 17)** — the first user-facing **app** on the platform
+  (`domain/apps/translate.rkt`): translate text via the model with a team **glossary**
+  for consistent terminology and a team-scoped history; every call is metered through
+  the normal AI quotas + concurrency governor. `POST /api/translate`, `GET /api/translate`
+  (history), `POST/GET /api/glossary`. The model call is injected, so the app is fully
+  unit-tested without a live model. **Dogfood:** `POST /api/translate/catalog` translates
+  a whole locale catalog (keys unchanged, `{placeholders}`/ICU preserved) — the engine
+  behind producing our ja/nl/es-419 files. UI: a **Translate** tab (source → target,
+  glossary editor, recent).
+
+62 unit tests pass + a 40-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

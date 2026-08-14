@@ -55,14 +55,18 @@ const L = {
       visibility:'Visibility',create:'Create',share:'Share',del:'Delete',members:'Members',addmember:'Add member',role:'Role',
       setquota:'Set limit',dimension:'Dimension',limit:'Limit',logout:'Sign out',operator:'operator',model:'Model',
       chpw:'Change your password',curpw:'Current password',newpw:'New password',updpw:'Update password',
-      tools:'Tools',tool:'Tool',enable:'Enable',disable:'Disable'},
+      tools:'Tools',tool:'Tool',enable:'Enable',disable:'Disable',
+      translate:'Translate',sourcetext:'Text to translate',target:'Target language',translation:'Translation',
+      glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
       visibility:'公開範囲',create:'作成',share:'共有',del:'削除',members:'メンバー',addmember:'メンバー追加',role:'ロール',
       setquota:'上限を設定',dimension:'項目',limit:'上限',logout:'サインアウト',operator:'オペレーター',model:'モデル',
       chpw:'パスワードの変更',curpw:'現在のパスワード',newpw:'新しいパスワード',updpw:'パスワードを更新',
-      tools:'ツール',tool:'ツール',enable:'有効化',disable:'無効化'}
+      tools:'ツール',tool:'ツール',enable:'有効化',disable:'無効化',
+      translate:'翻訳',sourcetext:'翻訳するテキスト',target:'翻訳先の言語',translation:'翻訳',
+      glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -118,7 +122,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
+  const tabs=['chat','agent','translate','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
       <span class="sp"></span>
@@ -276,8 +280,48 @@ async function adminView(){
 // ---------- render ----------
 async function refreshMe(){ if(!S.token){S.me=null;return;} const r=await api('/api/whoami');
   if(r.ok) S.me=r.json; else { S.token=null; localStorage.removeItem('tmx_token'); S.me=null; } }
+async function translateView(){
+  const langs=[['ja','日本語'],['nl','Nederlands'],['es-419','Español (LatAm)'],['en','English'],['fr','Français'],['de','Deutsch']];
+  const gl=await api('/api/glossary'); const terms=gl.ok?gl.json.glossary:[];
+  const hr=await api('/api/translate'); const hist=hr.ok?hr.json.translations:[];
+  const manage=canManage();
+  const opts=langs.map(([c,n])=>`<option value="${c}">${esc(n)}</option>`).join('');
+  const termRows=terms.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc(x.term)}</td><td>${esc(x.translation)}</td></tr>`).join('');
+  const histRows=hist.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc((x.source_text||'').slice(0,40))}</td><td>${esc((x.result||'').slice(0,70))}</td></tr>`).join('');
+  return `<h2>${t('translate')}</h2>
+   <div class="card">
+     <label>${t('sourcetext')}</label><textarea id="trsrc" rows="4"></textarea>
+     <div class="row" style="margin-top:8px;align-items:end">
+       <div><label>${t('target')}</label><select id="trtgt">${opts}</select></div>
+       <div><label><input type="checkbox" id="trgl" checked> ${t('useglossary')}</label></div>
+       <div><button class="btn" onclick="doTranslate()">${t('translate')}</button></div>
+     </div>
+     <div id="trout" class="mono" style="margin-top:12px;white-space:pre-wrap"></div>
+   </div>
+   <div class="card" style="margin-top:14px"><h3>${t('glossary')} <span class="muted" style="font-size:13px">— team terminology</span></h3>
+     ${manage?`<div class="row" style="align-items:end;margin-bottom:8px">
+        <div><label>${t('target')}</label><select id="gltgt">${opts}</select></div>
+        <div><label>${t('term')}</label><input id="glterm"></div>
+        <div><label>${t('translation')}</label><input id="gltr"></div>
+        <div><button class="btn sm" onclick="doAddTerm()">${t('addterm')}</button></div></div>`:''}
+     <table><thead><tr><th>lang</th><th>${t('term')}</th><th>${t('translation')}</th></tr></thead><tbody>${termRows}</tbody></table>
+   </div>
+   <div class="card" style="margin-top:14px"><h3>${t('recent')}</h3>
+     <table><thead><tr><th>lang</th><th>${t('sourcetext')}</th><th>${t('translation')}</th></tr></thead><tbody>${histRows}</tbody></table></div>`;
+}
+async function doTranslate(){
+  const text=val('trsrc'), target_lang=val('trtgt'), use_glossary=document.getElementById('trgl').checked;
+  if(!text){toast('empty');return;}
+  const out=document.getElementById('trout'); out.textContent='…';
+  const r=await api('/api/translate',{method:'POST',body:{text,target_lang,use_glossary}});
+  if(r.ok){ out.textContent=r.json.result; } else { out.textContent=''; toast(r.json.error||'error'); }
+}
+async function doAddTerm(){
+  const r=await api('/api/glossary',{method:'POST',body:{target_lang:val('gltgt'),term:val('glterm'),translation:val('gltr')}});
+  if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error');
+}
 async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
-  el.innerHTML = await ({chat:chatView,agent:agentView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
 async function render(){ await refreshMe();
   const app=document.getElementById('app');
   if(!S.me){ app.innerHTML=authView(); return; }
