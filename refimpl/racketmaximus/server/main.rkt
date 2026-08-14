@@ -96,6 +96,17 @@
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
 
+;; Server-Sent Events: proc receives an `emit` that pushes one JSON event.
+(define (sse-response proc)
+  (response/output
+   #:mime-type #"text/event-stream; charset=utf-8"
+   #:headers (list (make-header #"Cache-Control" #"no-cache")
+                   (make-header #"X-Accel-Buffering" #"no"))
+   (lambda (out)
+     (define (emit ev) (write-string (string-append "data: " (jsexpr->string ev) "\n\n") out) (flush-output out))
+     (with-handlers ([exn:fail? (lambda (e) (emit (hasheq 'error (exn-message e))))])
+       (proc emit)))))
+
 ;; ---- endpoints --------------------------------------------------------------
 (define (ep-health)
   (json-response (hasheq 'ok #t 'service "telemachus" 'version app-version)))
@@ -291,6 +302,33 @@
 (define (ep-ai-model req)
   (with-auth req (lambda (p) (json-response (model-info)))))
 
+;; streaming chat: same admission path, tokens streamed as SSE, metered at end.
+(define (ep-ai-chat-stream req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "chat:use")
+    (define b (read-json-body req))
+    (define prompt (hash-ref b 'prompt ""))
+    (define est (estimate-tokens prompt))
+    (define sid (principal-team-id p))
+    (define rq (quota-check db-conn "team" sid "ai.requests" 1))
+    (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
+    (cond
+      [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
+      [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
+      [else
+       (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
+       (sse-response
+        (lambda (emit)
+          (with-slot GOV (string-append "team:" sid) (or climit 2)
+            (lambda (inflight)
+              (define tokens (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok)))))
+              (quota-record! db-conn "team" sid "ai.requests" 1)
+              (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
+              (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
+              (emit (hasheq 'done #t 'tokens_used tokens
+                            'model (hash-ref (model-info) 'model)
+                            'remaining_tokens (hash-ref after 'remaining)))))))]))))
+
 (define (ep-usage req)
   (with-auth req (lambda (p)
     (define sid (principal-team-id p))
@@ -348,6 +386,7 @@
     [(and (DELETE? m) (note-id segs))                      (ep-notes-delete req (note-id segs))]
     [(and (POST? m) (equal? segs '("api" "ai" "echo")))    (ep-ai-echo req)]
     [(and (POST? m) (equal? segs '("api" "ai" "chat")))    (ep-ai-chat req)]
+    [(and (POST? m) (equal? segs '("api" "ai" "chat" "stream"))) (ep-ai-chat-stream req)]
     [(and (GET? m)  (equal? segs '("api" "ai" "model")))   (ep-ai-model req)]
     [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
     [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]

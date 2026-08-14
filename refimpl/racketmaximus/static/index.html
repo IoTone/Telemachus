@@ -138,12 +138,22 @@ async function chatView(){
     </div><div id="chatlog"></div>`;
 }
 async function doChat(){
-  const prompt=val('cp'); const r=await api('/api/ai/chat',{method:'POST',body:{prompt}});
-  const log=document.getElementById('chatlog');
-  if(r.ok){ log.insertAdjacentHTML('afterbegin',
-      `<div class="bubble"><div class="q">${esc(prompt)}</div><div>${esc(r.json.reply)}</div>
-       <div class="muted" style="font-size:12px;margin-top:6px">${r.json.tokens_used} tokens · ${esc(r.json.model)} · remaining ${r.json.remaining_tokens}</div></div>`);
-  } else toast((r.json.error||'error')+(r.json.dimension?` (${r.json.dimension})`:''));
+  const prompt=val('cp'); const log=document.getElementById('chatlog'); const id='b'+Date.now();
+  log.insertAdjacentHTML('afterbegin',
+    `<div class="bubble" id="${id}"><div class="q">${esc(prompt)}</div><div class="rep"></div><div class="meta muted" style="font-size:12px;margin-top:6px">…</div></div>`);
+  const rep=document.querySelector('#'+id+' .rep'), meta=document.querySelector('#'+id+' .meta');
+  const headers={'X-Telemachus-Locale':S.lang,'Content-Type':'application/json'}; if(S.token) headers['Authorization']='Bearer '+S.token;
+  let res; try{ res=await fetch('/api/ai/chat/stream',{method:'POST',headers,body:JSON.stringify({prompt})}); }
+  catch(e){ toast('network error'); document.getElementById(id).remove(); return; }
+  if(!res.ok){ let j={}; try{j=await res.json()}catch(e){} toast((j.error||'error')+(j.dimension?` (${j.dimension})`:'')); document.getElementById(id).remove(); return; }
+  const reader=res.body.getReader(), dec=new TextDecoder(); let buf='';
+  for(;;){ const {value,done}=await reader.read(); if(done) break; buf+=dec.decode(value,{stream:true});
+    let i; while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
+      if(!line.startsWith('data:')) continue; let ev={}; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+      if(ev.token){ if(meta.textContent==='…') meta.textContent=''; rep.textContent += ev.token; }
+      if(ev.error) toast(ev.error);
+      if(ev.done) meta.textContent = `${ev.tokens_used} tokens · ${esc(ev.model)} · remaining ${ev.remaining_tokens}`;
+    } }
 }
 
 async function notesView(){

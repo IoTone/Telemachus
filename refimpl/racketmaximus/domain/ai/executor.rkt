@@ -16,7 +16,7 @@
 (require racket/string
          "../agent/llm.rkt")            ; http-post-json
 
-(provide model-configured? model-info run-chat parse-chat-response estimate-tokens)
+(provide model-configured? model-info run-chat run-chat-stream parse-chat-response estimate-tokens)
 
 (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 (define (model-url)  (env "TELEMACHUS_MODEL_URL"))
@@ -63,3 +63,21 @@
      (unless (= code 200) (error 'run-chat "model endpoint returned HTTP ~a" code))
      (define-values (reply tokens) (parse-chat-response resp))
      (values reply (or tokens (estimate-tokens prompt reply)))]))
+
+;; run-chat-stream : string × (string -> void) -> tokens-used
+;; calls `on-token` with each chunk as it arrives; returns the token estimate.
+(define (run-chat-stream prompt on-token #:system [system #f] #:temperature [temp 0.7])
+  (cond
+    [(not (model-configured?))
+     (define reply (string-upcase prompt))                     ; simulated: stream word by word
+     (for ([w (in-list (string-split reply))]) (on-token (string-append w " ")) (sleep 0.06))
+     (estimate-tokens prompt)]
+    [else
+     (define acc (open-output-string))
+     (define (tap s) (write-string s acc) (on-token s))
+     (define msgs
+       (append (if system (list (hasheq 'role "system" 'content system)) '())
+               (list (hasheq 'role "user" 'content prompt))))
+     ((openai-llm-stream #:endpoint (model-url) #:model (model-name) #:api-key (model-key)
+                         #:temperature temp #:on-content tap) msgs)
+     (estimate-tokens prompt (get-output-string acc))]))

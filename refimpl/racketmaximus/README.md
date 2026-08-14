@@ -84,7 +84,11 @@ refimpl/racketmaximus/
   messages (via an `X-Telemachus-Locale` header). `GET /api/members` lists the
   team; `GET /` serves the UI.
 
-49 unit tests pass + a 22-assertion server integration test
+- **Streaming chat (slice 9)** — `POST /api/ai/chat/stream` streams tokens as
+  Server-Sent Events (still through RBAC → quota → governor, metered at the end);
+  the UI renders them live token-by-token.
+
+49 unit tests pass + a 23-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 
