@@ -28,8 +28,9 @@ refimpl/racketmaximus/
     telemachus-localize.rkt  # extract / sync-locale / check / report (CI gate)
   config.rkt       # the only app-branded shared module (paths, version, app db)
   info.rkt         # the `telemachus` app collection
-  test/            # rackunit suites + scripted mock-LLM server
-  server/          # (planned) the HTTP surface
+  test/            # rackunit suites + scripted mock-LLM + server smoke test
+  server/
+    main.rkt       # HTTP surface: RBAC-gated, localized JSON API
 ```
 
 ## Implemented so far
@@ -49,8 +50,14 @@ refimpl/racketmaximus/
   (`extract`/`sync-locale`/`check`/`report`) that gates commits. English is the
   externalized baseline; `ja`/`nl`/`es-419` are produced by the tool. See
   `docs/design/localization.md`.
+- **HTTP server (slice 3)** — `web-kit`-based JSON API wiring RBAC + the Localizer:
+  identity from `Authorization: Bearer` (issuer∩scopes) or a trusted
+  `X-Telemachus-User`/`-Team` header; per-request locale from `Accept-Language`;
+  `require-perm` guards → **localized** 401/403. Endpoints: `/health`,
+  `/api/bootstrap`, `/api/whoami`, `/api/members`, `/api/admin/status`.
 
-35 tests pass (21 engine + 8 RBAC + 6 localization).
+35 unit tests pass (21 engine + 8 RBAC + 6 localization) + an 11-assertion server
+integration test (`test/server-smoke.sh`).
 
 ### Localization CLI
 
@@ -71,6 +78,29 @@ Wire `check` as a git pre-commit hook or CI step:
 # .git/hooks/pre-commit
 exec racket refimpl/racketmaximus/cli/telemachus-localize.rkt \
      check refimpl/racketmaximus/surface --locales refimpl/racketmaximus/locales
+```
+
+### HTTP server
+
+```bash
+racket server/main.rkt              # http://127.0.0.1:8080  (sqlite in ./data)
+bash   test/server-smoke.sh         # integration test (temp DB, 11 assertions)
+```
+
+Demo flow — RBAC + localization end to end:
+
+```bash
+curl -s localhost:8080/health
+# first run: create the operator + a token
+OP=$(curl -s -X POST localhost:8080/api/bootstrap -d '{"username":"alice"}' \
+     | grep -oP '"token":\s*"\K[^"]+')
+curl -s localhost:8080/api/whoami       -H "Authorization: Bearer $OP"   # is_operator:true
+curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $OP"   # ok
+# add a member, then watch RBAC deny admin — localized by Accept-Language
+BOB=$(curl -s -X POST localhost:8080/api/members -H "Authorization: Bearer $OP" \
+      -d '{"username":"bob","role":"member"}' | grep -oP '"token":\s*"\K[^"]+')
+curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB"                        # Forbidden: instance:manage
+curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja' # 禁止されています: instance:manage
 ```
 
 ## Dev setup

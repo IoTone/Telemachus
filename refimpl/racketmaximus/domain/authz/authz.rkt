@@ -22,7 +22,7 @@
 
 (provide (struct-out principal)
          (struct-out exn:fail:forbidden)
-         user-principal
+         user-principal principal-for
          create-user! create-team! add-member!
          seed-builtin-roles! bootstrap!
          user-role-key user-permissions
@@ -40,6 +40,12 @@
 (define (user-principal conn user-id team-id)
   (define op (query-maybe-value conn "SELECT is_operator FROM users WHERE id = ?" user-id))
   (principal user-id (and (number? op) (not (zero? op))) team-id #f))
+
+;; resolve a trusted (username, team-slug) pair to a direct-user principal
+(define (principal-for conn username team-slug)
+  (define uid (query-maybe-value conn "SELECT id FROM users WHERE username = ?" username))
+  (define tid (query-maybe-value conn "SELECT id FROM teams WHERE slug = ?" team-slug))
+  (and uid tid (user-principal conn uid tid)))
 
 ;; ---- creation ---------------------------------------------------------------
 (define (create-user! conn #:username username #:operator? [operator? #f]

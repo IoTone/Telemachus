@@ -6,7 +6,8 @@
 
 (require "../domain/i18n/i18n.rkt")
 
-(provide msg-forbidden msg-bootstrap-done msg-note-saved)
+(provide msg-forbidden msg-bootstrap-done msg-note-saved
+         msg-unauthorized msg-already-init)
 
 (define (msg-forbidden perm)
   (t "authz.forbidden" #:default "Forbidden: {perm}" #:args (hasheq 'perm perm)))
@@ -18,3 +19,9 @@
 
 (define (msg-note-saved)
   (t "notes.saved" #:default "Note saved."))
+
+(define (msg-unauthorized)
+  (t "http.unauthorized" #:default "Authentication required."))
+
+(define (msg-already-init)
+  (t "http.already_initialized" #:default "Already initialized."))

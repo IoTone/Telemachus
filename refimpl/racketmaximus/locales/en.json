@@ -11,13 +11,21 @@
       "text": "Created operator {user} and team {team}.",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
     },
-    "authz.forbidden": {
-      "text": "Forbidden: {perm}",
-      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
-    },
     "notes.saved": {
       "text": "Note saved.",
       "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
+    },
+    "http.unauthorized": {
+      "text": "Authentication required.",
+      "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
+    },
+    "http.already_initialized": {
+      "text": "Already initialized.",
+      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    },
+    "authz.forbidden": {
+      "text": "Forbidden: {perm}",
+      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
     },
     "inbox.summary": {
       "text": "You have {count, plural, one {# new message} other {# new messages}}.",
