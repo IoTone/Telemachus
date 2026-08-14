@@ -77,10 +77,18 @@ refimpl/racketmaximus/
   `/api/whoami`, `/api/members`, `/api/admin/status`, `/api/notes…`,
   `/api/ai/echo`, `/api/ai/chat`, `/api/ai/model`, `/api/usage`, `/api/quota`.
 
-49 unit tests pass (+4 executor) + a 20-assertion server integration test
-(`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
+- **Web UI (slice 8)** — a self-contained single-page dashboard served at `/`
+  (vanilla HTML/CSS/JS, no build step): login + 2FA, first-run bootstrap, AI chat,
+  notes (create / share / delete), team members, quota & usage, admin — with an
+  **EN / 日本語 toggle** that localizes both the UI chrome and the server's error
+  messages (via an `X-Telemachus-Locale` header). `GET /api/members` lists the
+  team; `GET /` serves the UI.
 
-Point at a real model:
+49 unit tests pass + a 22-assertion server integration test
+(`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
+**Open http://localhost:8080** after `racket server/main.rkt`.
+
+Point at a real model (chat answers come from it, metered + governed):
 
 ```bash
 TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions \

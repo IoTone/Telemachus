@@ -52,8 +52,10 @@
   (define h (headers-assq* name-bytes (request-headers/raw req)))   ; case-insensitive
   (and h (bytes->string/utf-8 (header-value h))))
 
+;; locale: an explicit X-Telemachus-Locale header (the UI sets this — browsers
+;; forbid setting Accept-Language from fetch) wins, else Accept-Language.
 (define (accept-language req)
-  (define h (req-header req #"accept-language"))
+  (define h (or (req-header req #"x-telemachus-locale") (req-header req #"accept-language")))
   (if (not h) "en"
       (let ([tag (string-trim (car (string-split (car (string-split h ",")) ";")))])
         (if (string=? tag "") "en" tag))))
@@ -86,6 +88,14 @@
 (define (err msg code) (json-response (hasheq 'error msg) #:code code))
 (define (unauthorized) (err (msg-unauthorized) 401))
 
+;; the single-page UI (read once at startup)
+(define UI-HTML
+  (let ([p (build-path impl-root "static" "index.html")])
+    (if (file-exists? p) (file->string p) "<!doctype html><h1>Telemachus</h1>")))
+(define (html-response s)
+  (response/output #:mime-type #"text/html; charset=utf-8"
+                   (lambda (out) (write-string s out))))
+
 ;; ---- endpoints --------------------------------------------------------------
 (define (ep-health)
   (json-response (hasheq 'ok #t 'service "telemachus" 'version app-version)))
@@ -112,6 +122,17 @@
                              'is_operator (principal-is-operator p)
                              'permissions (perms-of p)
                              'token_scopes (or (principal-token-scopes p) 'null)))))
+
+(define (ep-members-list req)
+  (with-auth req (lambda (p)
+    (define rows (query-rows db-conn
+      (string-append "SELECT u.id, u.username, m.role_key FROM memberships m "
+                     "JOIN users u ON u.id = m.user_id WHERE m.team_id = ? ORDER BY u.username")
+      (principal-team-id p)))
+    (json-response (hasheq 'members (for/list ([r (in-list rows)])
+                                      (hasheq 'user_id (vector-ref r 0)
+                                              'username (vector-ref r 1)
+                                              'role (vector-ref r 2))))))))
 
 (define (ep-add-member req)
   (define p (current-principal req))
@@ -309,12 +330,15 @@
   (define m (request-method req))
   (define segs (request-path req))
   (cond
+    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html"))))
+     (html-response UI-HTML)]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
     [(and (POST? m) (equal? segs '("api" "login")))         (ep-login req)]
     [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
     [(and (GET? m)  (equal? segs '("api" "whoami")))        (ep-whoami req)]
     [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
+    [(and (GET? m)  (equal? segs '("api" "members")))       (ep-members-list req)]
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
     [(and (POST? m) (equal? segs '("api" "notes")))        (ep-notes-create req)]
     [(and (GET? m)  (equal? segs '("api" "notes")))        (ep-notes-list req)]

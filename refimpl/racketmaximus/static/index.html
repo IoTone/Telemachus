@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Telemachus</title>
+<style>
+  :root{ --bg:#0f1117; --panel:#171a23; --panel2:#1e2230; --line:#2a2f3d; --fg:#e6e8ee;
+         --muted:#9aa3b2; --accent:#7c8cff; --accent2:#5a6cff; --ok:#3ddc97; --bad:#ff6b6b; --warn:#ffcc66; }
+  *{box-sizing:border-box} html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  a{color:var(--accent)} button{font:inherit;cursor:pointer}
+  .btn{background:var(--accent2);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600}
+  .btn:hover{background:var(--accent)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  .btn.sm{padding:5px 10px;font-size:13px;border-radius:6px} .btn.bad{background:#3a2030;border:1px solid #5a2a3a;color:#ffb4b4}
+  input,textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+         border-radius:8px;padding:9px 11px;font:inherit;margin:4px 0 10px}
+  label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .row{display:flex;gap:14px;flex-wrap:wrap} .row>*{flex:1;min-width:0}
+  .muted{color:var(--muted)} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
+  .badge.ok{color:var(--ok);border-color:#204a3a} .badge.op{color:var(--warn);border-color:#4a3a20}
+  /* auth */
+  .auth{max-width:420px;margin:8vh auto;padding:0 16px}
+  .brand{font-weight:800;letter-spacing:-.02em} .brand .dot{color:var(--accent)}
+  /* shell */
+  header.top{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header.top .sp{flex:1} .chip{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px}
+  nav.tabs{display:flex;gap:6px;padding:14px 20px 0;flex-wrap:wrap}
+  nav.tabs button{background:transparent;border:0;color:var(--muted);padding:8px 14px;border-radius:8px;font-weight:600}
+  nav.tabs button.active{background:var(--panel);color:var(--fg);border:1px solid var(--line)}
+  main.wrap{padding:18px 20px;max-width:960px}
+  .langtog button{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:5px 10px;font-size:13px}
+  .langtog button.active{color:var(--fg);border-color:var(--accent)}
+  .note{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0;background:var(--panel2)}
+  .note h4{margin:0 0 4px} table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .bubble{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+  .bubble .q{color:var(--muted);font-size:13px} .toast{position:fixed;right:16px;bottom:16px;max-width:340px;padding:12px 14px;border-radius:10px;
+         background:#2a1a22;border:1px solid #5a2a3a;color:#ffc9c9;box-shadow:0 8px 30px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.2s}
+  .toast.show{opacity:1;transform:none} .toast.ok{background:#12271f;border-color:#204a3a;color:#bff3dd}
+  h1,h2,h3{letter-spacing:-.01em} h2{margin:.2em 0 .6em}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class="toast"></div>
+<script>
+const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null };
+const L = {
+  en:{tagline:'Team AI platform — reference implementation',chat:'Chat',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
+      signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
+      createop:'Create operator',send:'Send',prompt:'Prompt',reply:'Reply',newnote:'New note',title:'Title',body:'Body',
+      visibility:'Visibility',create:'Create',share:'Share',del:'Delete',members:'Members',addmember:'Add member',role:'Role',
+      setquota:'Set limit',dimension:'Dimension',limit:'Limit',logout:'Sign out',operator:'operator',model:'Model'},
+  ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
+      signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
+      createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
+      visibility:'公開範囲',create:'作成',share:'共有',del:'削除',members:'メンバー',addmember:'メンバー追加',role:'ロール',
+      setquota:'上限を設定',dimension:'項目',limit:'上限',logout:'サインアウト',operator:'オペレーター',model:'モデル'}
+};
+const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
+const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function api(path, {method='GET', body=null}={}){
+  const headers = {'X-Telemachus-Locale': S.lang};
+  if (S.token) headers['Authorization'] = 'Bearer '+S.token;
+  if (body) headers['Content-Type'] = 'application/json';
+  const res = await fetch(path, {method, headers, body: body?JSON.stringify(body):null});
+  let json={}; try{ json = await res.json(); }catch(e){}
+  return {ok:res.ok, status:res.status, json};
+}
+function toast(msg, ok=false){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(ok?' ok':'');
+  setTimeout(()=>el.className='toast',2600); }
+function setLang(l){ S.lang=l; localStorage.setItem('tmx_lang',l); render(); }
+function setTok(tk){ S.token=tk; localStorage.setItem('tmx_token',tk); }
+function logout(){ S.token=null; localStorage.removeItem('tmx_token'); S.me=null; render(); }
+const val = id => document.getElementById(id).value.trim();
+
+// ---------- auth ----------
+function authView(){
+  return `<div class="auth">
+    <h1 class="brand">Telemachus<span class="dot">.</span></h1>
+    <p class="muted">${t('tagline')}</p>
+    <div class="langtog" style="margin:10px 0 18px">${langBtns()}</div>
+    <div class="card">
+      <h2>${t('signin')}</h2>
+      <label>${t('user')}</label><input id="lu" autofocus>
+      <label>${t('pass')}</label><input id="lp" type="password">
+      <label>${t('code')}</label><input id="lc">
+      <button class="btn" style="width:100%" onclick="doLogin()">${t('signin')}</button>
+    </div>
+    <details class="card" style="margin-top:14px">
+      <summary style="cursor:pointer" class="muted">${t('firstrun')}</summary>
+      <div style="margin-top:12px">
+        <label>${t('user')}</label><input id="bu" value="alice">
+        <label>${t('pass')}</label><input id="bp" type="password" value="s3cret">
+        <button class="btn ghost" onclick="doBootstrap()">${t('createop')}</button>
+      </div>
+    </details>
+  </div>`;
+}
+async function doLogin(){
+  const body={username:val('lu'),password:val('lp')}; const c=val('lc'); if(c) body.code=c;
+  const r=await api('/api/login',{method:'POST',body});
+  if(r.ok){ setTok(r.json.token); render(); } else toast(r.json.error||'login failed');
+}
+async function doBootstrap(){
+  const r=await api('/api/bootstrap',{method:'POST',body:{username:val('bu'),password:val('bp')}});
+  if(r.ok){ setTok(r.json.token); toast(r.json.message||'created',true); render(); } else toast(r.json.error||'failed');
+}
+
+// ---------- shell ----------
+function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
+function appShell(){
+  const tabs=['chat','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
+  return `<header class="top">
+      <span class="brand">Telemachus<span class="dot">.</span></span>
+      <span class="sp"></span>
+      <span class="langtog">${langBtns()}</span>
+      <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
+      <button class="btn ghost sm" onclick="logout()">${t('logout')}</button>
+    </header>
+    <nav class="tabs">${tabs.map(x=>`<button class="${S.tab===x?'active':''}" onclick="go('${x}')">${t(x)}</button>`).join('')}</nav>
+    <main class="wrap" id="main"></main>`;
+}
+function go(tab){ S.tab=tab; renderTab(); }
+
+// ---------- tabs ----------
+async function chatView(){
+  if(!S.model){ const m=await api('/api/ai/model'); S.model=m.json; }
+  const badge = S.model?.configured ? `<span class="badge ok">${esc(S.model.model)}</span>` : `<span class="badge">${esc(S.model?.model||'local')} · simulated</span>`;
+  return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
+    <div class="card">
+      <label>${t('prompt')}</label><textarea id="cp" rows="3">Hello team</textarea>
+      <button class="btn" onclick="doChat()">${t('send')}</button>
+    </div><div id="chatlog"></div>`;
+}
+async function doChat(){
+  const prompt=val('cp'); const r=await api('/api/ai/chat',{method:'POST',body:{prompt}});
+  const log=document.getElementById('chatlog');
+  if(r.ok){ log.insertAdjacentHTML('afterbegin',
+      `<div class="bubble"><div class="q">${esc(prompt)}</div><div>${esc(r.json.reply)}</div>
+       <div class="muted" style="font-size:12px;margin-top:6px">${r.json.tokens_used} tokens · ${esc(r.json.model)} · remaining ${r.json.remaining_tokens}</div></div>`);
+  } else toast((r.json.error||'error')+(r.json.dimension?` (${r.json.dimension})`:''));
+}
+
+async function notesView(){
+  const r=await api('/api/notes'); const notes=r.ok?r.json.notes:[];
+  const mem=await api('/api/members'); const members=mem.ok?mem.json.members:[];
+  const opts=members.map(m=>`<option value="${m.user_id}">${esc(m.username)}</option>`).join('');
+  const list=notes.map(n=>`<div class="note">
+      <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
+      <div class="muted">${esc(n.body)}</div>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
+        <div><button class="btn sm ghost" onclick="doShare('${n.id}')">${t('share')}</button></div>
+        <div><button class="btn sm bad" onclick="doDelNote('${n.id}')">${t('del')}</button></div>
+      </div></div>`).join('') || `<p class="muted">—</p>`;
+  return `<h2>${t('notes')}</h2>
+    <div class="card"><h3>${t('newnote')}</h3>
+      <label>${t('title')}</label><input id="nt" value="Secret plan">
+      <label>${t('body')}</label><input id="nb" value="only for me">
+      <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
+      <button class="btn" onclick="doCreateNote()">${t('create')}</button>
+    </div>${list}`;
+}
+async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:{title:val('nt'),body:val('nb'),visibility:val('nv')}});
+  if(r.ok){ toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
+async function doShare(id){ const uid=document.getElementById('sh_'+id).value;
+  const r=await api('/api/notes/'+id+'/share',{method:'POST',body:{user_id:uid,permission:'notes:read'}});
+  toast(r.ok?'shared':(r.json.error||'error'), r.ok); }
+async function doDelNote(id){ const r=await api('/api/notes/'+id,{method:'DELETE'});
+  if(r.ok){ toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
+
+async function teamView(){
+  const r=await api('/api/members'); const members=r.ok?r.json.members:[];
+  const rows=members.map(m=>`<tr><td>${esc(m.username)}</td><td><span class="badge">${esc(m.role)}</span></td><td class="mono muted">${esc(m.user_id.slice(0,8))}…</td></tr>`).join('');
+  return `<h2>${t('team')}</h2>
+    <div class="card"><table><thead><tr><th>${t('user')}</th><th>${t('role')}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>
+      <div class="row"><div><label>${t('user')}</label><input id="mu"></div><div><label>${t('pass')}</label><input id="mp" type="password"></div>
+      <div><label>${t('role')}</label><select id="mr"><option>member</option><option>admin</option><option>viewer</option></select></div></div>
+      <button class="btn" onclick="doAddMember()">${t('addmember')}</button>
+    </div>`;
+}
+async function doAddMember(){ const r=await api('/api/members',{method:'POST',body:{username:val('mu'),password:val('mp'),role:val('mr')}});
+  if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error'); }
+
+async function usageView(){
+  const r=await api('/api/usage'); const q=r.ok?r.json.quota:[];
+  const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td></tr>`).join('');
+  const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${t('setquota')}</h3>
+      <div class="row"><div><label>${t('dimension')}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
+      <div><label>${t('limit')}</label><input id="ql" value="50"></div></div>
+      <button class="btn" onclick="doSetQuota()">${t('setquota')}</button></div>` : '';
+  return `<h2>${t('usage')}</h2>
+    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}`;
+}
+async function doSetQuota(){ const r=await api('/api/quota',{method:'POST',body:{dimension:val('qd'),limit:parseInt(val('ql'),10),window:'day'}});
+  if(r.ok){ toast('updated',true); renderTab(); } else toast(r.json.error||'error'); }
+
+async function adminView(){
+  const r=await api('/api/admin/status');
+  const body = r.ok ? `<div class="row"><div class="card"><label>users</label><h2>${r.json.users}</h2></div><div class="card"><label>teams</label><h2>${r.json.teams}</h2></div></div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
+  return `<h2>${t('admin')}</h2>${body}`;
+}
+
+// ---------- render ----------
+async function refreshMe(){ if(!S.token){S.me=null;return;} const r=await api('/api/whoami');
+  if(r.ok) S.me=r.json; else { S.token=null; localStorage.removeItem('tmx_token'); S.me=null; } }
+async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
+  el.innerHTML = await ({chat:chatView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+async function render(){ await refreshMe();
+  const app=document.getElementById('app');
+  if(!S.me){ app.innerHTML=authView(); return; }
+  app.innerHTML=appShell(); renderTab(); }
+window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
+window.doChat=doChat; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
+window.doAddMember=doAddMember; window.doSetQuota=doSetQuota;
+render();
+</script>
+</body>
+</html>
