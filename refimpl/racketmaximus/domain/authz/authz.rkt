@@ -31,7 +31,7 @@
          issue-token! resolve-token
          grant! revoke!
          audit!
-         set-password! authenticate enable-2fa! first-team-for)
+         set-password! change-password! authenticate enable-2fa! first-team-for)
 
 ;; ---- principal --------------------------------------------------------------
 ;; token-scopes: #f = direct user (uncapped by scopes); (listof string) = token.
@@ -98,6 +98,13 @@
 (define (set-password! conn user-id pw)
   (query-exec conn "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
               (hash-password pw) user-id))
+
+;; verify the current password, then set a new one. Returns #f if current wrong.
+(define (change-password! conn user-id current new)
+  (define ph (query-maybe-value conn "SELECT password_hash FROM users WHERE id = ?" user-id))
+  (cond
+    [(or (not ph) (sql-null? ph) (not (verify-password current ph))) #f]
+    [else (set-password! conn user-id new) #t]))
 
 (define (enable-2fa! conn user-id #:account [account "user"])
   (define secret (new-totp-secret))

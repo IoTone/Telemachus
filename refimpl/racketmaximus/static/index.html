@@ -53,12 +53,14 @@ const L = {
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
       createop:'Create operator',send:'Send',prompt:'Prompt',reply:'Reply',newnote:'New note',title:'Title',body:'Body',
       visibility:'Visibility',create:'Create',share:'Share',del:'Delete',members:'Members',addmember:'Add member',role:'Role',
-      setquota:'Set limit',dimension:'Dimension',limit:'Limit',logout:'Sign out',operator:'operator',model:'Model'},
+      setquota:'Set limit',dimension:'Dimension',limit:'Limit',logout:'Sign out',operator:'operator',model:'Model',
+      chpw:'Change your password',curpw:'Current password',newpw:'New password',updpw:'Update password'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
       visibility:'公開範囲',create:'作成',share:'共有',del:'削除',members:'メンバー',addmember:'メンバー追加',role:'ロール',
-      setquota:'上限を設定',dimension:'項目',limit:'上限',logout:'サインアウト',operator:'オペレーター',model:'モデル'}
+      setquota:'上限を設定',dimension:'項目',limit:'上限',logout:'サインアウト',operator:'オペレーター',model:'モデル',
+      chpw:'パスワードの変更',curpw:'現在のパスワード',newpw:'新しいパスワード',updpw:'パスワードを更新'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -193,7 +195,17 @@ async function teamView(){
       <div class="row"><div><label>${t('user')}</label><input id="mu"></div><div><label>${t('pass')}</label><input id="mp" type="password"></div>
       <div><label>${t('role')}</label><select id="mr"><option>member</option><option>admin</option><option>viewer</option></select></div></div>
       <button class="btn" onclick="doAddMember()">${t('addmember')}</button>
+    </div>
+    <div class="card" style="margin-top:14px"><h3>${t('chpw')}</h3>
+      <label>${t('curpw')}</label><input id="pc" type="password">
+      <label>${t('newpw')}</label><input id="pn" type="password">
+      <button class="btn" onclick="doChangePw()">${t('updpw')}</button>
     </div>`;
+}
+async function doChangePw(){
+  const r=await api('/api/password',{method:'POST',body:{current_password:val('pc'),new_password:val('pn')}});
+  if(r.ok){ toast('password updated',true); document.getElementById('pc').value=''; document.getElementById('pn').value=''; }
+  else toast(r.json.error||'error');
 }
 async function doAddMember(){ const r=await api('/api/members',{method:'POST',body:{username:val('mu'),password:val('mp'),role:val('mr')}});
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error'); }
@@ -228,7 +240,7 @@ async function render(){ await refreshMe();
   app.innerHTML=appShell(); renderTab(); }
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
-window.doAddMember=doAddMember; window.doSetQuota=doSetQuota;
+window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw;
 render();
 </script>
 </body>

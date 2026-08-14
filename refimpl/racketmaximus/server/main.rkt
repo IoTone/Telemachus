@@ -210,6 +210,17 @@
         (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "login" #:scopes '("*:*")))
         (json-response (hasheq 'token tok 'user_id uid 'team_id tid))])]))
 
+(define (ep-password req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define cur (hash-ref b 'current_password #f))
+    (define new (hash-ref b 'new_password #f))
+    (cond
+      [(or (not cur) (not new)) (err "current_password and new_password required" 400)]
+      [(< (string-length new) 6) (err "new password too short (min 6)" 400)]
+      [(change-password! db-conn (principal-user-id p) cur new) (json-response (hasheq 'ok #t))]
+      [else (err "current password incorrect" 403)]))))
+
 (define (ep-2fa-enable req)
   (define p (current-principal req))
   (cond
@@ -395,6 +406,7 @@
     [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
     [(and (POST? m) (equal? segs '("api" "login")))         (ep-login req)]
     [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
+    [(and (POST? m) (equal? segs '("api" "password")))      (ep-password req)]
     [(and (GET? m)  (equal? segs '("api" "whoami")))        (ep-whoami req)]
     [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
     [(and (GET? m)  (equal? segs '("api" "members")))       (ep-members-list req)]
