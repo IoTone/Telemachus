@@ -53,11 +53,15 @@ refimpl/racketmaximus/
 - **HTTP server (slice 3)** — `web-kit`-based JSON API wiring RBAC + the Localizer:
   identity from `Authorization: Bearer` (issuer∩scopes) or a trusted
   `X-Telemachus-User`/`-Team` header; per-request locale from `Accept-Language`;
-  `require-perm` guards → **localized** 401/403. Endpoints: `/health`,
-  `/api/bootstrap`, `/api/whoami`, `/api/members`, `/api/admin/status`.
+  `require-perm` guards → **localized** 401/403.
+- **Auth (slice 4)** — real password hashing (**PBKDF2-HMAC-SHA1**, RFC-6070
+  verified) and **TOTP 2FA** (RFC-6238), both self-contained (built-in `sha1`, no
+  native deps); `POST /api/login` (password + optional `code`), `POST /api/2fa/enable`.
+  Endpoints: `/health`, `/api/bootstrap`, `/api/login`, `/api/2fa/enable`,
+  `/api/whoami`, `/api/members`, `/api/admin/status`.
 
-35 unit tests pass (21 engine + 8 RBAC + 6 localization) + an 11-assertion server
-integration test (`test/server-smoke.sh`).
+39 unit tests pass (21 engine + 8 RBAC + 6 localization + 4 auth) + a 13-assertion
+server integration test (`test/server-smoke.sh`).
 
 ### Localization CLI
 

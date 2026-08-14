@@ -93,7 +93,7 @@
     [(not username) (err "username required" 400)]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
-     (define-values (uid tid) (bootstrap! db-conn #:username username))
+     (define-values (uid tid) (bootstrap! db-conn #:username username #:password (hash-ref body 'password #f)))
      (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "bootstrap" #:scopes '("*:*")))
      (json-response (hasheq 'user_id uid 'team_id tid 'token tok
                             'message (msg-bootstrap-done username "Default"))
@@ -120,7 +120,7 @@
      (cond
        [(not username) (err "username required" 400)]
        [else
-        (define uid (create-user! db-conn #:username username))
+        (define uid (create-user! db-conn #:username username #:password (hash-ref body 'password #f)))
         (add-member! db-conn #:user uid #:team (principal-team-id p) #:role role)
         (define-values (tok _t)
           (issue-token! db-conn #:user uid #:team (principal-team-id p) #:scopes '("*:*")))
@@ -136,6 +136,31 @@
                             'users (query-value db-conn "SELECT COUNT(*) FROM users")
                             'teams (query-value db-conn "SELECT COUNT(*) FROM teams")))]))
 
+(define (ep-login req)
+  (define body (read-json-body req))
+  (define username (hash-ref body 'username #f))
+  (define password (hash-ref body 'password #f))
+  (define code (hash-ref body 'code #f))
+  (cond
+    [(or (not username) (not password)) (err "username and password required" 400)]
+    [else
+     (define uid (authenticate db-conn username password #:code code))
+     (cond
+       [(not uid) (unauthorized)]                       ; bad password / missing-or-bad 2FA code
+       [else
+        (define tid (first-team-for db-conn uid))
+        (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "login" #:scopes '("*:*")))
+        (json-response (hasheq 'token tok 'user_id uid 'team_id tid))])]))
+
+(define (ep-2fa-enable req)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else
+     (define-values (secret uri) (enable-2fa! db-conn (principal-user-id p)))
+     (json-response (hasheq 'secret secret 'otpauth_uri uri
+                            'note "2FA enabled — future logins for this user require a TOTP code"))]))
+
 ;; ---- routing ----------------------------------------------------------------
 (define (GET? m) (bytes=? m #"GET"))
 (define (POST? m) (bytes=? m #"POST"))
@@ -146,6 +171,8 @@
   (cond
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
+    [(and (POST? m) (equal? segs '("api" "login")))         (ep-login req)]
+    [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
     [(and (GET? m)  (equal? segs '("api" "whoami")))        (ep-whoami req)]
     [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]

@@ -18,7 +18,8 @@
          json
          file/sha1
          "../db/id.rkt"
-         "permissions.rkt")
+         "permissions.rkt"
+         "passwords.rkt")
 
 (provide (struct-out principal)
          (struct-out exn:fail:forbidden)
@@ -29,7 +30,8 @@
          can? require-perm
          issue-token! resolve-token
          grant! revoke!
-         audit!)
+         audit!
+         set-password! authenticate enable-2fa! first-team-for)
 
 ;; ---- principal --------------------------------------------------------------
 ;; token-scopes: #f = direct user (uncapped by scopes); (listof string) = token.
@@ -49,11 +51,11 @@
 
 ;; ---- creation ---------------------------------------------------------------
 (define (create-user! conn #:username username #:operator? [operator? #f]
-                      #:display-name [display-name sql-null])
+                      #:display-name [display-name sql-null] #:password [pw #f])
   (define uid (new-id))
   (query-exec conn
-    "INSERT INTO users (id, username, display_name, is_operator) VALUES (?, ?, ?, ?)"
-    uid username display-name (if operator? 1 0))
+    "INSERT INTO users (id, username, display_name, is_operator, password_hash) VALUES (?, ?, ?, ?, ?)"
+    uid username display-name (if operator? 1 0) (if pw (hash-password pw) sql-null))
   uid)
 
 (define (create-team! conn #:name name #:slug slug)
@@ -81,16 +83,47 @@
 
 ;; First-run: create the first user as operator, its team, and an owner
 ;; membership. Refuses if any user already exists. Returns (values user-id team-id).
-(define (bootstrap! conn #:username username
+(define (bootstrap! conn #:username username #:password [pw #f]
                     #:team-name [team-name "Default"] #:team-slug [team-slug "default"])
   (when (query-maybe-value conn "SELECT id FROM users LIMIT 1")
     (error 'bootstrap! "already bootstrapped"))
   (seed-builtin-roles! conn)
-  (define uid (create-user! conn #:username username #:operator? #t))
+  (define uid (create-user! conn #:username username #:operator? #t #:password pw))
   (define tid (create-team! conn #:name team-name #:slug team-slug))
   (add-member! conn #:user uid #:team tid #:role "owner")
   (audit! conn #:action "bootstrap" #:actor-type "user" #:actor-id uid #:team-id tid)
   (values uid tid))
+
+;; ---- password / 2FA login ---------------------------------------------------
+(define (set-password! conn user-id pw)
+  (query-exec conn "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+              (hash-password pw) user-id))
+
+(define (enable-2fa! conn user-id #:account [account "user"])
+  (define secret (new-totp-secret))
+  (query-exec conn "UPDATE users SET totp_secret = ? WHERE id = ?" secret user-id)
+  (values secret (totp-uri secret #:account account)))
+
+(define (first-team-for conn user-id)
+  (query-maybe-value conn
+    "SELECT team_id FROM memberships WHERE user_id = ? AND status = 'active' ORDER BY created_at LIMIT 1"
+    user-id))
+
+;; verify username + password (+ TOTP code if 2FA is enabled) → user-id or #f
+(define (authenticate conn username password #:code [code #f])
+  (define row (query-maybe-row conn
+    "SELECT id, password_hash, totp_secret FROM users WHERE username = ? AND status = 'active'" username))
+  (cond
+    [(not row) #f]
+    [else
+     (define uid (vector-ref row 0))
+     (define ph (vector-ref row 1))
+     (define secret (vector-ref row 2))
+     (cond
+       [(or (sql-null? ph) (not (verify-password password ph))) #f]
+       [(and (not (sql-null? secret)) (string? secret) (not (string=? secret "")))
+        (and code (totp-valid? secret code) uid)]     ; 2FA required
+       [else uid])]))
 
 ;; ---- permission resolution --------------------------------------------------
 (define (user-role-key conn user-id team-id)
