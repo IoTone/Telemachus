@@ -40,6 +40,10 @@ jobs:
             test/federation-tests.rkt
       - name: Server smoke
         run: bash test/server-smoke.sh
+      - name: Localization gate
+        run: |
+          export PLTCOLLECTS="$(pwd)/pkgs:"
+          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt --required en
 
   e2e:
     name: E2E feature tour + catalog
