@@ -62,11 +62,19 @@ refimpl/racketmaximus/
   `resource_grants` sharing. `POST/GET /api/notes`, `GET/PUT/DELETE /api/notes/:id`,
   `POST /api/notes/:id/share`.
 
-  Endpoints: `/health`, `/api/bootstrap`, `/api/login`, `/api/2fa/enable`,
-  `/api/whoami`, `/api/members`, `/api/admin/status`, `/api/notes…`.
+- **Quotas + AI governor (slice 6)** — per-team quota limits (tokens/requests/day,
+  concurrency) with a usage ledger, and a semaphore-based **concurrency governor**
+  so AI jobs queue instead of overrunning the host. An `/api/ai/echo` job flows
+  RBAC → quota check → governor slot → meter; over budget → **429**. Plus
+  `GET /api/usage`, `POST /api/quota` (operator).
 
-42 unit tests pass (21 engine + 8 RBAC + 6 localization + 4 auth + 3 notes) + a
-15-assertion server integration test (`test/server-smoke.sh`).
+  Endpoints: `/health`, `/api/bootstrap`, `/api/login`, `/api/2fa/enable`,
+  `/api/whoami`, `/api/members`, `/api/admin/status`, `/api/notes…`,
+  `/api/ai/echo`, `/api/usage`, `/api/quota`.
+
+45 unit tests pass (21 engine + 8 RBAC + 6 localization + 4 auth + 3 notes + 3
+quota/governor) + an 18-assertion server integration test (`test/server-smoke.sh`),
+which includes a live proof that the governor never exceeds the concurrency cap.
 
 ### Localization CLI
 

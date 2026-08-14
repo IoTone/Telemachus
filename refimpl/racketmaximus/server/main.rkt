@@ -28,6 +28,8 @@
          "../domain/db/migrations.rkt"
          "../domain/authz/authz.rkt"
          "../domain/notes/notes.rkt"
+         "../domain/quota/quota.rkt"
+         "../domain/sched/governor.rkt"
          "../domain/i18n/i18n.rkt"
          "../surface/messages.rkt")
 
@@ -95,6 +97,7 @@
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
      (define-values (uid tid) (bootstrap! db-conn #:username username #:password (hash-ref body 'password #f)))
+     (default-policy! db-conn tid)                       ; starter AI quota for the team
      (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "bootstrap" #:scopes '("*:*")))
      (json-response (hasheq 'user_id uid 'team_id tid 'token tok
                             'message (msg-bootstrap-done username "Default"))
@@ -203,6 +206,62 @@
        (json-response (hasheq 'shared #t))]
       [else (err "not found" 404)]))))
 
+;; ---- AI jobs: RBAC → quota → governor slot → meter --------------------------
+(define GOV (make-governor))
+
+(define (quota-429 d dim)
+  (json-response (hasheq 'error "quota exceeded" 'dimension dim
+                         'used (hash-ref d 'used) 'limit (hash-ref d 'limit)
+                         'window (hash-ref d 'window))
+                 #:code 429))
+
+(define (ep-ai-echo req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "chat:use")
+    (define b (read-json-body req))
+    (define prompt (hash-ref b 'prompt ""))
+    (define est (max 1 (quotient (string-length prompt) 4)))       ; token estimate (chars/4)
+    (define sid (principal-team-id p))
+    (define rq (quota-check db-conn "team" sid "ai.requests" 1))
+    (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
+    (cond
+      [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
+      [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
+      [else
+       (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
+       (with-slot GOV (string-append "team:" sid) (or climit 2)
+         (lambda (inflight)
+           (sleep 0.12)                                             ; simulate model latency
+           (quota-record! db-conn "team" sid "ai.requests" 1)
+           (quota-record! db-conn "team" sid "ai.tokens.total" est)
+           (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
+           (json-response (hasheq 'reply (string-upcase prompt)
+                                  'tokens_used est
+                                  'concurrent inflight
+                                  'remaining_tokens (hash-ref after 'remaining)))))]))))
+
+(define (ep-usage req)
+  (with-auth req (lambda (p)
+    (define sid (principal-team-id p))
+    (json-response
+     (hasheq 'team_id sid
+             'quota (for/list ([dim (in-list '("ai.tokens.total" "ai.requests" "ai.concurrency"))])
+                      (define d (quota-check db-conn "team" sid dim 0))
+                      (hasheq 'dimension dim 'used (hash-ref d 'used)
+                              'limit (hash-ref d 'limit) 'remaining (hash-ref d 'remaining))))))))
+
+(define (ep-quota-set req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (define dim (hash-ref b 'dimension #f))
+    (define limit (hash-ref b 'limit #f))
+    (cond
+      [(or (not dim) (not limit)) (err "dimension and limit required" 400)]
+      [else
+       (set-limit! db-conn "team" (principal-team-id p) dim limit #:window (hash-ref b 'window "day"))
+       (json-response (hasheq 'ok #t 'dimension dim 'limit limit))]))))
+
 ;; ---- routing ----------------------------------------------------------------
 (define (GET? m) (bytes=? m #"GET"))
 (define (POST? m) (bytes=? m #"POST"))
@@ -233,6 +292,9 @@
     [(and (GET? m)    (note-id segs))                      (ep-notes-get req (note-id segs))]
     [(and (PUT? m)    (note-id segs))                      (ep-notes-update req (note-id segs))]
     [(and (DELETE? m) (note-id segs))                      (ep-notes-delete req (note-id segs))]
+    [(and (POST? m) (equal? segs '("api" "ai" "echo")))    (ep-ai-echo req)]
+    [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
+    [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]
     [else (err "not found" 404)]))
 
 (define (handle req)

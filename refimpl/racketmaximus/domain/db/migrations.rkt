@@ -129,4 +129,29 @@
        "CREATE INDEX idx_notes_team ON notes(team_id)"
        "CREATE INDEX idx_notes_owner ON notes(owner_user_id)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes))
+;; 0003 — quotas & usage metering (slice 6). Per-subject limits + an append-only
+;; usage ledger; concurrency limits are read by the governor.
+(define m-0003-quota
+  (migration "0003-quota"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE quota_limits ("
+        "  id TEXT PRIMARY KEY,"
+        "  subject_type TEXT NOT NULL,"                ; team | user
+        "  subject_id TEXT NOT NULL,"
+        "  dimension TEXT NOT NULL,"                   ; ai.tokens.total | ai.requests | ai.concurrency
+        "  limit_value INTEGER NOT NULL,"
+        "  window TEXT NOT NULL DEFAULT 'day',"        ; day | minute | instant
+        "  UNIQUE(subject_type, subject_id, dimension))")
+       (string-append
+        "CREATE TABLE usage_ledger ("
+        "  id TEXT PRIMARY KEY,"
+        "  subject_type TEXT NOT NULL,"
+        "  subject_id TEXT NOT NULL,"
+        "  dimension TEXT NOT NULL,"
+        "  amount INTEGER NOT NULL,"
+        "  at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_usage_subj ON usage_ledger(subject_type, subject_id, dimension)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota))
