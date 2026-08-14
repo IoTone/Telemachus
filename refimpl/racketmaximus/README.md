@@ -116,15 +116,17 @@ refimpl/racketmaximus/
   plugin id as `source`. `GET /api/plugins` lists them; the Tools card shows a 🔌
   source badge. Ships an `example-tools` plugin (`word_count`).
 
-- **MCP support (slice 14)** — an **MCP client** (`domain/mcp/`, JSON-RPC 2.0 over
-  stdio) connects to external Model Context Protocol servers at startup, lists
-  their tools, and registers each as `mcp__<server>__<tool>` — so **any MCP
-  server's tools become agent tools**, with the same RBAC + activation. Configure
-  in `mcp.json` (`{"servers":[{"name,command,args}]}`, `TELEMACHUS_MCP` to override);
-  `GET /api/mcp`. Ships a Racket mock MCP server (`test/mock-mcp.rkt`) wired by
-  default, so the agent can e.g. call `mcp__mock__add`.
+- **MCP support (slices 14–15)** — an **MCP client** (`domain/mcp/`, JSON-RPC 2.0)
+  over **two transports**: **stdio** (subprocess) and **Streamable HTTP** (POST +
+  json/SSE response, `Mcp-Session-Id`). Connects to external Model Context Protocol
+  servers at startup, lists their tools, and registers each as `mcp__<server>__<tool>`
+  — so **any MCP server's tools become agent tools**, with the same RBAC + activation.
+  Configure in `mcp.json` — a `command`+`args` entry (stdio) or a `url` entry (HTTP);
+  `TELEMACHUS_MCP` overrides; `GET /api/mcp`. Ships Racket mock MCP servers
+  (`test/mock-mcp{,-http}.rkt`); the stdio one is wired by default so the agent can
+  call `mcp__mock__add`.
 
-55 unit tests pass + a 33-assertion server integration test
+56 unit tests pass + a 33-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

@@ -45,11 +45,14 @@
     (define cfg (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                   (call-with-input-file config-path read-json)))
     (for ([s (in-list (let ([ss (hash-ref cfg 'servers '())]) (if (list? ss) ss '())))]
-          #:when (and (hash? s) (hash-ref s 'command #f)))
+          #:when (and (hash? s) (or (hash-ref s 'command #f) (hash-ref s 'url #f))))
       (define name (hash-ref s 'name "mcp"))
       (with-handlers ([exn:fail? (lambda (e) (log (format "~a: failed — ~a" name (exn-message e))))])
-        (define command (format "~a" (hash-ref s 'command)))
-        (define args (let ([a (hash-ref s 'args '())]) (if (list? a) (map (lambda (x) (format "~a" x)) a) '())))
-        (define conn (mcp-connect command args))
+        (define conn
+          (cond
+            [(hash-ref s 'url #f) => (lambda (u) (mcp-connect-http (format "~a" u)))]      ; Streamable HTTP
+            [else (mcp-connect-stdio (format "~a" (hash-ref s 'command))                  ; stdio subprocess
+                                     (let ([a (hash-ref s 'args '())])
+                                       (if (list? a) (map (lambda (x) (format "~a" x)) a) '())))]))
         (register-server! name conn (mcp-list-tools conn) #:log log))))
   (unbox *servers*))

@@ -6,6 +6,7 @@
 (require rackunit
          racket/runtime-path
          racket/file
+         racket/tcp
          json
          db
          db-kit/migrate
@@ -17,6 +18,7 @@
          "../domain/authz/authz.rkt")
 
 (define-runtime-path mock "mock-mcp.rkt")
+(define-runtime-path mock-http "mock-mcp-http.rkt")
 (define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
 
 (test-case "mcp client: initialize, tools/list, tools/call"
@@ -40,3 +42,17 @@
   (define-values (uid tid) (bootstrap! conn #:username "alice"))
   (check-equal? (dispatch-tool conn (user-principal conn uid tid) "mcp__mock__add" (hasheq 'a 10 'b 5)) "15")
   (delete-file cfg))
+
+(test-case "mcp Streamable HTTP transport: connect, list, call"
+  (define p 8913)
+  (define-values (proc o i e) (subprocess #f #f #f (find-executable-path "racket") (path->string mock-http) (number->string p)))
+  (let loop ([n 0])                                   ; wait for the server to bind
+    (define up (with-handlers ([exn:fail? (lambda (_) #f)])
+                 (define-values (ci co) (tcp-connect "127.0.0.1" p))
+                 (close-input-port ci) (close-output-port co) #t))
+    (unless (or up (> n 200)) (sleep 0.05) (loop (add1 n))))
+  (define c (mcp-connect-http (format "http://127.0.0.1:~a/" p)))
+  (check-equal? (map (lambda (t) (hash-ref t 'name)) (mcp-list-tools c)) '("add"))
+  (check-equal? (mcp-call-tool c "add" (hasheq 'a 7 'b 8)) "15")
+  (mcp-close c)
+  (subprocess-kill proc #t))
