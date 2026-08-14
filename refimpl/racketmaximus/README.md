@@ -9,9 +9,9 @@ app-specific glue in `config.rkt`; CLIs and the HTTP server added on top.
 refimpl/racketmaximus/
   pkgs/            # app-agnostic, publishable libraries
     cli-kit/       #   JSON-emitting CLI scaffolding (run harness, pretty JSON)
-    db-kit/        #   DATABASE_URL → connection + SQL coercers (sqlite today)
+    db-kit/        #   DATABASE_URL → connection + coercers + migration runner
     web-kit/       #   thin JSON-API helpers over web-server
-  domain/          # the SDK engine + (later) tool implementations
+  domain/          # the SDK engine, persistence, RBAC, (later) tool impls
     tools/
       dsl.rkt      #   the define-tool macro → OpenAI-compatible schemas
       convert.rkt  #   native function-call → tool-block converter
@@ -19,12 +19,27 @@ refimpl/racketmaximus/
       loop.rkt     #   pure run-agent spine (effects #:llm / #:exec injected)
       llm.rkt      #   OpenAI-compatible chat adapter (blocking + SSE)
       prompt-security.rkt  # untrusted-context wrapper
+    db/            #   ids (UUIDv4) + schema migrations
+    authz/         #   RBAC: permission catalog + AuthzService
   config.rkt       # the only app-branded shared module (paths, version, app db)
   info.rkt         # the `telemachus` app collection
-  test/            # rackunit suite + scripted mock-LLM server
+  test/            # rackunit suites + scripted mock-LLM server
   cli/             # (planned) telemachus-* command-line tools
   server/          # (planned) the HTTP surface
 ```
+
+## Implemented so far
+
+- **Engine nucleus** — `define-tool` DSL, pure `run-agent` spine, OpenAI-compatible
+  LLM adapter, untrusted-context wrapper.
+- **Persistence** — `db-kit/migrate` (ordered, idempotent, transactional migrations
+  in `schema_migrations`) + UUIDv4 ids; schema migration `0001-core`.
+- **RBAC (slice 1)** — `AuthzService`: teams/memberships/roles/permissions, the
+  operator tier (`instance:*` operator-only), `can?`/`require-perm`, resource
+  grants (sharing), API tokens capped by *issuer-perms ∩ scopes*, and an audit log.
+  See `docs/design/rbac-and-teams.md`.
+
+29 tests pass (21 engine + 8 RBAC/persistence).
 
 ## Dev setup
 
@@ -35,10 +50,11 @@ Requires Racket 9.x CS (`racket --version`).
 raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
 
 # compile everything
-raco make config.rkt pkgs/*/main.rkt domain/tools/*.rkt domain/agent/*.rkt
+raco make config.rkt pkgs/*/main.rkt pkgs/db-kit/migrate.rkt \
+         domain/tools/*.rkt domain/agent/*.rkt domain/db/*.rkt domain/authz/*.rkt
 
-# run the engine test suite (21 cases: DSL, converter, prompt-security, loop, llm)
-raco test test/engine-tests.rkt
+# run the test suites (29 cases: engine + RBAC/persistence)
+raco test test/engine-tests.rkt test/authz-tests.rkt
 ```
 
 The agent spine is pure: `run-agent` takes its `#:llm` and `#:exec` as injected
