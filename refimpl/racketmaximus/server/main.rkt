@@ -52,6 +52,7 @@
 
 ;; ---- TLS --------------------------------------------------------------------
 (define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
+(define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
 (define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
 (define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
 (define (tls-key)  (or (env* "TELEMACHUS_TLS_KEY")  (path->string (build-path (data-dir) "key.pem"))))
@@ -422,10 +423,11 @@
 (module+ main
   (init-db!)
   (define tls? (tls-on?))
+  (define ip (bind-ip))
   (when tls? (ensure-cert!))
-  (printf "telemachus server on ~a://127.0.0.1:8080  (db: ~a · kdf: ~a · tls: ~a)\n"
-          (if tls? "https" "http") db-path (kdf-name) (if tls? "on" "off"))
+  (printf "telemachus server on ~a://~a:8080  (db: ~a · kdf: ~a · tls: ~a)\n"
+          (if tls? "https" "http") ip db-path (kdf-name) (if tls? "on" "off"))
   (flush-output)
   (if tls?
-      (serve handle #:port 8080 #:ssl-cert (tls-cert) #:ssl-key (tls-key))
-      (serve handle #:port 8080)))
+      (serve handle #:port 8080 #:listen-ip ip #:ssl-cert (tls-cert) #:ssl-key (tls-key))
+      (serve handle #:port 8080 #:listen-ip ip)))
