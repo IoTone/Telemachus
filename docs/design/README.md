@@ -58,13 +58,12 @@ request ─▶ RBAC check ─▶ quota check ─▶ scheduler admission ─▶ e
   meter. The pure spine is untouched — this is exactly what the injected-effects
   design was for.
 
-## Cross-cutting decision to confirm
+## Tenancy (decided)
 
-**Tenancy shape.** These docs model **Team as the tenancy boundary** with a
-single implicit organization (the deployment). Multiple independent orgs sharing
-one instance is treated as a *future additive layer* (`org_id` on `teams`), not
-v1. Confirm this is the right scope, or say if multi-org isolation is required
-now (it changes isolation checks everywhere).
+**Team is the tenancy boundary**, within **one organization / legal entity** per
+deployment (one or many teams). Isolating *different legal entities* on a shared
+instance is an explicit **non-goal** — hosted multitenant offerings serve that. No
+`org_id` in the schema; the org is implicit. See [decisions.md](decisions.md) (TEN).
 
 ## Follow-up design items (noted, not yet drafted)
 

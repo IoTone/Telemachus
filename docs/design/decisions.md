@@ -89,37 +89,48 @@ that subsystem.
 
 ---
 
-## Decision log (to record choices)
+## Decision log
 
-Status: **pending review.** Fill `Chosen` as decisions land; `→ default` means the
-recommendation above was accepted.
+Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was accepted.
 
 | ID | Recommendation (short) | Chosen |
 |---|---|---|
-| TEN | team-boundary, single org | — |
-| RBAC‑1 | owner/admin/member/viewer | — |
-| RBAC‑2 | allow custom per-team roles | — |
-| RBAC‑3 | within-team shares only (v1) | — |
-| RBAC‑4 | token = issuer-perms ∩ scopes | — |
-| RBAC‑5 | distinct instance operator | — |
-| DB‑1 | migrations runner in db-kit | — |
-| DB‑2 | UUID (text) PKs | — |
-| QUOTA‑1 | AI dims first | — |
-| QUOTA‑2 | reject budgets / delay rate | — |
-| QUOTA‑3 | daily+monthly+60s, UTC | — |
-| QUOTA‑4 | min(team,user), meter both | — |
-| QUOTA‑5 | chars/4 estimate | — |
-| QUOTA‑6 | default policy + presets | — |
-| SCHED‑1 | local-model only | — |
-| SCHED‑2 | {model, est_tokens} | — |
-| SCHED‑3 | defer remote transport | — |
-| SCHED‑4 | persist jobs table | — |
-| SCHED‑5 | priority+FIFO (v1) | — |
-| SCHED‑6 | global+executor+team scopes | — |
-| SCHED‑7 | cancelable, not preemptible | — |
-| LOC‑1 | ICU-JSON catalogs | — |
-| LOC‑2 | UI+API+tools first | — |
-| LOC‑3 | named namespaced ids | — |
-| LOC‑4 | advisory coverage (v1) | — |
-| LOC‑5 | opt-in AI draft, translation role | — |
-| LOC‑6 | separate doc-gen design | — |
+| TEN | team-boundary, single org | ✅ default — **one legal entity**; cross-entity multitenancy is a **non-goal** [^1] |
+| RBAC‑1 | owner/admin/member/viewer | ✅ default |
+| RBAC‑2 | allow custom per-team roles | ✅ default |
+| RBAC‑3 | within-team shares only (v1) | ✅ default |
+| RBAC‑4 | token = issuer-perms ∩ scopes | ✅ default (first option) |
+| RBAC‑5 | distinct instance operator | ⚙️ **amended** — first team owner **bootstraps as** operator, but operator is a **distinct super-admin tier** [^2] |
+| DB‑1 | migrations runner in db-kit | ✅ default |
+| DB‑2 | UUID (text) PKs | ✅ default |
+| QUOTA‑1 | AI dims first | ✅ default |
+| QUOTA‑2 | reject budgets / delay rate | ✅ default |
+| QUOTA‑3 | daily+monthly+60s, UTC | ✅ default |
+| QUOTA‑4 | min(team,user), meter both | ✅ default |
+| QUOTA‑5 | chars/4 estimate | ✅ default *(assumed — not explicitly called)* |
+| QUOTA‑6 | default policy + presets | ✅ default |
+| SCHED‑1 | local-model only | ✅ default |
+| SCHED‑2 | {model, est_tokens} | ✅ default |
+| SCHED‑3 | defer remote transport | ✅ default |
+| SCHED‑4 | persist jobs table | ✅ default |
+| SCHED‑5 | priority+FIFO (v1) | ✅ default |
+| SCHED‑6 | global+executor+team scopes | ✅ default |
+| SCHED‑7 | cancelable, not preemptible | ✅ default |
+| LOC‑1 | ICU-JSON catalogs | ✅ default |
+| LOC‑2 | UI+API+tools first | ✅ default |
+| LOC‑3 | named namespaced ids | ✅ default |
+| LOC‑4 | advisory coverage (v1) | ✅ default |
+| LOC‑5 | opt-in AI draft, translation role | ✅ default |
+| LOC‑6 | separate doc-gen design | ✅ default |
+
+[^1]: **TEN.** A deployment serves one organization/legal entity that may contain
+one or many **teams**. Isolating *different legal entities* on a shared instance is
+explicitly **out of scope** — hosted multitenant offerings serve that need. No
+`org_id` in the schema; the org is implicit.
+
+[^2]: **RBAC‑5.** There is no separate operator-account setup step: the first user
+created (first team's owner) is granted the instance **operator** capability at
+bootstrap. But operator remains a **distinct tier** — `instance:*` permissions
+(deployment settings, model endpoints, feature activation, cross-team, create/delete
+teams) are grantable *only* via the operator flag and are **never** part of any team
+role, so an ordinary team owner cannot hold them. `can(instance:*)` ⇔ `is_operator`.

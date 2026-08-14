@@ -45,4 +45,7 @@
       that proves the platform can build tools. (Design: `design/localization.md`.)
 
 ## Out of scope / non-goals (to specify)
-- [ ] (e.g., open-core tiers — explicitly a non-goal.)
+- [x] **Open-core tiers** — explicitly a non-goal (pure OSS, no held-back tier).
+- [x] **Cross-legal-entity multitenancy** — a deployment serves one organization
+      (many teams OK); isolating different legal entities on a shared instance is
+      out of scope (hosted offerings serve that need).

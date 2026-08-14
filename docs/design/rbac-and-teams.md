@@ -16,8 +16,12 @@ on, and the **authorization** every feature checks.
   a team*, carrying a **subset** of that user's permissions (never more). Replaces
   Odysseus's `ody_` tokens and its magic `internal-tool` username; the engine's
   in-process tool loopback is a service principal with explicit, minimal grants.
-- **Operator** — the instance-level superuser (first-run bootstrap, lock-guarded),
-  manages deployment settings, model endpoints, feature activation, all teams.
+- **Operator** — the instance-level superuser. **Decided (RBAC‑5):** there is no
+  separate operator account — the **first user** (the first team's owner) is granted
+  the operator capability at bootstrap. But operator stays a **distinct tier**:
+  `instance:*` permissions (deployment settings, model endpoints, feature activation,
+  cross-team access, create/delete teams) are held **only** via the operator flag and
+  are never part of any team role, so an ordinary team owner cannot hold them.
 
 ## Roles → permissions
 
@@ -39,15 +43,19 @@ issuing user's live permissions at call time (revoking the user revokes the toke
 
 **Permission catalog (initial).** `resource` ∈ {team, members, roles, quota,
 settings, features, models, tokens, webhooks, audit, chat, tools, documents,
-notes, tasks, memory, research, files}. `action` ∈ {read, write, delete, use,
-invoke, manage, serve}. Examples: `documents:write`, `tools:invoke`,
-`members:manage`, `models:serve`, `features:manage`. Wildcards allowed in a role
-(`documents:*`, `*:read`).
+notes, tasks, memory, research, files, localization, **instance**}. `action` ∈
+{read, write, delete, use, invoke, manage, serve}. Examples: `documents:write`,
+`tools:invoke`, `members:manage`, `models:serve`. Wildcards allowed in a role
+(`documents:*`, `*:read`). **`instance:*` is operator-only** — never grantable via
+a team role, even `owner`'s `*:*` (see the authorization model).
 
 ## Authorization model
 
 A check is `can(principal, permission, resource) -> bool`:
 
+0. **Operator tier.** If the permission is `instance:*`, grant **iff**
+   `principal.is_operator` (no team role can satisfy it). If `principal.is_operator`
+   and the permission is non-instance, grant (operator supersedes team roles).
 1. Resolve the **team context** (the resource's `team_id`, or an explicit team for
    team-level actions).
 2. Resolve the principal's **effective permissions** in that team (role grants,
@@ -130,6 +138,6 @@ operator can disable a capability team-wide or instance-wide.
    cross-team later.)
 4. **Token scope model.** Confirm tokens = issuer-perms ∩ explicit-scopes (my
    recommendation) vs a fixed scope catalog like Odysseus.
-5. **Operator vs Team-Owner split.** Is a distinct instance `operator` wanted, or
-   should the first team's owner also be the instance operator? (Default: distinct
-   `operator`.)
+5. **Operator vs Team-Owner split.** ✅ **Decided:** first team owner bootstraps *as*
+   operator; operator is a distinct tier (`instance:*` operator-only). No separate
+   operator account.
