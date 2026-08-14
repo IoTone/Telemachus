@@ -9,6 +9,10 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 export TELEMACHUS_DATA_DIR="$E2E_DATA_DIR"
 export DATABASE_URL="sqlite:///$E2E_DATA_DIR/e2e.db"
 export TELEMACHUS_BIND=127.0.0.1
-export TELEMACHUS_MODEL_URL="${TELEMACHUS_MODEL_URL:-http://127.0.0.1:11434/v1/chat/completions}"
-export TELEMACHUS_MODEL="${TELEMACHUS_MODEL:-qwen2.5:7b}"
+# A demo federated executor so the Admin › Compute table has something to show
+# (it is only listed, never called — no second endpoint required).
+export TELEMACHUS_EXECUTORS="${TELEMACHUS_EXECUTORS:-$PWD/test/e2e/executors.example.json}"
+# The model is inherited from the environment (run.sh sets it when a local ollama
+# is reachable). With none set the server uses its deterministic fallback, so the
+# tour still passes on CI runners that have no GPU/model.
 exec racket server/main.rkt
