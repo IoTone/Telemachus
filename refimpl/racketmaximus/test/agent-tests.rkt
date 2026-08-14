@@ -11,6 +11,7 @@
          "../domain/authz/authz.rkt"
          "../domain/agent/loop.rkt"       ; assistant-msg accessors
          "../domain/agent/run.rkt"        ; parse-agent-response, make-exec
+         "../domain/agent/registry.rkt"   ; set-tool-enabled!, tool-settings-for
          "../domain/tools/convert.rkt")   ; tool-block
 
 (define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
@@ -46,3 +47,16 @@
   (define exec2 (make-exec c (user-principal c bob tid) ev))
   (check-true (regexp-match? #rx"Permission denied"
                              (exec2 (tool-block "create_note" "{\"title\":\"x\",\"body\":\"y\"}")))))
+
+(test-case "tool activation: disabling a tool blocks dispatch, re-enabling restores"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define exec (make-exec c (user-principal c uid tid) (lambda (_) (void))))
+  (check-true (regexp-match? #rx"Created note" (exec (tool-block "create_note" "{\"title\":\"A\",\"body\":\"B\"}"))))
+  ;; registry lists the tool as enabled by default
+  (check-true (for/or ([t (in-list (tool-settings-for c tid))])
+                (and (string=? (hash-ref t 'name) "create_note") (hash-ref t 'enabled))))
+  (set-tool-enabled! c tid "create_note" #f)
+  (check-true (regexp-match? #rx"disabled" (exec (tool-block "create_note" "{\"title\":\"C\",\"body\":\"D\"}"))))
+  (set-tool-enabled! c tid "create_note" #t)
+  (check-true (regexp-match? #rx"Created note" (exec (tool-block "create_note" "{\"title\":\"E\",\"body\":\"F\"}")))))

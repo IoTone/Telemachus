@@ -100,7 +100,15 @@ refimpl/racketmaximus/
   answer. This is the seed of the plugin SDK: a new tool = a `define-tool` schema
   + a permission + a handler. `domain/agent/{tools,run}.rkt`.
 
-51 unit tests pass + a 27-assertion server integration test
+- **Plugin tool SDK + activation (slice 12)** — a **tool registry**
+  (`domain/agent/registry.rkt`): a tool is `register-tool!(name, schema,
+  permission, handler)` — the whole contract for extending the platform, first-
+  or third-party. Tools are **activatable per team** (`tool_settings`, default on);
+  the agent only offers enabled tools and dispatch re-checks. Manage via
+  `GET /api/tools` + `POST /api/tools/:name` (settings:manage) and a Tools card in
+  the Usage tab. Built-ins: `create_note`, `update_note`, `list_notes`, `get_usage`.
+
+52 unit tests pass + a 29-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

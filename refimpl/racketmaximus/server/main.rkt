@@ -35,6 +35,7 @@
          "../domain/sched/governor.rkt"
          "../domain/ai/executor.rkt"
          "../domain/agent/run.rkt"
+         "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
          "../domain/i18n/i18n.rkt"
          "../surface/messages.rkt")
 
@@ -396,6 +397,19 @@
                       (hasheq 'dimension dim 'used (hash-ref d 'used)
                               'limit (hash-ref d 'limit) 'remaining (hash-ref d 'remaining))))))))
 
+;; plugin tool management (per-team activate/deactivate)
+(define (ep-tools-list req)
+  (with-auth req (lambda (p)
+    (json-response (hasheq 'tools (tool-settings-for db-conn (principal-team-id p)))))))
+
+(define (ep-tool-toggle req name)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define b (read-json-body req))
+    (define on? (and (hash-ref b 'enabled #t) #t))
+    (set-tool-enabled! db-conn (principal-team-id p) name on?)
+    (json-response (hasheq 'ok #t 'tool name 'enabled on?)))))
+
 (define (ep-quota-set req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
@@ -417,6 +431,8 @@
 ;; /api/notes/<id> → id ; /api/notes/<id>/share → id
 (define (note-id segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "notes") (caddr segs)))
+(define (tool-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tools") (caddr segs)))
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
@@ -449,6 +465,8 @@
     [(and (GET? m)  (equal? segs '("api" "ai" "model")))   (ep-ai-model req)]
     [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
     [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]
+    [(and (GET? m)  (equal? segs '("api" "tools")))        (ep-tools-list req)]
+    [(and (POST? m) (tool-path segs))                      (ep-tool-toggle req (tool-path segs))]
     [else (err "not found" 404)]))
 
 (define (handle req)

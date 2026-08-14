@@ -1,30 +1,29 @@
 #lang racket/base
 
 ;; domain/agent/run.rkt — the agent flow: wire the pure run-agent spine to a real
-;; model (tool-calling) and a real, RBAC-checked tool dispatcher. Emits events
-;; (assistant text, tool call, tool result, done) so the server can stream them.
+;; model (tool-calling) and the plugin tool registry. Emits events (assistant
+;; text, tool call, tool result, done) for streaming.
 ;;
-;; Model tool_calls are parsed natively here (name + raw JSON args) — we do NOT
-;; go through the Odysseus-catalog converter; the agent's own tool set drives it.
+;; Tools come from the registry (registry.rkt); the model is only offered the
+;; team's ENABLED tools, and dispatch re-checks enablement + per-tool RBAC.
 
 (require racket/string
          json
          "loop.rkt"                     ; run-agent, assistant-msg, agent-result (+accessors)
          "../tools/convert.rkt"         ; tool-block struct
-         "tools.rkt"                    ; agent-tool-schemas, tool-permission
+         "registry.rkt"                 ; tool-by-name, tool-enabled?, enabled-tool-schemas, tool-*
+         "tools.rkt"                    ; side effect: registers the built-in tools
          "../authz/authz.rkt"           ; can?, exn:fail:forbidden, principal-*
-         "../notes/notes.rkt"           ; handlers
-         "../quota/quota.rkt"           ; get_usage
          "../ai/executor.rkt")          ; model-url/name/key, model-configured?
 (require (only-in "llm.rkt" http-post-json))
 
-(provide run-agent-flow agent-configured? make-exec parse-agent-response)
+(provide run-agent-flow agent-configured? make-exec parse-agent-response dispatch-tool)
 
 (define SYSTEM
   (string-append
    "You are Telemachus, a concise team assistant. Use the provided tools to act on "
-   "the user's request — create notes, list notes, or report AI usage. Prefer calling "
-   "a tool over guessing. After the tools run, reply with a short natural-language summary."))
+   "the user's request — create or update notes, list notes, or report AI usage. Prefer "
+   "calling a tool over guessing. After the tools run, reply with a short natural-language summary."))
 
 (define (agent-configured?) (model-configured?))
 
@@ -38,8 +37,6 @@
 (define (raw-call id name args)
   (hasheq 'id id 'type "function" 'function (hasheq 'name name 'arguments args)))
 
-;; OpenAI-compatible response → assistant-msg with tool-blocks (type=name,
-;; content=raw JSON args) and the aligned raw tool_call objects.
 (define (parse-agent-response resp)
   (define choices (hash-ref resp 'choices '()))
   (define msg (if (pair? choices) (hash-ref (car choices) 'message (hasheq)) (hasheq)))
@@ -65,42 +62,29 @@
     (unless (= code 200) (error 'agent "model endpoint returned HTTP ~a" code))
     (parse-agent-response resp)))
 
-;; ---- tool dispatch (RBAC-checked) -------------------------------------------
-(define (jget h k [d ""]) (let ([v (hash-ref h (string->symbol k) d)]) (if (eq? v 'null) d v)))
+;; ---- dispatch (registry + enablement + RBAC) --------------------------------
 (define (parse-args s)
   (with-handlers ([exn:fail? (lambda (_) (hasheq))])
     (let ([j (string->jsexpr s)]) (if (hash? j) j (hasheq)))))
 
-;; make-exec : conn × principal × (event -> void) -> (tool-block -> result-string)
+(define (dispatch-tool conn p name args)
+  (with-handlers ([exn:fail:forbidden?
+                   (lambda (e) (format "Permission denied: ~a" (exn:fail:forbidden-permission e)))]
+                  [exn:fail? (lambda (e) (format "Error: ~a" (exn-message e)))])
+    (define t (tool-by-name name))
+    (cond
+      [(not t) (format "Unknown tool: ~a" name)]
+      [(not (tool-enabled? conn (principal-team-id p) name)) (format "Tool '~a' is disabled" name)]
+      [(not (can? conn p "tools:invoke")) "Permission denied: tools:invoke"]
+      [(and (tool-perm t) (not (can? conn p (tool-perm t)))) (format "Permission denied: ~a" (tool-perm t))]
+      [else ((tool-handler t) conn p args)])))
+
 (define (make-exec conn p on-event)
   (lambda (tb)
     (define name (tool-block-type tb))
     (define args (parse-args (tool-block-content tb)))
     (on-event (hasheq 'type "tool" 'name name 'args args))
-    (define result
-      (with-handlers ([exn:fail:forbidden?
-                       (lambda (e) (format "Permission denied: ~a" (exn:fail:forbidden-permission e)))]
-                      [exn:fail? (lambda (e) (format "Error: ~a" (exn-message e)))])
-        (define perm (hash-ref tool-permission name #f))
-        (cond
-          [(not (can? conn p "tools:invoke")) "Permission denied: tools:invoke"]
-          [(and perm (not (can? conn p perm))) (format "Permission denied: ~a" perm)]
-          [else
-           (case name
-             [("create_note")
-              (define vis (let ([v (jget args "visibility" "team")]) (if (string=? v "") "team" v)))
-              (define n (notes-create conn p #:title (jget args "title") #:body (jget args "body") #:visibility vis))
-              (format "Created note \"~a\" (~a), id ~a" (hash-ref n 'title) (hash-ref n 'visibility) (hash-ref n 'id))]
-             [("list_notes")
-              (define ns (notes-list conn p))
-              (if (null? ns) "You have no notes."
-                  (string-join (for/list ([n (in-list ns)]) (format "- ~a [~a]" (hash-ref n 'title) (hash-ref n 'visibility))) "\n"))]
-             [("get_usage")
-              (string-join
-               (for/list ([d (in-list '("ai.tokens.total" "ai.requests"))])
-                 (define q (quota-check conn "team" (principal-team-id p) d 0))
-                 (format "~a: ~a/~a used" d (hash-ref q 'used) (hash-ref q 'limit))) "; ")]
-             [else (format "Unknown tool: ~a" name)])])))
+    (define result (dispatch-tool conn p name args))
     (on-event (hasheq 'type "tool_result" 'name name 'result result))
     result))
 
@@ -112,7 +96,7 @@
           [else (loop (cdr tx))])))
 
 (define (run-agent-flow conn p user-text on-event #:max-rounds [max-rounds 6])
-  (define tools (agent-tool-schemas))
+  (define tools (enabled-tool-schemas conn (principal-team-id p)))
   (define base-llm (make-llm tools))
   (define llm
     (lambda (msgs)
