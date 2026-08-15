@@ -12,6 +12,7 @@ forks flagged **Decisions to confirm** in each doc.
 | [quotas.md](quotas.md) | **Quotas** | What is metered per user/team, and the limits. |
 | [ai-queue-and-concurrency.md](ai-queue-and-concurrency.md) | **AI workload scheduler** | Admission, placement & concurrency caps — a workload queue (SLURM/k8s-style), not a message bus; local now, federation-ready. |
 | [localization.md](localization.md) | **Localization** | i18n top-to-bottom + a manager tool (extract → team-complete → CI-gate); English at launch, ja/nl/es-419 built *by the tool*. |
+| [saas-onboarding.md](saas-onboarding.md) | **Onboarding / SaaS** | Provision a per-tenant instance seeded with exactly one owner (signup / subscription / VM launch); operator-vs-owner split, magic-link activation. |
 
 ## How they interlock
 
@@ -64,6 +65,10 @@ request ─▶ RBAC check ─▶ quota check ─▶ scheduler admission ─▶ e
 deployment (one or many teams). Isolating *different legal entities* on a shared
 instance is an explicit **non-goal** — hosted multitenant offerings serve that. No
 `org_id` in the schema; the org is implicit. See [decisions.md](decisions.md) (TEN).
+
+The **hosted** offering that serves *different legal entities* does so as **one
+isolated instance per tenant** — provisioning + seed-one-owner is specified in
+[saas-onboarding.md](saas-onboarding.md).
 
 ## Follow-up design items (noted, not yet drafted)
 
