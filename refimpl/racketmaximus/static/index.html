@@ -310,7 +310,9 @@ async function doToggleTool(name,enabled){ const r=await api('/api/tools/'+name,
 
 async function adminView(){
   const r=await api('/api/admin/status');
-  const body = r.ok ? `<div class="row"><div class="card"><label>users</label><h2>${r.json.users}</h2></div><div class="card"><label>teams</label><h2>${r.json.teams}</h2></div></div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
+  const mr=await api('/api/metrics'); const M=mr.ok?mr.json:{};
+  const stat=(k,l)=>`<div class="card"><label>${l}</label><h2>${M[k]??'–'}</h2></div>`;
+  const body = r.ok ? `<div class="row">${stat('users','users')}${stat('teams','teams')}${stat('notes','notes')}${stat('translations','translations')}${stat('active_tokens','tokens')}${stat('audit_events','audit')}</div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
   const xr=await api('/api/executors');
   let compute='';
   if(xr.ok){

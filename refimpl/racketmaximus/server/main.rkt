@@ -632,6 +632,19 @@
     (require-perm db-conn p "settings:manage")
     (json-response (hasheq 'audit (audit-list db-conn (principal-team-id p) #:limit 100))))))
 
+(define (ep-metrics req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define (n q) (query-value db-conn q))
+    (json-response (hasheq
+      'users (n "SELECT COUNT(*) FROM users")
+      'teams (n "SELECT COUNT(*) FROM teams")
+      'notes (n "SELECT COUNT(*) FROM notes")
+      'translations (n "SELECT COUNT(*) FROM translations")
+      'active_tokens (n "SELECT COUNT(*) FROM api_tokens WHERE status = 'active'")
+      'audit_events (n "SELECT COUNT(*) FROM audit_log")
+      'tenants (n "SELECT COUNT(*) FROM provisioning"))))))
+
 (define (ep-features req)
   (with-auth req (lambda (p) (json-response (hasheq 'features (features-for db-conn (principal-team-id p)))))))
 
@@ -738,6 +751,7 @@
     [(and (DELETE? m) (token-path segs))                   (ep-tokens-revoke req (token-path segs))]
     [(and (GET? m)  (equal? segs '("api" "search")))       (ep-search req)]
     [(and (GET? m)  (equal? segs '("api" "audit")))        (ep-audit req)]
+    [(and (GET? m)  (equal? segs '("api" "metrics")))      (ep-metrics req)]
     [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
     [(and (POST? m) (feature-path segs))                   (ep-feature-toggle req (feature-path segs))]
     [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
