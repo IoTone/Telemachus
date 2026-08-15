@@ -30,7 +30,7 @@
          can? require-perm
          issue-token! resolve-token list-tokens revoke-token!
          grant! revoke!
-         audit!
+         audit! audit-list
          set-password! change-password! authenticate enable-2fa! first-team-for)
 
 ;; ---- principal --------------------------------------------------------------
@@ -285,3 +285,15 @@
                    "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta) "
                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     (new-id) actor-type actor-id team-id action resource-type resource-id result meta))
+
+;; recent audit events for a team (newest first), for the management UI.
+(define (audit-list conn team-id #:limit [lim 50] #:offset [off 0])
+  (define (nz x) (if (sql-null? x) 'null x))
+  (for/list ([r (in-list (query-rows conn
+     (string-append "SELECT id, action, actor_type, actor_id, resource_type, resource_id, result, at "
+                    "FROM audit_log WHERE team_id = ? ORDER BY at DESC, id DESC LIMIT ? OFFSET ?")
+     team-id lim off))])
+    (hasheq 'id (vector-ref r 0) 'action (vector-ref r 1)
+            'actor_type (nz (vector-ref r 2)) 'actor_id (nz (vector-ref r 3))
+            'resource_type (nz (vector-ref r 4)) 'resource_id (nz (vector-ref r 5))
+            'result (nz (vector-ref r 6)) 'at (vector-ref r 7))))

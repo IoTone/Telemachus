@@ -263,6 +263,8 @@
        [else
         (define uid (create-user! db-conn #:username username #:password (hash-ref body 'password #f)))
         (add-member! db-conn #:user uid #:team (principal-team-id p) #:role role)
+        (audit! db-conn #:action "member.add" #:actor-type "user" #:actor-id (principal-user-id p)
+                #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid)
         (define-values (tok _t)
           (issue-token! db-conn #:user uid #:team (principal-team-id p) #:scopes '("*:*")))
         (json-response (hasheq 'user_id uid 'role role 'token tok) #:code 201)])]))
@@ -582,10 +584,10 @@
     (define b (read-json-body req))
     (define scopes (let ([s (hash-ref b 'scopes #f)]) (if (list? s) s '("*:read"))))
     (define name (let ([n (hash-ref b 'name #f)]) (if n (format "~a" n) "api")))
-    (define-values (raw _tid)
+    (define-values (raw tokid)
       (issue-token! db-conn #:user (principal-user-id p) #:team (principal-team-id p) #:name name #:scopes scopes))
     (audit! db-conn #:action "token.issue" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
-    (json-response (hasheq 'token raw 'name name 'scopes scopes) #:code 201))))    ; raw shown once
+    (json-response (hasheq 'id tokid 'token raw 'name name 'scopes scopes) #:code 201))))    ; raw shown once
 
 (define (ep-tokens-list req)
   (with-auth req (lambda (p)
@@ -599,6 +601,11 @@
         (begin (audit! db-conn #:action "token.revoke" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
                (json-response (hasheq 'ok #t 'id id)))
         (err "token not found" 404)))))
+
+(define (ep-audit req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (json-response (hasheq 'audit (audit-list db-conn (principal-team-id p) #:limit 100))))))
 
 (define (ep-plugins req)
   (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins))))))
@@ -690,6 +697,7 @@
     [(and (POST? m)   (equal? segs '("api" "tokens")))     (ep-tokens-create req)]
     [(and (GET? m)    (equal? segs '("api" "tokens")))     (ep-tokens-list req)]
     [(and (DELETE? m) (token-path segs))                   (ep-tokens-revoke req (token-path segs))]
+    [(and (GET? m)  (equal? segs '("api" "audit")))        (ep-audit req)]
     [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
     [(and (GET? m)  (equal? segs '("api" "mcp")))          (ep-mcp req)]
     [(and (GET? m)  (equal? segs '("api" "oop")))          (ep-oop req)]

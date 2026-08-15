@@ -229,6 +229,8 @@ async function teamView(){
   const manage=canManage();
   const tks = manage ? await api('/api/tokens') : {ok:false};
   const tokens = tks.ok ? tks.json.tokens : [];
+  const aud = manage ? await api('/api/audit') : {ok:false};
+  const audits = aud.ok ? aud.json.audit : [];
   const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" onclick="doRevokeToken('${esc(x.id)}')">${t('revoke')}</button>`:''}</td></tr>`).join('');
   const newTokBox = S.newToken ? `<div class="card" style="border-color:var(--ok);margin:0 0 10px"><b>New token — copy now, shown once:</b><br><span class="mono" style="word-break:break-all">${esc(S.newToken)}</span></div>` : '';
   const tokCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('apitokens')}</h3>${newTokBox}
@@ -236,6 +238,9 @@ async function teamView(){
       <div><label>scopes</label><input id="tks" value="*:read"></div>
       <div><button class="btn sm" onclick="doCreateToken()">${t('createtoken')}</button></div></div>
       <table><thead><tr><th>name</th><th>prefix</th><th>scopes</th><th>status</th><th></th></tr></thead><tbody>${tokRows}</tbody></table></div>` : '';
+  const audRows = audits.slice(0,20).map(a=>`<tr><td class="mono muted">${esc((a.at||'').replace('T',' ').slice(0,19))}</td><td>${esc(a.action)}</td><td class="mono muted">${esc((a.actor_id||'').slice(0,8))}</td><td class="mono muted">${a.resource_type?esc(a.resource_type)+' '+esc((a.resource_id||'').slice(0,8)):''}</td></tr>`).join('');
+  const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('audit')} <span class="muted" style="font-size:13px">— recent activity</span></h3>
+      <table><thead><tr><th>time</th><th>action</th><th>actor</th><th>resource</th></tr></thead><tbody>${audRows}</tbody></table></div>` : '';
   return `<h2>${t('team')}</h2>
     <div class="card"><table><thead><tr><th>${t('user')}</th><th>${t('role')}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>
@@ -247,7 +252,7 @@ async function teamView(){
       <label>${t('curpw')}</label><input id="pc" type="password">
       <label>${t('newpw')}</label><input id="pn" type="password">
       <button class="btn" onclick="doChangePw()">${t('updpw')}</button>
-    </div>${tokCard}`;
+    </div>${tokCard}${audCard}`;
 }
 async function doCreateToken(){
   const scopes=val('tks').split(/\s+/).filter(Boolean);
