@@ -39,14 +39,14 @@ Self-hosted collapses these (RBAC-5: the first owner bootstraps as operator). Ho
 
 | Tier | Held by | As | May |
 |---|---|---|---|
-| **Operator** (`instance:*`) | **You**, the provider | a **service token**, *not a user* | set/enforce quotas, suspend/resume, provision, plan changes |
+| **Provider** (`instance:*`) | **You**, the provider | the per-instance **provision token** (a secret, *not a user*) | provision, suspend/resume, quota/plan changes |
 | **Owner** | **The customer** | the one seeded **user** | run everything, manage their team, invite members — **not** raise their own quota or unsuspend |
 
-Because the operator is a **scoped `api_token`, not a user account**, the instance
-genuinely contains **exactly one user** (the customer owner). This is what
-satisfies "no other users in the system," literally. The control plane keeps the
-operator token and calls `instance:manage` endpoints as billing dictates. See
-[rbac-and-teams.md](rbac-and-teams.md).
+**As built (ONB‑2):** provider actions authenticate with the per-instance
+**provision token** rather than any user or `api_token` principal — so the seeded
+instance contains **exactly one user** (the customer owner), satisfying "no other
+users in the system" literally. The `operator` RBAC tier still exists for
+self-hosted deployments. See [rbac-and-teams.md](rbac-and-teams.md).
 
 ## Principals & data shapes (backend-neutral)
 
@@ -72,9 +72,10 @@ A seeded owner starts `invited` with **no usable password hash**.
 **`activation_tokens`** (new, mirrors `api_tokens`): `id, user_id, token_hash,
 prefix, expires_at, used_at, created_at` — single-use, expiring, hashed at rest.
 
-**Operator service token** — an `api_tokens` row scoped `instance:*` (existing
-mechanism: tokens are capped by issuer-perms ∩ scopes). Minted at provision, handed
-to the control plane.
+**Provider auth** — the per-instance **provision token** (`TELEMACHUS_PROVISION_TOKEN`),
+sent as `X-Provision-Token`. No operator user or service token is created, so the
+tenant holds exactly one user. (The `api_tokens` + `instance:*` service-token
+mechanism remains available for self-hosted operators.)
 
 ## Control surface (API)
 
@@ -86,8 +87,8 @@ Gated by a **mode flag**: `TELEMACHUS_MODE=saas` **disables interactive
 | `POST /api/provision` | `X-Provision-Token` (per-instance secret) | **idempotent** on `provision_id`: create team + owner (`invited`, no password), apply plan quotas, mint an activation token, optionally mint the operator service token; returns `{ activation_url, owner_user_id, provision_id }` |
 | `GET /api/activate?token=…` | the token | validate + show the set-credentials page |
 | `POST /api/activate` | the token | set password (+ optional TOTP) → owner `active`, token `used`; returns a session |
-| `POST /api/instance/suspend` \| `/resume` | `instance:manage` | flip tenant `status`; suspended requests are gated |
-| `POST /api/quota` *(exists)* | `instance:manage` | plan-driven limit changes |
+| `POST /api/instance/suspend` \| `/resume` | `X-Provision-Token` | flip tenant `status`; suspended = writes `402`, reads OK |
+| `POST /api/quota` *(exists)* | `instance:manage` | plan-driven limit changes (a provision-token path for hosted quota changes is a small lifecycle follow-up) |
 
 **Boot-env seeding (for launched VMs).** Instead of an inbound call, a VM's
 cloud-init can set `TELEMACHUS_SEED_OWNER_EMAIL`, `…_NAME`, `…_ORG`,
