@@ -31,6 +31,7 @@
          "../domain/authz/authz.rkt"
          "../domain/authz/passwords.rkt"          ; kdf-name
          "../domain/notes/notes.rkt"
+         "../domain/documents/documents.rkt"      ; documents (paginated ownable resource)
          "../domain/apps/translate.rkt"           ; Translation app
          "../domain/apps/search.rkt"              ; search across notes + translations
          "../domain/features/features.rkt"        ; per-team feature activation
@@ -345,6 +346,31 @@
 
 (define (ep-notes-list req)
   (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p))))))
+
+;; ---- documents (offset-paginated) -------------------------------------------
+(define (ep-documents-create req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (json-response (documents-create db-conn p #:title (hash-ref b 'title "")
+                                     #:content (hash-ref b 'content "") #:visibility (hash-ref b 'visibility "team"))
+                   #:code 201))))
+(define (ep-documents-list req)
+  (with-auth req (lambda (p)
+    (define off (or (string->number (query-param req 'offset "0")) 0))
+    (json-response (documents-list db-conn p #:offset off)))))
+(define (ep-documents-get req id)
+  (with-auth req (lambda (p)
+    (define d (documents-get db-conn p id))
+    (if d (json-response d) (err "not found" 404)))))
+(define (ep-documents-update req id)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define d (documents-update db-conn p id #:title (hash-ref b 'title #f)
+                                #:content (hash-ref b 'content #f) #:visibility (hash-ref b 'visibility #f)))
+    (if d (json-response d) (err "not found" 404)))))
+(define (ep-documents-delete req id)
+  (with-auth req (lambda (p)
+    (if (documents-delete db-conn p id) (json-response (hasheq 'ok #t 'id id)) (err "not found" 404)))))
 
 (define (ep-notes-get req id)
   (with-auth req (lambda (p)
@@ -702,6 +728,8 @@
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tokens") (caddr segs)))
 (define (feature-path segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "features") (caddr segs)))
+(define (doc-id segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "documents") (caddr segs)))
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
@@ -728,6 +756,11 @@
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
     [(and (POST? m) (equal? segs '("api" "notes")))        (ep-notes-create req)]
     [(and (GET? m)  (equal? segs '("api" "notes")))        (ep-notes-list req)]
+    [(and (POST? m) (equal? segs '("api" "documents")))    (ep-documents-create req)]
+    [(and (GET? m)  (equal? segs '("api" "documents")))    (ep-documents-list req)]
+    [(and (GET? m)    (doc-id segs))                       (ep-documents-get req (doc-id segs))]
+    [(and (PUT? m)    (doc-id segs))                       (ep-documents-update req (doc-id segs))]
+    [(and (DELETE? m) (doc-id segs))                       (ep-documents-delete req (doc-id segs))]
     [(and (POST? m) (share-id segs))                       (ep-notes-share req (share-id segs))]
     [(and (GET? m)    (note-id segs))                      (ep-notes-get req (note-id segs))]
     [(and (PUT? m)    (note-id segs))                      (ep-notes-update req (note-id segs))]

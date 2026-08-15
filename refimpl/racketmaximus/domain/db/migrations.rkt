@@ -243,4 +243,23 @@
         "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
         "  UNIQUE(team_id, feature))")))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features))
+;; 0008 — documents (slice 26): the ownable resource behind the research /
+;; document-translation apps. Same through-line as notes (team_id + owner_user_id
+;; + visibility), with a larger `content` body; listing is offset-paginated.
+(define m-0008-documents
+  (migration "0008-documents"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE documents ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  owner_user_id TEXT NOT NULL,"
+        "  visibility TEXT NOT NULL DEFAULT 'team',"
+        "  title TEXT NOT NULL DEFAULT '',"
+        "  content TEXT NOT NULL DEFAULT '',"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_documents_team ON documents(team_id)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents))

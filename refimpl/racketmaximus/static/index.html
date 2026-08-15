@@ -59,7 +59,8 @@ const L = {
       translate:'Translate',sourcetext:'Text to translate',target:'Target language',translation:'Translation',
       glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary',
       welcome:'Welcome — finish setting up your account.',setpw:'Set your password',confirmpw:'Confirm password',activate:'Activate account',
-      apitokens:'API tokens',createtoken:'Create token',revoke:'Revoke',audit:'Audit log',search:'Search',results:'Results',features:'Features'},
+      apitokens:'API tokens',createtoken:'Create token',revoke:'Revoke',audit:'Audit log',search:'Search',results:'Results',features:'Features',
+      documents:'Documents',newdoc:'New document',content:'Content'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -70,7 +71,8 @@ const L = {
       translate:'翻訳',sourcetext:'翻訳するテキスト',target:'翻訳先の言語',translation:'翻訳',
       glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用',
       welcome:'ようこそ — アカウント設定を完了してください。',setpw:'パスワードを設定',confirmpw:'パスワードの確認',activate:'アカウントを有効化',
-      apitokens:'APIトークン',createtoken:'トークンを作成',revoke:'失効',audit:'監査ログ',search:'検索',results:'結果',features:'機能'}
+      apitokens:'APIトークン',createtoken:'トークンを作成',revoke:'失効',audit:'監査ログ',search:'検索',results:'結果',features:'機能',
+      documents:'ドキュメント',newdoc:'新規ドキュメント',content:'内容'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -126,7 +128,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','translate','search','notes','team','usage'].filter(x=>S.features[x]!==false); if(S.me.is_operator) tabs.push('admin');
+  const tabs=['chat','agent','translate','search','notes','documents','team','usage'].filter(x=>S.features[x]!==false); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
       <span class="sp"></span>
@@ -369,7 +371,7 @@ async function doAddTerm(){
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error');
 }
 async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
-  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
 function activateView(token){
   return `<div class="auth">
     <h1 class="brand">Telemachus<span class="dot">.</span></h1>
@@ -390,6 +392,25 @@ async function doActivate(){
   if(r.ok){ S.token=r.json.token; localStorage.setItem('tmx_token',S.token); history.replaceState({},'','/'); toast('welcome!',true); render(); }
   else toast(r.json.error||'activation failed');
 }
+async function documentsView(){
+  const off=S.docOffset||0;
+  const r=await api('/api/documents?offset='+off);
+  const docs=r.ok?r.json.documents:[]; const next=r.ok?r.json.next_offset:null;
+  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}</td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" onclick="doDelDoc('${esc(d.id)}')">${t('del')}</button></td></tr>`).join('');
+  return `<h2>${t('documents')}</h2>
+    <div class="card"><h3>${t('newdoc')}</h3>
+      <label>${t('title')}</label><input id="dt">
+      <label>${t('content')}</label><textarea id="dc" rows="4"></textarea>
+      <label>${t('visibility')}</label><select id="dv"><option>team</option><option>private</option></select>
+      <button class="btn" onclick="doCreateDoc()">${t('create')}</button></div>
+    <div class="card" style="margin-top:14px"><table><thead><tr><th>${t('title')}</th><th>${t('visibility')}</th><th>${t('content')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="row" style="margin-top:8px">${off>0?`<button class="btn sm ghost" onclick="doMoreDocs(0)">« first</button>`:''}${(typeof next==='number')?`<button class="btn sm ghost" onclick="doMoreDocs(${next})">more »</button>`:''}</div></div>`;
+}
+async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',body:{title:val('dt'),content:val('dc'),visibility:val('dv')}});
+  if(r.ok){ S.docOffset=0; toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
+async function doDelDoc(id){ const r=await api('/api/documents/'+id,{method:'DELETE'});
+  if(r.ok){ toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
+function doMoreDocs(off){ S.docOffset=off; renderTab(); }
 async function searchView(){
   return `<h2>${t('search')}</h2>
     <div class="card">
@@ -421,6 +442,7 @@ window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; 
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
 window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken; window.doSearch=doSearch; window.doToggleFeature=doToggleFeature;
+window.doCreateDoc=doCreateDoc; window.doDelDoc=doDelDoc; window.doMoreDocs=doMoreDocs;
 render();
 </script>
 </body>

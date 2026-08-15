@@ -40,6 +40,17 @@
                                          'visibility (vector-ref r 2))))
       (hasheq 'type "note" 'id (vector-ref r 0) 'title (vector-ref r 3)
               'snippet (snippet (vector-ref r 4) q))))
+  (define doc-hits
+    (for/list ([r (in-list (query-rows conn
+         (string-append "SELECT id, owner_user_id, visibility, title, content FROM documents "
+                        "WHERE team_id = ? AND (title LIKE ? OR content LIKE ?) ORDER BY updated_at DESC LIMIT ?")
+         team pat pat lim))]
+         #:when (can? conn p "documents:read"
+                      #:resource (hasheq 'resource_type "documents" 'resource_id (vector-ref r 0)
+                                         'team_id team 'owner_user_id (vector-ref r 1)
+                                         'visibility (vector-ref r 2))))
+      (hasheq 'type "document" 'id (vector-ref r 0) 'title (vector-ref r 3)
+              'snippet (snippet (vector-ref r 4) q))))
   (define tr-hits
     (if (can? conn p "chat:use")
         (for/list ([r (in-list (query-rows conn
@@ -49,4 +60,4 @@
           (hasheq 'type "translation" 'id (vector-ref r 0) 'title (string-append "→ " (vector-ref r 1))
                   'snippet (snippet (vector-ref r 2) q)))
         '()))
-  (append note-hits tr-hits))
+  (append note-hits doc-hits tr-hits))
