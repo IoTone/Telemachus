@@ -69,6 +69,7 @@ assert "token member 403" "$(curl -s $B/api/tokens -H "Authorization: Bearer $BO
 assert "token revoked"   "$(curl -s -X DELETE $B/api/tokens/$TKID -H "Authorization: Bearer $OP")" '"ok":true'
 assert "audit lists"     "$(curl -s $B/api/audit -H "Authorization: Bearer $OP")" '"action":"token'
 assert "audit member403" "$(curl -s $B/api/audit -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
+assert "search note"     "$(curl -s "$B/api/search?q=Secret" -H "Authorization: Bearer $OP")" '"type":"note"'
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
 assert "mcp connected"   "$(curl -s $B/api/mcp -H "Authorization: Bearer $OP")" '"name":"mock"'

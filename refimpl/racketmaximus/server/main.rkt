@@ -32,6 +32,8 @@
          "../domain/authz/passwords.rkt"          ; kdf-name
          "../domain/notes/notes.rkt"
          "../domain/apps/translate.rkt"           ; Translation app
+         "../domain/apps/search.rkt"              ; search across notes + translations
+         (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
@@ -88,6 +90,10 @@
   (if (not h) "en"
       (let ([tag (string-trim (car (string-split (car (string-split h ",")) ";")))])
         (if (string=? tag "") "en" tag))))
+
+(define (query-param req name [default ""])
+  (cond [(assq name (url-query (request-uri req))) => (lambda (kv) (or (cdr kv) default))]
+        [else default]))
 
 (define (read-json-body req)
   (define raw (request-post-data/raw req))
@@ -602,6 +608,13 @@
                (json-response (hasheq 'ok #t 'id id)))
         (err "token not found" 404)))))
 
+(define (ep-search req)
+  (with-auth req (lambda (p)
+    (define q (string-trim (query-param req 'q)))
+    (if (< (string-length q) 2)
+        (json-response (hasheq 'query q 'results '()))
+        (json-response (hasheq 'query q 'results (search-all db-conn p q)))))))
+
 (define (ep-audit req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "settings:manage")
@@ -697,6 +710,7 @@
     [(and (POST? m)   (equal? segs '("api" "tokens")))     (ep-tokens-create req)]
     [(and (GET? m)    (equal? segs '("api" "tokens")))     (ep-tokens-list req)]
     [(and (DELETE? m) (token-path segs))                   (ep-tokens-revoke req (token-path segs))]
+    [(and (GET? m)  (equal? segs '("api" "search")))       (ep-search req)]
     [(and (GET? m)  (equal? segs '("api" "audit")))        (ep-audit req)]
     [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
     [(and (GET? m)  (equal? segs '("api" "mcp")))          (ep-mcp req)]

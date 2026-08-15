@@ -126,7 +126,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','translate','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
+  const tabs=['chat','agent','translate','search','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
       <span class="sp"></span>
@@ -360,7 +360,7 @@ async function doAddTerm(){
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error');
 }
 async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
-  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
 function activateView(token){
   return `<div class="auth">
     <h1 class="brand">Telemachus<span class="dot">.</span></h1>
@@ -381,6 +381,24 @@ async function doActivate(){
   if(r.ok){ S.token=r.json.token; localStorage.setItem('tmx_token',S.token); history.replaceState({},'','/'); toast('welcome!',true); render(); }
   else toast(r.json.error||'activation failed');
 }
+async function searchView(){
+  return `<h2>${t('search')}</h2>
+    <div class="card">
+      <div class="row" style="align-items:end"><div style="flex:1"><label>${t('search')}</label>
+        <input id="sq" onkeydown="if(event.key==='Enter')doSearch()" placeholder="notes &amp; translations…"></div>
+        <div><button class="btn" onclick="doSearch()">${t('search')}</button></div></div>
+      <div id="sres" style="margin-top:12px"></div></div>`;
+}
+async function doSearch(){
+  const q=val('sq'); const el=document.getElementById('sres');
+  if(q.length<2){ el.innerHTML='<p class="muted">type at least 2 characters</p>'; return; }
+  const r=await api('/api/search?q='+encodeURIComponent(q));
+  const res=r.ok?r.json.results:[];
+  el.innerHTML = res.length
+    ? `<table><thead><tr><th>type</th><th>title</th><th>${t('results')}</th></tr></thead><tbody>`+
+      res.map(x=>`<tr><td><span class="badge">${esc(x.type)}</span></td><td>${esc(x.title||'')}</td><td class="muted">${esc(x.snippet||'')}</td></tr>`).join('')+`</tbody></table>`
+    : '<p class="muted">no results</p>';
+}
 async function render(){
   const app=document.getElementById('app');
   const atok=new URLSearchParams(location.search).get('token');
@@ -391,7 +409,7 @@ async function render(){
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
-window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken;
+window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken; window.doSearch=doSearch;
 render();
 </script>
 </body>
