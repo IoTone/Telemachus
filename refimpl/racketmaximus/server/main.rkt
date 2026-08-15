@@ -33,6 +33,7 @@
          "../domain/notes/notes.rkt"
          "../domain/apps/translate.rkt"           ; Translation app
          "../domain/apps/search.rkt"              ; search across notes + translations
+         "../domain/features/features.rkt"        ; per-team feature activation
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
@@ -322,6 +323,11 @@
                             'note "2FA enabled — future logins for this user require a TOTP code"))]))
 
 ;; ---- notes (ownable/shareable resource) -------------------------------------
+;; refuse an endpoint whose feature a team has turned off (→ localized 403)
+(define (require-feature p name)
+  (unless (feature-enabled? db-conn (principal-team-id p) name)
+    (raise (exn:fail:forbidden (format "feature ~a is disabled" name) (current-continuation-marks) name))))
+
 (define (with-auth req proc)
   (define p (current-principal req))
   (cond
@@ -418,6 +424,7 @@
 (define (ep-ai-chat req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "chat")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
     (define ex (pick-executor b))
@@ -451,6 +458,7 @@
 (define (ep-ai-chat-stream req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "chat")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
     (define ex (pick-executor b))
@@ -482,6 +490,7 @@
 (define (ep-agent req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "agent")
     (cond
       [(not (agent-configured?))
        (err "agent mode requires a configured model (set TELEMACHUS_MODEL_URL)" 503)]
@@ -521,6 +530,7 @@
 (define (ep-translate req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "translate")
     (define b (read-json-body req))
     (define text (hash-ref b 'text ""))
     (define tgt (hash-ref b 'target_lang ""))
@@ -552,6 +562,7 @@
 (define (ep-translate-catalog req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "translate")
     (define b (read-json-body req))
     (define cat (hash-ref b 'catalog (hasheq)))
     (define tgt (hash-ref b 'target_lang ""))
@@ -610,6 +621,7 @@
 
 (define (ep-search req)
   (with-auth req (lambda (p)
+    (require-feature p "search")
     (define q (string-trim (query-param req 'q)))
     (if (< (string-length q) 2)
         (json-response (hasheq 'query q 'results '()))
@@ -619,6 +631,18 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "settings:manage")
     (json-response (hasheq 'audit (audit-list db-conn (principal-team-id p) #:limit 100))))))
+
+(define (ep-features req)
+  (with-auth req (lambda (p) (json-response (hasheq 'features (features-for db-conn (principal-team-id p)))))))
+
+(define (ep-feature-toggle req name)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define on? (and (hash-ref (read-json-body req) 'enabled #t) #t))
+    (set-feature-enabled! db-conn (principal-team-id p) name on?)
+    (audit! db-conn #:action "feature.toggle" #:actor-type "user" #:actor-id (principal-user-id p)
+            #:team-id (principal-team-id p) #:resource-type "feature" #:resource-id name)
+    (json-response (hasheq 'ok #t 'feature name 'enabled on?)))))
 
 (define (ep-plugins req)
   (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins))))))
@@ -663,6 +687,8 @@
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tools") (caddr segs)))
 (define (token-path segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tokens") (caddr segs)))
+(define (feature-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "features") (caddr segs)))
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
@@ -712,6 +738,8 @@
     [(and (DELETE? m) (token-path segs))                   (ep-tokens-revoke req (token-path segs))]
     [(and (GET? m)  (equal? segs '("api" "search")))       (ep-search req)]
     [(and (GET? m)  (equal? segs '("api" "audit")))        (ep-audit req)]
+    [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
+    [(and (POST? m) (feature-path segs))                   (ep-feature-toggle req (feature-path segs))]
     [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
     [(and (GET? m)  (equal? segs '("api" "mcp")))          (ep-mcp req)]
     [(and (GET? m)  (equal? segs '("api" "oop")))          (ep-oop req)]

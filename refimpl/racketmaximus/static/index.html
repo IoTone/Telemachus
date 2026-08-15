@@ -47,7 +47,7 @@
 <div id="app"></div>
 <div id="toast" class="toast"></div>
 <script>
-const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null };
+const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null };
 const L = {
   en:{tagline:'Team AI platform — reference implementation',chat:'Chat',agent:'Agent',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
@@ -59,7 +59,7 @@ const L = {
       translate:'Translate',sourcetext:'Text to translate',target:'Target language',translation:'Translation',
       glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary',
       welcome:'Welcome — finish setting up your account.',setpw:'Set your password',confirmpw:'Confirm password',activate:'Activate account',
-      apitokens:'API tokens',createtoken:'Create token',revoke:'Revoke',audit:'Audit log',search:'Search',results:'Results'},
+      apitokens:'API tokens',createtoken:'Create token',revoke:'Revoke',audit:'Audit log',search:'Search',results:'Results',features:'Features'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -70,7 +70,7 @@ const L = {
       translate:'翻訳',sourcetext:'翻訳するテキスト',target:'翻訳先の言語',translation:'翻訳',
       glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用',
       welcome:'ようこそ — アカウント設定を完了してください。',setpw:'パスワードを設定',confirmpw:'パスワードの確認',activate:'アカウントを有効化',
-      apitokens:'APIトークン',createtoken:'トークンを作成',revoke:'失効',audit:'監査ログ',search:'検索',results:'結果'}
+      apitokens:'APIトークン',createtoken:'トークンを作成',revoke:'失効',audit:'監査ログ',search:'検索',results:'結果',features:'機能'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -126,7 +126,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','translate','search','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
+  const tabs=['chat','agent','translate','search','notes','team','usage'].filter(x=>S.features[x]!==false); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
       <span class="sp"></span>
@@ -241,6 +241,9 @@ async function teamView(){
   const audRows = audits.slice(0,20).map(a=>`<tr><td class="mono muted">${esc((a.at||'').replace('T',' ').slice(0,19))}</td><td>${esc(a.action)}</td><td class="mono muted">${esc((a.actor_id||'').slice(0,8))}</td><td class="mono muted">${a.resource_type?esc(a.resource_type)+' '+esc((a.resource_id||'').slice(0,8)):''}</td></tr>`).join('');
   const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('audit')} <span class="muted" style="font-size:13px">— recent activity</span></h3>
       <table><thead><tr><th>time</th><th>action</th><th>actor</th><th>resource</th></tr></thead><tbody>${audRows}</tbody></table></div>` : '';
+  const featRows = Object.entries(S.features||{}).map(([f,on])=>`<tr><td class="mono">${esc(f)}</td><td>${on?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td><td><button class="btn sm ghost" onclick="doToggleFeature('${esc(f)}',${!on})">${on?t('disable'):t('enable')}</button></td></tr>`).join('');
+  const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('features')} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
+      <table><thead><tr><th>feature</th><th>status</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
   return `<h2>${t('team')}</h2>
     <div class="card"><table><thead><tr><th>${t('user')}</th><th>${t('role')}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>
@@ -252,7 +255,11 @@ async function teamView(){
       <label>${t('curpw')}</label><input id="pc" type="password">
       <label>${t('newpw')}</label><input id="pn" type="password">
       <button class="btn" onclick="doChangePw()">${t('updpw')}</button>
-    </div>${tokCard}${audCard}`;
+    </div>${featCard}${tokCard}${audCard}`;
+}
+async function doToggleFeature(name,on){
+  const r=await api('/api/features/'+name,{method:'POST',body:{enabled:on}});
+  if(r.ok){ toast(name+(on?' enabled':' disabled'),true); render(); } else toast(r.json.error||'error');
 }
 async function doCreateToken(){
   const scopes=val('tks').split(/\s+/).filter(Boolean);
@@ -405,11 +412,13 @@ async function render(){
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
   await refreshMe();
   if(!S.me){ app.innerHTML=authView(); return; }
+  const fr=await api('/api/features'); S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
+  if(S.features[S.tab]===false) S.tab='team';
   app.innerHTML=appShell(); renderTab(); }
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
-window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken; window.doSearch=doSearch;
+window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken; window.doSearch=doSearch; window.doToggleFeature=doToggleFeature;
 render();
 </script>
 </body>

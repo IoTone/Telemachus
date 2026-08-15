@@ -90,6 +90,11 @@ assert "ui served"       "$(curl -s $B/)" '<!doctype html>'
 assert "members list"    "$(curl -s $B/api/members -H "Authorization: Bearer $OP")" '"username":"bob"'
 assert "unauth 401 en"   "$(curl -s $B/api/whoami)" 'Authentication required.'
 assert "unauth 401 ja"   "$(curl -s $B/api/whoami -H 'Accept-Language: ja')" '認証が必要です'
+# feature flags (last — gating chat would break earlier chat assertions)
+assert "feature list"    "$(curl -s $B/api/features -H "Authorization: Bearer $OP")" '"feature":"chat"'
+assert "feature off"     "$(curl -s -X POST $B/api/features/chat -H "Authorization: Bearer $OP" -d '{"enabled":false}')" '"enabled":false'
+assert "chat gated"      "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi"}')" 'Forbidden: chat'
+assert "feature on"      "$(curl -s -X POST $B/api/features/chat -H "Authorization: Bearer $OP" -d '{"enabled":true}')" '"enabled":true'
 
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

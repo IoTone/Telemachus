@@ -228,4 +228,19 @@
         "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
        "CREATE INDEX idx_activation_hash ON activation_tokens(token_hash)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas))
+;; 0007 — per-team feature activation (slice 24). Absence of a row = enabled
+;; (default on), mirroring tool_settings. Lets a team turn whole features off.
+(define m-0007-features
+  (migration "0007-features"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE feature_settings ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  feature TEXT NOT NULL,"
+        "  enabled INTEGER NOT NULL DEFAULT 1,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(team_id, feature))")))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features))
