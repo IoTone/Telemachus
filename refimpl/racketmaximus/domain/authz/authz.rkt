@@ -28,7 +28,7 @@
          seed-builtin-roles! bootstrap!
          user-role-key user-permissions
          can? require-perm
-         issue-token! resolve-token
+         issue-token! resolve-token list-tokens revoke-token!
          grant! revoke!
          audit!
          set-password! change-password! authenticate enable-2fa! first-team-for)
@@ -221,6 +221,24 @@
     (substring raw 0 (min 11 (string-length raw)))
     (jsexpr->string scopes))
   (values raw tid))
+
+;; list a team's tokens for management — prefixes only, never the raw token.
+(define (list-tokens conn team-id)
+  (for/list ([r (in-list (query-rows conn
+     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at "
+                    "FROM api_tokens WHERE team_id = ? ORDER BY created_at DESC") team-id))])
+    (hasheq 'id (vector-ref r 0)
+            'name (let ([n (vector-ref r 1)]) (if (sql-null? n) 'null n))
+            'prefix (vector-ref r 2)
+            'scopes (with-handlers ([exn:fail? (lambda (_) '())]) (string->jsexpr (vector-ref r 3)))
+            'status (vector-ref r 4)
+            'last_used_at (let ([x (vector-ref r 5)]) (if (sql-null? x) 'null x))
+            'created_at (vector-ref r 6))))
+
+;; revoke a token by id within a team. Returns #t if it existed.
+(define (revoke-token! conn token-id team-id)
+  (define exists (query-maybe-value conn "SELECT id FROM api_tokens WHERE id = ? AND team_id = ?" token-id team-id))
+  (and exists (begin (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" token-id) #t)))
 
 ;; bearer token -> principal (capped by scopes), or #f if unknown/inactive.
 (define (resolve-token conn bearer)

@@ -58,7 +58,8 @@ const L = {
       tools:'Tools',tool:'Tool',enable:'Enable',disable:'Disable',
       translate:'Translate',sourcetext:'Text to translate',target:'Target language',translation:'Translation',
       glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary',
-      welcome:'Welcome — finish setting up your account.',setpw:'Set your password',confirmpw:'Confirm password',activate:'Activate account'},
+      welcome:'Welcome — finish setting up your account.',setpw:'Set your password',confirmpw:'Confirm password',activate:'Activate account',
+      apitokens:'API tokens',createtoken:'Create token',revoke:'Revoke',audit:'Audit log',search:'Search',results:'Results'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -68,7 +69,8 @@ const L = {
       tools:'ツール',tool:'ツール',enable:'有効化',disable:'無効化',
       translate:'翻訳',sourcetext:'翻訳するテキスト',target:'翻訳先の言語',translation:'翻訳',
       glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用',
-      welcome:'ようこそ — アカウント設定を完了してください。',setpw:'パスワードを設定',confirmpw:'パスワードの確認',activate:'アカウントを有効化'}
+      welcome:'ようこそ — アカウント設定を完了してください。',setpw:'パスワードを設定',confirmpw:'パスワードの確認',activate:'アカウントを有効化',
+      apitokens:'APIトークン',createtoken:'トークンを作成',revoke:'失効',audit:'監査ログ',search:'検索',results:'結果'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -135,7 +137,7 @@ function appShell(){
     <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" onclick="go('${x}')">${t(x)}</button>`).join('')}</nav>
     <main class="wrap" id="main"></main>`;
 }
-function go(tab){ S.tab=tab;
+function go(tab){ S.tab=tab; S.newToken=null;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }
 
@@ -224,6 +226,16 @@ async function doDelNote(id){ const r=await api('/api/notes/'+id,{method:'DELETE
 async function teamView(){
   const r=await api('/api/members'); const members=r.ok?r.json.members:[];
   const rows=members.map(m=>`<tr><td>${esc(m.username)}</td><td><span class="badge">${esc(m.role)}</span></td><td class="mono muted">${esc(m.user_id.slice(0,8))}…</td></tr>`).join('');
+  const manage=canManage();
+  const tks = manage ? await api('/api/tokens') : {ok:false};
+  const tokens = tks.ok ? tks.json.tokens : [];
+  const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" onclick="doRevokeToken('${esc(x.id)}')">${t('revoke')}</button>`:''}</td></tr>`).join('');
+  const newTokBox = S.newToken ? `<div class="card" style="border-color:var(--ok);margin:0 0 10px"><b>New token — copy now, shown once:</b><br><span class="mono" style="word-break:break-all">${esc(S.newToken)}</span></div>` : '';
+  const tokCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('apitokens')}</h3>${newTokBox}
+      <div class="row" style="align-items:end;margin-bottom:8px"><div><label>${t('name')||'name'}</label><input id="tkn"></div>
+      <div><label>scopes</label><input id="tks" value="*:read"></div>
+      <div><button class="btn sm" onclick="doCreateToken()">${t('createtoken')}</button></div></div>
+      <table><thead><tr><th>name</th><th>prefix</th><th>scopes</th><th>status</th><th></th></tr></thead><tbody>${tokRows}</tbody></table></div>` : '';
   return `<h2>${t('team')}</h2>
     <div class="card"><table><thead><tr><th>${t('user')}</th><th>${t('role')}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>
@@ -235,7 +247,16 @@ async function teamView(){
       <label>${t('curpw')}</label><input id="pc" type="password">
       <label>${t('newpw')}</label><input id="pn" type="password">
       <button class="btn" onclick="doChangePw()">${t('updpw')}</button>
-    </div>`;
+    </div>${tokCard}`;
+}
+async function doCreateToken(){
+  const scopes=val('tks').split(/\s+/).filter(Boolean);
+  const r=await api('/api/tokens',{method:'POST',body:{name:val('tkn'),scopes}});
+  if(r.ok){ S.newToken=r.json.token; toast('token created',true); renderTab(); } else toast(r.json.error||'error');
+}
+async function doRevokeToken(id){
+  const r=await api('/api/tokens/'+id,{method:'DELETE'});
+  if(r.ok){ toast('revoked',true); renderTab(); } else toast(r.json.error||'error');
 }
 async function doChangePw(){
   const r=await api('/api/password',{method:'POST',body:{current_password:val('pc'),new_password:val('pn')}});
@@ -365,7 +386,7 @@ async function render(){
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
-window.doActivate=doActivate;
+window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken;
 render();
 </script>
 </body>
