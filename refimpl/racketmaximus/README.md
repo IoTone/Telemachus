@@ -166,7 +166,15 @@ refimpl/racketmaximus/
   reads OK). Boot-env seeding (`TELEMACHUS_SEED_*`) covers VM launches.
   See [docs/design/saas-onboarding.md](../../docs/design/saas-onboarding.md).
 
-68 unit tests pass + a 42-assertion server integration test
+- **Platform batch (slices 20–26)** — provider-token **tenant quota** endpoint
+  (billing lifecycle); **API tokens** (issue/list/revoke, scoped, audited); **audit
+  log** surfaced (read API + Team "recent activity"); **search** across notes +
+  documents + translations (RBAC-filtered); **per-team feature flags** (activate/
+  deactivate chat·agent·translate·search, enforced + tab-hiding); **operator
+  metrics** (`GET /api/metrics`); **documents** (paginated ownable resource behind
+  the research/translation apps).
+
+74 unit tests pass + a 58-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 
