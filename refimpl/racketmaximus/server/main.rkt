@@ -32,6 +32,7 @@
          "../domain/authz/passwords.rkt"          ; kdf-name
          "../domain/notes/notes.rkt"
          "../domain/apps/translate.rkt"           ; Translation app
+         "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
          "../domain/ai/executor.rkt"
@@ -59,6 +60,7 @@
 
 ;; ---- TLS --------------------------------------------------------------------
 (define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
+(define (saas-mode?) (equal? (env* "TELEMACHUS_MODE") "saas"))   ; hosted: bootstrap off, provisioning on
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
 (define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
 (define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
@@ -143,6 +145,7 @@
   (define body (read-json-body req))
   (define username (hash-ref body 'username #f))
   (cond
+    [(saas-mode?) (err "interactive bootstrap is disabled in hosted mode" 403)]
     [(not username) (err "username required" 400)]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
@@ -152,6 +155,62 @@
      (json-response (hasheq 'user_id uid 'team_id tid 'token tok
                             'message (msg-bootstrap-done username "Default"))
                     #:code 201)]))
+
+;; ---- hosted provisioning (control-plane facing; provision-token auth) --------
+(define (require-provision-token req)
+  (define want (env* "TELEMACHUS_PROVISION_TOKEN"))
+  (define got (req-header req #"x-provision-token"))
+  (and want got (string=? want got)))
+
+(define (public-base req)
+  (or (env* "TELEMACHUS_PUBLIC_URL")
+      (let ([h (req-header req #"host")])
+        (string-append (if (tls-on?) "https://" "http://") (or h (bind-ip))))))
+
+(define (ep-provision req)
+  (cond
+    [(not (saas-mode?)) (err "not in hosted mode" 404)]
+    [(not (require-provision-token req)) (err "invalid provision token" 403)]
+    [else
+     (define b (read-json-body req))
+     (define email (hash-ref b 'owner_email #f))
+     (define pid (hash-ref b 'provision_id #f))
+     (cond
+       [(or (not email) (not pid)) (err "owner_email and provision_id required" 400)]
+       [else
+        (define-values (tok uid tid state)
+          (provision! db-conn #:provision-id (format "~a" pid) #:owner-email (format "~a" email)
+                      #:owner-name (hash-ref b 'owner_name #f) #:org (hash-ref b 'org #f)
+                      #:plan (format "~a" (hash-ref b 'plan "trial"))
+                      #:source (format "~a" (hash-ref b 'source "signup"))))
+        (json-response (hasheq 'provision_id pid 'owner_user_id uid 'team_id tid
+                               'state (symbol->string state)
+                               'activation_url (and tok (string-append (public-base req) "/activate?token=" tok))))])]))
+
+(define (ep-activate req)
+  (define b (read-json-body req))
+  (define tok (hash-ref b 'token #f))
+  (define pw (hash-ref b 'password #f))
+  (cond
+    [(or (not tok) (not pw)) (err "token and password required" 400)]
+    [(< (string-length (format "~a" pw)) 8) (err "password must be at least 8 characters" 400)]
+    [else
+     (define res (call-with-values
+                  (lambda () (activate! db-conn #:token (format "~a" tok) #:password (format "~a" pw))) list))
+     (if (equal? res '(#f))
+         (err "invalid or expired activation link" 400)
+         (json-response (hasheq 'token (caddr res) 'user_id (car res) 'team_id (cadr res))))]))
+
+(define (ep-tenant req action)
+  (cond
+    [(not (saas-mode?)) (err "not in hosted mode" 404)]
+    [(not (require-provision-token req)) (err "invalid provision token" 403)]
+    [else
+     (define pid (hash-ref (read-json-body req) 'provision_id #f))
+     (cond
+       [(not pid) (err "provision_id required" 400)]
+       [(action db-conn #:provision-id (format "~a" pid)) (json-response (hasheq 'ok #t 'provision_id pid))]
+       [else (err "unknown provision_id" 404)])]))
 
 (define (ep-whoami req)
   (define p (current-principal req))
@@ -240,7 +299,11 @@
 ;; ---- notes (ownable/shareable resource) -------------------------------------
 (define (with-auth req proc)
   (define p (current-principal req))
-  (if (not p) (unauthorized) (proc p)))
+  (cond
+    [(not p) (unauthorized)]
+    [(and (team-suspended? db-conn (principal-team-id p)) (not (GET? (request-method req))))
+     (err "tenant suspended — writes are disabled; contact your administrator" 402)]   ; ONB-7: read-only
+    [else (proc p)]))
 
 (define (ep-notes-create req)
   (with-auth req (lambda (p)
@@ -544,10 +607,14 @@
   (define m (request-method req))
   (define segs (request-path req))
   (cond
-    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html"))))
+    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html")) (equal? segs '("activate"))))
      (html-response UI-HTML)]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
+    [(and (POST? m) (equal? segs '("api" "provision")))     (ep-provision req)]
+    [(and (POST? m) (equal? segs '("api" "activate")))      (ep-activate req)]
+    [(and (POST? m) (equal? segs '("api" "instance" "suspend"))) (ep-tenant req suspend!)]
+    [(and (POST? m) (equal? segs '("api" "instance" "resume")))  (ep-tenant req resume!)]
     [(and (POST? m) (equal? segs '("api" "login")))         (ep-login req)]
     [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
     [(and (POST? m) (equal? segs '("api" "password")))      (ep-password req)]
@@ -590,6 +657,18 @@
 
 (module+ main
   (init-db!)
+  ;; hosted VM launch: self-seed the owner from env on first boot, emit the
+  ;; activation token to stdout (the provisioning sink) for the control plane.
+  (when (and (saas-mode?) (env* "TELEMACHUS_SEED_OWNER_EMAIL")
+             (not (query-maybe-value db-conn "SELECT id FROM users LIMIT 1")))
+    (define-values (tok uid tid _st)
+      (provision! db-conn #:provision-id (or (env* "TELEMACHUS_SEED_PROVISION_ID") "seed")
+                  #:owner-email (env* "TELEMACHUS_SEED_OWNER_EMAIL")
+                  #:owner-name (env* "TELEMACHUS_SEED_OWNER_NAME")
+                  #:org (env* "TELEMACHUS_SEED_ORG")
+                  #:plan (or (env* "TELEMACHUS_SEED_PLAN") "trial") #:source "vm"))
+    (printf "seed: provisioned ~a — activation token: ~a\n" (env* "TELEMACHUS_SEED_OWNER_EMAIL") tok)
+    (flush-output))
   (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
   (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
   (when (pair? plugins) (printf "loaded ~a plugin(s) from ~a\n" (length plugins) plugins-dir))

@@ -156,7 +156,17 @@ refimpl/racketmaximus/
   `GET /api/executors` lists local + federated; the Admin tab shows a Compute table.
   Standing up real remote/HPC compute plugs in behind this seam without touching call sites.
 
-64 unit tests pass + a 42-assertion server integration test
+- **Hosted onboarding (slice 19)** — a `saas` mode for running one isolated instance
+  per tenant (`domain/saas/onboarding.rkt`, migration `0006`). `TELEMACHUS_MODE=saas`
+  disables the interactive bootstrap; the control plane calls `POST /api/provision`
+  (provision-token auth, idempotent per `provision_id`) to **seed exactly one owner**
+  in an `invited` state with plan quotas, and the owner claims a one-time
+  **magic-link** (`/api/activate`) to set a password and go `active`.
+  `POST /api/instance/{suspend,resume}` flip tenant status (suspended = writes `402`,
+  reads OK). Boot-env seeding (`TELEMACHUS_SEED_*`) covers VM launches.
+  See [docs/design/saas-onboarding.md](../../docs/design/saas-onboarding.md).
+
+68 unit tests pass + a 42-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

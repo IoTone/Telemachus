@@ -199,4 +199,33 @@
         "  UNIQUE(team_id, target_lang, term))")
        "CREATE INDEX idx_glossary_team ON glossary(team_id, target_lang)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate))
+;; 0006 — hosted onboarding (slice 19): idempotent tenant provisioning + one-time
+;; activation tokens. users.status ('invited' | 'active' | 'suspended') already
+;; exists as TEXT; no column change needed. See docs/design/saas-onboarding.md.
+(define m-0006-saas
+  (migration "0006-saas"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE provisioning ("
+        "  id TEXT PRIMARY KEY,"
+        "  provision_id TEXT NOT NULL UNIQUE,"          ; external id (subscription/vm/signup)
+        "  source TEXT NOT NULL,"                       ; signup | subscription | vm
+        "  plan TEXT NOT NULL DEFAULT 'trial',"
+        "  status TEXT NOT NULL DEFAULT 'seeded',"      ; seeded | activated | suspended | deprovisioned
+        "  owner_user_id TEXT,"
+        "  team_id TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       (string-append
+        "CREATE TABLE activation_tokens ("
+        "  id TEXT PRIMARY KEY,"
+        "  user_id TEXT NOT NULL,"
+        "  token_hash TEXT NOT NULL,"
+        "  prefix TEXT NOT NULL,"
+        "  expires_at TEXT,"
+        "  used_at TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_activation_hash ON activation_tokens(token_hash)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas))

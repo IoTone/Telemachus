@@ -122,6 +122,19 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | LOC‑4 | advisory coverage (v1) | ✅ default |
 | LOC‑5 | opt-in AI draft, translation role | ✅ default |
 | LOC‑6 | separate doc-gen design | ✅ default |
+| ONB‑1 | instance-per-tenant (hosted) | ✅ built (slice 19) |
+| ONB‑2 | provider auth via **provision token**, no operator user | ✅ built |
+| ONB‑3 | both `/api/provision` + boot-env seeding | ✅ built |
+| ONB‑4 | magic-link activation | ✅ built |
+| ONB‑5 | 2FA optional at activation | ✅ default |
+| ONB‑6 | 72h activation TTL, resendable | ✅ built |
+| ONB‑7 | suspend = `402` + read-only, data retained | ✅ built |
+| ONB‑8 | 30-day retention then deprovision + export | ⏳ control-plane |
+
+See [saas-onboarding.md](saas-onboarding.md) for the full flow. ONB‑2 refines the
+doc's "operator service token" to the simpler **provision token** so the seeded
+instance holds exactly one user (the owner); provider actions
+(provision/suspend/resume) authenticate with that per-instance secret.
 
 [^1]: **TEN.** A deployment serves one organization/legal entity that may contain
 one or many **teams**. Isolating *different legal entities* on a shared instance is

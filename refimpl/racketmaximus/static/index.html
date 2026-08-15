@@ -57,7 +57,8 @@ const L = {
       chpw:'Change your password',curpw:'Current password',newpw:'New password',updpw:'Update password',
       tools:'Tools',tool:'Tool',enable:'Enable',disable:'Disable',
       translate:'Translate',sourcetext:'Text to translate',target:'Target language',translation:'Translation',
-      glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary'},
+      glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary',
+      welcome:'Welcome — finish setting up your account.',setpw:'Set your password',confirmpw:'Confirm password',activate:'Activate account'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -66,7 +67,8 @@ const L = {
       chpw:'パスワードの変更',curpw:'現在のパスワード',newpw:'新しいパスワード',updpw:'パスワードを更新',
       tools:'ツール',tool:'ツール',enable:'有効化',disable:'無効化',
       translate:'翻訳',sourcetext:'翻訳するテキスト',target:'翻訳先の言語',translation:'翻訳',
-      glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用'}
+      glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用',
+      welcome:'ようこそ — アカウント設定を完了してください。',setpw:'パスワードを設定',confirmpw:'パスワードの確認',activate:'アカウントを有効化'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -333,13 +335,37 @@ async function doAddTerm(){
 }
 async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
   el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
-async function render(){ await refreshMe();
+function activateView(token){
+  return `<div class="auth">
+    <h1 class="brand">Telemachus<span class="dot">.</span></h1>
+    <p class="muted">${t('welcome')}</p>
+    <div class="card">
+      <h2>${t('setpw')}</h2>
+      <input type="hidden" id="atok" value="${esc(token)}">
+      <label>${t('newpw')}</label><input id="apw" type="password" autofocus>
+      <label>${t('confirmpw')}</label><input id="apw2" type="password">
+      <button class="btn" style="width:100%" onclick="doActivate()">${t('activate')}</button>
+    </div></div>`;
+}
+async function doActivate(){
+  const pw=val('apw'), pw2=val('apw2'), token=document.getElementById('atok').value;
+  if(pw.length<8){ toast('password must be at least 8 characters'); return; }
+  if(pw!==pw2){ toast('passwords do not match'); return; }
+  const r=await api('/api/activate',{method:'POST',body:{token,password:pw}});
+  if(r.ok){ S.token=r.json.token; localStorage.setItem('tmx_token',S.token); history.replaceState({},'','/'); toast('welcome!',true); render(); }
+  else toast(r.json.error||'activation failed');
+}
+async function render(){
   const app=document.getElementById('app');
+  const atok=new URLSearchParams(location.search).get('token');
+  if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
+  await refreshMe();
   if(!S.me){ app.innerHTML=authView(); return; }
   app.innerHTML=appShell(); renderTab(); }
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
+window.doActivate=doActivate;
 render();
 </script>
 </body>

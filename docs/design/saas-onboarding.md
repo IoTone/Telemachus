@@ -193,7 +193,17 @@ Owner opens /activate?token=… → sets password (+2FA) → status=active → s
 
 ## Status
 
-Proposal, pending review. It builds almost entirely on existing primitives — the
-operator tier, `api_tokens`, quotas, `status` fields, and `audit_log` — so the
-scope is mostly **wiring + a mode flag + two tables**, not new infrastructure. It
-feeds new checkboxes in [../FeatureRequirements.md](../FeatureRequirements.md).
+**Built (slice 19).** `TELEMACHUS_MODE=saas`, `POST /api/provision`,
+`POST /api/activate`, `POST /api/instance/{suspend,resume}`, boot-env seeding, the
+`/activate` SPA view, and the read-only suspend gate are implemented in
+`refimpl/racketmaximus` (`domain/saas/onboarding.rkt`, migration `0006`,
+`test/saas-tests.rkt`). Verified end-to-end: provision → single invited owner →
+magic-link activation → login; suspend blocks writes (`402`) but allows reads;
+resume restores.
+
+One refinement landed vs. this proposal — **ONB‑2**: provider actions authenticate
+with the per-instance **provision token** rather than an operator *service token*,
+so the seeded instance holds **exactly one user** (the owner). The operator tier
+still exists for self-hosted. The billing/email/orchestration **control plane**
+remains out of the OSS repo. Retention/deprovision (**ONB‑8**) is a control-plane
+concern. Recorded in [decisions.md](decisions.md) (ONB‑1…8).
