@@ -212,6 +212,23 @@
        [(action db-conn #:provision-id (format "~a" pid)) (json-response (hasheq 'ok #t 'provision_id pid))]
        [else (err "unknown provision_id" 404)])]))
 
+;; billing-lifecycle quota change by provision_id (provider auth)
+(define (ep-instance-quota req)
+  (cond
+    [(not (saas-mode?)) (err "not in hosted mode" 404)]
+    [(not (require-provision-token req)) (err "invalid provision token" 403)]
+    [else
+     (define b (read-json-body req))
+     (define pid (hash-ref b 'provision_id #f))
+     (define dim (hash-ref b 'dimension #f))
+     (define lim (hash-ref b 'limit #f))
+     (cond
+       [(or (not pid) (not dim) (not lim)) (err "provision_id, dimension, limit required" 400)]
+       [(set-tenant-quota! db-conn #:provision-id (format "~a" pid) #:dimension (format "~a" dim)
+                           #:limit lim #:window (format "~a" (hash-ref b 'window "day")))
+        (json-response (hasheq 'ok #t 'provision_id pid 'dimension dim 'limit lim))]
+       [else (err "unknown provision_id" 404)])]))
+
 (define (ep-whoami req)
   (define p (current-principal req))
   (if (not p) (unauthorized)
@@ -615,6 +632,7 @@
     [(and (POST? m) (equal? segs '("api" "activate")))      (ep-activate req)]
     [(and (POST? m) (equal? segs '("api" "instance" "suspend"))) (ep-tenant req suspend!)]
     [(and (POST? m) (equal? segs '("api" "instance" "resume")))  (ep-tenant req resume!)]
+    [(and (POST? m) (equal? segs '("api" "instance" "quota")))   (ep-instance-quota req)]
     [(and (POST? m) (equal? segs '("api" "login")))         (ep-login req)]
     [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
     [(and (POST? m) (equal? segs '("api" "password")))      (ep-password req)]

@@ -48,6 +48,14 @@
   (check-equal? st3 'active)
   (check-false t3))
 
+(test-case "set-tenant-quota! adjusts a tenant limit by provision_id (billing lifecycle)"
+  (define c (fresh))
+  (define-values (tok uid tid _s) (provision! c #:provision-id "sub_q" #:owner-email "q@x.com" #:plan "trial"))
+  (check-equal? (provisioned-team c "sub_q") tid)
+  (check-equal? (set-tenant-quota! c #:provision-id "sub_q" #:dimension "ai.tokens.total" #:limit 999999) tid)
+  (check-equal? (query-value c "SELECT limit_value FROM quota_limits WHERE subject_id = ? AND dimension = 'ai.tokens.total'" tid) 999999)
+  (check-false (set-tenant-quota! c #:provision-id "nope" #:dimension "ai.tokens.total" #:limit 1)))
+
 (test-case "suspend / resume flips tenant status"
   (define c (fresh))
   (define-values (tok uid tid _s) (provision! c #:provision-id "sub_4" #:owner-email "s@t.com"))
