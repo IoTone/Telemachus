@@ -1,0 +1,74 @@
+name: CI
+
+# Free on public repos with GitHub-hosted standard runners.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: refimpl/racketmaximus
+
+jobs:
+  racket:
+    name: Racket tests + server smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bogdanp/setup-racket@v1.15
+        with:
+          version: stable
+          variant: CS
+          distribution: full
+      - name: Compile
+        run: |
+          export PLTCOLLECTS="$(pwd)/pkgs:"
+          raco make server/main.rkt
+      - name: Unit tests
+        run: |
+          export PLTCOLLECTS="$(pwd)/pkgs:"
+          raco test \
+            test/engine-tests.rkt test/authz-tests.rkt test/i18n-tests.rkt \
+            test/auth-tests.rkt test/notes-tests.rkt test/quota-tests.rkt \
+            test/executor-tests.rkt test/agent-tests.rkt test/plugin-tests.rkt \
+            test/mcp-tests.rkt test/oop-tests.rkt test/translate-tests.rkt \
+            test/federation-tests.rkt
+      - name: Server smoke
+        run: bash test/server-smoke.sh
+      - name: Localization gate
+        run: |
+          export PLTCOLLECTS="$(pwd)/pkgs:"
+          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt --required en
+
+  e2e:
+    name: E2E feature tour + catalog
+    runs-on: ubuntu-latest
+    needs: racket
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Bogdanp/setup-racket@v1.15
+        with:
+          version: stable
+          variant: CS
+          distribution: full
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install e2e deps + browser
+        working-directory: refimpl/racketmaximus/test/e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium chromium-headless-shell
+      - name: Run tour (deterministic fallback model) + build catalog
+        run: bash test/e2e/run.sh
+      - name: Upload feature catalog
+        uses: actions/upload-artifact@v4
+        with:
+          name: feature-catalog
+          path: refimpl/racketmaximus/test/e2e/catalog/catalog.html
+          if-no-files-found: error

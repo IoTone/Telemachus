@@ -15,6 +15,16 @@ echo "node $(node -v)"
 [ -d node_modules/@playwright ] || npm install
 npx playwright install chromium chromium-headless-shell >/dev/null 2>&1 || true
 
+# Use a local ollama model if one is reachable (nicer, real screenshots); with
+# none, the server falls back to a deterministic reply so the tour still passes.
+if [ -z "${TELEMACHUS_MODEL_URL:-}" ] && curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+  export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+  export TELEMACHUS_MODEL="${TELEMACHUS_MODEL:-qwen2.5:7b}"
+  echo "model: ollama ($TELEMACHUS_MODEL)"
+else
+  echo "model: deterministic fallback (no ollama reachable)"
+fi
+
 # Boot a fresh server on 127.0.0.1:8080 (temp DB). Tear it down on exit.
 export E2E_DATA_DIR="$(mktemp -d)"
 bash boot-server.sh >/tmp/telemachus-e2e-server.log 2>&1 &
