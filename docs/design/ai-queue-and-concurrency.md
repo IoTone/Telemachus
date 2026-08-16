@@ -206,7 +206,11 @@ bounded worker pool with atomic claim, submit/poll/list/cancel endpoints
 with a Jobs UI tab. Decisions realized: durable jobs table (SCHED‑4), priority+FIFO
 (SCHED‑5), cancelable-not-preemptible (SCHED‑7).
 
-Deferred follow-ups: per-team **governor** slots on job execution (currently the
-pool is a global cap only), weighted-fair-share across teams, quota metering of job
-runs, and an `agent` job kind (the tool-loop flow) — all layer on without changing
-the claim/pool core.
+**Per-team fairness (slice 28).** The claim now skips a team already at its
+concurrency cap (= the team's `ai.concurrency` limit), so one team's batch can't
+monopolize the pool — enforced at claim time, so a busy team never head-of-line-
+blocks a worker (unlike wrapping a shared blocking governor).
+
+Deferred follow-ups: weighted-fair-share across teams (beyond the flat cap), quota
+metering of job runs, and an `agent` job kind (the tool-loop flow) — all layer on
+without changing the claim/pool core.

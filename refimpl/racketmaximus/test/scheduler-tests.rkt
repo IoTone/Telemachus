@@ -8,6 +8,7 @@
          db-kit/migrate
          "../domain/db/migrations.rkt"
          "../domain/authz/authz.rkt"
+         "../domain/db/id.rkt"
          "../domain/sched/scheduler.rkt")
 
 (define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
@@ -46,3 +47,16 @@
 
   ;; team isolation
   (check-false (get-job c j2 "other-team")))
+
+(test-case "per-team concurrency cap gates the claim"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok" (lambda (conn p pl) (hasheq 'ok #t)))
+  ;; simulate one already-running job for this team
+  (query-exec c "INSERT INTO jobs (id,team_id,user_id,kind,status) VALUES (?,?,?,?,'running')" (new-id) tid uid "ok")
+  (define jq (enqueue-job! c #:team tid #:user uid #:kind "ok"))
+  (set-cap-for! (lambda (_) 1))
+  (check-false (process-one! c))               ; team already at cap (1 running) → nothing claimed
+  (set-cap-for! (lambda (_) 2))
+  (check-equal? (process-one! c) jq)           ; cap raised → the queued job is claimed
+  (set-cap-for! (lambda (_) 2)))               ; restore default

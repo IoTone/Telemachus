@@ -23,7 +23,7 @@
          "../authz/authz.rkt")     ; user-principal
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
-         process-one! start-scheduler!)
+         process-one! start-scheduler! set-cap-for!)
 
 (define (vr r i) (vector-ref r i))
 (define (nz x) (if (sql-null? x) 'null x))
@@ -66,15 +66,28 @@
 ;; ---- claim + run ------------------------------------------------------------
 (define claim-lock (make-semaphore 1))
 
+;; per-team concurrency cap: how many of a team's jobs may run at once. Set by the
+;; server from the team's ai.concurrency limit; defaults to 2. This is enforced at
+;; CLAIM time (a team already at its cap is skipped for the next under-cap team),
+;; so one team's batch can't monopolize the worker pool — and, unlike wrapping a
+;; shared blocking governor, a busy team never head-of-line-blocks a worker.
+(define *cap-for* (box (lambda (_team) 2)))
+(define (set-cap-for! f) (set-box! *cap-for* f))
+
 (define (claim-next! conn)
   (call-with-semaphore claim-lock
     (lambda ()
-      (define row (query-maybe-row conn
-        "SELECT id FROM jobs WHERE status='queued' ORDER BY priority DESC, created_at ASC LIMIT 1"))
-      (and row
-           (let ([id (vector-ref row 0)])
-             (query-exec conn "UPDATE jobs SET status='running', started_at=CURRENT_TIMESTAMP WHERE id = ?" id)
-             id)))))
+      (define cap-for (unbox *cap-for*))
+      (define candidates (query-rows conn
+        "SELECT id, team_id FROM jobs WHERE status='queued' ORDER BY priority DESC, created_at ASC LIMIT 32"))
+      (for/or ([r (in-list candidates)])
+        (define id (vector-ref r 0))
+        (define team (vector-ref r 1))
+        (define running (query-value conn "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND status='running'" team))
+        (and (< running (cap-for team))
+             (begin
+               (query-exec conn "UPDATE jobs SET status='running', started_at=CURRENT_TIMESTAMP WHERE id = ?" id)
+               id))))))
 
 (define (run-claimed! conn id)
   (define r (query-maybe-row conn "SELECT team_id, user_id, kind, payload FROM jobs WHERE id = ?" id))
@@ -101,7 +114,8 @@
 
 ;; ---- the bounded worker pool ------------------------------------------------
 (define *run* (box #f))
-(define (start-scheduler! conn #:workers [n 2] #:idle [idle 0.2])
+(define (start-scheduler! conn #:workers [n 2] #:idle [idle 0.2] #:cap-for [cf #f])
+  (when cf (set-cap-for! cf))
   (set-box! *run* #t)
   (for ([_ (in-range (max 1 n))])
     (thread (lambda ()

@@ -879,8 +879,11 @@
     (lambda (conn p payload)
       (define-values (reply tokens) (run-chat (format "~a" (hash-ref payload 'prompt ""))))
       (hasheq 'reply reply 'tokens_used tokens)))
-  (void (start-scheduler! db-conn #:workers 2))
-  (printf "scheduler: 2 worker(s)\n")
+  (void (start-scheduler! db-conn #:workers 2
+                          #:cap-for (lambda (team)
+                                      (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))
+                                      (or lim 2))))    ; per-team fairness: cap = the team's ai.concurrency
+  (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency\n")
   (define tls? (tls-on?))
   (define ip (bind-ip))
   (when tls? (ensure-cert!))
