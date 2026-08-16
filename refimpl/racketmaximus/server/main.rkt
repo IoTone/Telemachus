@@ -1010,10 +1010,8 @@
                                 (hash-ref pr 'name "") (hash-ref pr 'email "") (hash-ref pr 'company "")
                                 (hash-ref pr 'job_title "") (hash-ref pr 'revenue "") (hash-ref pr 'use_case "") sig))
          (define-values (reply tokens) (run-chat detail #:system (judge-system-prompt)))
-         (define m (regexp-match #rx"(?s:[{].*[}])" reply))
          (define verdict
-           (or (and m (with-handlers ([exn:fail? (lambda (_) #f)])
-                        (let ([v (string->jsexpr (car m))]) (and (hash? v) v))))
+           (or (parse-verdict reply)
                (hasheq 'valid #f 'score 0 'revenue_estimate "unknown" 'reasoning "judge output not parseable")))
          (set-prospect-judge! conn pid verdict)
          (hasheq 'prospect_id pid 'verdict verdict 'tokens_used tokens)])))

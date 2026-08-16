@@ -34,10 +34,31 @@
   (check-equal? (hash-ref (prospect-get c alice pid) 'status) "qualified")
   (check-exn exn:fail? (lambda () (prospect-decide! c alice pid "maybe")))
 
+  ;; the async judge can land AFTER an owner decides — the verdict must still
+  ;; persist, and the owner's decision must not be reverted to "reviewed"
+  (set-prospect-judge! c pid (hasheq 'valid #t 'score 91 'revenue_estimate "$60M" 'reasoning "late verdict"))
+  (define late (prospect-get c alice pid))
+  (check-equal? (hash-ref late 'status) "qualified")               ; decision preserved
+  (check-equal? (hash-ref (hash-ref late 'judge) 'score) 91)       ; verdict still stored
+
   ;; a viewer cannot review the pipeline
   (define bob (create-user! c #:username "bob"))
   (add-member! c #:user bob #:team tid #:role "viewer")
   (check-exn exn:fail:forbidden? (lambda () (prospect-list c (user-principal c bob tid)))))
+
+(test-case "parse-verdict tolerates small-model formatting"
+  ;; clean object
+  (check-equal? (hash-ref (parse-verdict "{\"valid\": true, \"score\": 85}") 'score) 85)
+  ;; ```json fence + surrounding prose
+  (check-equal? (hash-ref (parse-verdict "Here is my verdict:\n```json\n{\"valid\": true, \"score\": 70}\n```\nHope this helps.") 'score) 70)
+  ;; trailing comma before }
+  (check-equal? (hash-ref (parse-verdict "{\"valid\": false, \"score\": 0,}") 'valid) #f)
+  ;; a brace-y blob after the real object must not corrupt the parse
+  (check-equal? (hash-ref (parse-verdict "{\"valid\": true, \"score\": 42}\n\nNote: use {placeholder} next time") 'score) 42)
+  ;; a brace inside a string is not a nesting level
+  (check-equal? (hash-ref (parse-verdict "{\"reasoning\": \"looks like a {test} account\", \"score\": 10}") 'score) 10)
+  ;; no object at all → #f (handler falls back)
+  (check-false (parse-verdict "I cannot produce JSON.")))
 
 (test-case "onboarding provider registry (SDK seam)"
   (define cfg (onboarding-config))

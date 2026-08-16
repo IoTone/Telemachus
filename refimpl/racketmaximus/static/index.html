@@ -95,7 +95,7 @@ function toast(msg, ok=false){ const el=document.getElementById('toast'); el.tex
   setTimeout(()=>el.className='toast',2600); }
 function setLang(l){ S.lang=l; localStorage.setItem('tmx_lang',l); render(); }
 function setTok(tk){ S.token=tk; localStorage.setItem('tmx_token',tk); }
-function logout(){ S.token=null; localStorage.removeItem('tmx_token'); S.me=null; render(); }
+function logout(){ S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.forceLogin=false; render(); }
 const val = id => document.getElementById(id).value.trim();
 
 // ---------- auth ----------
@@ -494,6 +494,8 @@ async function doCancelJob(id){
 }
 async function betaView(){
   const r=await api('/api/beta/prospects'); const ps=r.ok?r.json.prospects:[];
+  const blocked=r.ok?(r.json.blocked||{}):{}; const bt=Object.values(blocked).reduce((a,b)=>a+(b||0),0);
+  const bcard = bt>0 ? `<div class="card" style="margin-bottom:12px"><b>🛡️ Blocked ${bt} abusive attempt(s)</b> <span class="muted" style="font-size:12px">${Object.entries(blocked).map(([k,v])=>esc(k)+': '+v).join(' · ')}</span></div>` : '';
   const verdict=j=>{
     if(!j||j==='null'||typeof j!=='object') return '<span class="muted">judging…</span>';
     return `<span class="badge ${j.valid?'ok':''}">${j.valid?'valid':'flagged'}</span> ${j.score??'?'}/100 · ${esc(j.revenue_estimate||'')}<div class="muted" style="font-size:12px">${esc(j.reasoning||'')}</div>`;
@@ -505,7 +507,7 @@ async function betaView(){
       <td><span class="badge">${esc(p.status)}</span></td>
       <td>${(p.status==='qualified'||p.status==='rejected')?'':`<button class="btn sm" onclick="doDecide('${esc(p.id)}','qualified')">${t('qualify')}</button> <button class="btn sm ghost" onclick="doDecide('${esc(p.id)}','rejected')">${t('reject')}</button>`}</td>
     </tr>`).join('');
-  return `<h2>${t('beta')} — prospects</h2>
+  return `<h2>${t('beta')} — prospects</h2>${bcard}
     <div class="card"><table><thead><tr><th>prospect</th><th>company</th><th>revenue</th><th>LLM judge</th><th>status</th><th></th></tr></thead>
       <tbody>${rows||'<tr><td colspan="6" class="muted">No signups yet.</td></tr>'}</tbody></table></div>`;
 }

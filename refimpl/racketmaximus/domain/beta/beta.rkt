@@ -15,7 +15,9 @@
          prospect-create! prospect-list prospect-get prospect-decide! set-prospect-judge!
          default-team team-owner-id count-recent-email count-recent-domain
          ;; onboarding provider registry (SDK seam)
-         register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names)
+         register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names
+         ;; judge-reply parsing (robust against small-model formatting)
+         parse-verdict)
 
 ;; ---- onboarding provider registry -------------------------------------------
 (define *providers* (box (hash)))
@@ -48,6 +50,39 @@
    "score fit 0-100. Weigh any anti-abuse SIGNALS provided (e.g. many recent signups from the same domain, "
    "or a free/consumer email address) as reasons to LOWER confidence and score. Return ONLY a JSON object: "
    "{\"valid\": true|false, \"score\": <int 0-100>, \"revenue_estimate\": \"<string>\", \"reasoning\": \"<one sentence>\"}."))
+
+;; Extract the first balanced {...} object from an LLM reply, ignoring braces
+;; inside JSON strings. Small local models wrap the object in prose or ```json
+;; fences and sometimes emit a second brace-y blob, so a greedy first-{ to last-}
+;; grab spans invalid text — a balance scan takes just the first real object.
+(define (first-json-object s)
+  (define n (string-length s))
+  (let scan ([i 0])
+    (cond
+      [(>= i n) #f]
+      [(char=? (string-ref s i) #\{)
+       (let walk ([j i] [depth 0] [in-str #f] [esc #f])
+         (cond
+           [(>= j n) #f]                                   ; unbalanced — give up
+           [esc (walk (add1 j) depth in-str #f)]
+           [(and in-str (char=? (string-ref s j) #\\)) (walk (add1 j) depth in-str #t)]
+           [in-str (walk (add1 j) depth (not (char=? (string-ref s j) #\")) #f)]
+           [(char=? (string-ref s j) #\") (walk (add1 j) depth #t #f)]
+           [(char=? (string-ref s j) #\{) (walk (add1 j) (add1 depth) #f #f)]
+           [(char=? (string-ref s j) #\})
+            (if (= depth 1) (substring s i (add1 j)) (walk (add1 j) (sub1 depth) #f #f))]
+           [else (walk (add1 j) depth #f #f)]))]
+      [else (scan (add1 i))])))
+
+;; Parse a judge reply into a verdict hash, tolerating fences, prose, and a
+;; trailing comma before } or ]. Returns #f if no usable object is found.
+(define (parse-verdict reply)
+  (define blob (first-json-object reply))
+  (and blob
+       (with-handlers ([exn:fail? (lambda (_) #f)])
+         (define cleaned (regexp-replace* #px",\\s*([}\\]])" blob "\\1"))
+         (define v (string->jsexpr cleaned))
+         (and (hash? v) v))))
 
 (define DEFAULT-PROVIDER
   (hasheq 'name "beta"
@@ -130,7 +165,12 @@
                      decision (principal-user-id p) id)
          #t)))
 
-;; judge writes its verdict (no principal — runs in the queue)
+;; judge writes its verdict (no principal — runs in the queue). The verdict is
+;; informational, so it always persists — even if the owner already decided
+;; (the async judge can land after a qualify/reject). Status only advances out
+;; of the un-reviewed states; an owner decision is never clobbered.
 (define (set-prospect-judge! conn id verdict)
-  (query-exec conn "UPDATE prospects SET judge = ?, status = 'reviewed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('new','verifying','reviewed')"
-              (jsexpr->string verdict) id))
+  (query-exec conn "UPDATE prospects SET judge = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+              (jsexpr->string verdict) id)
+  (query-exec conn "UPDATE prospects SET status = 'reviewed', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('new','verifying')"
+              id))
