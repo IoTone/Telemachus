@@ -82,7 +82,13 @@
   ;; a bundle entry missing a plugin name falls back to the shell
   (check-true (experience-save! c alice (hasheq 'name "beta" 'fields '() 'landing (hasheq 'type "bundle"))))
   (check-true (experience-publish! c alice))
-  (check-equal? (hash-ref (experience-landing c tid) 'type) "shell"))
+  (check-equal? (hash-ref (experience-landing c tid) 'type) "shell")
+  ;; Tier-C template
+  (check-true (experience-save! c alice (hasheq 'name "beta" 'fields '() 'landing (hasheq 'type "template"))))
+  (check-true (experience-publish! c alice))
+  (define lt (experience-landing c tid))
+  (check-equal? (hash-ref lt 'type) "template")
+  (check-equal? (hash-ref lt 'url) "/beta/template"))
 
 (test-case "publish with no draft is a no-op"
   (define c (fresh))

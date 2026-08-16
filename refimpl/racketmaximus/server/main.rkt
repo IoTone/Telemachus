@@ -39,6 +39,7 @@
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
          "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
+         "../domain/beta/template.rkt"            ; Tier-C sandboxed custom HTML templates
          "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
@@ -134,6 +135,17 @@
 ;; ---- responses --------------------------------------------------------------
 (define (err msg code) (json-response (hasheq 'error msg) #:code code))
 (define (unauthorized) (err (msg-unauthorized) 401))
+
+;; CORS for the public beta API: a Tier-C template renders in a SANDBOXED, opaque-
+;; origin iframe, so its fetches to these already-public endpoints are cross-origin.
+(define cors-headers
+  (list (make-header #"Access-Control-Allow-Origin" #"*")
+        (make-header #"Access-Control-Allow-Methods" #"GET, POST, OPTIONS")
+        (make-header #"Access-Control-Allow-Headers" #"Content-Type")
+        (make-header #"Access-Control-Max-Age" #"600")))
+(define (cors-json jsx #:code [code 200]) (json-response jsx #:code code #:headers cors-headers))
+(define (cors-err msg code) (cors-json (hasheq 'error msg) #:code code))
+(define (cors-preflight) (response/output #:code 204 #:headers cors-headers (lambda (out) (void))))
 
 ;; the single-page UI (read once at startup)
 (define UI-HTML
@@ -292,7 +304,16 @@
                          'landing (experience-landing db-conn team))))
 
 (define (ep-beta-config req)     ; public: the effective experience (published DB row, else ENV/provider base)
-  (json-response (resolve-experience-public db-conn (default-team db-conn))))
+  (cors-json (resolve-experience-public db-conn (default-team db-conn))))
+
+;; public: the Tier-C custom template, sanitized + wrapped with our submission
+;; bootstrap. Served for the sandboxed iframe (see domain/beta/template.rkt).
+(define (ep-beta-template req)
+  (define team (default-team db-conn))
+  (define exp (resolve-experience db-conn team))
+  (define tpl (let ([t (hash-ref exp 'template #f)]) (if (and (string? t) (not (string=? t ""))) t DEFAULT-TEMPLATE)))
+  (define public-cfg (hash-remove exp 'judge-system))
+  (html-response (template-page public-cfg tpl)))
 
 ;; ---- admin: edit & publish the onboarding experience (settings:manage) -------
 (define (ep-beta-experience-get req)
@@ -339,9 +360,12 @@
 
 (define (ep-beta-challenge req)  ; public: issue a signed, single-use PoW challenge
   (define c (issue-challenge #:secret beta-secret #:now (current-seconds) #:difficulty pow-bits))
-  (json-response (hasheq 'challenge (hash-ref c 'challenge) 'difficulty (hash-ref c 'difficulty) 'honeypot "_hp")))
+  (cors-json (hasheq 'challenge (hash-ref c 'challenge) 'difficulty (hash-ref c 'difficulty) 'honeypot "_hp")))
 
-(define (ep-beta-signup req)     ; PUBLIC — layered anti-abuse BEFORE any DB write / LLM spend
+;; add CORS headers to any already-built response (so the sandboxed Tier-C iframe can read it)
+(define (with-cors resp) (struct-copy response resp [headers (append cors-headers (response-headers resp))]))
+(define (ep-beta-signup req) (with-cors (ep-beta-signup* req)))
+(define (ep-beta-signup* req)     ; PUBLIC — layered anti-abuse BEFORE any DB write / LLM spend
   (define b (read-json-body req))
   (define now (current-seconds))
   (define key (client-key req))
@@ -930,6 +954,7 @@
 (define (POST? m) (bytes=? m #"POST"))
 (define (PUT? m) (bytes=? m #"PUT"))
 (define (DELETE? m) (bytes=? m #"DELETE"))
+(define (OPTIONS? m) (bytes=? m #"OPTIONS"))
 
 ;; /api/notes/<id> → id ; /api/notes/<id>/share → id
 (define (note-id segs)
@@ -968,6 +993,8 @@
     [(and (GET? m)  (bundle-file-path segs))                (serve-file (bundle-file-path segs))]
     [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
+    [(and (GET? m)  (equal? segs '("beta" "template")))     (ep-beta-template req)]
+    [(and (OPTIONS? m) (member segs '(("api" "beta" "signup") ("api" "beta" "config") ("api" "beta" "challenge")))) (cors-preflight)]
     [(and (GET? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-get req)]
     [(and (PUT? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-put req)]
     [(and (POST? m) (equal? segs '("api" "beta" "experience" "publish"))) (ep-beta-experience-publish req)]

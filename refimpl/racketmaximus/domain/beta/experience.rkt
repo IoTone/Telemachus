@@ -92,6 +92,8 @@
           (string? (hash-ref l 'plugin #f)) (not (string=? (hash-ref l 'plugin "") "")))
      (define plugin (hash-ref l 'plugin))
      (hasheq 'type "bundle" 'plugin plugin 'url (string-append "/beta/bundle/" plugin "/"))]
+    [(and (hash? l) (equal? (hash-ref l 'type #f) "template"))
+     (hasheq 'type "template" 'url "/beta/template")]
     [else (hasheq 'type "shell")]))
 
 ;; ---- admin (settings:manage) ------------------------------------------------

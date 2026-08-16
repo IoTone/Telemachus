@@ -116,10 +116,17 @@ try {
   await shot(page, '08-onboarding-editor', 'Skin it: the console onboarding editor',
     'The owner brands the funnel from the Beta tab — logo, hero copy, theme tokens, detail blocks, form fields, and the judge prompt — with a live preview that is exactly what applicants see. Save draft, then Publish. No code, no redeploy; the same Tier-A shell, reskinned entirely from config.');
 
-  // ── 6. TIER B: a fully hand-coded plugin bundle, wired only through the SDK ──
+  // ── 6. TIER C: author a custom HTML template in the console (sandboxed) ──
+  await page.evaluate(() => window.bxSetLanding('template'));   // switch the renderer to Tier C (seeds a starter template)
+  await page.waitForSelector('#bx-preview iframe', { timeout: 10000 });
+  await page.waitForTimeout(500);
+  await shot(page, '09-tier-c-template', 'Tier C: author a custom HTML template',
+    'Between no-code (Tier A) and shipping a bundle (Tier B): the owner writes raw HTML with {{placeholders}} right in the console, with a live sandboxed preview. On publish the markup is sanitized (scripts, handlers and dangerous tags stripped) and rendered in an isolated iframe; the submit button is wired to the anti-abuse gate for you.');
+
+  // ── 7. TIER B: a fully hand-coded plugin bundle, wired only through the SDK ──
   await page.goto(BASE + '/beta/bundle/beta-onboarding/', { waitUntil: 'networkidle', timeout: 20000 });
   await page.waitForSelector('#use_case', { timeout: 10000 });
-  await shot(page, '09-tier-b-bundle', 'Tier B: a fully custom plugin bundle',
+  await shot(page, '10-tier-b-bundle', 'Tier B: a fully custom plugin bundle',
     'For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero Telemachus chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it.');
 } finally {
   fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(MAN, null, 2));

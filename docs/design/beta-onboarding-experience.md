@@ -163,12 +163,19 @@ deterministic-deps tenet.
 |---|---|---|---|---|
 | **A · Slots + tokens** *(built-in)* | Structured config: logo, hero, header, footer, detail blocks (markdown), fields, theme tokens | High — covers the reference pages | Yes — no arbitrary HTML/JS | Low (admin, no code) |
 | **B · Static bundle** *(plugin)* | Its own `landing/` HTML+CSS+assets; calls our JS SDK | Total — pixel-perfect | Sandboxed plugin + CSP | Medium (plugin author) |
-| **C · Custom template** *(later)* | A Mustache-style HTML template with `{{slots}}`, rendered in a sandboxed iframe | Very high | Needs sanitize + iframe sandbox | High (us) |
+| **C · Custom template** *(shipped)* | HTML with `{{placeholders}}` authored in the console, rendered in a sandboxed iframe | Very high | Sanitized **and** sandboxed | Low (admin) |
 
 **Recommendation.** Ship **Tier A** as the default (safe, no-code, live-previewable,
 and enough for the reference pages), and **Tier B** for teams that want their own
 frontend — the plugin drops a static bundle and calls a small public client SDK.
-Defer **Tier C** until someone needs template authoring without shipping a bundle.
+**Tier C** lets an admin author raw HTML with `{{placeholders}}` in the console
+(no plugin, no filesystem). It is defended twice: the server **sanitizes** the
+markup (strips `<script>`, `on*` handlers, `javascript:` URIs, and structural/active
+tags) and substitutes escaped values, then it renders inside a **sandboxed,
+opaque-origin iframe** (`allow-scripts`, no `allow-same-origin`) with our trusted
+submission bootstrap as the only script — so even a sanitizer bypass runs isolated
+from our origin (no access to the operator's token, cookies, or the parent DOM) and
+can only reach the already-public, rate-limited beta API (CORS-enabled for it).
 
 The client SDK is what makes Tier B clean — a custom page never re-implements
 anti-abuse:
@@ -229,7 +236,7 @@ Each slice ships, tests, and demos on its own — same cadence as the rest of th
 | **41** | Tier-A skinnable shell | Scoped token theming; logo/hero/header/footer/detail slots; the console Onboarding editor with live preview. |
 | **42** | Assets + fonts | Local asset store (`asset://`), size/type limits, font allowlist / `@font-face` upload. |
 | **43** | Tier-B bundle + client SDK | `window.Telemachus.beta` SDK; plugin static-bundle landing served through the sandbox + CSP. |
-| **44** | *(optional)* Tier-C templates | Mustache-style templates in a sandboxed iframe with a sanitizer. Only if a real need shows up. |
+| **44** | Tier-C templates *(shipped)* | Console-authored HTML with `{{placeholders}}`, sanitized server-side and rendered in a sandboxed opaque-origin iframe; CORS on the public beta API so the isolated frame can submit. |
 
 ## Decisions to confirm
 
