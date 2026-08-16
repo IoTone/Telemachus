@@ -1,0 +1,6 @@
+{
+  "_comment": "Example federated executor for the e2e tour only (loaded via TELEMACHUS_EXECUTORS in boot-server.sh). The repo default is single-node local; this file is not read by a normal server run. The executor is only listed in Admin › Compute, never called.",
+  "executors": [
+    { "name": "gpu-sim", "url": "http://127.0.0.1:11500/v1/chat/completions", "model": "gpu-sim-70b" }
+  ]
+}
