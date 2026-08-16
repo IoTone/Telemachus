@@ -210,7 +210,16 @@ refimpl/racketmaximus/
   `db-dialect`-aware and timestamps use portable epoch/`CURRENT_TIMESTAMP`.
   **The full 66-assertion smoke passes against Postgres 18** as well as SQLite.
 
-80 unit tests pass + a 66-assertion server integration test (green on SQLite **and** Postgres)
+- **Beta onboarding (slices 33–34)** — a pre-sales **qualification funnel** that
+  captures prospects **without creating accounts**, vets each with an **LLM judge**
+  ({valid, score, revenue estimate, reasoning} via a metered `beta_judge` job), and
+  lets the team owner **review / qualify / reject**. Root-route **home routing**
+  (`TELEMACHUS_HOME=beta`) makes the default experience the beta landing page instead
+  of login. The onboarding experience (copy, form fields, judge prompt) is a
+  **pluggable provider** — customized via the SDK's new plugin `init!` hook (see the
+  `beta-onboarding` example plugin).
+
+81 unit tests pass + a 74-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

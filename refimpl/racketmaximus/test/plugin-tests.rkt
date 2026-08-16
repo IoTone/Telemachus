@@ -11,7 +11,8 @@
          "../domain/authz/authz.rkt"
          "../domain/agent/registry.rkt"
          "../domain/agent/run.rkt"          ; dispatch-tool (also registers built-ins)
-         "../domain/agent/plugins.rkt")
+         "../domain/agent/plugins.rkt"
+         "../domain/beta/beta.rkt")         ; onboarding registry (populated by an init! plugin)
 
 (define-runtime-path plugins-dir "../plugins")
 (define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
@@ -25,3 +26,7 @@
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (check-equal? (dispatch-tool c (user-principal c uid tid) "word_count" (hasheq 'text "one two three")) "3 words"))
+
+(test-case "init! hook: an SDK plugin registers an onboarding provider"
+  (load-plugins! plugins-dir)
+  (check-true (and (member "founders" (onboarding-names)) #t)))   ; from plugins/beta-onboarding

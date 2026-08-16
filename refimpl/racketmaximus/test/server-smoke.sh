@@ -101,6 +101,7 @@ PS=''; for i in $(seq 1 40); do PS=$(curl -s $B/api/beta/prospects -H "Authoriza
 assert "beta judged"      "$PS" '"status":"reviewed"'
 assert "beta decide"      "$(curl -s -X POST $B/api/beta/prospects/$PID/decide -H "Authorization: Bearer $OP" -d '{"decision":"qualified"}')" '"status":"qualified"'
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
+assert "onboarding plug" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'beta-onboarding'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
 assert "mcp connected"   "$(curl -s $B/api/mcp -H "Authorization: Bearer $OP")" '"name":"mock"'
 assert "mcp tool"        "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'mcp__mock__add'
