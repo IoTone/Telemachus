@@ -35,6 +35,7 @@
          "../domain/apps/translate.rkt"           ; Translation app
          "../domain/apps/search.rkt"              ; search across notes + translations
          "../domain/features/features.rkt"        ; per-team feature activation
+         "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
@@ -691,6 +692,13 @@
       [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
       [else (err "not found" 404)]))))
 
+(define (ep-admin-seed req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define counts (seed-samples! db-conn p))
+    (audit! db-conn #:action "samples.seed" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
+    (json-response (hash-set counts 'ok #t)))))
+
 (define (ep-metrics req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
@@ -826,6 +834,7 @@
     [(and (GET? m)  (equal? segs '("api" "jobs")))         (ep-jobs-list req)]
     [(and (POST? m) (job-cancel-path segs))                (ep-job-cancel req (job-cancel-path segs))]
     [(and (GET? m)  (job-id segs))                         (ep-job-get req (job-id segs))]
+    [(and (POST? m) (equal? segs '("api" "admin" "seed")))  (ep-admin-seed req)]
     [(and (GET? m)  (equal? segs '("api" "metrics")))      (ep-metrics req)]
     [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
     [(and (POST? m) (feature-path segs))                   (ep-feature-toggle req (feature-path segs))]

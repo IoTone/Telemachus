@@ -61,7 +61,8 @@ const L = {
       welcome:'Welcome — finish setting up your account.',setpw:'Set your password',confirmpw:'Confirm password',activate:'Activate account',
       apitokens:'API tokens',createtoken:'Create token',revoke:'Revoke',audit:'Audit log',search:'Search',results:'Results',features:'Features',
       documents:'Documents',newdoc:'New document',content:'Content',
-      jobs:'Jobs',submitjob:'Submit a job',submit:'Submit',refresh:'Refresh',cancel:'Cancel'},
+      jobs:'Jobs',submitjob:'Submit a job',submit:'Submit',refresh:'Refresh',cancel:'Cancel',
+      testing:'Testing tools',seed:'Load sample data'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -74,7 +75,8 @@ const L = {
       welcome:'ようこそ — アカウント設定を完了してください。',setpw:'パスワードを設定',confirmpw:'パスワードの確認',activate:'アカウントを有効化',
       apitokens:'APIトークン',createtoken:'トークンを作成',revoke:'失効',audit:'監査ログ',search:'検索',results:'結果',features:'機能',
       documents:'ドキュメント',newdoc:'新規ドキュメント',content:'内容',
-      jobs:'ジョブ',submitjob:'ジョブを送信',submit:'送信',refresh:'更新',cancel:'キャンセル'}
+      jobs:'ジョブ',submitjob:'ジョブを送信',submit:'送信',refresh:'更新',cancel:'キャンセル',
+      testing:'テストツール',seed:'サンプルデータを読み込む'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -326,7 +328,15 @@ async function adminView(){
     compute=`<div class="card" style="margin-top:14px"><h3>Compute <span class="muted" style="font-size:13px">— federated executors</span></h3>
       <table><thead><tr><th>executor</th><th>model</th><th>endpoint</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
-  return `<h2>${t('admin')}</h2>${body}${compute}`;
+  const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
+    <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
+    <button class="btn" onclick="doSeedSamples()">${t('seed')}</button></div>`;
+  return `<h2>${t('admin')}</h2>${body}${compute}${seedCard}`;
+}
+async function doSeedSamples(){
+  const r=await api('/api/admin/seed',{method:'POST'});
+  if(r.ok){ toast(`seeded ${r.json.notes} notes, ${r.json.documents} docs, ${r.json.jobs} jobs`,true); renderTab(); }
+  else toast(r.json.error||'error');
 }
 
 // ---------- render ----------
@@ -475,7 +485,7 @@ window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; 
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
 window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken; window.doSearch=doSearch; window.doToggleFeature=doToggleFeature;
 window.doCreateDoc=doCreateDoc; window.doDelDoc=doDelDoc; window.doMoreDocs=doMoreDocs;
-window.doSubmitJob=doSubmitJob; window.doCancelJob=doCancelJob;
+window.doSubmitJob=doSubmitJob; window.doCancelJob=doCancelJob; window.doSeedSamples=doSeedSamples;
 render();
 </script>
 </body>

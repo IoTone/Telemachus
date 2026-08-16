@@ -188,7 +188,13 @@ refimpl/racketmaximus/
   (stay queued) and successful runs bill tokens + a request — the queue is not a
   budget bypass.
 
-77 unit tests pass + a 63-assertion server integration test
+- **Agent jobs + sample data (slices 30–31)** — an `agent` job kind runs full
+  tool-loop flows through the queue (deferred + metered), returning
+  `{reply, rounds, tools}`. An operator **"Load sample data"** action
+  (`POST /api/admin/seed`, Admin console) populates a team with sample notes,
+  documents, and queued chat/translate/agent jobs — instant functionality to test.
+
+78 unit tests pass + a 66-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 
