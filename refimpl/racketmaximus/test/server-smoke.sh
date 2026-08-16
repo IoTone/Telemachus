@@ -8,7 +8,8 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 export TELEMACHUS_DATA_DIR="$(mktemp -d)"
 PORT="${PORT:-8080}"
 DB="$TELEMACHUS_DATA_DIR/telemachus.db"
-export DATABASE_URL="sqlite:///$DB"
+export DATABASE_URL="${DATABASE_URL:-sqlite:///$DB}"   # respect a pre-set URL (e.g. postgres)
+echo "smoke DATABASE_URL=$DATABASE_URL"
 
 fail=0
 assert(){ # <label> <haystack> <needle>

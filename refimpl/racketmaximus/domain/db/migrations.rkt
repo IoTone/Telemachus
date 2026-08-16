@@ -142,7 +142,7 @@
         "  subject_id TEXT NOT NULL,"
         "  dimension TEXT NOT NULL,"                   ; ai.tokens.total | ai.requests | ai.concurrency
         "  limit_value INTEGER NOT NULL,"
-        "  window TEXT NOT NULL DEFAULT 'day',"        ; day | minute | instant
+        "  \"window\" TEXT NOT NULL DEFAULT 'day',"     ; day | minute | instant ("window" is reserved in PG)
         "  UNIQUE(subject_type, subject_id, dimension))")
        (string-append
         "CREATE TABLE usage_ledger ("

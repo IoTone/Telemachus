@@ -203,7 +203,14 @@ refimpl/racketmaximus/
   `DATABASE_URL=postgres://…`. (Live E2E needs a running server; the SQLite suite
   stays green and the rewriter/parser are unit-tested.)
 
-80 unit tests pass + a 66-assertion server integration test
+- **Postgres backend (slice 32)** — the same code runs on **SQLite or PostgreSQL**,
+  chosen by `DATABASE_URL` (`sqlite:///…` or `postgresql://user@host:port/db`); db-kit
+  dispatches the connection and no app code branches on backend. Schema + queries are
+  dialect-neutral (one reserved-word fix: `"window"`); the quota window clause is
+  `db-dialect`-aware and timestamps use portable epoch/`CURRENT_TIMESTAMP`.
+  **The full 66-assertion smoke passes against Postgres 18** as well as SQLite.
+
+80 unit tests pass + a 66-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

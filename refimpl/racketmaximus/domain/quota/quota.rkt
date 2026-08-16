@@ -11,16 +11,16 @@
 
 (define (set-limit! conn subject-type subject-id dimension limit #:window [window "day"])
   (query-exec conn
-    (string-append "INSERT INTO quota_limits (id, subject_type, subject_id, dimension, limit_value, window) "
+    (string-append "INSERT INTO quota_limits (id, subject_type, subject_id, dimension, limit_value, \"window\") "
                    "VALUES (?, ?, ?, ?, ?, ?) "
                    "ON CONFLICT(subject_type, subject_id, dimension) "
-                   "DO UPDATE SET limit_value = excluded.limit_value, window = excluded.window")
+                   "DO UPDATE SET limit_value = excluded.limit_value, \"window\" = excluded.\"window\"")
     (new-id) subject-type subject-id dimension limit window))
 
 ;; → (values limit window) or (values #f #f)
 (define (get-limit conn subject-type subject-id dimension)
   (define row (query-maybe-row conn
-    "SELECT limit_value, window FROM quota_limits WHERE subject_type = ? AND subject_id = ? AND dimension = ?"
+    "SELECT limit_value, \"window\" FROM quota_limits WHERE subject_type = ? AND subject_id = ? AND dimension = ?"
     subject-type subject-id dimension))
   (if row (values (vector-ref row 0) (vector-ref row 1)) (values #f #f)))
 
