@@ -128,6 +128,35 @@ The console gains an **Onboarding editor**: brand/logo, hero, header/footer, the
 tokens, the field builder, and the judge prompt — with a live preview pane (it
 renders the same landing component against the draft config).
 
+### ENV launch defaults (first-boot)
+
+A deployer must be able to bring the system up with the funnel already configured,
+before anyone logs in to edit it. So resolution has a **base experience** layer
+beneath the DB:
+
+```
+resolve-experience(team) =
+    published DB row                                  # admin runtime authority
+  else base-experience = merge(registered provider,   # TELEMACHUS_ONBOARDING selects it
+                               TELEMACHUS_ONBOARDING_FILE)  # JSON of launch defaults, overrides on top
+```
+
+- `TELEMACHUS_ONBOARDING` — name of the registered provider to use as the base.
+- `TELEMACHUS_ONBOARDING_FILE` — path to a JSON file describing the experience
+  (title, subtitle, fields, `judge_system`, and later theme/hero/header/footer). Its
+  keys override the provider's. Human-authored JSON may use `judge_system`; it is
+  normalized to the internal key.
+
+**Seed-then-own semantics.** On first boot there is no DB row, so the base (provider
++ ENV file) is served live — the funnel reflects ENV defaults immediately. The
+moment an admin **publishes**, the DB row wins and a later redeploy will **not**
+clobber their edits. This is the right default (config-as-code seeds; runtime edits
+persist). A future **ENV-locked** mode (ENV always authoritative, editor read-only)
+is a small addition if a deployer wants immutable-infra config — noted, not built.
+
+This keeps config-as-a-file, no external service — consistent with the
+deterministic-deps tenet.
+
 ## 3. The render contract — three tiers
 
 | Tier | Author supplies | Flexibility | Safe by default | Effort |

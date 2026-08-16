@@ -341,4 +341,23 @@
       (exec* conn
        "ALTER TABLE prospects ADD COLUMN attributes TEXT"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes))
+;; 0014 — onboarding experiences (slice 40): the beta landing experience becomes
+;; admin-editable data with a draft/publish workflow, per (team, key). Source of
+;; truth moves from code/env to storage; ENV still seeds first-boot defaults via a
+;; base experience when nothing is published. See docs/design/beta-onboarding-experience.md §2.
+(define m-0014-onboarding-experiences
+  (migration "0014-onboarding-experiences"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE onboarding_experiences ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  key TEXT NOT NULL DEFAULT 'beta',"
+        "  status TEXT NOT NULL DEFAULT 'draft',"     ; draft | published
+        "  config TEXT NOT NULL,"                     ; full experience JSON (judge_system included)
+        "  updated_by TEXT,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_onboarding_exp ON onboarding_experiences(team_id, key, status)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences))

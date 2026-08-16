@@ -37,6 +37,7 @@
          "../domain/features/features.rkt"        ; per-team feature activation
          "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
+         "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
          "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
@@ -259,10 +260,28 @@
 
 (define (ep-config req)          ; public: tells the SPA what the root route should render
   (json-response (hasheq 'home (home-mode) 'service "telemachus"
-                         'onboarding (hash-ref (onboarding-config) 'name))))
+                         'onboarding (hash-ref (resolve-experience db-conn (default-team db-conn)) 'name "beta"))))
 
-(define (ep-beta-config req)     ; public: the active onboarding provider's form config
-  (json-response (onboarding-config)))
+(define (ep-beta-config req)     ; public: the effective experience (published DB row, else ENV/provider base)
+  (json-response (resolve-experience-public db-conn (default-team db-conn))))
+
+;; ---- admin: edit & publish the onboarding experience (settings:manage) -------
+(define (ep-beta-experience-get req)
+  (define p (current-principal req))
+  (cond [(not p) (unauthorized)]
+        [else (json-response (experience-draft db-conn p))]))    ; full draft incl. judge prompt
+
+(define (ep-beta-experience-put req)
+  (define p (current-principal req))
+  (cond [(not p) (unauthorized)]
+        [else (experience-save! db-conn p (read-json-body req))
+              (json-response (hasheq 'ok #t 'status "draft"))]))
+
+(define (ep-beta-experience-publish req)
+  (define p (current-principal req))
+  (cond [(not p) (unauthorized)]
+        [(experience-publish! db-conn p) (json-response (hasheq 'ok #t 'status "published"))]
+        [else (err "nothing to publish — save a draft first" 400)]))
 
 (define (ep-beta-challenge req)  ; public: issue a signed, single-use PoW challenge
   (define c (issue-challenge #:secret beta-secret #:now (current-seconds) #:difficulty pow-bits))
@@ -307,7 +326,7 @@
            ;; every configured field that ISN'T a reserved/typed column is captured
            ;; generically into the attributes blob — custom fields need no migration
            (define attrs
-             (for/fold ([h (hasheq)]) ([f (in-list (hash-ref (onboarding-config) 'fields '()))])
+             (for/fold ([h (hasheq)]) ([f (in-list (hash-ref (resolve-experience db-conn team) 'fields '()))])
                (define k (hash-ref f 'key ""))
                (define v (fmt b (string->symbol k)))
                (if (or (reserved-field? k) (string=? v "")) h (hash-set h (string->symbol k) v))))
@@ -890,6 +909,9 @@
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
+    [(and (GET? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-get req)]
+    [(and (PUT? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-put req)]
+    [(and (POST? m) (equal? segs '("api" "beta" "experience" "publish"))) (ep-beta-experience-publish req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "challenge"))) (ep-beta-challenge req)]
     [(and (POST? m) (equal? segs '("api" "beta" "signup"))) (ep-beta-signup req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "prospects"))) (ep-beta-prospects req)]
@@ -1015,13 +1037,13 @@
         [(not pr) (hasheq 'skipped "prospect gone")]
         [else
          (define sig (let ([s (hash-ref pr 'signals 'null)]) (if (hash? s) (jsexpr->string s) "none")))
-         ;; build the judge prompt generically from the experience's field definitions,
-         ;; pulling each value from its typed column or the attributes blob
+         ;; resolve the prospect's team experience: field defs (for the prompt) + judge prompt
+         (define exp-fields (hash-ref (resolve-experience conn (principal-team-id p)) 'fields '()))
          (define lines
-           (for/list ([f (in-list (hash-ref (onboarding-config) 'fields '()))])
+           (for/list ([f (in-list exp-fields)])
              (format "~a: ~a" (hash-ref f 'label (hash-ref f 'key "")) (prospect-field pr (hash-ref f 'key "")))))
          (define detail (string-append (string-join lines "\n") "\n\nAnti-abuse signals: " sig))
-         (define-values (reply tokens) (run-chat detail #:system (judge-system-prompt)))
+         (define-values (reply tokens) (run-chat detail #:system (experience-judge-system conn (principal-team-id p))))
          (define verdict
            (or (parse-verdict reply)
                (hasheq 'valid #f 'score 0 'revenue_estimate "unknown" 'reasoning "judge output not parseable")))
