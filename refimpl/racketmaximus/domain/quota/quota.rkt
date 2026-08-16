@@ -5,7 +5,7 @@
 ;; (a limit the governor reads). check() is called at admission with an estimate;
 ;; record() logs actual usage after the call. Subjects are "team" or "user".
 
-(require db "../db/id.rkt")
+(require db-kit/portable "../db/id.rkt")
 
 (provide set-limit! get-limit quota-used quota-check quota-record! default-policy!)
 
@@ -24,15 +24,22 @@
     subject-type subject-id dimension))
   (if row (values (vector-ref row 0) (vector-ref row 1)) (values #f #f)))
 
-(define (window-clause window)
-  (cond [(string=? window "day")    "date(at) = date('now')"]
-        [(string=? window "minute") "at >= datetime('now','-60 seconds')"]
-        [else "1 = 1"]))
+;; `at` is a TEXT timestamp on both backends (we declare the column TEXT). The
+;; window predicate is the one spot that needs dialect-specific date functions.
+(define (window-clause dialect window)
+  (cond
+    [(string=? window "day")
+     (if (eq? dialect 'postgresql) "at::date = CURRENT_DATE" "date(at) = date('now')")]
+    [(string=? window "minute")
+     (if (eq? dialect 'postgresql) "at::timestamptz >= NOW() - interval '60 seconds'"
+         "at >= datetime('now','-60 seconds')")]
+    [else "1 = 1"]))
 
 (define (quota-used conn subject-type subject-id dimension window)
   (query-value conn
     (string-append "SELECT COALESCE(SUM(amount), 0) FROM usage_ledger "
-                   "WHERE subject_type = ? AND subject_id = ? AND dimension = ? AND " (window-clause window))
+                   "WHERE subject_type = ? AND subject_id = ? AND dimension = ? AND "
+                   (window-clause (db-dialect conn) window))
     subject-type subject-id dimension))
 
 ;; admission decision for `amount` more of `dimension`

@@ -6,7 +6,7 @@
 ;; `require-perm`. Functions raise exn:fail:forbidden on deny (→ 403) and return
 ;; #f on not-found (→ 404).
 
-(require db
+(require db-kit/portable
          "../db/id.rkt"
          "../authz/authz.rkt")
 

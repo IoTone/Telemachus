@@ -17,7 +17,7 @@
 ;;
 ;; Job kinds are registered by the server (kind → (conn principal payload) → jsexpr).
 
-(require db
+(require db-kit/portable
          json
          "../db/id.rkt"
          "../authz/authz.rkt")     ; user-principal

@@ -14,7 +14,7 @@
 ;; high-entropy random token lookup, but the hashing seam (`hash-token`) is where
 ;; a production KDF drops in. Password auth (login/2FA) is a later slice.
 
-(require db
+(require db-kit/portable
          json
          file/sha1
          "../db/id.rkt"
@@ -263,9 +263,11 @@
 (define (grant! conn #:resource-type rtype #:resource-id rid
                 #:principal-type ptype #:principal-id pid #:permission perm #:by [by sql-null])
   (query-exec conn
-    (string-append "INSERT OR IGNORE INTO resource_grants "
+    (string-append "INSERT INTO resource_grants "
                    "(id, resource_type, resource_id, principal_type, principal_id, permission, granted_by) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?)")
+                   "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                   ;; portable upsert-ignore (sqlite 3.24+ and postgres both support this)
+                   "ON CONFLICT (resource_type, resource_id, principal_type, principal_id, permission) DO NOTHING")
     (new-id) rtype rid ptype pid perm by))
 
 (define (revoke! conn #:resource-type rtype #:resource-id rid

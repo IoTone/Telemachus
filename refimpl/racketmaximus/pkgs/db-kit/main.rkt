@@ -14,7 +14,8 @@
 (require db racket/string)
 
 (provide sqlite-path open-sqlite call-with-sqlite
-         sql-or-empty sql-or-null sql->str sql->bool sql->int sqlite-datetime->iso)
+         sql-or-empty sql-or-null sql->str sql->bool sql->int sqlite-datetime->iso
+         db-connector postgres-params)
 
 ;; ---- SQL value coercion helpers (shared by DB-backed CLIs) -----------------
 (define (sql-or-empty v) (if (sql-null? v) "" v))         ; NULL -> ""
@@ -64,3 +65,28 @@
   (dynamic-wind void
                 (lambda () (proc conn))
                 (lambda () (disconnect conn))))
+
+;; ---- backend dispatch: sqlite OR postgres from one DATABASE_URL --------------
+;; postgres://[user[:pass]@]host[:port]/dbname   (or postgresql://…)
+(define (postgres-params url)
+  (define m (regexp-match #rx"^postgres(?:ql)?://(?:([^:@/]+)(?::([^@/]+))?@)?([^:/@]+)(?::([0-9]+))?/(.+)$" url))
+  (unless m (error 'db-connector "malformed postgres URL: ~a" url))
+  (hasheq 'user     (or (list-ref m 1) "postgres")
+          'password (list-ref m 2)                         ; #f = no password
+          'server   (list-ref m 3)
+          'port     (if (list-ref m 4) (string->number (list-ref m 4)) 5432)
+          'database (list-ref m 5)))
+
+;; Resolve a DATABASE_URL to a *connector thunk* (opens a fresh connection each
+;; call — suitable for connection-pool). Backend-neutral: the app never branches.
+(define (db-connector url #:base-dir [base-dir (current-directory)])
+  (cond
+    [(string-prefix? url "sqlite:")
+     (define path (sqlite-path url #:base-dir base-dir))
+     (lambda () (sqlite3-connect #:database path #:mode 'create))]
+    [(regexp-match? #rx"^postgres(?:ql)?://" url)
+     (define P (postgres-params url))
+     (lambda () (postgresql-connect #:user (hash-ref P 'user) #:database (hash-ref P 'database)
+                                    #:server (hash-ref P 'server) #:port (hash-ref P 'port)
+                                    #:password (hash-ref P 'password)))]
+    [else (error 'db-connector "unsupported DATABASE_URL (need sqlite:/// or postgres://): ~a" url)]))

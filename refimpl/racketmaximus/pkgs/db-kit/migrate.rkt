@@ -9,7 +9,7 @@
 ;;
 ;;   (migrate! conn (list (migration "0001-core" (lambda (c) (query-exec c "...")))))
 
-(require db)
+(require db-kit/portable)
 
 (provide (struct-out migration) migrate! applied-migrations pending-migrations)
 

@@ -4,7 +4,7 @@
 ;; document-translation apps. Mirrors notes (team/private/shared via can?), with a
 ;; larger `content` body and offset-paginated listing (offset / next_offset).
 
-(require db
+(require db-kit/portable
          racket/list
          "../db/id.rkt"
          "../authz/authz.rkt")

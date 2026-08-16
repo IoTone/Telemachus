@@ -5,7 +5,7 @@
 ;; CURRENT_TIMESTAMP default, JSON as TEXT). A Postgres backend would branch the
 ;; `up` steps by dialect; the runner is already dialect-agnostic.
 
-(require db db-kit/migrate)
+(require db-kit/portable db-kit/migrate)
 
 (provide all-migrations)
 

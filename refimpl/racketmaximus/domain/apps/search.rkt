@@ -5,7 +5,7 @@
 ;; notes of others never leak); translations are included only for members who may
 ;; use AI (chat:use). A retrieval app built entirely on existing data.
 
-(require db
+(require db-kit/portable
          racket/string
          "../authz/authz.rkt")
 

@@ -194,7 +194,16 @@ refimpl/racketmaximus/
   (`POST /api/admin/seed`, Admin console) populates a team with sample notes,
   documents, and queued chat/translate/agent jobs — instant functionality to test.
 
-78 unit tests pass + a 66-assertion server integration test
+- **PostgreSQL backend (slice 32)** — the persistence layer runs on **SQLite _or_
+  Postgres** from one `DATABASE_URL` (`sqlite:///…` or `postgres://user:pass@host/db`).
+  `db-kit/portable` re-exports `db` but rewrites `?`→`$n` placeholders for Postgres
+  (SQLite unchanged), so app code is backend-neutral; the few dialect-specific spots
+  (quota time-windows, upsert-ignore, activation expiry) are branched or computed in
+  Racket. `db-kit`'s connector dispatches the backend. Run on Postgres with
+  `DATABASE_URL=postgres://…`. (Live E2E needs a running server; the SQLite suite
+  stays green and the rewriter/parser are unit-tested.)
+
+80 unit tests pass + a 66-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

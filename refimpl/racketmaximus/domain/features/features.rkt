@@ -4,7 +4,7 @@
 ;; Absence of a row means enabled (default on). A team manager can turn a whole
 ;; feature off; the endpoints refuse it and the UI hides its tab.
 
-(require db "../db/id.rkt")
+(require db-kit/portable "../db/id.rkt")
 
 (provide known-features feature-enabled? set-feature-enabled! features-for)
 

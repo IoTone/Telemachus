@@ -21,7 +21,7 @@
          racket/file
          racket/system
          racket/port
-         db
+         db-kit/portable
          web-server/http
          json
          web-kit
@@ -55,13 +55,16 @@
 (require (only-in db-kit/migrate migrate!))
 
 ;; ---- database (thread-safe virtual connection over a pool) ------------------
-(define db-path (sqlite-path (database-url) #:base-dir impl-root))
-(define db-pool (connection-pool (lambda () (sqlite3-connect #:database db-path #:mode 'create))))
+;; Backend-neutral: sqlite:/// or postgres:// — db-kit's connector dispatches.
+(define db-url (database-url))
+(define db-pool (connection-pool (db-connector db-url #:base-dir impl-root)))
 (define db-conn (virtual-connection db-pool))
 
 (define (init-db!)
-  (define dir (let-values ([(base name dir?) (split-path db-path)]) base))
-  (when (path? dir) (make-directory* dir))
+  (when (string-prefix? db-url "sqlite:")            ; only sqlite needs its dir created
+    (define p (sqlite-path db-url #:base-dir impl-root))
+    (define dir (let-values ([(base name dir?) (split-path p)]) base))
+    (when (path? dir) (make-directory* dir)))
   (migrate! db-conn all-migrations))
 
 ;; ---- TLS --------------------------------------------------------------------
@@ -917,7 +920,7 @@
   (define ip (bind-ip))
   (when tls? (ensure-cert!))
   (printf "telemachus server on ~a://~a:8080  (db: ~a · kdf: ~a · tls: ~a)\n"
-          (if tls? "https" "http") ip db-path (kdf-name) (if tls? "on" "off"))
+          (if tls? "https" "http") ip db-url (kdf-name) (if tls? "on" "off"))
   (flush-output)
   (if tls?
       (serve handle #:port 8080 #:listen-ip ip #:ssl-cert (tls-cert) #:ssl-key (tls-key))

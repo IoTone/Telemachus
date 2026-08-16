@@ -9,7 +9,7 @@
 ;; the per-instance provision token at the HTTP layer — no operator user is created,
 ;; so the tenant genuinely has one user. See docs/design/saas-onboarding.md.
 
-(require db
+(require db-kit/portable
          racket/string
          file/sha1
          "../db/id.rkt"
@@ -41,10 +41,13 @@
 (define (mint-activation! conn uid ttl-hours)
   (query-exec conn "UPDATE activation_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL" uid)
   (define raw (random-token))
+  ;; store expiry as an epoch-seconds string (portable across sqlite/postgres —
+  ;; no dialect-specific datetime() arithmetic).
+  (define expires (+ (current-seconds) (* ttl-hours 3600)))
   (query-exec conn
     (string-append "INSERT INTO activation_tokens (id, user_id, token_hash, prefix, expires_at) "
-                   "VALUES (?, ?, ?, ?, datetime('now', ?))")
-    (new-id) uid (hash-tok raw) (substring raw 0 (min 11 (string-length raw))) (format "+~a hours" ttl-hours))
+                   "VALUES (?, ?, ?, ?, ?)")
+    (new-id) uid (hash-tok raw) (substring raw 0 (min 11 (string-length raw))) (number->string expires))
   raw)
 
 ;; Idempotent seed. Returns (values activation-token owner-user-id team-id state)
@@ -76,8 +79,8 @@
 
 (define (expired? conn expires-at)
   (and (not (sql-null? expires-at))
-       (let ([r (query-maybe-value conn "SELECT datetime('now') > ?" expires-at)])
-         (and (number? r) (not (zero? r))))))
+       (let ([e (string->number (format "~a" expires-at))])
+         (and e (> (current-seconds) e)))))
 
 ;; Claim an activation token: set the owner's password + activate. Returns
 ;; (values owner-user-id team-id session-token) or #f on bad/used/expired token.
