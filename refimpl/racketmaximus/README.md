@@ -174,7 +174,15 @@ refimpl/racketmaximus/
   metrics** (`GET /api/metrics`); **documents** (paginated ownable resource behind
   the research/translation apps).
 
-74 unit tests pass + a 58-assertion server integration test
+- **Async workload scheduler (slice 27)** — an AI **jobs queue** with a bounded
+  worker pool (`domain/sched/scheduler.rkt`, migration `0009`). Submit deferred work
+  (`POST /api/jobs {kind,payload}` → `202`), poll it (`GET /api/jobs/:id`), list, and
+  cancel queued jobs. Work is *claimed atomically* (no double-run), run by a fixed
+  pool of N threads (kinds: `chat`, `translate`), and status/result recorded.
+  `process-one!` is synchronous so the async path is deterministically tested. A Jobs
+  tab submits + polls. See [docs/design/ai-queue-and-concurrency.md](../../docs/design/ai-queue-and-concurrency.md).
+
+75 unit tests pass + a 62-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

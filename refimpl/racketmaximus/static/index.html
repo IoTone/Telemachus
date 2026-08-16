@@ -60,7 +60,8 @@ const L = {
       glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary',
       welcome:'Welcome — finish setting up your account.',setpw:'Set your password',confirmpw:'Confirm password',activate:'Activate account',
       apitokens:'API tokens',createtoken:'Create token',revoke:'Revoke',audit:'Audit log',search:'Search',results:'Results',features:'Features',
-      documents:'Documents',newdoc:'New document',content:'Content'},
+      documents:'Documents',newdoc:'New document',content:'Content',
+      jobs:'Jobs',submitjob:'Submit a job',submit:'Submit',refresh:'Refresh',cancel:'Cancel'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -72,7 +73,8 @@ const L = {
       glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用',
       welcome:'ようこそ — アカウント設定を完了してください。',setpw:'パスワードを設定',confirmpw:'パスワードの確認',activate:'アカウントを有効化',
       apitokens:'APIトークン',createtoken:'トークンを作成',revoke:'失効',audit:'監査ログ',search:'検索',results:'結果',features:'機能',
-      documents:'ドキュメント',newdoc:'新規ドキュメント',content:'内容'}
+      documents:'ドキュメント',newdoc:'新規ドキュメント',content:'内容',
+      jobs:'ジョブ',submitjob:'ジョブを送信',submit:'送信',refresh:'更新',cancel:'キャンセル'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -128,7 +130,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','translate','search','notes','documents','team','usage'].filter(x=>S.features[x]!==false); if(S.me.is_operator) tabs.push('admin');
+  const tabs=['chat','agent','translate','search','notes','documents','jobs','team','usage'].filter(x=>S.features[x]!==false); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
       <span class="sp"></span>
@@ -371,7 +373,7 @@ async function doAddTerm(){
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error');
 }
 async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
-  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,jobs:jobsView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
 function activateView(token){
   return `<div class="auth">
     <h1 class="brand">Telemachus<span class="dot">.</span></h1>
@@ -411,6 +413,36 @@ async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',
 async function doDelDoc(id){ const r=await api('/api/documents/'+id,{method:'DELETE'});
   if(r.ok){ toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
 function doMoreDocs(off){ S.docOffset=off; renderTab(); }
+function jobStatusBadge(s){ return s==='done'?'<span class="badge ok">done</span>':`<span class="badge">${esc(s)}</span>`; }
+function jobResultText(j){
+  if(j.status==='error') return j.error||'';
+  const r=j.result; if(!r||r==='null') return '';
+  if(typeof r==='object') return (r.reply||r.result||JSON.stringify(r)).toString().slice(0,70);
+  return (''+r).slice(0,70);
+}
+async function jobsView(){
+  const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
+  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${j.status==='queued'?`<button class="btn sm ghost" onclick="doCancelJob('${esc(j.id)}')">${t('cancel')}</button>`:''}</td></tr>`).join('');
+  return `<h2>${t('jobs')}</h2>
+    <div class="card"><h3>${t('submitjob')}</h3>
+      <div class="row" style="align-items:end">
+        <div><label>kind</label><select id="jk"><option value="chat">chat</option><option value="translate">translate</option></select></div>
+        <div style="flex:1"><label>${t('prompt')} / ${t('sourcetext')}</label><input id="jtext"></div>
+        <div><label>${t('target')}</label><input id="jtgt" value="ja" style="width:90px"></div>
+        <div><button class="btn" onclick="doSubmitJob()">${t('submit')}</button></div></div></div>
+    <div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div>
+      <table style="margin-top:8px"><thead><tr><th>id</th><th>kind</th><th>status</th><th>result</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+async function doSubmitJob(){
+  const kind=val('jk'), text=val('jtext');
+  const payload = kind==='translate' ? {text, target_lang: val('jtgt')} : {prompt: text};
+  const r=await api('/api/jobs',{method:'POST',body:{kind,payload}});
+  if(r.ok){ toast('queued',true); renderTab(); } else toast(r.json.error||'error');
+}
+async function doCancelJob(id){
+  const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
+  if(r.ok){ toast('canceled',true); renderTab(); } else toast(r.json.error||'error');
+}
 async function searchView(){
   return `<h2>${t('search')}</h2>
     <div class="card">
@@ -443,6 +475,7 @@ window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; 
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
 window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken; window.doSearch=doSearch; window.doToggleFeature=doToggleFeature;
 window.doCreateDoc=doCreateDoc; window.doDelDoc=doDelDoc; window.doMoreDocs=doMoreDocs;
+window.doSubmitJob=doSubmitJob; window.doCancelJob=doCancelJob;
 render();
 </script>
 </body>

@@ -39,6 +39,7 @@
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
+         "../domain/sched/scheduler.rkt"          ; async job queue + worker pool
          "../domain/ai/executor.rkt"
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/agent/run.rkt"
@@ -658,6 +659,38 @@
     (require-perm db-conn p "settings:manage")
     (json-response (hasheq 'audit (audit-list db-conn (principal-team-id p) #:limit 100))))))
 
+;; ---- async jobs -------------------------------------------------------------
+(define (ep-jobs-create req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "chat:use")
+    (define b (read-json-body req))
+    (define kind (hash-ref b 'kind #f))
+    (cond
+      [(not kind) (err "kind required" 400)]
+      [else
+       (define pr (hash-ref b 'priority 0))
+       (define id (enqueue-job! db-conn #:team (principal-team-id p) #:user (principal-user-id p)
+                                #:kind (format "~a" kind)
+                                #:payload (let ([pl (hash-ref b 'payload (hasheq))]) (if (hash? pl) pl (hasheq)))
+                                #:priority (if (number? pr) pr 0)))
+       (json-response (hasheq 'id id 'status "queued") #:code 202)]))))
+
+(define (ep-jobs-list req)
+  (with-auth req (lambda (p) (json-response (hasheq 'jobs (list-jobs db-conn (principal-team-id p)))))))
+
+(define (ep-job-get req id)
+  (with-auth req (lambda (p)
+    (define j (get-job db-conn id (principal-team-id p)))
+    (if j (json-response j) (err "not found" 404)))))
+
+(define (ep-job-cancel req id)
+  (with-auth req (lambda (p)
+    (define r (cancel-job! db-conn id (principal-team-id p)))
+    (cond
+      [(eq? r #t) (json-response (hasheq 'ok #t 'id id 'status "canceled"))]
+      [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
+      [else (err "not found" 404)]))))
+
 (define (ep-metrics req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
@@ -730,6 +763,11 @@
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "features") (caddr segs)))
 (define (doc-id segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "documents") (caddr segs)))
+(define (job-id segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "jobs") (caddr segs)))
+(define (job-cancel-path segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "jobs")
+       (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
@@ -784,6 +822,10 @@
     [(and (DELETE? m) (token-path segs))                   (ep-tokens-revoke req (token-path segs))]
     [(and (GET? m)  (equal? segs '("api" "search")))       (ep-search req)]
     [(and (GET? m)  (equal? segs '("api" "audit")))        (ep-audit req)]
+    [(and (POST? m) (equal? segs '("api" "jobs")))         (ep-jobs-create req)]
+    [(and (GET? m)  (equal? segs '("api" "jobs")))         (ep-jobs-list req)]
+    [(and (POST? m) (job-cancel-path segs))                (ep-job-cancel req (job-cancel-path segs))]
+    [(and (GET? m)  (job-id segs))                         (ep-job-get req (job-id segs))]
     [(and (GET? m)  (equal? segs '("api" "metrics")))      (ep-metrics req)]
     [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
     [(and (POST? m) (feature-path segs))                   (ep-feature-toggle req (feature-path segs))]
@@ -826,6 +868,19 @@
   (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
   (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
+  ;; async job kinds + the worker pool
+  (register-job-kind! "translate"
+    (lambda (conn p payload)
+      (define-values (job tokens)
+        (translate! conn p #:text (format "~a" (hash-ref payload 'text ""))
+                    #:target-lang (format "~a" (hash-ref payload 'target_lang "en"))))
+      (hash-set job 'tokens_used tokens)))
+  (register-job-kind! "chat"
+    (lambda (conn p payload)
+      (define-values (reply tokens) (run-chat (format "~a" (hash-ref payload 'prompt ""))))
+      (hasheq 'reply reply 'tokens_used tokens)))
+  (void (start-scheduler! db-conn #:workers 2))
+  (printf "scheduler: 2 worker(s)\n")
   (define tls? (tls-on?))
   (define ip (bind-ip))
   (when tls? (ensure-cert!))

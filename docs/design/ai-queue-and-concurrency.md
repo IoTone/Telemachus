@@ -196,3 +196,17 @@ editable `QueuePolicy`. All `manage`-gated + audited; honors `features` activati
    v1, or start with per-executor + per-team?
 7. **Preemption.** Cancelable always (default); preemptible-at-round-boundary now
    or later?
+
+## Status
+
+**First cut built (slice 27).** The persisted `jobs` table (migration `0009`), a
+bounded worker pool with atomic claim, submit/poll/list/cancel endpoints
+(`/api/jobs`), and `chat` + `translate` job kinds are implemented in
+`refimpl/racketmaximus` (`domain/sched/scheduler.rkt`, `test/scheduler-tests.rkt`),
+with a Jobs UI tab. Decisions realized: durable jobs table (SCHED‑4), priority+FIFO
+(SCHED‑5), cancelable-not-preemptible (SCHED‑7).
+
+Deferred follow-ups: per-team **governor** slots on job execution (currently the
+pool is a global cap only), weighted-fair-share across teams, quota metering of job
+runs, and an `agent` job kind (the tool-loop flow) — all layer on without changing
+the claim/pool core.

@@ -262,4 +262,28 @@
         "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
        "CREATE INDEX idx_documents_team ON documents(team_id)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents))
+;; 0009 — AI workload jobs (slice 27): the async scheduler's queue. Work is
+;; claimed atomically and run by a bounded worker pool. See
+;; docs/design/ai-queue-and-concurrency.md.
+(define m-0009-jobs
+  (migration "0009-jobs"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE jobs ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  user_id TEXT NOT NULL,"
+        "  kind TEXT NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'queued',"     ; queued|running|done|error|canceled
+        "  priority INTEGER NOT NULL DEFAULT 0,"
+        "  payload TEXT NOT NULL DEFAULT '{}',"
+        "  result TEXT,"
+        "  error TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  started_at TEXT,"
+        "  finished_at TEXT)")
+       "CREATE INDEX idx_jobs_team ON jobs(team_id)"
+       "CREATE INDEX idx_jobs_status ON jobs(status)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs))

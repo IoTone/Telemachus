@@ -73,6 +73,14 @@ assert "search note"     "$(curl -s "$B/api/search?q=Secret" -H "Authorization: 
 assert "doc created"     "$(curl -s -X POST $B/api/documents -H "Authorization: Bearer $OP" -d '{"title":"Spec","content":"the master plan","visibility":"team"}')" '"title":"Spec"'
 assert "doc list page"   "$(curl -s $B/api/documents -H "Authorization: Bearer $OP")" '"next_offset"'
 assert "doc search"      "$(curl -s "$B/api/search?q=master" -H "Authorization: Bearer $OP")" '"type":"document"'
+# async jobs: submit a chat job (fallback model), poll the worker pool to completion
+JOB=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"chat","payload":{"prompt":"hello jobs"}}')
+assert "job queued"      "$JOB" '"status":"queued"'
+JID=$(printf '%s' "$JOB" | grep -oP '"id":"\K[^"]+')
+JST=''; for i in $(seq 1 40); do JST=$(curl -s $B/api/jobs/$JID -H "Authorization: Bearer $OP"); printf '%s' "$JST" | grep -q '"status":"done"' && break; sleep 0.25; done
+assert "job done"        "$JST" '"status":"done"'
+assert "job result"      "$JST" 'HELLO JOBS'
+assert "job list"        "$(curl -s $B/api/jobs -H "Authorization: Bearer $OP")" '"kind":"chat"'
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
 assert "mcp connected"   "$(curl -s $B/api/mcp -H "Authorization: Bearer $OP")" '"name":"mock"'
