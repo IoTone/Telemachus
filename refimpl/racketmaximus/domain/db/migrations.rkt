@@ -286,4 +286,29 @@
        "CREATE INDEX idx_jobs_team ON jobs(team_id)"
        "CREATE INDEX idx_jobs_status ON jobs(status)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs))
+;; 0010 — beta onboarding (slice 33): pre-sales prospect capture for qualifying beta
+;; customers. NOT users/accounts — just leads an internal team reviews, each vetted
+;; by an LLM judge. Public signup writes here; owners review. See docs/design.
+(define m-0010-prospects
+  (migration "0010-prospects"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE prospects ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"                       ; the internal team that owns the pipeline
+        "  name TEXT NOT NULL DEFAULT '',"
+        "  email TEXT NOT NULL DEFAULT '',"
+        "  company TEXT NOT NULL DEFAULT '',"
+        "  job_title TEXT NOT NULL DEFAULT '',"
+        "  revenue TEXT NOT NULL DEFAULT '',"            ; self-reported range
+        "  use_case TEXT NOT NULL DEFAULT '',"
+        "  source TEXT NOT NULL DEFAULT 'beta',"
+        "  status TEXT NOT NULL DEFAULT 'new',"          ; new|verifying|reviewed|qualified|rejected
+        "  judge TEXT,"                                  ; JSON verdict from the LLM judge
+        "  decided_by TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_prospects_team ON prospects(team_id)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects))

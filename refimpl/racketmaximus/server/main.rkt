@@ -36,6 +36,7 @@
          "../domain/apps/search.rkt"              ; search across notes + translations
          "../domain/features/features.rkt"        ; per-team feature activation
          "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
+         "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
@@ -70,6 +71,7 @@
 ;; ---- TLS --------------------------------------------------------------------
 (define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 (define (saas-mode?) (equal? (env* "TELEMACHUS_MODE") "saas"))   ; hosted: bootstrap off, provisioning on
+(define (home-mode) (or (env* "TELEMACHUS_HOME") "login"))       ; what the root route shows: login | beta
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
 (define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
 (define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
@@ -241,6 +243,44 @@
                            #:limit lim #:window (format "~a" (hash-ref b 'window "day")))
         (json-response (hasheq 'ok #t 'provision_id pid 'dimension dim 'limit lim))]
        [else (err "unknown provision_id" 404)])]))
+
+;; ---- beta onboarding (public signup → LLM judge → owner review) -------------
+(define (fmt b k) (format "~a" (hash-ref b k "")))
+
+(define (ep-config req)          ; public: tells the SPA what the root route should render
+  (json-response (hasheq 'home (home-mode) 'service "telemachus"
+                         'onboarding (hash-ref (onboarding-config) 'name))))
+
+(define (ep-beta-config req)     ; public: the active onboarding provider's form config
+  (json-response (onboarding-config)))
+
+(define (ep-beta-signup req)     ; PUBLIC — captures a lead; creates NO account
+  (define b (read-json-body req))
+  (define team (default-team db-conn))
+  (cond
+    [(not team) (err "instance not initialized" 503)]
+    [(or (string=? (fmt b 'name) "") (string=? (fmt b 'email) "")) (err "name and email are required" 400)]
+    [else
+     (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email (fmt b 'email)
+                                   #:company (fmt b 'company) #:job-title (fmt b 'job_title)
+                                   #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)))
+     (define owner (team-owner-id db-conn team))            ; judge runs as owner (metered to the team)
+     (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
+     (json-response (hasheq 'ok #t 'id pid 'message "Thanks — your request is in review.") #:code 201)]))
+
+(define (ep-beta-prospects req)
+  (with-auth req (lambda (p) (json-response (hasheq 'prospects (prospect-list db-conn p))))))
+
+(define (ep-beta-decide req id)
+  (with-auth req (lambda (p)
+    (define d (fmt (read-json-body req) 'decision))
+    (cond
+      [(not (member d '("qualified" "rejected"))) (err "decision must be 'qualified' or 'rejected'" 400)]
+      [(prospect-decide! db-conn p id d)
+       (audit! db-conn #:action (string-append "prospect." d) #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "prospect" #:resource-id id)
+       (json-response (hasheq 'ok #t 'id id 'status d))]
+      [else (err "not found" 404)]))))
 
 (define (ep-whoami req)
   (define p (current-principal req))
@@ -779,6 +819,9 @@
 (define (job-cancel-path segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "jobs")
        (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
+(define (beta-decide-path segs)
+  (and (= (length segs) 5) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
+       (equal? (list-ref segs 2) "prospects") (equal? (list-ref segs 4) "decide") (list-ref segs 3)))
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
@@ -790,6 +833,11 @@
     [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html")) (equal? segs '("activate"))))
      (html-response UI-HTML)]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
+    [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
+    [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
+    [(and (POST? m) (equal? segs '("api" "beta" "signup"))) (ep-beta-signup req)]
+    [(and (GET? m)  (equal? segs '("api" "beta" "prospects"))) (ep-beta-prospects req)]
+    [(and (POST? m) (beta-decide-path segs))               (ep-beta-decide req (beta-decide-path segs))]
     [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
     [(and (POST? m) (equal? segs '("api" "provision")))     (ep-provision req)]
     [(and (POST? m) (equal? segs '("api" "activate")))      (ep-activate req)]
@@ -903,6 +951,24 @@
       (define reply (if done (hash-ref done 'reply "") ""))
       (hasheq 'reply reply 'rounds (if done (hash-ref done 'rounds 0) 0)
               'tools tools 'tokens_used (estimate-tokens prompt reply))))
+  (register-job-kind! "beta_judge"    ; vet a beta prospect with the LLM, store the verdict
+    (lambda (conn p payload)
+      (define pid (format "~a" (hash-ref payload 'prospect_id "")))
+      (define pr (prospect-get conn p pid))
+      (cond
+        [(not pr) (hasheq 'skipped "prospect gone")]
+        [else
+         (define detail (format "Name: ~a\nEmail: ~a\nCompany: ~a\nRole: ~a\nStated revenue: ~a\nUse case: ~a"
+                                (hash-ref pr 'name "") (hash-ref pr 'email "") (hash-ref pr 'company "")
+                                (hash-ref pr 'job_title "") (hash-ref pr 'revenue "") (hash-ref pr 'use_case "")))
+         (define-values (reply tokens) (run-chat detail #:system (judge-system-prompt)))
+         (define m (regexp-match #rx"(?s:[{].*[}])" reply))
+         (define verdict
+           (or (and m (with-handlers ([exn:fail? (lambda (_) #f)])
+                        (let ([v (string->jsexpr (car m))]) (and (hash? v) v))))
+               (hasheq 'valid #f 'score 0 'revenue_estimate "unknown" 'reasoning "judge output not parseable")))
+         (set-prospect-judge! conn pid verdict)
+         (hasheq 'prospect_id pid 'verdict verdict 'tokens_used tokens)])))
   (void (start-scheduler! db-conn #:workers 2
                           #:cap-for (lambda (team)
                                       (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))

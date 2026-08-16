@@ -89,6 +89,17 @@ AST=''; for i in $(seq 1 40); do AST=$(curl -s $B/api/jobs/$AJID -H "Authorizati
 assert "agent job needs model" "$AST" 'configured model'
 assert "seed samples"    "$(curl -s -X POST $B/api/admin/seed -H "Authorization: Bearer $OP")" '"jobs":3'
 assert "seed member 403" "$(curl -s -X POST $B/api/admin/seed -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
+# beta onboarding: public signup (no account) → async LLM judge → owner review → decide
+assert "home config"     "$(curl -s $B/api/config)" '"home":"login"'
+assert "beta form cfg"    "$(curl -s $B/api/beta/config)" '"name":"beta"'
+SIGN=$(curl -s -X POST $B/api/beta/signup -d '{"name":"Dana","email":"dana@acme.com","company":"Acme","use_case":"team chat"}')
+assert "beta signup"      "$SIGN" '"ok":true'
+PID=$(printf '%s' "$SIGN" | grep -oP '"id":"\K[^"]+')
+assert "beta list owner"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP")" 'dana@acme.com'
+assert "beta member 403"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
+PS=''; for i in $(seq 1 40); do PS=$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP"); printf '%s' "$PS" | grep -q '"status":"reviewed"' && break; sleep 0.25; done
+assert "beta judged"      "$PS" '"status":"reviewed"'
+assert "beta decide"      "$(curl -s -X POST $B/api/beta/prospects/$PID/decide -H "Authorization: Bearer $OP" -d '{"decision":"qualified"}')" '"status":"qualified"'
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
 assert "mcp connected"   "$(curl -s $B/api/mcp -H "Authorization: Bearer $OP")" '"name":"mock"'
