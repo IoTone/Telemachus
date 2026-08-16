@@ -211,6 +211,10 @@ concurrency cap (= the team's `ai.concurrency` limit), so one team's batch can't
 monopolize the pool — enforced at claim time, so a busy team never head-of-line-
 blocks a worker (unlike wrapping a shared blocking governor).
 
-Deferred follow-ups: weighted-fair-share across teams (beyond the flat cap), quota
-metering of job runs, and an `agent` job kind (the tool-loop flow) — all layer on
-without changing the claim/pool core.
+**Quota metering (slice 29).** Job runs go through the same budget as sync calls:
+an injected `admit?` gate at claim time defers an over-budget team's jobs (they stay
+`queued` rather than failing or bypassing), and a `record!` hook bills actual tokens
++ a request after each successful run. The queue is no longer a budget bypass.
+
+Deferred follow-ups: weighted-fair-share across teams (beyond the flat cap) and an
+`agent` job kind (the tool-loop flow) — both layer on without changing the claim/pool core.

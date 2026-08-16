@@ -60,3 +60,21 @@
   (set-cap-for! (lambda (_) 2))
   (check-equal? (process-one! c) jq)           ; cap raised → the queued job is claimed
   (set-cap-for! (lambda (_) 2)))               ; restore default
+
+(test-case "quota hooks: admit? defers an over-budget team, record! bills the run"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "meter" (lambda (conn p pl) (hasheq 'tokens_used 7)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "meter"))
+  ;; admit? #f → the job stays queued (deferred), not run
+  (set-admit?! (lambda (conn team) #f))
+  (check-false (process-one! c))
+  (check-equal? (hash-ref (get-job c j tid) 'status) "queued")
+  ;; admit? #t + record! captures the billed tokens
+  (define billed (box 0))
+  (set-admit?! (lambda (conn team) #t))
+  (set-record!! (lambda (conn team result) (set-box! billed (+ (unbox billed) (hash-ref result 'tokens_used 0)))))
+  (check-equal? (process-one! c) j)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "done")
+  (check-equal? (unbox billed) 7)
+  (set-admit?! (lambda (conn team) #t)) (set-record!! (lambda (conn team result) (void))))   ; restore defaults

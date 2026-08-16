@@ -882,8 +882,16 @@
   (void (start-scheduler! db-conn #:workers 2
                           #:cap-for (lambda (team)
                                       (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))
-                                      (or lim 2))))    ; per-team fairness: cap = the team's ai.concurrency
-  (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency\n")
+                                      (or lim 2))         ; per-team fairness: cap = the team's ai.concurrency
+                          #:admit? (lambda (conn team)    ; over-budget teams defer, not bypass
+                                     (and (hash-ref (quota-check conn "team" team "ai.requests" 1) 'allowed)
+                                          (hash-ref (quota-check conn "team" team "ai.tokens.total" 1) 'allowed)))
+                          #:record! (lambda (conn team result)   ; bill the run
+                                      (define toks (let ([t (and (hash? result) (hash-ref result 'tokens_used #f))])
+                                                     (if (number? t) t 0)))
+                                      (quota-record! conn "team" team "ai.requests" 1)
+                                      (quota-record! conn "team" team "ai.tokens.total" toks))))
+  (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency, quota-metered\n")
   (define tls? (tls-on?))
   (define ip (bind-ip))
   (when tls? (ensure-cert!))

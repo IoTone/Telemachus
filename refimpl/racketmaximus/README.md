@@ -182,7 +182,13 @@ refimpl/racketmaximus/
   `process-one!` is synchronous so the async path is deterministically tested. A Jobs
   tab submits + polls. See [docs/design/ai-queue-and-concurrency.md](../../docs/design/ai-queue-and-concurrency.md).
 
-75 unit tests pass + a 62-assertion server integration test
+- **Job fairness + quota metering (slices 28–29)** — the pool claim skips a team
+  already at its `ai.concurrency` cap (no team monopolizes the workers), and job runs
+  are metered against the normal AI quotas: an over-budget team's jobs **defer**
+  (stay queued) and successful runs bill tokens + a request — the queue is not a
+  budget bypass.
+
+77 unit tests pass + a 63-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

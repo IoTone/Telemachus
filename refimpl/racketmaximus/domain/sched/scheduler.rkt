@@ -23,7 +23,7 @@
          "../authz/authz.rkt")     ; user-principal
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
-         process-one! start-scheduler! set-cap-for!)
+         process-one! start-scheduler! set-cap-for! set-admit?! set-record!!)
 
 (define (vr r i) (vector-ref r i))
 (define (nz x) (if (sql-null? x) 'null x))
@@ -74,6 +74,15 @@
 (define *cap-for* (box (lambda (_team) 2)))
 (define (set-cap-for! f) (set-box! *cap-for* f))
 
+;; quota metering hooks (injected by the server; decoupled from the quota service).
+;;   admit?  : (conn team) -> bool   — checked at claim; an over-budget team's jobs
+;;                                     stay queued (deferred) rather than failing.
+;;   record! : (conn team result) -> void  — bills usage after a successful run.
+(define *admit?* (box (lambda (_conn _team) #t)))
+(define *record!* (box (lambda (_conn _team _result) (void))))
+(define (set-admit?! f) (set-box! *admit?* f))
+(define (set-record!! f) (set-box! *record!* f))
+
 (define (claim-next! conn)
   (call-with-semaphore claim-lock
     (lambda ()
@@ -85,6 +94,7 @@
         (define team (vector-ref r 1))
         (define running (query-value conn "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND status='running'" team))
         (and (< running (cap-for team))
+             ((unbox *admit?*) conn team)             ; quota gate — over-budget teams defer
              (begin
                (query-exec conn "UPDATE jobs SET status='running', started_at=CURRENT_TIMESTAMP WHERE id = ?" id)
                id))))))
@@ -104,7 +114,8 @@
         [else
          (define result (handler conn (user-principal conn user team) payload))
          (query-exec conn "UPDATE jobs SET status='done', result=?, finished_at=CURRENT_TIMESTAMP WHERE id = ?"
-                     (jsexpr->string result) id)]))))
+                     (jsexpr->string result) id)
+         ((unbox *record!*) conn team result)]))))    ; meter usage for a successful run
 
 ;; synchronous: claim + run the next queued job. Returns its id, or #f if none.
 ;; Used by the worker loop and directly by tests.
@@ -114,8 +125,10 @@
 
 ;; ---- the bounded worker pool ------------------------------------------------
 (define *run* (box #f))
-(define (start-scheduler! conn #:workers [n 2] #:idle [idle 0.2] #:cap-for [cf #f])
+(define (start-scheduler! conn #:workers [n 2] #:idle [idle 0.2] #:cap-for [cf #f] #:admit? [adm #f] #:record! [rec #f])
   (when cf (set-cap-for! cf))
+  (when adm (set-admit?! adm))
+  (when rec (set-record!! rec))
   (set-box! *run* #t)
   (for ([_ (in-range (max 1 n))])
     (thread (lambda ()
