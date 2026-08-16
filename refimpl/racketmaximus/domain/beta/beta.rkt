@@ -14,6 +14,8 @@
 (provide ;; prospects
          prospect-create! prospect-list prospect-get prospect-decide! set-prospect-judge!
          default-team team-owner-id count-recent-email count-recent-domain
+         ;; extensible model: reserved (typed) keys vs. the attributes blob
+         reserved-field-keys reserved-field? prospect-field
          ;; onboarding provider registry (SDK seam)
          register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names
          ;; judge-reply parsing (robust against small-model formatting)
@@ -99,9 +101,32 @@
                         (hasheq 'key "company_address" 'label "Company address" 'type "textarea" 'required #f)
                         (hasheq 'key "revenue"  'label "Annual revenue" 'type "select"
                                 'options (list "<$1M" "$1M–$10M" "$10M–$100M" "$100M+") 'required #f)
+                        ;; team_size is NOT a reserved/typed column — it flows through the
+                        ;; generic attributes blob, demonstrating the extensible model.
+                        (hasheq 'key "team_size" 'label "Team size" 'type "select"
+                                'options (list "1–10" "11–50" "51–200" "200+") 'required #f)
                         (hasheq 'key "use_case" 'label "What would you use Telemachus for?" 'type "textarea" 'required #t))
           'judge-system DEFAULT-JUDGE))
 (register-onboarding! "beta" DEFAULT-PROVIDER)
+
+;; ---- extensible field model -------------------------------------------------
+;; Reserved keys map to typed columns (core logic queries them or dedups on them);
+;; every other configured field is stored in the `attributes` JSON blob, so a new
+;; program-specific field needs no migration. See docs/design/beta-onboarding-experience.md §1.
+(define reserved-field-keys '("name" "email" "company" "job_title" "revenue" "use_case" "company_address" "phone"))
+(define (reserved-field? key) (and (member key reserved-field-keys) #t))
+
+;; Value of any configured field on a prospect hash — from its typed column if
+;; reserved, else from the parsed attributes blob. Always returns a string. key: string.
+(define (prospect-field pr key)
+  (define sym (string->symbol key))
+  (define typed (hash-ref pr sym 'missing))
+  (cond
+    [(and (not (eq? typed 'missing)) (not (sql-null? typed))) (format "~a" typed)]
+    [else (let ([a (hash-ref pr 'attributes 'null)])
+            (if (hash? a)
+                (let ([v (hash-ref a sym "")]) (if (sql-null? v) "" (format "~a" v)))
+                ""))]))
 
 ;; ---- team helpers -----------------------------------------------------------
 (define (default-team conn)
@@ -115,7 +140,7 @@
 ;; ---- prospects --------------------------------------------------------------
 (define SELECT
   (string-append "SELECT id, name, email, company, job_title, revenue, use_case, source, status, judge, created_at, signals, "
-                 "company_address, phone "
+                 "company_address, phone, attributes "
                  "FROM prospects"))
 
 (define (parse-json* x) (if (sql-null? x) 'null (with-handlers ([exn:fail? (lambda (_) 'null)]) (string->jsexpr x))))
@@ -126,22 +151,24 @@
           'judge (parse-json* (vector-ref r 9))
           'created_at (vector-ref r 10)
           'signals (parse-json* (vector-ref r 11))
-          'company_address (vector-ref r 12) 'phone (vector-ref r 13)))
+          'company_address (vector-ref r 12) 'phone (vector-ref r 13)
+          'attributes (parse-json* (vector-ref r 14))))
 
 ;; PUBLIC — no principal; captures a lead into the team's pipeline. Returns id.
 ;; created-epoch is a portable numeric timestamp for velocity windows; signals is a
 ;; jsexpr of anti-abuse hints the LLM judge weighs.
 (define (prospect-create! conn #:team team #:name name #:email email #:company [company ""]
                           #:job-title [job-title ""] #:revenue [revenue ""] #:use-case [use-case ""]
-                          #:company-address [company-address ""] #:phone [phone ""]
+                          #:company-address [company-address ""] #:phone [phone ""] #:attributes [attributes #f]
                           #:source [source "beta"] #:created-epoch [epoch (current-seconds)] #:signals [signals #f])
   (define id (new-id))
   (query-exec conn
     (string-append "INSERT INTO prospects (id, team_id, name, email, company, job_title, revenue, use_case, "
-                   "company_address, phone, source, created_epoch, signals) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                   "company_address, phone, source, created_epoch, signals, attributes) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     id team name email company job-title revenue use-case company-address phone source epoch
-    (if (hash? signals) (jsexpr->string signals) sql-null))
+    (if (hash? signals) (jsexpr->string signals) sql-null)
+    (if (and (hash? attributes) (positive? (hash-count attributes))) (jsexpr->string attributes) sql-null))
   id)
 
 ;; velocity counters (portable numeric window on created_epoch)

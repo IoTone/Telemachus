@@ -52,6 +52,7 @@ try {
   await page.fill('#bf_phone', '+1 415 555 0182');
   await page.fill('#bf_company', 'Northwind Robotics');
   await page.fill('#bf_company_address', '500 Terry Francois Blvd, San Francisco, CA 94158');
+  await page.selectOption('#bf_team_size', '51–200');            // custom field → stored generically in attributes (no column)
   await page.fill('#bf_use_case', 'Private on-prem AI for our support + engineering teams — compliance forbids sending data to cloud LLMs.');
   await shot(page, '04-funnel-filled', 'The funnel: a prospect requests access',
     'A qualification submission — role, company, address, and phone give the LLM judge real B2B signal to weigh. Captured as a prospect, never as a user account: no password, no login, pre-sales vetting only.');

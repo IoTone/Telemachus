@@ -304,10 +304,18 @@
           [else
            ;; signals the LLM judge weighs (how the signup arrived)
            (define signals (hasheq 'domain_signups_24h dom-count 'free_email (free-email? email)))
+           ;; every configured field that ISN'T a reserved/typed column is captured
+           ;; generically into the attributes blob — custom fields need no migration
+           (define attrs
+             (for/fold ([h (hasheq)]) ([f (in-list (hash-ref (onboarding-config) 'fields '()))])
+               (define k (hash-ref f 'key ""))
+               (define v (fmt b (string->symbol k)))
+               (if (or (reserved-field? k) (string=? v "")) h (hash-set h (string->symbol k) v))))
            (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email email
                                          #:company (fmt b 'company) #:job-title (fmt b 'job_title)
                                          #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)
                                          #:company-address (fmt b 'company_address) #:phone (fmt b 'phone)
+                                         #:attributes attrs
                                          #:created-epoch now #:signals signals))
            (define owner (team-owner-id db-conn team))      ; judge runs as owner (metered to the team)
            (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
@@ -1007,10 +1015,12 @@
         [(not pr) (hasheq 'skipped "prospect gone")]
         [else
          (define sig (let ([s (hash-ref pr 'signals 'null)]) (if (hash? s) (jsexpr->string s) "none")))
-         (define detail (format "Name: ~a\nEmail: ~a\nPhone: ~a\nRole: ~a\nCompany: ~a\nCompany address: ~a\nStated revenue: ~a\nUse case: ~a\n\nAnti-abuse signals: ~a"
-                                (hash-ref pr 'name "") (hash-ref pr 'email "") (hash-ref pr 'phone "")
-                                (hash-ref pr 'job_title "") (hash-ref pr 'company "") (hash-ref pr 'company_address "")
-                                (hash-ref pr 'revenue "") (hash-ref pr 'use_case "") sig))
+         ;; build the judge prompt generically from the experience's field definitions,
+         ;; pulling each value from its typed column or the attributes blob
+         (define lines
+           (for/list ([f (in-list (hash-ref (onboarding-config) 'fields '()))])
+             (format "~a: ~a" (hash-ref f 'label (hash-ref f 'key "")) (prospect-field pr (hash-ref f 'key "")))))
+         (define detail (string-append (string-join lines "\n") "\n\nAnti-abuse signals: " sig))
          (define-values (reply tokens) (run-chat detail #:system (judge-system-prompt)))
          (define verdict
            (or (parse-verdict reply)

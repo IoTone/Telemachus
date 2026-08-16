@@ -53,6 +53,35 @@
   (add-member! c #:user bob #:team tid #:role "viewer")
   (check-exn exn:fail:forbidden? (lambda () (prospect-list c (user-principal c bob tid)))))
 
+(test-case "extensible attributes: custom fields round-trip without a column"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  ;; reserved keys map to typed columns; anything else is a custom attribute
+  (check-true (reserved-field? "email"))
+  (check-true (reserved-field? "company_address"))
+  (check-false (reserved-field? "team_size"))
+  (check-false (reserved-field? "platform"))
+
+  (define pid (prospect-create! c #:team tid #:name "Rae" #:email "rae@acme.com"
+                                #:company "Acme" #:job-title "VP Eng"
+                                #:attributes (hasheq 'team_size "51–200" 'platform "PC" 'region "EU")))
+  (define d (prospect-get c alice pid))
+  ;; attributes come back as a parsed hash
+  (check-equal? (hash-ref (hash-ref d 'attributes) 'team_size) "51–200")
+  ;; prospect-field reads uniformly across typed columns and the attributes blob
+  (check-equal? (prospect-field d "company") "Acme")           ; typed column
+  (check-equal? (prospect-field d "job_title") "VP Eng")       ; typed column
+  (check-equal? (prospect-field d "team_size") "51–200")       ; attribute
+  (check-equal? (prospect-field d "platform") "PC")            ; attribute
+  (check-equal? (prospect-field d "missing_key") "")           ; absent → ""
+
+  ;; a prospect with no custom fields stores null attributes and still reads clean
+  (define p2 (prospect-create! c #:team tid #:name "Sol" #:email "sol@b.com"))
+  (define d2 (prospect-get c alice p2))
+  (check-equal? (prospect-field d2 "team_size") "")
+  (check-equal? (hash-ref d2 'attributes) 'null))
+
 (test-case "parse-verdict tolerates small-model formatting"
   ;; clean object
   (check-equal? (hash-ref (parse-verdict "{\"valid\": true, \"score\": 85}") 'score) 85)

@@ -495,22 +495,27 @@ async function doCancelJob(id){
 }
 async function betaView(){
   const r=await api('/api/beta/prospects'); const ps=r.ok?r.json.prospects:[];
+  const cfg=await api('/api/beta/config'); const fields=cfg.ok?(cfg.json.fields||[]):[];   // details rendered generically from the experience's field defs
   const blocked=r.ok?(r.json.blocked||{}):{}; const bt=Object.values(blocked).reduce((a,b)=>a+(b||0),0);
   const bcard = bt>0 ? `<div class="card" style="margin-bottom:12px"><b>🛡️ Blocked ${bt} abusive attempt(s)</b> <span class="muted" style="font-size:12px">${Object.entries(blocked).map(([k,v])=>esc(k)+': '+v).join(' · ')}</span></div>` : '';
   const verdict=j=>{
     if(!j||j==='null'||typeof j!=='object') return '<span class="muted">judging…</span>';
     return `<span class="badge ${j.valid?'ok':''}">${j.valid?'valid':'flagged'}</span> ${j.score??'?'}/100 · ${esc(j.revenue_estimate||'')}<div class="muted" style="font-size:12px">${esc(j.reasoning||'')}</div>`;
   };
+  // value of a field, whether it's a typed column or lives in the attributes blob
+  const pval=(p,k)=>{ const v=p[k]; if(v!==undefined&&v!==null&&v!=='') return v; const a=p.attributes||{}; return (a&&a[k])||''; };
+  const details=p=>fields.filter(f=>f.key!=='name'&&f.key!=='email'&&pval(p,f.key))
+    .map(f=>`<div class="muted" style="font-size:12px"><span style="opacity:.7">${esc(f.label)}:</span> ${esc(pval(p,f.key))}</div>`).join('')||'<span class="muted">—</span>';
   const rows=ps.map(p=>`<tr>
-      <td>${esc(p.name)}<div class="muted" style="font-size:12px">${esc(p.email)}</div>${p.phone?`<div class="muted" style="font-size:12px">☎ ${esc(p.phone)}</div>`:''}</td>
-      <td>${esc(p.company||'—')}<div class="muted" style="font-size:12px">${esc(p.job_title||'')}</div>${p.company_address?`<div class="muted" style="font-size:12px">${esc(p.company_address)}</div>`:''}</td>
-      <td>${esc(p.revenue||'')}</td><td>${verdict(p.judge)}</td>
+      <td>${esc(p.name)}<div class="muted" style="font-size:12px">${esc(p.email)}</div></td>
+      <td>${details(p)}</td>
+      <td>${verdict(p.judge)}</td>
       <td><span class="badge">${esc(p.status)}</span></td>
       <td>${(p.status==='qualified'||p.status==='rejected')?'':`<button class="btn sm" onclick="doDecide('${esc(p.id)}','qualified')">${t('qualify')}</button> <button class="btn sm ghost" onclick="doDecide('${esc(p.id)}','rejected')">${t('reject')}</button>`}</td>
     </tr>`).join('');
   return `<h2>${t('beta')} — prospects</h2>${bcard}
-    <div class="card"><table><thead><tr><th>prospect</th><th>company</th><th>revenue</th><th>LLM judge</th><th>status</th><th></th></tr></thead>
-      <tbody>${rows||'<tr><td colspan="6" class="muted">No signups yet.</td></tr>'}</tbody></table></div>`;
+    <div class="card"><table><thead><tr><th>prospect</th><th>details</th><th>LLM judge</th><th>status</th><th></th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="5" class="muted">No signups yet.</td></tr>'}</tbody></table></div>`;
 }
 async function doDecide(id,decision){
   const r=await api('/api/beta/prospects/'+id+'/decide',{method:'POST',body:{decision}});

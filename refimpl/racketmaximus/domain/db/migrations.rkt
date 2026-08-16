@@ -331,4 +331,14 @@
        "ALTER TABLE prospects ADD COLUMN company_address TEXT NOT NULL DEFAULT ''"
        "ALTER TABLE prospects ADD COLUMN phone TEXT NOT NULL DEFAULT ''"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company))
+;; 0013 — extensible prospect model (slice 39): custom, program-specific fields land
+;; in a generic JSON blob keyed by field key, so new fields need no per-deployment
+;; migration. Typed columns remain only for what core logic queries (email/velocity,
+;; name, status, judge, signals). See docs/design/beta-onboarding-experience.md §1.
+(define m-0013-prospect-attributes
+  (migration "0013-prospect-attributes"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE prospects ADD COLUMN attributes TEXT"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes))
