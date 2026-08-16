@@ -21,7 +21,7 @@
          racket/file
          racket/system
          racket/port
-         db
+         db-kit/portable
          web-server/http
          json
          web-kit
@@ -31,9 +31,16 @@
          "../domain/authz/authz.rkt"
          "../domain/authz/passwords.rkt"          ; kdf-name
          "../domain/notes/notes.rkt"
+         "../domain/documents/documents.rkt"      ; documents (paginated ownable resource)
          "../domain/apps/translate.rkt"           ; Translation app
+         "../domain/apps/search.rkt"              ; search across notes + translations
+         "../domain/features/features.rkt"        ; per-team feature activation
+         "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
+         (only-in net/url url-query)
+         "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
+         "../domain/sched/scheduler.rkt"          ; async job queue + worker pool
          "../domain/ai/executor.rkt"
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/agent/run.rkt"
@@ -48,17 +55,21 @@
 (require (only-in db-kit/migrate migrate!))
 
 ;; ---- database (thread-safe virtual connection over a pool) ------------------
-(define db-path (sqlite-path (database-url) #:base-dir impl-root))
-(define db-pool (connection-pool (lambda () (sqlite3-connect #:database db-path #:mode 'create))))
+;; Backend-neutral: sqlite:/// or postgres:// — db-kit's connector dispatches.
+(define db-url (database-url))
+(define db-pool (connection-pool (db-connector db-url #:base-dir impl-root)))
 (define db-conn (virtual-connection db-pool))
 
 (define (init-db!)
-  (define dir (let-values ([(base name dir?) (split-path db-path)]) base))
-  (when (path? dir) (make-directory* dir))
+  (when (string-prefix? db-url "sqlite:")            ; only sqlite needs its dir created
+    (define p (sqlite-path db-url #:base-dir impl-root))
+    (define dir (let-values ([(base name dir?) (split-path p)]) base))
+    (when (path? dir) (make-directory* dir)))
   (migrate! db-conn all-migrations))
 
 ;; ---- TLS --------------------------------------------------------------------
 (define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
+(define (saas-mode?) (equal? (env* "TELEMACHUS_MODE") "saas"))   ; hosted: bootstrap off, provisioning on
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
 (define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
 (define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
@@ -86,6 +97,10 @@
   (if (not h) "en"
       (let ([tag (string-trim (car (string-split (car (string-split h ",")) ";")))])
         (if (string=? tag "") "en" tag))))
+
+(define (query-param req name [default ""])
+  (cond [(assq name (url-query (request-uri req))) => (lambda (kv) (or (cdr kv) default))]
+        [else default]))
 
 (define (read-json-body req)
   (define raw (request-post-data/raw req))
@@ -143,6 +158,7 @@
   (define body (read-json-body req))
   (define username (hash-ref body 'username #f))
   (cond
+    [(saas-mode?) (err "interactive bootstrap is disabled in hosted mode" 403)]
     [(not username) (err "username required" 400)]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
@@ -152,6 +168,79 @@
      (json-response (hasheq 'user_id uid 'team_id tid 'token tok
                             'message (msg-bootstrap-done username "Default"))
                     #:code 201)]))
+
+;; ---- hosted provisioning (control-plane facing; provision-token auth) --------
+(define (require-provision-token req)
+  (define want (env* "TELEMACHUS_PROVISION_TOKEN"))
+  (define got (req-header req #"x-provision-token"))
+  (and want got (string=? want got)))
+
+(define (public-base req)
+  (or (env* "TELEMACHUS_PUBLIC_URL")
+      (let ([h (req-header req #"host")])
+        (string-append (if (tls-on?) "https://" "http://") (or h (bind-ip))))))
+
+(define (ep-provision req)
+  (cond
+    [(not (saas-mode?)) (err "not in hosted mode" 404)]
+    [(not (require-provision-token req)) (err "invalid provision token" 403)]
+    [else
+     (define b (read-json-body req))
+     (define email (hash-ref b 'owner_email #f))
+     (define pid (hash-ref b 'provision_id #f))
+     (cond
+       [(or (not email) (not pid)) (err "owner_email and provision_id required" 400)]
+       [else
+        (define-values (tok uid tid state)
+          (provision! db-conn #:provision-id (format "~a" pid) #:owner-email (format "~a" email)
+                      #:owner-name (hash-ref b 'owner_name #f) #:org (hash-ref b 'org #f)
+                      #:plan (format "~a" (hash-ref b 'plan "trial"))
+                      #:source (format "~a" (hash-ref b 'source "signup"))))
+        (json-response (hasheq 'provision_id pid 'owner_user_id uid 'team_id tid
+                               'state (symbol->string state)
+                               'activation_url (and tok (string-append (public-base req) "/activate?token=" tok))))])]))
+
+(define (ep-activate req)
+  (define b (read-json-body req))
+  (define tok (hash-ref b 'token #f))
+  (define pw (hash-ref b 'password #f))
+  (cond
+    [(or (not tok) (not pw)) (err "token and password required" 400)]
+    [(< (string-length (format "~a" pw)) 8) (err "password must be at least 8 characters" 400)]
+    [else
+     (define res (call-with-values
+                  (lambda () (activate! db-conn #:token (format "~a" tok) #:password (format "~a" pw))) list))
+     (if (equal? res '(#f))
+         (err "invalid or expired activation link" 400)
+         (json-response (hasheq 'token (caddr res) 'user_id (car res) 'team_id (cadr res))))]))
+
+(define (ep-tenant req action)
+  (cond
+    [(not (saas-mode?)) (err "not in hosted mode" 404)]
+    [(not (require-provision-token req)) (err "invalid provision token" 403)]
+    [else
+     (define pid (hash-ref (read-json-body req) 'provision_id #f))
+     (cond
+       [(not pid) (err "provision_id required" 400)]
+       [(action db-conn #:provision-id (format "~a" pid)) (json-response (hasheq 'ok #t 'provision_id pid))]
+       [else (err "unknown provision_id" 404)])]))
+
+;; billing-lifecycle quota change by provision_id (provider auth)
+(define (ep-instance-quota req)
+  (cond
+    [(not (saas-mode?)) (err "not in hosted mode" 404)]
+    [(not (require-provision-token req)) (err "invalid provision token" 403)]
+    [else
+     (define b (read-json-body req))
+     (define pid (hash-ref b 'provision_id #f))
+     (define dim (hash-ref b 'dimension #f))
+     (define lim (hash-ref b 'limit #f))
+     (cond
+       [(or (not pid) (not dim) (not lim)) (err "provision_id, dimension, limit required" 400)]
+       [(set-tenant-quota! db-conn #:provision-id (format "~a" pid) #:dimension (format "~a" dim)
+                           #:limit lim #:window (format "~a" (hash-ref b 'window "day")))
+        (json-response (hasheq 'ok #t 'provision_id pid 'dimension dim 'limit lim))]
+       [else (err "unknown provision_id" 404)])]))
 
 (define (ep-whoami req)
   (define p (current-principal req))
@@ -187,6 +276,8 @@
        [else
         (define uid (create-user! db-conn #:username username #:password (hash-ref body 'password #f)))
         (add-member! db-conn #:user uid #:team (principal-team-id p) #:role role)
+        (audit! db-conn #:action "member.add" #:actor-type "user" #:actor-id (principal-user-id p)
+                #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid)
         (define-values (tok _t)
           (issue-token! db-conn #:user uid #:team (principal-team-id p) #:scopes '("*:*")))
         (json-response (hasheq 'user_id uid 'role role 'token tok) #:code 201)])]))
@@ -238,9 +329,18 @@
                             'note "2FA enabled — future logins for this user require a TOTP code"))]))
 
 ;; ---- notes (ownable/shareable resource) -------------------------------------
+;; refuse an endpoint whose feature a team has turned off (→ localized 403)
+(define (require-feature p name)
+  (unless (feature-enabled? db-conn (principal-team-id p) name)
+    (raise (exn:fail:forbidden (format "feature ~a is disabled" name) (current-continuation-marks) name))))
+
 (define (with-auth req proc)
   (define p (current-principal req))
-  (if (not p) (unauthorized) (proc p)))
+  (cond
+    [(not p) (unauthorized)]
+    [(and (team-suspended? db-conn (principal-team-id p)) (not (GET? (request-method req))))
+     (err "tenant suspended — writes are disabled; contact your administrator" 402)]   ; ONB-7: read-only
+    [else (proc p)]))
 
 (define (ep-notes-create req)
   (with-auth req (lambda (p)
@@ -251,6 +351,31 @@
 
 (define (ep-notes-list req)
   (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p))))))
+
+;; ---- documents (offset-paginated) -------------------------------------------
+(define (ep-documents-create req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (json-response (documents-create db-conn p #:title (hash-ref b 'title "")
+                                     #:content (hash-ref b 'content "") #:visibility (hash-ref b 'visibility "team"))
+                   #:code 201))))
+(define (ep-documents-list req)
+  (with-auth req (lambda (p)
+    (define off (or (string->number (query-param req 'offset "0")) 0))
+    (json-response (documents-list db-conn p #:offset off)))))
+(define (ep-documents-get req id)
+  (with-auth req (lambda (p)
+    (define d (documents-get db-conn p id))
+    (if d (json-response d) (err "not found" 404)))))
+(define (ep-documents-update req id)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define d (documents-update db-conn p id #:title (hash-ref b 'title #f)
+                                #:content (hash-ref b 'content #f) #:visibility (hash-ref b 'visibility #f)))
+    (if d (json-response d) (err "not found" 404)))))
+(define (ep-documents-delete req id)
+  (with-auth req (lambda (p)
+    (if (documents-delete db-conn p id) (json-response (hasheq 'ok #t 'id id)) (err "not found" 404)))))
 
 (define (ep-notes-get req id)
   (with-auth req (lambda (p)
@@ -330,6 +455,7 @@
 (define (ep-ai-chat req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "chat")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
     (define ex (pick-executor b))
@@ -363,6 +489,7 @@
 (define (ep-ai-chat-stream req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "chat")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
     (define ex (pick-executor b))
@@ -394,6 +521,7 @@
 (define (ep-agent req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "agent")
     (cond
       [(not (agent-configured?))
        (err "agent mode requires a configured model (set TELEMACHUS_MODEL_URL)" 503)]
@@ -433,6 +561,7 @@
 (define (ep-translate req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "translate")
     (define b (read-json-body req))
     (define text (hash-ref b 'text ""))
     (define tgt (hash-ref b 'target_lang ""))
@@ -464,6 +593,7 @@
 (define (ep-translate-catalog req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
+    (require-feature p "translate")
     (define b (read-json-body req))
     (define cat (hash-ref b 'catalog (hasheq)))
     (define tgt (hash-ref b 'target_lang ""))
@@ -494,6 +624,108 @@
     (cond
       [(or (string=? term "") (string=? tr "") (string=? tgt "")) (err "term, translation, target_lang required" 400)]
       [else (json-response (glossary-add! db-conn p #:term term #:translation tr #:target-lang tgt))]))))
+
+;; ---- API tokens (programmatic access) ---------------------------------------
+(define (ep-tokens-create req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define b (read-json-body req))
+    (define scopes (let ([s (hash-ref b 'scopes #f)]) (if (list? s) s '("*:read"))))
+    (define name (let ([n (hash-ref b 'name #f)]) (if n (format "~a" n) "api")))
+    (define-values (raw tokid)
+      (issue-token! db-conn #:user (principal-user-id p) #:team (principal-team-id p) #:name name #:scopes scopes))
+    (audit! db-conn #:action "token.issue" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
+    (json-response (hasheq 'id tokid 'token raw 'name name 'scopes scopes) #:code 201))))    ; raw shown once
+
+(define (ep-tokens-list req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (json-response (hasheq 'tokens (list-tokens db-conn (principal-team-id p)))))))
+
+(define (ep-tokens-revoke req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (if (revoke-token! db-conn id (principal-team-id p))
+        (begin (audit! db-conn #:action "token.revoke" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
+               (json-response (hasheq 'ok #t 'id id)))
+        (err "token not found" 404)))))
+
+(define (ep-search req)
+  (with-auth req (lambda (p)
+    (require-feature p "search")
+    (define q (string-trim (query-param req 'q)))
+    (if (< (string-length q) 2)
+        (json-response (hasheq 'query q 'results '()))
+        (json-response (hasheq 'query q 'results (search-all db-conn p q)))))))
+
+(define (ep-audit req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (json-response (hasheq 'audit (audit-list db-conn (principal-team-id p) #:limit 100))))))
+
+;; ---- async jobs -------------------------------------------------------------
+(define (ep-jobs-create req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "chat:use")
+    (define b (read-json-body req))
+    (define kind (hash-ref b 'kind #f))
+    (cond
+      [(not kind) (err "kind required" 400)]
+      [else
+       (define pr (hash-ref b 'priority 0))
+       (define id (enqueue-job! db-conn #:team (principal-team-id p) #:user (principal-user-id p)
+                                #:kind (format "~a" kind)
+                                #:payload (let ([pl (hash-ref b 'payload (hasheq))]) (if (hash? pl) pl (hasheq)))
+                                #:priority (if (number? pr) pr 0)))
+       (json-response (hasheq 'id id 'status "queued") #:code 202)]))))
+
+(define (ep-jobs-list req)
+  (with-auth req (lambda (p) (json-response (hasheq 'jobs (list-jobs db-conn (principal-team-id p)))))))
+
+(define (ep-job-get req id)
+  (with-auth req (lambda (p)
+    (define j (get-job db-conn id (principal-team-id p)))
+    (if j (json-response j) (err "not found" 404)))))
+
+(define (ep-job-cancel req id)
+  (with-auth req (lambda (p)
+    (define r (cancel-job! db-conn id (principal-team-id p)))
+    (cond
+      [(eq? r #t) (json-response (hasheq 'ok #t 'id id 'status "canceled"))]
+      [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
+      [else (err "not found" 404)]))))
+
+(define (ep-admin-seed req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define counts (seed-samples! db-conn p))
+    (audit! db-conn #:action "samples.seed" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
+    (json-response (hash-set counts 'ok #t)))))
+
+(define (ep-metrics req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define (n q) (query-value db-conn q))
+    (json-response (hasheq
+      'users (n "SELECT COUNT(*) FROM users")
+      'teams (n "SELECT COUNT(*) FROM teams")
+      'notes (n "SELECT COUNT(*) FROM notes")
+      'translations (n "SELECT COUNT(*) FROM translations")
+      'active_tokens (n "SELECT COUNT(*) FROM api_tokens WHERE status = 'active'")
+      'audit_events (n "SELECT COUNT(*) FROM audit_log")
+      'tenants (n "SELECT COUNT(*) FROM provisioning"))))))
+
+(define (ep-features req)
+  (with-auth req (lambda (p) (json-response (hasheq 'features (features-for db-conn (principal-team-id p)))))))
+
+(define (ep-feature-toggle req name)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define on? (and (hash-ref (read-json-body req) 'enabled #t) #t))
+    (set-feature-enabled! db-conn (principal-team-id p) name on?)
+    (audit! db-conn #:action "feature.toggle" #:actor-type "user" #:actor-id (principal-user-id p)
+            #:team-id (principal-team-id p) #:resource-type "feature" #:resource-id name)
+    (json-response (hasheq 'ok #t 'feature name 'enabled on?)))))
 
 (define (ep-plugins req)
   (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins))))))
@@ -536,6 +768,17 @@
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "notes") (caddr segs)))
 (define (tool-path segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tools") (caddr segs)))
+(define (token-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tokens") (caddr segs)))
+(define (feature-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "features") (caddr segs)))
+(define (doc-id segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "documents") (caddr segs)))
+(define (job-id segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "jobs") (caddr segs)))
+(define (job-cancel-path segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "jobs")
+       (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
@@ -544,10 +787,15 @@
   (define m (request-method req))
   (define segs (request-path req))
   (cond
-    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html"))))
+    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html")) (equal? segs '("activate"))))
      (html-response UI-HTML)]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
+    [(and (POST? m) (equal? segs '("api" "provision")))     (ep-provision req)]
+    [(and (POST? m) (equal? segs '("api" "activate")))      (ep-activate req)]
+    [(and (POST? m) (equal? segs '("api" "instance" "suspend"))) (ep-tenant req suspend!)]
+    [(and (POST? m) (equal? segs '("api" "instance" "resume")))  (ep-tenant req resume!)]
+    [(and (POST? m) (equal? segs '("api" "instance" "quota")))   (ep-instance-quota req)]
     [(and (POST? m) (equal? segs '("api" "login")))         (ep-login req)]
     [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
     [(and (POST? m) (equal? segs '("api" "password")))      (ep-password req)]
@@ -557,6 +805,11 @@
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
     [(and (POST? m) (equal? segs '("api" "notes")))        (ep-notes-create req)]
     [(and (GET? m)  (equal? segs '("api" "notes")))        (ep-notes-list req)]
+    [(and (POST? m) (equal? segs '("api" "documents")))    (ep-documents-create req)]
+    [(and (GET? m)  (equal? segs '("api" "documents")))    (ep-documents-list req)]
+    [(and (GET? m)    (doc-id segs))                       (ep-documents-get req (doc-id segs))]
+    [(and (PUT? m)    (doc-id segs))                       (ep-documents-update req (doc-id segs))]
+    [(and (DELETE? m) (doc-id segs))                       (ep-documents-delete req (doc-id segs))]
     [(and (POST? m) (share-id segs))                       (ep-notes-share req (share-id segs))]
     [(and (GET? m)    (note-id segs))                      (ep-notes-get req (note-id segs))]
     [(and (PUT? m)    (note-id segs))                      (ep-notes-update req (note-id segs))]
@@ -575,6 +828,19 @@
     [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
     [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]
     [(and (GET? m)  (equal? segs '("api" "tools")))        (ep-tools-list req)]
+    [(and (POST? m)   (equal? segs '("api" "tokens")))     (ep-tokens-create req)]
+    [(and (GET? m)    (equal? segs '("api" "tokens")))     (ep-tokens-list req)]
+    [(and (DELETE? m) (token-path segs))                   (ep-tokens-revoke req (token-path segs))]
+    [(and (GET? m)  (equal? segs '("api" "search")))       (ep-search req)]
+    [(and (GET? m)  (equal? segs '("api" "audit")))        (ep-audit req)]
+    [(and (POST? m) (equal? segs '("api" "jobs")))         (ep-jobs-create req)]
+    [(and (GET? m)  (equal? segs '("api" "jobs")))         (ep-jobs-list req)]
+    [(and (POST? m) (job-cancel-path segs))                (ep-job-cancel req (job-cancel-path segs))]
+    [(and (GET? m)  (job-id segs))                         (ep-job-get req (job-id segs))]
+    [(and (POST? m) (equal? segs '("api" "admin" "seed")))  (ep-admin-seed req)]
+    [(and (GET? m)  (equal? segs '("api" "metrics")))      (ep-metrics req)]
+    [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
+    [(and (POST? m) (feature-path segs))                   (ep-feature-toggle req (feature-path segs))]
     [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
     [(and (GET? m)  (equal? segs '("api" "mcp")))          (ep-mcp req)]
     [(and (GET? m)  (equal? segs '("api" "oop")))          (ep-oop req)]
@@ -590,6 +856,18 @@
 
 (module+ main
   (init-db!)
+  ;; hosted VM launch: self-seed the owner from env on first boot, emit the
+  ;; activation token to stdout (the provisioning sink) for the control plane.
+  (when (and (saas-mode?) (env* "TELEMACHUS_SEED_OWNER_EMAIL")
+             (not (query-maybe-value db-conn "SELECT id FROM users LIMIT 1")))
+    (define-values (tok uid tid _st)
+      (provision! db-conn #:provision-id (or (env* "TELEMACHUS_SEED_PROVISION_ID") "seed")
+                  #:owner-email (env* "TELEMACHUS_SEED_OWNER_EMAIL")
+                  #:owner-name (env* "TELEMACHUS_SEED_OWNER_NAME")
+                  #:org (env* "TELEMACHUS_SEED_ORG")
+                  #:plan (or (env* "TELEMACHUS_SEED_PLAN") "trial") #:source "vm"))
+    (printf "seed: provisioned ~a — activation token: ~a\n" (env* "TELEMACHUS_SEED_OWNER_EMAIL") tok)
+    (flush-output))
   (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
   (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
   (when (pair? plugins) (printf "loaded ~a plugin(s) from ~a\n" (length plugins) plugins-dir))
@@ -602,11 +880,47 @@
   (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
   (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
+  ;; async job kinds + the worker pool
+  (register-job-kind! "translate"
+    (lambda (conn p payload)
+      (define-values (job tokens)
+        (translate! conn p #:text (format "~a" (hash-ref payload 'text ""))
+                    #:target-lang (format "~a" (hash-ref payload 'target_lang "en"))))
+      (hash-set job 'tokens_used tokens)))
+  (register-job-kind! "chat"
+    (lambda (conn p payload)
+      (define-values (reply tokens) (run-chat (format "~a" (hash-ref payload 'prompt ""))))
+      (hasheq 'reply reply 'tokens_used tokens)))
+  (register-job-kind! "agent"       ; full tool-loop agent flow, run to completion
+    (lambda (conn p payload)
+      (unless (agent-configured?) (error "agent requires a configured model"))
+      (define prompt (format "~a" (hash-ref payload 'prompt "")))
+      (define evs (box '()))
+      (run-agent-flow conn p prompt (lambda (ev) (set-box! evs (cons ev (unbox evs)))))
+      (define events (reverse (unbox evs)))
+      (define done (for/or ([e (in-list events)]) (and (equal? (hash-ref e 'type #f) "done") e)))
+      (define tools (for/list ([e (in-list events)] #:when (equal? (hash-ref e 'type #f) "tool")) (hash-ref e 'name "")))
+      (define reply (if done (hash-ref done 'reply "") ""))
+      (hasheq 'reply reply 'rounds (if done (hash-ref done 'rounds 0) 0)
+              'tools tools 'tokens_used (estimate-tokens prompt reply))))
+  (void (start-scheduler! db-conn #:workers 2
+                          #:cap-for (lambda (team)
+                                      (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))
+                                      (or lim 2))         ; per-team fairness: cap = the team's ai.concurrency
+                          #:admit? (lambda (conn team)    ; over-budget teams defer, not bypass
+                                     (and (hash-ref (quota-check conn "team" team "ai.requests" 1) 'allowed)
+                                          (hash-ref (quota-check conn "team" team "ai.tokens.total" 1) 'allowed)))
+                          #:record! (lambda (conn team result)   ; bill the run
+                                      (define toks (let ([t (and (hash? result) (hash-ref result 'tokens_used #f))])
+                                                     (if (number? t) t 0)))
+                                      (quota-record! conn "team" team "ai.requests" 1)
+                                      (quota-record! conn "team" team "ai.tokens.total" toks))))
+  (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency, quota-metered\n")
   (define tls? (tls-on?))
   (define ip (bind-ip))
   (when tls? (ensure-cert!))
   (printf "telemachus server on ~a://~a:8080  (db: ~a · kdf: ~a · tls: ~a)\n"
-          (if tls? "https" "http") ip db-path (kdf-name) (if tls? "on" "off"))
+          (if tls? "https" "http") ip db-url (kdf-name) (if tls? "on" "off"))
   (flush-output)
   (if tls?
       (serve handle #:port 8080 #:listen-ip ip #:ssl-cert (tls-cert) #:ssl-key (tls-key))

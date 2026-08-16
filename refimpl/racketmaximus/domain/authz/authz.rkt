@@ -14,7 +14,7 @@
 ;; high-entropy random token lookup, but the hashing seam (`hash-token`) is where
 ;; a production KDF drops in. Password auth (login/2FA) is a later slice.
 
-(require db
+(require db-kit/portable
          json
          file/sha1
          "../db/id.rkt"
@@ -28,9 +28,9 @@
          seed-builtin-roles! bootstrap!
          user-role-key user-permissions
          can? require-perm
-         issue-token! resolve-token
+         issue-token! resolve-token list-tokens revoke-token!
          grant! revoke!
-         audit!
+         audit! audit-list
          set-password! change-password! authenticate enable-2fa! first-team-for)
 
 ;; ---- principal --------------------------------------------------------------
@@ -222,6 +222,24 @@
     (jsexpr->string scopes))
   (values raw tid))
 
+;; list a team's tokens for management — prefixes only, never the raw token.
+(define (list-tokens conn team-id)
+  (for/list ([r (in-list (query-rows conn
+     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at "
+                    "FROM api_tokens WHERE team_id = ? ORDER BY created_at DESC") team-id))])
+    (hasheq 'id (vector-ref r 0)
+            'name (let ([n (vector-ref r 1)]) (if (sql-null? n) 'null n))
+            'prefix (vector-ref r 2)
+            'scopes (with-handlers ([exn:fail? (lambda (_) '())]) (string->jsexpr (vector-ref r 3)))
+            'status (vector-ref r 4)
+            'last_used_at (let ([x (vector-ref r 5)]) (if (sql-null? x) 'null x))
+            'created_at (vector-ref r 6))))
+
+;; revoke a token by id within a team. Returns #t if it existed.
+(define (revoke-token! conn token-id team-id)
+  (define exists (query-maybe-value conn "SELECT id FROM api_tokens WHERE id = ? AND team_id = ?" token-id team-id))
+  (and exists (begin (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" token-id) #t)))
+
 ;; bearer token -> principal (capped by scopes), or #f if unknown/inactive.
 (define (resolve-token conn bearer)
   (define row (query-maybe-row conn
@@ -245,9 +263,11 @@
 (define (grant! conn #:resource-type rtype #:resource-id rid
                 #:principal-type ptype #:principal-id pid #:permission perm #:by [by sql-null])
   (query-exec conn
-    (string-append "INSERT OR IGNORE INTO resource_grants "
+    (string-append "INSERT INTO resource_grants "
                    "(id, resource_type, resource_id, principal_type, principal_id, permission, granted_by) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?)")
+                   "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                   ;; portable upsert-ignore (sqlite 3.24+ and postgres both support this)
+                   "ON CONFLICT (resource_type, resource_id, principal_type, principal_id, permission) DO NOTHING")
     (new-id) rtype rid ptype pid perm by))
 
 (define (revoke! conn #:resource-type rtype #:resource-id rid
@@ -267,3 +287,15 @@
                    "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta) "
                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     (new-id) actor-type actor-id team-id action resource-type resource-id result meta))
+
+;; recent audit events for a team (newest first), for the management UI.
+(define (audit-list conn team-id #:limit [lim 50] #:offset [off 0])
+  (define (nz x) (if (sql-null? x) 'null x))
+  (for/list ([r (in-list (query-rows conn
+     (string-append "SELECT id, action, actor_type, actor_id, resource_type, resource_id, result, at "
+                    "FROM audit_log WHERE team_id = ? ORDER BY at DESC, id DESC LIMIT ? OFFSET ?")
+     team-id lim off))])
+    (hasheq 'id (vector-ref r 0) 'action (vector-ref r 1)
+            'actor_type (nz (vector-ref r 2)) 'actor_id (nz (vector-ref r 3))
+            'resource_type (nz (vector-ref r 4)) 'resource_id (nz (vector-ref r 5))
+            'result (nz (vector-ref r 6)) 'at (vector-ref r 7))))

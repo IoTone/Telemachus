@@ -196,3 +196,25 @@ editable `QueuePolicy`. All `manage`-gated + audited; honors `features` activati
    v1, or start with per-executor + per-team?
 7. **Preemption.** Cancelable always (default); preemptible-at-round-boundary now
    or later?
+
+## Status
+
+**First cut built (slice 27).** The persisted `jobs` table (migration `0009`), a
+bounded worker pool with atomic claim, submit/poll/list/cancel endpoints
+(`/api/jobs`), and `chat` + `translate` job kinds are implemented in
+`refimpl/racketmaximus` (`domain/sched/scheduler.rkt`, `test/scheduler-tests.rkt`),
+with a Jobs UI tab. Decisions realized: durable jobs table (SCHED‑4), priority+FIFO
+(SCHED‑5), cancelable-not-preemptible (SCHED‑7).
+
+**Per-team fairness (slice 28).** The claim now skips a team already at its
+concurrency cap (= the team's `ai.concurrency` limit), so one team's batch can't
+monopolize the pool — enforced at claim time, so a busy team never head-of-line-
+blocks a worker (unlike wrapping a shared blocking governor).
+
+**Quota metering (slice 29).** Job runs go through the same budget as sync calls:
+an injected `admit?` gate at claim time defers an over-budget team's jobs (they stay
+`queued` rather than failing or bypassing), and a `record!` hook bills actual tokens
++ a request after each successful run. The queue is no longer a budget bypass.
+
+Deferred follow-ups: weighted-fair-share across teams (beyond the flat cap) and an
+`agent` job kind (the tool-loop flow) — both layer on without changing the claim/pool core.

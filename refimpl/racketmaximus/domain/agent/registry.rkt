@@ -11,7 +11,7 @@
 ;; Per-team activation lives in `tool_settings` (absent row = enabled). The agent
 ;; only offers ENABLED tools to the model, and dispatch refuses disabled ones.
 
-(require db "../db/id.rkt")
+(require db-kit/portable "../db/id.rkt")
 
 (provide (struct-out tool)
          register-tool! all-tools tool-by-name

@@ -5,7 +5,7 @@
 ;; CURRENT_TIMESTAMP default, JSON as TEXT). A Postgres backend would branch the
 ;; `up` steps by dialect; the runner is already dialect-agnostic.
 
-(require db db-kit/migrate)
+(require db-kit/portable db-kit/migrate)
 
 (provide all-migrations)
 
@@ -142,7 +142,7 @@
         "  subject_id TEXT NOT NULL,"
         "  dimension TEXT NOT NULL,"                   ; ai.tokens.total | ai.requests | ai.concurrency
         "  limit_value INTEGER NOT NULL,"
-        "  window TEXT NOT NULL DEFAULT 'day',"        ; day | minute | instant
+        "  \"window\" TEXT NOT NULL DEFAULT 'day',"     ; day | minute | instant ("window" is reserved in PG)
         "  UNIQUE(subject_type, subject_id, dimension))")
        (string-append
         "CREATE TABLE usage_ledger ("
@@ -199,4 +199,91 @@
         "  UNIQUE(team_id, target_lang, term))")
        "CREATE INDEX idx_glossary_team ON glossary(team_id, target_lang)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate))
+;; 0006 — hosted onboarding (slice 19): idempotent tenant provisioning + one-time
+;; activation tokens. users.status ('invited' | 'active' | 'suspended') already
+;; exists as TEXT; no column change needed. See docs/design/saas-onboarding.md.
+(define m-0006-saas
+  (migration "0006-saas"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE provisioning ("
+        "  id TEXT PRIMARY KEY,"
+        "  provision_id TEXT NOT NULL UNIQUE,"          ; external id (subscription/vm/signup)
+        "  source TEXT NOT NULL,"                       ; signup | subscription | vm
+        "  plan TEXT NOT NULL DEFAULT 'trial',"
+        "  status TEXT NOT NULL DEFAULT 'seeded',"      ; seeded | activated | suspended | deprovisioned
+        "  owner_user_id TEXT,"
+        "  team_id TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       (string-append
+        "CREATE TABLE activation_tokens ("
+        "  id TEXT PRIMARY KEY,"
+        "  user_id TEXT NOT NULL,"
+        "  token_hash TEXT NOT NULL,"
+        "  prefix TEXT NOT NULL,"
+        "  expires_at TEXT,"
+        "  used_at TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_activation_hash ON activation_tokens(token_hash)"))))
+
+;; 0007 — per-team feature activation (slice 24). Absence of a row = enabled
+;; (default on), mirroring tool_settings. Lets a team turn whole features off.
+(define m-0007-features
+  (migration "0007-features"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE feature_settings ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  feature TEXT NOT NULL,"
+        "  enabled INTEGER NOT NULL DEFAULT 1,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(team_id, feature))")))))
+
+;; 0008 — documents (slice 26): the ownable resource behind the research /
+;; document-translation apps. Same through-line as notes (team_id + owner_user_id
+;; + visibility), with a larger `content` body; listing is offset-paginated.
+(define m-0008-documents
+  (migration "0008-documents"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE documents ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  owner_user_id TEXT NOT NULL,"
+        "  visibility TEXT NOT NULL DEFAULT 'team',"
+        "  title TEXT NOT NULL DEFAULT '',"
+        "  content TEXT NOT NULL DEFAULT '',"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_documents_team ON documents(team_id)"))))
+
+;; 0009 — AI workload jobs (slice 27): the async scheduler's queue. Work is
+;; claimed atomically and run by a bounded worker pool. See
+;; docs/design/ai-queue-and-concurrency.md.
+(define m-0009-jobs
+  (migration "0009-jobs"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE jobs ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  user_id TEXT NOT NULL,"
+        "  kind TEXT NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'queued',"     ; queued|running|done|error|canceled
+        "  priority INTEGER NOT NULL DEFAULT 0,"
+        "  payload TEXT NOT NULL DEFAULT '{}',"
+        "  result TEXT,"
+        "  error TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  started_at TEXT,"
+        "  finished_at TEXT)")
+       "CREATE INDEX idx_jobs_team ON jobs(team_id)"
+       "CREATE INDEX idx_jobs_status ON jobs(status)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs))

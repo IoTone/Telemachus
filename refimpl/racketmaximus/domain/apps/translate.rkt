@@ -11,7 +11,7 @@
 ;; Dogfood: `translate-catalog!` translates a locale catalog (keys unchanged,
 ;; placeholders preserved) — the engine behind producing our ja/nl/es-419 files.
 
-(require db
+(require db-kit/portable
          racket/string
          json
          "../db/id.rkt"

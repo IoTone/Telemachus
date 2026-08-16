@@ -156,7 +156,61 @@ refimpl/racketmaximus/
   `GET /api/executors` lists local + federated; the Admin tab shows a Compute table.
   Standing up real remote/HPC compute plugs in behind this seam without touching call sites.
 
-64 unit tests pass + a 42-assertion server integration test
+- **Hosted onboarding (slice 19)** — a `saas` mode for running one isolated instance
+  per tenant (`domain/saas/onboarding.rkt`, migration `0006`). `TELEMACHUS_MODE=saas`
+  disables the interactive bootstrap; the control plane calls `POST /api/provision`
+  (provision-token auth, idempotent per `provision_id`) to **seed exactly one owner**
+  in an `invited` state with plan quotas, and the owner claims a one-time
+  **magic-link** (`/api/activate`) to set a password and go `active`.
+  `POST /api/instance/{suspend,resume}` flip tenant status (suspended = writes `402`,
+  reads OK). Boot-env seeding (`TELEMACHUS_SEED_*`) covers VM launches.
+  See [docs/design/saas-onboarding.md](../../docs/design/saas-onboarding.md).
+
+- **Platform batch (slices 20–26)** — provider-token **tenant quota** endpoint
+  (billing lifecycle); **API tokens** (issue/list/revoke, scoped, audited); **audit
+  log** surfaced (read API + Team "recent activity"); **search** across notes +
+  documents + translations (RBAC-filtered); **per-team feature flags** (activate/
+  deactivate chat·agent·translate·search, enforced + tab-hiding); **operator
+  metrics** (`GET /api/metrics`); **documents** (paginated ownable resource behind
+  the research/translation apps).
+
+- **Async workload scheduler (slice 27)** — an AI **jobs queue** with a bounded
+  worker pool (`domain/sched/scheduler.rkt`, migration `0009`). Submit deferred work
+  (`POST /api/jobs {kind,payload}` → `202`), poll it (`GET /api/jobs/:id`), list, and
+  cancel queued jobs. Work is *claimed atomically* (no double-run), run by a fixed
+  pool of N threads (kinds: `chat`, `translate`), and status/result recorded.
+  `process-one!` is synchronous so the async path is deterministically tested. A Jobs
+  tab submits + polls. See [docs/design/ai-queue-and-concurrency.md](../../docs/design/ai-queue-and-concurrency.md).
+
+- **Job fairness + quota metering (slices 28–29)** — the pool claim skips a team
+  already at its `ai.concurrency` cap (no team monopolizes the workers), and job runs
+  are metered against the normal AI quotas: an over-budget team's jobs **defer**
+  (stay queued) and successful runs bill tokens + a request — the queue is not a
+  budget bypass.
+
+- **Agent jobs + sample data (slices 30–31)** — an `agent` job kind runs full
+  tool-loop flows through the queue (deferred + metered), returning
+  `{reply, rounds, tools}`. An operator **"Load sample data"** action
+  (`POST /api/admin/seed`, Admin console) populates a team with sample notes,
+  documents, and queued chat/translate/agent jobs — instant functionality to test.
+
+- **PostgreSQL backend (slice 32)** — the persistence layer runs on **SQLite _or_
+  Postgres** from one `DATABASE_URL` (`sqlite:///…` or `postgres://user:pass@host/db`).
+  `db-kit/portable` re-exports `db` but rewrites `?`→`$n` placeholders for Postgres
+  (SQLite unchanged), so app code is backend-neutral; the few dialect-specific spots
+  (quota time-windows, upsert-ignore, activation expiry) are branched or computed in
+  Racket. `db-kit`'s connector dispatches the backend. Run on Postgres with
+  `DATABASE_URL=postgres://…`. (Live E2E needs a running server; the SQLite suite
+  stays green and the rewriter/parser are unit-tested.)
+
+- **Postgres backend (slice 32)** — the same code runs on **SQLite or PostgreSQL**,
+  chosen by `DATABASE_URL` (`sqlite:///…` or `postgresql://user@host:port/db`); db-kit
+  dispatches the connection and no app code branches on backend. Schema + queries are
+  dialect-neutral (one reserved-word fix: `"window"`); the quota window clause is
+  `db-dialect`-aware and timestamps use portable epoch/`CURRENT_TIMESTAMP`.
+  **The full 66-assertion smoke passes against Postgres 18** as well as SQLite.
+
+80 unit tests pass + a 66-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 
