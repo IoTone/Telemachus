@@ -21,9 +21,16 @@
   (check-equal? (team-owner-id c tid) uid)
 
   (define pid (prospect-create! c #:team tid #:name "Dana" #:email "dana@acme.com"
-                                #:company "Acme" #:use-case "team chat" #:revenue "$10M–$100M"))
+                                #:company "Acme" #:use-case "team chat" #:revenue "$10M–$100M"
+                                #:job-title "CTO" #:phone "+1 555 0100"
+                                #:company-address "1 Market St, SF"))
   (check-equal? (length (prospect-list c alice)) 1)
   (check-equal? (hash-ref (car (prospect-list c alice)) 'status) "new")
+  ;; company qualifying details round-trip
+  (let ([d (prospect-get c alice pid)])
+    (check-equal? (hash-ref d 'job_title) "CTO")
+    (check-equal? (hash-ref d 'phone) "+1 555 0100")
+    (check-equal? (hash-ref d 'company_address) "1 Market St, SF"))
 
   (set-prospect-judge! c pid (hasheq 'valid #t 'score 82 'revenue_estimate "$50M" 'reasoning "real co"))
   (define g (prospect-get c alice pid))

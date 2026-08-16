@@ -47,8 +47,11 @@
   (string-append
    "You vet inbound beta prospects for a self-hosted team AI platform. Given the submission, assess whether "
    "this is a REAL business prospect (not spam / fake / a test), estimate the company's annual revenue, and "
-   "score fit 0-100. Weigh any anti-abuse SIGNALS provided (e.g. many recent signups from the same domain, "
-   "or a free/consumer email address) as reasons to LOWER confidence and score. Return ONLY a JSON object: "
+   "score fit 0-100. A plausible, complete profile — a real company name and address, a work email whose "
+   "domain matches the company, a named role, and a reachable phone — RAISES confidence. Weigh any anti-abuse "
+   "SIGNALS provided (e.g. many recent signups from the same domain, or a free/consumer email address) as "
+   "reasons to LOWER confidence and score. Missing optional details are fine for an individual applicant and "
+   "should not by themselves fail a submission. Return ONLY a JSON object: "
    "{\"valid\": true|false, \"score\": <int 0-100>, \"revenue_estimate\": \"<string>\", \"reasoning\": \"<one sentence>\"}."))
 
 ;; Extract the first balanced {...} object from an LLM reply, ignoring braces
@@ -90,8 +93,10 @@
           'subtitle "We're onboarding a limited group of design-partner teams. Tell us about yours."
           'fields (list (hasheq 'key "name"     'label "Full name"  'type "text"  'required #t)
                         (hasheq 'key "email"    'label "Work email" 'type "email" 'required #t)
-                        (hasheq 'key "company"  'label "Company"    'type "text"  'required #t)
-                        (hasheq 'key "job_title" 'label "Your role"  'type "text"  'required #f)
+                        (hasheq 'key "job_title" 'label "Your role"  'type "text"  'required #t)
+                        (hasheq 'key "phone"    'label "Phone (optional)" 'type "tel" 'required #f)
+                        (hasheq 'key "company"  'label "Company (optional)" 'type "text" 'required #f)
+                        (hasheq 'key "company_address" 'label "Company address" 'type "textarea" 'required #f)
                         (hasheq 'key "revenue"  'label "Annual revenue" 'type "select"
                                 'options (list "<$1M" "$1M–$10M" "$10M–$100M" "$100M+") 'required #f)
                         (hasheq 'key "use_case" 'label "What would you use Telemachus for?" 'type "textarea" 'required #t))
@@ -109,7 +114,8 @@
 
 ;; ---- prospects --------------------------------------------------------------
 (define SELECT
-  (string-append "SELECT id, name, email, company, job_title, revenue, use_case, source, status, judge, created_at, signals "
+  (string-append "SELECT id, name, email, company, job_title, revenue, use_case, source, status, judge, created_at, signals, "
+                 "company_address, phone "
                  "FROM prospects"))
 
 (define (parse-json* x) (if (sql-null? x) 'null (with-handlers ([exn:fail? (lambda (_) 'null)]) (string->jsexpr x))))
@@ -119,19 +125,22 @@
           'source (vector-ref r 7) 'status (vector-ref r 8)
           'judge (parse-json* (vector-ref r 9))
           'created_at (vector-ref r 10)
-          'signals (parse-json* (vector-ref r 11))))
+          'signals (parse-json* (vector-ref r 11))
+          'company_address (vector-ref r 12) 'phone (vector-ref r 13)))
 
 ;; PUBLIC — no principal; captures a lead into the team's pipeline. Returns id.
 ;; created-epoch is a portable numeric timestamp for velocity windows; signals is a
 ;; jsexpr of anti-abuse hints the LLM judge weighs.
 (define (prospect-create! conn #:team team #:name name #:email email #:company [company ""]
                           #:job-title [job-title ""] #:revenue [revenue ""] #:use-case [use-case ""]
+                          #:company-address [company-address ""] #:phone [phone ""]
                           #:source [source "beta"] #:created-epoch [epoch (current-seconds)] #:signals [signals #f])
   (define id (new-id))
   (query-exec conn
-    (string-append "INSERT INTO prospects (id, team_id, name, email, company, job_title, revenue, use_case, source, created_epoch, signals) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    id team name email company job-title revenue use-case source epoch
+    (string-append "INSERT INTO prospects (id, team_id, name, email, company, job_title, revenue, use_case, "
+                   "company_address, phone, source, created_epoch, signals) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    id team name email company job-title revenue use-case company-address phone source epoch
     (if (hash? signals) (jsexpr->string signals) sql-null))
   id)
 

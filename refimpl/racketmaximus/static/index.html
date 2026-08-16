@@ -393,7 +393,8 @@ async function betaLandingView(){
   const fld=f=>{ const id='bf_'+f.key; const req=f.required?' *':'';
     if(f.type==='textarea') return `<label>${esc(f.label)}${req}</label><textarea id="${id}" rows="3"></textarea>`;
     if(f.type==='select') return `<label>${esc(f.label)}${req}</label><select id="${id}"><option value=""></option>${(f.options||[]).map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
-    return `<label>${esc(f.label)}${req}</label><input id="${id}" type="${f.type==='email'?'email':'text'}">`; };
+    const itype=f.type==='email'?'email':(f.type==='tel'?'tel':'text');
+    return `<label>${esc(f.label)}${req}</label><input id="${id}" type="${itype}"${f.type==='tel'?' inputmode="tel" autocomplete="tel"':''}>`; };
   return `<div class="auth" style="max-width:540px">
     <h1 class="brand">Telemachus<span class="dot">.</span></h1>
     <h2 style="margin:.2em 0 0">${esc(cfg.title)}</h2>
@@ -501,8 +502,8 @@ async function betaView(){
     return `<span class="badge ${j.valid?'ok':''}">${j.valid?'valid':'flagged'}</span> ${j.score??'?'}/100 · ${esc(j.revenue_estimate||'')}<div class="muted" style="font-size:12px">${esc(j.reasoning||'')}</div>`;
   };
   const rows=ps.map(p=>`<tr>
-      <td>${esc(p.name)}<div class="muted" style="font-size:12px">${esc(p.email)}</div></td>
-      <td>${esc(p.company)}<div class="muted" style="font-size:12px">${esc(p.job_title||'')}</div></td>
+      <td>${esc(p.name)}<div class="muted" style="font-size:12px">${esc(p.email)}</div>${p.phone?`<div class="muted" style="font-size:12px">☎ ${esc(p.phone)}</div>`:''}</td>
+      <td>${esc(p.company||'—')}<div class="muted" style="font-size:12px">${esc(p.job_title||'')}</div>${p.company_address?`<div class="muted" style="font-size:12px">${esc(p.company_address)}</div>`:''}</td>
       <td>${esc(p.revenue||'')}</td><td>${verdict(p.judge)}</td>
       <td><span class="badge">${esc(p.status)}</span></td>
       <td>${(p.status==='qualified'||p.status==='rejected')?'':`<button class="btn sm" onclick="doDecide('${esc(p.id)}','qualified')">${t('qualify')}</button> <button class="btn sm ghost" onclick="doDecide('${esc(p.id)}','rejected')">${t('reject')}</button>`}</td>

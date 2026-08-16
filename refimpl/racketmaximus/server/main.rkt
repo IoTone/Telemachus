@@ -307,6 +307,7 @@
            (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email email
                                          #:company (fmt b 'company) #:job-title (fmt b 'job_title)
                                          #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)
+                                         #:company-address (fmt b 'company_address) #:phone (fmt b 'phone)
                                          #:created-epoch now #:signals signals))
            (define owner (team-owner-id db-conn team))      ; judge runs as owner (metered to the team)
            (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
@@ -1006,9 +1007,10 @@
         [(not pr) (hasheq 'skipped "prospect gone")]
         [else
          (define sig (let ([s (hash-ref pr 'signals 'null)]) (if (hash? s) (jsexpr->string s) "none")))
-         (define detail (format "Name: ~a\nEmail: ~a\nCompany: ~a\nRole: ~a\nStated revenue: ~a\nUse case: ~a\n\nAnti-abuse signals: ~a"
-                                (hash-ref pr 'name "") (hash-ref pr 'email "") (hash-ref pr 'company "")
-                                (hash-ref pr 'job_title "") (hash-ref pr 'revenue "") (hash-ref pr 'use_case "") sig))
+         (define detail (format "Name: ~a\nEmail: ~a\nPhone: ~a\nRole: ~a\nCompany: ~a\nCompany address: ~a\nStated revenue: ~a\nUse case: ~a\n\nAnti-abuse signals: ~a"
+                                (hash-ref pr 'name "") (hash-ref pr 'email "") (hash-ref pr 'phone "")
+                                (hash-ref pr 'job_title "") (hash-ref pr 'company "") (hash-ref pr 'company_address "")
+                                (hash-ref pr 'revenue "") (hash-ref pr 'use_case "") sig))
          (define-values (reply tokens) (run-chat detail #:system (judge-system-prompt)))
          (define verdict
            (or (parse-verdict reply)

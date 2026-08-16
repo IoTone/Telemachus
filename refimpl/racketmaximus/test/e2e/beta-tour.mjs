@@ -48,10 +48,13 @@ try {
   await page.waitForSelector('#bf_name', { timeout: 10000 });
   await page.fill('#bf_name', 'Priya Rao');
   await page.fill('#bf_email', 'priya@northwind-robotics.com');
+  await page.fill('#bf_job_title', 'VP Engineering');
+  await page.fill('#bf_phone', '+1 415 555 0182');
   await page.fill('#bf_company', 'Northwind Robotics');
+  await page.fill('#bf_company_address', '500 Terry Francois Blvd, San Francisco, CA 94158');
   await page.fill('#bf_use_case', 'Private on-prem AI for our support + engineering teams — compliance forbids sending data to cloud LLMs.');
   await shot(page, '04-funnel-filled', 'The funnel: a prospect requests access',
-    'A qualification submission — captured as a prospect, never as a user account. No password, no login: pre-sales vetting only.');
+    'A qualification submission — role, company, address, and phone give the LLM judge real B2B signal to weigh. Captured as a prospect, never as a user account: no password, no login, pre-sales vetting only.');
   await page.waitForTimeout(2600);                                  // min fill-time gate
   await page.click('button:has-text("Request access")');           // browser solves the proof-of-work, then submits
   await page.waitForSelector('#betamsg:has-text("review")', { timeout: 20000 });

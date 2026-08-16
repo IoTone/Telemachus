@@ -320,4 +320,15 @@
        "ALTER TABLE prospects ADD COLUMN created_epoch INTEGER NOT NULL DEFAULT 0"
        "ALTER TABLE prospects ADD COLUMN signals TEXT"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals))
+;; 0012 — company qualifying details (slice 38): more B2B signal for the LLM judge
+;; to weigh — a company address and phone (both optional). company is now optional
+;; too (individuals can still apply); the fields' required flags live in the
+;; onboarding provider, not the schema.
+(define m-0012-prospect-company
+  (migration "0012-prospect-company"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE prospects ADD COLUMN company_address TEXT NOT NULL DEFAULT ''"
+       "ALTER TABLE prospects ADD COLUMN phone TEXT NOT NULL DEFAULT ''"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company))
