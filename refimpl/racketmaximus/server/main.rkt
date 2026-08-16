@@ -290,12 +290,27 @@
        [(disposable-email? (fmt b 'email)) (bump-blocked! "disposable") (err "please use a work email address" 400)]
        [(string=? (fmt b 'name) "") (err "name is required" 400)]
        [else
-        (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email (fmt b 'email)
-                                      #:company (fmt b 'company) #:job-title (fmt b 'job_title)
-                                      #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)))
-        (define owner (team-owner-id db-conn team))         ; judge runs as owner (metered to the team)
-        (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
-        (json-response (hasheq 'ok #t 'id pid 'message "Thanks — your request is in review.") #:code 201)])]))
+        (define email (fmt b 'email))
+        (define domain (or (email-domain email) ""))
+        (define since (- now 86400))                        ; 24h velocity window
+        (define email-cap  (or (string->number (or (env* "TELEMACHUS_BETA_EMAIL_CAP") "")) 1))
+        (define domain-cap (or (string->number (or (env* "TELEMACHUS_BETA_DOMAIN_CAP") "")) 10))
+        (define dom-count (count-recent-domain db-conn team domain since))
+        (cond
+          [(>= (count-recent-email db-conn team email since) email-cap)
+           (bump-blocked! "email-cap") (err "we already have your request — we'll be in touch" 429)]
+          [(>= dom-count domain-cap)
+           (bump-blocked! "domain-cap") (err "too many requests from your organization — please reach out directly" 429)]
+          [else
+           ;; signals the LLM judge weighs (how the signup arrived)
+           (define signals (hasheq 'domain_signups_24h dom-count 'free_email (free-email? email)))
+           (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email email
+                                         #:company (fmt b 'company) #:job-title (fmt b 'job_title)
+                                         #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)
+                                         #:created-epoch now #:signals signals))
+           (define owner (team-owner-id db-conn team))      ; judge runs as owner (metered to the team)
+           (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
+           (json-response (hasheq 'ok #t 'id pid 'message "Thanks — your request is in review.") #:code 201)])])]))
 
 (define (ep-beta-prospects req)
   (with-auth req (lambda (p)
@@ -990,9 +1005,10 @@
       (cond
         [(not pr) (hasheq 'skipped "prospect gone")]
         [else
-         (define detail (format "Name: ~a\nEmail: ~a\nCompany: ~a\nRole: ~a\nStated revenue: ~a\nUse case: ~a"
+         (define sig (let ([s (hash-ref pr 'signals 'null)]) (if (hash? s) (jsexpr->string s) "none")))
+         (define detail (format "Name: ~a\nEmail: ~a\nCompany: ~a\nRole: ~a\nStated revenue: ~a\nUse case: ~a\n\nAnti-abuse signals: ~a"
                                 (hash-ref pr 'name "") (hash-ref pr 'email "") (hash-ref pr 'company "")
-                                (hash-ref pr 'job_title "") (hash-ref pr 'revenue "") (hash-ref pr 'use_case "")))
+                                (hash-ref pr 'job_title "") (hash-ref pr 'revenue "") (hash-ref pr 'use_case "") sig))
          (define-values (reply tokens) (run-chat detail #:system (judge-system-prompt)))
          (define m (regexp-match #rx"(?s:[{].*[}])" reply))
          (define verdict

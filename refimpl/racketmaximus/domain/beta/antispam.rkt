@@ -21,7 +21,7 @@
 (provide make-limiter limiter-allow?
          issue-challenge verify-challenge new-used-set
          powhash verify-pow pow-of
-         valid-email? disposable-email?
+         valid-email? disposable-email? free-email? email-domain
          bump-blocked! blocked-stats)
 
 ;; ---- rate limiter (sliding window) ------------------------------------------
@@ -93,10 +93,17 @@
 (define DISPOSABLE
   '("mailinator.com" "guerrillamail.com" "10minutemail.com" "tempmail.com" "temp-mail.org"
     "trashmail.com" "yopmail.com" "getnada.com" "dispostable.com" "sharklasers.com" "maildrop.cc"))
+(define (email-domain e)
+  (and (valid-email? e) (string-downcase (cadr (string-split e "@")))))
+
 (define (disposable-email? e)
-  (and (valid-email? e)
-       (let ([dom (string-downcase (cadr (string-split e "@")))])
-         (and (member dom DISPOSABLE) #t))))
+  (let ([dom (email-domain e)]) (and dom (member dom DISPOSABLE) #t)))
+
+;; free / consumer providers — allowed, but a weaker B2B signal (fed to the judge)
+(define FREE '("gmail.com" "yahoo.com" "outlook.com" "hotmail.com" "icloud.com"
+               "aol.com" "proton.me" "protonmail.com" "gmx.com" "live.com" "me.com"))
+(define (free-email? e)
+  (let ([dom (email-domain e)]) (and dom (member dom FREE) #t)))
 
 ;; ---- blocked counters (visibility) ------------------------------------------
 (define *blocked* (box (hash)))

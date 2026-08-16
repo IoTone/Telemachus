@@ -35,7 +35,10 @@
   (check-false (valid-email? "nope"))
   (check-false (valid-email? "a@b"))
   (check-true (disposable-email? "x@Mailinator.com"))
-  (check-false (disposable-email? "cto@acme.com")))
+  (check-false (disposable-email? "cto@acme.com"))
+  (check-true (free-email? "x@gmail.com"))
+  (check-false (free-email? "cto@acme.com"))
+  (check-equal? (email-domain "X@Foo.COM") "foo.com"))
 
 (test-case "blocked counters"
   (bump-blocked! "rate") (bump-blocked! "rate") (bump-blocked! "honeypot")

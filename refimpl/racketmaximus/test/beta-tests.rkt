@@ -46,3 +46,18 @@
   (check-true (string? (judge-system-prompt)))
   (register-onboarding! "custom" (hasheq 'name "custom" 'title "Custom" 'subtitle "" 'fields '() 'judge-system "judge X"))
   (check-true (and (member "custom" (onboarding-names)) #t)))
+
+(test-case "velocity counters (portable epoch window) + stored signals"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (prospect-create! c #:team tid #:name "A" #:email "a@acme.com"  #:created-epoch 1000)
+  (prospect-create! c #:team tid #:name "B" #:email "b@acme.com"  #:created-epoch 1000)
+  (prospect-create! c #:team tid #:name "C" #:email "c@other.com" #:created-epoch 1000)
+  (check-equal? (count-recent-email c tid "a@acme.com" 500) 1)
+  (check-equal? (count-recent-email c tid "A@ACME.COM" 500) 1)      ; case-insensitive
+  (check-equal? (count-recent-domain c tid "acme.com" 500) 2)
+  (check-equal? (count-recent-domain c tid "acme.com" 2000) 0)      ; outside the window
+  (check-equal? (count-recent-domain c tid "other.com" 500) 1)
+  (define pid (prospect-create! c #:team tid #:name "D" #:email "d@x.com" #:created-epoch 1000
+                                #:signals (hasheq 'free_email #t 'domain_signups_24h 3)))
+  (check-equal? (hash-ref (hash-ref (prospect-get c (user-principal c uid tid) pid) 'signals) 'domain_signups_24h) 3))

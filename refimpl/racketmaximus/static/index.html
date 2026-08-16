@@ -47,7 +47,7 @@
 <div id="app"></div>
 <div id="toast" class="toast"></div>
 <script>
-const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false };
+const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null };
 const L = {
   en:{tagline:'Team AI platform — reference implementation',chat:'Chat',agent:'Agent',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
@@ -389,6 +389,7 @@ async function renderTab(){ const el=document.getElementById('main'); el.innerHT
   el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,jobs:jobsView,beta:betaView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
 async function betaLandingView(){
   const r=await api('/api/beta/config'); const cfg=r.ok?r.json:{title:'Beta',subtitle:'',fields:[]};
+  const ch=await api('/api/beta/challenge'); S.betaChallenge = ch.ok?ch.json:null;   // issued at load → human fill time passes the min-age gate
   const fld=f=>{ const id='bf_'+f.key; const req=f.required?' *':'';
     if(f.type==='textarea') return `<label>${esc(f.label)}${req}</label><textarea id="${id}" rows="3"></textarea>`;
     if(f.type==='select') return `<label>${esc(f.label)}${req}</label><select id="${id}"><option value=""></option>${(f.options||[]).map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
@@ -410,15 +411,16 @@ function solvePow(nonce,difficulty){ const mask=(difficulty>=32)?0xFFFFFFFF:(((1
 async function doBetaSignup(){
   const msg=document.getElementById('betamsg'); msg.innerHTML='<span class="muted">Verifying you’re human…</span>';
   const cfgR=await api('/api/beta/config'); const fields=cfgR.ok?cfgR.json.fields:[];
-  const chR=await api('/api/beta/challenge'); if(!chR.ok){ msg.innerHTML='<span class="badge">could not start — reload</span>'; return; }
-  const {challenge,difficulty,honeypot}=chR.json;
+  if(!S.betaChallenge){ const chR=await api('/api/beta/challenge'); S.betaChallenge=chR.ok?chR.json:null; }
+  if(!S.betaChallenge){ msg.innerHTML='<span class="badge">could not start — reload</span>'; return; }
+  const {challenge,difficulty,honeypot}=S.betaChallenge;
   const pow=solvePow(challenge.split('.')[0], difficulty);      // proof of work (CPU cost per signup)
   const body={}; for(const f of fields){ const el=document.getElementById('bf_'+f.key); if(el) body[f.key]=el.value; }
   const hp=document.getElementById('bf__hp'); body[honeypot||'_hp']=hp?hp.value:'';
   body.challenge=challenge; body.pow=pow;
   const res=await api('/api/beta/signup',{method:'POST',body});
   if(res.ok){ document.getElementById('betaform').style.display='none'; msg.innerHTML='<b>Thanks — your request is in review.</b><br><span class="muted">We’ll be in touch.</span>'; }
-  else { msg.innerHTML=`<span class="badge">${esc(res.json.error||'error')}</span>`; }
+  else { S.betaChallenge=null; msg.innerHTML=`<span class="badge">${esc(res.json.error||'error')}</span>`; }   // drop the used/stale challenge
 }
 function teamSignIn(){ S.forceLogin=true; render(); }
 function activateView(token){

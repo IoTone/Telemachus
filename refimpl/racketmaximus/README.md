@@ -226,9 +226,12 @@ refimpl/racketmaximus/
   direct-POST spam + replay), a **honeypot** field, a **min fill-time** gate, a
   **proof-of-work** (hashcash over an FNV hash matched byte-for-byte in Racket + JS,
   so it works over plain HTTP with no SubtleCrypto or third-party CAPTCHA), and cheap
-  **email/disposable-domain** heuristics. Blocked-reason **counters** surface to owners.
+  **email/disposable-domain** heuristics, and **per-email / per-domain velocity caps**
+  (portable epoch window). Blocked-reason **counters** surface to owners, and each
+  signup's **anti-abuse signals** (domain velocity, free-email) are fed into the LLM
+  judge so borderline prospects are scored more skeptically.
 
-86 unit tests pass + a 76-assertion server integration test (green on SQLite **and** Postgres)
+87 unit tests pass + a 77-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

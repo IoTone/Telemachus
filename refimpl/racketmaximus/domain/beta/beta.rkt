@@ -13,7 +13,7 @@
 
 (provide ;; prospects
          prospect-create! prospect-list prospect-get prospect-decide! set-prospect-judge!
-         default-team team-owner-id
+         default-team team-owner-id count-recent-email count-recent-domain
          ;; onboarding provider registry (SDK seam)
          register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names)
 
@@ -45,7 +45,8 @@
   (string-append
    "You vet inbound beta prospects for a self-hosted team AI platform. Given the submission, assess whether "
    "this is a REAL business prospect (not spam / fake / a test), estimate the company's annual revenue, and "
-   "score fit 0-100. Return ONLY a JSON object: "
+   "score fit 0-100. Weigh any anti-abuse SIGNALS provided (e.g. many recent signups from the same domain, "
+   "or a free/consumer email address) as reasons to LOWER confidence and score. Return ONLY a JSON object: "
    "{\"valid\": true|false, \"score\": <int 0-100>, \"revenue_estimate\": \"<string>\", \"reasoning\": \"<one sentence>\"}."))
 
 (define DEFAULT-PROVIDER
@@ -73,27 +74,39 @@
 
 ;; ---- prospects --------------------------------------------------------------
 (define SELECT
-  (string-append "SELECT id, name, email, company, job_title, revenue, use_case, source, status, judge, created_at "
+  (string-append "SELECT id, name, email, company, job_title, revenue, use_case, source, status, judge, created_at, signals "
                  "FROM prospects"))
 
+(define (parse-json* x) (if (sql-null? x) 'null (with-handlers ([exn:fail? (lambda (_) 'null)]) (string->jsexpr x))))
 (define (row->prospect r)
   (hasheq 'id (vector-ref r 0) 'name (vector-ref r 1) 'email (vector-ref r 2) 'company (vector-ref r 3)
           'job_title (vector-ref r 4) 'revenue (vector-ref r 5) 'use_case (vector-ref r 6)
           'source (vector-ref r 7) 'status (vector-ref r 8)
-          'judge (let ([j (vector-ref r 9)])
-                   (if (sql-null? j) 'null (with-handlers ([exn:fail? (lambda (_) 'null)]) (string->jsexpr j))))
-          'created_at (vector-ref r 10)))
+          'judge (parse-json* (vector-ref r 9))
+          'created_at (vector-ref r 10)
+          'signals (parse-json* (vector-ref r 11))))
 
 ;; PUBLIC — no principal; captures a lead into the team's pipeline. Returns id.
+;; created-epoch is a portable numeric timestamp for velocity windows; signals is a
+;; jsexpr of anti-abuse hints the LLM judge weighs.
 (define (prospect-create! conn #:team team #:name name #:email email #:company [company ""]
                           #:job-title [job-title ""] #:revenue [revenue ""] #:use-case [use-case ""]
-                          #:source [source "beta"])
+                          #:source [source "beta"] #:created-epoch [epoch (current-seconds)] #:signals [signals #f])
   (define id (new-id))
   (query-exec conn
-    (string-append "INSERT INTO prospects (id, team_id, name, email, company, job_title, revenue, use_case, source) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    id team name email company job-title revenue use-case source)
+    (string-append "INSERT INTO prospects (id, team_id, name, email, company, job_title, revenue, use_case, source, created_epoch, signals) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    id team name email company job-title revenue use-case source epoch
+    (if (hash? signals) (jsexpr->string signals) sql-null))
   id)
+
+;; velocity counters (portable numeric window on created_epoch)
+(define (count-recent-email conn team email since-epoch)
+  (query-value conn "SELECT COUNT(*) FROM prospects WHERE team_id = ? AND LOWER(email) = LOWER(?) AND created_epoch >= ?"
+               team email since-epoch))
+(define (count-recent-domain conn team domain since-epoch)
+  (query-value conn "SELECT COUNT(*) FROM prospects WHERE team_id = ? AND LOWER(email) LIKE ? AND created_epoch >= ?"
+               team (string-append "%@" (string-downcase domain)) since-epoch))
 
 (define (prospect-list conn p #:limit [lim 100])
   (require-perm conn p "settings:manage")

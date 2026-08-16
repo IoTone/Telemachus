@@ -311,4 +311,13 @@
         "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
        "CREATE INDEX idx_prospects_team ON prospects(team_id)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects))
+;; 0011 — anti-abuse hardening (slice 36): a portable epoch column for velocity
+;; windows (dialect-neutral, numeric) + a signals blob the LLM judge weighs.
+(define m-0011-prospect-signals
+  (migration "0011-prospect-signals"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE prospects ADD COLUMN created_epoch INTEGER NOT NULL DEFAULT 0"
+       "ALTER TABLE prospects ADD COLUMN signals TEXT"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals))

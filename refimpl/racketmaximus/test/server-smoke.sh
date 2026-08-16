@@ -104,6 +104,11 @@ sleep 2   # min fill-time gate
 SIGN=$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dana\",\"email\":\"dana@acme.com\",\"company\":\"Acme\",\"use_case\":\"team chat\",\"challenge\":\"$TOK\",\"pow\":$POW}")
 assert "beta signup"      "$SIGN" '"ok":true'
 PID=$(printf '%s' "$SIGN" | grep -oP '"id":"\K[^"]+')
+# velocity: a second signup for the same email is capped (default 1 / 24h)
+CH2=$(curl -s $B/api/beta/challenge); TOK2=$(printf '%s' "$CH2" | grep -oP '"challenge":"\K[^"]+'); NONCE2=${TOK2%%.*}
+POW2=$(PLTCOLLECTS="$(pwd)/pkgs:" racket -e "(require (file \"$(pwd)/domain/beta/antispam.rkt\"))(display (pow-of \"$NONCE2\" $DIFF))" 2>/dev/null)
+sleep 2
+assert "beta email cap"   "$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dupe\",\"email\":\"dana@acme.com\",\"challenge\":\"$TOK2\",\"pow\":$POW2}")" 'we already have your request'
 assert "beta list owner"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP")" 'dana@acme.com'
 assert "beta member 403"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
 PS=''; for i in $(seq 1 40); do PS=$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP"); printf '%s' "$PS" | grep -q '"status":"reviewed"' && break; sleep 0.25; done
