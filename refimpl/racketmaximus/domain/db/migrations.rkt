@@ -286,4 +286,98 @@
        "CREATE INDEX idx_jobs_team ON jobs(team_id)"
        "CREATE INDEX idx_jobs_status ON jobs(status)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs))
+;; 0010 — beta onboarding (slice 33): pre-sales prospect capture for qualifying beta
+;; customers. NOT users/accounts — just leads an internal team reviews, each vetted
+;; by an LLM judge. Public signup writes here; owners review. See docs/design.
+(define m-0010-prospects
+  (migration "0010-prospects"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE prospects ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"                       ; the internal team that owns the pipeline
+        "  name TEXT NOT NULL DEFAULT '',"
+        "  email TEXT NOT NULL DEFAULT '',"
+        "  company TEXT NOT NULL DEFAULT '',"
+        "  job_title TEXT NOT NULL DEFAULT '',"
+        "  revenue TEXT NOT NULL DEFAULT '',"            ; self-reported range
+        "  use_case TEXT NOT NULL DEFAULT '',"
+        "  source TEXT NOT NULL DEFAULT 'beta',"
+        "  status TEXT NOT NULL DEFAULT 'new',"          ; new|verifying|reviewed|qualified|rejected
+        "  judge TEXT,"                                  ; JSON verdict from the LLM judge
+        "  decided_by TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_prospects_team ON prospects(team_id)"))))
+
+;; 0011 — anti-abuse hardening (slice 36): a portable epoch column for velocity
+;; windows (dialect-neutral, numeric) + a signals blob the LLM judge weighs.
+(define m-0011-prospect-signals
+  (migration "0011-prospect-signals"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE prospects ADD COLUMN created_epoch INTEGER NOT NULL DEFAULT 0"
+       "ALTER TABLE prospects ADD COLUMN signals TEXT"))))
+
+;; 0012 — company qualifying details (slice 38): more B2B signal for the LLM judge
+;; to weigh — a company address and phone (both optional). company is now optional
+;; too (individuals can still apply); the fields' required flags live in the
+;; onboarding provider, not the schema.
+(define m-0012-prospect-company
+  (migration "0012-prospect-company"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE prospects ADD COLUMN company_address TEXT NOT NULL DEFAULT ''"
+       "ALTER TABLE prospects ADD COLUMN phone TEXT NOT NULL DEFAULT ''"))))
+
+;; 0013 — extensible prospect model (slice 39): custom, program-specific fields land
+;; in a generic JSON blob keyed by field key, so new fields need no per-deployment
+;; migration. Typed columns remain only for what core logic queries (email/velocity,
+;; name, status, judge, signals). See docs/design/beta-onboarding-experience.md §1.
+(define m-0013-prospect-attributes
+  (migration "0013-prospect-attributes"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE prospects ADD COLUMN attributes TEXT"))))
+
+;; 0014 — onboarding experiences (slice 40): the beta landing experience becomes
+;; admin-editable data with a draft/publish workflow, per (team, key). Source of
+;; truth moves from code/env to storage; ENV still seeds first-boot defaults via a
+;; base experience when nothing is published. See docs/design/beta-onboarding-experience.md §2.
+(define m-0014-onboarding-experiences
+  (migration "0014-onboarding-experiences"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE onboarding_experiences ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  key TEXT NOT NULL DEFAULT 'beta',"
+        "  status TEXT NOT NULL DEFAULT 'draft',"     ; draft | published
+        "  config TEXT NOT NULL,"                     ; full experience JSON (judge_system included)
+        "  updated_by TEXT,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_onboarding_exp ON onboarding_experiences(team_id, key, status)"))))
+
+;; 0015 — onboarding assets (slice 42): locally-hosted brand assets (logo, hero
+;; image, custom font) for the skinnable landing. Stored base64 in a dialect-neutral
+;; TEXT column and served from our own origin — no external URLs (privacy: a public
+;; beta page must not leak a prospect's IP to a CDN). See docs/design/beta-onboarding-experience.md §4.
+(define m-0015-onboarding-assets
+  (migration "0015-onboarding-assets"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE onboarding_assets ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  kind TEXT NOT NULL DEFAULT 'image',"      ; image | font
+        "  mime TEXT NOT NULL,"
+        "  filename TEXT NOT NULL DEFAULT '',"
+        "  size INTEGER NOT NULL DEFAULT 0,"          ; decoded byte length
+        "  data TEXT NOT NULL,"                       ; base64-encoded bytes
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_onboarding_assets_team ON onboarding_assets(team_id)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets))

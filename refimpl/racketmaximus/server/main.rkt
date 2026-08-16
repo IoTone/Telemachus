@@ -36,6 +36,11 @@
          "../domain/apps/search.rkt"              ; search across notes + translations
          "../domain/features/features.rkt"        ; per-team feature activation
          "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
+         "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
+         "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
+         "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
+         "../domain/beta/template.rkt"            ; Tier-C sandboxed custom HTML templates
+         "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
@@ -70,6 +75,7 @@
 ;; ---- TLS --------------------------------------------------------------------
 (define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 (define (saas-mode?) (equal? (env* "TELEMACHUS_MODE") "saas"))   ; hosted: bootstrap off, provisioning on
+(define (home-mode) (or (env* "TELEMACHUS_HOME") "login"))       ; what the root route shows: login | beta
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
 (define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
 (define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
@@ -130,6 +136,17 @@
 (define (err msg code) (json-response (hasheq 'error msg) #:code code))
 (define (unauthorized) (err (msg-unauthorized) 401))
 
+;; CORS for the public beta API: a Tier-C template renders in a SANDBOXED, opaque-
+;; origin iframe, so its fetches to these already-public endpoints are cross-origin.
+(define cors-headers
+  (list (make-header #"Access-Control-Allow-Origin" #"*")
+        (make-header #"Access-Control-Allow-Methods" #"GET, POST, OPTIONS")
+        (make-header #"Access-Control-Allow-Headers" #"Content-Type")
+        (make-header #"Access-Control-Max-Age" #"600")))
+(define (cors-json jsx #:code [code 200]) (json-response jsx #:code code #:headers cors-headers))
+(define (cors-err msg code) (cors-json (hasheq 'error msg) #:code code))
+(define (cors-preflight) (response/output #:code 204 #:headers cors-headers (lambda (out) (void))))
+
 ;; the single-page UI (read once at startup)
 (define UI-HTML
   (let ([p (build-path impl-root "static" "index.html")])
@@ -137,6 +154,32 @@
 (define (html-response s)
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
+
+;; ---- static file serving (SDK + Tier-B plugin bundles) ----------------------
+(define STATIC-MIME
+  (hash "html" #"text/html; charset=utf-8" "js" #"application/javascript" "css" #"text/css"
+        "json" #"application/json" "svg" #"image/svg+xml" "png" #"image/png"
+        "jpg" #"image/jpeg" "jpeg" #"image/jpeg" "gif" #"image/gif" "webp" #"image/webp"
+        "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"))
+(define (ext-of s) (let ([m (regexp-match #rx"\\.([A-Za-z0-9]+)$" s)]) (if m (string-downcase (cadr m)) "")))
+(define (mime-of s) (hash-ref STATIC-MIME (ext-of s) #"application/octet-stream"))
+(define (serve-file path)
+  (if (and (file-exists? path))
+      (response/output #:mime-type (mime-of (path->string path))
+                       #:headers (list (make-header #"Cache-Control" #"public, max-age=300")
+                                       (make-header #"X-Content-Type-Options" #"nosniff"))
+                       (lambda (out) (write-bytes (file->bytes path) out)))
+      (err "not found" 404)))
+;; a path segment safe to interpolate into a filesystem path (no traversal, no slashes)
+(define (safe-seg? s) (and (string? s) (regexp-match? #rx"^[A-Za-z0-9._-]+$" s) (not (string=? s "..")) #t))
+;; /beta/bundle/<plugin>/<path...> → plugins/<plugin>/landing/<path> (index.html default)
+(define (bundle-file-path segs)
+  (and (>= (length segs) 3) (equal? (list-ref segs 0) "beta") (equal? (list-ref segs 1) "bundle")
+       (let ([plugin (list-ref segs 2)]
+             [rest (filter (lambda (s) (not (string=? s ""))) (list-tail segs 3))])   ; tolerate trailing slash
+         (and (safe-seg? plugin) (andmap safe-seg? rest)
+              (apply build-path (build-path impl-root "plugins" plugin "landing")
+                     (if (null? rest) '("index.html") rest))))))
 
 ;; Server-Sent Events: proc receives an `emit` that pushes one JSON event.
 (define (sse-response proc)
@@ -241,6 +284,155 @@
                            #:limit lim #:window (format "~a" (hash-ref b 'window "day")))
         (json-response (hasheq 'ok #t 'provision_id pid 'dimension dim 'limit lim))]
        [else (err "unknown provision_id" 404)])]))
+
+;; ---- beta onboarding (public signup → LLM judge → owner review) -------------
+(define (fmt b k) (format "~a" (hash-ref b k "")))
+
+;; anti-abuse state (in-memory, per-process)
+(define beta-secret (or (env* "TELEMACHUS_SECRET") "telemachus-dev-secret"))     ; set in prod
+(define pow-bits    (or (string->number (or (env* "TELEMACHUS_POW_BITS") "")) 16))
+(define beta-limiter (make-limiter))
+(define beta-used    (new-used-set))
+(define (client-key req)
+  (define xff (req-header req #"x-forwarded-for"))
+  (if xff (string-trim (car (string-split xff ","))) "global"))
+
+(define (ep-config req)          ; public: tells the SPA what the root route should render
+  (define team (default-team db-conn))
+  (json-response (hasheq 'home (home-mode) 'service "telemachus"
+                         'onboarding (hash-ref (resolve-experience db-conn team) 'name "beta")
+                         'landing (experience-landing db-conn team))))
+
+(define (ep-beta-config req)     ; public: the effective experience (published DB row, else ENV/provider base)
+  (cors-json (resolve-experience-public db-conn (default-team db-conn))))
+
+;; public: the Tier-C custom template, sanitized + wrapped with our submission
+;; bootstrap. Served for the sandboxed iframe (see domain/beta/template.rkt).
+(define (ep-beta-template req)
+  (define team (default-team db-conn))
+  (define exp (resolve-experience db-conn team))
+  (define tpl (let ([t (hash-ref exp 'template #f)]) (if (and (string? t) (not (string=? t ""))) t DEFAULT-TEMPLATE)))
+  (define public-cfg (hash-remove exp 'judge-system))
+  (html-response (template-page public-cfg tpl)))
+
+;; ---- admin: edit & publish the onboarding experience (settings:manage) -------
+(define (ep-beta-experience-get req)
+  (define p (current-principal req))
+  (cond [(not p) (unauthorized)]
+        [else (json-response (experience-draft db-conn p))]))    ; full draft incl. judge prompt
+
+(define (ep-beta-experience-put req)
+  (define p (current-principal req))
+  (cond [(not p) (unauthorized)]
+        [else (experience-save! db-conn p (read-json-body req))
+              (json-response (hasheq 'ok #t 'status "draft"))]))
+
+(define (ep-beta-experience-publish req)
+  (define p (current-principal req))
+  (cond [(not p) (unauthorized)]
+        [(experience-publish! db-conn p) (json-response (hasheq 'ok #t 'status "published"))]
+        [else (err "nothing to publish — save a draft first" 400)]))
+
+;; ---- brand assets: upload (admin) + serve (public) --------------------------
+(define (ep-beta-asset-upload req)
+  (with-auth req (lambda (p)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])   ; bad type/size → 400; forbidden → global 403
+      (define b (read-json-body req))
+      (define id (asset-store! db-conn p #:mime (fmt b 'mime) #:filename (fmt b 'filename) #:data-base64 (fmt b 'data)))
+      (json-response (hasheq 'ok #t 'id id 'ref (string-append "asset://" id)
+                             'url (string-append "/api/beta/asset/" id)) #:code 201)))))
+
+(define (ep-beta-assets req)
+  (with-auth req (lambda (p) (json-response (hasheq 'assets (asset-list db-conn p))))))
+
+(define (ep-beta-asset-delete req id)
+  (with-auth req (lambda (p) (asset-delete! db-conn p id) (json-response (hasheq 'ok #t)))))
+
+(define (ep-beta-asset req id)          ; PUBLIC — the landing is public; ids are unguessable UUIDs
+  (define-values (mime bytes) (asset-get db-conn id))
+  (cond
+    [(not mime) (err "not found" 404)]
+    [else (response/output
+           #:mime-type (string->bytes/utf-8 mime)
+           #:headers (list (make-header #"Cache-Control" #"public, max-age=3600")
+                           (make-header #"X-Content-Type-Options" #"nosniff"))
+           (lambda (out) (write-bytes bytes out)))]))
+
+(define (ep-beta-challenge req)  ; public: issue a signed, single-use PoW challenge
+  (define c (issue-challenge #:secret beta-secret #:now (current-seconds) #:difficulty pow-bits))
+  (cors-json (hasheq 'challenge (hash-ref c 'challenge) 'difficulty (hash-ref c 'difficulty) 'honeypot "_hp")))
+
+;; add CORS headers to any already-built response (so the sandboxed Tier-C iframe can read it)
+(define (with-cors resp) (struct-copy response resp [headers (append cors-headers (response-headers resp))]))
+(define (ep-beta-signup req) (with-cors (ep-beta-signup* req)))
+(define (ep-beta-signup* req)     ; PUBLIC — layered anti-abuse BEFORE any DB write / LLM spend
+  (define b (read-json-body req))
+  (define now (current-seconds))
+  (define key (client-key req))
+  (define team (default-team db-conn))
+  (cond
+    [(not team) (err "instance not initialized" 503)]
+    [(not (limiter-allow? beta-limiter key now #:max 5 #:window 60))
+     (bump-blocked! "rate") (err "too many requests — please slow down" 429)]
+    [(not (string=? (fmt b '_hp) ""))                    ; honeypot: pretend success, store nothing
+     (bump-blocked! "honeypot") (json-response (hasheq 'ok #t 'message "Thanks — your request is in review.") #:code 201)]
+    [else
+     (define tok (fmt b 'challenge))
+     (define nonce (let ([ps (string-split tok ".")]) (if (pair? ps) (car ps) "")))
+     (define ch (verify-challenge tok #:secret beta-secret #:now now #:used beta-used))
+     (cond
+       [(not (eq? ch 'ok)) (bump-blocked! (format "challenge-~a" ch)) (err "invalid or expired challenge — reload the page" 400)]
+       [(not (verify-pow nonce (fmt b 'pow) pow-bits)) (bump-blocked! "pow") (err "verification failed — reload the page" 400)]
+       [(not (valid-email? (fmt b 'email))) (bump-blocked! "email") (err "a valid email is required" 400)]
+       [(disposable-email? (fmt b 'email)) (bump-blocked! "disposable") (err "please use a work email address" 400)]
+       [(string=? (fmt b 'name) "") (err "name is required" 400)]
+       [else
+        (define email (fmt b 'email))
+        (define domain (or (email-domain email) ""))
+        (define since (- now 86400))                        ; 24h velocity window
+        (define email-cap  (or (string->number (or (env* "TELEMACHUS_BETA_EMAIL_CAP") "")) 1))
+        (define domain-cap (or (string->number (or (env* "TELEMACHUS_BETA_DOMAIN_CAP") "")) 10))
+        (define dom-count (count-recent-domain db-conn team domain since))
+        (cond
+          [(>= (count-recent-email db-conn team email since) email-cap)
+           (bump-blocked! "email-cap") (err "we already have your request — we'll be in touch" 429)]
+          [(>= dom-count domain-cap)
+           (bump-blocked! "domain-cap") (err "too many requests from your organization — please reach out directly" 429)]
+          [else
+           ;; signals the LLM judge weighs (how the signup arrived)
+           (define signals (hasheq 'domain_signups_24h dom-count 'free_email (free-email? email)))
+           ;; every configured field that ISN'T a reserved/typed column is captured
+           ;; generically into the attributes blob — custom fields need no migration
+           (define attrs
+             (for/fold ([h (hasheq)]) ([f (in-list (hash-ref (resolve-experience db-conn team) 'fields '()))])
+               (define k (hash-ref f 'key ""))
+               (define v (fmt b (string->symbol k)))
+               (if (or (reserved-field? k) (string=? v "")) h (hash-set h (string->symbol k) v))))
+           (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email email
+                                         #:company (fmt b 'company) #:job-title (fmt b 'job_title)
+                                         #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)
+                                         #:company-address (fmt b 'company_address) #:phone (fmt b 'phone)
+                                         #:attributes attrs
+                                         #:created-epoch now #:signals signals))
+           (define owner (team-owner-id db-conn team))      ; judge runs as owner (metered to the team)
+           (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
+           (json-response (hasheq 'ok #t 'id pid 'message "Thanks — your request is in review.") #:code 201)])])]))
+
+(define (ep-beta-prospects req)
+  (with-auth req (lambda (p)
+    (define blocked (for/hasheq ([(k v) (in-hash (blocked-stats))]) (values (string->symbol k) v)))  ; jsexpr needs symbol keys
+    (json-response (hasheq 'prospects (prospect-list db-conn p) 'blocked blocked)))))
+
+(define (ep-beta-decide req id)
+  (with-auth req (lambda (p)
+    (define d (fmt (read-json-body req) 'decision))
+    (cond
+      [(not (member d '("qualified" "rejected"))) (err "decision must be 'qualified' or 'rejected'" 400)]
+      [(prospect-decide! db-conn p id d)
+       (audit! db-conn #:action (string-append "prospect." d) #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "prospect" #:resource-id id)
+       (json-response (hasheq 'ok #t 'id id 'status d))]
+      [else (err "not found" 404)]))))
 
 (define (ep-whoami req)
   (define p (current-principal req))
@@ -762,6 +954,7 @@
 (define (POST? m) (bytes=? m #"POST"))
 (define (PUT? m) (bytes=? m #"PUT"))
 (define (DELETE? m) (bytes=? m #"DELETE"))
+(define (OPTIONS? m) (bytes=? m #"OPTIONS"))
 
 ;; /api/notes/<id> → id ; /api/notes/<id>/share → id
 (define (note-id segs)
@@ -779,9 +972,15 @@
 (define (job-cancel-path segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "jobs")
        (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
+(define (beta-decide-path segs)
+  (and (= (length segs) 5) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
+       (equal? (list-ref segs 2) "prospects") (equal? (list-ref segs 4) "decide") (list-ref segs 3)))
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
+(define (beta-asset-id segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
+       (equal? (list-ref segs 2) "asset") (list-ref segs 3)))
 
 (define (route req)
   (define m (request-method req))
@@ -790,6 +989,23 @@
     [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html")) (equal? segs '("activate"))))
      (html-response UI-HTML)]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
+    [(and (GET? m)  (equal? segs '("beta-sdk.js")))         (serve-file (build-path impl-root "static" "beta-sdk.js"))]
+    [(and (GET? m)  (bundle-file-path segs))                (serve-file (bundle-file-path segs))]
+    [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
+    [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
+    [(and (GET? m)  (equal? segs '("beta" "template")))     (ep-beta-template req)]
+    [(and (OPTIONS? m) (member segs '(("api" "beta" "signup") ("api" "beta" "config") ("api" "beta" "challenge")))) (cors-preflight)]
+    [(and (GET? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-get req)]
+    [(and (PUT? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-put req)]
+    [(and (POST? m) (equal? segs '("api" "beta" "experience" "publish"))) (ep-beta-experience-publish req)]
+    [(and (POST? m)   (equal? segs '("api" "beta" "assets")))  (ep-beta-asset-upload req)]
+    [(and (GET? m)    (equal? segs '("api" "beta" "assets")))  (ep-beta-assets req)]
+    [(and (GET? m)    (beta-asset-id segs))                    (ep-beta-asset req (beta-asset-id segs))]
+    [(and (DELETE? m) (beta-asset-id segs))                    (ep-beta-asset-delete req (beta-asset-id segs))]
+    [(and (GET? m)  (equal? segs '("api" "beta" "challenge"))) (ep-beta-challenge req)]
+    [(and (POST? m) (equal? segs '("api" "beta" "signup"))) (ep-beta-signup req)]
+    [(and (GET? m)  (equal? segs '("api" "beta" "prospects"))) (ep-beta-prospects req)]
+    [(and (POST? m) (beta-decide-path segs))               (ep-beta-decide req (beta-decide-path segs))]
     [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
     [(and (POST? m) (equal? segs '("api" "provision")))     (ep-provision req)]
     [(and (POST? m) (equal? segs '("api" "activate")))      (ep-activate req)]
@@ -903,6 +1119,26 @@
       (define reply (if done (hash-ref done 'reply "") ""))
       (hasheq 'reply reply 'rounds (if done (hash-ref done 'rounds 0) 0)
               'tools tools 'tokens_used (estimate-tokens prompt reply))))
+  (register-job-kind! "beta_judge"    ; vet a beta prospect with the LLM, store the verdict
+    (lambda (conn p payload)
+      (define pid (format "~a" (hash-ref payload 'prospect_id "")))
+      (define pr (prospect-get conn p pid))
+      (cond
+        [(not pr) (hasheq 'skipped "prospect gone")]
+        [else
+         (define sig (let ([s (hash-ref pr 'signals 'null)]) (if (hash? s) (jsexpr->string s) "none")))
+         ;; resolve the prospect's team experience: field defs (for the prompt) + judge prompt
+         (define exp-fields (hash-ref (resolve-experience conn (principal-team-id p)) 'fields '()))
+         (define lines
+           (for/list ([f (in-list exp-fields)])
+             (format "~a: ~a" (hash-ref f 'label (hash-ref f 'key "")) (prospect-field pr (hash-ref f 'key "")))))
+         (define detail (string-append (string-join lines "\n") "\n\nAnti-abuse signals: " sig))
+         (define-values (reply tokens) (run-chat detail #:system (experience-judge-system conn (principal-team-id p))))
+         (define verdict
+           (or (parse-verdict reply)
+               (hasheq 'valid #f 'score 0 'revenue_estimate "unknown" 'reasoning "judge output not parseable")))
+         (set-prospect-judge! conn pid verdict)
+         (hasheq 'prospect_id pid 'verdict verdict 'tokens_used tokens)])))
   (void (start-scheduler! db-conn #:workers 2
                           #:cap-for (lambda (team)
                                       (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))

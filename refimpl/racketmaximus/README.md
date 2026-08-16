@@ -210,7 +210,28 @@ refimpl/racketmaximus/
   `db-dialect`-aware and timestamps use portable epoch/`CURRENT_TIMESTAMP`.
   **The full 66-assertion smoke passes against Postgres 18** as well as SQLite.
 
-80 unit tests pass + a 66-assertion server integration test (green on SQLite **and** Postgres)
+- **Beta onboarding (slices 33–34)** — a pre-sales **qualification funnel** that
+  captures prospects **without creating accounts**, vets each with an **LLM judge**
+  ({valid, score, revenue estimate, reasoning} via a metered `beta_judge` job), and
+  lets the team owner **review / qualify / reject**. Root-route **home routing**
+  (`TELEMACHUS_HOME=beta`) makes the default experience the beta landing page instead
+  of login. The onboarding experience (copy, form fields, judge prompt) is a
+  **pluggable provider** — customized via the SDK's new plugin `init!` hook (see the
+  `beta-onboarding` example plugin).
+
+- **Anti-abuse for the public signup (slice 35)** — self-hosted, dependency-free
+  defense-in-depth so the open beta endpoint can't flood the DB or burn LLM tokens
+  (`domain/beta/antispam.rkt`), all checked *before* any write/spend: per-IP + global
+  **rate limit**, a **signed single-use challenge** (`GET /api/beta/challenge`, kills
+  direct-POST spam + replay), a **honeypot** field, a **min fill-time** gate, a
+  **proof-of-work** (hashcash over an FNV hash matched byte-for-byte in Racket + JS,
+  so it works over plain HTTP with no SubtleCrypto or third-party CAPTCHA), and cheap
+  **email/disposable-domain** heuristics, and **per-email / per-domain velocity caps**
+  (portable epoch window). Blocked-reason **counters** surface to owners, and each
+  signup's **anti-abuse signals** (domain velocity, free-email) are fed into the LLM
+  judge so borderline prospects are scored more skeptically.
+
+87 unit tests pass + a 77-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

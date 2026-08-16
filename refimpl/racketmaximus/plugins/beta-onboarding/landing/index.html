@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Founders Program — apply</title>
+<!-- Tier-B example bundle (slice 43): a fully hand-coded landing that owns its own
+     markup/CSS and routes signups through the core anti-abuse gate via the SDK. This
+     is the "total control" path — no Telemachus chrome, no Tier-A shell. -->
+<style>
+  :root{ --ink:#1a1a2e; --muted:#6b6b83; --line:#e7e7ef; --paper:#ffffff; --wash:#f6f5fb; --accent:#e0483b; }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{background:var(--wash);color:var(--ink);font:16px/1.6 Georgia,Cambria,"Times New Roman",serif;-webkit-font-smoothing:antialiased}
+  .top{display:flex;align-items:center;justify-content:space-between;max-width:960px;margin:0 auto;padding:22px 24px}
+  .mark{font-weight:700;letter-spacing:.02em;font-size:20px}
+  .mark b{color:var(--accent)}
+  .top a{color:var(--muted);text-decoration:none;font-size:14px;font-family:ui-sans-serif,system-ui,sans-serif}
+  .hero{max-width:760px;margin:24px auto 0;padding:0 24px}
+  .kicker{font-family:ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.18em;font-size:12px;color:var(--accent);font-weight:700}
+  h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.05;margin:.2em 0 .3em;letter-spacing:-.01em}
+  .lede{font-size:1.15rem;color:var(--muted);max-width:52ch}
+  .panel{max-width:760px;margin:26px auto 60px;padding:0 24px}
+  form{background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:26px;box-shadow:0 20px 50px -30px rgba(26,26,46,.4)}
+  label{display:block;font-family:ui-sans-serif,system-ui,sans-serif;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:14px 0 5px}
+  input,textarea{width:100%;font:inherit;font-size:15px;padding:11px 13px;border:1px solid var(--line);border-radius:5px;background:#fff;color:var(--ink)}
+  input:focus,textarea:focus{outline:2px solid rgba(224,72,59,.35);border-color:var(--accent)}
+  .hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+  button{margin-top:18px;width:100%;background:var(--accent);color:#fff;border:0;border-radius:5px;padding:14px;font-family:ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:15px;letter-spacing:.02em;cursor:pointer}
+  button:disabled{opacity:.6;cursor:default}
+  .msg{font-family:ui-sans-serif,system-ui,sans-serif;margin-top:14px;font-size:14px;color:var(--muted)}
+  .msg.err{color:var(--accent)}
+  .foot{max-width:960px;margin:0 auto;padding:20px 24px 40px;color:var(--muted);font-size:13px;font-family:ui-sans-serif,system-ui,sans-serif;border-top:1px solid var(--line)}
+  .badge{font-family:ui-sans-serif,system-ui,sans-serif;font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+  <div class="top"><div class="mark">Founders<b>.</b></div><a href="/?login=1">Team sign-in →</a></div>
+  <div class="hero">
+    <div class="kicker" id="kicker">Founders program</div>
+    <h1 id="title">Apply to build on private AI</h1>
+    <p class="lede" id="lede">A hand-coded landing, served from a plugin bundle — its own markup and type, wired to the platform only through the beta SDK.</p>
+  </div>
+  <div class="panel">
+    <form id="f" autocomplete="on">
+      <label>Your name</label><input id="name" required>
+      <label>Work email</label><input id="email" type="email" required>
+      <label>Company</label><input id="company">
+      <label>What are you building?</label><textarea id="use_case" rows="4" required></textarea>
+      <input class="hp" id="hp" tabindex="-1" autocomplete="off" aria-hidden="true" placeholder="Leave this empty">
+      <button id="btn" type="submit">Request an invite</button>
+      <div class="msg" id="msg"></div>
+    </form>
+  </div>
+  <div class="foot"><span class="badge">Powered by Telemachus — self-hosted. This page is a Tier-B plugin bundle; the built-in Tier-A editor is the no-code alternative.</span></div>
+
+  <script src="/beta-sdk.js"></script>
+  <script>
+    // stay in sync with the admin-configured copy when present (optional)
+    Telemachus.beta.config().then(function (c) {
+      if (!c) return;
+      if (c.title) document.getElementById('title').textContent = c.title;
+      if (c.subtitle) document.getElementById('lede').textContent = c.subtitle;
+      if (c.eyebrow) document.getElementById('kicker').textContent = c.eyebrow;
+    }).catch(function () {});
+    // warm a challenge on load so the human fill-time gate passes
+    Telemachus.beta.challenge();
+    var form = document.getElementById('f'), msg = document.getElementById('msg'), btn = document.getElementById('btn');
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      msg.className = 'msg'; msg.textContent = 'Verifying you’re human…'; btn.disabled = true;
+      Telemachus.beta.submit({
+        name: document.getElementById('name').value,
+        email: document.getElementById('email').value,
+        company: document.getElementById('company').value,
+        use_case: document.getElementById('use_case').value,
+        _hp: document.getElementById('hp').value
+      }).then(function (r) {
+        if (r.ok) { form.querySelectorAll('input,textarea,button').forEach(function (el) { el.disabled = true; }); msg.textContent = r.message || 'Thanks — your request is in review.'; }
+        else { btn.disabled = false; msg.className = 'msg err'; msg.textContent = r.error || 'Something went wrong.'; }
+      });
+    });
+  </script>
+</body>
+</html>
