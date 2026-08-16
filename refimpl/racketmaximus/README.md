@@ -219,7 +219,16 @@ refimpl/racketmaximus/
   **pluggable provider** — customized via the SDK's new plugin `init!` hook (see the
   `beta-onboarding` example plugin).
 
-81 unit tests pass + a 74-assertion server integration test (green on SQLite **and** Postgres)
+- **Anti-abuse for the public signup (slice 35)** — self-hosted, dependency-free
+  defense-in-depth so the open beta endpoint can't flood the DB or burn LLM tokens
+  (`domain/beta/antispam.rkt`), all checked *before* any write/spend: per-IP + global
+  **rate limit**, a **signed single-use challenge** (`GET /api/beta/challenge`, kills
+  direct-POST spam + replay), a **honeypot** field, a **min fill-time** gate, a
+  **proof-of-work** (hashcash over an FNV hash matched byte-for-byte in Racket + JS,
+  so it works over plain HTTP with no SubtleCrypto or third-party CAPTCHA), and cheap
+  **email/disposable-domain** heuristics. Blocked-reason **counters** surface to owners.
+
+86 unit tests pass + a 76-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 

@@ -92,7 +92,16 @@ assert "seed member 403" "$(curl -s -X POST $B/api/admin/seed -H "Authorization:
 # beta onboarding: public signup (no account) → async LLM judge → owner review → decide
 assert "home config"     "$(curl -s $B/api/config)" '"home":"login"'
 assert "beta form cfg"    "$(curl -s $B/api/beta/config)" '"name":"beta"'
-SIGN=$(curl -s -X POST $B/api/beta/signup -d '{"name":"Dana","email":"dana@acme.com","company":"Acme","use_case":"team chat"}')
+# anti-abuse: a direct POST with no challenge is rejected (nothing written to the DB)
+assert "beta no-challenge" "$(curl -s -X POST $B/api/beta/signup -d '{"name":"Bot","email":"bot@x.com"}')" 'invalid or expired challenge'
+# honeypot filled → silent fake-success, still not stored
+assert "beta honeypot"     "$(curl -s -X POST $B/api/beta/signup -d '{"name":"Bot","email":"bot@x.com","_hp":"gotcha"}')" '"ok":true'
+# happy path: fetch a challenge, solve the proof-of-work, wait past min fill-time, submit
+CH=$(curl -s $B/api/beta/challenge); TOK=$(printf '%s' "$CH" | grep -oP '"challenge":"\K[^"]+')
+DIFF=$(printf '%s' "$CH" | grep -oP '"difficulty":\K[0-9]+'); NONCE=${TOK%%.*}
+POW=$(PLTCOLLECTS="$(pwd)/pkgs:" racket -e "(require (file \"$(pwd)/domain/beta/antispam.rkt\"))(display (pow-of \"$NONCE\" $DIFF))" 2>/dev/null)
+sleep 2   # min fill-time gate
+SIGN=$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dana\",\"email\":\"dana@acme.com\",\"company\":\"Acme\",\"use_case\":\"team chat\",\"challenge\":\"$TOK\",\"pow\":$POW}")
 assert "beta signup"      "$SIGN" '"ok":true'
 PID=$(printf '%s' "$SIGN" | grep -oP '"id":"\K[^"]+')
 assert "beta list owner"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP")" 'dana@acme.com'

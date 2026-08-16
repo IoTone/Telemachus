@@ -37,6 +37,7 @@
          "../domain/features/features.rkt"        ; per-team feature activation
          "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
+         "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
          "../domain/quota/quota.rkt"
@@ -247,6 +248,15 @@
 ;; ---- beta onboarding (public signup → LLM judge → owner review) -------------
 (define (fmt b k) (format "~a" (hash-ref b k "")))
 
+;; anti-abuse state (in-memory, per-process)
+(define beta-secret (or (env* "TELEMACHUS_SECRET") "telemachus-dev-secret"))     ; set in prod
+(define pow-bits    (or (string->number (or (env* "TELEMACHUS_POW_BITS") "")) 16))
+(define beta-limiter (make-limiter))
+(define beta-used    (new-used-set))
+(define (client-key req)
+  (define xff (req-header req #"x-forwarded-for"))
+  (if xff (string-trim (car (string-split xff ","))) "global"))
+
 (define (ep-config req)          ; public: tells the SPA what the root route should render
   (json-response (hasheq 'home (home-mode) 'service "telemachus"
                          'onboarding (hash-ref (onboarding-config) 'name))))
@@ -254,22 +264,43 @@
 (define (ep-beta-config req)     ; public: the active onboarding provider's form config
   (json-response (onboarding-config)))
 
-(define (ep-beta-signup req)     ; PUBLIC — captures a lead; creates NO account
+(define (ep-beta-challenge req)  ; public: issue a signed, single-use PoW challenge
+  (define c (issue-challenge #:secret beta-secret #:now (current-seconds) #:difficulty pow-bits))
+  (json-response (hasheq 'challenge (hash-ref c 'challenge) 'difficulty (hash-ref c 'difficulty) 'honeypot "_hp")))
+
+(define (ep-beta-signup req)     ; PUBLIC — layered anti-abuse BEFORE any DB write / LLM spend
   (define b (read-json-body req))
+  (define now (current-seconds))
+  (define key (client-key req))
   (define team (default-team db-conn))
   (cond
     [(not team) (err "instance not initialized" 503)]
-    [(or (string=? (fmt b 'name) "") (string=? (fmt b 'email) "")) (err "name and email are required" 400)]
+    [(not (limiter-allow? beta-limiter key now #:max 5 #:window 60))
+     (bump-blocked! "rate") (err "too many requests — please slow down" 429)]
+    [(not (string=? (fmt b '_hp) ""))                    ; honeypot: pretend success, store nothing
+     (bump-blocked! "honeypot") (json-response (hasheq 'ok #t 'message "Thanks — your request is in review.") #:code 201)]
     [else
-     (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email (fmt b 'email)
-                                   #:company (fmt b 'company) #:job-title (fmt b 'job_title)
-                                   #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)))
-     (define owner (team-owner-id db-conn team))            ; judge runs as owner (metered to the team)
-     (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
-     (json-response (hasheq 'ok #t 'id pid 'message "Thanks — your request is in review.") #:code 201)]))
+     (define tok (fmt b 'challenge))
+     (define nonce (let ([ps (string-split tok ".")]) (if (pair? ps) (car ps) "")))
+     (define ch (verify-challenge tok #:secret beta-secret #:now now #:used beta-used))
+     (cond
+       [(not (eq? ch 'ok)) (bump-blocked! (format "challenge-~a" ch)) (err "invalid or expired challenge — reload the page" 400)]
+       [(not (verify-pow nonce (fmt b 'pow) pow-bits)) (bump-blocked! "pow") (err "verification failed — reload the page" 400)]
+       [(not (valid-email? (fmt b 'email))) (bump-blocked! "email") (err "a valid email is required" 400)]
+       [(disposable-email? (fmt b 'email)) (bump-blocked! "disposable") (err "please use a work email address" 400)]
+       [(string=? (fmt b 'name) "") (err "name is required" 400)]
+       [else
+        (define pid (prospect-create! db-conn #:team team #:name (fmt b 'name) #:email (fmt b 'email)
+                                      #:company (fmt b 'company) #:job-title (fmt b 'job_title)
+                                      #:revenue (fmt b 'revenue) #:use-case (fmt b 'use_case)))
+        (define owner (team-owner-id db-conn team))         ; judge runs as owner (metered to the team)
+        (when owner (enqueue-job! db-conn #:team team #:user owner #:kind "beta_judge" #:payload (hasheq 'prospect_id pid)))
+        (json-response (hasheq 'ok #t 'id pid 'message "Thanks — your request is in review.") #:code 201)])]))
 
 (define (ep-beta-prospects req)
-  (with-auth req (lambda (p) (json-response (hasheq 'prospects (prospect-list db-conn p))))))
+  (with-auth req (lambda (p)
+    (define blocked (for/hasheq ([(k v) (in-hash (blocked-stats))]) (values (string->symbol k) v)))  ; jsexpr needs symbol keys
+    (json-response (hasheq 'prospects (prospect-list db-conn p) 'blocked blocked)))))
 
 (define (ep-beta-decide req id)
   (with-auth req (lambda (p)
@@ -835,6 +866,7 @@
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
+    [(and (GET? m)  (equal? segs '("api" "beta" "challenge"))) (ep-beta-challenge req)]
     [(and (POST? m) (equal? segs '("api" "beta" "signup"))) (ep-beta-signup req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "prospects"))) (ep-beta-prospects req)]
     [(and (POST? m) (beta-decide-path segs))               (ep-beta-decide req (beta-decide-path segs))]

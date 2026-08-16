@@ -398,16 +398,25 @@ async function betaLandingView(){
     <h2 style="margin:.2em 0 0">${esc(cfg.title)}</h2>
     <p class="muted">${esc(cfg.subtitle)}</p>
     <div class="card"><div id="betaform">${(cfg.fields||[]).map(fld).join('')}
+      <input id="bf__hp" name="_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
       <button class="btn" style="width:100%;margin-top:12px" onclick="doBetaSignup()">${t('requestaccess')}</button></div>
       <div id="betamsg" style="margin-top:10px"></div></div>
     <p class="muted" style="font-size:13px;margin-top:14px"><a href="#" onclick="teamSignIn();return false" style="color:var(--accent)">${t('teamsignin')} →</a></p>
   </div>`;
 }
+// FNV-1a 32-bit — byte-for-byte identical to domain/beta/antispam.rkt powhash (ASCII).
+function powhash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h=(h^s.charCodeAt(i))>>>0; h=Math.imul(h,16777619)>>>0; } return h>>>0; }
+function solvePow(nonce,difficulty){ const mask=(difficulty>=32)?0xFFFFFFFF:(((1<<difficulty)>>>0)-1); for(let n=0;;n++){ if((powhash(nonce+':'+n)&mask)===0) return n; } }
 async function doBetaSignup(){
-  const r=await api('/api/beta/config'); const fields=r.ok?r.json.fields:[];
+  const msg=document.getElementById('betamsg'); msg.innerHTML='<span class="muted">Verifying you’re human…</span>';
+  const cfgR=await api('/api/beta/config'); const fields=cfgR.ok?cfgR.json.fields:[];
+  const chR=await api('/api/beta/challenge'); if(!chR.ok){ msg.innerHTML='<span class="badge">could not start — reload</span>'; return; }
+  const {challenge,difficulty,honeypot}=chR.json;
+  const pow=solvePow(challenge.split('.')[0], difficulty);      // proof of work (CPU cost per signup)
   const body={}; for(const f of fields){ const el=document.getElementById('bf_'+f.key); if(el) body[f.key]=el.value; }
+  const hp=document.getElementById('bf__hp'); body[honeypot||'_hp']=hp?hp.value:'';
+  body.challenge=challenge; body.pow=pow;
   const res=await api('/api/beta/signup',{method:'POST',body});
-  const msg=document.getElementById('betamsg');
   if(res.ok){ document.getElementById('betaform').style.display='none'; msg.innerHTML='<b>Thanks — your request is in review.</b><br><span class="muted">We’ll be in touch.</span>'; }
   else { msg.innerHTML=`<span class="badge">${esc(res.json.error||'error')}</span>`; }
 }
