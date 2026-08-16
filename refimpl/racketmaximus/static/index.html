@@ -618,6 +618,7 @@ async function bxUpload(input,target){ const f=input.files&&input.files[0]; if(!
   rd.readAsDataURL(f); }
 function bxGet(path){ return path.split('.').reduce((o,k)=>o&&o[k],S.exp); }
 function bxClear(target){ bxSet(target,''); bxRerender(); }
+function bxSetLanding(v){ S.exp.landing = (v==='bundle') ? {type:'bundle',plugin:(S.exp.landing&&S.exp.landing.plugin)||'beta-onboarding'} : {type:'shell'}; bxRerender(); }
 function bxAsset(label,target,accept){ const has=bxGet(target);
   return `<label>${label}</label><input type="file" accept="${accept}" onchange="bxUpload(this,'${target}')">${has?`<div class="muted" style="margin:-6px 0 12px;font-size:12px">uploaded ✓ &nbsp;<a href="#" onclick="bxClear('${target}');return false">remove</a></div>`:''}`; }
 function bxAddDetail(){ (S.exp.details=S.exp.details||[]).push({heading:'',body:''}); bxRerender(); }
@@ -639,7 +640,16 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
   const detailRow=(d,i)=>`<div class="fieldrow"><label>Heading</label><input ${iv(d.heading)} oninput="S.exp.details[${i}].heading=this.value;bxPreview()">
       <label>Body</label><textarea rows="2" oninput="S.exp.details[${i}].body=this.value;bxPreview()">${esc(d.body||'')}</textarea>
       <button class="btn sm bad" onclick="bxDelDetail(${i})">Remove</button></div>`;
+  const isBundle=e.landing&&e.landing.type==='bundle';
   return `<div class="card">
+    <div class="sec">Rendering</div>
+    <label>Landing renderer</label>
+    <select onchange="bxSetLanding(this.value)">
+      <option value="shell" ${isBundle?'':'selected'}>Built-in — Tier A (themeable, no code)</option>
+      <option value="bundle" ${isBundle?'selected':''}>Custom plugin bundle — Tier B</option>
+    </select>
+    ${isBundle?`<label>Plugin name</label><input ${iv(e.landing.plugin)} oninput="bxSet('landing.plugin',this.value)">
+      <div class="muted" style="font-size:12px;margin:-6px 0 12px">Served from <span class="mono">/beta/bundle/${esc(e.landing.plugin||'')}/</span>. The controls below still configure the SDK payload (fields, judge); the bundle owns the look.</div>`:''}
     <div class="sec">Branding</div>
     <label>Logo text</label><input ${iv(e.logo)} oninput="bxSet('logo',this.value)">
     ${bxAsset('Logo image (overrides text)','logoImage','image/*')}
@@ -703,7 +713,12 @@ async function render(){
   await refreshMe();
   if(!S.me){
     const cfg=await api('/api/config'); S.home = cfg.ok ? cfg.json.home : 'login';
-    if(S.home==='beta' && !S.forceLogin){ app.innerHTML=await betaLandingView(); return; }   // root shows the beta funnel
+    const forceLogin = S.forceLogin || new URLSearchParams(location.search).get('login')==='1';
+    if(S.home==='beta' && !forceLogin){
+      const l = cfg.ok && cfg.json.landing;
+      if(l && l.type==='bundle' && l.url){ location.replace(l.url); return; }   // Tier-B: hand-coded plugin bundle
+      app.innerHTML=await betaLandingView(); return;                            // Tier-A: built-in themeable shell
+    }
     app.innerHTML=authView(); return;
   }
   const fr=await api('/api/features'); S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
@@ -718,7 +733,7 @@ window.doSubmitJob=doSubmitJob; window.doCancelJob=doCancelJob; window.doSeedSam
 window.doBetaSignup=doBetaSignup; window.teamSignIn=teamSignIn; window.betaLandingView=betaLandingView; window.doDecide=doDecide;
 window.betaSub=betaSub; window.bxSet=bxSet; window.bxSaveDraft=bxSaveDraft; window.bxPublish=bxPublish;
 window.bxAddField=bxAddField; window.bxDelField=bxDelField; window.bxSetField=bxSetField;
-window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.S=S;
+window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.bxSetLanding=bxSetLanding; window.S=S;
 render();
 </script>
 </body>

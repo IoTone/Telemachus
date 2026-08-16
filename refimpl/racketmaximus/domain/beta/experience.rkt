@@ -20,7 +20,8 @@
 
 (provide experience-file-config base-experience experience-active-key
          resolve-experience resolve-experience-public experience-judge-system
-         experience-draft experience-save! experience-publish! experience-list)
+         experience-draft experience-save! experience-publish! experience-list
+         experience-landing)
 
 ;; ---- ENV launch defaults ----------------------------------------------------
 ;; A deployer can point TELEMACHUS_ONBOARDING_FILE at a JSON file describing the
@@ -81,6 +82,17 @@
 ;; the judge prompt for a team's active experience (falls back to the built-in)
 (define (experience-judge-system conn team)
   (hash-ref (resolve-experience conn team) 'judge-system (judge-system-prompt)))
+
+;; how the root landing is rendered: the built-in Tier-A shell, or a Tier-B plugin
+;; bundle. Config carries {landing:{type:"bundle", plugin:"<name>"}}; we add the URL.
+(define (experience-landing conn team)
+  (define l (hash-ref (resolve-experience conn team) 'landing #f))
+  (cond
+    [(and (hash? l) (equal? (hash-ref l 'type #f) "bundle")
+          (string? (hash-ref l 'plugin #f)) (not (string=? (hash-ref l 'plugin "") "")))
+     (define plugin (hash-ref l 'plugin))
+     (hasheq 'type "bundle" 'plugin plugin 'url (string-append "/beta/bundle/" plugin "/"))]
+    [else (hasheq 'type "shell")]))
 
 ;; ---- admin (settings:manage) ------------------------------------------------
 ;; the editor's starting point: an existing draft, else the current effective config

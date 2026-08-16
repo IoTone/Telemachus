@@ -143,6 +143,32 @@
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
 
+;; ---- static file serving (SDK + Tier-B plugin bundles) ----------------------
+(define STATIC-MIME
+  (hash "html" #"text/html; charset=utf-8" "js" #"application/javascript" "css" #"text/css"
+        "json" #"application/json" "svg" #"image/svg+xml" "png" #"image/png"
+        "jpg" #"image/jpeg" "jpeg" #"image/jpeg" "gif" #"image/gif" "webp" #"image/webp"
+        "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"))
+(define (ext-of s) (let ([m (regexp-match #rx"\\.([A-Za-z0-9]+)$" s)]) (if m (string-downcase (cadr m)) "")))
+(define (mime-of s) (hash-ref STATIC-MIME (ext-of s) #"application/octet-stream"))
+(define (serve-file path)
+  (if (and (file-exists? path))
+      (response/output #:mime-type (mime-of (path->string path))
+                       #:headers (list (make-header #"Cache-Control" #"public, max-age=300")
+                                       (make-header #"X-Content-Type-Options" #"nosniff"))
+                       (lambda (out) (write-bytes (file->bytes path) out)))
+      (err "not found" 404)))
+;; a path segment safe to interpolate into a filesystem path (no traversal, no slashes)
+(define (safe-seg? s) (and (string? s) (regexp-match? #rx"^[A-Za-z0-9._-]+$" s) (not (string=? s "..")) #t))
+;; /beta/bundle/<plugin>/<path...> → plugins/<plugin>/landing/<path> (index.html default)
+(define (bundle-file-path segs)
+  (and (>= (length segs) 3) (equal? (list-ref segs 0) "beta") (equal? (list-ref segs 1) "bundle")
+       (let ([plugin (list-ref segs 2)]
+             [rest (filter (lambda (s) (not (string=? s ""))) (list-tail segs 3))])   ; tolerate trailing slash
+         (and (safe-seg? plugin) (andmap safe-seg? rest)
+              (apply build-path (build-path impl-root "plugins" plugin "landing")
+                     (if (null? rest) '("index.html") rest))))))
+
 ;; Server-Sent Events: proc receives an `emit` that pushes one JSON event.
 (define (sse-response proc)
   (response/output
@@ -260,8 +286,10 @@
   (if xff (string-trim (car (string-split xff ","))) "global"))
 
 (define (ep-config req)          ; public: tells the SPA what the root route should render
+  (define team (default-team db-conn))
   (json-response (hasheq 'home (home-mode) 'service "telemachus"
-                         'onboarding (hash-ref (resolve-experience db-conn (default-team db-conn)) 'name "beta"))))
+                         'onboarding (hash-ref (resolve-experience db-conn team) 'name "beta")
+                         'landing (experience-landing db-conn team))))
 
 (define (ep-beta-config req)     ; public: the effective experience (published DB row, else ENV/provider base)
   (json-response (resolve-experience-public db-conn (default-team db-conn))))
@@ -936,6 +964,8 @@
     [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html")) (equal? segs '("activate"))))
      (html-response UI-HTML)]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
+    [(and (GET? m)  (equal? segs '("beta-sdk.js")))         (serve-file (build-path impl-root "static" "beta-sdk.js"))]
+    [(and (GET? m)  (bundle-file-path segs))                (serve-file (bundle-file-path segs))]
     [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-get req)]

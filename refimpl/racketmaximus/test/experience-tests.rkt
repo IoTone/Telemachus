@@ -65,6 +65,25 @@
   (check-equal? (hash-ref (car (hash-ref pub 'details)) 'heading) "Why")
   (check-false (hash-has-key? pub 'judge-system)))       ; still stripped
 
+(test-case "landing resolver: shell default, bundle when configured (Tier B)"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  ;; default: built-in shell
+  (check-equal? (hash-ref (experience-landing c tid) 'type) "shell")
+  ;; publish an experience that selects a plugin bundle
+  (check-true (experience-save! c alice (hasheq 'name "beta" 'title "x" 'fields '()
+                                                'landing (hasheq 'type "bundle" 'plugin "beta-onboarding"))))
+  (check-true (experience-publish! c alice))
+  (define l (experience-landing c tid))
+  (check-equal? (hash-ref l 'type) "bundle")
+  (check-equal? (hash-ref l 'plugin) "beta-onboarding")
+  (check-equal? (hash-ref l 'url) "/beta/bundle/beta-onboarding/")
+  ;; a bundle entry missing a plugin name falls back to the shell
+  (check-true (experience-save! c alice (hasheq 'name "beta" 'fields '() 'landing (hasheq 'type "bundle"))))
+  (check-true (experience-publish! c alice))
+  (check-equal? (hash-ref (experience-landing c tid) 'type) "shell"))
+
 (test-case "publish with no draft is a no-op"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))

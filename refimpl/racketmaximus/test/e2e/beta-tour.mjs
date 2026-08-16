@@ -115,6 +115,12 @@ try {
   await page.waitForTimeout(300);
   await shot(page, '08-onboarding-editor', 'Skin it: the console onboarding editor',
     'The owner brands the funnel from the Beta tab — logo, hero copy, theme tokens, detail blocks, form fields, and the judge prompt — with a live preview that is exactly what applicants see. Save draft, then Publish. No code, no redeploy; the same Tier-A shell, reskinned entirely from config.');
+
+  // ── 6. TIER B: a fully hand-coded plugin bundle, wired only through the SDK ──
+  await page.goto(BASE + '/beta/bundle/beta-onboarding/', { waitUntil: 'networkidle', timeout: 20000 });
+  await page.waitForSelector('#use_case', { timeout: 10000 });
+  await shot(page, '09-tier-b-bundle', 'Tier B: a fully custom plugin bundle',
+    'For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero Telemachus chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it.');
 } finally {
   fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(MAN, null, 2));
   await browser.close();
