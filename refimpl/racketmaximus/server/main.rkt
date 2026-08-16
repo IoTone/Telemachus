@@ -879,6 +879,18 @@
     (lambda (conn p payload)
       (define-values (reply tokens) (run-chat (format "~a" (hash-ref payload 'prompt ""))))
       (hasheq 'reply reply 'tokens_used tokens)))
+  (register-job-kind! "agent"       ; full tool-loop agent flow, run to completion
+    (lambda (conn p payload)
+      (unless (agent-configured?) (error "agent requires a configured model"))
+      (define prompt (format "~a" (hash-ref payload 'prompt "")))
+      (define evs (box '()))
+      (run-agent-flow conn p prompt (lambda (ev) (set-box! evs (cons ev (unbox evs)))))
+      (define events (reverse (unbox evs)))
+      (define done (for/or ([e (in-list events)]) (and (equal? (hash-ref e 'type #f) "done") e)))
+      (define tools (for/list ([e (in-list events)] #:when (equal? (hash-ref e 'type #f) "tool")) (hash-ref e 'name "")))
+      (define reply (if done (hash-ref done 'reply "") ""))
+      (hasheq 'reply reply 'rounds (if done (hash-ref done 'rounds 0) 0)
+              'tools tools 'tokens_used (estimate-tokens prompt reply))))
   (void (start-scheduler! db-conn #:workers 2
                           #:cap-for (lambda (team)
                                       (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))
