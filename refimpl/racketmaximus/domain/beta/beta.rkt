@@ -93,6 +93,18 @@
   (hasheq 'name "beta"
           'title "Join the Telemachus beta"
           'subtitle "We're onboarding a limited group of design-partner teams. Tell us about yours."
+          ;; Tier-A skinnable landing defaults (all admin-editable; see slice 41)
+          'logo "Telemachus"
+          'eyebrow "Private beta"
+          'cta "Request access"
+          'footer "© Telemachus — self-hosted, privacy-first team AI."
+          'theme (hasheq 'brand "#5a6cff" 'brandInk "#ffffff" 'bg "#0f1117" 'surface "#171a23"
+                         'ink "#e6e8ee" 'muted "#9aa3b2" 'radius "12px" 'mode "dark"
+                         'fontBody "System" 'heroBg "linear-gradient(135deg,#1c2140,#0f1117)")
+          'details (list (hasheq 'heading "What you get"
+                                 'body "Early access to the platform and a direct line to the team building it.")
+                         (hasheq 'heading "Who it's for"
+                                 'body "Teams that need self-hosted, private AI — no data leaves your infrastructure."))
           'fields (list (hasheq 'key "name"     'label "Full name"  'type "text"  'required #t)
                         (hasheq 'key "email"    'label "Work email" 'type "email" 'required #t)
                         (hasheq 'key "job_title" 'label "Your role"  'type "text"  'required #t)

@@ -48,6 +48,23 @@
   ;; the experience list shows both rows
   (check-equal? (length (experience-list c alice)) 2))
 
+(test-case "branding (theme + details) survives publish into the public slice"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (check-true (experience-save! c alice
+    (hasheq 'name "beta" 'title "Skinned" 'logo "ACME"
+            'theme (hasheq 'brand "#ffb200" 'bg "#0a0a0b" 'mode "dark")
+            'details (list (hasheq 'heading "Why" 'body "because"))
+            'fields (list (hasheq 'key "email" 'label "Email" 'type "email" 'required #t))
+            'judge-system "vet acme")))
+  (check-true (experience-publish! c alice))
+  (define pub (resolve-experience-public c tid))
+  (check-equal? (hash-ref pub 'logo) "ACME")
+  (check-equal? (hash-ref (hash-ref pub 'theme) 'brand) "#ffb200")
+  (check-equal? (hash-ref (car (hash-ref pub 'details)) 'heading) "Why")
+  (check-false (hash-has-key? pub 'judge-system)))       ; still stripped
+
 (test-case "publish with no draft is a no-op"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))

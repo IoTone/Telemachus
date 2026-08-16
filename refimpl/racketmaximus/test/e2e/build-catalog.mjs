@@ -27,6 +27,7 @@ const SECTION = {
   '01-funnel-landing': ['The funnel', '/'], '02-first-run': ['Setup', '/'],
   '03-review-empty': ['Setup', '/#beta'], '04-funnel-filled': ['The funnel', '/'],
   '05-funnel-submitted': ['The funnel', '/'], '06-owner-review': ['Review', '/#beta'], '07-qualified': ['Review', '/#beta'],
+  '08-onboarding-editor': ['Skin it', '/#beta'],
 };
 const secOf = (id) => (SECTION[id.replace('.png', '')] || [id, '/'])[0];
 const routeOf = (id) => (SECTION[id.replace('.png', '')] || [id, '/'])[1];
