@@ -1,0 +1,1 @@
+{ "executors": [ { "name": "gpu-sim", "url": "http://127.0.0.1:11500/v1/chat/completions", "model": "gpu-sim-70b" } ] }

@@ -49,18 +49,24 @@
 <script>
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null };
 const L = {
-  en:{tagline:'Team AI platform — reference implementation',chat:'Chat',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
+  en:{tagline:'Team AI platform — reference implementation',chat:'Chat',agent:'Agent',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
       createop:'Create operator',send:'Send',prompt:'Prompt',reply:'Reply',newnote:'New note',title:'Title',body:'Body',
       visibility:'Visibility',create:'Create',share:'Share',del:'Delete',members:'Members',addmember:'Add member',role:'Role',
       setquota:'Set limit',dimension:'Dimension',limit:'Limit',logout:'Sign out',operator:'operator',model:'Model',
-      chpw:'Change your password',curpw:'Current password',newpw:'New password',updpw:'Update password'},
-  ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
+      chpw:'Change your password',curpw:'Current password',newpw:'New password',updpw:'Update password',
+      tools:'Tools',tool:'Tool',enable:'Enable',disable:'Disable',
+      translate:'Translate',sourcetext:'Text to translate',target:'Target language',translation:'Translation',
+      glossary:'Glossary',term:'Term',addterm:'Add term',recent:'Recent',useglossary:'Use glossary'},
+  ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
       visibility:'公開範囲',create:'作成',share:'共有',del:'削除',members:'メンバー',addmember:'メンバー追加',role:'ロール',
       setquota:'上限を設定',dimension:'項目',limit:'上限',logout:'サインアウト',operator:'オペレーター',model:'モデル',
-      chpw:'パスワードの変更',curpw:'現在のパスワード',newpw:'新しいパスワード',updpw:'パスワードを更新'}
+      chpw:'パスワードの変更',curpw:'現在のパスワード',newpw:'新しいパスワード',updpw:'パスワードを更新',
+      tools:'ツール',tool:'ツール',enable:'有効化',disable:'無効化',
+      translate:'翻訳',sourcetext:'翻訳するテキスト',target:'翻訳先の言語',translation:'翻訳',
+      glossary:'用語集',term:'用語',addterm:'用語を追加',recent:'最近',useglossary:'用語集を使用'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -116,7 +122,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
+  const tabs=['chat','agent','translate','notes','team','usage']; if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
       <span class="sp"></span>
@@ -124,10 +130,12 @@ function appShell(){
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
       <button class="btn ghost sm" onclick="logout()">${t('logout')}</button>
     </header>
-    <nav class="tabs">${tabs.map(x=>`<button class="${S.tab===x?'active':''}" onclick="go('${x}')">${t(x)}</button>`).join('')}</nav>
+    <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" onclick="go('${x}')">${t(x)}</button>`).join('')}</nav>
     <main class="wrap" id="main"></main>`;
 }
-function go(tab){ S.tab=tab; renderTab(); }
+function go(tab){ S.tab=tab;
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  renderTab(); }
 
 // ---------- tabs ----------
 async function chatView(){
@@ -158,6 +166,31 @@ async function doChat(){
     } }
 }
 
+async function agentView(){
+  return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
+    <div class="card"><label>${t('prompt')}</label>
+      <textarea id="ap" rows="3">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
+      <button class="btn" onclick="doAgent()">${t('send')}</button></div><div id="agentlog"></div>`;
+}
+async function doAgent(){
+  const prompt=val('ap'); const log=document.getElementById('agentlog'); const id='g'+Date.now();
+  log.insertAdjacentHTML('afterbegin', `<div class="bubble" id="${id}"><div class="q">${esc(prompt)}</div><div class="steps"></div><div class="rep" style="margin-top:6px"></div></div>`);
+  const steps=document.querySelector('#'+id+' .steps'), rep=document.querySelector('#'+id+' .rep');
+  const headers={'X-Telemachus-Locale':S.lang,'Content-Type':'application/json'}; if(S.token) headers['Authorization']='Bearer '+S.token;
+  let res; try{ res=await fetch('/api/agent',{method:'POST',headers,body:JSON.stringify({prompt})}); }
+  catch(e){ toast('network error'); document.getElementById(id).remove(); return; }
+  if(!res.ok){ let j={}; try{j=await res.json()}catch(e){} toast((j.error||'error')+(j.dimension?` (${j.dimension})`:'')); document.getElementById(id).remove(); return; }
+  const reader=res.body.getReader(), dec=new TextDecoder(); let buf='';
+  for(;;){ const {value,done}=await reader.read(); if(done) break; buf+=dec.decode(value,{stream:true});
+    let i; while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
+      if(!line.startsWith('data:')) continue; let ev={}; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+      if(ev.type==='assistant' && ev.text) steps.insertAdjacentHTML('beforeend', `<div class="muted" style="margin:3px 0">💭 ${esc(ev.text)}</div>`);
+      if(ev.type==='tool') steps.insertAdjacentHTML('beforeend', `<div style="margin:3px 0">🔧 <b>${esc(ev.name)}</b> <span class="mono muted">${esc(JSON.stringify(ev.args))}</span></div>`);
+      if(ev.type==='tool_result') steps.insertAdjacentHTML('beforeend', `<div class="mono" style="margin:0 0 6px 20px;color:var(--ok);white-space:pre-wrap">${esc(ev.result)}</div>`);
+      if(ev.type==='done') rep.innerHTML = `<div>${esc(ev.reply)}</div><div class="muted" style="font-size:12px;margin-top:4px">${ev.rounds} rounds</div>`;
+      if(ev.error) toast(ev.error);
+    } }
+}
 async function notesView(){
   const r=await api('/api/notes'); const notes=r.ok?r.json.notes:[];
   const mem=await api('/api/members'); const members=mem.ok?mem.json.members:[];
@@ -210,37 +243,103 @@ async function doChangePw(){
 async function doAddMember(){ const r=await api('/api/members',{method:'POST',body:{username:val('mu'),password:val('mp'),role:val('mr')}});
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error'); }
 
+function canManage(){ if(!S.me) return false; if(S.me.is_operator) return true;
+  return (S.me.permissions||[]).some(p=>p==='*:*'||p==='settings:manage'||p==='*:manage'); }
 async function usageView(){
   const r=await api('/api/usage'); const q=r.ok?r.json.quota:[];
+  const tr=await api('/api/tools'); const tools=tr.ok?tr.json.tools:[];
+  const pr=await api('/api/plugins'); const plugins=pr.ok?pr.json.plugins:[];
+  const op=await api('/api/oop'); const oops=op.ok?op.json.plugins:[];
+  const manage=canManage();
   const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td></tr>`).join('');
   const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${t('setquota')}</h3>
       <div class="row"><div><label>${t('dimension')}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
       <div><label>${t('limit')}</label><input id="ql" value="50"></div></div>
       <button class="btn" onclick="doSetQuota()">${t('setquota')}</button></div>` : '';
+  const toolRows=tools.map(x=>`<tr><td class="mono">${esc(x.name)}</td><td class="mono muted">${esc(x.permission)}</td>
+      <td>${x.source==='built-in'?'<span class="badge">built-in</span>':`<span class="badge ok">🔌 ${esc(x.source)}</span>`}</td>
+      <td>${x.enabled?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td>
+      <td>${manage?`<button class="btn sm ghost" onclick="doToggleTool('${esc(x.name)}',${!x.enabled})">${x.enabled?t('disable'):t('enable')}</button>`:''}</td></tr>`).join('');
+  const plugLine = plugins.length ? `<p class="muted" style="margin:0 0 8px">🔌 ${plugins.map(p=>esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
+  const oopLine = oops.length ? `<p class="muted" style="margin:0 0 8px">🛡️ sandboxed: ${oops.map(p=>esc(p.name)+' <span class="mono">['+(p.scopes||[]).map(esc).join(', ')+']</span>').join(' · ')}</p>` : '';
   return `<h2>${t('usage')}</h2>
-    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}`;
+    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
+    <div class="card" style="margin-top:14px"><h3>${t('tools')} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
+      ${plugLine}${oopLine}
+      <table><thead><tr><th>${t('tool')}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>`;
 }
 async function doSetQuota(){ const r=await api('/api/quota',{method:'POST',body:{dimension:val('qd'),limit:parseInt(val('ql'),10),window:'day'}});
   if(r.ok){ toast('updated',true); renderTab(); } else toast(r.json.error||'error'); }
+async function doToggleTool(name,enabled){ const r=await api('/api/tools/'+name,{method:'POST',body:{enabled}});
+  if(r.ok){ toast(name+(enabled?' enabled':' disabled'),true); renderTab(); } else toast(r.json.error||'error'); }
 
 async function adminView(){
   const r=await api('/api/admin/status');
   const body = r.ok ? `<div class="row"><div class="card"><label>users</label><h2>${r.json.users}</h2></div><div class="card"><label>teams</label><h2>${r.json.teams}</h2></div></div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
-  return `<h2>${t('admin')}</h2>${body}`;
+  const xr=await api('/api/executors');
+  let compute='';
+  if(xr.ok){
+    const loc=xr.json.local, rem=xr.json.executors||[];
+    const rows=[`<tr><td><span class="badge ok">local</span></td><td class="mono">${esc(loc.model)}</td><td class="mono muted">${loc.configured?'configured':'fallback'}</td></tr>`]
+      .concat(rem.map(e=>`<tr><td><span class="badge">🛰️ ${esc(e.name)}</span></td><td class="mono">${esc(e.model)}</td><td class="mono muted">${esc(e.url)}</td></tr>`)).join('');
+    compute=`<div class="card" style="margin-top:14px"><h3>Compute <span class="muted" style="font-size:13px">— federated executors</span></h3>
+      <table><thead><tr><th>executor</th><th>model</th><th>endpoint</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  return `<h2>${t('admin')}</h2>${body}${compute}`;
 }
 
 // ---------- render ----------
 async function refreshMe(){ if(!S.token){S.me=null;return;} const r=await api('/api/whoami');
   if(r.ok) S.me=r.json; else { S.token=null; localStorage.removeItem('tmx_token'); S.me=null; } }
+async function translateView(){
+  const langs=[['ja','日本語'],['nl','Nederlands'],['es-419','Español (LatAm)'],['en','English'],['fr','Français'],['de','Deutsch']];
+  const gl=await api('/api/glossary'); const terms=gl.ok?gl.json.glossary:[];
+  const hr=await api('/api/translate'); const hist=hr.ok?hr.json.translations:[];
+  const manage=canManage();
+  const opts=langs.map(([c,n])=>`<option value="${c}">${esc(n)}</option>`).join('');
+  const termRows=terms.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc(x.term)}</td><td>${esc(x.translation)}</td></tr>`).join('');
+  const histRows=hist.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc((x.source_text||'').slice(0,40))}</td><td>${esc((x.result||'').slice(0,70))}</td></tr>`).join('');
+  return `<h2>${t('translate')}</h2>
+   <div class="card">
+     <label>${t('sourcetext')}</label><textarea id="trsrc" rows="4"></textarea>
+     <div class="row" style="margin-top:8px;align-items:end">
+       <div><label>${t('target')}</label><select id="trtgt">${opts}</select></div>
+       <div><label><input type="checkbox" id="trgl" checked> ${t('useglossary')}</label></div>
+       <div><button class="btn" onclick="doTranslate()">${t('translate')}</button></div>
+     </div>
+     <div id="trout" class="mono" style="margin-top:12px;white-space:pre-wrap"></div>
+   </div>
+   <div class="card" style="margin-top:14px"><h3>${t('glossary')} <span class="muted" style="font-size:13px">— team terminology</span></h3>
+     ${manage?`<div class="row" style="align-items:end;margin-bottom:8px">
+        <div><label>${t('target')}</label><select id="gltgt">${opts}</select></div>
+        <div><label>${t('term')}</label><input id="glterm"></div>
+        <div><label>${t('translation')}</label><input id="gltr"></div>
+        <div><button class="btn sm" onclick="doAddTerm()">${t('addterm')}</button></div></div>`:''}
+     <table><thead><tr><th>lang</th><th>${t('term')}</th><th>${t('translation')}</th></tr></thead><tbody>${termRows}</tbody></table>
+   </div>
+   <div class="card" style="margin-top:14px"><h3>${t('recent')}</h3>
+     <table><thead><tr><th>lang</th><th>${t('sourcetext')}</th><th>${t('translation')}</th></tr></thead><tbody>${histRows}</tbody></table></div>`;
+}
+async function doTranslate(){
+  const text=val('trsrc'), target_lang=val('trtgt'), use_glossary=document.getElementById('trgl').checked;
+  if(!text){toast('empty');return;}
+  const out=document.getElementById('trout'); out.textContent='…';
+  const r=await api('/api/translate',{method:'POST',body:{text,target_lang,use_glossary}});
+  if(r.ok){ out.textContent=r.json.result; } else { out.textContent=''; toast(r.json.error||'error'); }
+}
+async function doAddTerm(){
+  const r=await api('/api/glossary',{method:'POST',body:{target_lang:val('gltgt'),term:val('glterm'),translation:val('gltr')}});
+  if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error');
+}
 async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
-  el.innerHTML = await ({chat:chatView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,notes:notesView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
 async function render(){ await refreshMe();
   const app=document.getElementById('app');
   if(!S.me){ app.innerHTML=authView(); return; }
   app.innerHTML=appShell(); renderTab(); }
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
-window.doChat=doChat; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
-window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw;
+window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
+window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;
 render();
 </script>
 </body>

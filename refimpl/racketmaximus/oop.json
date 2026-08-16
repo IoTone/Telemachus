@@ -1,0 +1,5 @@
+{
+  "plugins": [
+    { "name": "notes-helper", "command": "racket", "args": ["oop-plugins/notes-helper/main.rkt"] }
+  ]
+}

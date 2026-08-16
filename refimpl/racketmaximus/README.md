@@ -93,9 +93,92 @@ refimpl/racketmaximus/
   `crypto` package is installed (self-tested at load), else hardened **PBKDF2**
   (100k iters). `GET /health` reports `{tls, kdf}`.
 
-49 unit tests pass + a 23-assertion server integration test
+- **Agent mode (slice 11)** — `POST /api/agent` (SSE): the model uses **tools**
+  to operate the platform (`create_note`, `list_notes`, `get_usage` to start),
+  each **RBAC-checked at dispatch** and quota-metered, run through the pure
+  `run-agent` spine. Streams the thinking, each tool call + result, and the final
+  answer. This is the seed of the plugin SDK: a new tool = a `define-tool` schema
+  + a permission + a handler. `domain/agent/{tools,run}.rkt`.
+
+- **Plugin tool SDK + activation (slice 12)** — a **tool registry**
+  (`domain/agent/registry.rkt`): a tool is `register-tool!(name, schema,
+  permission, handler)` — the whole contract for extending the platform, first-
+  or third-party. Tools are **activatable per team** (`tool_settings`, default on);
+  the agent only offers enabled tools and dispatch re-checks. Manage via
+  `GET /api/tools` + `POST /api/tools/:name` (settings:manage) and a Tools card in
+  the Usage tab. Built-ins: `create_note`, `update_note`, `list_notes`, `get_usage`.
+
+- **Third-party plugins (slice 13)** — tools can live **out-of-tree** and load at
+  startup from a `plugins/` directory (`domain/agent/plugins.rkt`, `TELEMACHUS_PLUGINS`
+  to override). A plugin is a folder with `plugin.json` + a Racket module that
+  `(provide tools)` — `(list (list name schema permission handler) …)`. They register
+  through the same registry, so they get RBAC + per-team activation, tagged with the
+  plugin id as `source`. `GET /api/plugins` lists them; the Tools card shows a 🔌
+  source badge. Ships an `example-tools` plugin (`word_count`).
+
+- **MCP support (slices 14–15)** — an **MCP client** (`domain/mcp/`, JSON-RPC 2.0)
+  over **two transports**: **stdio** (subprocess) and **Streamable HTTP** (POST +
+  json/SSE response, `Mcp-Session-Id`). Connects to external Model Context Protocol
+  servers at startup, lists their tools, and registers each as `mcp__<server>__<tool>`
+  — so **any MCP server's tools become agent tools**, with the same RBAC + activation.
+  Configure in `mcp.json` — a `command`+`args` entry (stdio) or a `url` entry (HTTP);
+  `TELEMACHUS_MCP` overrides; `GET /api/mcp`. Ships Racket mock MCP servers
+  (`test/mock-mcp{,-http}.rkt`); the stdio one is wired by default so the agent can
+  call `mcp__mock__add`.
+
+- **Sandboxed out-of-process plugins (slice 16)** — untrusted plugins run as
+  **subprocesses with no database handle** (`domain/oop/host.rkt`). A plugin declares
+  its tools and the capability **scopes** it needs; to touch the platform it asks the
+  host over the pipe, and the host runs the request through a small **capability API**
+  that is **double-gated**: the plugin must have declared the scope **and** the calling
+  user must hold the matching RBAC permission (`notes.create` → `notes:write`, etc.).
+  Configure in `oop.json` (`TELEMACHUS_OOP` overrides); `GET /api/oop` lists plugins +
+  their declared scopes (visible consent); the Tools card shows a 🛡️ badge. Ships a
+  `notes-helper` plugin that saves an idea **only** via the mediated `notes.create`
+  capability — it never sees the DB.
+
+- **Translation app (slice 17)** — the first user-facing **app** on the platform
+  (`domain/apps/translate.rkt`): translate text via the model with a team **glossary**
+  for consistent terminology and a team-scoped history; every call is metered through
+  the normal AI quotas + concurrency governor. `POST /api/translate`, `GET /api/translate`
+  (history), `POST/GET /api/glossary`. The model call is injected, so the app is fully
+  unit-tested without a live model. **Dogfood:** `POST /api/translate/catalog` translates
+  a whole locale catalog (keys unchanged, `{placeholders}`/ICU preserved) — the engine
+  behind producing our ja/nl/es-419 files. UI: a **Translate** tab (source → target,
+  glossary editor, recent).
+
+- **Executor federation (slice 18)** — the pluggable compute seam (`domain/exec/federation.rkt`).
+  The reference impl runs on one local node, but you can register additional **named
+  executors** — extra OpenAI-compatible backends (a second GPU box, a remote inference
+  node, an HPC gateway) — in `executors.json` (`TELEMACHUS_EXECUTORS`). `run-chat` routes
+  to a named backend via `#:executor`; `POST /api/ai/chat {…, "executor":"gpu-node"}` picks
+  one (operator-gated — routing to specific compute is an `instance:manage` decision).
+  `GET /api/executors` lists local + federated; the Admin tab shows a Compute table.
+  Standing up real remote/HPC compute plugs in behind this seam without touching call sites.
+
+64 unit tests pass + a 42-assertion server integration test
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
+
+- **End-to-end feature tour (`test/e2e`)** — a headless Playwright walk through the
+  whole UI against a real running server: bootstrap → chat → agent tool use →
+  translation → notes → teams/RBAC → quotas & tool registry → federated compute →
+  Japanese localization. It asserts each state and assembles a self-contained
+  **screenshot catalog** (`bash test/e2e/run.sh` → `catalog/catalog.html`).
+
+### Writing a plugin
+
+```
+plugins/my-plugin/plugin.json    {"id":"my-plugin","name":"…","version":"0.1.0","entry":"main.rkt"}
+plugins/my-plugin/main.rkt       #lang racket/base
+                                 (provide tools)   ; (list (list name schema-jsexpr permission handler) …)
+                                 ; handler : (conn principal args) -> string
+```
+
+Drop the folder in `plugins/`, restart — the tool appears in `/api/tools`, is
+RBAC-checked, activatable per team, and usable by the agent. (In-process plugins
+run with platform trust; installing one is the consent. Sandboxed out-of-process
+plugins are future hardening.)
 
 Point at a real model (chat answers come from it, metered + governed):
 

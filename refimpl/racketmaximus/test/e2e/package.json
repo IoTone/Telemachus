@@ -1,0 +1,13 @@
+{
+  "name": "telemachus-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Playwright end-to-end feature tour + screenshot catalog for Telemachus",
+  "scripts": {
+    "tour": "bash run.sh",
+    "catalog": "node build-catalog.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1"
+  }
+}

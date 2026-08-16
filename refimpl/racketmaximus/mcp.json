@@ -1,0 +1,5 @@
+{
+  "servers": [
+    { "name": "mock", "command": "racket", "args": ["test/mock-mcp.rkt"] }
+  ]
+}

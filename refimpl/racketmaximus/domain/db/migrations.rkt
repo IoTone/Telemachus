@@ -154,4 +154,49 @@
         "  at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
        "CREATE INDEX idx_usage_subj ON usage_ledger(subject_type, subject_id, dimension)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota))
+;; 0004 — per-team tool activation (plugin SDK: every tool can be turned off).
+;; Absence of a row = enabled (default on).
+(define m-0004-tools
+  (migration "0004-tools"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE tool_settings ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  tool_name TEXT NOT NULL,"
+        "  enabled INTEGER NOT NULL DEFAULT 1,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(team_id, tool_name))")))))
+
+;; 0005 — translation app (slice 17): a team-scoped translation history and a
+;; team glossary (consistent terminology per target language). Same through-line:
+;; team_id + owner_user_id. The app meters AI spend through the usual quotas.
+(define m-0005-translate
+  (migration "0005-translate"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE translations ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  owner_user_id TEXT NOT NULL,"
+        "  source_lang TEXT NOT NULL DEFAULT 'auto',"
+        "  target_lang TEXT NOT NULL,"
+        "  source_text TEXT NOT NULL,"
+        "  result_text TEXT NOT NULL DEFAULT '',"
+        "  model TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_translations_team ON translations(team_id)"
+       (string-append
+        "CREATE TABLE glossary ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  target_lang TEXT NOT NULL,"
+        "  term TEXT NOT NULL,"
+        "  translation TEXT NOT NULL,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(team_id, target_lang, term))")
+       "CREATE INDEX idx_glossary_team ON glossary(team_id, target_lang)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate))
