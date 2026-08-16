@@ -93,8 +93,16 @@ try {
   // ── 5. SKIN IT: the owner brands the funnel from the console (Tier-A editor) ──
   await page.evaluate(() => { window.S.tab = 'beta'; window.betaSub('editor'); });   // single render, no race
   await page.waitForSelector('#bx-preview .bx', { timeout: 10000 });
-  // reskin via the working copy + live preview (same path the on-screen controls drive)
-  await page.evaluate(() => {
+  // reskin via the working copy + live preview (same path the on-screen controls drive),
+  // including a real logo-image upload through the slice-42 asset store (asset://, local origin)
+  await page.evaluate(async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="150" height="32"><rect width="32" height="32" rx="3" fill="#ffb200"/><text x="16" y="23" font-family="Georgia,serif" font-size="18" font-weight="700" text-anchor="middle" fill="#161009">W</text><text x="42" y="22" font-family="Georgia,serif" font-size="16" font-weight="700" fill="#f7f3e8">WARHAVEN</text></svg>';
+    try {
+      const r = await fetch('/api/beta/assets', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + window.S.token },
+        body: JSON.stringify({ mime: 'image/svg+xml', filename: 'logo.svg', data: 'data:image/svg+xml;base64,' + btoa(svg) }) });
+      const j = await r.json(); if (j.ref) window.S.exp.logoImage = j.ref;
+    } catch (e) {}
     Object.assign(window.S.exp, { logo: 'WARHAVEN', eyebrow: 'Closed technical beta',
       title: 'Enlist for the closed beta', subtitle: 'Limited slots. Sign up for a chance at early access to the front.',
       cta: 'Request access', footer: '© Warhaven Studios — all rights reserved.' });
@@ -103,6 +111,7 @@ try {
         muted: '#b6a98a', radius: '3px', fontBody: 'Serif', heroBg: 'linear-gradient(135deg,#3a2a06,#0a0a0b)' });
     window.bxPreview();
   });
+  await page.waitForTimeout(300);
   await page.waitForTimeout(300);
   await shot(page, '08-onboarding-editor', 'Skin it: the console onboarding editor',
     'The owner brands the funnel from the Beta tab — logo, hero copy, theme tokens, detail blocks, form fields, and the judge prompt — with a live preview that is exactly what applicants see. Save draft, then Publish. No code, no redeploy; the same Tier-A shell, reskinned entirely from config.');

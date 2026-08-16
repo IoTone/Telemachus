@@ -46,6 +46,7 @@
   .bx-wrap{max-width:940px;margin:0 auto;padding:0 20px}
   .bx-head{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
   .bx-logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--bx-ink)}
+  .bx-logo-img{height:32px;width:auto;max-width:220px;display:block}
   .bx-nav{display:flex;gap:18px;font-size:14px}
   .bx-nav a{color:var(--bx-muted,#9aa3b2);text-decoration:none}
   .bx-hero{background:var(--bx-hero,transparent);border-radius:calc(var(--bx-radius,10px) + 4px);padding:42px 30px;margin:6px 0 26px}
@@ -420,14 +421,20 @@ async function renderTab(){ const el=document.getElementById('main'); el.innerHT
 function fontStack(n){ const m={System:'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif',
   Serif:'Georgia,Cambria,"Times New Roman",serif',Mono:'ui-monospace,SFMono-Regular,Menlo,monospace',
   Rounded:'ui-rounded,"SF Pro Rounded",system-ui,sans-serif'}; return m[n]||m.System; }
+// asset://<id> → our own origin (never an external URL); data:/http passthrough
+function assetUrl(ref){ if(!ref) return ''; return ref.indexOf('asset://')===0 ? '/api/beta/asset/'+ref.slice(8) : ref; }
 // theme tokens → inline CSS custom properties; values sanitized to prevent style breakout
 function bxSan(v){ return String(v==null?'':v).replace(/[;"{}<>]/g,''); }
 function bxVars(cfg){ const th=(cfg&&cfg.theme)||{}; const mode=th.mode||'dark';
   const line=th.line||(mode==='light'?'rgba(0,0,0,.12)':'rgba(255,255,255,.10)');
+  const hero=th.heroImage
+    ? `linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),url(${assetUrl(th.heroImage)}) center/cover`
+    : (th.heroBg||'transparent');
+  const font=th.fontFile ? 'bxcustom,'+fontStack(th.fontBody) : fontStack(th.fontBody);
   const pairs=[['--bx-bg',th.bg||'#0f1117'],['--bx-surface',th.surface||'#171a23'],['--bx-ink',th.ink||'#e6e8ee'],
     ['--bx-muted',th.muted||'#9aa3b2'],['--bx-brand',th.brand||'#5a6cff'],['--bx-brandink',th.brandInk||'#ffffff'],
-    ['--bx-radius',th.radius||'12px'],['--bx-hero',th.heroBg||'transparent'],['--bx-line',line],
-    ['--bx-font',fontStack(th.fontBody)],['--bx-fontd',fontStack(th.fontDisplay||th.fontBody)]];
+    ['--bx-radius',th.radius||'12px'],['--bx-hero',hero],['--bx-line',line],
+    ['--bx-font',font],['--bx-fontd',th.fontFile?'bxcustom,'+fontStack(th.fontDisplay||th.fontBody):fontStack(th.fontDisplay||th.fontBody)]];
   return pairs.map(([k,v])=>k+':'+bxSan(v)).join(';'); }
 // one field input (scoped ids bf_<key>); shared by the live page and the editor preview
 function bxField(f){ const id='bf_'+f.key; const req=f.required?' *':'';
@@ -444,8 +451,13 @@ function renderLandingShell(cfg, mode){
       <input id="bf__hp" name="_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
       <button class="bx-cta" ${live?'onclick="doBetaSignup()"':'disabled'}>${esc(cfg.cta||'Request access')}</button></div>
       <div id="betamsg" style="margin-top:10px"></div>`;
-  return `<div class="bx" style="${bxVars(cfg)}"><div class="bx-wrap">
-    <header class="bx-head"><div class="bx-logo">${esc(cfg.logo||'Telemachus')}</div><nav class="bx-nav">${nav}</nav></header>
+  const th=cfg.theme||{};
+  const fontFace = th.fontFile ? `<style>@font-face{font-family:bxcustom;font-display:swap;src:url(${esc(assetUrl(th.fontFile))})}</style>` : '';
+  const logo = cfg.logoImage
+    ? `<img class="bx-logo-img" src="${esc(assetUrl(cfg.logoImage))}" alt="${esc(cfg.logo||'')}">`
+    : `<div class="bx-logo">${esc(cfg.logo||'Telemachus')}</div>`;
+  return `${fontFace}<div class="bx" style="${bxVars(cfg)}"><div class="bx-wrap">
+    <header class="bx-head">${logo}<nav class="bx-nav">${nav}</nav></header>
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>
     <div class="bx-main">
       <div class="bx-card">${form}</div>
@@ -598,6 +610,16 @@ async function betaEditorView(){
 function bxSet(path,val){ const ks=path.split('.'); let o=S.exp; for(let i=0;i<ks.length-1;i++){ o[ks[i]]=o[ks[i]]||{}; o=o[ks[i]]; } o[ks[ks.length-1]]=val; bxPreview(); }
 function bxPreview(){ const el=document.getElementById('bx-preview'); if(el) el.innerHTML=renderLandingShell(S.exp,'preview'); }
 function bxRerender(){ const c=document.getElementById('bx-controls'); if(c) c.innerHTML=betaControls(); bxPreview(); }
+// upload a brand asset (logo/hero/font) → asset://<id> stored at `target` path
+async function bxUpload(input,target){ const f=input.files&&input.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=async()=>{ const r=await api('/api/beta/assets',{method:'POST',body:{mime:f.type||'application/octet-stream',filename:f.name,data:rd.result}});
+    if(r.ok){ bxSet(target,r.json.ref); toast('uploaded',true); bxRerender(); } else toast((r.json&&r.json.error)||'upload failed'); };
+  rd.readAsDataURL(f); }
+function bxGet(path){ return path.split('.').reduce((o,k)=>o&&o[k],S.exp); }
+function bxClear(target){ bxSet(target,''); bxRerender(); }
+function bxAsset(label,target,accept){ const has=bxGet(target);
+  return `<label>${label}</label><input type="file" accept="${accept}" onchange="bxUpload(this,'${target}')">${has?`<div class="muted" style="margin:-6px 0 12px;font-size:12px">uploaded ✓ &nbsp;<a href="#" onclick="bxClear('${target}');return false">remove</a></div>`:''}`; }
 function bxAddDetail(){ (S.exp.details=S.exp.details||[]).push({heading:'',body:''}); bxRerender(); }
 function bxDelDetail(i){ S.exp.details.splice(i,1); bxRerender(); }
 function bxAddField(){ const fs=(S.exp.fields=S.exp.fields||[]); fs.push({key:'field'+(fs.length+1),label:'New field',type:'text',required:false}); bxRerender(); }
@@ -620,6 +642,7 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
   return `<div class="card">
     <div class="sec">Branding</div>
     <label>Logo text</label><input ${iv(e.logo)} oninput="bxSet('logo',this.value)">
+    ${bxAsset('Logo image (overrides text)','logoImage','image/*')}
     <label>Eyebrow</label><input ${iv(e.eyebrow)} oninput="bxSet('eyebrow',this.value)">
     <label>Hero title</label><input ${iv(e.title)} oninput="bxSet('title',this.value)">
     <label>Hero subtitle</label><textarea rows="2" oninput="bxSet('subtitle',this.value)">${esc(e.subtitle||'')}</textarea>
@@ -635,6 +658,8 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
       <div><label>Font</label><select onchange="bxSet('theme.fontBody',this.value)">${['System','Serif','Rounded','Mono'].map(f=>`<option ${th.fontBody===f?'selected':''}>${f}</option>`).join('')}</select></div>
       <div><label>Corner radius</label><input ${iv(th.radius||'12px')} oninput="bxSet('theme.radius',this.value)"></div></div>
     <label>Hero background (color or CSS gradient)</label><input ${iv(th.heroBg)} oninput="bxSet('theme.heroBg',this.value)">
+    ${bxAsset('Hero image (overlaid, overrides background)','theme.heroImage','image/*')}
+    ${bxAsset('Custom font (woff2/woff/ttf/otf)','theme.fontFile','.woff2,.woff,.ttf,.otf,font/*')}
 
     <div class="sec">Detail blocks</div>
     ${(e.details||[]).map(detailRow).join('')}
@@ -693,7 +718,7 @@ window.doSubmitJob=doSubmitJob; window.doCancelJob=doCancelJob; window.doSeedSam
 window.doBetaSignup=doBetaSignup; window.teamSignIn=teamSignIn; window.betaLandingView=betaLandingView; window.doDecide=doDecide;
 window.betaSub=betaSub; window.bxSet=bxSet; window.bxSaveDraft=bxSaveDraft; window.bxPublish=bxPublish;
 window.bxAddField=bxAddField; window.bxDelField=bxDelField; window.bxSetField=bxSetField;
-window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.S=S;
+window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.S=S;
 render();
 </script>
 </body>

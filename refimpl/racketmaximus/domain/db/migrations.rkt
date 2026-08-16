@@ -360,4 +360,24 @@
         "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
        "CREATE INDEX idx_onboarding_exp ON onboarding_experiences(team_id, key, status)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences))
+;; 0015 — onboarding assets (slice 42): locally-hosted brand assets (logo, hero
+;; image, custom font) for the skinnable landing. Stored base64 in a dialect-neutral
+;; TEXT column and served from our own origin — no external URLs (privacy: a public
+;; beta page must not leak a prospect's IP to a CDN). See docs/design/beta-onboarding-experience.md §4.
+(define m-0015-onboarding-assets
+  (migration "0015-onboarding-assets"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE onboarding_assets ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  kind TEXT NOT NULL DEFAULT 'image',"      ; image | font
+        "  mime TEXT NOT NULL,"
+        "  filename TEXT NOT NULL DEFAULT '',"
+        "  size INTEGER NOT NULL DEFAULT 0,"          ; decoded byte length
+        "  data TEXT NOT NULL,"                       ; base64-encoded bytes
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_onboarding_assets_team ON onboarding_assets(team_id)"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets))

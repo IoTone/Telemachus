@@ -38,6 +38,7 @@
          "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
+         "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
          "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
          "../domain/saas/onboarding.rkt"          ; hosted provisioning: provision!/activate!/suspend!/resume!
@@ -282,6 +283,31 @@
   (cond [(not p) (unauthorized)]
         [(experience-publish! db-conn p) (json-response (hasheq 'ok #t 'status "published"))]
         [else (err "nothing to publish — save a draft first" 400)]))
+
+;; ---- brand assets: upload (admin) + serve (public) --------------------------
+(define (ep-beta-asset-upload req)
+  (with-auth req (lambda (p)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])   ; bad type/size → 400; forbidden → global 403
+      (define b (read-json-body req))
+      (define id (asset-store! db-conn p #:mime (fmt b 'mime) #:filename (fmt b 'filename) #:data-base64 (fmt b 'data)))
+      (json-response (hasheq 'ok #t 'id id 'ref (string-append "asset://" id)
+                             'url (string-append "/api/beta/asset/" id)) #:code 201)))))
+
+(define (ep-beta-assets req)
+  (with-auth req (lambda (p) (json-response (hasheq 'assets (asset-list db-conn p))))))
+
+(define (ep-beta-asset-delete req id)
+  (with-auth req (lambda (p) (asset-delete! db-conn p id) (json-response (hasheq 'ok #t)))))
+
+(define (ep-beta-asset req id)          ; PUBLIC — the landing is public; ids are unguessable UUIDs
+  (define-values (mime bytes) (asset-get db-conn id))
+  (cond
+    [(not mime) (err "not found" 404)]
+    [else (response/output
+           #:mime-type (string->bytes/utf-8 mime)
+           #:headers (list (make-header #"Cache-Control" #"public, max-age=3600")
+                           (make-header #"X-Content-Type-Options" #"nosniff"))
+           (lambda (out) (write-bytes bytes out)))]))
 
 (define (ep-beta-challenge req)  ; public: issue a signed, single-use PoW challenge
   (define c (issue-challenge #:secret beta-secret #:now (current-seconds) #:difficulty pow-bits))
@@ -899,6 +925,9 @@
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
+(define (beta-asset-id segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
+       (equal? (list-ref segs 2) "asset") (list-ref segs 3)))
 
 (define (route req)
   (define m (request-method req))
@@ -912,6 +941,10 @@
     [(and (GET? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-get req)]
     [(and (PUT? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-put req)]
     [(and (POST? m) (equal? segs '("api" "beta" "experience" "publish"))) (ep-beta-experience-publish req)]
+    [(and (POST? m)   (equal? segs '("api" "beta" "assets")))  (ep-beta-asset-upload req)]
+    [(and (GET? m)    (equal? segs '("api" "beta" "assets")))  (ep-beta-assets req)]
+    [(and (GET? m)    (beta-asset-id segs))                    (ep-beta-asset req (beta-asset-id segs))]
+    [(and (DELETE? m) (beta-asset-id segs))                    (ep-beta-asset-delete req (beta-asset-id segs))]
     [(and (GET? m)  (equal? segs '("api" "beta" "challenge"))) (ep-beta-challenge req)]
     [(and (POST? m) (equal? segs '("api" "beta" "signup"))) (ep-beta-signup req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "prospects"))) (ep-beta-prospects req)]
