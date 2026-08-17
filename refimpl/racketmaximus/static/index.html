@@ -64,8 +64,15 @@
   .bx-details h3{font-size:1.05rem;margin:0 0 4px;color:var(--bx-ink)}
   .bx-details p{color:var(--bx-muted);margin:0 0 16px;font-size:.95rem;white-space:pre-line}
   .bx-foot{border-top:1px solid var(--bx-line,rgba(255,255,255,.08));padding:18px 0;color:var(--bx-muted);font-size:13px;text-align:center;white-space:pre-line}
-  .bx-signin a{color:var(--bx-brand)}
+  /* NOT --bx-brand: brand exists to make the CTA pop and an author may legitimately set it to
+     anything (incl. a value that vanishes against bg). ink/muted are the tokens an author must
+     keep legible on bg, so the way in can't be themed into invisibility. Underlined so it reads
+     as a link without depending on hue at all. */
+  .bx-signin a{color:var(--bx-muted);text-decoration:underline;text-underline-offset:2px}
+  .bx-signin a:hover,.bx-signin a:focus-visible{color:var(--bx-ink)}
   /* editor */
+  .bx-warn{border:1px solid #b45309;background:rgba(180,83,9,.12);border-radius:8px;padding:9px 11px;margin:10px 0 0;font-size:13px}
+  .bx-warn b{font-weight:700}
   .bx-ed{display:grid;grid-template-columns:360px 1fr;gap:20px;align-items:start}
   @media(max-width:820px){.bx-ed{grid-template-columns:1fr}}
   .bx-ed .fieldrow{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--panel2)}
@@ -462,7 +469,7 @@ function renderLandingShell(cfg, mode){
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>
     <div class="bx-main">
       <div class="bx-card">${form}</div>
-      <div class="bx-details">${details||''}${live?`<p class="bx-signin" style="margin-top:8px"><a href="#" onclick="teamSignIn();return false">${t('teamsignin')} →</a></p>`:''}</div>
+      <div class="bx-details">${details||''}${live&&cfg.showSignIn!==false?`<p class="bx-signin" style="margin-top:8px"><a href="#" onclick="teamSignIn();return false">${t('teamsignin')} →</a></p>`:''}</div>
     </div>
     <footer class="bx-foot">${esc(cfg.footer||'')}</footer>
   </div></div>`;
@@ -646,6 +653,34 @@ function bxAddField(){ const fs=(S.exp.fields=S.exp.fields||[]); fs.push({key:'f
 function bxDelField(i){ S.exp.fields.splice(i,1); bxRerender(); }
 function bxSetField(i,prop,val){ if(prop==='options') val=val.split(',').map(s=>s.trim()).filter(Boolean); S.exp.fields[i][prop]=val;
   if(prop==='type'||prop==='required') bxRerender(); else bxPreview(); }
+// ---- contrast checking for the theme editor (WCAG 2.x relative luminance) ----
+// A brandable public page is easy to theme into illegibility — this catches it while editing
+// rather than after publishing. Only flags hex; gradients/CSS functions are skipped, not guessed.
+function bxLum(hex){ const h=String(hex||'').trim().replace(/^#/,'');
+  const full = h.length===3 ? h.split('').map(c=>c+c).join('') : h;
+  if(!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  const ch=[0,2,4].map(i=>parseInt(full.slice(i,i+2),16)/255)
+    .map(c=> c<=0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4));
+  return 0.2126*ch[0]+0.7152*ch[1]+0.0722*ch[2]; }
+function bxContrast(a,b){ const la=bxLum(a), lb=bxLum(b); if(la===null||lb===null) return null;
+  return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05); }
+function bxContrastWarnings(th){
+  th=th||{};
+  const bg=th.bg||'#0f1117', ink=th.ink||'#e6e8ee', muted=th.muted||'#9aa3b2';
+  const brand=th.brand||'#5a6cff', brandInk=th.brandInk||'#ffffff';
+  // pair, threshold, why it matters — 4.5:1 is the WCAG AA floor for body text, 3:1 for large/UI
+  const checks=[
+    ['Text on background',      ink,      bg,       4.5],
+    ['Muted text on background',muted,    bg,       4.5],
+    ['Button label on brand',   brandInk, brand,    4.5],
+    ['Brand on background',     brand,    bg,       3.0],
+  ];
+  const bad=checks.map(([label,fg,bgc,min])=>{ const r=bxContrast(fg,bgc);
+      return r===null||r>=min ? null : {label,ratio:r,min}; }).filter(Boolean);
+  if(!bad.length) return '';
+  return `<div class="bx-warn"><b>Low contrast</b>${bad.map(w=>
+    `<div>${esc(w.label)} — <b>${w.ratio.toFixed(2)}:1</b> (needs ${w.min}:1)</div>`).join('')}
+    <div class="muted" style="margin-top:6px">Readers may not be able to see this text.</div></div>`; }
 function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
   const iv=(p,v)=>`value="${esc(v==null?'':v)}"`;
   const color=(label,path,def)=>`<div><label>${label}</label><input type="color" ${iv(path.split('.').reduce((o,k)=>o&&o[k],e)||def)} oninput="bxSet('${path}',this.value)"></div>`;
@@ -682,12 +717,18 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
     <label>Hero subtitle</label><textarea rows="2" oninput="bxSet('subtitle',this.value)">${esc(e.subtitle||'')}</textarea>
     <label>Button label</label><input ${iv(e.cta)} oninput="bxSet('cta',this.value)">
     <label>Footer</label><textarea rows="2" oninput="bxSet('footer',this.value)">${esc(e.footer||'')}</textarea>
+    <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0">
+      <input type="checkbox" style="width:auto;margin:0" ${e.showSignIn!==false?'checked':''}
+             onchange="bxSet('showSignIn',this.checked)">
+      Show the team sign-in link on the landing page</label>
+    <div class="muted" style="font-size:12px;margin:-6px 0 12px">Your team can always sign in at <code>/login</code>, whether or not this is shown.</div>
 
     <div class="sec">Theme</div>
     <div class="bx-swatches">
       ${color('Brand','theme.brand','#5a6cff')}${color('Brand text','theme.brandInk','#ffffff')}
       ${color('Background','theme.bg','#0f1117')}${color('Surface','theme.surface','#171a23')}
       ${color('Text','theme.ink','#e6e8ee')}${color('Muted','theme.muted','#9aa3b2')}</div>
+    ${bxContrastWarnings(th)}
     <div class="row" style="margin-top:10px">
       <div><label>Font</label><select onchange="bxSet('theme.fontBody',this.value)">${['System','Serif','Rounded','Mono'].map(f=>`<option ${th.fontBody===f?'selected':''}>${f}</option>`).join('')}</select></div>
       <div><label>Corner radius</label><input ${iv(th.radius||'12px')} oninput="bxSet('theme.radius',this.value)"></div></div>
@@ -737,7 +778,8 @@ async function render(){
   await refreshMe();
   if(!S.me){
     const cfg=await api('/api/config'); S.home = cfg.ok ? cfg.json.home : 'login';
-    const forceLogin = S.forceLogin || new URLSearchParams(location.search).get('login')==='1';
+    const atLoginPath = location.pathname.replace(/\/$/,'').endsWith('/login');
+    const forceLogin = S.forceLogin || atLoginPath || new URLSearchParams(location.search).get('login')==='1';
     if(S.home==='beta' && !forceLogin){
       const l = cfg.ok && cfg.json.landing;
       if(l && l.type==='bundle' && l.url){ location.replace(l.url); return; }   // Tier-B: hand-coded plugin bundle

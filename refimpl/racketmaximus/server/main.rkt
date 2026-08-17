@@ -993,7 +993,10 @@
   (define m (request-method req))
   (define segs (request-path req))
   (cond
-    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html")) (equal? segs '("activate"))))
+    ;; "login" is a real route so the console has a URL that does not depend on the beta
+    ;; landing rendering at all — a themeable page must not be the only way in.
+    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html"))
+                        (equal? segs '("activate")) (equal? segs '("login"))))
      (html-response UI-HTML)]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (GET? m)  (equal? segs '("beta-sdk.js")))         (serve-file (build-path impl-root "static" "beta-sdk.js"))]
