@@ -35,7 +35,7 @@ so the tour still passes (the model steps just show the fallback).
 
 | file | role |
 |------|------|
-| `run.sh` | boot a temp-DB server on `127.0.0.1:8080`, run the tour, build the catalog, tear down |
+| `run.sh` | boot a temp-DB server on `127.0.0.1:8835`, run the tour, build the catalog, tear down |
 | `boot-server.sh` | the throwaway-server launch (temp DB, binds 127.0.0.1) |
 | `run-tour.mjs` | the tour: drives the UI, asserts, writes `catalog/*.png` + `manifest.json` |
 | `build-catalog.mjs` | assembles the screenshots + captions into `catalog/catalog.html` |

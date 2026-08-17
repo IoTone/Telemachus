@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")/.."
 export PLTCOLLECTS="$(pwd)/pkgs:"
 export TELEMACHUS_DATA_DIR="$(mktemp -d)"
-PORT="${PORT:-8080}"
+export PORT="${PORT:-8835}"   # must be exported — the server reads it from the environment
 DB="$TELEMACHUS_DATA_DIR/telemachus.db"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$DB}"   # respect a pre-set URL (e.g. postgres)
 echo "smoke DATABASE_URL=$DATABASE_URL"
@@ -89,7 +89,33 @@ AST=''; for i in $(seq 1 40); do AST=$(curl -s $B/api/jobs/$AJID -H "Authorizati
 assert "agent job needs model" "$AST" 'configured model'
 assert "seed samples"    "$(curl -s -X POST $B/api/admin/seed -H "Authorization: Bearer $OP")" '"jobs":3'
 assert "seed member 403" "$(curl -s -X POST $B/api/admin/seed -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
+# beta onboarding: public signup (no account) → async LLM judge → owner review → decide
+assert "home config"     "$(curl -s $B/api/config)" '"home":"login"'
+assert "beta form cfg"    "$(curl -s $B/api/beta/config)" '"name":"beta"'
+# anti-abuse: a direct POST with no challenge is rejected (nothing written to the DB)
+assert "beta no-challenge" "$(curl -s -X POST $B/api/beta/signup -d '{"name":"Bot","email":"bot@x.com"}')" 'invalid or expired challenge'
+# honeypot filled → silent fake-success, still not stored
+assert "beta honeypot"     "$(curl -s -X POST $B/api/beta/signup -d '{"name":"Bot","email":"bot@x.com","_hp":"gotcha"}')" '"ok":true'
+# happy path: fetch a challenge, solve the proof-of-work, wait past min fill-time, submit
+CH=$(curl -s $B/api/beta/challenge); TOK=$(printf '%s' "$CH" | grep -oP '"challenge":"\K[^"]+')
+DIFF=$(printf '%s' "$CH" | grep -oP '"difficulty":\K[0-9]+'); NONCE=${TOK%%.*}
+POW=$(PLTCOLLECTS="$(pwd)/pkgs:" racket -e "(require (file \"$(pwd)/domain/beta/antispam.rkt\"))(display (pow-of \"$NONCE\" $DIFF))" 2>/dev/null)
+sleep 2   # min fill-time gate
+SIGN=$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dana\",\"email\":\"dana@acme.com\",\"company\":\"Acme\",\"use_case\":\"team chat\",\"challenge\":\"$TOK\",\"pow\":$POW}")
+assert "beta signup"      "$SIGN" '"ok":true'
+PID=$(printf '%s' "$SIGN" | grep -oP '"id":"\K[^"]+')
+# velocity: a second signup for the same email is capped (default 1 / 24h)
+CH2=$(curl -s $B/api/beta/challenge); TOK2=$(printf '%s' "$CH2" | grep -oP '"challenge":"\K[^"]+'); NONCE2=${TOK2%%.*}
+POW2=$(PLTCOLLECTS="$(pwd)/pkgs:" racket -e "(require (file \"$(pwd)/domain/beta/antispam.rkt\"))(display (pow-of \"$NONCE2\" $DIFF))" 2>/dev/null)
+sleep 2
+assert "beta email cap"   "$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dupe\",\"email\":\"dana@acme.com\",\"challenge\":\"$TOK2\",\"pow\":$POW2}")" 'we already have your request'
+assert "beta list owner"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP")" 'dana@acme.com'
+assert "beta member 403"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
+PS=''; for i in $(seq 1 40); do PS=$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP"); printf '%s' "$PS" | grep -q '"status":"reviewed"' && break; sleep 0.25; done
+assert "beta judged"      "$PS" '"status":"reviewed"'
+assert "beta decide"      "$(curl -s -X POST $B/api/beta/prospects/$PID/decide -H "Authorization: Bearer $OP" -d '{"decision":"qualified"}')" '"status":"qualified"'
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
+assert "onboarding plug" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'beta-onboarding'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
 assert "mcp connected"   "$(curl -s $B/api/mcp -H "Authorization: Bearer $OP")" '"name":"mock"'
 assert "mcp tool"        "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'mcp__mock__add'

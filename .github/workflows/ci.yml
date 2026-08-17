@@ -32,12 +32,10 @@ jobs:
       - name: Unit tests
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
-          raco test \
-            test/engine-tests.rkt test/authz-tests.rkt test/i18n-tests.rkt \
-            test/auth-tests.rkt test/notes-tests.rkt test/quota-tests.rkt \
-            test/executor-tests.rkt test/agent-tests.rkt test/plugin-tests.rkt \
-            test/mcp-tests.rkt test/oop-tests.rkt test/translate-tests.rkt \
-            test/federation-tests.rkt
+          # Glob, not an explicit list — a named list silently skips every new suite.
+          # Must be `*-tests.rkt`: a bare `test/*.rkt` would pull in test/mock-*.rkt,
+          # which are mock *servers* that block forever.
+          raco test test/*-tests.rkt
       - name: Server smoke
         run: bash test/server-smoke.sh
       - name: Localization gate
@@ -64,11 +62,14 @@ jobs:
         run: |
           npm install
           npx playwright install --with-deps chromium chromium-headless-shell
-      - name: Run tour (deterministic fallback model) + build catalog
+      - name: Run tours (deterministic fallback model) + build catalogs
         run: bash test/e2e/run.sh
-      - name: Upload feature catalog
+      - name: Upload catalogs
         uses: actions/upload-artifact@v4
         with:
           name: feature-catalog
-          path: refimpl/racketmaximus/test/e2e/catalog/catalog.html
+          # Both tours: the feature walkthrough and the beta onboarding funnel.
+          path: |
+            refimpl/racketmaximus/test/e2e/catalog/catalog.html
+            refimpl/racketmaximus/test/e2e/catalog/beta/catalog.html
           if-no-files-found: error

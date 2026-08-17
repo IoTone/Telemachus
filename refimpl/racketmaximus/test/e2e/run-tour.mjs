@@ -1,12 +1,12 @@
 // Telemachus e2e feature tour — a plain Playwright script (no test runner) so it
 // launches fast, logs each step live, and exits non-zero on any hard assertion
-// failure. It drives the REAL UI against a running server (default 127.0.0.1:8080),
+// failure. It drives the REAL UI against a running server (default 127.0.0.1:8835),
 // captures a captioned screenshot per feature, and writes catalog/manifest.json.
 //
 // Structural checks are hard (fail the run); model-output waits are soft (a slow
 // or absent model won't fail the tour, the screenshot is still captured).
 //
-//   BASE_URL=http://127.0.0.1:8080 node run-tour.mjs
+//   BASE_URL=http://127.0.0.1:8835 node run-tour.mjs
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'catalog');
 fs.mkdirSync(OUT, { recursive: true });
-const BASE = process.env.BASE_URL || 'http://127.0.0.1:8080';
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:8835';
 const MANIFEST = [];
 const ERRORS = [];
 

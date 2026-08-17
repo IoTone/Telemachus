@@ -20,10 +20,11 @@
 
 (provide json-response request-path serve)
 
-(define (json-response jsx #:code [code 200])
+(define (json-response jsx #:code [code 200] #:headers [headers '()])
   (response/output
    #:code code
    #:mime-type #"application/json; charset=utf-8"
+   #:headers headers
    (lambda (out) (write-json jsx out))))
 
 ;; Path segments of the request as a list of strings, e.g. '("api" "health").

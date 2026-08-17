@@ -194,25 +194,41 @@ refimpl/racketmaximus/
   (`POST /api/admin/seed`, Admin console) populates a team with sample notes,
   documents, and queued chat/translate/agent jobs — instant functionality to test.
 
-- **PostgreSQL backend (slice 32)** — the persistence layer runs on **SQLite _or_
-  Postgres** from one `DATABASE_URL` (`sqlite:///…` or `postgres://user:pass@host/db`).
-  `db-kit/portable` re-exports `db` but rewrites `?`→`$n` placeholders for Postgres
-  (SQLite unchanged), so app code is backend-neutral; the few dialect-specific spots
-  (quota time-windows, upsert-ignore, activation expiry) are branched or computed in
-  Racket. `db-kit`'s connector dispatches the backend. Run on Postgres with
-  `DATABASE_URL=postgres://…`. (Live E2E needs a running server; the SQLite suite
-  stays green and the rewriter/parser are unit-tested.)
+- **PostgreSQL backend (slice 32)** — the same code runs on **SQLite _or_
+  PostgreSQL**, chosen by one `DATABASE_URL` (`sqlite:///…` or
+  `postgres://user:pass@host:port/db`); `db-kit`'s connector dispatches the backend
+  and no app code branches on it. `db-kit/portable` re-exports `db` but rewrites
+  `?`→`$n` placeholders for Postgres (SQLite unchanged), so callers stay
+  backend-neutral. Schema + queries are dialect-neutral (one reserved-word fix:
+  `"window"`); the few dialect-specific spots — quota time-windows, upsert-ignore,
+  activation expiry — are `db-dialect`-aware or computed in Racket, and timestamps
+  use portable epoch/`CURRENT_TIMESTAMP`. **The full server smoke passes against
+  Postgres 18** as well as SQLite.
 
-- **Postgres backend (slice 32)** — the same code runs on **SQLite or PostgreSQL**,
-  chosen by `DATABASE_URL` (`sqlite:///…` or `postgresql://user@host:port/db`); db-kit
-  dispatches the connection and no app code branches on backend. Schema + queries are
-  dialect-neutral (one reserved-word fix: `"window"`); the quota window clause is
-  `db-dialect`-aware and timestamps use portable epoch/`CURRENT_TIMESTAMP`.
-  **The full 66-assertion smoke passes against Postgres 18** as well as SQLite.
+- **Beta onboarding (slices 33–34)** — a pre-sales **qualification funnel** that
+  captures prospects **without creating accounts**, vets each with an **LLM judge**
+  ({valid, score, revenue estimate, reasoning} via a metered `beta_judge` job), and
+  lets the team owner **review / qualify / reject**. Root-route **home routing**
+  (`TELEMACHUS_HOME=beta`) makes the default experience the beta landing page instead
+  of login. The onboarding experience (copy, form fields, judge prompt) is a
+  **pluggable provider** — customized via the SDK's new plugin `init!` hook (see the
+  `beta-onboarding` example plugin).
 
-80 unit tests pass + a 66-assertion server integration test (green on SQLite **and** Postgres)
+- **Anti-abuse for the public signup (slice 35)** — self-hosted, dependency-free
+  defense-in-depth so the open beta endpoint can't flood the DB or burn LLM tokens
+  (`domain/beta/antispam.rkt`), all checked *before* any write/spend: per-IP + global
+  **rate limit**, a **signed single-use challenge** (`GET /api/beta/challenge`, kills
+  direct-POST spam + replay), a **honeypot** field, a **min fill-time** gate, a
+  **proof-of-work** (hashcash over an FNV hash matched byte-for-byte in Racket + JS,
+  so it works over plain HTTP with no SubtleCrypto or third-party CAPTCHA), and cheap
+  **email/disposable-domain** heuristics, and **per-email / per-domain velocity caps**
+  (portable epoch window). Blocked-reason **counters** surface to owners, and each
+  signup's **anti-abuse signals** (domain velocity, free-email) are fed into the LLM
+  judge so borderline prospects are scored more skeptically.
+
+106 unit tests pass + a 77-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
-**Open http://localhost:8080** after `racket server/main.rkt`.
+**Open http://localhost:8835** after `racket server/main.rkt`.
 
 - **End-to-end feature tour (`test/e2e`)** — a headless Playwright walk through the
   whole UI against a real running server: bootstrap → chat → agent tool use →
@@ -244,7 +260,7 @@ TELEMACHUS_MODEL=qwen2.5:7b  racket server/main.rkt
 Serve over HTTPS (self-signed cert auto-generated in `data/`); install argon2id:
 
 ```bash
-TELEMACHUS_TLS=1 racket server/main.rkt          # https://localhost:8080
+TELEMACHUS_TLS=1 racket server/main.rkt          # https://localhost:8835
 raco pkg install crypto                          # → password hashing auto-upgrades to argon2id
 ```
 
@@ -269,27 +285,59 @@ exec racket refimpl/racketmaximus/cli/telemachus-localize.rkt \
      check refimpl/racketmaximus/surface --locales refimpl/racketmaximus/locales
 ```
 
+### Run it locally (the demo)
+
+Everything the server needs, in one block — this is the exact setup the local
+demo runs under:
+
+```bash
+cd refimpl/racketmaximus
+export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"   # Racket 9.2 CS (apt's 8.2 is too old)
+export PLTCOLLECTS="$PWD/pkgs:"                               # resolves cli-kit/db-kit/web-kit
+export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"       # or postgres://user:pass@host:port/db
+export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI-compat (ollama)
+export TELEMACHUS_MODEL=qwen2.5:7b
+export TELEMACHUS_HOME=beta                                   # or `login` to land on the console
+
+raco make server/main.rkt      # first run only — startup is slow without it
+racket server/main.rkt
+```
+
+| | |
+|---|---|
+| http://localhost:8835 | the beta funnel (with `TELEMACHUS_HOME=beta`) |
+| http://localhost:8835/?login=1 | the console, from either home mode |
+| `PORT` / `TELEMACHUS_PORT` | override the port; invalid values fail loudly |
+
+**First run creates nothing until you bootstrap** — `POST /api/bootstrap` seeds the
+operator and returns a token (see the demo flow below). On an already-bootstrapped
+DB it is disabled; point `DATABASE_URL` at a fresh file to start over.
+
+> Without `TELEMACHUS_MODEL_URL` the server answers from a **simulated
+> uppercase-echo fallback** rather than failing — so chat, the agent, and the beta
+> judge will look broken-but-quiet if you forget it.
+
 ### HTTP server
 
 ```bash
-racket server/main.rkt              # http://127.0.0.1:8080  (sqlite in ./data)
-bash   test/server-smoke.sh         # integration test (temp DB, 11 assertions)
+racket server/main.rkt              # http://127.0.0.1:8835  (sqlite in ./data)
+bash   test/server-smoke.sh         # integration test (temp DB, 77 assertions)
 ```
 
 Demo flow — RBAC + localization end to end:
 
 ```bash
-curl -s localhost:8080/health
+curl -s localhost:8835/health
 # first run: create the operator + a token
-OP=$(curl -s -X POST localhost:8080/api/bootstrap -d '{"username":"alice"}' \
+OP=$(curl -s -X POST localhost:8835/api/bootstrap -d '{"username":"alice"}' \
      | grep -oP '"token":\s*"\K[^"]+')
-curl -s localhost:8080/api/whoami       -H "Authorization: Bearer $OP"   # is_operator:true
-curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $OP"   # ok
+curl -s localhost:8835/api/whoami       -H "Authorization: Bearer $OP"   # is_operator:true
+curl -s localhost:8835/api/admin/status -H "Authorization: Bearer $OP"   # ok
 # add a member, then watch RBAC deny admin — localized by Accept-Language
-BOB=$(curl -s -X POST localhost:8080/api/members -H "Authorization: Bearer $OP" \
+BOB=$(curl -s -X POST localhost:8835/api/members -H "Authorization: Bearer $OP" \
       -d '{"username":"bob","role":"member"}' | grep -oP '"token":\s*"\K[^"]+')
-curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB"                        # Forbidden: instance:manage
-curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja' # 禁止されています: instance:manage
+curl -s localhost:8835/api/admin/status -H "Authorization: Bearer $BOB"                        # Forbidden: instance:manage
+curl -s localhost:8835/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja' # 禁止されています: instance:manage
 ```
 
 ## Dev setup
@@ -297,8 +345,9 @@ curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB" -H 'Acce
 Requires Racket 9.x CS (`racket --version`).
 
 ```bash
-# from refimpl/racketmaximus/ — link local packages so `(require cli-kit)` resolves
-raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
+# from refimpl/racketmaximus/ — resolve the local pkgs/ so `(require cli-kit)` works.
+# Required for every racket/raco command; export it once per shell.
+export PLTCOLLECTS="$(pwd)/pkgs:"
 
 # compile everything
 raco make config.rkt pkgs/*/main.rkt pkgs/db-kit/migrate.rkt \
@@ -314,9 +363,13 @@ is a tiny OpenAI-compatible server that drives the real loop over real HTTP for
 end-to-end checks without ollama.
 
 > **Note:** the package collection names (`cli-kit`, `db-kit`, `web-kit`) are
-> global. If you also have the Odysseus checkout's copies linked, unlink those
-> first (`raco pkg remove cli-kit db-kit web-kit`) or link only one project's at
-> a time.
+> global, and the Odysseus checkout ships its own diverged copies under the same
+> names — so **don't `raco pkg install --link` them**. A global link silently wins
+> over `PLTCOLLECTS` for whichever project didn't set it, compiling against the
+> wrong sources. `PLTCOLLECTS` alone (used by the scripts, CI, and the runbooks)
+> keeps each checkout self-contained; if a kit is ever linked globally, remove it
+> with `raco pkg remove cli-kit db-kit web-kit`. With no links, a forgotten
+> `PLTCOLLECTS` fails loudly with `collection not found`.
 
 ## Provenance
 

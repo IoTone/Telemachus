@@ -33,7 +33,12 @@
           (define m (call-with-input-file mpath read-json))
           (define id (hash-ref m 'id sub))
           (define entry (build-path pdir (hash-ref m 'entry "main.rkt")))
-          (define tools (dynamic-require entry 'tools))
+          ;; A plugin may (provide tools) and/or (provide init!). init! runs with full
+          ;; SDK access so a plugin can register anything (tools, an onboarding
+          ;; provider, …), not just agent tools. Both are optional.
+          (define tools (dynamic-require entry 'tools (lambda () '())))
+          (define init! (dynamic-require entry 'init! (lambda () #f)))
+          (when (procedure? init!) (init!))
           (define names
             (for/list ([t (in-list tools)])
               (register-tool! (list-ref t 0) (list-ref t 1) (list-ref t 2) (list-ref t 3) #:source id)
@@ -42,5 +47,6 @@
             (append (unbox *loaded*)
                     (list (hasheq 'id id 'name (hash-ref m 'name id) 'version (hash-ref m 'version "")
                                   'description (hash-ref m 'description "") 'tools names))))
-          (log (format "~a v~a — ~a tool(s)" id (hash-ref m 'version "?") (length names)))))))
+          (log (format "~a v~a — ~a tool(s)~a" id (hash-ref m 'version "?") (length names)
+                       (if (procedure? init!) " +init" "")))))))
   (unbox *loaded*))

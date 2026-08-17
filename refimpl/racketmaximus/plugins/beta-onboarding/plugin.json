@@ -1,0 +1,7 @@
+{
+  "id": "beta-onboarding",
+  "name": "Founders beta onboarding",
+  "version": "0.1.0",
+  "description": "A customized beta funnel (founders program) registered via the SDK's init! hook.",
+  "entry": "main.rkt"
+}

@@ -1,8 +1,21 @@
-# Deploying the demo over Tailscale
+# Deploying the demo over Tailscale (and the LAN)
 
 How the `racketmaximus` reference implementation is shared **privately over a
-Tailscale tailnet**, plus the (optional, gated) paths to trusted HTTPS and a
-public URL.
+Tailscale tailnet**, how to also answer on the **local network**, plus the
+(optional, gated) paths to trusted HTTPS and a public URL.
+
+**Pick your reach first** — `TELEMACHUS_BIND` takes a *single* interface, so the
+value you choose is the whole exposure decision:
+
+| `TELEMACHUS_BIND` | Reachable from | Use when |
+|---|---|---|
+| `127.0.0.1` *(default)* | this host only | developing |
+| `100.70.154.54` | tailnet devices | sharing with your own devices, anywhere |
+| `0.0.0.0` | tailnet **and** LAN **and** localhost | you're on the same network *and* the tailnet |
+
+There is no value that means "tailnet + LAN but nothing else" — `0.0.0.0` binds
+every interface, including the `lxcbr0`/`docker0` bridges. On a trusted network
+that is fine; it is not a substitute for a firewall.
 
 ## Current setup — private, tailnet-only
 
@@ -20,11 +33,49 @@ TELEMACHUS_MODEL=qwen2.5:7b \                               # ollama (OpenAI-com
 racket server/main.rkt
 ```
 
-- **URL:** `http://<tailnet-ip>:8080` — this host is `red5buntu` / `100.70.154.54`
+- **URL:** `http://<tailnet-ip>:8835` — this host is `red5buntu` / `100.70.154.54`
 - **Model:** `qwen2.5:7b` via ollama — non-reasoning, streams cleanly (avoid the
   reasoning models like `qwen3.5:*`, whose answer lands in a `reasoning` field and
   reads as a blank reply here).
 - **Bind:** `TELEMACHUS_BIND` selects the interface (default `127.0.0.1`).
+
+## Also on the local network (LAN)
+
+Tailscale routes over its own interface, so a tailnet-bound server is **invisible
+to a laptop sitting on the same Wi-Fi** unless that laptop uses the tailnet
+address. To answer on both, bind every interface:
+
+```bash
+TELEMACHUS_BIND=0.0.0.0 racket server/main.rkt     # + the model/db env from above
+```
+
+- **LAN URL:** `http://10.0.0.244:8835` — this host on `eno1` (`ip -4 -o addr show eno1`)
+- **Tailnet URL:** `http://100.70.154.54:8835` — still works, unchanged
+- **Localhost:** `http://127.0.0.1:8835` — also comes back
+
+### The firewall will block it until you say otherwise
+
+`ufw` is **active** on this host with `DEFAULT_INPUT_POLICY="DROP"`. Tailscale is
+unaffected — it installs its own iptables rules outside ufw's `INPUT` chain, which
+is why the tailnet path works with no firewall change. **The LAN path does not.**
+Open the port once, scoped to the local subnet rather than the world:
+
+```bash
+sudo ufw allow from 10.0.0.0/24 to any port 8835 proto tcp
+sudo ufw status                                   # confirm the rule landed
+```
+
+> **Testing from the host itself proves nothing here.** `curl http://10.0.0.244:8835`
+> run *on* this box routes through loopback, which ufw permits — so it returns 200
+> whether or not the LAN is actually allowed in. Verify from the other machine.
+
+### What LAN exposure means
+
+Anyone on the local network can reach the app — including the **public beta signup**
+at `/`, which by design takes submissions without an account. That is a different
+audience from the tailnet (your own devices). Before binding `0.0.0.0` on a network
+you don't control: rotate `alice` off `s3cret`, and remember the seeded `demo`
+login works for anyone who reaches the page.
 
 ### Demo accounts (runtime state, not in git)
 
@@ -50,11 +101,11 @@ Real Let's Encrypt cert on your MagicDNS name (green padlock), still tailnet-onl
 
 1. **Admin console → DNS** (login.tailscale.com/admin/dns): enable **MagicDNS** and
    **HTTPS Certificates**. *(Check: `tailscale status --json | grep CertDomains` —
-   currently empty, i.e. not yet enabled.)*
+   now populated with `red5buntu.quokka-hippocampus.ts.net`, i.e. **already done**.)*
 2. On this host, once: `sudo tailscale set --operator=$USER`  (so serve runs without root)
 3. Run the app on `localhost` (`TELEMACHUS_BIND=127.0.0.1`), then:
    ```bash
-   tailscale serve --bg 8080          # → https://<host>.<tailnet>.ts.net
+   tailscale serve --bg 8835          # → https://<host>.<tailnet>.ts.net
    ```
 
 > The app's own `TELEMACHUS_TLS=1` self-signed cert is **not** recommended for the
@@ -69,7 +120,7 @@ Everything under *serve* above, plus:
   ```jsonc
   "nodeAttrs": [ { "target": ["red5buntu"], "attr": ["funnel"] } ]
   ```
-- Then: `tailscale funnel --bg 8080`  → public `https://<host>.<tailnet>.ts.net`
+- Then: `tailscale funnel --bg 8835`  → public `https://<host>.<tailnet>.ts.net`
 
 **Before funnelling:**
 - Rotate `alice` off `s3cret`; remember the seeded `demo` login is then reachable by
