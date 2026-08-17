@@ -285,11 +285,43 @@ exec racket refimpl/racketmaximus/cli/telemachus-localize.rkt \
      check refimpl/racketmaximus/surface --locales refimpl/racketmaximus/locales
 ```
 
+### Run it locally (the demo)
+
+Everything the server needs, in one block — this is the exact setup the local
+demo runs under:
+
+```bash
+cd refimpl/racketmaximus
+export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"   # Racket 9.2 CS (apt's 8.2 is too old)
+export PLTCOLLECTS="$PWD/pkgs:"                               # resolves cli-kit/db-kit/web-kit
+export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"       # or postgres://user:pass@host:port/db
+export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI-compat (ollama)
+export TELEMACHUS_MODEL=qwen2.5:7b
+export TELEMACHUS_HOME=beta                                   # or `login` to land on the console
+
+raco make server/main.rkt      # first run only — startup is slow without it
+racket server/main.rkt
+```
+
+| | |
+|---|---|
+| http://localhost:8835 | the beta funnel (with `TELEMACHUS_HOME=beta`) |
+| http://localhost:8835/?login=1 | the console, from either home mode |
+| `PORT` / `TELEMACHUS_PORT` | override the port; invalid values fail loudly |
+
+**First run creates nothing until you bootstrap** — `POST /api/bootstrap` seeds the
+operator and returns a token (see the demo flow below). On an already-bootstrapped
+DB it is disabled; point `DATABASE_URL` at a fresh file to start over.
+
+> Without `TELEMACHUS_MODEL_URL` the server answers from a **simulated
+> uppercase-echo fallback** rather than failing — so chat, the agent, and the beta
+> judge will look broken-but-quiet if you forget it.
+
 ### HTTP server
 
 ```bash
 racket server/main.rkt              # http://127.0.0.1:8835  (sqlite in ./data)
-bash   test/server-smoke.sh         # integration test (temp DB, 11 assertions)
+bash   test/server-smoke.sh         # integration test (temp DB, 77 assertions)
 ```
 
 Demo flow — RBAC + localization end to end:
