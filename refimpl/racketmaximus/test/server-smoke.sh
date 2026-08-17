@@ -6,7 +6,7 @@ set -u
 cd "$(dirname "$0")/.."
 export PLTCOLLECTS="$(pwd)/pkgs:"
 export TELEMACHUS_DATA_DIR="$(mktemp -d)"
-PORT="${PORT:-8080}"
+export PORT="${PORT:-8835}"   # must be exported — the server reads it from the environment
 DB="$TELEMACHUS_DATA_DIR/telemachus.db"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$DB}"   # respect a pre-set URL (e.g. postgres)
 echo "smoke DATABASE_URL=$DATABASE_URL"

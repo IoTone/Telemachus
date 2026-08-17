@@ -25,15 +25,18 @@ else
   echo "model: deterministic fallback (no ollama reachable)"
 fi
 
-# Boot a fresh server on 127.0.0.1:8080 (temp DB). Tear it down on exit.
+# Boot a fresh server on a temp DB. Tear it down on exit. Override PORT to run
+# the tour alongside a dev server that already holds the default port.
+export PORT="${PORT:-8835}"
+export BASE_URL="${BASE_URL:-http://127.0.0.1:$PORT}"
 export E2E_DATA_DIR="$(mktemp -d)"
 bash boot-server.sh >/tmp/telemachus-e2e-server.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$E2E_DATA_DIR"' EXIT
 
-echo -n "waiting for server"
+echo -n "waiting for server on $PORT"
 for i in $(seq 1 120); do
-  curl -sf http://127.0.0.1:8080/health >/dev/null 2>&1 && { echo " up"; break; }
+  curl -sf "$BASE_URL/health" >/dev/null 2>&1 && { echo " up"; break; }
   echo -n .; sleep 0.5
 done
 

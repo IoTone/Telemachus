@@ -49,7 +49,7 @@ const cards = manifest.map((m, i) => {
       <p>${esc(m.caption)}</p>
     </div>
     <figure class="frame">
-      <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">127.0.0.1:8080<span class="path">${esc(routeOf(m.file))}</span></span></div>
+      <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">127.0.0.1:8835<span class="path">${esc(routeOf(m.file))}</span></span></div>
       <div class="scroll"><img loading="lazy" alt="${esc(m.title)}" src="data:image/png;base64,${b64}"></div>
     </figure>
   </article>`;

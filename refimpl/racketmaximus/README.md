@@ -228,7 +228,7 @@ refimpl/racketmaximus/
 
 106 unit tests pass + a 77-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
-**Open http://localhost:8080** after `racket server/main.rkt`.
+**Open http://localhost:8835** after `racket server/main.rkt`.
 
 - **End-to-end feature tour (`test/e2e`)** — a headless Playwright walk through the
   whole UI against a real running server: bootstrap → chat → agent tool use →
@@ -260,7 +260,7 @@ TELEMACHUS_MODEL=qwen2.5:7b  racket server/main.rkt
 Serve over HTTPS (self-signed cert auto-generated in `data/`); install argon2id:
 
 ```bash
-TELEMACHUS_TLS=1 racket server/main.rkt          # https://localhost:8080
+TELEMACHUS_TLS=1 racket server/main.rkt          # https://localhost:8835
 raco pkg install crypto                          # → password hashing auto-upgrades to argon2id
 ```
 
@@ -288,24 +288,24 @@ exec racket refimpl/racketmaximus/cli/telemachus-localize.rkt \
 ### HTTP server
 
 ```bash
-racket server/main.rkt              # http://127.0.0.1:8080  (sqlite in ./data)
+racket server/main.rkt              # http://127.0.0.1:8835  (sqlite in ./data)
 bash   test/server-smoke.sh         # integration test (temp DB, 11 assertions)
 ```
 
 Demo flow — RBAC + localization end to end:
 
 ```bash
-curl -s localhost:8080/health
+curl -s localhost:8835/health
 # first run: create the operator + a token
-OP=$(curl -s -X POST localhost:8080/api/bootstrap -d '{"username":"alice"}' \
+OP=$(curl -s -X POST localhost:8835/api/bootstrap -d '{"username":"alice"}' \
      | grep -oP '"token":\s*"\K[^"]+')
-curl -s localhost:8080/api/whoami       -H "Authorization: Bearer $OP"   # is_operator:true
-curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $OP"   # ok
+curl -s localhost:8835/api/whoami       -H "Authorization: Bearer $OP"   # is_operator:true
+curl -s localhost:8835/api/admin/status -H "Authorization: Bearer $OP"   # ok
 # add a member, then watch RBAC deny admin — localized by Accept-Language
-BOB=$(curl -s -X POST localhost:8080/api/members -H "Authorization: Bearer $OP" \
+BOB=$(curl -s -X POST localhost:8835/api/members -H "Authorization: Bearer $OP" \
       -d '{"username":"bob","role":"member"}' | grep -oP '"token":\s*"\K[^"]+')
-curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB"                        # Forbidden: instance:manage
-curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja' # 禁止されています: instance:manage
+curl -s localhost:8835/api/admin/status -H "Authorization: Bearer $BOB"                        # Forbidden: instance:manage
+curl -s localhost:8835/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja' # 禁止されています: instance:manage
 ```
 
 ## Dev setup

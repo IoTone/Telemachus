@@ -20,7 +20,7 @@ TELEMACHUS_MODEL=qwen2.5:7b \                               # ollama (OpenAI-com
 racket server/main.rkt
 ```
 
-- **URL:** `http://<tailnet-ip>:8080` — this host is `red5buntu` / `100.70.154.54`
+- **URL:** `http://<tailnet-ip>:8835` — this host is `red5buntu` / `100.70.154.54`
 - **Model:** `qwen2.5:7b` via ollama — non-reasoning, streams cleanly (avoid the
   reasoning models like `qwen3.5:*`, whose answer lands in a `reasoning` field and
   reads as a blank reply here).
@@ -54,7 +54,7 @@ Real Let's Encrypt cert on your MagicDNS name (green padlock), still tailnet-onl
 2. On this host, once: `sudo tailscale set --operator=$USER`  (so serve runs without root)
 3. Run the app on `localhost` (`TELEMACHUS_BIND=127.0.0.1`), then:
    ```bash
-   tailscale serve --bg 8080          # → https://<host>.<tailnet>.ts.net
+   tailscale serve --bg 8835          # → https://<host>.<tailnet>.ts.net
    ```
 
 > The app's own `TELEMACHUS_TLS=1` self-signed cert is **not** recommended for the
@@ -69,7 +69,7 @@ Everything under *serve* above, plus:
   ```jsonc
   "nodeAttrs": [ { "target": ["red5buntu"], "attr": ["funnel"] } ]
   ```
-- Then: `tailscale funnel --bg 8080`  → public `https://<host>.<tailnet>.ts.net`
+- Then: `tailscale funnel --bg 8835`  → public `https://<host>.<tailnet>.ts.net`
 
 **Before funnelling:**
 - Rotate `alice` off `s3cret`; remember the seeded `demo` login is then reachable by

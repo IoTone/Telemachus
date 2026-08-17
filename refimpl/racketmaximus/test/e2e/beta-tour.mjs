@@ -1,7 +1,7 @@
 // Beta funnel walkthrough — captures the operator SETUP, the public FUNNEL, and the
 // LLM-judge REVIEW, against a running beta-mode server (fresh temp DB). Setup runs
 // first because the funnel needs the internal team to exist before it accepts leads.
-// Shots + captions land in catalog/beta/.  BASE_URL defaults to 127.0.0.1:8080.
+// Shots + captions land in catalog/beta/.  BASE_URL defaults to 127.0.0.1:8835.
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(HERE, 'catalog', 'beta');
 fs.mkdirSync(OUT, { recursive: true });
-const BASE = process.env.BASE_URL || 'http://127.0.0.1:8080';
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:8835';
 const MAN = [];
 async function shot(page, id, title, caption) {
   await page.waitForTimeout(350);

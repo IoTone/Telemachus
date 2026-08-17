@@ -8,7 +8,7 @@
 ;;     localized;
 ;;   • RBAC enforced with `require-perm` (raises → localized 403).
 ;;
-;;   racket server/main.rkt            # serves on http://127.0.0.1:8080
+;;   racket server/main.rkt            # serves on http://127.0.0.1:8835 (PORT to override)
 ;;
 ;; Endpoints:
 ;;   GET  /health
@@ -77,6 +77,13 @@
 (define (saas-mode?) (equal? (env* "TELEMACHUS_MODE") "saas"))   ; hosted: bootstrap off, provisioning on
 (define (home-mode) (or (env* "TELEMACHUS_HOME") "login"))       ; what the root route shows: login | beta
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
+(define default-port 8835)                                     ; "TEL" on a keypad; 8080 is too crowded to squat on
+(define (listen-port)   ; TELEMACHUS_PORT wins, then PORT (the common convention), else the default
+  (define raw (or (env* "TELEMACHUS_PORT") (env* "PORT")))
+  (cond
+    [(not raw) default-port]
+    [(let ([n (string->number raw)]) (and (exact-integer? n) (<= 1 n 65535) n))]
+    [else (error 'telemachus "invalid port ~s — expected an integer in 1–65535" raw)]))
 (define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
 (define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
 (define (tls-key)  (or (env* "TELEMACHUS_TLS_KEY")  (path->string (build-path (data-dir) "key.pem"))))
@@ -1154,10 +1161,11 @@
   (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency, quota-metered\n")
   (define tls? (tls-on?))
   (define ip (bind-ip))
+  (define port (listen-port))
   (when tls? (ensure-cert!))
-  (printf "telemachus server on ~a://~a:8080  (db: ~a · kdf: ~a · tls: ~a)\n"
-          (if tls? "https" "http") ip db-url (kdf-name) (if tls? "on" "off"))
+  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a)\n"
+          (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off"))
   (flush-output)
   (if tls?
-      (serve handle #:port 8080 #:listen-ip ip #:ssl-cert (tls-cert) #:ssl-key (tls-key))
-      (serve handle #:port 8080 #:listen-ip ip)))
+      (serve handle #:port port #:listen-ip ip #:ssl-cert (tls-cert) #:ssl-key (tls-key))
+      (serve handle #:port port #:listen-ip ip)))

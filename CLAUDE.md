@@ -42,7 +42,7 @@ export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"   # or postgres://user:p
 export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI-compat (ollama)
 export TELEMACHUS_MODEL=qwen2.5:7b
 export TELEMACHUS_HOME=login              # or `beta` to serve the beta funnel at /
-export PORT=8080
+export PORT=8835                          # default; the server reads PORT / TELEMACHUS_PORT
 racket server/main.rkt
 ```
 
