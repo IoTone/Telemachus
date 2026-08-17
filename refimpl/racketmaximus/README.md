@@ -194,21 +194,16 @@ refimpl/racketmaximus/
   (`POST /api/admin/seed`, Admin console) populates a team with sample notes,
   documents, and queued chat/translate/agent jobs — instant functionality to test.
 
-- **PostgreSQL backend (slice 32)** — the persistence layer runs on **SQLite _or_
-  Postgres** from one `DATABASE_URL` (`sqlite:///…` or `postgres://user:pass@host/db`).
-  `db-kit/portable` re-exports `db` but rewrites `?`→`$n` placeholders for Postgres
-  (SQLite unchanged), so app code is backend-neutral; the few dialect-specific spots
-  (quota time-windows, upsert-ignore, activation expiry) are branched or computed in
-  Racket. `db-kit`'s connector dispatches the backend. Run on Postgres with
-  `DATABASE_URL=postgres://…`. (Live E2E needs a running server; the SQLite suite
-  stays green and the rewriter/parser are unit-tested.)
-
-- **Postgres backend (slice 32)** — the same code runs on **SQLite or PostgreSQL**,
-  chosen by `DATABASE_URL` (`sqlite:///…` or `postgresql://user@host:port/db`); db-kit
-  dispatches the connection and no app code branches on backend. Schema + queries are
-  dialect-neutral (one reserved-word fix: `"window"`); the quota window clause is
-  `db-dialect`-aware and timestamps use portable epoch/`CURRENT_TIMESTAMP`.
-  **The full 66-assertion smoke passes against Postgres 18** as well as SQLite.
+- **PostgreSQL backend (slice 32)** — the same code runs on **SQLite _or_
+  PostgreSQL**, chosen by one `DATABASE_URL` (`sqlite:///…` or
+  `postgres://user:pass@host:port/db`); `db-kit`'s connector dispatches the backend
+  and no app code branches on it. `db-kit/portable` re-exports `db` but rewrites
+  `?`→`$n` placeholders for Postgres (SQLite unchanged), so callers stay
+  backend-neutral. Schema + queries are dialect-neutral (one reserved-word fix:
+  `"window"`); the few dialect-specific spots — quota time-windows, upsert-ignore,
+  activation expiry — are `db-dialect`-aware or computed in Racket, and timestamps
+  use portable epoch/`CURRENT_TIMESTAMP`. **The full server smoke passes against
+  Postgres 18** as well as SQLite.
 
 - **Beta onboarding (slices 33–34)** — a pre-sales **qualification funnel** that
   captures prospects **without creating accounts**, vets each with an **LLM judge**
@@ -231,7 +226,7 @@ refimpl/racketmaximus/
   signup's **anti-abuse signals** (domain velocity, free-email) are fed into the LLM
   judge so borderline prospects are scored more skeptically.
 
-87 unit tests pass + a 77-assertion server integration test (green on SQLite **and** Postgres)
+106 unit tests pass + a 77-assertion server integration test (green on SQLite **and** Postgres)
 (`test/server-smoke.sh`), incl. a live proof the governor never exceeds the cap.
 **Open http://localhost:8080** after `racket server/main.rkt`.
 
@@ -318,8 +313,9 @@ curl -s localhost:8080/api/admin/status -H "Authorization: Bearer $BOB" -H 'Acce
 Requires Racket 9.x CS (`racket --version`).
 
 ```bash
-# from refimpl/racketmaximus/ — link local packages so `(require cli-kit)` resolves
-raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
+# from refimpl/racketmaximus/ — resolve the local pkgs/ so `(require cli-kit)` works.
+# Required for every racket/raco command; export it once per shell.
+export PLTCOLLECTS="$(pwd)/pkgs:"
 
 # compile everything
 raco make config.rkt pkgs/*/main.rkt pkgs/db-kit/migrate.rkt \
@@ -335,9 +331,13 @@ is a tiny OpenAI-compatible server that drives the real loop over real HTTP for
 end-to-end checks without ollama.
 
 > **Note:** the package collection names (`cli-kit`, `db-kit`, `web-kit`) are
-> global. If you also have the Odysseus checkout's copies linked, unlink those
-> first (`raco pkg remove cli-kit db-kit web-kit`) or link only one project's at
-> a time.
+> global, and the Odysseus checkout ships its own diverged copies under the same
+> names — so **don't `raco pkg install --link` them**. A global link silently wins
+> over `PLTCOLLECTS` for whichever project didn't set it, compiling against the
+> wrong sources. `PLTCOLLECTS` alone (used by the scripts, CI, and the runbooks)
+> keeps each checkout self-contained; if a kit is ever linked globally, remove it
+> with `raco pkg remove cli-kit db-kit web-kit`. With no links, a forgotten
+> `PLTCOLLECTS` fails loudly with `collection not found`.
 
 ## Provenance
 

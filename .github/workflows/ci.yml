@@ -32,12 +32,10 @@ jobs:
       - name: Unit tests
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
-          raco test \
-            test/engine-tests.rkt test/authz-tests.rkt test/i18n-tests.rkt \
-            test/auth-tests.rkt test/notes-tests.rkt test/quota-tests.rkt \
-            test/executor-tests.rkt test/agent-tests.rkt test/plugin-tests.rkt \
-            test/mcp-tests.rkt test/oop-tests.rkt test/translate-tests.rkt \
-            test/federation-tests.rkt
+          # Glob, not an explicit list — a named list silently skips every new suite.
+          # Must be `*-tests.rkt`: a bare `test/*.rkt` would pull in test/mock-*.rkt,
+          # which are mock *servers* that block forever.
+          raco test test/*-tests.rkt
       - name: Server smoke
         run: bash test/server-smoke.sh
       - name: Localization gate
