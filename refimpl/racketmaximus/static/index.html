@@ -423,8 +423,16 @@ async function doAddTerm(){
   const r=await api('/api/glossary',{method:'POST',body:{target_lang:val('gltgt'),term:val('glterm'),translation:val('gltr')}});
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error');
 }
-async function renderTab(){ const el=document.getElementById('main'); el.innerHTML='<p class="muted">…</p>';
-  el.innerHTML = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)(); }
+// Views are async, and renderTab() is fired from click handlers without being awaited — so two
+// renders can be in flight at once and the SLOWER one would win the innerHTML assignment, painting
+// a stale tab over the one you just asked for. Stamp each render and drop any result that a newer
+// render has superseded.
+let renderSeq = 0;
+async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
+  el.innerHTML='<p class="muted">…</p>';
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)();
+  if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
+  el.innerHTML = html; }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
 function fontStack(n){ const m={System:'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif',
   Serif:'Georgia,Cambria,"Times New Roman",serif',Mono:'ui-monospace,SFMono-Regular,Menlo,monospace',
