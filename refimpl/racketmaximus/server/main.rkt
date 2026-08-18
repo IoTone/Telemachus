@@ -30,12 +30,15 @@
          "../domain/db/migrations.rkt"
          "../domain/authz/authz.rkt"
          "../domain/authz/passwords.rkt"          ; kdf-name
+         (only-in "../domain/authz/permissions.rkt" org-role-key?)
          "../domain/notes/notes.rkt"
          "../domain/documents/documents.rkt"      ; documents (paginated ownable resource)
          "../domain/apps/translate.rkt"           ; Translation app
          "../domain/apps/search.rkt"              ; search across notes + translations
          "../domain/features/features.rkt"        ; per-team feature activation
          "../domain/samples/samples.rkt"          ; seed sample content + jobs for testing
+         "../domain/orgs/orgs.rkt"                ; multi-tenancy: orgs above teams (slice 45)
+         "../domain/samples/tenants.rkt"          ; the two-company demo fixture
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
          "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
@@ -76,6 +79,10 @@
 (define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 (define (saas-mode?) (equal? (env* "TELEMACHUS_MODE") "saas"))   ; hosted: bootstrap off, provisioning on
 (define (home-mode) (or (env* "TELEMACHUS_HOME") "login"))       ; what the root route shows: login | beta
+;; multi-tenancy (slice 45): several companies on one instance. OFF is the default
+;; and off is byte-for-byte the previous product — the flag switches surface area
+;; (the /api/orgs + /api/org management planes), not the authorization semantics.
+(define (multitenant?) (and (member (or (env* "TELEMACHUS_MULTITENANT") "") '("1" "true" "yes" "on")) #t))
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
 (define default-port 8835)                                     ; "TEL" on a keypad; 8080 is too crowded to squat on
 (define (listen-port)   ; TELEMACHUS_PORT wins, then PORT (the common convention), else the default
@@ -202,7 +209,7 @@
 ;; ---- endpoints --------------------------------------------------------------
 (define (ep-health)
   (json-response (hasheq 'ok #t 'service "telemachus" 'version app-version
-                         'tls (tls-on?) 'kdf (kdf-name))))
+                         'tls (tls-on?) 'kdf (kdf-name) 'multitenant (multitenant?))))
 
 (define (ep-bootstrap req)
   (define body (read-json-body req))
@@ -212,11 +219,21 @@
     [(not username) (err "username required" 400)]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
-     (define-values (uid tid) (bootstrap! db-conn #:username username #:password (hash-ref body 'password #f)))
+     (define mt (multitenant?))
+     (define-values (uid tid)
+       (bootstrap! db-conn #:username username #:password (hash-ref body 'password #f)
+                   ;; multitenant: the superadmin runs the INSTANCE and belongs to no
+                   ;; customer company — it gets the `system` org. Single-tenant: the
+                   ;; one implicit org, exactly as before (RBAC-5).
+                   #:org-name (if mt "Instance Operations" "Default Organization")
+                   #:org-slug (if mt "system" "default")
+                   #:team-name (if mt "Instance" "Default")
+                   #:team-slug (if mt "instance" "default")))
      (default-policy! db-conn tid)                       ; starter AI quota for the team
      (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "bootstrap" #:scopes '("*:*")))
-     (json-response (hasheq 'user_id uid 'team_id tid 'token tok
-                            'message (msg-bootstrap-done username "Default"))
+     (json-response (hasheq 'user_id uid 'team_id tid 'token tok 'multitenant mt
+                            'org_id (team-org db-conn tid)
+                            'message (msg-bootstrap-done username (if mt "Instance" "Default")))
                     #:code 201)]))
 
 ;; ---- hosted provisioning (control-plane facing; provision-token auth) --------
@@ -307,6 +324,7 @@
 (define (ep-config req)          ; public: tells the SPA what the root route should render
   (define team (default-team db-conn))
   (json-response (hasheq 'home (home-mode) 'service "telemachus"
+                         'multitenant (multitenant?)
                          'onboarding (hash-ref (resolve-experience db-conn team) 'name "beta")
                          'landing (experience-landing db-conn team))))
 
@@ -447,6 +465,12 @@
       (json-response (hasheq 'user_id (principal-user-id p)
                              'team_id (principal-team-id p)
                              'is_operator (principal-is-operator p)
+                             'org_id (or (principal-org-id p) 'null)
+                             'org_slug (let ([o (principal-org-id p)])
+                                         (or (and o (query-maybe-value db-conn
+                                               "SELECT slug FROM orgs WHERE id = ?" o)) 'null))
+                             'org_role (or (principal-org-role p) 'null)
+                             'multitenant (multitenant?)
                              'permissions (perms-of p)
                              'token_scopes (or (principal-token-scopes p) 'null)))))
 
@@ -488,8 +512,161 @@
     [else
      (require-perm db-conn p "instance:manage")          ; operator-only → localized 403
      (json-response (hasheq 'ok #t
+                            'multitenant (multitenant?)
                             'users (query-value db-conn "SELECT COUNT(*) FROM users")
-                            'teams (query-value db-conn "SELECT COUNT(*) FROM teams")))]))
+                            'teams (query-value db-conn "SELECT COUNT(*) FROM teams")
+                            'orgs (query-value db-conn "SELECT COUNT(*) FROM orgs")))]))
+
+;; ---- multi-tenancy: the two management planes (slice 45) --------------------
+;; Superadmin plane (/api/orgs*, instance:manage) runs the INSTANCE; org-admin
+;; plane (/api/org*, org:manage) runs ONE company. Both 404 when the flag is off —
+;; the surface disappears, the authorization semantics do not change.
+;; See docs/design/multi-tenancy.md.
+
+(define (with-mt req proc)          ; flag gate → 404, so the feature is invisible when off
+  (if (multitenant?) (proc) (err "multi-tenancy is not enabled on this instance" 404)))
+
+;; the caller's own company, from their home org (never from a request parameter —
+;; an org admin must not be able to name someone else's org)
+(define (caller-org p) (or (principal-org-id p) (team-org db-conn (principal-team-id p))))
+
+;; ---- superadmin plane -------------------------------------------------------
+(define (ep-orgs-list req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "instance:manage")
+      (json-response (hasheq 'orgs (org-list db-conn))))))))
+
+(define (ep-orgs-create req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "instance:manage")
+      (define b (read-json-body req))
+      (define name (hash-ref b 'name #f))
+      (define owner (hash-ref b 'owner_username #f))
+      (cond
+        [(or (not name) (not owner)) (err "name and owner_username required" 400)]
+        [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" owner))
+         (err "owner_username already exists on this instance" 409)]     ; TEN-2b: usernames are global
+        [else
+         (json-response
+          (org-create! db-conn p
+                       #:name (format "~a" name)
+                       #:slug (let ([sl (hash-ref b 'slug #f)]) (and sl (format "~a" sl)))
+                       #:plan (format "~a" (hash-ref b 'plan "trial"))
+                       #:owner-username (format "~a" owner)
+                       #:owner-password (let ([pw (hash-ref b 'owner_password #f)]) (and pw (format "~a" pw)))
+                       #:owner-name (let ([n (hash-ref b 'owner_name #f)]) (and n (format "~a" n)))
+                       #:team-name (format "~a" (hash-ref b 'team_name "Engineering"))
+                       #:team-slug (org-slugify (hash-ref b 'team_slug "engineering")))
+          #:code 201)]))))))
+
+(define (ep-org-get req id)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "instance:manage")
+      (define o (org-get db-conn id))
+      (if o (json-response o) (err "not found" 404)))))))
+
+(define (ep-org-status req id status)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "instance:manage")
+      (if (org-set-status! db-conn p id status)
+          (json-response (hasheq 'ok #t 'org_id id 'status status))
+          (err "not found" 404)))))))
+
+(define (ep-org-quota req id)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "instance:manage")
+      (define b (read-json-body req))
+      (define dim (hash-ref b 'dimension #f))
+      (define lim (hash-ref b 'limit #f))
+      (cond
+        [(or (not dim) (not lim)) (err "dimension and limit required" 400)]
+        [(not (query-maybe-value db-conn "SELECT id FROM orgs WHERE id = ?" id)) (err "not found" 404)]
+        [else
+         (set-org-limit! db-conn id (format "~a" dim) lim #:window (format "~a" (hash-ref b 'window "day")))
+         (audit! db-conn #:action "org.quota.set" #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:resource-type "org" #:resource-id id)
+         (json-response (hasheq 'ok #t 'org_id id 'dimension dim 'limit lim))]))))))
+
+;; demo fixture: two complete companies with known dev logins (see
+;; domain/samples/tenants.rkt). Superadmin-only, refuses to run twice.
+(define (ep-seed-tenants req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "instance:manage")
+      (cond
+        [(tenants-seeded? db-conn) (err "demo tenants already seeded" 409)]
+        [else
+         (define seeded (seed-tenants! db-conn p))
+         (json-response (hasheq 'ok #t 'tenants seeded
+                                'note "DEV FIXTURE — these passwords are public; never seed a production instance")
+                        #:code 201)]))))))
+
+;; ---- org-admin plane --------------------------------------------------------
+(define (ep-my-org req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (define o (and (caller-org p) (org-get db-conn (caller-org p))))
+      (if o (json-response o) (err "no organization for this principal" 404)))))))
+
+(define (ep-my-org-teams req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (json-response (hasheq 'teams (org-teams db-conn (caller-org p)))))))))
+
+(define (ep-my-org-team-create req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")      ; the tier gate
+      (require-perm db-conn p "team:create")
+      (define b (read-json-body req))
+      (define name (hash-ref b 'name #f))
+      (cond
+        [(not name) (err "name required" 400)]
+        [else
+         (define t (org-add-team! db-conn p (caller-org p)
+                                  #:name (format "~a" name)
+                                  #:slug (let ([sl (hash-ref b 'slug #f)]) (and sl (format "~a" sl)))))
+         (if t (json-response t #:code 201)
+             (err "a team with that slug already exists in this organization" 409))]))))))
+
+(define (ep-my-org-member-add req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")      ; the tier gate
+      (require-perm db-conn p "members:manage")
+      (define b (read-json-body req))
+      (define u (hash-ref b 'username #f))
+      (define org-role (let ([r (hash-ref b 'org_role #f)]) (and r (format "~a" r))))
+      (cond
+        [(not u) (err "username required" 400)]
+        [(and org-role (not (org-role-key? org-role))) (err "unknown org_role" 400)]
+        [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" u))
+         (err "username already exists on this instance" 409)]
+        [else
+         (define r (org-attach-member! db-conn p (caller-org p)
+                                       #:username (format "~a" u)
+                                       #:password (let ([pw (hash-ref b 'password #f)]) (and pw (format "~a" pw)))
+                                       #:display-name (let ([d (hash-ref b 'display_name #f)]) (and d (format "~a" d)))
+                                       #:team (let ([t (hash-ref b 'team_id #f)]) (and t (format "~a" t)))
+                                       #:role (format "~a" (hash-ref b 'role "member"))
+                                       #:org-role org-role))
+         (if r (json-response r #:code 201)
+             (err "no such team in this organization" 400))]))))))
+
+(define (ep-my-org-audit req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")        ; the tier gate
+      (require-perm db-conn p "audit:read")
+      (define lim (or (string->number (query-param req 'limit "50")) 50))
+      (json-response (hasheq 'events (org-audit db-conn (caller-org p) #:limit lim))))))))
 
 (define (ep-login req)
   (define body (read-json-body req))
@@ -537,8 +714,9 @@
   (define p (current-principal req))
   (cond
     [(not p) (unauthorized)]
-    [(and (team-suspended? db-conn (principal-team-id p)) (not (GET? (request-method req))))
-     (err "tenant suspended — writes are disabled; contact your administrator" 402)]   ; ONB-7: read-only
+    ;; ONB-7 read-only, now org-aware: a suspended COMPANY freezes every team in it
+    [(and (tenant-read-only? db-conn (principal-team-id p)) (not (GET? (request-method req))))
+     (err "tenant suspended — writes are disabled; contact your administrator" 402)]
     [else (proc p)]))
 
 (define (ep-notes-create req)
@@ -607,6 +785,7 @@
 
 (define (quota-429 d dim)
   (json-response (hasheq 'error "quota exceeded" 'dimension dim
+                         'subject (hash-ref d 'subject "team")   ; which tier refused: team | org
                          'used (hash-ref d 'used) 'limit (hash-ref d 'limit)
                          'window (hash-ref d 'window))
                  #:code 429))
@@ -618,8 +797,8 @@
     (define prompt (hash-ref b 'prompt ""))
     (define est (max 1 (quotient (string-length prompt) 4)))       ; token estimate (chars/4)
     (define sid (principal-team-id p))
-    (define rq (quota-check db-conn "team" sid "ai.requests" 1))
-    (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
+    (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+    (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
@@ -628,8 +807,8 @@
        (with-slot GOV (string-append "team:" sid) (or climit 2)
          (lambda (inflight)
            (sleep 0.12)                                             ; simulate model latency
-           (quota-record! db-conn "team" sid "ai.requests" 1)
-           (quota-record! db-conn "team" sid "ai.tokens.total" est)
+           (tenant-quota-record! db-conn p "ai.requests" 1)
+           (tenant-quota-record! db-conn p "ai.tokens.total" est)
            (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
            (json-response (hasheq 'reply (string-upcase prompt)
                                   'tokens_used est
@@ -661,8 +840,8 @@
     (when ex (require-perm db-conn p "instance:manage"))          ; routing to specific compute = operator
     (define est (estimate-tokens prompt))
     (define sid (principal-team-id p))
-    (define rq (quota-check db-conn "team" sid "ai.requests" 1))
-    (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
+    (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+    (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
       [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
@@ -672,8 +851,8 @@
        (with-slot GOV (string-append "team:" sid) (or climit 2)
          (lambda (inflight)
            (define-values (reply tokens) (run-chat prompt #:executor ex))   ; local or federated
-           (quota-record! db-conn "team" sid "ai.requests" 1)
-           (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
+           (tenant-quota-record! db-conn p "ai.requests" 1)
+           (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
            (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
            (json-response (hasheq 'reply reply 'tokens_used tokens
                                   'model (executor-model ex)
@@ -695,8 +874,8 @@
     (when ex (require-perm db-conn p "instance:manage"))
     (define est (estimate-tokens prompt))
     (define sid (principal-team-id p))
-    (define rq (quota-check db-conn "team" sid "ai.requests" 1))
-    (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
+    (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+    (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
       [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
@@ -708,8 +887,8 @@
           (with-slot GOV (string-append "team:" sid) (or climit 2)
             (lambda (inflight)
               (define tokens (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok))) #:executor ex))
-              (quota-record! db-conn "team" sid "ai.requests" 1)
-              (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
+              (tenant-quota-record! db-conn p "ai.requests" 1)
+              (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
               (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
               (emit (hasheq 'done #t 'tokens_used tokens
                             'model (executor-model ex)
@@ -728,7 +907,7 @@
        (define b (read-json-body req))
        (define prompt (hash-ref b 'prompt ""))
        (define sid (principal-team-id p))
-       (define rq (quota-check db-conn "team" sid "ai.requests" 1))
+       (define rq (tenant-quota-check db-conn p "ai.requests" 1))
        (cond
          [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
          [else
@@ -738,8 +917,8 @@
              (with-slot GOV (string-append "team:" sid) (or climit 2)
                (lambda (inflight)
                  (run-agent-flow db-conn p prompt (lambda (ev) (emit ev)))
-                 (quota-record! db-conn "team" sid "ai.requests" 1)
-                 (quota-record! db-conn "team" sid "ai.tokens.total" (max (estimate-tokens prompt) 50))))))])]))))
+                 (tenant-quota-record! db-conn p "ai.requests" 1)
+                 (tenant-quota-record! db-conn p "ai.tokens.total" (max (estimate-tokens prompt) 50))))))])]))))
 
 (define (ep-usage req)
   (with-auth req (lambda (p)
@@ -769,8 +948,8 @@
       [else
        (define sid (principal-team-id p))
        (define est (estimate-tokens text))
-       (define rq (quota-check db-conn "team" sid "ai.requests" 1))
-       (define tq (quota-check db-conn "team" sid "ai.tokens.total" est))
+       (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+       (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
        (cond
          [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
          [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
@@ -782,8 +961,8 @@
                 (translate! db-conn p #:text text #:target-lang tgt
                             #:source-lang (hash-ref b 'source_lang "auto")
                             #:use-glossary (and (hash-ref b 'use_glossary #t) #t)))
-              (quota-record! db-conn "team" sid "ai.requests" 1)
-              (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
+              (tenant-quota-record! db-conn p "ai.requests" 1)
+              (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
               (json-response (hash-set (hash-set job 'tokens_used tokens) 'concurrent inflight))))])]))))
 
 (define (ep-translate-list req)
@@ -800,7 +979,7 @@
       [(or (not (hash? cat)) (string=? tgt "")) (err "catalog (object) and target_lang required" 400)]
       [else
        (define sid (principal-team-id p))
-       (define tq (quota-check db-conn "team" sid "ai.tokens.total" (estimate-tokens (format "~a" cat))))
+       (define tq (tenant-quota-check db-conn p "ai.tokens.total" (estimate-tokens (format "~a" cat))))
        (cond
          [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
          [else
@@ -808,7 +987,7 @@
           (with-slot GOV (string-append "team:" sid) (or climit 2)
             (lambda (_inflight)
               (define-values (out tokens) (translate-catalog! db-conn p #:catalog cat #:target-lang tgt))
-              (quota-record! db-conn "team" sid "ai.tokens.total" tokens)
+              (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
               (json-response (hasheq 'catalog out 'target_lang tgt 'tokens_used tokens))))])]))))
 
 (define (ep-glossary-list req)
@@ -908,6 +1087,7 @@
     (json-response (hasheq
       'users (n "SELECT COUNT(*) FROM users")
       'teams (n "SELECT COUNT(*) FROM teams")
+      'orgs (n "SELECT COUNT(*) FROM orgs")
       'notes (n "SELECT COUNT(*) FROM notes")
       'translations (n "SELECT COUNT(*) FROM translations")
       'active_tokens (n "SELECT COUNT(*) FROM api_tokens WHERE status = 'active'")
@@ -985,6 +1165,13 @@
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
+;; /api/orgs/<id> · /api/orgs/<id>/{suspend,resume,quota}
+(define (org-id-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "orgs") (caddr segs)))
+(define (org-action-path segs action)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "orgs")
+       (equal? (list-ref segs 3) action) (list-ref segs 2)))
+
 (define (beta-asset-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
        (equal? (list-ref segs 2) "asset") (list-ref segs 3)))
@@ -1029,6 +1216,19 @@
     [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
     [(and (GET? m)  (equal? segs '("api" "members")))       (ep-members-list req)]
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
+    ;; multi-tenancy — superadmin plane (instance:manage) then org-admin plane (org:*)
+    [(and (POST? m) (equal? segs '("api" "orgs")))          (ep-orgs-create req)]
+    [(and (GET? m)  (equal? segs '("api" "orgs")))          (ep-orgs-list req)]
+    [(and (POST? m) (org-action-path segs "suspend"))       (ep-org-status req (org-action-path segs "suspend") "suspended")]
+    [(and (POST? m) (org-action-path segs "resume"))        (ep-org-status req (org-action-path segs "resume") "active")]
+    [(and (POST? m) (org-action-path segs "quota"))         (ep-org-quota req (org-action-path segs "quota"))]
+    [(and (GET? m)  (org-id-path segs))                     (ep-org-get req (org-id-path segs))]
+    [(and (POST? m) (equal? segs '("api" "admin" "seed-tenants"))) (ep-seed-tenants req)]
+    [(and (GET? m)  (equal? segs '("api" "org")))           (ep-my-org req)]
+    [(and (GET? m)  (equal? segs '("api" "org" "teams")))   (ep-my-org-teams req)]
+    [(and (POST? m) (equal? segs '("api" "org" "teams")))   (ep-my-org-team-create req)]
+    [(and (POST? m) (equal? segs '("api" "org" "members"))) (ep-my-org-member-add req)]
+    [(and (GET? m)  (equal? segs '("api" "org" "audit")))   (ep-my-org-audit req)]
     [(and (POST? m) (equal? segs '("api" "notes")))        (ep-notes-create req)]
     [(and (GET? m)  (equal? segs '("api" "notes")))        (ep-notes-list req)]
     [(and (POST? m) (equal? segs '("api" "documents")))    (ep-documents-create req)]
@@ -1154,13 +1354,22 @@
                                       (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))
                                       (or lim 2))         ; per-team fairness: cap = the team's ai.concurrency
                           #:admit? (lambda (conn team)    ; over-budget teams defer, not bypass
+                                     (define org (team-org conn team))
                                      (and (hash-ref (quota-check conn "team" team "ai.requests" 1) 'allowed)
-                                          (hash-ref (quota-check conn "team" team "ai.tokens.total" 1) 'allowed)))
-                          #:record! (lambda (conn team result)   ; bill the run
+                                          (hash-ref (quota-check conn "team" team "ai.tokens.total" 1) 'allowed)
+                                          ;; ...and the COMPANY it belongs to must also be under its cap
+                                          (or (not org)
+                                              (and (hash-ref (quota-check conn "org" org "ai.requests" 1) 'allowed)
+                                                   (hash-ref (quota-check conn "org" org "ai.tokens.total" 1) 'allowed)))))
+                          #:record! (lambda (conn team result)   ; bill the run at both tiers
                                       (define toks (let ([t (and (hash? result) (hash-ref result 'tokens_used #f))])
                                                      (if (number? t) t 0)))
+                                      (define org (team-org conn team))
                                       (quota-record! conn "team" team "ai.requests" 1)
-                                      (quota-record! conn "team" team "ai.tokens.total" toks))))
+                                      (quota-record! conn "team" team "ai.tokens.total" toks)
+                                      (when org
+                                        (quota-record! conn "org" org "ai.requests" 1)
+                                        (quota-record! conn "org" org "ai.tokens.total" toks)))))
   (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency, quota-metered\n")
   (define tls? (tls-on?))
   (define ip (bind-ip))

@@ -12,6 +12,7 @@ forks flagged **Decisions to confirm** in each doc.
 | [quotas.md](quotas.md) | **Quotas** | What is metered per user/team, and the limits. |
 | [ai-queue-and-concurrency.md](ai-queue-and-concurrency.md) | **AI workload scheduler** | Admission, placement & concurrency caps — a workload queue (SLURM/k8s-style), not a message bus; local now, federation-ready. |
 | [localization.md](localization.md) | **Localization** | i18n top-to-bottom + a manager tool (extract → team-complete → CI-gate); English at launch, ja/nl/es-419 built *by the tool*. |
+| [multi-tenancy.md](multi-tenancy.md) | **Multi-tenancy** | Many companies on one instance, behind a flag: an org above the team, a superadmin tier above the org admin, an org gate at step 0 of every check. |
 | [saas-onboarding.md](saas-onboarding.md) | **Onboarding / SaaS** | Provision a per-tenant instance seeded with exactly one owner (signup / subscription / VM launch); operator-vs-owner split, magic-link activation. |
 | [beta-onboarding-experience.md](beta-onboarding-experience.md) | **Beta onboarding** | Skinnable, admin-configurable pre-sales lead capture; core = mechanism, plugin = presentation; extensible `attributes` model + a token-themed render contract. |
 | [nix-packaging.md](nix-packaging.md) | **Build & deploy** *(toolchain, not a platform subsystem)* | Reproducible `nix develop` / `nix build` / `nix run`; retires the brew+`PLTCOLLECTS` ritual and unlocks live Postgres testing. |
@@ -61,16 +62,25 @@ request ─▶ RBAC check ─▶ quota check ─▶ scheduler admission ─▶ e
   meter. The pure spine is untouched — this is exactly what the injected-effects
   design was for.
 
-## Tenancy (decided)
+## Tenancy (decided — revised in slice 45)
 
-**Team is the tenancy boundary**, within **one organization / legal entity** per
-deployment (one or many teams). Isolating *different legal entities* on a shared
-instance is an explicit **non-goal** — hosted multitenant offerings serve that. No
-`org_id` in the schema; the org is implicit. See [decisions.md](decisions.md) (TEN).
+**Team is the tenancy boundary**, and above it sits an **org** (a company). Every
+deployment has at least one org; `TELEMACHUS_MULTITENANT` decides whether it may
+have more.
 
-The **hosted** offering that serves *different legal entities* does so as **one
-isolated instance per tenant** — provisioning + seed-one-owner is specified in
-[saas-onboarding.md](saas-onboarding.md).
+- **Flag off (default)** — exactly one implicit org, and the product behaves as it
+  always has: a deployment serves one legal entity containing one or many teams.
+  This was decision **TEN**.
+- **Flag on** — several companies share one instance, isolated by an org gate that
+  runs *before* every permission, grant and token-scope check. A **superadmin**
+  (`instance:*`) runs the instance; each company's **org admin** (`org:*`) runs
+  only its own. This is decision **TEN‑2**, which supersedes TEN. See
+  [multi-tenancy.md](multi-tenancy.md).
+
+The **hosted** offering can now serve different legal entities either way: as
+**one isolated instance per tenant** ([saas-onboarding.md](saas-onboarding.md)),
+or as several orgs on one instance. The two compose — a provisioned instance is
+just a deployment with the flag off.
 
 ## Follow-up design items (noted, not yet drafted)
 

@@ -9,8 +9,9 @@
 
 (require racket/string)
 
-(provide perm-matches? instance-perm? split-perm
-         builtin-role-keys builtin-role-names builtin-role-perms)
+(provide perm-matches? instance-perm? org-perm? split-perm
+         builtin-role-keys builtin-role-names builtin-role-perms
+         builtin-org-role-keys org-role-key?)
 
 (define (split-perm p)
   (define parts (string-split p ":"))
@@ -18,6 +19,11 @@
           (if (and (pair? parts) (pair? (cdr parts))) (cadr parts) "")))
 
 (define (instance-perm? p) (string-prefix? p "instance:"))
+
+;; `org:*` is the company-administration tier (slice 45). Like instance:*, it is
+;; NOT reachable from a team role — a team owner's "*:*" stewards one team, it does
+;; not administer the company. Granted only via users.org_role_key.
+(define (org-perm? p) (string-prefix? p "org:"))
 
 ;; does a granted permission (possibly wildcarded) cover a required one?
 (define (perm-matches? granted required)
@@ -28,10 +34,18 @@
         (and (or (string=? gr "*") (string=? gr rr))
              (or (string=? ga "*") (string=? ga ra))))))
 
-(define builtin-role-keys '("owner" "admin" "member" "viewer"))
+(define builtin-org-role-keys '("org_owner" "org_admin"))
+(define (org-role-key? k) (and (member k builtin-org-role-keys) #t))
+
+;; team roles + the two org roles. Org roles live in the same `roles` table with
+;; team_id NULL, so a deployer can retune what a company admin may do without a
+;; release — the tier is enforced in code, its contents are data.
+(define builtin-role-keys
+  (append '("owner" "admin" "member" "viewer") builtin-org-role-keys))
 
 (define builtin-role-names
-  (hash "owner" "Owner" "admin" "Admin" "member" "Member" "viewer" "Viewer"))
+  (hash "owner" "Owner" "admin" "Admin" "member" "Member" "viewer" "Viewer"
+        "org_owner" "Organization Owner" "org_admin" "Organization Admin"))
 
 ;; Built-in team roles (team_id NULL). Note: none includes `instance:*` — that
 ;; tier is operator-only and enforced in the authz check, not by role data.
@@ -60,4 +74,22 @@
               "files:read" "files:write"
               "localization:read" "localization:translate")
    ;; read team-visible resources; no AI spend, no mutation
-   "viewer" '("*:read")))
+   "viewer" '("*:read")
+   ;; ---- org tier (slice 45) — company administration ------------------------
+   ;; TEN-2a: an org admin MANAGES but does not READ. No documents:read /
+   ;; notes:read / chat:use here — a company admin who needs a team's data joins
+   ;; that team as a member, and the join is audited. Never `instance:*`.
+   "org_admin" '("org:read" "org:manage"
+                 "team:read" "team:write" "team:create"
+                 "members:manage" "roles:manage" "roles:read"
+                 "quota:manage" "quota:read"
+                 "settings:manage" "features:manage" "tokens:manage"
+                 "audit:read")
+   ;; the org steward — everything org_admin has, plus destroying and paying for
+   ;; the company. Still not `instance:*`.
+   "org_owner" '("org:*"
+                 "team:read" "team:write" "team:create" "team:delete"
+                 "members:manage" "roles:manage" "roles:read"
+                 "quota:manage" "quota:read"
+                 "settings:manage" "features:manage" "tokens:manage"
+                 "audit:read")))

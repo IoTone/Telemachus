@@ -380,4 +380,73 @@
         "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
        "CREATE INDEX idx_onboarding_assets_team ON onboarding_assets(team_id)"))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets))
+;; 0016 — organizations (slice 45): the tenancy layer ABOVE teams, so one instance
+;; can serve several companies. Supersedes decision TEN (single implicit org).
+;; See docs/design/multi-tenancy.md.
+;;
+;; The org row always exists — even single-tenant, where it is the one implicit
+;; org. Same schema, same authorization path in both modes; the feature flag
+;; switches surface area, not semantics.
+;;
+;; `teams.slug` must become per-org unique (two companies may both want an
+;; "engineering" team). SQLite cannot drop an inline UNIQUE, so this branches on
+;; dialect: rebuild-and-copy on SQLite, DROP/ADD CONSTRAINT on PostgreSQL.
+(define m-0016-orgs
+  (migration "0016-orgs"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE orgs ("
+        "  id TEXT PRIMARY KEY,"
+        "  slug TEXT NOT NULL UNIQUE,"
+        "  name TEXT NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'active',"    ; active | suspended
+        "  plan TEXT NOT NULL DEFAULT 'trial',"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       ;; users: home org (NULL = instance-level, i.e. the superadmin belongs to no
+       ;; company) + the org-level role key (NULL = ordinary user, no org rights)
+       "ALTER TABLE users ADD COLUMN org_id TEXT"
+       "ALTER TABLE users ADD COLUMN org_role_key TEXT"
+       "CREATE INDEX idx_users_org ON users(org_id)")
+
+      ;; ---- teams.org_id + UNIQUE(org_id, slug) --------------------------------
+      (case (db-dialect conn)
+        [(postgresql)
+         (exec* conn
+          "ALTER TABLE teams ADD COLUMN org_id TEXT"
+          "ALTER TABLE teams DROP CONSTRAINT IF EXISTS teams_slug_key"
+          "ALTER TABLE teams ADD CONSTRAINT teams_org_slug_key UNIQUE (org_id, slug)")]
+        [else
+         ;; SQLite: rebuild. `teams` is small (one row per team) and this runs
+         ;; inside the migration runner's transaction.
+         (exec* conn
+          (string-append
+           "CREATE TABLE teams_new ("
+           "  id TEXT PRIMARY KEY,"
+           "  org_id TEXT,"
+           "  slug TEXT NOT NULL,"
+           "  name TEXT NOT NULL,"
+           "  status TEXT NOT NULL DEFAULT 'active',"
+           "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+           "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+           "  UNIQUE(org_id, slug))")
+          (string-append
+           "INSERT INTO teams_new (id, org_id, slug, name, status, created_at, updated_at) "
+           "SELECT id, NULL, slug, name, status, created_at, updated_at FROM teams")
+          "DROP TABLE teams"
+          "ALTER TABLE teams_new RENAME TO teams")])
+      (query-exec conn "CREATE INDEX idx_teams_org ON teams(org_id)")
+
+      ;; ---- backfill: every pre-existing team/user joins the implicit org ------
+      ;; An upgraded single-tenant deployment keeps working unchanged: one org,
+      ;; everyone in it.
+      (when (query-maybe-value conn "SELECT id FROM teams LIMIT 1")
+        (define oid "org-default-0000000000000000000")
+        (query-exec conn
+          "INSERT INTO orgs (id, slug, name, plan) VALUES (?, 'default', 'Default Organization', 'self-hosted')"
+          oid)
+        (query-exec conn "UPDATE teams SET org_id = ? WHERE org_id IS NULL" oid)
+        (query-exec conn "UPDATE users SET org_id = ? WHERE org_id IS NULL AND is_operator = 0" oid)))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs))

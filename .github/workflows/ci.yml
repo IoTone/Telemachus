@@ -38,6 +38,12 @@ jobs:
           raco test test/*-tests.rkt
       - name: Server smoke
         run: bash test/server-smoke.sh
+      # Multi-tenancy is off by default, so the smoke run above already covers the
+      # single-tenant path; this boots a second server WITH the flag and asserts the
+      # cross-org isolation properties (and that the surface vanishes when off).
+      # Its own ports (8836/8837) so it never races the smoke run's 8835.
+      - name: Multi-tenancy demo
+        run: bash test/multitenant-demo.sh
       - name: Localization gate
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
