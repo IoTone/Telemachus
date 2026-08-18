@@ -89,6 +89,28 @@ bundle (`/beta/bundle/<plugin>/` + `window.Telemachus.beta` SDK), **C** sandboxe
 template (`/beta/template`). ENV seeds first-boot defaults (`TELEMACHUS_ONBOARDING`,
 `TELEMACHUS_ONBOARDING_FILE`); a published DB experience then wins.
 
+## Multi-tenancy (several companies on one instance)
+
+Off by default. `TELEMACHUS_MULTITENANT=1` adds an **org** layer above teams plus two
+management planes — see `docs/design/multi-tenancy.md` (decision TEN‑2, supersedes TEN).
+
+- **superadmin** (`instance:*`, from bootstrap) runs the instance: `/api/orgs*`.
+- **org admin** (`org:*`, `users.org_role_key`) runs one company: `/api/org*`.
+  It **manages but does not read** team data (TEN‑2a).
+- Isolation is **step 0 of `can?`** — an unconditional deny *before* permissions,
+  owner-ok, token scopes and resource grants, so a share can't tunnel out of an org.
+- `teams.slug` is now unique **per org** (migration `0016-orgs` rebuilds the table on
+  SQLite); `users.username` stays instance-global — use email.
+- Org quotas nest above team quotas (`subject_type='org'`); admission needs both.
+
+```sh
+TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # seeds 2 companies, 46 assertions
+raco test test/tenancy-tests.rkt                          # the authz core, no server
+```
+
+`POST /api/admin/seed-tenants` (superadmin) seeds Acme + Globex with **known dev
+passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, never prod.
+
 ## Git
 
 - Commit/push only when asked. Branch before committing on the default branch.

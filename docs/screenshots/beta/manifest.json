@@ -1,0 +1,52 @@
+[
+  {
+    "file": "01-funnel-landing.png",
+    "title": "The funnel is the default experience",
+    "caption": "With home routing set to beta (TELEMACHUS_HOME=beta), the root route serves the public beta landing — not a login screen. The form is rendered from a pluggable onboarding provider whose copy, fields, and judge prompt are customizable via the SDK."
+  },
+  {
+    "file": "02-first-run.png",
+    "title": "Setup: create the operator",
+    "caption": "Staff reach the team behind the funnel via \"Team sign-in\". On a fresh instance the first run bootstraps the operator/owner (RBAC-5) — the person who will vet inbound prospects — and creates the internal team that owns the pipeline."
+  },
+  {
+    "file": "03-review-empty.png",
+    "title": "Setup: the review inbox",
+    "caption": "The owner-only Beta tab is where prospects arrive. Empty to start — no signups yet."
+  },
+  {
+    "file": "04-funnel-filled.png",
+    "title": "The funnel: a prospect requests access",
+    "caption": "A qualification submission — role, company, address, and phone give the LLM judge real B2B signal to weigh. Captured as a prospect, never as a user account: no password, no login, pre-sales vetting only."
+  },
+  {
+    "file": "05-funnel-submitted.png",
+    "title": "Submitted — after invisible anti-abuse",
+    "caption": "On submit the browser transparently solves a proof-of-work and passes the anti-abuse gate (rate limit, signed single-use challenge, honeypot, min fill-time, velocity caps). The prospect just sees a thank-you."
+  },
+  {
+    "file": "06-owner-review.png",
+    "title": "Review: prospects + the LLM judge",
+    "caption": "The Beta tab lists each prospect with the LLM judge’s verdict (valid? · score/100 · revenue estimate · reasoning) and a count of blocked abusive attempts. The judge ran async through the metered job queue."
+  },
+  {
+    "file": "07-qualified.png",
+    "title": "Qualify or reject — vetting only",
+    "caption": "The owner qualifies (or rejects) each prospect. This vets beta candidates for the internal team; it never provisions a customer account."
+  },
+  {
+    "file": "08-onboarding-editor.png",
+    "title": "Skin it: the console onboarding editor",
+    "caption": "The owner brands the funnel from the Beta tab — logo, hero copy, theme tokens, detail blocks, form fields, and the judge prompt — with a live preview that is exactly what applicants see. Save draft, then Publish. No code, no redeploy; the same Tier-A shell, reskinned entirely from config."
+  },
+  {
+    "file": "09-tier-c-template.png",
+    "title": "Tier C: author a custom HTML template",
+    "caption": "Between no-code (Tier A) and shipping a bundle (Tier B): the owner writes raw HTML with {{placeholders}} right in the console, with a live sandboxed preview. On publish the markup is sanitized (scripts, handlers and dangerous tags stripped) and rendered in an isolated iframe; the submit button is wired to the anti-abuse gate for you."
+  },
+  {
+    "file": "10-tier-b-bundle.png",
+    "title": "Tier B: a fully custom plugin bundle",
+    "caption": "For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero Telemachus chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it."
+  }
+]

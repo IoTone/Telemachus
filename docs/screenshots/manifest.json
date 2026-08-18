@@ -1,0 +1,52 @@
+[
+  {
+    "file": "01-signin.png",
+    "title": "Sign in",
+    "caption": "The reference UI on first load — password + optional 2FA, an EN / 日本語 toggle, and a first-run path to create the initial operator."
+  },
+  {
+    "file": "02-bootstrap.png",
+    "title": "First-run bootstrap",
+    "caption": "Creating the first operator. Under RBAC-5 the first owner bootstraps as the instance operator — a distinct tier above team owners."
+  },
+  {
+    "file": "03-chat.png",
+    "title": "Streaming chat",
+    "caption": "A token-streamed reply from the local model (qwen2.5:7b), admitted through the per-team concurrency governor and metered against AI quotas."
+  },
+  {
+    "file": "04-agent.png",
+    "title": "Agentic tool use",
+    "caption": "The agent plans, calls the create_note tool (🔧), receives the result, and answers — the same registry that also serves plugins, MCP, and sandboxed tools."
+  },
+  {
+    "file": "05-notes.png",
+    "title": "Notes",
+    "caption": "The ownable/shareable resource behind RBAC — team / private / shared visibility. The \"Investor demo\" note here was created by the agent in the previous step."
+  },
+  {
+    "file": "06-translate.png",
+    "title": "Translation app",
+    "caption": "The first user-facing app: live EN→JA translation with a team glossary for consistent terminology and a metered history. The same engine translates whole locale catalogs (the localization dogfood)."
+  },
+  {
+    "file": "07-team.png",
+    "title": "Teams & RBAC",
+    "caption": "Members and roles (owner / admin / member / viewer). Every API call is authorized through the AuthzService; tokens are capped by issuer-permissions ∩ scopes."
+  },
+  {
+    "file": "08-usage.png",
+    "title": "Quotas & tool registry",
+    "caption": "Windowed usage vs. limits, and every agent tool with a source badge: built-in, 🔌 plugin, mcp:mock (external MCP server), and 🛡️ oop:notes-helper (sandboxed out-of-process, with declared scopes)."
+  },
+  {
+    "file": "09-admin.png",
+    "title": "Admin & federated compute",
+    "caption": "Operator-only instance view. The Compute table lists the local node (qwen2.5:7b) and federated executors (🛰️ gpu-sim) — the pluggable seam for remote/HPC compute."
+  },
+  {
+    "file": "10-i18n.png",
+    "title": "Localized top to bottom",
+    "caption": "One toggle re-renders the entire UI in Japanese (ICU MessageFormat catalogs, fallback chain, source-hash staleness) — localization is a core piece, not an afterthought."
+  }
+]

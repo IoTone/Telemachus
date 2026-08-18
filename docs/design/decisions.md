@@ -17,6 +17,7 @@ RBAC‑2 and SCHED‑5"). Choices get recorded in the **Decision log** at the bo
 | ID | Decision | Options — **rec** | Why it matters |
 |---|---|---|---|
 | 🔑 **TEN** | Isolation boundary | **Team = boundary, single implicit org** · vs multi-org now | Changes every isolation check + whether `org_id` exists in schema. Additive later is cheap; retrofitting multi-org isn't. |
+| 🔑 **TEN‑2** | Multi-org tenancy (slice 45) | **Org above team, behind a flag** · vs instance-per-tenant only | ⚠️ **Supersedes TEN.** "Additive later is cheap" was the bet TEN made — TEN‑2 is that addition, cashed in. |
 
 ## B. RBAC & Teams
 
@@ -95,7 +96,13 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 
 | ID | Recommendation (short) | Chosen |
 |---|---|---|
-| TEN | team-boundary, single org | ✅ default — **one legal entity**; cross-entity multitenancy is a **non-goal** [^1] |
+| TEN | team-boundary, single org | ⚠️ **superseded by TEN‑2** (was: one legal entity, multitenancy a non-goal) [^1] |
+| TEN‑2 | org above team, behind `TELEMACHUS_MULTITENANT` | ✅ built (slice 45) — several companies on one instance [^3] |
+| TEN‑2a | org admin **manages but does not read** team data | ✅ built — least privilege; a company admin who needs data joins the team, audibly |
+| TEN‑2b | `username` instance-global (email); `teams.slug` per-org | ✅ built — keeps `/api/login` unambiguous with no org selector |
+| TEN‑2c | a user belongs to **exactly one** org | ✅ built — enforced at the `add-member!` seam |
+| TEN‑2d | per-org branding / subdomain routing | ⬜ open — `orgs.slug` exists, routing does not |
+| TEN‑2e | per-org model endpoints (BYO inference) | ⬜ open — executors are instance-scoped |
 | RBAC‑1 | owner/admin/member/viewer | ✅ default |
 | RBAC‑2 | allow custom per-team roles | ✅ default |
 | RBAC‑3 | within-team shares only (v1) | ✅ default |
@@ -139,7 +146,20 @@ instance holds exactly one user (the owner); provider actions
 [^1]: **TEN.** A deployment serves one organization/legal entity that may contain
 one or many **teams**. Isolating *different legal entities* on a shared instance is
 explicitly **out of scope** — hosted multitenant offerings serve that need. No
-`org_id` in the schema; the org is implicit.
+`org_id` in the schema; the org is implicit. **Superseded by TEN‑2** — this is now
+the behaviour with the multi-tenancy flag off, which remains the default.
+
+[^3]: **TEN‑2.** `orgs` is a real table and `teams.org_id` is a real column, in
+both modes: single-tenant is "exactly one org", not "no org", so the schema and
+the authorization path are identical either way and there is no untested second
+code path. `TELEMACHUS_MULTITENANT` switches *surface area* — the `/api/orgs`
+(superadmin) and `/api/org` (org admin) management planes — not semantics. The
+isolation itself is step 0 of `can?`: an unconditional deny before permissions,
+owner-ok, token scopes and resource grants, so no sharing path can tunnel out of
+an org. Superadmin (`instance:*`) and org admin (`org:*`) are distinct tiers,
+neither reachable from a team role. See
+[multi-tenancy.md](multi-tenancy.md); validated by `test/multitenant-demo.sh`
+and `test/tenancy-tests.rkt`.
 
 [^2]: **RBAC‑5.** There is no separate operator-account setup step: the first user
 created (first team's owner) is granted the instance **operator** capability at

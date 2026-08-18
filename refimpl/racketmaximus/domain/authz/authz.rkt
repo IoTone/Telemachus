@@ -25,6 +25,7 @@
          (struct-out exn:fail:forbidden)
          user-principal principal-for
          create-user! create-team! add-member!
+         create-org! team-org user-org set-user-org-role! user-org-permissions
          seed-builtin-roles! bootstrap!
          user-role-key user-permissions
          can? require-perm
@@ -35,35 +36,82 @@
 
 ;; ---- principal --------------------------------------------------------------
 ;; token-scopes: #f = direct user (uncapped by scopes); (listof string) = token.
-(struct principal (user-id is-operator team-id token-scopes) #:transparent)
+;; org-id:   the principal's HOME organization (#f = instance-level, i.e. the
+;;           superadmin, who belongs to no company and may cross orgs).
+;; org-role: #f | "org_admin" | "org_owner" — the company-administration tier.
+(struct principal (user-id is-operator team-id token-scopes org-id org-role) #:transparent)
 
 (struct exn:fail:forbidden exn:fail (permission) #:transparent)
 
+(define (nz v) (and v (not (sql-null? v)) v))
+
 (define (user-principal conn user-id team-id)
-  (define op (query-maybe-value conn "SELECT is_operator FROM users WHERE id = ?" user-id))
-  (principal user-id (and (number? op) (not (zero? op))) team-id #f))
+  (define row (query-maybe-row conn
+    "SELECT is_operator, org_id, org_role_key FROM users WHERE id = ?" user-id))
+  (define op (and row (vector-ref row 0)))
+  (principal user-id (and (number? op) (not (zero? op))) team-id #f
+             (and row (nz (vector-ref row 1)))
+             (and row (nz (vector-ref row 2)))))
 
 ;; resolve a trusted (username, team-slug) pair to a direct-user principal
+;; team slugs are unique per ORG (slice 45), so resolve the slug inside the user's
+;; own org first; fall back to a global match only when the user has no org yet.
 (define (principal-for conn username team-slug)
-  (define uid (query-maybe-value conn "SELECT id FROM users WHERE username = ?" username))
-  (define tid (query-maybe-value conn "SELECT id FROM teams WHERE slug = ?" team-slug))
+  (define row (query-maybe-row conn "SELECT id, org_id FROM users WHERE username = ?" username))
+  (define uid (and row (vector-ref row 0)))
+  (define oid (and row (nz (vector-ref row 1))))
+  (define tid (or (and oid (query-maybe-value conn
+                             "SELECT id FROM teams WHERE slug = ? AND org_id = ?" team-slug oid))
+                  (query-maybe-value conn "SELECT id FROM teams WHERE slug = ?" team-slug)))
   (and uid tid (user-principal conn uid tid)))
 
 ;; ---- creation ---------------------------------------------------------------
 (define (create-user! conn #:username username #:operator? [operator? #f]
-                      #:display-name [display-name sql-null] #:password [pw #f])
+                      #:display-name [display-name sql-null] #:password [pw #f]
+                      #:org [org-id #f] #:org-role [org-role #f])
   (define uid (new-id))
   (query-exec conn
-    "INSERT INTO users (id, username, display_name, is_operator, password_hash) VALUES (?, ?, ?, ?, ?)"
-    uid username display-name (if operator? 1 0) (if pw (hash-password pw) sql-null))
+    (string-append "INSERT INTO users (id, username, display_name, is_operator, password_hash, "
+                   "org_id, org_role_key) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    uid username display-name (if operator? 1 0) (if pw (hash-password pw) sql-null)
+    (or org-id sql-null) (or org-role sql-null))
   uid)
 
-(define (create-team! conn #:name name #:slug slug)
+;; ---- organizations (slice 45) ----------------------------------------------
+;; The org is the tenancy layer ABOVE teams. It always exists — single-tenant
+;; deployments simply have exactly one. See docs/design/multi-tenancy.md.
+(define (create-org! conn #:name name #:slug slug #:plan [plan "trial"])
+  (define oid (new-id))
+  (query-exec conn "INSERT INTO orgs (id, slug, name, plan) VALUES (?, ?, ?, ?)" oid slug name plan)
+  oid)
+
+(define (team-org conn team-id)
+  (and team-id (nz (query-maybe-value conn "SELECT org_id FROM teams WHERE id = ?" team-id))))
+
+(define (user-org conn user-id)
+  (and user-id (nz (query-maybe-value conn "SELECT org_id FROM users WHERE id = ?" user-id))))
+
+;; promote/demote a user within their company. role-key: #f | org_admin | org_owner
+(define (set-user-org-role! conn user-id role-key)
+  (query-exec conn "UPDATE users SET org_role_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+              (or role-key sql-null) user-id))
+
+(define (create-team! conn #:name name #:slug slug #:org [org-id #f])
   (define tid (new-id))
-  (query-exec conn "INSERT INTO teams (id, slug, name) VALUES (?, ?, ?)" tid slug name)
+  (query-exec conn "INSERT INTO teams (id, slug, name, org_id) VALUES (?, ?, ?, ?)"
+              tid slug name (or org-id sql-null))
   tid)
 
+;; Joining a team also settles the user's home org: a user belongs to exactly one
+;; org (TEN-2c), so this is the single seam where org membership is established.
+;; Raises if the user is already in a DIFFERENT org — that would break the gate.
 (define (add-member! conn #:user user-id #:team team-id #:role role-key)
+  (define torg (team-org conn team-id))
+  (define uorg (user-org conn user-id))
+  (when (and torg uorg (not (equal? torg uorg)))
+    (error 'add-member! "user ~a belongs to org ~a; cannot join a team in org ~a" user-id uorg torg))
+  (when (and torg (not uorg))
+    (query-exec conn "UPDATE users SET org_id = ? WHERE id = ?" torg user-id))
   (define mid (new-id))
   (query-exec conn
     "INSERT INTO memberships (id, user_id, team_id, role_key) VALUES (?, ?, ?, ?)"
@@ -84,12 +132,17 @@
 ;; First-run: create the first user as operator, its team, and an owner
 ;; membership. Refuses if any user already exists. Returns (values user-id team-id).
 (define (bootstrap! conn #:username username #:password [pw #f]
-                    #:team-name [team-name "Default"] #:team-slug [team-slug "default"])
+                    #:team-name [team-name "Default"] #:team-slug [team-slug "default"]
+                    #:org-name [org-name "Default Organization"] #:org-slug [org-slug "default"])
   (when (query-maybe-value conn "SELECT id FROM users LIMIT 1")
     (error 'bootstrap! "already bootstrapped"))
   (seed-builtin-roles! conn)
+  ;; the org always exists — single-tenant is "exactly one org", not "no org", so
+  ;; the schema and the authorization path are identical in both modes.
+  (define oid (or (query-maybe-value conn "SELECT id FROM orgs WHERE slug = ?" org-slug)
+                  (create-org! conn #:name org-name #:slug org-slug #:plan "self-hosted")))
   (define uid (create-user! conn #:username username #:operator? #t #:password pw))
-  (define tid (create-team! conn #:name team-name #:slug team-slug))
+  (define tid (create-team! conn #:name team-name #:slug team-slug #:org oid))
   (add-member! conn #:user uid #:team tid #:role "owner")
   (audit! conn #:action "bootstrap" #:actor-type "user" #:actor-id uid #:team-id tid)
   (values uid tid))
@@ -149,14 +202,53 @@
                      (query-maybe-value conn "SELECT id FROM roles WHERE key = ? AND team_id IS NULL" rk)))
      (if rid (query-list conn "SELECT permission FROM role_permissions WHERE role_id = ?" rid) '())]))
 
+;; a user's ORG-level permissions (slice 45), from users.org_role_key. Org roles
+;; are rows in the same `roles` table (team_id NULL), so their contents are data.
+;; Empty for an ordinary user — the tier is opt-in, never implied by a team role.
+(define (user-org-permissions conn p)
+  (define rk (principal-org-role p))
+  (cond
+    [(not rk) '()]
+    [else
+     (define rid (query-maybe-value conn "SELECT id FROM roles WHERE key = ? AND team_id IS NULL" rk))
+     (if rid (query-list conn "SELECT permission FROM role_permissions WHERE role_id = ?" rid) '())]))
+
+;; The org this check happens in: the resource's team's org, else the principal's
+;; acting team's org, else their home org.
+;; does the principal's ORG role (not its team role) cover this permission?
+(define (org-tier-covers? conn p required)
+  (for/or ([g (in-list (user-org-permissions conn p))]) (perm-matches? g required)))
+
+(define (target-org conn p resource)
+  (define rteam (and resource (hash-ref resource 'team_id #f)))
+  (or (and rteam (team-org conn rteam))
+      (team-org conn (principal-team-id p))
+      (principal-org-id p)))
+
+;; STEP 0 — the tenancy gate. Runs BEFORE permissions, owner-ok, scopes and
+;; grants, and denies unconditionally, so no sharing path can tunnel out of an
+;; org. Superadmins cross orgs by design; everyone else is sealed in.
+(define (org-gate-ok? conn p resource)
+  (or (principal-is-operator p)
+      (let ([t (target-org conn p resource)])
+        (or (not t) (equal? t (principal-org-id p))))))
+
 ;; ---- the check --------------------------------------------------------------
 (define (can? conn p required #:resource [resource #f])
+  (define gate-ok (org-gate-ok? conn p resource))
   (define base-ok
     (cond
+      [(not gate-ok) #f]                                                ; step 0: tenancy gate
       [(instance-perm? required) (and (principal-is-operator p) #t)]   ; operator tier only
+      [(org-perm? required)                                             ; company-admin tier only
+       (or (principal-is-operator p)
+           (for/or ([g (in-list (user-org-permissions conn p))]) (perm-matches? g required)))]
       [(principal-is-operator p) #t]                                    ; operator supersedes team roles
       [else
-       (define granted (user-permissions conn (principal-user-id p) (principal-team-id p)))
+       ;; an org admin manages every team in its own org without a membership
+       ;; there — its grants are unioned with whatever team role it may hold.
+       (define granted (append (user-permissions conn (principal-user-id p) (principal-team-id p))
+                               (user-org-permissions conn p)))
        (for/or ([g (in-list granted)]) (perm-matches? g required))]))
   ;; a resource owner has full rights on their own resource (non-instance)
   (define owner-ok
@@ -166,7 +258,7 @@
   (define scope-ok
     (or (not (principal-token-scopes p))
         (for/or ([s (in-list (principal-token-scopes p))]) (perm-matches? s required))))
-  (and (or base-ok owner-ok) scope-ok (resource-reachable? conn p resource required)))
+  (and gate-ok (or base-ok owner-ok) scope-ok (resource-reachable? conn p resource required)))
 
 (define (require-perm conn p required #:resource [resource #f])
   (unless (can? conn p required #:resource resource)
@@ -184,7 +276,15 @@
      (define vis   (hash-ref res 'visibility "team"))
      (cond
        [(and rteam (principal-team-id p) (not (equal? rteam (principal-team-id p))))
-        (or (principal-is-operator p) (has-grant? conn res p required))]     ; cross-team
+        ;; cross-team. The org gate above has already confirmed same-org.
+        (or (principal-is-operator p)
+            ;; an org admin reaches SIBLING teams in its own company for the
+            ;; permissions its ORG role grants — that is what "administers the
+            ;; company" means. Team-tier permissions never cross a team boundary,
+            ;; and nothing at this tier reaches a `private` resource (TEN-2a).
+            (and (org-tier-covers? conn p required)
+                 (not (equal? (hash-ref res 'visibility "team") "private")))
+            (has-grant? conn res p required))]
        [(or (equal? vis "private") (equal? vis "shared"))
         (or (equal? owner (principal-user-id p))
             (principal-is-operator p)
@@ -195,6 +295,8 @@
   (define rtype (hash-ref res 'resource_type #f))
   (define rid   (hash-ref res 'resource_id #f))
   (cond
+    ;; a resource_grant never crosses an org boundary, even if the row exists
+    [(not (org-gate-ok? conn p res)) #f]
     [(or (not rtype) (not rid)) #f]
     [else
      (define rows (query-list conn
@@ -253,11 +355,15 @@
      (define team-id (vector-ref row 1))
      (define scopes (with-handlers ([exn:fail? (lambda (_) '())])
                       (string->jsexpr (vector-ref row 2))))
-     (define op (query-maybe-value conn "SELECT is_operator FROM users WHERE id = ?" user-id))
+     (define urow (query-maybe-row conn
+       "SELECT is_operator, org_id, org_role_key FROM users WHERE id = ?" user-id))
+     (define op (and urow (vector-ref urow 0)))
      (query-exec conn "UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = ?"
                  (hash-token bearer))
      (principal user-id (and (number? op) (not (zero? op))) team-id
-                (if (list? scopes) scopes '()))]))
+                (if (list? scopes) scopes '())
+                (and urow (nz (vector-ref urow 1)))
+                (and urow (nz (vector-ref urow 2))))]))
 
 ;; ---- resource grants (sharing) ---------------------------------------------
 (define (grant! conn #:resource-type rtype #:resource-id rid
