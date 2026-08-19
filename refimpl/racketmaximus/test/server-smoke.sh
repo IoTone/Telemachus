@@ -5,8 +5,22 @@
 set -u
 cd "$(dirname "$0")/.."
 export PLTCOLLECTS="$(pwd)/pkgs:"
-export TELEMACHUS_DATA_DIR="$(mktemp -d)"
 export PORT="${PORT:-8835}"   # must be exported — the server reads it from the environment
+
+# Refuse to start if the port is taken — BEFORE creating the temp dir, so a refusal
+# leaves nothing behind. Without this the readiness loop below is satisfied by
+# SOMEONE ELSE's server (a dev instance on the default 8835) and every assertion
+# runs against the wrong database — which reads as a baffling wall of failures
+# rather than "the port was busy". The probe runs in a CHILD bash on purpose:
+# `(exec 3<>/dev/tcp/...)` in this shell is optimized out of its subshell, so a
+# failed redirection would take the script down with it instead of returning false.
+port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
+if port_busy "$PORT"; then
+  echo "port $PORT is already in use — set PORT=<free port>" >&2
+  exit 1
+fi
+
+export TELEMACHUS_DATA_DIR="$(mktemp -d)"
 DB="$TELEMACHUS_DATA_DIR/telemachus.db"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$DB}"   # respect a pre-set URL (e.g. postgres)
 echo "smoke DATABASE_URL=$DATABASE_URL"
@@ -129,6 +143,57 @@ assert "translate hist"  "$(curl -s $B/api/translate -H "Authorization: Bearer $
 assert "executors local" "$(curl -s $B/api/executors -H "Authorization: Bearer $OP")" '"name":"local"'
 assert "executor gated"  "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $BOB" -d '{"prompt":"hi","executor":"gpu-node"}')" 'Forbidden: instance:manage'
 assert "usage report"    "$(curl -s $B/api/usage -H "Authorization: Bearer $OP")" 'ai.tokens.total'
+# ---- workflows (slice 46) -----------------------------------------------------
+# Deliberately BEFORE the quota throttling below: a workflow step is a scheduler
+# job, so a zeroed token budget would (correctly) leave its steps deferred forever.
+# Note create_note is still DISABLED here, from the tool-toggle assertion above —
+# which is what makes the first run a test of per-team tool activation.
+assert "wf schema public" "$(curl -s $B/api/workflows/schema)" '"unknown_fields":"rejected"'
+assert "wf rejects unknown field" \
+  "$(curl -s -X POST $B/api/workflows -H "Authorization: Bearer $OP" -d '{"spec":1,"slug":"x","steps":[{"id":"a","uses":"tool:t","onError":"ignore"}]}')" \
+  "unknown field 'onError'"
+assert "wf rejects newer spec" \
+  "$(curl -s -X POST $B/api/workflows -H "Authorization: Bearer $OP" -d '{"spec":2,"slug":"x","steps":[{"id":"a","uses":"tool:t"}]}')" \
+  'this server speaks 1'
+assert "wf rejects dangling ref" \
+  "$(curl -s -X POST $B/api/workflows -H "Authorization: Bearer $OP" -d '{"spec":1,"slug":"x","steps":[{"id":"a","uses":"tool:t","with":{"v":"${steps.ghost.output.y}"}}]}')" \
+  "references unknown step 'ghost'"
+
+WF='{"spec":1,"slug":"smoke-filer","input":{"subject":"string"},"steps":[
+ {"id":"write","uses":"tool:create_note","with":{"title":"${input.subject}","body":"via smoke"}},
+ {"id":"gate","uses":"choice","when":{"contains":["${steps.write.output.result}","Created note"]},"then":"ok"},
+ {"id":"ok","uses":"tool:create_note","with":{"title":"wf-confirmed","body":"${steps.write.output.result}"},"end":true}]}'
+assert "wf publish" "$(curl -s -X POST $B/api/workflows -H "Authorization: Bearer $OP" -d "$WF")" '"slug":"smoke-filer"'
+assert "wf listed"  "$(curl -s $B/api/workflows -H "Authorization: Bearer $OP")" '"slug":"smoke-filer"'
+
+# start a run and poll until it leaves 'running'; echoes the final run JSON
+wf_run(){ # <subject> -> run json
+  local rid
+  rid=$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+          -d "{\"input\":{\"subject\":\"$1\"}}" | grep -oP '"id":"\K[^"]+' | head -1)
+  local rs=""
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    rs=$(curl -s $B/api/runs/$rid -H "Authorization: Bearer $OP")
+    printf '%s' "$rs" | grep -qF '"status":"running"' || break
+    sleep 0.5
+  done
+  printf '%s' "$rs"
+}
+
+# a step may not do what the team has switched off — activation composes with flows
+DISABLED=$(wf_run "Blocked deck")
+assert "wf honors tool activation" "$DISABLED" "tool 'create_note' is disabled"
+assert "wf fails the run"          "$DISABLED" '"status":"error"'
+
+curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":true}' >/dev/null
+DONE=$(wf_run "Smoke deck")
+assert "wf run completes"  "$DONE" '"status":"done"'
+assert "wf ran the branch" "$DONE" '"step_id":"ok"'
+assert "wf did real work"  "$(curl -s $B/api/notes -H "Authorization: Bearer $OP")" '"title":"wf-confirmed"'
+assert "wf member cannot publish" \
+  "$(curl -s -X POST $B/api/workflows -H "Authorization: Bearer $BOB" -d "$WF")" 'Forbidden: workflows:write'
+curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}' >/dev/null  # restore
+
 curl -s -X POST $B/api/quota -H "Authorization: Bearer $OP" -d '{"dimension":"ai.tokens.total","limit":3,"window":"day"}' >/dev/null
 assert "quota 429"       "$(curl -s -X POST $B/api/ai/echo -H "Authorization: Bearer $OP" -d '{"prompt":"exceeds the tiny token budget now"}')" 'quota exceeded'
 assert "ui served"       "$(curl -s $B/)" '<!doctype html>'

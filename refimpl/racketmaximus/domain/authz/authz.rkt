@@ -32,7 +32,8 @@
          issue-token! resolve-token list-tokens revoke-token!
          grant! revoke!
          audit! audit-list
-         set-password! change-password! authenticate enable-2fa! first-team-for)
+         set-password! change-password! authenticate enable-2fa! first-team-for
+         user-locale set-user-locale!)
 
 ;; ---- principal --------------------------------------------------------------
 ;; token-scopes: #f = direct user (uncapped by scopes); (listof string) = token.
@@ -66,6 +67,15 @@
   (and uid tid (user-principal conn uid tid)))
 
 ;; ---- creation ---------------------------------------------------------------
+;; the user's own language (slice 47) — bound by workflows as ${principal.locale}
+(define (user-locale conn user-id)
+  (define v (query-maybe-value conn "SELECT locale FROM users WHERE id = ?" user-id))
+  (if (or (not v) (sql-null? v) (equal? v "")) "en" v))
+
+(define (set-user-locale! conn user-id locale)
+  (query-exec conn "UPDATE users SET locale = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" locale user-id)
+  locale)
+
 (define (create-user! conn #:username username #:operator? [operator? #f]
                       #:display-name [display-name sql-null] #:password [pw #f]
                       #:org [org-id #f] #:org-role [org-role #f])

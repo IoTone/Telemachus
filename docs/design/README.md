@@ -13,9 +13,10 @@ forks flagged **Decisions to confirm** in each doc.
 | [ai-queue-and-concurrency.md](ai-queue-and-concurrency.md) | **AI workload scheduler** | Admission, placement & concurrency caps — a workload queue (SLURM/k8s-style), not a message bus; local now, federation-ready. |
 | [localization.md](localization.md) | **Localization** | i18n top-to-bottom + a manager tool (extract → team-complete → CI-gate); English at launch, ja/nl/es-419 built *by the tool*. |
 | [multi-tenancy.md](multi-tenancy.md) | **Multi-tenancy** | Many companies on one instance, behind a flag: an org above the team, a superadmin tier above the org admin, an org gate at step 0 of every check. |
+| [workflow-engine.md](workflow-engine.md) | **Workflow engine** | Plugins that process in steps: a public data spec as the contract, `define-workflow` as the Racket authoring surface, every step a scheduler job. *(Operators: [../ops/workflow-engine-runbook.md](../ops/workflow-engine-runbook.md).)* |
 | [saas-onboarding.md](saas-onboarding.md) | **Onboarding / SaaS** | Provision a per-tenant instance seeded with exactly one owner (signup / subscription / VM launch); operator-vs-owner split, magic-link activation. |
 | [beta-onboarding-experience.md](beta-onboarding-experience.md) | **Beta onboarding** | Skinnable, admin-configurable pre-sales lead capture; core = mechanism, plugin = presentation; extensible `attributes` model + a token-themed render contract. |
-| [nix-packaging.md](nix-packaging.md) | **Build & deploy** *(toolchain, not a platform subsystem)* | Reproducible `nix develop` / `nix build` / `nix run`; retires the brew+`PLTCOLLECTS` ritual and unlocks live Postgres testing. |
+| [nix-packaging.md](nix-packaging.md) | **Build & deploy** *(toolchain, not a platform subsystem)* | ✅ **Built.** Reproducible `nix develop` / `nix build` / `nix run`; retires the brew+`PLTCOLLECTS` ritual and unlocks live Postgres testing. |
 
 ## How they interlock
 

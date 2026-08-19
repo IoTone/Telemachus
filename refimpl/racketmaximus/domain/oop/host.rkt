@@ -17,7 +17,7 @@
 ;;   host→plugin  {"type":"host_result","id","result":{…}} | {"type":"host_error","id","error"}
 ;;   plugin→host  {"type":"result","id","text"}
 
-(require json
+(require (only-in "../../config.rkt" impl-root) json
          racket/string
          racket/port
          racket/system
@@ -74,6 +74,14 @@
 (define (resolve command)
   (cond [(absolute-path? command) command] [(find-executable-path command) => values] [else command]))
 
+;; …and the same for the script it is handed: relative means relative to the
+;; implementation root, not to the server's current working directory.
+(define (resolve-arg a)
+  (if (and (string? a) (regexp-match #rx"[.]rkt$" a) (not (absolute-path? a))
+           (file-exists? (build-path impl-root a)))
+      (path->string (build-path impl-root a))
+      a))
+
 ;; ---- call a plugin tool, servicing its capability requests ------------------
 (define (oop-call plugin conn principal tool args #:timeout [secs 30])
   (call-with-semaphore (oop-plugin-lock plugin)
@@ -100,7 +108,7 @@
 
 ;; ---- connect + register -----------------------------------------------------
 (define (oop-connect name command args #:timeout [secs 15])
-  (define-values (proc out in err) (apply subprocess #f #f #f (resolve command) args))
+  (define-values (proc out in err) (apply subprocess #f #f #f (resolve command) (map resolve-arg args)))
   (define p0 (oop-plugin name '() proc out in (make-semaphore 1)))
   (send-line p0 (hasheq 'type "describe"))
   (let loop ()

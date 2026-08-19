@@ -449,4 +449,74 @@
         (query-exec conn "UPDATE teams SET org_id = ? WHERE org_id IS NULL" oid)
         (query-exec conn "UPDATE users SET org_id = ? WHERE org_id IS NULL AND is_operator = 0" oid)))))
 
-(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs))
+;; 0017 — workflow engine (slice 46): plugins that process in steps. Three tables:
+;; the published DEFINITION (a validated spec document — the public contract, see
+;; docs/design/workflow-engine.md), a RUN of one, and that run's STEPS. Each step
+;; is executed as a scheduler job, so `jobs` carries the durability and `job_id`
+;; is the join back to it. No org_id: a team belongs to exactly one org (TEN-2),
+;; so the org is derivable and a second source of truth would only drift.
+(define m-0017-workflows
+  (migration "0017-workflows"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE workflow_defs ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  slug TEXT NOT NULL,"
+        "  version INTEGER NOT NULL DEFAULT 1,"
+        "  source TEXT NOT NULL DEFAULT 'db',"          ; db | plugin:<id> | builtin
+        "  spec TEXT NOT NULL,"                          ; the validated spec document
+        "  status TEXT NOT NULL DEFAULT 'active',"       ; active | archived
+        "  created_by TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(team_id, slug, version))")
+       "CREATE INDEX idx_wf_defs_team ON workflow_defs(team_id)"
+
+       (string-append
+        "CREATE TABLE workflow_runs ("
+        "  id TEXT PRIMARY KEY,"
+        "  def_id TEXT NOT NULL,"
+        "  team_id TEXT NOT NULL,"
+        "  user_id TEXT NOT NULL,"                       ; the pinned principal
+        "  status TEXT NOT NULL DEFAULT 'running',"      ; running|waiting|done|error|canceled
+        "  input TEXT NOT NULL DEFAULT '{}',"
+        "  output TEXT,"
+        "  error TEXT,"
+        "  cursor_json TEXT NOT NULL DEFAULT '{}',"      ; not `cursor` — reserved-word-adjacent
+        "  steps_used INTEGER NOT NULL DEFAULT 0,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  started_at TEXT,"
+        "  finished_at TEXT)")
+       "CREATE INDEX idx_wf_runs_team ON workflow_runs(team_id)"
+       "CREATE INDEX idx_wf_runs_def ON workflow_runs(def_id)"
+
+       (string-append
+        "CREATE TABLE workflow_steps ("
+        "  id TEXT PRIMARY KEY,"
+        "  run_id TEXT NOT NULL,"
+        "  parent_id TEXT,"                              ; set on a `map` child: its fan-out step row
+        "  step_id TEXT NOT NULL,"                       ; the id inside the spec ("<map>#<i>" for a child)
+        "  seq INTEGER NOT NULL DEFAULT 0,"
+        "  status TEXT NOT NULL DEFAULT 'queued',"       ; queued|running|done|error
+        "  attempt INTEGER NOT NULL DEFAULT 1,"
+        "  job_id TEXT,"
+        "  input TEXT,"
+        "  output TEXT,"
+        "  error TEXT,"
+        "  started_at TEXT,"
+        "  finished_at TEXT)")
+       "CREATE INDEX idx_wf_steps_run ON workflow_steps(run_id)"
+       "CREATE INDEX idx_wf_steps_parent ON workflow_steps(parent_id)"))))
+
+;; 0018 — the user's own language (slice 47). i18n has always been request-scoped
+;; (Accept-Language); this is the durable preference a workflow can bind to as
+;; ${principal.locale}, so "translate back into the user's language" is a property
+;; of the profile rather than of whichever browser started the run.
+(define m-0018-user-locale
+  (migration "0018-user-locale"
+    (lambda (conn)
+      (exec* conn "ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'"))))
+
+(define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
+                             m-0017-workflows m-0018-user-locale))

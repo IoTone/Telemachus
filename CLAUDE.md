@@ -16,7 +16,12 @@ owner-authored Racket + owner-authored docs** may be carried over (see
 
 ## Build / test (run from `refimpl/racketmaximus/`)
 
-Racket is linuxbrew **minimal-racket 9.2 CS** (apt Racket is only 8.2 — don't use it):
+**Preferred: `nix develop`** from the repo root — it pins Racket 9.2 and exports
+`PLTCOLLECTS` for you, and adds postgres/sqlite/openssl/node. `nix build` runs the
+unit suite in the sandbox; `nix flake check` adds the HTTP smoke. Nix only sees
+**git-tracked** files, so `git add` a new source file before building.
+
+Without Nix, Racket is linuxbrew **minimal-racket 9.2 CS** (apt Racket is only 8.2 — don't use it):
 
 ```sh
 export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"
@@ -110,6 +115,37 @@ raco test test/tenancy-tests.rkt                          # the authz core, no s
 
 `POST /api/admin/seed-tenants` (superadmin) seeds Acme + Globex with **known dev
 passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, never prod.
+
+## Workflow engine (plugins that process in steps)
+
+Slice 46. A workflow is a **validated data spec** — that spec is the public
+contract (WF‑9), and `define-workflow` is a macro that emits it, the same move
+`define-tool` already makes for tools. See `docs/design/workflow-engine.md`.
+
+- `domain/flow/spec.rkt` is **normative**: both the macro's output and a document
+  posted to `/api/workflows` go through `validate-spec`. Never add a second path.
+- **Unknown fields are rejected** (WF‑10), including a newer `spec` version and a
+  step kind this build lacks. That refusal is the design, not a gap.
+- The binding sublanguage is **frozen** (`domain/flow/bind.rkt`): references and
+  seven predicates, no arithmetic, no eval. The escape hatch is "write a tool".
+- Execution is a reducer: `flow-advance!` reads the run from the DB and enqueues
+  the next step as a `flow.step` **scheduler job**, so durability, cancel, quota
+  admission and the org gate are all inherited. Nothing lives in memory — a run
+  survives a restart because the rows are the state.
+- Ships `tool:<name>`, `choice` and `map` (fan-out). `agent`/`job:`/`flow:` deferred.
+- A plugin may `(provide workflows)` or drop `workflows/*.json`; those specs are
+  **materialized** into a team's `workflow_defs` on first lookup (`source:
+  'plugin:<id>'`) — a plugin has no team at load time.
+- `${principal.locale}` is `users.locale` (migration 0018), NOT `Accept-Language`.
+
+Operator runbook: `docs/ops/workflow-engine-runbook.md`.
+
+```sh
+raco test test/flow-tests.rkt      # 20 cases, no server
+bash test/server-smoke.sh          # includes publish → run → assert over HTTP
+# needs a live model; refuses to start without one, on purpose:
+TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
+```
 
 ## Git
 

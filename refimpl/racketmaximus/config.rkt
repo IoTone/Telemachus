@@ -25,8 +25,16 @@
 
 ;; Prototyping default is sqlite. DATABASE_URL overrides; when the Postgres
 ;; backend lands in db-kit, a `postgres://…` URL will resolve here unchanged.
+;;
+;; The default is derived from `data-dir`, NOT a relative "./data/…". A relative
+;; URL resolves against `impl-root`, so the database landed next to the source no
+;; matter what TELEMACHUS_DATA_DIR said — which made that variable a half-truth
+;; (it moved the TLS cert but not the database) and put the database inside a
+;; read-only Nix store for a packaged install. One writable state directory,
+;; named by one variable.
 (define (database-url)
-  (or (getenv "DATABASE_URL") "sqlite:///./data/telemachus.db"))
+  (or (getenv "DATABASE_URL")
+      (string-append "sqlite:///" (path->string (build-path (data-dir) "telemachus.db")))))
 
 ;; Open the app db (relative URLs resolve against the implementation root).
 (define (call-with-app-db proc #:mode [mode 'read/write])

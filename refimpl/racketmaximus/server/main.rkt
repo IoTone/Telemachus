@@ -49,6 +49,8 @@
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
          "../domain/sched/scheduler.rkt"          ; async job queue + worker pool
+         "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
+         "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/agent/run.rkt"
@@ -471,8 +473,22 @@
                                                "SELECT slug FROM orgs WHERE id = ?" o)) 'null))
                              'org_role (or (principal-org-role p) 'null)
                              'multitenant (multitenant?)
+                             'locale (user-locale db-conn (principal-user-id p))
                              'permissions (perms-of p)
                              'token_scopes (or (principal-token-scopes p) 'null)))))
+
+;; the user's own language — the durable preference a workflow binds to as
+;; ${principal.locale}, as opposed to the per-request Accept-Language header
+(define (ep-profile req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define loc (hash-ref b 'locale #f))
+    (cond
+      [(not (and (string? loc) (regexp-match #px"^[a-zA-Z]{2,3}([-_][A-Za-z0-9]{2,8})*$" loc)))
+       (err "locale required, e.g. \"es\" or \"es-419\"" 400)]
+      [else
+       (set-user-locale! db-conn (principal-user-id p) loc)
+       (json-response (hasheq 'ok #t 'locale loc))]))))
 
 (define (ep-members-list req)
   (with-auth req (lambda (p)
@@ -1073,6 +1089,55 @@
       [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
       [else (err "not found" 404)]))))
 
+;; ---- workflows (slice 46) ---------------------------------------------------
+;; The spec is the contract: `validate-spec` is reached the same way from here as
+;; from `define-workflow`, so a JSON document and a Racket-authored one are held to
+;; one definition of valid. Every run pins the caller as its principal and each
+;; step re-checks it, so a workflow can never do what its starter could not.
+(define (ep-workflows-create req)
+  (with-auth req (lambda (p)
+    (define d (flow-publish! db-conn p (read-json-body req)))
+    (json-response d #:code 201))))
+
+(define (ep-workflows-list req)
+  (with-auth req (lambda (p) (json-response (hasheq 'workflows (flow-defs db-conn p))))))
+
+;; contract discovery — deliberately unauthenticated: it describes the format this
+;; build accepts, which an editor or a second implementation needs before it holds
+;; a token, and it reveals nothing about the instance.
+(define (ep-workflow-schema req) (json-response (spec-schema)))
+
+(define (ep-workflow-get req slug)
+  (with-auth req (lambda (p)
+    (define d (flow-def-by-slug db-conn p slug))
+    (if d (json-response d) (err "not found" 404)))))
+
+(define (ep-workflow-run req slug)
+  (with-auth req (lambda (p)
+    (define d (flow-def-by-slug db-conn p slug))
+    (cond
+      [(not d) (err "not found" 404)]
+      [else
+       (define b (read-json-body req))
+       (define in (let ([i (hash-ref b 'input (hasheq))]) (if (hash? i) i (hasheq))))
+       (json-response (flow-run-start! db-conn p d #:input in) #:code 202)]))))
+
+(define (ep-runs-list req)
+  (with-auth req (lambda (p) (json-response (hasheq 'runs (flow-runs db-conn p))))))
+
+(define (ep-run-get req id)
+  (with-auth req (lambda (p)
+    (define r (flow-run-get db-conn p id))
+    (if r (json-response r) (err "not found" 404)))))
+
+(define (ep-run-cancel req id)
+  (with-auth req (lambda (p)
+    (define r (flow-run-cancel! db-conn p id))
+    (cond
+      [(eq? r #t) (json-response (hasheq 'ok #t 'id id 'status "canceled"))]
+      [(eq? r 'not-cancelable) (err "run already finished — cannot cancel" 409)]
+      [else (err "not found" 404)]))))
+
 (define (ep-admin-seed req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "settings:manage")
@@ -1166,6 +1231,16 @@
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
 ;; /api/orgs/<id> · /api/orgs/<id>/{suspend,resume,quota}
+(define (workflow-slug segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "workflows") (caddr segs)))
+(define (workflow-run-path segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "workflows")
+       (equal? (list-ref segs 3) "run") (list-ref segs 2)))
+(define (flow-run-id-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "runs") (caddr segs)))
+(define (flow-run-cancel-path segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "runs")
+       (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
 (define (org-id-path segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "orgs") (caddr segs)))
 (define (org-action-path segs action)
@@ -1213,6 +1288,7 @@
     [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
     [(and (POST? m) (equal? segs '("api" "password")))      (ep-password req)]
     [(and (GET? m)  (equal? segs '("api" "whoami")))        (ep-whoami req)]
+    [(and (POST? m) (equal? segs '("api" "profile")))       (ep-profile req)]
     [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
     [(and (GET? m)  (equal? segs '("api" "members")))       (ep-members-list req)]
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
@@ -1263,6 +1339,15 @@
     [(and (GET? m)  (equal? segs '("api" "jobs")))         (ep-jobs-list req)]
     [(and (POST? m) (job-cancel-path segs))                (ep-job-cancel req (job-cancel-path segs))]
     [(and (GET? m)  (job-id segs))                         (ep-job-get req (job-id segs))]
+    ;; workflows (slice 46) — /schema is matched before /<slug> on purpose
+    [(and (POST? m) (equal? segs '("api" "workflows")))     (ep-workflows-create req)]
+    [(and (GET? m)  (equal? segs '("api" "workflows")))     (ep-workflows-list req)]
+    [(and (GET? m)  (equal? segs '("api" "workflows" "schema"))) (ep-workflow-schema req)]
+    [(and (POST? m) (workflow-run-path segs))               (ep-workflow-run req (workflow-run-path segs))]
+    [(and (GET? m)  (workflow-slug segs))                   (ep-workflow-get req (workflow-slug segs))]
+    [(and (GET? m)  (equal? segs '("api" "runs")))          (ep-runs-list req)]
+    [(and (POST? m) (flow-run-cancel-path segs))            (ep-run-cancel req (flow-run-cancel-path segs))]
+    [(and (GET? m)  (flow-run-id-path segs))                (ep-run-get req (flow-run-id-path segs))]
     [(and (POST? m) (equal? segs '("api" "admin" "seed")))  (ep-admin-seed req)]
     [(and (GET? m)  (equal? segs '("api" "metrics")))      (ep-metrics req)]
     [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
@@ -1277,6 +1362,9 @@
   (parameterize ([current-localizer (localizer-for (accept-language req))])
     (with-handlers ([exn:fail:forbidden?
                      (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
+                    ;; a refused workflow spec is the caller's mistake — and the
+                    ;; detail is the whole point of rejecting rather than ignoring
+                    [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
                     [exn:fail? (lambda (e) (err (exn-message e) 500))])
       (route req))))
 

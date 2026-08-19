@@ -64,7 +64,8 @@
               "memory:read" "memory:write"
               "files:read" "files:write"
               "localization:read" "localization:translate" "localization:review"
-              "localization:manage")
+              "localization:manage"
+              "workflows:read" "workflows:write" "workflows:run")
    ;; use AI + own resources
    "member" '("chat:use" "tools:invoke" "research:use"
               "documents:read" "documents:write"
@@ -72,19 +73,22 @@
               "tasks:read" "tasks:write"
               "memory:read" "memory:write"
               "files:read" "files:write"
-              "localization:read" "localization:translate")
+              "localization:read" "localization:translate"
+              "workflows:read" "workflows:run")
    ;; read team-visible resources; no AI spend, no mutation
    "viewer" '("*:read")
    ;; ---- org tier (slice 45) — company administration ------------------------
    ;; TEN-2a: an org admin MANAGES but does not READ. No documents:read /
    ;; notes:read / chat:use here — a company admin who needs a team's data joins
    ;; that team as a member, and the join is audited. Never `instance:*`.
+   ;; WF-7: `workflows:read` and NOT `workflows:run` — running someone's workflow
+   ;; is reading their data by proxy, which is exactly what TEN-2a forbids.
    "org_admin" '("org:read" "org:manage"
                  "team:read" "team:write" "team:create"
                  "members:manage" "roles:manage" "roles:read"
                  "quota:manage" "quota:read"
                  "settings:manage" "features:manage" "tokens:manage"
-                 "audit:read")
+                 "audit:read" "workflows:read")
    ;; the org steward — everything org_admin has, plus destroying and paying for
    ;; the company. Still not `instance:*`.
    "org_owner" '("org:*"
@@ -92,4 +96,4 @@
                  "members:manage" "roles:manage" "roles:read"
                  "quota:manage" "quota:read"
                  "settings:manage" "features:manage" "tokens:manage"
-                 "audit:read")))
+                 "audit:read" "workflows:read")))

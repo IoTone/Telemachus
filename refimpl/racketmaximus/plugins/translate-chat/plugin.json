@@ -1,0 +1,7 @@
+{
+  "id": "translate-chat",
+  "name": "Translate Chat",
+  "version": "0.1.0",
+  "description": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
+  "entry": "main.rkt"
+}
