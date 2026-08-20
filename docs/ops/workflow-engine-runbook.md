@@ -44,11 +44,17 @@ Nothing to install but Nix itself. The toolchain, its version, and every test
 dependency are pinned in `flake.lock`.
 
 ```sh
-nix run  github:IoTone/Telemachus            # run a server, no checkout needed
-nix build github:IoTone/Telemachus           # build + run the full unit suite
+nix run   github:IoTone/Telemachus/dev       # run a server, no checkout needed
+nix build github:IoTone/Telemachus/dev       # build + run the full unit suite
 nix develop                                  # dev shell, from a checkout
 nix flake check                              # unit suite + HTTP smoke, sandboxed
 ```
+
+> **The `/dev` ref is not optional yet.** A bare `github:IoTone/Telemachus` resolves
+> to the repository's **default branch**, which is `main` — and `main` has neither
+> the flake nor the workflow engine. It fails with
+> `path '«github:IoTone/Telemachus/<sha>»/flake.nix' does not exist`. Drop the
+> `/dev` only once this work is merged to `main`.
 
 `nix develop` gives you Racket 9.2, `PLTCOLLECTS` already exported, plus
 PostgreSQL, SQLite, OpenSSL, Node and `jq`. It replaces the entire ritual in
@@ -58,9 +64,13 @@ The packaged server writes **nothing** to its own install prefix: state goes to
 `$TELEMACHUS_DATA_DIR`, defaulting to `${XDG_STATE_HOME:-$HOME/.local/state}/telemachus`.
 
 ```sh
-nix profile install github:IoTone/Telemachus
+nix profile install github:IoTone/Telemachus/dev
 TELEMACHUS_DATA_DIR=/var/lib/telemachus PORT=8835 telemachus-server
 ```
+
+From a checkout, `nix run .` and `nix build .` use the working tree instead — but
+Nix only reads **git-tracked** files, so `git add` a new source file before
+building or it will be missing from the sandbox.
 
 > `nix build` runs `raco test test/*-tests.rkt` and the localization gate **inside
 > the sandbox**, so a successful build is a passing test run. `nix flake check`
