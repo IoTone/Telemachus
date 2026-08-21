@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32" role="img" aria-label="Telemachus">
-  <path d="M16 55 V29 a16 16 0 0 1 32 0 V55 Z
-           M22 30 h20 a5.5 5.5 0 0 1 0 11 h-20 a5.5 5.5 0 0 1 0 -11 Z
-           M29.3 30 h5.4 v18 a2.7 2.7 0 0 1 -5.4 0 Z" fill="currentColor" fill-rule="evenodd"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32" role="img" aria-label="Telemachus — a helm whose eyes and nasal bar read as an owl and as the letter T">
+  <!-- 24-40 px. Eyes opened to r5, nasal widened to 6. No brow bar. -->
+  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
+           M19 33 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 Z
+           M35 33 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 Z
+           M29 26 v27 h6 V26 Z"
+        fill="currentColor" fill-rule="nonzero"/>
 </svg>

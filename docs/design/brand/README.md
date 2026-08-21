@@ -1,57 +1,81 @@
 # Telemachus — brand
 
-The mark is **Mentor**, chosen from nine directions in the identity study.
+The mark is **Mentor** — direction **02** of the nine-direction identity study,
+adopted as drawn there.
 
 > Athena came to Telemachus disguised as Mentor — an intelligence wearing a familiar
 > form, telling a young man to go and find out who he is. The word *mentor* comes
 > from that disguise. It is the closest thing in literature to an honest description
 > of an assistant, and it is the reason this project has this name.
 
-A Corinthian helm's face opening is already a **T**. So one aperture does three jobs
-at once: the silhouette is a helm, the rounded terminals read as an owl's eyes, and
-the void is the letter. One shape, three readings, no explanation required.
+An arched helm. Its two round eyes are an owl's. Its nasal guard runs the full drop
+of the face, and the **gold brow bar** laid across the top of that guard completes a
+**T**. Helm, owl, letter — three readings of one drawing.
 
 ## Files
 
 | File | Use |
 |---|---|
-| `mentor-mark.svg` | primary, aegean fill. Presentations, README, anywhere on a light ground |
-| `mentor-mark-mono.svg` | one path, `currentColor`. **Default for anything in-product** |
+| `mentor-mark.svg` | primary — aegean helm, gold brow. Light grounds |
+| `mentor-mark-reversed.svg` | bone helm, gold brow, for aegean/dark grounds. **The study's own presentation** |
+| `mentor-mark-mono.svg` | one path, `currentColor`, no brow bar. **Default for anything in-product** |
 | `mentor-mark-32.svg` | 24–40 px |
 | `mentor-mark-16.svg` | **≤ 20 px.** A different drawing, not a smaller one |
-| `favicon.svg` | browser tabs — carries its own ground |
+| `favicon.svg` | browser tabs — the 16 drawing, carrying its own ground |
 | `mentor-lockup.svg` | horizontal, mark + wordmark |
 | `mentor-lockup-stacked.svg` | vertical, with the descriptor line |
-| `can-submark.svg` | optional technical sub-mark (see below) |
+| `can-submark.svg` | optional technical sub-mark — direction 04 (see below) |
+
+## Two things about this mark that are easy to get wrong
+
+**The brow bar is the crossbar of the T, and it is the only part that needs a second
+colour.** Drop the gold and you keep the helm and the owl but lose the letter. That
+is why the study itself omits the bar at 32 and 16, and why `mentor-mark-mono.svg`
+omits it too: below a certain size a 3.4-unit gold rule is mud, and one honest
+reading beats three muddy ones. Where a second colour is available and the mark is
+large enough to carry it — a title slide, a README header, the top of a page — use a
+file **with** the bar. It is the whole double-read.
+
+The bar also overhangs the dome slightly at each end. That is drawn, not a bug: it
+reads as a crest band crossing the helm rather than a chord inside it.
+
+**The nasal guard runs to the base, and splits it.** The two shapes it leaves are the
+cheek pieces, and they are meant to be there. Do not shorten the guard to close the
+base — that is a different mark.
+
+## The fill rule is `nonzero`, and the holes are wound counter-clockwise
+
+Not decoration. The study painted the eyes and the nasal bar as opaque `#132c46`
+shapes sitting *on* the helm, which works on the study's own aegean field and nowhere
+else, so here they are real holes instead. At 16 px the eyes (r 6, at cx 23 and 41)
+overlap the nasal bar (x 28.5…35.5) by half a unit — and under `evenodd` two
+overlapping holes cancel, filling the overlap back in and welding the face shut. With
+`nonzero` and counter-wound holes they simply union, which is what the drawing wants:
+one connected void at the size where three separate ones would silt up.
+
+If you edit these paths, re-render them and look. A broken fill rule is invisible in
+the markup and obvious on screen — and so is an illegal `--` inside an SVG comment,
+which makes the file silently fail to parse as an image.
 
 ## Why there are three drawings
 
-The same path scaled down is not the same mark. Below about 20 px the aperture silts
-up and the T stops reading, so `mentor-mark-16.svg` widens the dome and thickens both
-the slot and the stem. Use the file that matches the size you are rendering at; do
-not scale one to cover the range.
-
-Two geometric rules keep the silhouette clean, and both were violated in the first
-draft:
-
-- the aperture sits entirely **below the arc springline** (`y = 29`) and **inside the
-  straight sides** (`x = 16…48`). Its round caps otherwise poke through the outline,
-  and with `fill-rule="evenodd"` they render as filled nubs on the edge;
-- the stem **stops short of the base**. Running it to the bottom splits the helm into
-  two legs and the mark reads as a small creature instead.
+The same path scaled down is not the same mark. Going small, the eyes open (r 4.6 →
+5 → 6) and move apart, and the nasal widens (5 → 6 → 7) and drops below the brow.
+Use the file that matches the size you are rendering at; do not scale one to cover
+the range.
 
 ## Palette
 
 | Token | Hex | Role |
 |---|---|---|
 | `--tmx-aegean` | `#132c46` | primary. The mark, headers, the favicon ground |
-| `--tmx-gold` | `#c9a227` | accent. One thing per view — never a second |
+| `--tmx-gold` | `#c9a227` | accent — and the brow bar. One other thing per view, at most |
 | `--tmx-olive` | `#7d8c4a` | secondary, for supporting states |
 | `--tmx-bone` | `#f2ede1` | light ground and knockout |
 | `--tmx-deep` | `#0b1a2b` | dark ground, below aegean |
 
-Gold is a *punctuation* colour. If two things on a screen are gold, one of them is
-wrong.
+Gold is a *punctuation* colour. On a page that shows the mark with its brow bar, the
+bar is the gold.
 
 ## Type
 
@@ -65,19 +89,22 @@ or anywhere font loading is not guaranteed, outline it first.**
 
 ## Clear space and minimums
 
-Clear space on every side is **half the mark's width** (16 units in the 64-unit
-viewBox). Minimum sizes: 16 px on screen using the 16 file, 8 mm in print.
+The mark is 38 units wide in a 64-unit viewBox. Clear space on every side is **half
+that width — 19 units**. Minimum sizes: 16 px on screen using the 16 file, 8 mm in
+print.
 
 ## Do not
 
 - Re-proportion the mark, or scale one drawing across the whole size range
+- Shorten the nasal guard so the base closes, or drop the brow bar where colour is
+  available and the size allows it
 - Rotate it, outline it, add a gradient, or put it on a busy photograph
-- Recolour the mark in gold — gold is the accent, the mark is aegean or a knockout
+- Recolour the helm in gold — gold is the brow bar and the accent
 - Place the sub-mark inside a lockup with the primary; they are alternates, not a pair
 
 ## The sub-mark
 
-`can-submark.svg` is the other half of the recommendation from the study: three
+`can-submark.svg` is direction **04** of the same study, kept as an alternate: three
 arrows, one gate, one arrow out — the console, the API and the S3 endpoint all
 passing through `can?`. It says the one true thing about the architecture, to the
 people who will check whether it is true.
@@ -87,10 +114,11 @@ beside the primary mark in the same lockup.
 
 ## In the product
 
-The console carries the mark inline in `static/index.html` (`markSVG()`), and the
-favicon is an inline `data:` URI so it costs no extra request and no build step. If
-you change the geometry here, change it there — they are duplicated on purpose, so
-the console has no asset dependency, which means they can drift.
+The console carries the mark inline in `static/index.html` (`markSVG()`, which picks
+the drawing by pixel size), and the favicon is an inline `data:` URI so it costs no
+extra request and no build step. If you change the geometry here, change it there —
+they are duplicated on purpose, so the console has no asset dependency, which means
+they can drift.
 
 ## Provenance
 

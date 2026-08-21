@@ -1,7 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16" height="16" role="img" aria-label="Telemachus">
-  <!-- 16px is a DIFFERENT DRAWING, not a smaller one: dome widened, aperture and
-       stem thickened, so the T survives a 16-pixel grid instead of silting up. -->
-  <path d="M14 56 V29 a18 18 0 0 1 36 0 V56 Z
-           M20.5 30 h23 a6 6 0 0 1 0 12 h-23 a6 6 0 0 1 0 -12 Z
-           M28 30 h8 v19 a4 4 0 0 1 -8 0 Z" fill="currentColor" fill-rule="evenodd"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16" height="16" role="img" aria-label="Telemachus — a helm whose eyes and nasal bar read as an owl and as the letter T">
+  <!-- 20 px and below, a DIFFERENT DRAWING: eyes r6 and set wider, nasal 7 wide and
+       dropped to y=30 so it clears the brow. At this size the eyes and the
+       nasal touch — deliberately. One connected void survives a 16px grid
+       where three separate ones silt up. (This is why the fill rule is
+       nonzero: under evenodd the overlap would fill back in.) -->
+  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
+           M17 33 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z
+           M35 33 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z
+           M28.5 30 v23 h7 V30 Z"
+        fill="currentColor" fill-rule="nonzero"/>
 </svg>
