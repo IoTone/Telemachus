@@ -3,11 +3,11 @@
 ;; test/documents-tests.rkt — documents CRUD, offset pagination, and RBAC.
 ;; raco test test/documents-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          racket/file
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/repo/blobs.rkt"
          "../domain/documents/documents.rkt")
@@ -17,7 +17,7 @@
 (define BLOB-ROOT (make-temporary-file "telemachus-doc-blobs-~a" 'directory))
 (current-blob-root BLOB-ROOT)
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "documents CRUD + offset pagination + RBAC"
   (define c (fresh))

@@ -4,10 +4,10 @@
 ;; objects and translations, RBAC-filtered.
 ;; raco test test/search-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/notes/notes.rkt"
          "../domain/apps/search.rkt"
@@ -16,7 +16,7 @@
          racket/file racket/port
          "../domain/db/id.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "search matches notes + translations; RBAC filters private notes and gates translations"
   (define c (fresh))

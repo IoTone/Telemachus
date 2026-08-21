@@ -5,9 +5,10 @@
 
 (require racket/file
          rackunit
-         db
+         db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/repo/blobs.rkt"
          "../domain/authz/authz.rkt"
          "../domain/samples/samples.rkt")
@@ -16,7 +17,7 @@
 (define BLOB-ROOT (make-temporary-file "telemachus-samples-blobs-~a" 'directory))
 (current-blob-root BLOB-ROOT)
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "seed-samples! populates notes, documents, and queued jobs for the team"
   (define c (fresh))

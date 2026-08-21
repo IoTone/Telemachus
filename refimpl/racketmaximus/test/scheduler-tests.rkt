@@ -3,15 +3,15 @@
 ;; test/scheduler-tests.rkt — the async job scheduler, driven synchronously via
 ;; process-one! (no thread races).  raco test test/scheduler-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/db/id.rkt"
          "../domain/sched/scheduler.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "enqueue → run (priority order), result recorded, cancel, error paths"
   (define c (fresh))

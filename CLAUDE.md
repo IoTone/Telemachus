@@ -47,8 +47,17 @@ Run a one-off without entering the shell: `nix develop --command <cmd>`.
   `pkgs/db-kit/portable.rkt` is a drop-in for `(require db)` that rewrites `?`→`$n`
   on Postgres — always `(require db-kit/portable)`, not `(require db)`. Forgetting is
   invisible on SQLite and fails on Postgres with `syntax error at or near "AND"`.
-- **Verify on Postgres, not just SQLite.** Both smoke suites honour a pre-set
-  `DATABASE_URL`, so the whole surface runs against either dialect:
+- **Verify on Postgres, not just SQLite.** The unit suite AND both smoke suites
+  honour a pre-set `DATABASE_URL`, so everything runs against either dialect. Unit
+  fixtures come from `test/db-fixture.rkt`: `(fresh-db)` gives a migrated, isolated
+  database — in-memory on SQLite, a private SCHEMA per fixture on Postgres (test
+  files run concurrently and would otherwise share one). `(fresh-db #:shared k)` is
+  for the rare test needing two connections over the SAME data (workflow
+  durability); `close-db!` drops the schema. **Test files issue raw SQL too, so they
+  need `db-kit/portable`, not `db`** — same rule as production code.
+  ```sh
+  DATABASE_URL="postgres://…" raco test test/*-tests.rkt
+  ```
   ```sh
   initdb -D $PGDATA -U telemachus --auth=trust && \
     pg_ctl -D $PGDATA -o "-k /tmp/tmxpg -h 127.0.0.1 -p 55432" -l pg.log start

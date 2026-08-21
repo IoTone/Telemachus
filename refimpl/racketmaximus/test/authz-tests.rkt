@@ -3,17 +3,17 @@
 ;; test/authz-tests.rkt — slice 1: persistence + RBAC.
 ;;   raco test test/authz-tests.rkt      (from refimpl/racketmaximus/, with pkgs on PLTCOLLECTS)
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/id.rkt"
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/authz/permissions.rkt")
 
 ;; a fresh in-memory database with the schema applied
 (define (fresh)
-  (define conn (sqlite3-connect #:database 'memory))
+  (define conn (fresh-db #:migrate? #f))
   (migrate! conn all-migrations)
   conn)
 

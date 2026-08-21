@@ -4,15 +4,15 @@
 ;; storage + draft/publish precedence, RBAC, judge-prompt stripping, and the ENV
 ;; launch-defaults path (TELEMACHUS_ONBOARDING_FILE). raco test test/experience-tests.rkt
 
-(require rackunit
-         db json racket/file
+(require rackunit db-kit/portable json racket/file
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/beta/beta.rkt"
          "../domain/beta/experience.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "resolve falls back to the base experience; public slice hides the judge prompt"
   (define c (fresh))

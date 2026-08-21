@@ -8,18 +8,19 @@
          racket/file
          racket/tcp
          json
-         db
+         db-kit/portable
          db-kit/migrate
          "../domain/mcp/client.rkt"
          "../domain/mcp/connect.rkt"
          "../domain/agent/registry.rkt"
          "../domain/agent/run.rkt"          ; dispatch-tool
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt")
 
 (define-runtime-path mock "mock-mcp.rkt")
 (define-runtime-path mock-http "mock-mcp-http.rkt")
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "mcp client: initialize, tools/list, tools/call"
   (define c (mcp-connect "racket" (list (path->string mock))))

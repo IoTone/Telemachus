@@ -5,18 +5,18 @@
 ;; authorization core directly, so `raco test test/*-tests.rkt` covers it.
 ;;   raco test test/tenancy-tests.rkt    (from refimpl/racketmaximus/, pkgs on PLTCOLLECTS)
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          racket/list
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/authz/permissions.rkt"
          "../domain/orgs/orgs.rkt"
          "../domain/notes/notes.rkt")
 
 (define (fresh)
-  (define conn (sqlite3-connect #:database 'memory))
+  (define conn (fresh-db #:migrate? #f))
   (migrate! conn all-migrations)
   conn)
 
@@ -187,7 +187,7 @@
 ;; data and its authorization behaviour intact. Rows here are written with raw SQL
 ;; in the OLD shape — no org_id anywhere — exactly as the old code left them.
 (test-case "0016-orgs upgrades a pre-existing single-tenant database"
-  (define conn (sqlite3-connect #:database 'memory))
+  (define conn (fresh-db #:migrate? #f))
   (define old-world (filter (lambda (m) (not (equal? (migration-id m) "0016-orgs"))) all-migrations))
   (migrate! conn old-world)
   (query-exec conn "INSERT INTO users (id, username, is_operator) VALUES ('u1','alice',1)")

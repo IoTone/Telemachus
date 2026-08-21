@@ -5,9 +5,10 @@
 
 (require rackunit
          racket/runtime-path
-         db
+         db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/agent/registry.rkt"
          "../domain/agent/run.rkt"          ; dispatch-tool (also registers built-ins)
@@ -15,7 +16,7 @@
          "../domain/beta/beta.rkt")         ; onboarding registry (populated by an init! plugin)
 
 (define-runtime-path plugins-dir "../plugins")
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "plugin loads from manifest dir: registered, tracked, dispatches"
   (load-plugins! plugins-dir)

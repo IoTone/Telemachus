@@ -3,14 +3,14 @@
 ;; test/quota-tests.rkt — slice 6: quotas + concurrency governor.
 ;;   raco test test/quota-tests.rkt   (with pkgs on PLTCOLLECTS)
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "quota: set/check/record + unset = unlimited"
   (define c (fresh))

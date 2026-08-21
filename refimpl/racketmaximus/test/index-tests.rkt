@@ -11,12 +11,12 @@
 ;;      workflow via the scheduler's claim path -> search finds the document by a
 ;;      word that appears only in its bytes. This is the slice's promise, end to end.
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          racket/port racket/string racket/file racket/list
          file/zip
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/repo/blobs.rkt"
          "../domain/repo/repo.rkt"
@@ -33,7 +33,7 @@
 (current-blob-root BLOB-ROOT)
 
 (define (fresh)
-  (define conn (sqlite3-connect #:database 'memory))
+  (define conn (fresh-db #:migrate? #f))
   (migrate! conn all-migrations)
   conn)
 

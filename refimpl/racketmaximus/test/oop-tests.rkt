@@ -8,17 +8,18 @@
          racket/runtime-path
          racket/file
          json
-         db
+         db-kit/portable
          db-kit/migrate
          "../domain/oop/host.rkt"
          "../domain/agent/registry.rkt"
          "../domain/agent/run.rkt"           ; dispatch-tool
          "../domain/notes/notes.rkt"
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt")
 
 (define-runtime-path helper "../oop-plugins/notes-helper/main.rkt")
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (define (write-cfg path)
   (call-with-output-file path #:exists 'replace

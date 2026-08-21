@@ -3,13 +3,13 @@
 ;; test/token-tests.rkt — API token management: issue / list / resolve / revoke.
 ;; raco test test/token-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "issue / list (prefix only) / resolve / revoke"
   (define c (fresh))

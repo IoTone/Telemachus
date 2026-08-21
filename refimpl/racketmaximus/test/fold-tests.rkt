@@ -13,11 +13,11 @@
 ;;   * visibility and the share grant still hold: the shared user reads, others do not
 ;;   * the table is gone, and the shim serves the same data through the old API
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          racket/file racket/list racket/string racket/port
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/db/id.rkt"
          "../domain/authz/authz.rkt"
          "../domain/repo/blobs.rkt"
@@ -36,7 +36,7 @@
           [else (loop (cdr ms) (cons (car ms) acc))])))
 
 (test-case "the fold carries every document across, losslessly"
-  (define c (sqlite3-connect #:database 'memory))
+  (define c (fresh-db #:migrate? #f))
   (migrate! c pre-fold)
 
   (define-values (uid tid) (bootstrap! c #:username "alice"))

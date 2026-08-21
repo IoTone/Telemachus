@@ -7,13 +7,13 @@
 ;; end, it survives a restart mid-run, it is refused across an org boundary, and the
 ;; spec round-trips publish → store → load → execute unchanged.
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          racket/list
          racket/file
          json
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/orgs/orgs.rkt"
          "../domain/notes/notes.rkt"
@@ -26,8 +26,11 @@
          "../domain/flow/run.rkt")
 
 ;; ---- fixtures ----------------------------------------------------------------
-(define (fresh [file #f])
-  (define conn (if file (sqlite3-connect #:database file #:mode 'create) (sqlite3-connect #:database 'memory)))
+;; `key` names a SHARED database: two fixtures opened with the same key see each
+;; other's writes, which is what the durability test needs and what the fixture
+;; supplies on either dialect (a file on SQLite, one schema on Postgres).
+(define (fresh [key #f])
+  (define conn (fresh-db #:shared key #:migrate? #f))
   (migrate! conn all-migrations)
   conn)
 
@@ -195,11 +198,11 @@
 
 ;; ---- durability --------------------------------------------------------------
 (test-case "a run survives the process that started it"
-  (define file (make-temporary-file "telemachus-flow-~a.db"))
-  (delete-file file)
+  ;; the point is that NOTHING is carried over in memory — only the database
+  (define shared 'flow-durability)
   ;; --- "process" one: publish, start, run exactly one step, then close everything
   (define run-id
-    (let* ([conn (fresh file)]
+    (let* ([conn (fresh shared)]
            [p (owner-of conn)]
            [d (flow-publish! conn p note-triage)]
            [run (flow-run-start! conn p d #:input (hasheq 'subject "survivor"))])
@@ -208,13 +211,12 @@
       (disconnect conn)
       (hash-ref run 'id)))
   ;; --- "process" two: a brand-new connection picks the run up mid-flight
-  (define conn2 (sqlite3-connect #:database file))
+  (define conn2 (fresh-db #:shared shared #:migrate? #f))
   (drain! conn2)
   (check-equal? (status conn2 run-id) "done" "resumed from the database alone")
   (define steps (query-list conn2 "SELECT step_id FROM workflow_steps WHERE run_id = ? ORDER BY seq" run-id))
   (check-equal? steps '("write" "gate" "confirm"))
-  (disconnect conn2)
-  (delete-file file))
+  (close-db! conn2))
 
 ;; ---- tenancy -----------------------------------------------------------------
 (test-case "a workflow definition does not cross an org boundary"

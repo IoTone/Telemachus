@@ -11,11 +11,11 @@
 ;;   5. none of it leaks across an org boundary
 ;;   6. storage is metered as a gauge that goes back down
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          racket/file racket/port racket/list
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/quota/quota.rkt"
          "../domain/repo/blobs.rkt"
@@ -26,7 +26,7 @@
 (current-blob-root BLOB-ROOT)
 
 (define (fresh)
-  (define conn (sqlite3-connect #:database 'memory))
+  (define conn (fresh-db #:migrate? #f))
   (migrate! conn all-migrations)
   conn)
 

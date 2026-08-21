@@ -4,14 +4,14 @@
 ;; owner review/decision, RBAC, and the pluggable onboarding provider registry.
 ;; raco test test/beta-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/beta/beta.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "prospect lifecycle: public create → owner list/judge/decide; RBAC-gated"
   (define c (fresh))
