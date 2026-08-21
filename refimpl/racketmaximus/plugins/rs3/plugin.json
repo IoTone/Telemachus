@@ -1,0 +1,7 @@
+{
+  "id": "rs3",
+  "name": "rs3 — local content-addressed blob store",
+  "version": "0.1.0",
+  "description": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
+  "entry": "main.rkt"
+}

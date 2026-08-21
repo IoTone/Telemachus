@@ -21,6 +21,12 @@
   .muted{color:var(--muted)} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
   .badge.ok{color:var(--ok);border-color:#204a3a} .badge.op{color:var(--warn);border-color:#4a3a20}
+  .badge.bad{color:var(--bad);border-color:#5a2a3a} .badge.run{color:var(--accent);border-color:#333d6b}
+  /* workflow step tree: a map fan-out's children are indented under their parent row */
+  tr.wfkid td:first-child{padding-left:26px;position:relative}
+  tr.wfkid td:first-child::before{content:'└';position:absolute;left:10px;color:var(--muted)}
+  pre.wfjson{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;
+    margin:6px 0 0;overflow:auto;max-height:260px;font-size:12px;white-space:pre-wrap;word-break:break-word}
   /* auth */
   .auth{max-width:420px;margin:8vh auto;padding:0 16px}
   .brand{font-weight:800;letter-spacing:-.02em} .brand .dot{color:var(--accent)}
@@ -85,7 +91,7 @@
 <div id="app"></div>
 <div id="toast" class="toast"></div>
 <script>
-const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null };
+const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0 };
 const L = {
   en:{tagline:'Team AI platform — reference implementation',chat:'Chat',agent:'Agent',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
@@ -101,7 +107,22 @@ const L = {
       documents:'Documents',newdoc:'New document',content:'Content',
       jobs:'Jobs',submitjob:'Submit a job',submit:'Submit',refresh:'Refresh',cancel:'Cancel',
       testing:'Testing tools',seed:'Load sample data',
-      beta:'Beta',requestaccess:'Request access',teamsignin:'Team sign-in',qualify:'Qualify',reject:'Reject'},
+      beta:'Beta',requestaccess:'Request access',teamsignin:'Team sign-in',qualify:'Qualify',reject:'Reject',
+      repository:'Repository',upload:'Upload',uploading:'Uploading',uploaded:'Uploaded',
+      file:'File',key:'Path',size:'Size',updated:'Updated',objects:'Documents',store:'Store',
+      download:'Download',details:'Details',close:'Close',versions:'Versions',
+      sharewith:'Share with',sharedwith:'Shared with',noshares:'Not shared with anyone.',
+      noothers:'No one else on this team',shared:'Shared',revoked:'Revoked',deleted:'Deleted',
+      vis_team:'Team \u2014 everyone on this team',vis_private:'Private \u2014 only me',
+      vis_shared:'Shared \u2014 only the people below',visupdated:'Visibility updated',
+      newversion:'Saved as a new version',willversion:'This path exists \u2014 uploading saves a new version and keeps its current visibility',
+      nolimit:'no limit',norepoobjects:'No documents yet. Any format \u2014 pdf, svg, png, docx, xml, md.',
+      uploadhint:'Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.',
+      vishint:'You set this because you uploaded it. Sharing narrows a team document to just the people you name.',
+      workflows:'Workflows',workflow:'Workflow',definitions:'Definitions',runwf:'Run',runs:'Runs',viewrun:'View',back:'Back',
+      steps:'Steps',input:'Input',output:'Output',source:'Source',version:'Version',started:'Started',status:'Status',
+      nodefs:'No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.',
+      noruns:'No runs yet.',stepsused:'steps used'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -116,7 +137,22 @@ const L = {
       documents:'ドキュメント',newdoc:'新規ドキュメント',content:'内容',
       jobs:'ジョブ',submitjob:'ジョブを送信',submit:'送信',refresh:'更新',cancel:'キャンセル',
       testing:'テストツール',seed:'サンプルデータを読み込む',
-      beta:'ベータ',requestaccess:'アクセスを申請',teamsignin:'チームサインイン',qualify:'承認',reject:'却下'}
+      beta:'ベータ',requestaccess:'アクセスを申請',teamsignin:'チームサインイン',qualify:'承認',reject:'却下',
+      repository:'ドキュメント保管',upload:'アップロード',uploading:'アップロード中',uploaded:'アップロードしました',
+      file:'ファイル',key:'パス',size:'サイズ',updated:'更新',objects:'ドキュメント',store:'保管先',
+      download:'ダウンロード',details:'詳細',close:'閉じる',versions:'バージョン',
+      sharewith:'共有相手',sharedwith:'共有中',noshares:'まだ誰とも共有していません。',
+      noothers:'このチームに他のメンバーがいません',shared:'共有しました',revoked:'解除しました',deleted:'削除しました',
+      vis_team:'チーム \u2014 チーム全員',vis_private:'非公開 \u2014 自分のみ',
+      vis_shared:'限定共有 \u2014 下記の相手のみ',visupdated:'公開範囲を更新しました',
+      newversion:'新しいバージョンとして保存しました',willversion:'このパスは既にあります \u2014 新しいバージョンとして保存され、公開範囲は現状のままです',
+      nolimit:'上限なし',norepoobjects:'まだドキュメントがありません。形式は自由です。',
+      uploadhint:'どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。',
+      vishint:'アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。',
+      workflows:'ワークフロー',workflow:'ワークフロー',definitions:'定義',runwf:'実行',runs:'実行履歴',viewrun:'表示',back:'戻る',
+      steps:'ステップ',input:'入力',output:'出力',source:'ソース',version:'バージョン',started:'開始',status:'状態',
+      nodefs:'このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。',
+      noruns:'実行履歴はまだありません。',stepsused:'ステップ使用'}
 };
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -172,7 +208,7 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','translate','search','notes','documents','jobs','team','usage'].filter(x=>S.features[x]!==false);
+  const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">Telemachus<span class="dot">.</span></span>
@@ -185,6 +221,9 @@ function appShell(){
     <main class="wrap" id="main"></main>`;
 }
 function go(tab){ S.tab=tab; S.newToken=null;
+  if(tab!=='workflows'){ S.wfRun=null; S.wfSel=null; S.wfSpec=null; }   // leaving drops any run poll in flight
+  if(tab!=='repository'){ S.repoDetail=null; }
+  S.wfPoll++;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }
 
@@ -430,7 +469,7 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
   el.innerHTML='<p class="muted">…</p>';
-  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)();
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html; }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
@@ -574,6 +613,343 @@ async function doCancelJob(id){
   const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
   if(r.ok){ toast('canceled',true); renderTab(); } else toast(r.json.error||'error');
 }
+// ---------- repository (slices 49-50) ----------
+// Binary documents. The upload is a raw PUT of the File itself — no base64, no JSON
+// envelope — so a 30 MB PDF costs 30 MB on the wire instead of 40, and neither end
+// has to hold a string copy of it. Downloads go through a blob URL because the
+// endpoint needs an Authorization header, which a plain <a href> cannot carry.
+function humanBytes(n){
+  if(n===null||n===undefined) return '—';
+  const u=['B','KB','MB','GB']; let i=0, v=Number(n);
+  while(v>=1024 && i<u.length-1){ v/=1024; i++; }
+  return (i===0?v:v.toFixed(1))+' '+u[i];
+}
+function visBadge(v){
+  const cls = v==='private' ? 'bad' : (v==='shared' ? 'run' : 'ok');
+  return `<span class="badge ${cls}">${esc(v)}</span>`;
+}
+
+async function repoView(){
+  const r=await api('/api/repo');
+  if(!r.ok) return `<h2>${t('repository')}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
+  const objs=r.json.objects||[], usage=r.json.usage||{};
+  S.repoKeys = objs.map(o=>o.key);
+  const rows=objs.map(o=>`<tr>
+      <td><b class="mono">${esc(o.key)}</b>
+          <div class="muted" style="font-size:12px">${esc(o.content_type)}${o.version>1?` · v${esc(o.version)}`:''}</div></td>
+      <td>${visBadge(o.visibility)}</td>
+      <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(o.size))}</td>
+      <td class="muted" style="font-size:12px">${esc(o.updated_at)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm" onclick="repoDownload('${esc(o.id)}','${esc(o.key)}')">${t('download')}</button>
+        <button class="btn sm ghost" onclick="repoOpenDetail('${esc(o.id)}')">${t('details')}</button>
+      </td></tr>`).join('');
+  const limit = (usage.limit===null||usage.limit===undefined) ? t('nolimit') : humanBytes(usage.limit);
+  return `<h2>${t('repository')}
+      <span class="muted" style="font-size:14px">${esc(usage.objects||0)} ${t('objects')} · ${esc(humanBytes(usage.used||0))} / ${esc(limit)} · ${t('store')}: ${esc(usage.store||'?')}</span></h2>
+    <div class="card">
+      <h3 style="margin:0 0 10px">${t('upload')}</h3>
+      <div class="row" style="align-items:end">
+        <div style="flex:2"><label>${t('file')}</label><input type="file" id="rfile" onchange="repoFilePicked()"></div>
+        <div style="flex:2"><label>${t('key')}</label>
+          <input id="rkey" placeholder="reports/2026/q3.pdf" oninput="repoKeyChanged()">
+          <div id="rovr"></div></div>
+        <div style="flex:1"><label>${t('visibility')}</label>
+          <select id="rvis">
+            <option value="team">${t('vis_team')}</option>
+            <option value="private">${t('vis_private')}</option>
+          </select></div>
+        <div style="flex:none"><button class="btn" onclick="repoUpload()">${t('upload')}</button></div>
+      </div>
+      <div class="muted" style="font-size:12px">${t('uploadhint')}</div>
+      <div id="rprog"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 style="margin:0">${t('objects')}</h3>
+        <div style="flex:none"><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
+      ${objs.length
+        ? `<table style="margin-top:8px"><thead><tr><th>${t('key')}</th><th>${t('visibility')}</th><th>${t('size')}</th><th>${t('updated')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="muted" style="margin-top:8px">${t('norepoobjects')}</p>`}
+    </div>
+    <div id="rdetail"></div>`;
+}
+
+// default the key to the filename, so the common case needs no typing
+function repoFilePicked(){
+  const f=document.getElementById('rfile').files[0];
+  const k=document.getElementById('rkey');
+  if(f && !k.value) k.value=f.name;
+  repoKeyChanged();
+}
+// say out loud what an existing path means, before the button is pressed
+function repoKeyChanged(){
+  const k=(document.getElementById('rkey')||{}).value||'';
+  const hit=(S.repoKeys||[]).indexOf(k.trim())>=0;
+  const sel=document.getElementById('rvis');
+  const note=document.getElementById('rovr');
+  if(sel) sel.disabled=hit;
+  if(note) note.innerHTML = hit ? `<span class="badge run">${t('willversion')}</span>` : '';
+}
+
+async function repoUpload(){
+  const f=document.getElementById('rfile').files[0];
+  if(!f) return toast('choose a file first');
+  const key=val('rkey')||f.name, vis=val('rvis');
+  // Uploading to a path that already exists is a NEW VERSION, not a new document —
+  // so the form's visibility select must not travel with it. Sending it would let a
+  // re-upload silently re-open a document its owner had made private, which is the
+  // one thing "the creator sets the visibility" must never allow by accident.
+  const overwrite = (S.repoKeys||[]).indexOf(key) >= 0;
+  const prog=document.getElementById('rprog');
+  prog.innerHTML=`<p class="muted">${t('uploading')} ${esc(f.name)} (${esc(humanBytes(f.size))})…</p>`;
+  const q='?filename='+encodeURIComponent(f.name)
+        + (overwrite ? '' : '&visibility='+encodeURIComponent(vis));
+  // the raw File goes as the body; the browser sets no Content-Type of its own for a
+  // Blob body unless we ask, so the file's own type is passed explicitly
+  const res=await fetch('/api/repo/'+key.split('/').map(encodeURIComponent).join('/')+q, {
+    method:'PUT',
+    headers:{'Authorization':'Bearer '+S.token,
+             'Content-Type': f.type||'application/octet-stream'},
+    body: f });
+  let j={}; try{ j=await res.json(); }catch(e){}
+  prog.innerHTML='';
+  if(res.ok){ document.getElementById('rfile').value='';
+              toast(overwrite ? t('newversion') : t('uploaded'), true); renderTab(); }
+  else toast(j.error||('upload failed ('+res.status+')'));
+}
+
+// The content endpoint needs a bearer token, so the file is fetched and handed to
+// the browser as an object URL rather than linked directly.
+async function repoDownload(id, key){
+  const res=await fetch('/api/repo-obj/'+encodeURIComponent(id)+'/content',
+                        {headers:{'Authorization':'Bearer '+S.token}});
+  if(!res.ok) return toast('download failed ('+res.status+')');
+  const blob=await res.blob();
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=(key||'download').split('/').pop();
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 30000);
+}
+
+async function repoOpenDetail(id){
+  const [m, g, mem] = await Promise.all([
+    api('/api/repo-obj/'+encodeURIComponent(id)),
+    api('/api/repo-obj/'+encodeURIComponent(id)+'/grants'),
+    api('/api/members')]);
+  const el=document.getElementById('rdetail');
+  if(!m.ok){ toast(m.json.error||'error'); return; }
+  const o=m.json, grants=(g.ok?g.json.grants:[])||[], members=(mem.ok?mem.json.members:[])||[];
+  const vrows=(o.versions||[]).map(v=>`<tr>
+      <td>v${esc(v.version)}${v.current?' <span class="badge ok">current</span>':''}</td>
+      <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(v.size))}</td>
+      <td class="mono muted" style="font-size:12px">${esc(String(v.digest).slice(0,12))}…</td>
+      <td class="muted" style="font-size:12px">${esc(v.created_at)}</td>
+      <td>${v.current?'':`<button class="btn sm ghost" onclick="repoDownloadVersion('${esc(id)}','${esc(v.id)}','${esc(o.key)}')">${t('download')}</button>`}</td>
+    </tr>`).join('');
+  const grows=grants.length
+    ? grants.map(x=>`<tr><td>${esc(x.username||x.principal_id)}</td><td class="mono muted">${esc(x.permission)}</td>
+        <td><button class="btn sm bad" onclick="repoUnshare('${esc(id)}','${esc(x.principal_id)}')">${t('revoke')}</button></td></tr>`).join('')
+    : `<tr><td colspan="3" class="muted">${t('noshares')}</td></tr>`;
+  const opts=members.filter(x=>x.user_id!==o.owner_user_id)
+    .map(x=>`<option value="${esc(x.user_id)}">${esc(x.username)}</option>`).join('');
+  el.innerHTML=`<div class="card" style="margin-top:14px">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0" class="mono">${esc(o.key)}</h3>
+      <div style="flex:none">
+        <button class="btn sm bad" onclick="repoDelete('${esc(id)}')">${t('del')}</button>
+        <button class="btn sm ghost" onclick="document.getElementById('rdetail').innerHTML=''">${t('close')}</button>
+      </div></div>
+    <div class="row" style="margin-top:12px;align-items:end">
+      <div style="flex:1"><label>${t('visibility')}</label>
+        <select id="rdvis" onchange="repoSetVis('${esc(id)}')">
+          ${['team','private','shared'].map(v=>`<option value="${v}"${o.visibility===v?' selected':''}>${t('vis_'+v)}</option>`).join('')}
+        </select></div>
+      <div style="flex:2"><label>${t('sharewith')}</label>
+        <select id="rdshare">${opts||`<option value="">${t('noothers')}</option>`}</select></div>
+      <div style="flex:none"><button class="btn" onclick="repoShare('${esc(id)}')">${t('share')}</button></div>
+    </div>
+    <div class="muted" style="font-size:12px;margin-bottom:12px">${t('vishint')}</div>
+    <div class="row">
+      <div><h4 style="margin:0 0 6px">${t('sharedwith')}</h4>
+        <table><tbody>${grows}</tbody></table></div>
+      <div><h4 style="margin:0 0 6px">${t('versions')}</h4>
+        <table><tbody>${vrows}</tbody></table></div>
+    </div></div>`;
+}
+
+async function repoDownloadVersion(id, versionId, key){
+  const res=await fetch('/api/repo-obj/'+encodeURIComponent(id)+'/content?version='+encodeURIComponent(versionId),
+                        {headers:{'Authorization':'Bearer '+S.token}});
+  if(!res.ok) return toast('download failed ('+res.status+')');
+  const blob=await res.blob(), url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=(key||'download').split('/').pop();
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 30000);
+}
+async function repoSetVis(id){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/visibility',
+                    {method:'POST',body:{visibility:val('rdvis')}});
+  if(r.ok){ toast(t('visupdated'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+}
+async function repoShare(id){
+  const u=val('rdshare'); if(!u) return toast(t('noothers'));
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/share',{method:'POST',body:{user_id:u}});
+  if(r.ok){ toast(t('shared'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+}
+async function repoUnshare(id,u){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/unshare',{method:'POST',body:{user_id:u}});
+  if(r.ok){ toast(t('revoked'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+}
+async function repoDelete(id){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r.ok){ document.getElementById('rdetail').innerHTML=''; toast(t('deleted'),true); renderTab(); }
+  else toast(r.json.error||'error');
+}
+
+// ---------- workflows (slice 48) ----------
+// The console is a client of exactly the HTTP contract curl uses: list definitions,
+// POST a run, poll the run. It knows nothing about how a step executes — that stays
+// in the engine, which is why a plugin-shipped workflow and a JSON-published one
+// render identically here.
+function wfBadge(s){
+  const cls = s==='done'?'ok':(s==='error'?'bad':(s==='running'?'run':''));
+  return `<span class="badge ${cls}">${esc(s)}</span>`;
+}
+function wfJson(v,label){
+  if(v===null||v===undefined||v==='null') return '';
+  const j=JSON.stringify(v,null,2);
+  if(j==='{}'||j==='null'||j===undefined) return '';
+  return `<details><summary class="muted" style="cursor:pointer;font-size:12px">${esc(label)}</summary><pre class="wfjson">${esc(j)}</pre></details>`;
+}
+// a step's output is {result: …} — show the result inline, full object one click away
+function wfOut(st){
+  if(st.status==='error') return `<span style="color:var(--bad)">${esc((st.error||'failed').slice(0,140))}</span>`;
+  const o=st.output; if(!o||o==='null'||typeof o!=='object') return '<span class="muted">—</span>';
+  if(Array.isArray(o.results))                       // a map parent — its children carry the detail
+    return `<span class="muted">${o.results.length} ${t('results').toLowerCase()}</span>${wfJson(o,'json')}`;
+  const r=('result' in o)?o.result:o;
+  const line=(typeof r==='string'?r:JSON.stringify(r))||'';
+  return `<span class="mono" style="font-size:13px">${esc(line.slice(0,140))}${line.length>140?'…':''}</span>${wfJson(o,'json')}`;
+}
+
+async function workflowsView(){
+  if(S.wfRun) return await wfRunView(S.wfRun);
+  const [dr,rr]=await Promise.all([api('/api/workflows'),api('/api/runs')]);
+  if(!dr.ok) return `<h2>${t('workflows')}</h2><div class="card"><p class="muted">${esc(dr.json.error||'unavailable')}</p></div>`;
+  const defs=dr.json.workflows||[], runs=rr.ok?(rr.json.runs||[]):[];
+  const defRows=defs.map(d=>`<tr>
+      <td><b>${esc(d.name||d.slug)}</b><div class="muted mono" style="font-size:12px">${esc(d.slug)}</div></td>
+      <td class="muted">v${esc(d.version)}</td>
+      <td><span class="badge">${esc(d.source||'api')}</span></td>
+      <td class="muted">${esc(d.step_count)}</td>
+      <td><button class="btn sm${S.wfSel===d.slug?' ghost':''}" onclick="wfSelect('${esc(d.slug)}')">${t('runwf')}</button></td>
+    </tr>`).join('');
+  const runRows=runs.map(r=>`<tr>
+      <td class="mono muted">${esc(r.id.slice(0,8))}</td>
+      <td>${esc(r.slug||'—')}</td>
+      <td>${wfBadge(r.status)}</td>
+      <td class="muted">${esc(r.steps_used)} ${t('stepsused')}</td>
+      <td class="muted" style="font-size:12px">${esc(r.created_at)}</td>
+      <td><button class="btn sm ghost" onclick="wfOpen('${esc(r.id)}')">${t('viewrun')}</button></td>
+    </tr>`).join('');
+  return `<h2>${t('workflows')}</h2>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 style="margin:0">${t('definitions')}</h3>
+        <div style="flex:none"><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
+      ${defs.length?`<table style="margin-top:8px"><thead><tr><th>${t('workflow')}</th><th>${t('version')}</th><th>${t('source')}</th><th>${t('steps')}</th><th></th></tr></thead><tbody>${defRows}</tbody></table>`
+                   :`<p class="muted" style="margin-top:8px">${t('nodefs')}</p>`}
+    </div>
+    ${S.wfSel?wfRunForm():''}
+    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('runs')}</h3>
+      ${runs.length?`<table><thead><tr><th>id</th><th>workflow</th><th>${t('status')}</th><th></th><th>${t('started')}</th><th></th></tr></thead><tbody>${runRows}</tbody></table>`
+                   :`<p class="muted">${t('noruns')}</p>`}</div>`;
+}
+
+// The run form is generated from the spec's own `input` map — the same declaration
+// `check-input!` enforces server-side, so the form can't drift from what is accepted.
+function wfRunForm(){
+  const d=S.wfSpec; if(!d) return '';
+  const spec=d.spec||{}, inputs=spec.input||{}, keys=S.wfKeys||[];
+  const fields=keys.length?keys.map((k,i)=>{
+    const ty=inputs[k];
+    const lab=`<label>${esc(k)}<span class="muted" style="text-transform:none;letter-spacing:0"> · ${esc(ty)}</span></label>`;
+    if(ty==='object'||ty==='array') return `${lab}<textarea id="wfi_${i}" rows="3" placeholder="${ty==='array'?'[]':'{}'}"></textarea>`;
+    if(ty==='boolean')              return `${lab}<select id="wfi_${i}"><option value="false">false</option><option value="true">true</option></select>`;
+    return `${lab}<input id="wfi_${i}"${ty==='number'?' type="number"':''}>`;
+  }).join(''):'<p class="muted">This workflow takes no input.</p>';
+  const desc=(d.description&&d.description!=='null')?`<p class="muted" style="margin:0 0 10px">${esc(d.description)}</p>`:'';
+  const chain=(spec.steps||[]).map(x=>esc(x.id)).join(' → ');
+  return `<div class="card" style="margin-top:14px">
+    <h3 style="margin:0 0 4px">${t('runwf')} — ${esc(d.name||d.slug)}</h3>${desc}
+    <div class="muted mono" style="font-size:12px;margin-bottom:12px">${esc(d.slug)} v${esc(d.version)} · ${chain}</div>
+    ${fields}
+    <button class="btn" onclick="wfStart()">${t('runwf')}</button>
+    <button class="btn ghost" onclick="wfSelect(null)">${t('cancel')}</button></div>`;
+}
+
+async function wfSelect(slug){
+  if(!slug){ S.wfSel=null; S.wfSpec=null; S.wfKeys=[]; return renderTab(); }
+  const r=await api('/api/workflows/'+encodeURIComponent(slug));
+  if(!r.ok) return toast(r.json.error||'error');
+  S.wfSel=slug; S.wfSpec=r.json; S.wfKeys=Object.keys((r.json.spec||{}).input||{});
+  renderTab();
+}
+async function wfStart(){
+  const d=S.wfSpec; if(!d) return;
+  const inputs=(d.spec||{}).input||{}, keys=S.wfKeys||[], body={};
+  for(let i=0;i<keys.length;i++){
+    const k=keys[i], ty=inputs[k], el=document.getElementById('wfi_'+i); if(!el) continue;
+    const raw=el.value.trim(); if(raw==='') continue;
+    if(ty==='number'){ const n=Number(raw); if(Number.isNaN(n)) return toast(k+': not a number'); body[k]=n; }
+    else if(ty==='boolean'){ body[k]=(raw==='true'); }
+    else if(ty==='object'||ty==='array'){ try{ body[k]=JSON.parse(raw); }catch(e){ return toast(k+': invalid JSON'); } }
+    else body[k]=raw;
+  }
+  const r=await api('/api/workflows/'+encodeURIComponent(d.slug)+'/run',{method:'POST',body:{input:body}});
+  if(r.ok){ S.wfSel=null; S.wfSpec=null; S.wfRun=r.json.id; toast('started',true); renderTab(); }
+  else toast(r.json.error||'error');
+}
+function wfOpen(id){ S.wfRun=id; S.wfPoll++; renderTab(); }
+function wfBack(){ S.wfRun=null; S.wfPoll++; renderTab(); }
+async function wfCancel(id){
+  const r=await api('/api/runs/'+encodeURIComponent(id)+'/cancel',{method:'POST'});
+  toast(r.ok?'canceled':(r.json.error||'error'), r.ok); renderTab();
+}
+
+async function wfRunView(id){
+  const r=await api('/api/runs/'+encodeURIComponent(id));
+  if(!r.ok) return `<h2>${t('runs')}</h2><div class="card"><p class="muted">${esc(r.json.error||'not found')}</p>
+    <button class="btn ghost" onclick="wfBack()">${t('back')}</button></div>`;
+  const run=r.json, steps=run.steps||[];
+  const live=(run.status==='queued'||run.status==='running');
+  // a step row survives a restart because it IS the state — so polling the run is
+  // enough; there is no in-memory progress to miss.
+  if(live){ const gen=++S.wfPoll;
+    setTimeout(()=>{ if(S.tab==='workflows'&&S.wfRun===id&&S.wfPoll===gen) renderTab(); },1500); }
+  const kidsOf=s=>steps.filter(x=>x.parent_id===s.id);         // a map fan-out's children
+  const row=(s,kid)=>`<tr${kid?' class="wfkid"':''}>
+      <td class="mono">${esc(s.step_id)}</td>
+      <td>${wfBadge(s.status)}${s.attempt>1?`<span class="muted" style="font-size:12px"> · try ${esc(s.attempt)}</span>`:''}</td>
+      <td>${wfOut(s)}</td></tr>`;
+  const rows=steps.filter(s=>!s.parent_id).map(s=>row(s,false)+kidsOf(s).map(k=>row(k,true)).join('')).join('');
+  const err=(run.error&&run.error!=='null')
+    ? `<div class="card" style="margin-top:14px;border-color:#5a2a3a"><b style="color:var(--bad)">error</b>
+       <div class="mono" style="font-size:13px;margin-top:6px">${esc(run.error)}</div></div>` : '';
+  return `<h2>${esc(run.slug||t('runs'))} <span class="muted mono" style="font-size:14px">${esc(run.id.slice(0,8))}…</span></h2>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div style="flex:none">${wfBadge(run.status)} <span class="muted">${esc(run.steps_used)} ${t('stepsused')}</span>${live?' <span class="muted">· live</span>':''}</div>
+        <div style="flex:none">${live?`<button class="btn sm bad" onclick="wfCancel('${esc(run.id)}')">${t('cancel')}</button> `:''}<button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button> <button class="btn sm ghost" onclick="wfBack()">${t('back')}</button></div>
+      </div>
+      ${wfJson(run.input,t('input'))}${wfJson(run.output,t('output'))}
+    </div>${err}
+    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('steps')}</h3>
+      <table><thead><tr><th>step</th><th>${t('status')}</th><th>${t('output')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 async function betaView(){
   const r=await api('/api/beta/prospects'); const ps=r.ok?r.json.prospects:[];
   const cfg=await api('/api/beta/config'); const fields=cfg.ok?(cfg.json.fields||[]):[];   // details rendered generically from the experience's field defs

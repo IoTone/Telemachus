@@ -214,5 +214,64 @@ assert "job quota-gated" "$(curl -s $B/api/jobs/$QJID -H "Authorization: Bearer 
 assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP")" '"users"'
 assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
 
+# ---- document repository (slices 49-50) --------------------------------------
+# Bytes over the wire, not base64 in JSON. The payload deliberately contains a NUL
+# and invalid UTF-8, because "any format" is the requirement and a text-shaped
+# pipeline would corrupt exactly this.
+printf '%%PDF-1.7\n\000\377\376binary\000trailer' > /tmp/tmx-smoke-doc.pdf
+RPUT=$(curl -s -X PUT "$B/api/repo/reports/q3.pdf?filename=q3.pdf&visibility=private" \
+        -H "Authorization: Bearer $OP" -H 'Content-Type: application/pdf' \
+        --data-binary @/tmp/tmx-smoke-doc.pdf)
+assert "repo upload"        "$RPUT" '"key":"reports/q3.pdf"'
+assert "repo private"       "$RPUT" '"visibility":"private"'
+RID=$(printf '%s' "$RPUT" | grep -oP '"id":"\K[^"]+' | head -1)
+
+curl -s "$B/api/repo-obj/$RID/content" -H "Authorization: Bearer $OP" -o /tmp/tmx-smoke-back.pdf
+if cmp -s /tmp/tmx-smoke-doc.pdf /tmp/tmx-smoke-back.pdf; then echo "  ok   repo bytes round-trip"; else echo "  FAIL repo bytes round-trip"; fail=1; fi
+
+# A PDF may be shown inline when the caller asks. ACTIVE content may not, ever:
+# an SVG rendered inline from this origin is stored XSS with the console behind it.
+PDFH=$(curl -s -D - -o /dev/null "$B/api/repo-obj/$RID/content?disposition=inline" -H "Authorization: Bearer $OP")
+assert "repo pdf inline ok"  "$PDFH" 'Content-Disposition: inline'
+assert "repo nosniff"        "$PDFH" 'X-Content-Type-Options: nosniff'
+assert "repo csp"            "$PDFH" "Content-Security-Policy: default-src 'none'; sandbox"
+
+printf '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>' > /tmp/tmx-smoke.svg
+SVG=$(curl -s -X PUT "$B/api/repo/evil.svg" -H "Authorization: Bearer $OP" \
+       -H 'Content-Type: image/svg+xml' --data-binary @/tmp/tmx-smoke.svg)
+SVGID=$(printf '%s' "$SVG" | grep -oP '"id":"\K[^"]+' | head -1)
+SVGH=$(curl -s -D - -o /dev/null "$B/api/repo-obj/$SVGID/content?disposition=inline" -H "Authorization: Bearer $OP")
+assert "svg forced download" "$SVGH" 'Content-Disposition: attachment'
+assert "svg type neutralised" "$SVGH" 'Content-Type: application/octet-stream'
+curl -s -X DELETE "$B/api/repo-obj/$SVGID" -H "Authorization: Bearer $OP" >/dev/null
+rm -f /tmp/tmx-smoke.svg
+
+# a colleague cannot read someone else's private document, or even see it listed
+assert "repo private 403"   "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $BOB")" 'Forbidden: files:read'
+assert "repo hidden"        "$(curl -s "$B/api/repo" -H "Authorization: Bearer $BOB")" '"objects":[]'
+
+# the creator shares it with exactly that colleague, and then it resolves
+BOBID=$(printf '%s' "$MB" | grep -oP '"user_id":\s*"\K[^"]+')
+curl -s -X POST "$B/api/repo-obj/$RID/share" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\"}" >/dev/null
+assert "repo shared read"   "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $BOB")" '"key":"reports/q3.pdf"'
+
+# an overwrite versions rather than destroys, and keeps the visibility it had
+printf 'second draft' > /tmp/tmx-smoke-doc2.pdf
+RPUT2=$(curl -s -X PUT "$B/api/repo/reports/q3.pdf" -H "Authorization: Bearer $OP" \
+         -H 'Content-Type: application/pdf' --data-binary @/tmp/tmx-smoke-doc2.pdf)
+assert "repo versioned"     "$RPUT2" '"version":2'
+# sharing a PRIVATE document adds a grant without relabelling it; only a
+# team-visible document is narrowed to 'shared'. Either way the overwrite must not
+# change it.
+assert "repo keeps vis"     "$RPUT2" '"visibility":"private"'
+assert "repo version list"  "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $OP")" '"version":1'
+
+# storage is a gauge: it goes up on write and back down on delete
+assert "repo usage"         "$(curl -s "$B/api/repo" -H "Authorization: Bearer $OP")" '"dimension":"storage.bytes"'
+curl -s -X DELETE "$B/api/repo-obj/$RID" -H "Authorization: Bearer $OP" >/dev/null
+assert "repo deleted"       "$(curl -s "$B/api/repo" -H "Authorization: Bearer $OP")" '"used":0'
+assert "repo gone"          "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $OP")" 'not found'
+rm -f /tmp/tmx-smoke-doc.pdf /tmp/tmx-smoke-doc2.pdf /tmp/tmx-smoke-back.pdf
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

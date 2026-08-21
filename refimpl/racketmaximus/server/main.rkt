@@ -49,6 +49,8 @@
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
          "../domain/sched/scheduler.rkt"          ; async job queue + worker pool
+         "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
+         "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
@@ -86,6 +88,13 @@
 ;; (the /api/orgs + /api/org management planes), not the authorization semantics.
 (define (multitenant?) (and (member (or (env* "TELEMACHUS_MULTITENANT") "") '("1" "true" "yes" "on")) #t))
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
+;; Largest request body the transport will accept. web-server's own default is 1 MiB
+;; and it enforces it by DROPPING the connection — no status, no log line — so a
+;; handler's own size check never runs. Deliberate here rather than inherited.
+(define (max-upload-bytes)
+  (define raw (env* "TELEMACHUS_MAX_UPLOAD"))
+  (define n (and raw (string->number raw)))
+  (if (and n (exact-positive-integer? n)) n default-max-body-length))
 (define default-port 8835)                                     ; "TEL" on a keypad; 8080 is too crowded to squat on
 (define (listen-port)   ; TELEMACHUS_PORT wins, then PORT (the common convention), else the default
   (define raw (or (env* "TELEMACHUS_PORT") (env* "PORT")))
@@ -1089,6 +1098,121 @@
       [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
       [else (err "not found" 404)]))))
 
+;; ---- document repository (slices 49-50) --------------------------------------
+;; The data plane is deliberately NOT JSON: a document is bytes, and base64 inside a
+;; JSON envelope costs a third of the wire and forces the whole file into memory at
+;; both ends. Upload is a raw body with the key in the path; download streams back.
+;;
+;; This is the control plane the S3 front door will NOT replace (DOC-12) — sharing,
+;; grants and visibility have no expression in the S3 protocol.
+
+(define (obj-json o)
+  (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
+          'visibility (hash-ref o 'visibility) 'owner_user_id (hash-ref o 'owner_user_id)
+          'size (hash-ref o 'size) 'content_type (hash-ref o 'content_type)
+          'filename (hash-ref o 'filename) 'version (hash-ref o 'version)
+          'digest (hash-ref o 'digest)
+          'created_at (hash-ref o 'created_at) 'updated_at (hash-ref o 'updated_at)))
+
+;; Uploads land as the raw request body. `request-post-data/raw` buffers it, which is
+;; why TELEMACHUS_MAX_UPLOAD exists and why DOC-15's listener is the next slice — the
+;; port handed to repo-put! is honest about streaming even though what feeds it today
+;; is not.
+(define (ep-repo-put req key)
+  (with-auth req (lambda (p)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define raw (or (request-post-data/raw req) #""))
+      (define o (repo-put! db-conn p
+                           #:key key
+                           #:port (open-input-bytes raw)
+                           #:content-type (or (req-header req #"content-type") "application/octet-stream")
+                           #:filename (query-param req 'filename "")
+                           #:visibility (let ([v (query-param req 'visibility "")])
+                                          (and (member v VISIBILITIES) v))
+                           #:max-bytes (max-upload-bytes)))
+      (json-response (obj-json o) #:code 201)))))
+
+(define (ep-repo-list req)
+  (with-auth req (lambda (p)
+    (define objs (repo-list db-conn p
+                            #:prefix (query-param req 'prefix "")
+                            #:limit (or (string->number (query-param req 'limit "100")) 100)
+                            #:offset (or (string->number (query-param req 'offset "0")) 0)))
+    (json-response (hasheq 'objects (map obj-json objs)
+                           'usage (repo-usage db-conn p))))))
+
+(define (ep-repo-meta req id)
+  (with-auth req (lambda (p)
+    (define o (repo-get db-conn p id))
+    (if o
+        (json-response (hash-set (obj-json o) 'versions (repo-versions db-conn p id)))
+        (err "not found" 404)))))
+
+;; DOC-10: every document is served as an attachment with nosniff and a
+;; script-denying CSP unless its type is on the short inline allowlist. An SVG
+;; rendered inline from this origin is stored XSS with the console behind it, and
+;; "any format" was a requirement about what may be STORED, not about what a browser
+;; may be talked into executing.
+(define (ep-repo-get req id)
+  (with-auth req (lambda (p)
+    (define-values (o in) (repo-open db-conn p id
+                                     #:version (let ([v (query-param req 'version "")])
+                                                 (and (not (string=? v "")) v))))
+    (cond
+      [(not in) (err "not found" 404)]
+      [else
+       (define ct (hash-ref o 'content_type))
+       (define inline? (and (inline-safe? ct) (equal? (query-param req 'disposition "") "inline")))
+       (define fname (let ([f (hash-ref o 'filename)])
+                       (if (string=? f "") (car (reverse (string-split (hash-ref o 'key) "/"))) f)))
+       (define safe-name (regexp-replace* #px"[^A-Za-z0-9._-]" fname "_"))
+       (response/output
+        #:mime-type (string->bytes/utf-8 (if inline? ct "application/octet-stream"))
+        #:headers (list (make-header #"X-Content-Type-Options" #"nosniff")
+                        (make-header #"Content-Security-Policy" #"default-src 'none'; sandbox")
+                        (make-header #"Cache-Control" #"private, max-age=0, must-revalidate")
+                        (make-header #"ETag" (string->bytes/utf-8 (string-append "\"" (hash-ref o 'digest) "\"")))
+                        (make-header #"Content-Disposition"
+                                     (string->bytes/utf-8
+                                      (string-append (if inline? "inline" "attachment")
+                                                     "; filename=\"" safe-name "\""))))
+        (lambda (out)
+          (dynamic-wind void
+                        (lambda () (copy-port in out))
+                        (lambda () (close-input-port in)))))]))))
+
+(define (ep-repo-visibility req id)
+  (with-auth req (lambda (p)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define v (fmt (read-json-body req) 'visibility))
+      (define o (repo-set-visibility! db-conn p id v))
+      (if o (json-response (obj-json o)) (err "not found" 404))))))
+
+(define (ep-repo-share req id)
+  (with-auth req (lambda (p)
+    (define u (fmt (read-json-body req) 'user_id))
+    (cond
+      [(string=? u "") (err "user_id is required" 400)]
+      [(repo-share! db-conn p id #:user u)
+       (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))]
+      [else (err "not found" 404)]))))
+
+(define (ep-repo-unshare req id)
+  (with-auth req (lambda (p)
+    (define u (fmt (read-json-body req) 'user_id))
+    (if (repo-unshare! db-conn p id #:user u)
+        (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))
+        (err "not found" 404)))))
+
+(define (ep-repo-grants req id)
+  (with-auth req (lambda (p)
+    (define g (repo-grants db-conn p id))
+    (if g (json-response (hasheq 'grants g)) (err "not found" 404)))))
+
+(define (ep-repo-delete req id)
+  (with-auth req (lambda (p)
+    (if (repo-delete! db-conn p id) (json-response (hasheq 'ok #t 'id id)) (err "not found" 404)))))
+
 ;; ---- workflows (slice 46) ---------------------------------------------------
 ;; The spec is the contract: `validate-spec` is reached the same way from here as
 ;; from `define-workflow`, so a JSON document and a Racket-authored one are held to
@@ -1096,11 +1220,14 @@
 ;; step re-checks it, so a workflow can never do what its starter could not.
 (define (ep-workflows-create req)
   (with-auth req (lambda (p)
+    (require-feature p "workflows")
     (define d (flow-publish! db-conn p (read-json-body req)))
     (json-response d #:code 201))))
 
 (define (ep-workflows-list req)
-  (with-auth req (lambda (p) (json-response (hasheq 'workflows (flow-defs db-conn p))))))
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (json-response (hasheq 'workflows (flow-defs db-conn p))))))
 
 ;; contract discovery — deliberately unauthenticated: it describes the format this
 ;; build accepts, which an editor or a second implementation needs before it holds
@@ -1109,11 +1236,13 @@
 
 (define (ep-workflow-get req slug)
   (with-auth req (lambda (p)
+    (require-feature p "workflows")
     (define d (flow-def-by-slug db-conn p slug))
     (if d (json-response d) (err "not found" 404)))))
 
 (define (ep-workflow-run req slug)
   (with-auth req (lambda (p)
+    (require-feature p "workflows")
     (define d (flow-def-by-slug db-conn p slug))
     (cond
       [(not d) (err "not found" 404)]
@@ -1123,15 +1252,19 @@
        (json-response (flow-run-start! db-conn p d #:input in) #:code 202)]))))
 
 (define (ep-runs-list req)
-  (with-auth req (lambda (p) (json-response (hasheq 'runs (flow-runs db-conn p))))))
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (json-response (hasheq 'runs (flow-runs db-conn p))))))
 
 (define (ep-run-get req id)
   (with-auth req (lambda (p)
+    (require-feature p "workflows")
     (define r (flow-run-get db-conn p id))
     (if r (json-response r) (err "not found" 404)))))
 
 (define (ep-run-cancel req id)
   (with-auth req (lambda (p)
+    (require-feature p "workflows")
     (define r (flow-run-cancel! db-conn p id))
     (cond
       [(eq? r #t) (json-response (hasheq 'ok #t 'id id 'status "canceled"))]
@@ -1231,6 +1364,19 @@
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
 ;; /api/orgs/<id> · /api/orgs/<id>/{suspend,resume,quota}
+;; /api/repo/<key…> — a key contains slashes, so it is the whole tail rather than
+;; one segment. Object operations address the object by ID (/api/repo-obj/<id>/…)
+;; so a key can never be confused with an action.
+(define (repo-key-path segs)
+  (and (>= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "repo")
+       (string-join (cddr segs) "/")))
+(define (repo-obj-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "repo-obj")
+       (caddr segs)))
+(define (repo-obj-action segs action)
+  (and (= (length segs) 4) (equal? (car segs) "api") (equal? (cadr segs) "repo-obj")
+       (equal? (list-ref segs 3) action) (caddr segs)))
+
 (define (workflow-slug segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "workflows") (caddr segs)))
 (define (workflow-run-path segs)
@@ -1339,6 +1485,17 @@
     [(and (GET? m)  (equal? segs '("api" "jobs")))         (ep-jobs-list req)]
     [(and (POST? m) (job-cancel-path segs))                (ep-job-cancel req (job-cancel-path segs))]
     [(and (GET? m)  (job-id segs))                         (ep-job-get req (job-id segs))]
+    ;; document repository (slices 49-50). More specific routes first: the bare
+    ;; /api/repo listing, then object actions by id, then the catch-all key path.
+    [(and (GET? m)  (equal? segs '("api" "repo")))          (ep-repo-list req)]
+    [(and (POST? m) (repo-obj-action segs "share"))         (ep-repo-share req (repo-obj-action segs "share"))]
+    [(and (POST? m) (repo-obj-action segs "unshare"))       (ep-repo-unshare req (repo-obj-action segs "unshare"))]
+    [(and (GET? m)  (repo-obj-action segs "grants"))        (ep-repo-grants req (repo-obj-action segs "grants"))]
+    [(and (POST? m) (repo-obj-action segs "visibility"))    (ep-repo-visibility req (repo-obj-action segs "visibility"))]
+    [(and (GET? m)  (repo-obj-action segs "content"))       (ep-repo-get req (repo-obj-action segs "content"))]
+    [(and (GET? m)  (repo-obj-path segs))                   (ep-repo-meta req (repo-obj-path segs))]
+    [(and (DELETE? m) (repo-obj-path segs))                 (ep-repo-delete req (repo-obj-path segs))]
+    [(and (PUT? m)  (repo-key-path segs))                   (ep-repo-put req (repo-key-path segs))]
     ;; workflows (slice 46) — /schema is matched before /<slug> on purpose
     [(and (POST? m) (equal? segs '("api" "workflows")))     (ep-workflows-create req)]
     [(and (GET? m)  (equal? segs '("api" "workflows")))     (ep-workflows-list req)]
@@ -1463,9 +1620,11 @@
   (define ip (bind-ip))
   (define port (listen-port))
   (when tls? (ensure-cert!))
-  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a)\n"
-          (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off"))
+  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · max upload: ~a MiB)\n"
+          (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off")
+          (quotient (max-upload-bytes) (* 1024 1024)))
   (flush-output)
   (if tls?
-      (serve handle #:port port #:listen-ip ip #:ssl-cert (tls-cert) #:ssl-key (tls-key))
-      (serve handle #:port port #:listen-ip ip)))
+      (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes)
+             #:ssl-cert (tls-cert) #:ssl-key (tls-key))
+      (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes))))

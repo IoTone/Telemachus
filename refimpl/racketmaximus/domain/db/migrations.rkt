@@ -518,5 +518,54 @@
     (lambda (conn)
       (exec* conn "ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'"))))
 
+;; 0019 — the document repository (slice 49). Binary documents of any format, with
+;; the same ownable-resource shape as notes and documents (team_id + owner_user_id +
+;; visibility) so `can?` governs them with no new authorization code.
+;;
+;; Two tables, because an overwrite must not destroy what it replaces: the object is
+;; the stable identity a grant and a URL point at, and each write appends a version.
+;; `current_version_id` is what a plain read resolves to.
+;;
+;; The bytes are NOT here. A version stores the sha-256 of its content and the blob
+;; store holds it under that digest (DOC-5) — which is why two identical uploads cost
+;; one copy, and why the database stays small enough to back up.
+;;
+;; `key` is the path within the team, unique per team among live objects. SQLite and
+;; PostgreSQL both honour a partial unique index, which is what lets a deleted key be
+;; reused without a tombstone dance.
+(define m-0019-repo
+  (migration "0019-repo"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE repo_objects ("
+        "  id TEXT PRIMARY KEY,"
+        "  org_id TEXT NOT NULL,"                      ; the dedup + isolation namespace (DOC-6)
+        "  team_id TEXT NOT NULL,"
+        "  owner_user_id TEXT NOT NULL,"
+        "  visibility TEXT NOT NULL DEFAULT 'team',"   ; private | team | shared
+        "  key TEXT NOT NULL,"
+        "  current_version_id TEXT,"
+        "  deleted_at TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_repo_objects_team ON repo_objects(team_id)"
+       "CREATE UNIQUE INDEX idx_repo_objects_key ON repo_objects(team_id, key) WHERE deleted_at IS NULL"
+
+       (string-append
+        "CREATE TABLE repo_versions ("
+        "  id TEXT PRIMARY KEY,"
+        "  object_id TEXT NOT NULL,"
+        "  seq INTEGER NOT NULL DEFAULT 1,"
+        "  digest TEXT NOT NULL,"                      ; sha-256, lowercase hex — the blob's address
+        "  size INTEGER NOT NULL DEFAULT 0,"
+        "  content_type TEXT NOT NULL DEFAULT 'application/octet-stream',"
+        "  filename TEXT NOT NULL DEFAULT '',"
+        "  created_by TEXT NOT NULL,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_repo_versions_object ON repo_versions(object_id)"
+       ;; the refcount query behind "is this blob still referenced by anyone?"
+       "CREATE INDEX idx_repo_versions_digest ON repo_versions(digest)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
-                             m-0017-workflows m-0018-user-locale))
+                             m-0017-workflows m-0018-user-locale m-0019-repo))

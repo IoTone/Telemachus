@@ -62,7 +62,7 @@
               "notes:read" "notes:write" "notes:delete"
               "tasks:read" "tasks:write" "tasks:delete"
               "memory:read" "memory:write"
-              "files:read" "files:write"
+              "files:read" "files:write" "files:delete"
               "localization:read" "localization:translate" "localization:review"
               "localization:manage"
               "workflows:read" "workflows:write" "workflows:run")
@@ -72,7 +72,10 @@
               "notes:read" "notes:write"
               "tasks:read" "tasks:write"
               "memory:read" "memory:write"
-              "files:read" "files:write"
+              ;; files:delete is granted here too — a member may delete their OWN
+              ;; documents (owner-ok), and resource-reachability still stops them
+              ;; touching a colleague's private one.
+              "files:read" "files:write" "files:delete"
               "localization:read" "localization:translate"
               "workflows:read" "workflows:run")
    ;; read team-visible resources; no AI spend, no mutation
