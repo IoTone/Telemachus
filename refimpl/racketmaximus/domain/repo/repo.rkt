@@ -294,6 +294,9 @@
          (define versions (query-rows conn "SELECT id, digest, size FROM repo_versions WHERE object_id = ?" id))
          (query-exec conn "UPDATE repo_objects SET deleted_at = CURRENT_TIMESTAMP, current_version_id = NULL WHERE id = ?" id)
          (query-exec conn "DELETE FROM repo_versions WHERE object_id = ?" id)
+         ;; the extracted-text index row dies with the object (no FK cascade — SQLite
+         ;; portability), or a deleted document would keep matching searches
+         (query-exec conn "DELETE FROM repo_text WHERE object_id = ?" id)
          (define freed
            (for/sum ([r (in-list versions)])
              (define digest (vector-ref r 1))

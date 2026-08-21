@@ -34,6 +34,7 @@
             sqlite          # the default backend, plus its CLI for poking at a DB
             postgresql      # the OTHER dialect: migrations must pass on both
             openssl         # TELEMACHUS_TLS=1 shells out to it for a self-signed cert
+            poppler-utils   # pdftotext — PDF text extraction for the search index (slice 54)
             curl python3    # every demo script uses both
             nodejs_24       # the Playwright e2e tours (browser NOT included — see below)
             jq

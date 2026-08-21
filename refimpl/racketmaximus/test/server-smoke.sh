@@ -288,5 +288,32 @@ assert "…and a colleague finds it too" \
   "$(curl -s "$B/api/search?q=findme" -H "Authorization: Bearer $BOB")" 'reports/findme-q3.pdf'
 rm -f /tmp/tmx-smoke-find.pdf
 
+# ---- slice 54: the indexing workflow makes document CONTENT searchable ------------
+# The word "wombat" appears only in the bytes, never in the key — so this hit can
+# only come from extraction, through the real engine, over HTTP.
+# the quota-gating check above throttled ai.tokens.total to 0, which defers EVERY
+# job at claim time — flow.step included. Lift it, or this run sits queued forever
+# (which is deferral working, but not what this block is testing).
+curl -s -X POST $B/api/quota -H "Authorization: Bearer $OP" \
+  -d '{"dimension":"ai.tokens.total","limit":1000000,"window":"day"}' >/dev/null
+printf 'quarterly wombat forecast' > /tmp/tmx-smoke-idx.md
+curl -s -X PUT "$B/api/repo/plans/forecast.md" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: text/markdown' --data-binary @/tmp/tmx-smoke-idx.md >/dev/null
+assert "content not searchable before indexing" \
+  "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP" | grep -c '"type":"file"' || true)" "0"
+IDXRUN=$(curl -s -X POST $B/api/workflows/index-documents/run -H "Authorization: Bearer $OP" -d '{}')
+IDXID=$(printf '%s' "$IDXRUN" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "index-documents run accepted" "$IDXRUN" '"status":"running"'
+idxs=""
+for i in $(seq 1 40); do
+  idxs=$(curl -s "$B/api/runs/$IDXID" -H "Authorization: Bearer $OP" | grep -oP '"status":"\K[^"]+' | head -1)
+  case "$idxs" in done|error|canceled) break;; esac
+  sleep 0.5
+done
+assert "index-documents run completed" "$idxs" "done"
+assert "search now matches the document's CONTENT" \
+  "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
+rm -f /tmp/tmx-smoke-idx.md
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

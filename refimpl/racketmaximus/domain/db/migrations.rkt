@@ -622,5 +622,25 @@
         "  UNIQUE(upload_id, part_number))")         ; a retried part replaces, never duplicates
        "CREATE INDEX idx_repo_parts_upload ON repo_upload_parts(upload_id)"))))
 
+;; 0021 — extracted document text (slice 54). One row per repository object,
+;; holding the text pulled out of its CURRENT version so search can match a PDF by
+;; what it says, not just what it is called. Re-extraction replaces the row when the
+;; version changes; deleting the object deletes the row (repo-delete! does it — no
+;; FK cascade, SQLite portability).
+;;
+;; The text lives HERE and not in a blob because it is a search index, not a
+;; document: it is derived, capped, and disposable — dropping the table loses
+;; nothing that a re-run of the indexing workflow cannot rebuild.
+(define m-0021-repo-text
+  (migration "0021-repo-text"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE repo_text ("
+        "  object_id TEXT PRIMARY KEY,"
+        "  version_id TEXT NOT NULL,"       ; which version this text came from
+        "  content TEXT NOT NULL DEFAULT '',"
+        "  extracted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
-                             m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3))
+                             m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text))

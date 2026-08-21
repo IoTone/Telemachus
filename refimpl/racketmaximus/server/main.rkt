@@ -54,6 +54,7 @@
          "../domain/s3/sigv4.rkt"                 ; …and presigned links (slice 53)
          "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
+         "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
          "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind

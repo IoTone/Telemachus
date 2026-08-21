@@ -5,7 +5,8 @@
 # read-only store and against `dynamic-require`, which is how plugins, MCP servers
 # and OOP hosts are loaded. Wrapping the interpreter keeps the plugin SDK working
 # exactly as it does in a checkout.
-{ lib, stdenv, makeWrapper, racket, openssl }:
+{ lib, stdenv, makeWrapper, racket, openssl
+, poppler-utils }:
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "telemachus";
@@ -51,7 +52,7 @@ stdenv.mkDerivation (finalAttrs: {
       makeWrapper ${racket}/bin/racket $out/bin/telemachus-$name \
         --add-flags "$out/share/telemachus/$path" \
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
-        --prefix PATH : ${lib.makeBinPath [ racket openssl ]} \
+        --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils ]} \
         --run 'export TELEMACHUS_DATA_DIR="''${TELEMACHUS_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
     done
     runHook postInstall

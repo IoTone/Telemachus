@@ -5,11 +5,11 @@
 ;; leaks); translations are included only for members who may use AI (chat:use). A
 ;; retrieval app built entirely on existing data.
 ;;
-;; Repository objects are indexed by KEY AND FILENAME ONLY — their bytes are opaque
-;; here. Until text extraction lands, "search finds my PDF by its path" is the whole
-;; promise, and it is worth keeping honest: before this, uploading a PDF made it
-;; invisible to search while an identically-named text document was findable, which
-;; is an inconsistency a person hits within a day of using both tabs.
+;; Repository objects match on key, filename, AND extracted text: the indexing
+;; workflow (plugins/doc-indexer) pulls a document's words into `repo_text`, so a
+;; PDF is findable by what it says, not just what it is called. An object nobody has
+;; indexed yet still matches by its path — extraction improves a hit, it is never a
+;; precondition for one.
 ;;
 ;; This is deliberately NOT the fold of `documents` into `repo_objects` (DOC-14).
 ;; That is a real migration — documents have titles where objects have paths, and no
@@ -68,19 +68,29 @@
   (define repo-hits
     (for/list ([r (in-list (query-rows conn
          (string-append "SELECT o.id, o.owner_user_id, o.visibility, o.key, "
-                        "COALESCE(v.filename, ''), COALESCE(v.content_type, '') "
-                        "FROM repo_objects o LEFT JOIN repo_versions v ON v.id = o.current_version_id "
+                        "COALESCE(v.filename, ''), COALESCE(v.content_type, ''), "
+                        "COALESCE(t.content, '') "
+                        "FROM repo_objects o "
+                        "LEFT JOIN repo_versions v ON v.id = o.current_version_id "
+                        "LEFT JOIN repo_text t ON t.object_id = o.id "
                         "WHERE o.team_id = ? AND o.deleted_at IS NULL "
-                        "AND (o.key LIKE ? OR v.filename LIKE ?) "
+                        "AND (o.key LIKE ? OR v.filename LIKE ? OR t.content LIKE ?) "
                         "ORDER BY o.updated_at DESC LIMIT ?")
-         team pat pat lim))]
+         team pat pat pat lim))]
          #:when (can? conn p "files:read"
                       #:resource (hasheq 'resource_type "repo" 'resource_id (vector-ref r 0)
                                          'team_id team 'owner_user_id (vector-ref r 1)
                                          'visibility (vector-ref r 2))))
+      ;; when the CONTENT matched, show the words around the match, like a note;
+      ;; when only the path matched, the content type is the most useful line
+      (define text (vector-ref r 6))
+      (define content-hit?
+        (and (> (string-length text) 0)
+             (regexp-match? (regexp-quote (string-downcase q)) (string-downcase text))))
       (hasheq 'type "file" 'id (vector-ref r 0) 'title (vector-ref r 3)
-              'snippet (let ([ct (vector-ref r 5)])
-                         (if (string=? ct "") "" ct)))))
+              'snippet (if content-hit?
+                           (snippet text q)
+                           (let ([ct (vector-ref r 5)]) (if (string=? ct "") "" ct))))))
   (define tr-hits
     (if (can? conn p "chat:use")
         (for/list ([r (in-list (query-rows conn

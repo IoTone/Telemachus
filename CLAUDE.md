@@ -198,10 +198,23 @@ Any format in, byte-identical out, with the creator setting visibility. See
   same origin as the console means stored XSS.
 - `storage.bytes` is a **gauge**: `+size` on write, `-size` on delete, window
   `"total"` (the ledger's `window-clause` falls through to `1 = 1`).
-- **Search covers repo objects** (`domain/apps/search.rkt`) by key and filename, with
-  the same per-row `can?` filter as notes. Bytes stay opaque until extraction lands.
-  `documents` (slice 26) is still a SEPARATE table — folding it in is DOC-14, slice
-  55, and it is a real migration (titles vs paths, no `org_id`), not a view.
+- **Search covers repo objects** (`domain/apps/search.rkt`) by key, filename, AND
+  extracted content (`repo_text`, slice 54), with the same per-row `can?` filter as
+  notes. `documents` (slice 26) is still a SEPARATE table — folding it in is DOC-14,
+  slice 55, and it is a real migration (titles vs paths, no `org_id`), not a view.
+- **Content indexing (slice 54)**: run the `index-documents` workflow (plugin
+  `doc-indexer`) — find-unindexed → map → extract, ≤40 docs/run, idempotent. Tools in
+  `domain/repo/index-tools.rkt`; extractors in `domain/repo/extract.rkt` (txt/md,
+  html/xml/svg tag-stripped, docx via `file/unzip`, pdf via `pdftotext` — pinned as
+  nixpkgs `poppler-utils`). Gotchas: a tool handler may return a jsexpr list (the
+  agent boundary stringifies; `map #:over` needs the real list); an UNREADABLE file
+  is recorded as processed-with-nothing, never raised — one corrupt PDF must not
+  wedge the team's indexing forever ('missing-tool still fails hard, deliberately);
+  quota admission defers `flow.step` jobs too — an over-budget team stops indexing.
+
+  ```sh
+  raco test test/index-tests.rkt   # extractors + the whole pipeline via the scheduler
+  ```
 
 ```sh
 raco test test/repo-tests.rkt test/sha2-tests.rkt   # 99 cases, no server
