@@ -273,5 +273,20 @@ assert "repo deleted"       "$(curl -s "$B/api/repo" -H "Authorization: Bearer $
 assert "repo gone"          "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $OP")" 'not found'
 rm -f /tmp/tmx-smoke-doc.pdf /tmp/tmx-smoke-doc2.pdf /tmp/tmx-smoke-back.pdf
 
+# a repository object is findable in search, by path, like everything else — before
+# this an uploaded PDF was invisible while an identically-named text document was not
+printf 'x' > /tmp/tmx-smoke-find.pdf
+curl -s -X PUT "$B/api/repo/reports/findme-q3.pdf?filename=findme-q3.pdf" \
+  -H "Authorization: Bearer $OP" -H 'Content-Type: application/pdf' \
+  --data-binary @/tmp/tmx-smoke-find.pdf >/dev/null
+SR=$(curl -s "$B/api/search?q=findme" -H "Authorization: Bearer $OP")
+assert "search finds a repository object" "$SR" '"type":"file"'
+assert "…titled by its path"              "$SR" 'reports/findme-q3.pdf'
+# a colleague finds the team-visible object; the private case is covered exhaustively
+# in test/repo-tests.rkt, where the assertions can actually distinguish the outcomes
+assert "…and a colleague finds it too" \
+  "$(curl -s "$B/api/search?q=findme" -H "Authorization: Bearer $BOB")" 'reports/findme-q3.pdf'
+rm -f /tmp/tmx-smoke-find.pdf
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

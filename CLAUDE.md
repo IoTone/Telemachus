@@ -198,6 +198,10 @@ Any format in, byte-identical out, with the creator setting visibility. See
   same origin as the console means stored XSS.
 - `storage.bytes` is a **gauge**: `+size` on write, `-size` on delete, window
   `"total"` (the ledger's `window-clause` falls through to `1 = 1`).
+- **Search covers repo objects** (`domain/apps/search.rkt`) by key and filename, with
+  the same per-row `can?` filter as notes. Bytes stay opaque until extraction lands.
+  `documents` (slice 26) is still a SEPARATE table — folding it in is DOC-14, slice
+  55, and it is a real migration (titles vs paths, no `org_id`), not a view.
 
 ```sh
 raco test test/repo-tests.rkt test/sha2-tests.rkt   # 99 cases, no server

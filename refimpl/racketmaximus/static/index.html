@@ -115,7 +115,7 @@ const L = {
       noothers:'No one else on this team',shared:'Shared',revoked:'Revoked',deleted:'Deleted',
       vis_team:'Team \u2014 everyone on this team',vis_private:'Private \u2014 only me',
       vis_shared:'Shared \u2014 only the people below',visupdated:'Visibility updated',
-      link:'Link',copy:'Copy',copied:'Copied',
+      link:'Link',copy:'Copy',copied:'Copied',searchph:'notes, documents, files, translations\u2026',
       linkhint:'Anyone with this link can download the document for the next {m} minutes, without signing in. It carries your S3 key\u2019s permissions and stops working if that key is revoked.',
       s3keys:'S3 access keys',s3created:'Key created',status:'Status',name:'Name',
       s3hint:'Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.',
@@ -151,7 +151,7 @@ const L = {
       noothers:'このチームに他のメンバーがいません',shared:'共有しました',revoked:'解除しました',deleted:'削除しました',
       vis_team:'チーム \u2014 チーム全員',vis_private:'非公開 \u2014 自分のみ',
       vis_shared:'限定共有 \u2014 下記の相手のみ',visupdated:'公開範囲を更新しました',
-      link:'リンク',copy:'コピー',copied:'コピーしました',
+      link:'リンク',copy:'コピー',copied:'コピーしました',searchph:'ノート、ドキュメント、ファイル、翻訳\u2026',
       linkhint:'このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。あなたのS3キーの権限で動作し、キーを失効させると無効になります。',
       s3keys:'S3アクセスキー',s3created:'キーを作成しました',status:'状態',name:'名前',
       s3hint:'aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。',
@@ -1222,7 +1222,7 @@ async function searchView(){
   return `<h2>${t('search')}</h2>
     <div class="card">
       <div class="row" style="align-items:end"><div style="flex:1"><label>${t('search')}</label>
-        <input id="sq" onkeydown="if(event.key==='Enter')doSearch()" placeholder="notes &amp; translations…"></div>
+        <input id="sq" onkeydown="if(event.key==='Enter')doSearch()" placeholder="${t('searchph')}"></div>
         <div><button class="btn" onclick="doSearch()">${t('search')}</button></div></div>
       <div id="sres" style="margin-top:12px"></div></div>`;
 }
@@ -1232,8 +1232,11 @@ async function doSearch(){
   const r=await api('/api/search?q='+encodeURIComponent(q));
   const res=r.ok?r.json.results:[];
   el.innerHTML = res.length
-    ? `<table><thead><tr><th>type</th><th>title</th><th>${t('results')}</th></tr></thead><tbody>`+
-      res.map(x=>`<tr><td><span class="badge">${esc(x.type)}</span></td><td>${esc(x.title||'')}</td><td class="muted">${esc(x.snippet||'')}</td></tr>`).join('')+`</tbody></table>`
+    ? `<table><thead><tr><th>type</th><th>title</th><th>${t('results')}</th><th></th></tr></thead><tbody>`+
+      res.map(x=>`<tr><td><span class="badge${x.type==='file'?' run':''}">${esc(x.type)}</span></td>
+        <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}</td>
+        <td class="muted">${esc(x.snippet||'')}</td>
+        <td>${x.type==='file'?`<button class="btn sm ghost" onclick="repoDownload('${esc(x.id)}','${esc(x.title||'')}')">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : '<p class="muted">no results</p>';
 }
 async function render(){

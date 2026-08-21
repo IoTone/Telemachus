@@ -2,8 +2,8 @@
 
 **Status:** slices 49–53 **built** — the repository, its console, the HTTP listener,
 the S3 endpoint, and presigned links. `aws s3 cp/ls/sync/rm`, `rclone` and any other
-S3 client work against a live instance today. DOC‑14 and the questions at the end
-remain open.
+S3 client work against a live instance today. DOC‑14 is settled — search covers the
+repository now, the fold is slice 55. The four questions at the end remain open.
 **Depends on:** `can?` + the org gate (TEN‑2), the quota ledger, the plugin loader,
 and the `documents` table from slice 26.
 **Related:** [rbac-and-teams.md](rbac-and-teams.md) (visibility + grants),
@@ -394,19 +394,36 @@ shape. Silently accepting and discarding a bucket policy would let an operator
 believe an access rule is in force when it is not — the worst possible failure for
 this subsystem. Same principle as WF‑10.
 
-### DOC‑14 — Relationship to the existing `documents` table *(open)*
+### DOC‑14 — Relationship to the existing `documents` table *(decided: fold, later)*
 
 `documents` (slice 26) is a text-body app backing research and document translation.
-The repository is the general case. Options:
+The repository is the general case. The end state is one concept — a text document is
+an object with `content_type: text/markdown` — but getting there is a real migration,
+not a view: documents carry a `title` where objects carry a `key` (titles are neither
+unique nor paths, so the fold needs a key derivation), and `documents` has no
+`org_id`. `/api/documents` is public, so it is a breaking change whenever it happens.
+
+**What was actually costing something was not the duplication — it was search.**
+`search.rkt` indexed `documents` and had never heard of `repo_objects`, so a text
+document was findable and an identically-named uploaded PDF was invisible. Same
+person, two tabs, opposite behaviour, no explanation. And slice 54 — extract text and
+index it — cannot be written without answering this, because it must either index
+both (adding a second path and cementing the split) or fold first. Deferring past 54
+is not deferring; it is choosing the split by default, in the place hardest to undo.
+
+**Decided: index repository objects in search now, fold in its own slice.** Search
+covers `repo_objects` by key and filename (bytes stay opaque until extraction), which
+removes the user-visible inconsistency for a few dozen lines and does not pre-commit
+the migration. The fold is slice 55.
+
+The remaining implications, for whoever picks up 55:
 
 | | |
 |---|---|
-| **New `repo_objects`, leave `documents` alone** ✅ *(recommended)* | ships without touching a working subsystem; two concepts coexist briefly |
-| Extend `documents` with a nullable blob ref | one concept, but `documents` has no key/path namespace and its API is already public |
-| Migrate `documents` onto the repository | the right end state — a text document is an object with `text/markdown` — but it is a breaking API change and belongs in its own slice |
-
-Recommend the first, with the third named as the intended end state so the second
-concept is understood as temporary.
+| Two tabs, near-identical names | "Documents" and "Repository". Someone told to file the spec must choose, and the consequences are invisible: searchable? versioned? shareable by link? |
+| Two permission families | `documents:*` and `files:*` sit in the same three roles. Customising a role means doing it twice |
+| Asymmetric capabilities | Objects get versions, S3, presigned links, dedup, storage quota; documents get the translate/research apps. Neither is a superset |
+| Monotonic waiting cost | The rows and the habits to migrate only grow |
 
 ---
 
@@ -679,7 +696,8 @@ bytes do not.
 | **51** ✅ | `pkgs/web-kit/http1.rkt` (DOC‑15): request line, headers, lazy `Expect: 100-continue`, `Content-Length` and chunked request bodies **as an input port**, keep-alive with bounded draining, chunked or length-framed responses | **Done.** `test/http1-tests.rkt` (46 cases over raw TCP). Measured: the AWS CLI sees its `100 Continue` **1 ms** after the headers, against 16,016 ms on the servlet; a 200 MB body arrives in 0.5 s and is counted exactly, with no cap |
 | **52** ✅ | `domain/s3/{sigv4,creds,server}.rkt`: SigV4 verification, S3 access keys, path-style routing, XML + the error table, ListBuckets / ListObjectsV2 with delimiter / Get / Head / Put / Delete / DeleteObjects, multipart, **and `Range`** — which turned out to be a correctness requirement, not a slice-53 nicety | **Done.** 47 SigV4 cases against AWS's published vectors and real captured requests; `test/s3-smoke.sh` runs 23 checks with the actual `aws` CLI, including a 30 MB multipart round-trip |
 | **53** ✅ | Presigned URLs both directions (verify *and* sign), `CopyObject`, `ListObjectVersions`, `GET ?versionId`, and a **Link** button in the console | **Done.** `test/s3-smoke.sh` is now 33 checks with the real `aws` CLI; 64 SigV4 cases. *(The differential harness was dropped — see below.)* |
-| **54** | *Deferred.* Text extraction → the search index, as a workflow | A `map` step over new objects populates search |
+| **54** | Text extraction → the search index, as a workflow | A `map` step over new objects populates search with their *contents*, not just their paths |
+| **55** | The DOC‑14 fold: `documents` becomes `repo_objects` with `text/markdown`, `/api/documents` a compatibility shim | One document concept, one permission family, one tab |
 
 Slice 49 is the only one with irreversible schema commitments. Slices 51–53 can be
 dropped entirely without stranding 50 — a working repository with a console and a
@@ -707,7 +725,7 @@ machinery.
 | DOC‑11 | `storage.bytes` as a signed non-windowed gauge on the existing ledger | proposed |
 | DOC‑12 | REST + console are the control plane; S3 is the data plane | proposed |
 | DOC‑13 | Unknown S3 sub-resources return `NotImplemented`, never a silent success | proposed |
-| DOC‑14 | New `repo_objects`; `documents` folded in later, as its own slice | **open** |
+| DOC‑14 | New `repo_objects`; search covers both **now**, `documents` folds into it in slice 55 | ✅ decided |
 | DOC‑15 | The S3 data plane gets its own HTTP/1.1 listener in `web-kit`; the JSON plane stays on `serve/servlet` | proposed |
 | DOC‑16 | Build from AWS's specification against AWS's test vectors; read Arsenal, do not port it | proposed |
 | DOC‑17 | The conformance target is what `aws-cli` actually sends, captured on the wire | proposed |
@@ -725,8 +743,9 @@ decision before slice 49:
    concurrent upload; lower pushes more traffic through multipart, which not every
    client uses. 32 MiB is a guess that wants a real number from how your team
    actually uses this.
-3. **DOC‑14 — whether `documents` folds in now or later.** Later ships sooner and
-   leaves two concepts in the product for a while.
+3. ~~**DOC‑14 — whether `documents` folds in now or later.**~~ **Decided:** search
+   covers repository objects now (which is what was actually costing something), and
+   the fold is its own slice, 55. See DOC‑14 above.
 4. **DOC‑16 — port Arsenal, or build from the specification.** Porting is faster to
    start and slower to trust, and it puts Apache‑2.0 code in an MIT repository.
    Building from the spec against AWS's own vectors is the recommendation, but it is
