@@ -16,19 +16,26 @@ owner-authored Racket + owner-authored docs** may be carried over (see
 
 ## Build / test (run from `refimpl/racketmaximus/`)
 
-**Preferred: `nix develop`** from the repo root — it pins Racket 9.2 and exports
-`PLTCOLLECTS` for you, and adds postgres/sqlite/openssl/node. `nix build` runs the
-unit suite in the sandbox; `nix flake check` adds the HTTP smoke. Nix only sees
-**git-tracked** files, so `git add` a new source file before building.
-
-Without Nix, Racket is linuxbrew **minimal-racket 9.2 CS** (apt Racket is only 8.2 — don't use it):
+**Nix is the toolchain. There is no second one.** `nix develop` from the repo root
+pins Racket 9.2, exports `PLTCOLLECTS`, and adds postgres/sqlite/openssl/node.
+`nix build` runs the unit suite in the sandbox; `nix flake check` adds the HTTP
+smoke. Nix only sees **git-tracked** files, so `git add` a new source file before
+building.
 
 ```sh
-export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"
-export PLTCOLLECTS="$(pwd)/pkgs:"        # REQUIRED — pkgs/{cli-kit,db-kit,web-kit} collide with any linked Odysseus copies
+nix develop                              # from the repo root; then:
+cd refimpl/racketmaximus
 raco make server/main.rkt                # precompile before running/smoke (startup is slow otherwise)
 raco test test/*-tests.rkt               # the unit suite
 ```
+
+Run a one-off without entering the shell: `nix develop --command <cmd>`.
+
+> **Do not use linuxbrew/homebrew — it is a proven bad path and was removed from
+> these notes.** Its glibc mismatch breaks `libcrypto` (so no SHA‑256, and the
+> `openssl` binary won't run), and it is the "python spice kitchen" the
+> deterministic-deps tenet exists to prevent. apt Racket is 8.2 and also unusable.
+> If Nix is unavailable on a box, that box is not a build host.
 
 - **Never `raco test test/*.rkt`** — the glob pulls in `test/mock-*.rkt`, which are
   mock *servers* that block forever. Use `test/*-tests.rkt`.
@@ -73,8 +80,9 @@ node build-catalog.mjs beta "<title>" "<subtitle>" "<footer>"   # → catalog/be
 ## Environment constraints (this sandbox)
 
 - **No root**; `sudo` is broken (`sudoers_audit` plugin fails). No Docker (no root).
-  glibc 2.35 (too old for the brew Postgres bottle). To run live Postgres, use a host
-  with working sudo → `apt install postgresql` — **do NOT use conda/brew** (see the
+  glibc 2.35 (too old for brew bottles generally — this is why brew is out). To run
+  live Postgres, use a host with working sudo → `apt install postgresql`, or the
+  `nix develop` shell, which already provides it — **do NOT use conda/brew** (see the
   deterministic-deps tenet: no "python spice kitchen").
 - The **Bash tool** reaps `&`-backgrounded procs when the call returns and blocks
   foreground `sleep` — run long-lived servers via `run_in_background`, poll with a
@@ -115,6 +123,35 @@ raco test test/tenancy-tests.rkt                          # the authz core, no s
 
 `POST /api/admin/seed-tenants` (superadmin) seeds Acme + Globex with **known dev
 passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, never prod.
+
+## Document repository (binary documents, slices 49-50)
+
+Any format in, byte-identical out, with the creator setting visibility. See
+`docs/design/document-repository.md` (decisions DOC-1…DOC-17).
+
+- `domain/repo/repo.rkt` is the ownable resource; **`can?` governs it with no new
+  authorization code** — same `team_id`/`owner_user_id`/`visibility` triple as notes.
+- Bytes live in a **content-addressed** store keyed by SHA-256, never in the DB.
+  `domain/repo/blobs.rkt` is the seam; `plugins/rs3/` is the local filesystem one
+  (`TELEMACHUS_BLOB_STORE`, default `rs3`). **The store is never handed a principal**
+  — only a namespace and a digest — so a backend has no authorization to get wrong.
+- The namespace is the **org id**, deliberately: global dedup across tenants is an
+  existence oracle. Blob refcounts must be org-scoped too (DOC-6).
+- `domain/authz/sha2.rkt` is SHA-256/HMAC-SHA256 over **libcrypto** — do NOT add it
+  to `crypto.rkt`, whose contract is "no native deps". Pinned to NIST/RFC vectors.
+- Uploads are a **raw `PUT` body**, not base64 in JSON. `TELEMACHUS_MAX_UPLOAD`
+  (default 32 MiB) sets `web-kit`'s `#:max-body-length`; web-server's own default is
+  1 MiB and it enforces it by **dropping the connection with no response at all**.
+- Every download is `Content-Disposition: attachment` + `nosniff` + a denying CSP
+  unless the type is on a short inline allowlist. **SVG/HTML are never inline** —
+  same origin as the console means stored XSS.
+- `storage.bytes` is a **gauge**: `+size` on write, `-size` on delete, window
+  `"total"` (the ledger's `window-clause` falls through to `1 = 1`).
+
+```sh
+raco test test/repo-tests.rkt test/sha2-tests.rkt   # 99 cases, no server
+bash test/server-smoke.sh                            # includes the repository block
+```
 
 ## Workflow engine (plugins that process in steps)
 
