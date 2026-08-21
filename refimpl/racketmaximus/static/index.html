@@ -115,6 +115,8 @@ const L = {
       noothers:'No one else on this team',shared:'Shared',revoked:'Revoked',deleted:'Deleted',
       vis_team:'Team \u2014 everyone on this team',vis_private:'Private \u2014 only me',
       vis_shared:'Shared \u2014 only the people below',visupdated:'Visibility updated',
+      link:'Link',copy:'Copy',copied:'Copied',
+      linkhint:'Anyone with this link can download the document for the next {m} minutes, without signing in. It carries your S3 key\u2019s permissions and stops working if that key is revoked.',
       s3keys:'S3 access keys',s3created:'Key created',status:'Status',name:'Name',
       s3hint:'Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.',
       s3once:'Copy the secret now \u2014 it is not shown again.',
@@ -149,6 +151,8 @@ const L = {
       noothers:'このチームに他のメンバーがいません',shared:'共有しました',revoked:'解除しました',deleted:'削除しました',
       vis_team:'チーム \u2014 チーム全員',vis_private:'非公開 \u2014 自分のみ',
       vis_shared:'限定共有 \u2014 下記の相手のみ',visupdated:'公開範囲を更新しました',
+      link:'リンク',copy:'コピー',copied:'コピーしました',
+      linkhint:'このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。あなたのS3キーの権限で動作し、キーを失効させると無効になります。',
       s3keys:'S3アクセスキー',s3created:'キーを作成しました',status:'状態',name:'名前',
       s3hint:'aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。',
       s3once:'シークレットは今だけ表示されます。必ず控えてください。',
@@ -650,6 +654,7 @@ async function repoView(){
       <td class="muted" style="font-size:12px">${esc(o.updated_at)}</td>
       <td style="white-space:nowrap">
         <button class="btn sm" onclick="repoDownload('${esc(o.id)}','${esc(o.key)}')">${t('download')}</button>
+        <button class="btn sm ghost" onclick="repoLink('${esc(o.id)}')">${t('link')}</button>
         <button class="btn sm ghost" onclick="repoOpenDetail('${esc(o.id)}')">${t('details')}</button>
       </td></tr>`).join('');
   const limit = (usage.limit===null||usage.limit===undefined) ? t('nolimit') : humanBytes(usage.limit);
@@ -783,6 +788,30 @@ async function repoDownload(id, key){
   a.href=url; a.download=(key||'download').split('/').pop();
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 30000);
+}
+
+// A presigned link: shareable, time-boxed, no token needed by whoever opens it.
+// Shown rather than silently copied, because a link that grants access to a document
+// is a thing someone should look at before they paste it somewhere.
+async function repoLink(id){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/presign?expires=900',{method:'POST'});
+  if(!r.ok) return toast(r.json.error||'error');
+  const mins=Math.round((r.json.expires_in||900)/60);
+  const el=document.getElementById('rdetail');
+  el.innerHTML=`<div class="card" style="margin-top:14px;border-color:#204a3a">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0">${t('link')} — <span class="mono">${esc(r.json.key)}</span></h3>
+      <div style="flex:none">
+        <button class="btn sm" onclick="repoCopyLink()">${t('copy')}</button>
+        <button class="btn sm ghost" onclick="document.getElementById('rdetail').innerHTML=''">${t('close')}</button>
+      </div></div>
+    <div class="muted" style="font-size:12px;margin:6px 0">${t('linkhint').replace('{m}', mins)}</div>
+    <pre class="wfjson" id="rlink">${esc(r.json.url)}</pre></div>`;
+}
+function repoCopyLink(){
+  const el=document.getElementById('rlink'); if(!el) return;
+  navigator.clipboard.writeText(el.textContent).then(()=>toast(t('copied'),true),
+                                                     ()=>toast('copy failed'));
 }
 
 async function repoOpenDetail(id){

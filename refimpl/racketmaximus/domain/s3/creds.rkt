@@ -23,7 +23,7 @@
          "../authz/authz.rkt")
 
 (provide s3-cred-issue! s3-cred-list s3-cred-revoke! s3-cred-resolve
-         s3-cred-principal access-key-id?)
+         s3-cred-principal access-key-id? s3-cred-newest)
 
 ;; Shaped like an AWS key so a client that validates the format is happy: 20
 ;; characters, uppercase alphanumeric, conventional prefix.
@@ -115,3 +115,17 @@
              (hash-ref row 'scopes '())
              (and urow (let ([v (vector-ref urow 1)]) (and (not (sql-null? v)) v)))
              (and urow (let ([v (vector-ref urow 2)]) (and (not (sql-null? v)) v)))))
+
+;; The caller's newest active credential, for signing a presigned URL on their behalf.
+;; A link therefore carries exactly that key's scopes and dies with it when revoked —
+;; the alternative, minting a hidden credential per link, would create rights nobody
+;; can see or take away.
+(define (s3-cred-newest conn p)
+  (define r (query-maybe-row conn
+    (string-append "SELECT access_key_id, secret_key FROM repo_credentials "
+                   "WHERE user_id = ? AND team_id = ? AND status = 'active' "
+                   "ORDER BY created_at DESC LIMIT 1")
+    (principal-user-id p) (principal-team-id p)))
+  (and r (values->cons (vector-ref r 0) (vector-ref r 1))))
+
+(define (values->cons a b) (cons a b))

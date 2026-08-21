@@ -51,6 +51,7 @@
          "../domain/sched/governor.rkt"
          "../domain/sched/scheduler.rkt"          ; async job queue + worker pool
          "../domain/s3/server.rkt"                ; the S3 protocol front door (slice 52)
+         "../domain/s3/sigv4.rkt"                 ; …and presigned links (slice 53)
          "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
          "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
@@ -1212,6 +1213,34 @@
     (define g (repo-grants db-conn p id))
     (if g (json-response (hasheq 'grants g)) (err "not found" 404)))))
 
+;; A presigned link: a time-boxed URL a browser can follow with no bearer token, so
+;; the console can hand a PDF straight to the viewer. Signed with the CALLER'S OWN
+;; newest S3 key, which means the link can never do more than that key can, and
+;; revoking the key kills every link made with it.
+(define (ep-repo-presign req id)
+  (with-auth req (lambda (p)
+    (define o (repo-get db-conn p id))
+    (define port (s3-port))
+    (define cred (and o (s3-cred-newest db-conn p)))
+    (cond
+      [(not o) (err "not found" 404)]
+      [(not port) (err "the S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT)" 409)]
+      [(not cred) (err "create an S3 access key first — a link is signed with one" 409)]
+      [else
+       (define secs (max 1 (min 604800 (or (string->number (query-param req 'expires "900")) 900))))
+       (define host (format "~a:~a" (if (equal? (bind-ip) "0.0.0.0") "127.0.0.1" (bind-ip)) port))
+       ;; the key is signed in the form it will be sent, so encode once, here
+       (define encoded-key
+         (string-join (map (lambda (seg) (aws-uri-encode seg))
+                           (string-split (hash-ref o 'key) "/")) "/"))
+       (define path (string-append "/" (team-slug-of p) "/" encoded-key))
+       (define qs (presign-query #:method "GET" #:path path
+                                 #:access-key (car cred) #:secret (cdr cred)
+                                 #:region (s3-region) #:host host #:expires secs))
+       (json-response (hasheq 'url (format "http://~a~a?~a" host path qs)
+                              'expires_in secs
+                              'key (hash-ref o 'key)))]))))
+
 (define (ep-s3-creds req)
   (with-auth req (lambda (p) (json-response (hasheq 'credentials (s3-cred-list db-conn p)
                                                     'endpoint (s3-endpoint-url)
@@ -1533,6 +1562,7 @@
     [(and (GET? m)  (repo-obj-action segs "grants"))        (ep-repo-grants req (repo-obj-action segs "grants"))]
     [(and (POST? m) (repo-obj-action segs "visibility"))    (ep-repo-visibility req (repo-obj-action segs "visibility"))]
     [(and (GET? m)  (repo-obj-action segs "content"))       (ep-repo-get req (repo-obj-action segs "content"))]
+    [(and (POST? m) (repo-obj-action segs "presign"))       (ep-repo-presign req (repo-obj-action segs "presign"))]
     [(and (GET? m)  (repo-obj-path segs))                   (ep-repo-meta req (repo-obj-path segs))]
     [(and (DELETE? m) (repo-obj-path segs))                 (ep-repo-delete req (repo-obj-path segs))]
     [(and (PUT? m)  (repo-key-path segs))                   (ep-repo-put req (repo-key-path segs))]

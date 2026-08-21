@@ -12,7 +12,8 @@
 # Skips with exit 0 if the aws CLI is absent, so it is safe in CI without one.
 set -u
 fail=0
-assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1"; else echo "  FAIL $1 — expected: $3 — got: $2"; fail=1; fi; }
+assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1";
+  else echo "  FAIL $1 — expected: $3 — got: $(printf '%s' "$2" | tr -d '\000' | head -c 300)"; fail=1; fi; }
 ok(){ echo "  ok   $1"; }
 bad(){ echo "  FAIL $1 — $2"; fail=1; }
 
@@ -125,10 +126,70 @@ assert "a wrong secret is indistinguishable from an unknown key" \
 assert "no credentials at all" \
   "$(curl -s $E/ )" "AccessDenied"
 
-# a revoked credential stops working immediately
+# ---- slice 53: presigned URLs, CopyObject, versions --------------------------------
+# The point of a presigned link is that it needs NO credentials, so it is fetched
+# with plain curl and with the AWS environment deliberately cleared.
+# by key, not "the first one" — the listing is ordered by key, so `head -1` picks
+# whatever sorts first and the check then compares the wrong bytes
+OID=$(curl -s "$B/api/repo" -H "Authorization: Bearer $TOK" | python3 -c "
+import json,sys
+print(next(o['id'] for o in json.load(sys.stdin)['objects'] if o['key']=='reports/q3.pdf'))")
+PRE=$(curl -s -X POST "$B/api/repo-obj/$OID/presign?expires=900" -H "Authorization: Bearer $TOK")
+URL=$(printf '%s' "$PRE" | grep -oP '"url":"\K[^"]+')
+assert "presign returns a link" "$PRE" 'X-Amz-Signature='
+CODE=$(env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY curl -s -o "$TMP/pre.bin" -w '%{http_code}' "$URL")
+assert "the link works with no credentials at all" "$CODE" "200"
+cmp -s "$TMP/doc.pdf" "$TMP/pre.bin" && ok "presigned download is byte-identical" \
+  || bad "presigned download is byte-identical" "bytes differ"
+
+# tampering with a signed link must not work
+TAMPER=$(printf '%s' "$URL" | sed 's/X-Amz-Expires=900/X-Amz-Expires=604800/')
+assert "a stretched expiry is refused" \
+  "$(env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY curl -s "$TAMPER")" "SignatureDoesNotMatch"
+SWAP=$(printf '%s' "$URL" | sed 's#/reports/q3\.pdf#/big.bin#')
+if [ "$SWAP" = "$URL" ]; then bad "a link cannot be pointed at another key" "the URL never contained the key"; else
+assert "a link cannot be pointed at another key" \
+  "$(env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY curl -s "$SWAP" | head -c 300)" "SignatureDoesNotMatch"
+fi
+# An expired link gets its own verdict, distinct from a bad signature, so the message
+# can say what to do about it. Backdating X-Amz-Date is how a link ages instantly.
+STALE=$(printf '%s' "$URL" | sed 's/X-Amz-Date=[0-9]*T[0-9]*Z/X-Amz-Date=20200101T000000Z/')
+assert "an expired link says so, rather than blaming the signature" \
+  "$(env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY curl -s "$STALE")" \
+  "This presigned URL has expired"
+
+# CopyObject: content-addressed, so this moves no bytes
+$A s3 cp s3://default/reports/q3.pdf s3://default/reports/q3-copy.pdf >/dev/null 2>&1
+assert "CopyObject" "$($A s3 ls s3://default/reports/ 2>&1)" "q3-copy.pdf"
+$A s3 cp s3://default/reports/q3-copy.pdf "$TMP/copy.pdf" >/dev/null 2>&1
+cmp -s "$TMP/doc.pdf" "$TMP/copy.pdf" && ok "the copy has the same bytes" \
+  || bad "the copy has the same bytes" "bytes differ"
+
+# an overwrite versions rather than destroys, and ?versions can see both
+head -c 5000 /dev/urandom > "$TMP/v2.pdf"
+$A s3 cp "$TMP/v2.pdf" s3://default/reports/q3.pdf >/dev/null 2>&1
+VERS=$($A s3api list-object-versions --bucket default --prefix reports/q3.pdf 2>&1)
+assert "ListObjectVersions shows the current one" "$VERS" '"IsLatest": true'
+assert "…and the one it replaced"                 "$VERS" '"IsLatest": false'
+VID=$(printf '%s' "$VERS" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+old=[v for v in d.get('Versions',[]) if not v['IsLatest'] and v['Key']=='reports/q3.pdf']
+print(old[0]['VersionId'] if old else '')")
+if [ -n "$VID" ]; then
+  $A s3api get-object --bucket default --key reports/q3.pdf --version-id "$VID" "$TMP/old.pdf" >/dev/null 2>&1
+  cmp -s "$TMP/doc.pdf" "$TMP/old.pdf" && ok "an earlier version is still fetchable by id" \
+    || bad "an earlier version is still fetchable by id" "bytes differ"
+else bad "an earlier version is still fetchable by id" "no prior version id"; fi
+
+# Revocation is LAST on purpose: it kills the credential every check above uses, and
+# every link signed with it. Running it earlier makes the rest of the suite fail for
+# the wrong reason.
 CID=$(printf '%s' "$CRED" | grep -oP '"id":\s*"\K[^"]+')
 curl -s -X DELETE $B/api/s3/credentials/$CID -H "Authorization: Bearer $TOK" >/dev/null
 assert "a revoked credential is refused" "$($A s3 ls 2>&1)" "SignatureDoesNotMatch"
+assert "…and so is a link that was signed with it" \
+  "$(env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY curl -s "$URL")" "SignatureDoesNotMatch"
 
 if [ $fail -eq 0 ]; then echo "s3-smoke: PASS"; else echo "s3-smoke: FAIL"; fi
 exit $fail

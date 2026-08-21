@@ -97,24 +97,37 @@
 ;; to S3's own codes so a client can tell "your clock is wrong" from "wrong key".
 (define (authenticate conn req)
   (define authz (req-header req "authorization"))
-  (define auth (parse-authorization authz))
+  (define header-auth (parse-authorization authz))
+  ;; A presigned URL carries everything in the query string and no Authorization
+  ;; header, which is the whole point: a browser can follow it.
+  (define query-auth (and (not header-auth) (presign-parse (http-req-query req))))
+  (define auth (or header-auth query-auth))
   (define payload-hash (or (req-header req "x-amz-content-sha256") UNSIGNED-PAYLOAD))
   (cond
     [(not auth)
      (s3-error "AccessDenied" 403
-               #:message "This server requires an AWS Signature Version 4 Authorization header.")]
+               #:message "This server requires AWS Signature Version 4, in an Authorization header or a presigned query.")]
     [else
      (define-values (secret row) (s3-cred-resolve conn (sigv4-auth-access-key auth)))
      (define verdict
-       (sigv4-verify auth
-                     #:method (http-req-method req)
-                     #:path (http-req-path req)
-                     #:query (http-req-query req)
-                     #:headers (http-req-headers req)
-                     #:payload-hash payload-hash
-                     #:secret secret))
+       (if query-auth
+           (presign-verify auth
+                           #:method (http-req-method req)
+                           #:path (http-req-path req)
+                           #:query (http-req-query req)
+                           #:headers (http-req-headers req)
+                           #:secret secret)
+           (sigv4-verify auth
+                         #:method (http-req-method req)
+                         #:path (http-req-path req)
+                         #:query (http-req-query req)
+                         #:headers (http-req-headers req)
+                         #:payload-hash payload-hash
+                         #:secret secret)))
      (case verdict
        [(#t) (s3-cred-principal conn row)]
+       [(expired) (s3-error "AccessDenied" 403
+                            #:message "This presigned URL has expired. Ask for a new link.")]
        [(skewed) (s3-error "RequestTimeTooSkewed" 403
                            #:message "The difference between the request time and the server's time is too large.")]
        [(unknown-date) (s3-error "AccessDenied" 403 #:message "Missing or malformed X-Amz-Date.")]
@@ -260,12 +273,12 @@
 ;; `aws s3 cp` downloads a large object with PARALLEL RANGED GETs. Ignoring Range and
 ;; returning the whole object for each of them produces a corrupt file that the client
 ;; reports as a success — which is exactly what happened before this existed.
-(define (op-get-object conn p bucket key head? [range-header #f])
+(define (op-get-object conn p bucket key head? [range-header #f] [version-id #f])
   (define o (repo-get conn p key #:by-key (principal-team-id p)))
   (cond
     [(not o) (no-such-key key)]
     [else
-     (define-values (obj in) (repo-open conn p (hash-ref o 'id)))
+     (define-values (obj in) (repo-open conn p (hash-ref o 'id) #:version version-id))
      (cond
        [(not in) (no-such-key key)]
        [else
@@ -363,6 +376,69 @@
 
 (define (unescape-xml s)
   (regexp-replaces s '((#rx"&lt;" "<") (#rx"&gt;" ">") (#rx"&quot;" "\"") (#rx"&amp;" "\\&"))))
+
+;; CopyObject — `PUT /<bucket>/<dst>` with `x-amz-copy-source: /<bucket>/<src>`.
+;; Content addressing makes this genuinely metadata-only: the destination version
+;; points at the source's digest and no bytes move. The source is read through
+;; `repo-open`, so copying something you may not read is refused for the ordinary
+;; reason rather than a special one.
+(define (op-copy-object conn p bucket key source)
+  ;; "/bucket/key" or "bucket/key", optionally "?versionId=..."
+  (define clean (percent-decode-path (car (string-split (string-append source "?") "?"))))
+  (define trimmed (if (string-prefix? clean "/") (substring clean 1) clean))
+  (define segs (string-split trimmed "/"))
+  (cond
+    [(< (length segs) 2)
+     (s3-error "InvalidArgument" 400 #:message "x-amz-copy-source must be /bucket/key.")]
+    [(not (equal? (car segs) bucket))
+     ;; a bucket is a team, so a cross-bucket copy is a cross-team move — which the
+     ;; console can do with a grant, and an S3 client cannot express safely
+     (s3-error "InvalidArgument" 400 #:message "Cross-bucket copy is not supported.")]
+    [else
+     (define src-key (string-join (cdr segs) "/"))
+     (define-values (src in) (repo-open conn p (or (let ([o (repo-get conn p src-key
+                                                                     #:by-key (principal-team-id p))])
+                                                     (and o (hash-ref o 'id)))
+                                                  "-")))
+     (cond
+       [(not in) (no-such-key src-key)]
+       [(equal? src-key key)
+        (close-input-port in)
+        (s3-error "InvalidRequest" 400
+                  #:message "The source and destination are the same; nothing to copy.")]
+       [else
+        (define o (dynamic-wind
+                    void
+                    (lambda ()
+                      (repo-put! conn p #:key key #:port in
+                                 #:content-type (hash-ref src 'content_type)
+                                 #:filename (car (reverse (string-split key "/")))))
+                    (lambda () (close-input-port in))))
+        (xml-res 200 (el "CopyObjectResult"
+                         (el "ETag" (xml-escape (etag-of (hash-ref o 'digest))))
+                         (el "LastModified" (iso8601 (hash-ref o 'updated_at)))))])]))
+
+;; ListObjectVersions — `GET /<bucket>?versions`. Every version of every key that the
+;; caller may read, newest first per key, with the current one flagged.
+(define (op-list-versions conn p bucket req)
+  (define prefix (percent-decode-path (or (req-query req "prefix") "")))
+  (define objs (repo-list conn p #:prefix prefix #:limit 1000))
+  (xml-res 200
+    (el "ListVersionsResult"
+        (el "Name" (xml-escape bucket))
+        (el "Prefix" (xml-escape prefix))
+        (el "IsTruncated" "false")
+        (apply string-append
+               (for*/list ([o (in-list objs)]
+                           [v (in-list (or (repo-versions conn p (hash-ref o 'id)) (list)))])
+                 (el "Version"
+                     (el "Key" (xml-escape (hash-ref o 'key)))
+                     (el "VersionId" (xml-escape (hash-ref v 'id)))
+                     (el "IsLatest" (if (hash-ref v 'current) "true" "false"))
+                     (el "LastModified" (iso8601 (hash-ref v 'created_at)))
+                     (el "ETag" (xml-escape (etag-of (hash-ref v 'digest))))
+                     (el "Size" (hash-ref v 'size))
+                     (el "StorageClass" "STANDARD")))))))
 
 ;; ---- multipart ------------------------------------------------------------------------
 ;; Not optional: aws-cli switches to multipart above 8 MiB, so `aws s3 cp` of any real
@@ -491,7 +567,7 @@
 ;; a `?acl` never falls through to being treated as an ordinary object write (DOC-13).
 (define REFUSED-SUBRESOURCES
   '("acl" "policy" "lifecycle" "replication" "website" "cors" "tagging" "logging"
-    "versioning" "versions" "notification" "encryption" "requestPayment" "accelerate"
+    "versioning" "notification" "encryption" "requestPayment" "accelerate"
     "analytics" "inventory" "metrics" "object-lock" "legal-hold" "retention" "torrent"
     "publicAccessBlock" "intelligent-tiering" "ownershipControls" "restore" "select"))
 
@@ -529,6 +605,7 @@
         (xml-res 200 (el "LocationConstraint" (xml-escape (s3-region))))]
        [(string=? method "HEAD") (http-res* 200 '() #"")]
        [(and (string=? method "POST") (has-q? req "delete")) (op-delete-objects conn p bucket req)]
+       [(and (string=? method "GET") (has-q? req "versions")) (op-list-versions conn p bucket req)]
        [(string=? method "GET") (op-list-objects conn p bucket req)]
        ;; teams are created through the team API, not by an S3 client (DOC-2)
        [(member method '("PUT" "DELETE"))
@@ -551,9 +628,11 @@
        [(and (string=? method "POST") (has-q? req "uploads"))
         (op-create-multipart conn p bucket key req)]
        [(req-header req "x-amz-copy-source")
-        (not-implemented "CopyObject")]                        ; slice 53
+        => (lambda (src) (op-copy-object conn p bucket key src))]
        [(string=? method "PUT") (op-put-object conn p bucket key req)]
-       [(string=? method "GET") (op-get-object conn p bucket key #f (req-header req "range"))]
+       [(string=? method "GET")
+        (op-get-object conn p bucket key #f (req-header req "range")
+                       (let ([v (q "versionId")]) (and v (percent-decode-path v))))]
        [(string=? method "HEAD") (op-get-object conn p bucket key #t)]
        [(string=? method "DELETE") (op-delete-object conn p bucket key)]
        [else (not-implemented method)])]))

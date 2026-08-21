@@ -1,8 +1,9 @@
 # Document Repository — binary documents behind an S3 API
 
-**Status:** slices 49–52 **built**. `aws s3 cp/ls/sync/rm`, `rclone` and any other
-S3 client work against a live instance today. Slice 53 (presigned URLs, `CopyObject`,
-the differential harness) pending; DOC‑14 and the questions at the end remain open.
+**Status:** slices 49–53 **built** — the repository, its console, the HTTP listener,
+the S3 endpoint, and presigned links. `aws s3 cp/ls/sync/rm`, `rclone` and any other
+S3 client work against a live instance today. DOC‑14 and the questions at the end
+remain open.
 **Depends on:** `can?` + the org gate (TEN‑2), the quota ledger, the plugin loader,
 and the `documents` table from slice 26.
 **Related:** [rbac-and-teams.md](rbac-and-teams.md) (visibility + grants),
@@ -607,6 +608,32 @@ an attacker already has to another. `users.totp_secret` is recoverable for the s
 reason. What actually bounds a leaked access key is its scope list. This is stated in
 the module rather than implied.
 
+## What building 53 changed
+
+**A presigned link is signed with the caller's own S3 key, not an ephemeral one.**
+The alternative — minting a hidden credential per link — creates rights nobody can
+see in a listing and nobody can take away. As built, a link can never do more than
+the key that signed it, and revoking that key kills every link made with it. The
+smoke suite asserts exactly that, last, because it invalidates everything above it.
+
+**`X-Amz-Expires` needed a tamper test, not a removal test.** Removing it trips the
+expiry check before the signature is ever computed, so the removal case proves
+nothing about signing. Stretching a 15-minute link to a week is the assertion that
+matters.
+
+**An expired link gets its own verdict.** It would be easy to collapse it into
+`SignatureDoesNotMatch` — the signature is, after all, no longer acceptable. But the
+fix differs: "ask for a new link" versus "fix your clock" versus "your key is wrong".
+`presign-verify` returns `'expired` and the endpoint says so.
+
+**The differential conformance harness was dropped, deliberately.** The plan was to
+run a reference S3 server beside ours and diff the responses. The only offline
+candidate is `s3rver`, which is archived and *does not verify signatures at all* — it
+can oracle response shapes and nothing else, and our own vectors already pin those
+harder than it could. Testing against the real `aws` CLI is the stronger version of
+the same idea and it is what `test/s3-smoke.sh` does: 33 checks, every one an
+operation a real workflow performs. Recorded here rather than quietly re-scoped.
+
 ## Alternatives considered
 
 **WebDAV.** Mounts natively on macOS and Windows, which is genuinely attractive for
@@ -651,7 +678,7 @@ bytes do not.
 | **50** ✅ | `domain/repo/repo.rkt`, the `/api/repo` + `/api/repo-obj` surface, and the console **Repository** tab: upload, download, visibility, per-person sharing, versions, storage gauge | **Done.** Verified in a browser and in `test/server-smoke.sh` (15 new assertions). *`repo_credentials` moved to slice 52 — it exists only for SigV4.* |
 | **51** ✅ | `pkgs/web-kit/http1.rkt` (DOC‑15): request line, headers, lazy `Expect: 100-continue`, `Content-Length` and chunked request bodies **as an input port**, keep-alive with bounded draining, chunked or length-framed responses | **Done.** `test/http1-tests.rkt` (46 cases over raw TCP). Measured: the AWS CLI sees its `100 Continue` **1 ms** after the headers, against 16,016 ms on the servlet; a 200 MB body arrives in 0.5 s and is counted exactly, with no cap |
 | **52** ✅ | `domain/s3/{sigv4,creds,server}.rkt`: SigV4 verification, S3 access keys, path-style routing, XML + the error table, ListBuckets / ListObjectsV2 with delimiter / Get / Head / Put / Delete / DeleteObjects, multipart, **and `Range`** — which turned out to be a correctness requirement, not a slice-53 nicety | **Done.** 47 SigV4 cases against AWS's published vectors and real captured requests; `test/s3-smoke.sh` runs 23 checks with the actual `aws` CLI, including a 30 MB multipart round-trip |
-| **53** | Presigned URLs (SigV4 query auth), `CopyObject`, `ListObjectVersions`; the differential conformance harness in CI | The console previews a PDF through a presigned link; the harness diffs us against a reference server |
+| **53** ✅ | Presigned URLs both directions (verify *and* sign), `CopyObject`, `ListObjectVersions`, `GET ?versionId`, and a **Link** button in the console | **Done.** `test/s3-smoke.sh` is now 33 checks with the real `aws` CLI; 64 SigV4 cases. *(The differential harness was dropped — see below.)* |
 | **54** | *Deferred.* Text extraction → the search index, as a workflow | A `map` step over new objects populates search |
 
 Slice 49 is the only one with irreversible schema commitments. Slices 51–53 can be

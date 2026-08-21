@@ -145,10 +145,15 @@ path-style, region from `TELEMACHUS_S3_REGION` (default `us-east-1`).
   to verify. Scopes cap it (RBAC-4). Same trust boundary as `users.totp_secret`.
 - Unimplemented sub-resources (`?acl`, `?policy`, …) answer **501**, never a silent
   success — a swallowed bucket policy is the worst failure this subsystem could have.
+- **Presigned links** (slice 53): `POST /api/repo-obj/<id>/presign`. Signed with the
+  CALLER'S own newest S3 key, so a link can never exceed that key and revoking the
+  key kills the link. `X-Amz-Signature` is excluded from its own canonical query;
+  every other `X-Amz-*` is included. Expiry is a second, separate clock check and has
+  its own verdict (`'expired`) so the message can say "ask for a new link".
 
 ```sh
-raco test test/sigv4-tests.rkt     # 47 cases, AWS's own vectors
-bash test/s3-smoke.sh              # 23 checks with the real aws CLI (skips if absent)
+raco test test/sigv4-tests.rkt     # 64 cases, AWS's own vectors + presign rules
+bash test/s3-smoke.sh              # 33 checks with the real aws CLI (skips if absent)
 ```
 
 ## HTTP/1.1 listener (`web-kit/http1`, slice 51)

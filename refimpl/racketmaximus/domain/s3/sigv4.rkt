@@ -32,7 +32,8 @@
          aws-uri-encode canonical-query canonical-headers signed-headers-of
          canonical-request string-to-sign signing-key sigv4-signature
          sigv4-verify amz-date->seconds
-         UNSIGNED-PAYLOAD MAX-SKEW-SECONDS streaming-payload?)
+         presign-parse presign-verify presign-query
+         UNSIGNED-PAYLOAD MAX-SKEW-SECONDS streaming-payload? seconds->amz-date)
 
 (define ALGORITHM "AWS4-HMAC-SHA256")
 (define UNSIGNED-PAYLOAD "UNSIGNED-PAYLOAD")
@@ -209,6 +210,105 @@
         (define expect (sigv4-signature secret (sigv4-auth-date auth) (sigv4-auth-region auth)
                                         (sigv4-auth-service auth) sts))
         (if (constant-time=? expect (sigv4-auth-signature auth)) #t 'mismatch)])]))
+
+;; ---- presigned URLs (SigV4 query auth) -------------------------------------------
+;;
+;; Everything moves from the Authorization header into the query string, and the
+;; payload hash becomes the literal UNSIGNED-PAYLOAD — a browser following a link
+;; cannot compute a body hash it does not have. Two consequences worth stating:
+;;
+;;   * `X-Amz-Signature` is EXCLUDED from the canonical query (it is the output), but
+;;     every other X-Amz-* parameter is included. Getting that wrong is the classic
+;;     presigning bug and it fails identically to a wrong secret.
+;;   * The URL is valid until `X-Amz-Date + X-Amz-Expires`, which is a second,
+;;     independent clock check on top of the skew window.
+
+(define (presign-parse query)
+  (define (g k) (cond [(assoc k query) => cdr] [else #f]))
+  (define alg (g "X-Amz-Algorithm"))
+  (define cred (g "X-Amz-Credential"))
+  (define sh (g "X-Amz-SignedHeaders"))
+  (define sig (g "X-Amz-Signature"))
+  (and alg cred sh sig
+       (string=? (percent-decode alg) ALGORITHM)
+       (let ([cs (string-split (percent-decode cred) "/")])
+         (and (= 5 (length cs))
+              (string=? (list-ref cs 4) "aws4_request")
+              (sigv4-auth (list-ref cs 0) (list-ref cs 1) (list-ref cs 2) (list-ref cs 3)
+                          (string-split (percent-decode sh) ";")
+                          (percent-decode sig))))))
+
+;; Same failure vocabulary as sigv4-verify, plus 'expired — which is a different
+;; thing from 'skewed and deserves its own message, because the fix is different
+;; (ask for a new link, versus fix your clock).
+(define (presign-verify auth
+                        #:method method
+                        #:path path
+                        #:query query
+                        #:headers headers
+                        #:secret secret
+                        #:now [now (current-seconds)]
+                        #:max-skew [max-skew MAX-SKEW-SECONDS])
+  (define (g k) (cond [(assoc k query) => cdr] [else #f]))
+  (define amz-date (let ([v (g "X-Amz-Date")]) (and v (percent-decode v))))
+  (define expires (let ([v (g "X-Amz-Expires")]) (and v (string->number (percent-decode v)))))
+  (define t (and amz-date (amz-date->seconds amz-date)))
+  (cond
+    [(not auth) 'malformed-authorization]
+    [(not t) 'unknown-date]
+    [(not expires) 'unknown-date]
+    [(> (- now t) (+ expires max-skew)) 'expired]
+    [(> (- t now) max-skew) 'skewed]
+    [(not secret) 'mismatch]
+    [else
+     ;; the signature is the output, so it is not part of its own input
+     (define signable (filter (lambda (kv) (not (string=? (car kv) "X-Amz-Signature"))) query))
+     (define scope (string-join (list (sigv4-auth-date auth) (sigv4-auth-region auth)
+                                      (sigv4-auth-service auth) "aws4_request") "/"))
+     (define creq (canonical-request method path signable headers
+                                     (sigv4-auth-signed-headers auth) UNSIGNED-PAYLOAD))
+     (define sts (string-to-sign amz-date scope creq))
+     (define expect (sigv4-signature secret (sigv4-auth-date auth) (sigv4-auth-region auth)
+                                     (sigv4-auth-service auth) sts))
+     (if (constant-time=? expect (sigv4-auth-signature auth)) #t 'mismatch)]))
+
+;; Build the signed query for a presigned URL. Returns the encoded query string, so a
+;; caller appends it to `<endpoint><path>?`. `path` must already be encoded the way it
+;; will be sent — signing one form and sending another is the same bug as decoding too
+;; early, from the other end.
+(define (presign-query #:method method
+                       #:path path
+                       #:access-key access-key
+                       #:secret secret
+                       #:region region
+                       #:host host
+                       #:expires expires
+                       #:now [now (current-seconds)]
+                       #:service [service "s3"]
+                       #:extra [extra '()])
+  (define amz-date (seconds->amz-date now))
+  (define day (substring amz-date 0 8))
+  (define scope (string-join (list day region service "aws4_request") "/"))
+  (define base
+    (append extra
+            (list (cons "X-Amz-Algorithm" ALGORITHM)
+                  (cons "X-Amz-Credential" (string-append access-key "/" scope))
+                  (cons "X-Amz-Date" amz-date)
+                  (cons "X-Amz-Expires" (number->string expires))
+                  (cons "X-Amz-SignedHeaders" "host"))))
+  ;; canonical-query re-encodes, so hand it the raw values and let it normalise
+  (define creq (canonical-request method path base (list (cons "host" host)) '("host")
+                                  UNSIGNED-PAYLOAD))
+  (define sig (sigv4-signature secret day region service (string-to-sign amz-date scope creq)))
+  (string-append (canonical-query base) "&X-Amz-Signature=" sig))
+
+;; seconds -> "20260821T041609Z"
+(define (seconds->amz-date secs)
+  (define d (seconds->date secs #f))
+  (define (p2 n) (if (< n 10) (format "0~a" n) (number->string n)))
+  (format "~a~a~aT~a~a~aZ"
+          (date-year d) (p2 (date-month d)) (p2 (date-day d))
+          (p2 (date-hour d)) (p2 (date-minute d)) (p2 (date-second d))))
 
 ;; Comparing signatures with string=? leaks their prefix through timing. The cost of
 ;; not caring is a remote attacker recovering a signature byte by byte.
