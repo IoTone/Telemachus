@@ -200,8 +200,15 @@ Any format in, byte-identical out, with the creator setting visibility. See
   `"total"` (the ledger's `window-clause` falls through to `1 = 1`).
 - **Search covers repo objects** (`domain/apps/search.rkt`) by key, filename, AND
   extracted content (`repo_text`, slice 54), with the same per-row `can?` filter as
-  notes. `documents` (slice 26) is still a SEPARATE table — folding it in is DOC-14,
-  slice 55, and it is a real migration (titles vs paths, no `org_id`), not a view.
+  notes.
+- **The `documents` table is GONE** (migration `0022-fold-documents`, slice 55). A
+  text document is a repo object: `content_type text/markdown`, title in the
+  version's `filename` (verbatim), key `documents/<slug>-<id8>.md`, body a blob,
+  text in `repo_text`. `domain/documents/documents.rkt` is a compatibility SHIM
+  keeping the old five-function API — do not add features there; add them to the
+  repository. The object kept the old document's id, so grants survived. Tests that
+  create documents MUST set `current-blob-root` to a temp dir or they write blobs
+  into the checkout's `data/`.
 - **Content indexing (slice 54)**: run the `index-documents` workflow (plugin
   `doc-indexer`) — find-unindexed → map → extract, ≤40 docs/run, idempotent. Tools in
   `domain/repo/index-tools.rkt`; extractors in `domain/repo/extract.rkt` (txt/md,

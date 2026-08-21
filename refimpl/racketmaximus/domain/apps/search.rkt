@@ -51,17 +51,6 @@
                                          'visibility (vector-ref r 2))))
       (hasheq 'type "note" 'id (vector-ref r 0) 'title (vector-ref r 3)
               'snippet (snippet (vector-ref r 4) q))))
-  (define doc-hits
-    (for/list ([r (in-list (query-rows conn
-         (string-append "SELECT id, owner_user_id, visibility, title, content FROM documents "
-                        "WHERE team_id = ? AND (title LIKE ? OR content LIKE ?) ORDER BY updated_at DESC LIMIT ?")
-         team pat pat lim))]
-         #:when (can? conn p "documents:read"
-                      #:resource (hasheq 'resource_type "documents" 'resource_id (vector-ref r 0)
-                                         'team_id team 'owner_user_id (vector-ref r 1)
-                                         'visibility (vector-ref r 2))))
-      (hasheq 'type "document" 'id (vector-ref r 0) 'title (vector-ref r 3)
-              'snippet (snippet (vector-ref r 4) q))))
   ;; Content-addressed objects: the key is the searchable text we have. `filename`
   ;; is checked too because the key is often a tidy path while the filename is what
   ;; the person actually remembers typing.
@@ -87,7 +76,14 @@
       (define content-hit?
         (and (> (string-length text) 0)
              (regexp-match? (regexp-quote (string-downcase q)) (string-downcase text))))
-      (hasheq 'type "file" 'id (vector-ref r 0) 'title (vector-ref r 3)
+      ;; a folded document (migration 0022) is an object under documents/ whose
+      ;; filename is its human title — present it the way its tab does
+      (define doc? (string-prefix? (vector-ref r 3) "documents/"))
+      (hasheq 'type (if doc? "document" "file")
+              'id (vector-ref r 0)
+              'title (if (and doc? (not (string=? (vector-ref r 4) "")))
+                         (vector-ref r 4)
+                         (vector-ref r 3))
               'snippet (if content-hit?
                            (snippet text q)
                            (let ([ct (vector-ref r 5)]) (if (string=? ct "") "" ct))))))
@@ -100,4 +96,4 @@
           (hasheq 'type "translation" 'id (vector-ref r 0) 'title (string-append "→ " (vector-ref r 1))
                   'snippet (snippet (vector-ref r 2) q)))
         '()))
-  (append note-hits doc-hits repo-hits tr-hits))
+  (append note-hits repo-hits tr-hits))

@@ -248,7 +248,10 @@ rm -f /tmp/tmx-smoke.svg
 
 # a colleague cannot read someone else's private document, or even see it listed
 assert "repo private 403"   "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $BOB")" 'Forbidden: files:read'
-assert "repo hidden"        "$(curl -s "$B/api/repo" -H "Authorization: Bearer $BOB")" '"objects":[]'
+# seeded sample documents live in the repository now, so the listing is never
+# empty — what must be hidden is the PRIVATE key itself
+BOBLIST=$(curl -s "$B/api/repo" -H "Authorization: Bearer $BOB")
+if printf '%s' "$BOBLIST" | grep -qF 'reports/q3.pdf'; then echo "  FAIL repo hidden — the private key leaked into a colleague's listing"; fail=1; else echo "  ok   repo hidden"; fi
 
 # the creator shares it with exactly that colleague, and then it resolves
 BOBID=$(printf '%s' "$MB" | grep -oP '"user_id":\s*"\K[^"]+')
@@ -269,7 +272,8 @@ assert "repo version list"  "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization:
 # storage is a gauge: it goes up on write and back down on delete
 assert "repo usage"         "$(curl -s "$B/api/repo" -H "Authorization: Bearer $OP")" '"dimension":"storage.bytes"'
 curl -s -X DELETE "$B/api/repo-obj/$RID" -H "Authorization: Bearer $OP" >/dev/null
-assert "repo deleted"       "$(curl -s "$B/api/repo" -H "Authorization: Bearer $OP")" '"used":0'
+DELLIST=$(curl -s "$B/api/repo" -H "Authorization: Bearer $OP")
+if printf '%s' "$DELLIST" | grep -qF 'reports/q3.pdf'; then echo "  FAIL repo deleted — the key is still listed"; fail=1; else echo "  ok   repo deleted"; fi
 assert "repo gone"          "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $OP")" 'not found'
 rm -f /tmp/tmx-smoke-doc.pdf /tmp/tmx-smoke-doc2.pdf /tmp/tmx-smoke-back.pdf
 

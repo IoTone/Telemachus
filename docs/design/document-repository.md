@@ -1,10 +1,10 @@
 # Document Repository — binary documents behind an S3 API
 
-**Status:** slices 49–54 **built** — the repository, its console, the HTTP listener,
-the S3 endpoint, presigned links, and content indexing (a PDF is searchable by what
-it *says*). `aws s3 cp/ls/sync/rm`, `rclone` and any other
-S3 client work against a live instance today. DOC‑14 is settled — search covers the
-repository now, the fold is slice 55. The four questions at the end remain open.
+**Status:** slices 49–55 **built** — the subsystem is complete. Binary documents of
+any format, creator-set visibility, versioning, S3 (`aws`/`rclone`/`boto3`), presigned
+links, content search, and the DOC‑14 fold: the old `documents` table is gone, its
+rows are repository objects, and `/api/documents` is a compatibility shim. The two
+sizing questions at the end wait on real usage.
 **Depends on:** `can?` + the org gate (TEN‑2), the quota ledger, the plugin loader,
 and the `documents` table from slice 26.
 **Related:** [rbac-and-teams.md](rbac-and-teams.md) (visibility + grants),
@@ -675,6 +675,33 @@ operator can make, and the run should be red until they do.
 `queued` — deferral working exactly as documented, in a place nobody expected it.
 Worth knowing before a trial: a team over its AI budget also stops indexing.
 
+## What building 55 changed
+
+**The object keeps the document's id.** That one choice is most of the migration's
+safety: resource grants move with a one-line `UPDATE` of their type, client-held
+references keep resolving, and the fold test's pre-existing share works afterward
+without anyone re-granting anything.
+
+**The title is data, the key is derived.** Titles were never unique, never paths,
+and sometimes hostile (`"  Ünïcode / slashes & <tags>!  "` is in the test). The
+verbatim title rides in the version's `filename`; the key is a sanitized slug plus
+an id fragment. Sanitize the derived thing, preserve the real one.
+
+**The shim writes `repo_text` itself.** Markdown extracts to itself, so a document
+edit is searchable immediately — the old table's behaviour — rather than after the
+next indexing run. The workflow remains what handles formats that need real
+extraction.
+
+**One migration touches the filesystem, and says so.** Bodies have to become blobs;
+pretending otherwise leaves megabytes of markdown in a TEXT column forever. On a
+fresh database the loop body never runs. The migration also probes before joining,
+so a test that replays migrations out of order sees an empty no-op rather than a
+missing-column error.
+
+**What fell out for free:** folded documents version on every edit (the old table
+destroyed the previous body), dedup against identical content, sync over S3, and
+share by presigned link — because they are objects now, and that is what objects do.
+
 ## Alternatives considered
 
 **WebDAV.** Mounts natively on macOS and Windows, which is genuinely attractive for
@@ -721,7 +748,7 @@ bytes do not.
 | **52** ✅ | `domain/s3/{sigv4,creds,server}.rkt`: SigV4 verification, S3 access keys, path-style routing, XML + the error table, ListBuckets / ListObjectsV2 with delimiter / Get / Head / Put / Delete / DeleteObjects, multipart, **and `Range`** — which turned out to be a correctness requirement, not a slice-53 nicety | **Done.** 47 SigV4 cases against AWS's published vectors and real captured requests; `test/s3-smoke.sh` runs 23 checks with the actual `aws` CLI, including a 30 MB multipart round-trip |
 | **53** ✅ | Presigned URLs both directions (verify *and* sign), `CopyObject`, `ListObjectVersions`, `GET ?versionId`, and a **Link** button in the console | **Done.** `test/s3-smoke.sh` is now 33 checks with the real `aws` CLI; 64 SigV4 cases. *(The differential harness was dropped — see below.)* |
 | **54** ✅ | `domain/repo/{extract,index-tools}.rkt` + the `doc-indexer` plugin: an `index-documents` workflow — find unindexed, fan out, extract. txt/md/csv, html/xml/svg (tag-stripped), docx (Racket's own unzip), pdf (`pdftotext`, pinned via nixpkgs `poppler-utils`) | **Done.** `test/index-tests.rkt` runs the whole pipeline through the real scheduler; smoke proves it over HTTP — a word that exists only in a document's bytes becomes a search hit |
-| **55** | The DOC‑14 fold: `documents` becomes `repo_objects` with `text/markdown`, `/api/documents` a compatibility shim | One document concept, one permission family, one tab |
+| **55** ✅ | Migration `0022-fold-documents` + the shim. Each row becomes an object with the **same id** (grants and client references survive), the title rides in the version's `filename` verbatim, the body becomes a blob, the text lands in `repo_text` — searchable the moment the migration ends. The table is dropped; `domain/documents/documents.rkt` keeps the old five-function API over the repository | **Done.** `test/fold-tests.rkt` folds a real pre-0022 world — hostile titles, an empty body, a pre-fold share grant — and asserts nothing is lost; a folded document now versions on every edit, which the old table never did |
 
 Slice 49 is the only one with irreversible schema commitments. Slices 51–53 can be
 dropped entirely without stranding 50 — a working repository with a console and a
@@ -749,7 +776,7 @@ machinery.
 | DOC‑11 | `storage.bytes` as a signed non-windowed gauge on the existing ledger | proposed |
 | DOC‑12 | REST + console are the control plane; S3 is the data plane | proposed |
 | DOC‑13 | Unknown S3 sub-resources return `NotImplemented`, never a silent success | proposed |
-| DOC‑14 | New `repo_objects`; search covers both **now**, `documents` folds into it in slice 55 | ✅ decided |
+| DOC‑14 | `documents` folded into `repo_objects` (migration 0022); `/api/documents` is a shim | ✅ **built** |
 | DOC‑15 | The S3 data plane gets its own HTTP/1.1 listener in `web-kit`; the JSON plane stays on `serve/servlet` | proposed |
 | DOC‑16 | Build from AWS's specification against AWS's test vectors; read Arsenal, do not port it | proposed |
 | DOC‑17 | The conformance target is what `aws-cli` actually sends, captured on the wire | proposed |

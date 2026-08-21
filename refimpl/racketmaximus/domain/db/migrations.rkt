@@ -5,7 +5,9 @@
 ;; CURRENT_TIMESTAMP default, JSON as TEXT). A Postgres backend would branch the
 ;; `up` steps by dialect; the runner is already dialect-agnostic.
 
-(require db-kit/portable db-kit/migrate)
+(require db-kit/portable db-kit/migrate racket/string
+         "id.rkt"
+         "../repo/blobs.rkt")   ; 0022 moves document bodies into the blob store
 
 (provide all-migrations)
 
@@ -642,5 +644,78 @@
         "  content TEXT NOT NULL DEFAULT '',"
         "  extracted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")))))
 
+;; 0022 — the DOC-14 fold (slice 55): `documents` rows become repository objects.
+;;
+;; A text document IS a document — an object whose content type is text/markdown.
+;; Keeping two tables meant two permission families, two tabs, and a search that had
+;; to know both. This migration ends that: each live row becomes a repo_object (SAME
+;; id, so resource grants and every client-held reference survive), its body becomes
+;; a content-addressed blob, its title rides in the version's `filename`, and its
+;; text lands in repo_text so search never skips a beat. Then the table is dropped —
+;; /api/documents lives on as a shim over the repository.
+;;
+;; This is the one migration that touches the FILESYSTEM, and deliberately so: the
+;; body has to become a blob, and pretending otherwise would leave megabytes of
+;; markdown in a TEXT column forever. On a fresh database the loop body never runs
+;; and no file is written. The blob store in effect at migration time is the
+;; built-in one — plugins (rs3) load later — and both write the identical layout.
+(define m-0022-fold-documents
+  (migration "0022-fold-documents"
+    (lambda (conn)
+      ;; probe before joining: on an EMPTY table there is nothing to fold, and the
+      ;; org join must not even be prepared — a test that replays migrations out of
+      ;; order can reach this with a pre-0016 teams table, and an empty fold should
+      ;; be a no-op there, not a missing-column error
+      (define n (query-value conn "SELECT COUNT(*) FROM documents"))
+      (define rows
+        (if (zero? n) '()
+            (query-rows conn
+              (string-append "SELECT d.id, d.team_id, d.owner_user_id, d.visibility, d.title, "
+                             "d.content, d.created_at, d.updated_at, t.org_id "
+                             "FROM documents d JOIN teams t ON t.id = d.team_id"))))
+      (for ([r (in-list rows)])
+        (define id    (vector-ref r 0))
+        (define team  (vector-ref r 1))
+        (define owner (vector-ref r 2))
+        (define vis   (vector-ref r 3))
+        (define title (let ([v (vector-ref r 4)]) (if (sql-null? v) "" v)))
+        (define body  (let ([v (vector-ref r 5)]) (if (sql-null? v) "" v)))
+        (define created (vector-ref r 6))
+        (define updated (vector-ref r 7))
+        (define org   (vector-ref r 8))
+        ;; documents/<slug>-<id8>.md — the slug is for humans, the id suffix is what
+        ;; makes it unique (titles never were)
+        (define slug
+          (let* ([lo (string-downcase title)]
+                 [cleaned (regexp-replace* #px"[^a-z0-9]+" lo "-")]
+                 [trimmed (string-trim cleaned "-")])
+            (if (string=? trimmed "")
+                "untitled"
+                (substring trimmed 0 (min 60 (string-length trimmed))))))
+        (define key (format "documents/~a-~a.md" slug (substring id 0 8)))
+        (define bytes (string->bytes/utf-8 body))
+        (define digest (digest-of-bytes bytes))
+        (blob-put! org digest (open-input-bytes bytes) (bytes-length bytes))
+        (define vid (new-id))
+        (query-exec conn
+          (string-append "INSERT INTO repo_objects "
+                         "(id, org_id, team_id, owner_user_id, visibility, key, "
+                         " current_version_id, created_at, updated_at) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          id org team owner vis key vid created updated)
+        (query-exec conn
+          (string-append "INSERT INTO repo_versions "
+                         "(id, object_id, seq, digest, size, content_type, filename, created_by, created_at) "
+                         "VALUES (?, ?, 1, ?, ?, 'text/markdown', ?, ?, ?)")
+          vid id digest (bytes-length bytes) title owner created)
+        ;; markdown extracts to itself: the content stays searchable across the fold
+        (query-exec conn
+          "INSERT INTO repo_text (object_id, version_id, content) VALUES (?, ?, ?)"
+          id vid body))
+      ;; grants follow the resource — the object kept its id, so only the type moves
+      (query-exec conn
+        "UPDATE resource_grants SET resource_type = 'repo' WHERE resource_type = 'documents'")
+      (exec* conn "DROP TABLE documents"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
-                             m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text))
+                             m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents))

@@ -103,6 +103,10 @@
                    #:filename [filename ""]
                    #:visibility [vis #f]
                    #:max-bytes [max-bytes #f]
+                   ;; the documents shim stores a body the OLD API allowed to be "" —
+                   ;; the empty-upload guard exists to catch accidental empties over
+                   ;; HTTP, not to forbid an empty document on purpose
+                   #:allow-empty? [allow-empty? #f]
                    ;; who to record as the author. Multipart completes on behalf of
                    ;; whoever started the upload, which need not be who finishes it.
                    #:as [as-user #f])
@@ -123,7 +127,7 @@
   (when prior (require-perm conn p "files:write" #:resource (obj->resource prior)))
 
   (define-values (digest size) (blob-stage! org in #:max-bytes max-bytes))
-  (when (zero? size) (raise-user-error 'repo "empty upload"))
+  (when (and (zero? size) (not allow-empty?)) (raise-user-error 'repo "empty upload"))
   ;; Admission runs after the bytes are in the store, because the size is not known
   ;; until they are. An over-budget upload therefore costs one write and leaves no
   ;; row behind — the alternative is trusting a client-supplied Content-Length.
