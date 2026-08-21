@@ -7,6 +7,9 @@ rows are repository objects, and `/api/documents` is a compatibility shim. The t
 sizing questions at the end wait on real usage.
 **Depends on:** `can?` + the org gate (TEN‑2), the quota ledger, the plugin loader,
 and the `documents` table from slice 26.
+**Operators:** [../ops/document-repository-runbook.md](../ops/document-repository-runbook.md)
+— configuration, the client cookbook (aws/rclone/boto3/Cyberduck), quotas, indexing
+ops, failure modes, backup.
 **Related:** [rbac-and-teams.md](rbac-and-teams.md) (visibility + grants),
 [quotas.md](quotas.md) (QUOTA‑1 deferred storage — this cashes it in),
 [workflow-engine.md](workflow-engine.md) (the natural home for extraction pipelines).
