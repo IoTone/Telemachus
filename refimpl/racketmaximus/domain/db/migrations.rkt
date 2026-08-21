@@ -567,5 +567,60 @@
        ;; the refcount query behind "is this blob still referenced by anyone?"
        "CREATE INDEX idx_repo_versions_digest ON repo_versions(digest)"))))
 
+;; 0020 — S3 credentials and multipart uploads (slice 52).
+;;
+;; SigV4 is an HMAC keyed by the secret, so VERIFYING a signature requires holding
+;; the secret. The api_tokens scheme — SHA-1 of the token, prefix kept for display —
+;; cannot be reused: there is no way to check an HMAC against a hash. So this is a
+;; separate credential kind with a recoverable secret, and that is a real and stated
+;; downgrade. Precedent and trust boundary are the same as users.totp_secret, which
+;; is recoverable for exactly the same reason (TOTP also needs the raw value).
+;; Scopes work as they do for api_tokens (RBAC-4): issuer permissions ∩ scopes.
+;;
+;; Multipart is not optional — aws-cli switches to it above 8 MiB, so `aws s3 cp` of
+;; any real document uses it. Parts arrive concurrently and OUT OF ORDER, so each is
+;; its own row and the object is assembled at Complete; nothing is ever appended to a
+;; growing blob.
+(define m-0020-s3
+  (migration "0020-s3"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE repo_credentials ("
+        "  id TEXT PRIMARY KEY,"
+        "  user_id TEXT NOT NULL,"
+        "  team_id TEXT NOT NULL,"
+        "  name TEXT,"
+        "  access_key_id TEXT NOT NULL UNIQUE,"
+        "  secret_key TEXT NOT NULL,"
+        "  scopes TEXT NOT NULL DEFAULT '[]',"
+        "  status TEXT NOT NULL DEFAULT 'active',"
+        "  last_used_at TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_repo_creds_team ON repo_credentials(team_id)"
+
+       (string-append
+        "CREATE TABLE repo_uploads ("
+        "  id TEXT PRIMARY KEY,"                     ; the S3 UploadId
+        "  org_id TEXT NOT NULL,"
+        "  team_id TEXT NOT NULL,"
+        "  user_id TEXT NOT NULL,"
+        "  key TEXT NOT NULL,"
+        "  content_type TEXT NOT NULL DEFAULT 'application/octet-stream',"
+        "  visibility TEXT,"                         ; NULL = leave an existing object alone
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_repo_uploads_team ON repo_uploads(team_id)"
+
+       (string-append
+        "CREATE TABLE repo_upload_parts ("
+        "  id TEXT PRIMARY KEY,"
+        "  upload_id TEXT NOT NULL,"
+        "  part_number INTEGER NOT NULL,"
+        "  digest TEXT NOT NULL,"                    ; each part is a blob in its own right
+        "  size INTEGER NOT NULL DEFAULT 0,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(upload_id, part_number))")         ; a retried part replaces, never duplicates
+       "CREATE INDEX idx_repo_parts_upload ON repo_upload_parts(upload_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
-                             m-0017-workflows m-0018-user-locale m-0019-repo))
+                             m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3))

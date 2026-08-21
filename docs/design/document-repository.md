@@ -1,9 +1,8 @@
 # Document Repository — binary documents behind an S3 API
 
-**Status:** slices 49, 50 and 51 **built** — the hash layer, the `rs3` blob store,
-the schema, the REST surface, the console Repository tab, and the HTTP/1.1 listener.
-Slices 52–53 (SigV4 and the S3 operations) pending. DOC‑14 and the four questions at
-the end remain open.
+**Status:** slices 49–52 **built**. `aws s3 cp/ls/sync/rm`, `rclone` and any other
+S3 client work against a live instance today. Slice 53 (presigned URLs, `CopyObject`,
+the differential harness) pending; DOC‑14 and the questions at the end remain open.
 **Depends on:** `can?` + the org gate (TEN‑2), the quota ledger, the plugin loader,
 and the `documents` table from slice 26.
 **Related:** [rbac-and-teams.md](rbac-and-teams.md) (visibility + grants),
@@ -581,6 +580,33 @@ is an authorization one.** The 16-second stall is what made it look like a
 performance bug; the actual value is that a server which answers before reading gets
 to refuse an upload for free.
 
+## What building 51 and 52 changed
+
+**`Range` is a correctness requirement, not a performance one.** It was scheduled for
+slice 53. Then a 30 MB multipart upload round-tripped as 55 MB: `aws s3 cp` fetches a
+large object with *parallel ranged GETs*, and a server that ignores `Range` returns
+the whole object for each one. The client assembles them and reports success. The
+stored object was perfect; the download was garbage. Nothing but a real client finds
+that.
+
+**Query values arrive percent-encoded, and every one of them needs decoding — not
+just the ones that look like paths.** The AWS CLI sends `delimiter=%2F`. Comparing
+that raw against a single character silently disables folder grouping while still
+returning a plausible listing: every key present, flat, no error. The rule is now
+stated once at the top of the listing code, because the failure mode is a *plausible*
+wrong answer rather than a crash.
+
+**A default in two places is a default in neither.** `s3-cred-issue!` defaults its
+scopes; the endpoint passed its own list, silently shadowing it, so widening the
+default did nothing until the endpoint stopped repeating it.
+
+**Secrets are stored in the clear, and DOC‑3's "encrypt with `TELEMACHUS_SECRET_KEY`"
+is withdrawn.** Encrypting with a key that lives in the environment of the same
+process, on the same host, reading the same database moves the secret from one file
+an attacker already has to another. `users.totp_secret` is recoverable for the same
+reason. What actually bounds a leaked access key is its scope list. This is stated in
+the module rather than implied.
+
 ## Alternatives considered
 
 **WebDAV.** Mounts natively on macOS and Windows, which is genuinely attractive for
@@ -624,8 +650,8 @@ bytes do not.
 | **49** ✅ | `web-kit` `#:max-body-length` + `TELEMACHUS_MAX_UPLOAD` (32 MiB), `domain/authz/sha2.rkt` over libcrypto pinned to the NIST/RFC vectors, `domain/repo/blobs.rkt` seam + the `rs3` plugin, migration `0019-repo` | **Done.** `test/sha2-tests.rkt` (25 cases), `test/repo-tests.rkt` (74 cases) |
 | **50** ✅ | `domain/repo/repo.rkt`, the `/api/repo` + `/api/repo-obj` surface, and the console **Repository** tab: upload, download, visibility, per-person sharing, versions, storage gauge | **Done.** Verified in a browser and in `test/server-smoke.sh` (15 new assertions). *`repo_credentials` moved to slice 52 — it exists only for SigV4.* |
 | **51** ✅ | `pkgs/web-kit/http1.rkt` (DOC‑15): request line, headers, lazy `Expect: 100-continue`, `Content-Length` and chunked request bodies **as an input port**, keep-alive with bounded draining, chunked or length-framed responses | **Done.** `test/http1-tests.rkt` (46 cases over raw TCP). Measured: the AWS CLI sees its `100 Continue` **1 ms** after the headers, against 16,016 ms on the servlet; a 200 MB body arrives in 0.5 s and is counted exactly, with no cap |
-| **52** | SigV4 verification against the official vectors, path-style routing, XML responses and the error table, `GET`/`HEAD`/`PUT`/`DELETE`/`ListObjectsV2`/`ListBuckets` — **and multipart**, which DOC‑17 shows is not optional | `aws s3 cp` both directions, `ls`, `sync`, and a 1 GB file |
-| **53** | Presigned URLs, `Range`, `CopyObject`, `DeleteObjects`; the differential conformance harness in CI | The console previews a PDF through a presigned link; the harness diffs us against a reference server |
+| **52** ✅ | `domain/s3/{sigv4,creds,server}.rkt`: SigV4 verification, S3 access keys, path-style routing, XML + the error table, ListBuckets / ListObjectsV2 with delimiter / Get / Head / Put / Delete / DeleteObjects, multipart, **and `Range`** — which turned out to be a correctness requirement, not a slice-53 nicety | **Done.** 47 SigV4 cases against AWS's published vectors and real captured requests; `test/s3-smoke.sh` runs 23 checks with the actual `aws` CLI, including a 30 MB multipart round-trip |
+| **53** | Presigned URLs (SigV4 query auth), `CopyObject`, `ListObjectVersions`; the differential conformance harness in CI | The console previews a PDF through a presigned link; the harness diffs us against a reference server |
 | **54** | *Deferred.* Text extraction → the search index, as a workflow | A `map` step over new objects populates search |
 
 Slice 49 is the only one with irreversible schema commitments. Slices 51–53 can be

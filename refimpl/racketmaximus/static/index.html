@@ -115,6 +115,10 @@ const L = {
       noothers:'No one else on this team',shared:'Shared',revoked:'Revoked',deleted:'Deleted',
       vis_team:'Team \u2014 everyone on this team',vis_private:'Private \u2014 only me',
       vis_shared:'Shared \u2014 only the people below',visupdated:'Visibility updated',
+      s3keys:'S3 access keys',s3created:'Key created',status:'Status',name:'Name',
+      s3hint:'Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.',
+      s3once:'Copy the secret now \u2014 it is not shown again.',
+      s3off:'The S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT).',
       newversion:'Saved as a new version',willversion:'This path exists \u2014 uploading saves a new version and keeps its current visibility',
       nolimit:'no limit',norepoobjects:'No documents yet. Any format \u2014 pdf, svg, png, docx, xml, md.',
       uploadhint:'Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.',
@@ -145,6 +149,10 @@ const L = {
       noothers:'このチームに他のメンバーがいません',shared:'共有しました',revoked:'解除しました',deleted:'削除しました',
       vis_team:'チーム \u2014 チーム全員',vis_private:'非公開 \u2014 自分のみ',
       vis_shared:'限定共有 \u2014 下記の相手のみ',visupdated:'公開範囲を更新しました',
+      s3keys:'S3アクセスキー',s3created:'キーを作成しました',status:'状態',name:'名前',
+      s3hint:'aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。',
+      s3once:'シークレットは今だけ表示されます。必ず控えてください。',
+      s3off:'このインスタンスではS3エンドポイントが無効です（TELEMACHUS_S3_PORT）。',
       newversion:'新しいバージョンとして保存しました',willversion:'このパスは既にあります \u2014 新しいバージョンとして保存され、公開範囲は現状のままです',
       nolimit:'上限なし',norepoobjects:'まだドキュメントがありません。形式は自由です。',
       uploadhint:'どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。',
@@ -222,7 +230,7 @@ function appShell(){
 }
 function go(tab){ S.tab=tab; S.newToken=null;
   if(tab!=='workflows'){ S.wfRun=null; S.wfSel=null; S.wfSpec=null; }   // leaving drops any run poll in flight
-  if(tab!=='repository'){ S.repoDetail=null; }
+  if(tab!=='repository'){ S.repoDetail=null; S.s3New=null; }
   S.wfPoll++;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }
@@ -672,7 +680,51 @@ async function repoView(){
         ? `<table style="margin-top:8px"><thead><tr><th>${t('key')}</th><th>${t('visibility')}</th><th>${t('size')}</th><th>${t('updated')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
         : `<p class="muted" style="margin-top:8px">${t('norepoobjects')}</p>`}
     </div>
-    <div id="rdetail"></div>`;
+    <div id="rdetail"></div>
+    ${await s3Card()}`;
+}
+
+// S3 access keys live beside the documents they reach, not in Team with the bearer
+// tokens: the thing an operator needs is the endpoint, the bucket name and a key,
+// together, in the order they will paste them.
+async function s3Card(){
+  const r=await api('/api/s3/credentials');
+  if(!r.ok) return '';
+  const creds=r.json.credentials||[], ep=r.json.endpoint, bucket=r.json.bucket;
+  const rows=creds.map(c=>`<tr>
+      <td>${esc(c.name||'—')}</td>
+      <td class="mono muted">${esc(c.access_key_id)}</td>
+      <td class="mono muted" style="font-size:12px">${(c.scopes||[]).map(esc).join(' ')}</td>
+      <td>${c.status==='active'?'<span class="badge ok">active</span>':`<span class="badge">${esc(c.status)}</span>`}</td>
+      <td>${c.status==='active'?`<button class="btn sm ghost" onclick="s3Revoke('${esc(c.id)}')">${t('revoke')}</button>`:''}</td>
+    </tr>`).join('');
+  const newkey = S.s3New ? `<div class="card" style="margin-top:10px;border-color:#204a3a">
+      <b>${t('s3once')}</b>
+      <pre class="wfjson">AWS_ACCESS_KEY_ID=${esc(S.s3New.access_key_id)}
+AWS_SECRET_ACCESS_KEY=${esc(S.s3New.secret_access_key)}</pre></div>` : '';
+  const usage = ep
+    ? `<pre class="wfjson">aws --endpoint-url ${esc(ep)} s3 ls s3://${esc(bucket)}/
+aws --endpoint-url ${esc(ep)} s3 cp report.pdf s3://${esc(bucket)}/reports/</pre>`
+    : `<p class="muted">${t('s3off')}</p>`;
+  return `<div class="card" style="margin-top:14px">
+    <h3 style="margin:0 0 4px">${t('s3keys')}</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">${t('s3hint')}</div>
+    ${usage}
+    <div class="row" style="align-items:end;margin-top:10px">
+      <div style="flex:2"><label>${t('name')}</label><input id="s3name" placeholder="laptop"></div>
+      <div style="flex:none"><button class="btn" onclick="s3Create()">${t('createtoken')}</button></div>
+    </div>
+    ${newkey}
+    ${creds.length?`<table style="margin-top:8px"><thead><tr><th>${t('name')}</th><th>access key</th><th>scopes</th><th>${t('status')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:''}
+  </div>`;
+}
+async function s3Create(){
+  const r=await api('/api/s3/credentials',{method:'POST',body:{name:val('s3name')}});
+  if(r.ok){ S.s3New=r.json; toast(t('s3created'),true); renderTab(); } else toast(r.json.error||'error');
+}
+async function s3Revoke(id){
+  const r=await api('/api/s3/credentials/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r.ok){ S.s3New=null; toast(t('revoked'),true); renderTab(); } else toast(r.json.error||'error');
 }
 
 // default the key to the filename, so the common case needs no typing

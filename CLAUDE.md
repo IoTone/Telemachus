@@ -124,6 +124,33 @@ raco test test/tenancy-tests.rkt                          # the authz core, no s
 `POST /api/admin/seed-tenants` (superadmin) seeds Acme + Globex with **known dev
 passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, never prod.
 
+## S3 endpoint (slice 52)
+
+`TELEMACHUS_S3_PORT=8836` turns it on — a SECOND listener, on `web-kit/http1`, off by
+default. `aws`, `rclone`, `boto3` and Cyberduck all work. Bucket = team slug,
+path-style, region from `TELEMACHUS_S3_REGION` (default `us-east-1`).
+
+- `domain/s3/sigv4.rkt` verifies signatures. **Built from the spec, not ported** —
+  pinned to AWS's published vectors AND to real aws-cli requests captured on the wire.
+- **S3 rules that differ from the generic SigV4 suite:** the path is used AS RECEIVED
+  (no re-encode, no normalize — `web-kit/http1` keeps it raw for this reason), and the
+  payload hash comes from `x-amz-content-sha256` so verification never needs the body.
+- **Query values arrive percent-encoded.** Decode every one in the handler
+  (`delimiter=%2F`!) — forgetting produces a plausible wrong answer, not an error.
+- **`Range` is mandatory.** `aws s3 cp` downloads large objects as parallel ranged
+  GETs; ignoring `Range` yields a corrupt file the client calls a success.
+- Multipart is mandatory too (aws switches above 8 MiB). Parts arrive out of order,
+  each is its own blob, assembled at Complete via `input-port-append` → `repo-put!`.
+- Access keys are `repo_credentials`, secret stored **in the clear** — SigV4 needs it
+  to verify. Scopes cap it (RBAC-4). Same trust boundary as `users.totp_secret`.
+- Unimplemented sub-resources (`?acl`, `?policy`, …) answer **501**, never a silent
+  success — a swallowed bucket policy is the worst failure this subsystem could have.
+
+```sh
+raco test test/sigv4-tests.rkt     # 47 cases, AWS's own vectors
+bash test/s3-smoke.sh              # 23 checks with the real aws CLI (skips if absent)
+```
+
 ## HTTP/1.1 listener (`web-kit/http1`, slice 51)
 
 `serve/servlet` stays the JSON control plane. `pkgs/web-kit/http1.rkt` is the data

@@ -102,7 +102,10 @@
                    #:content-type [content-type "application/octet-stream"]
                    #:filename [filename ""]
                    #:visibility [vis #f]
-                   #:max-bytes [max-bytes #f])
+                   #:max-bytes [max-bytes #f]
+                   ;; who to record as the author. Multipart completes on behalf of
+                   ;; whoever started the upload, which need not be who finishes it.
+                   #:as [as-user #f])
   (require-perm conn p "files:write")
   (unless (valid-key? key) (raise-user-error 'repo "invalid key: ~s" key))
   (when (and vis (not (member vis VISIBILITIES)))
@@ -119,29 +122,19 @@
   ;; they know its key.
   (when prior (require-perm conn p "files:write" #:resource (obj->resource prior)))
 
-  (define tmp (make-temporary-file "telemachus-upload-~a"))
-  (define-values (digest size)
-    (with-handlers ([(lambda (_) #t) (lambda (e) (delete-file* tmp) (raise e))])
-      (call-with-output-file tmp #:exists 'truncate/replace
-        (lambda (out) (copy-port-limited in out max-bytes)))
-      (call-with-input-file tmp digest-of-port)))
-
-  (with-handlers ([(lambda (_) #t) (lambda (e) (delete-file* tmp) (raise e))])
-    (when (zero? size) (raise-user-error 'repo "empty upload"))
-    ;; Admission happens after the bytes are on local disk but before they are
-    ;; committed to the store, because the size is not known until then. A refusal
-    ;; costs a temp file, which is the cheap half.
-    (define adm (quota-check conn "team" team STORAGE-DIMENSION size))
-    (unless (hash-ref adm 'allowed)
-      (raise-user-error 'repo "storage quota exceeded: ~a of ~a bytes used"
-                        (hash-ref adm 'used) (hash-ref adm 'limit)))
-    (when org
-      (define oadm (quota-check conn "org" org STORAGE-DIMENSION size))
-      (unless (hash-ref oadm 'allowed)
-        (raise-user-error 'repo "organization storage quota exceeded")))
-
-    (call-with-input-file tmp (lambda (bin) (blob-put! org digest bin size)))
-    (delete-file* tmp))
+  (define-values (digest size) (blob-stage! org in #:max-bytes max-bytes))
+  (when (zero? size) (raise-user-error 'repo "empty upload"))
+  ;; Admission runs after the bytes are in the store, because the size is not known
+  ;; until they are. An over-budget upload therefore costs one write and leaves no
+  ;; row behind — the alternative is trusting a client-supplied Content-Length.
+  (define adm (quota-check conn "team" team STORAGE-DIMENSION size))
+  (unless (hash-ref adm 'allowed)
+    (raise-user-error 'repo "storage quota exceeded: ~a of ~a bytes used"
+                      (hash-ref adm 'used) (hash-ref adm 'limit)))
+  (when org
+    (define oadm (quota-check conn "org" org STORAGE-DIMENSION size))
+    (unless (hash-ref oadm 'allowed)
+      (raise-user-error 'repo "organization storage quota exceeded")))
 
   (define oid (or (and prior (hash-ref prior 'id)) (new-id)))
   (define vid (new-id))
@@ -170,23 +163,6 @@
           #:resource-type "repo" #:resource-id oid
           #:meta (format "{\"key\":~s,\"size\":~a,\"version\":~a}" key size seq))
   (row->obj (obj-row conn oid)))
-
-(define (delete-file* p) (when (and p (file-exists? p)) (delete-file p)))
-
-;; Copy with an optional ceiling, returning the byte count. The ceiling exists so a
-;; client cannot spend unbounded disk before the quota check gets a number to judge.
-(define (copy-port-limited in out limit)
-  (define buf (make-bytes (* 128 1024)))
-  (let loop ([total 0])
-    (define n (read-bytes-avail! buf in))
-    (cond
-      [(eof-object? n) total]
-      [else
-       (define t (+ total n))
-       (when (and limit (> t limit))
-         (raise-user-error 'repo "upload exceeds the ~a byte limit" limit))
-       (write-bytes buf out 0 n)
-       (loop t)])))
 
 ;; ---- reading -------------------------------------------------------------------
 (define (repo-get conn p id-or-key #:by-key [team #f])

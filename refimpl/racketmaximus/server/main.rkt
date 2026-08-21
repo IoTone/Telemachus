@@ -25,6 +25,7 @@
          web-server/http
          json
          web-kit
+         web-kit/http1
          db-kit
          "../config.rkt"
          "../domain/db/migrations.rkt"
@@ -49,6 +50,8 @@
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
          "../domain/sched/scheduler.rkt"          ; async job queue + worker pool
+         "../domain/s3/server.rkt"                ; the S3 protocol front door (slice 52)
+         "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
          "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
@@ -1209,6 +1212,43 @@
     (define g (repo-grants db-conn p id))
     (if g (json-response (hasheq 'grants g)) (err "not found" 404)))))
 
+(define (ep-s3-creds req)
+  (with-auth req (lambda (p) (json-response (hasheq 'credentials (s3-cred-list db-conn p)
+                                                    'endpoint (s3-endpoint-url)
+                                                    'region (s3-region)
+                                                    'bucket (team-slug-of p))))))
+
+(define (ep-s3-cred-create req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define scopes (let ([v (hash-ref b 'scopes #f)])
+                     (and (list? v) (andmap string? v) v)))
+    ;; the secret is in this response and in no other, ever. With no scopes given the
+    ;; issuer's own default applies — repeating a list here would silently shadow it.
+    (json-response (if scopes
+                       (s3-cred-issue! db-conn p #:name (fmt b 'name) #:scopes scopes)
+                       (s3-cred-issue! db-conn p #:name (fmt b 'name)))
+                   #:code 201))))
+
+(define (ep-s3-cred-revoke req id)
+  (with-auth req (lambda (p) (s3-cred-revoke! db-conn p id) (json-response (hasheq 'ok #t)))))
+
+(define (team-slug-of p)
+  (define v (query-maybe-value db-conn "SELECT slug FROM teams WHERE id = ?" (principal-team-id p)))
+  (if (string? v) v ""))
+
+;; What a client must be told to reach us: S3 lives on its own port because its
+;; transport requirements differ (Expect: 100-continue, unbuffered bodies), and
+;; path-style addressing because virtual-host style would need wildcard DNS.
+(define (s3-port)
+  (define raw (env* "TELEMACHUS_S3_PORT"))
+  (define n (and raw (string->number raw)))
+  (and n (exact-positive-integer? n) n))
+
+(define (s3-endpoint-url)
+  (define p (s3-port))
+  (and p (format "http://~a:~a" (if (equal? (bind-ip) "0.0.0.0") "<host>" (bind-ip)) p)))
+
 (define (ep-repo-delete req id)
   (with-auth req (lambda (p)
     (if (repo-delete! db-conn p id) (json-response (hasheq 'ok #t 'id id)) (err "not found" 404)))))
@@ -1496,6 +1536,12 @@
     [(and (GET? m)  (repo-obj-path segs))                   (ep-repo-meta req (repo-obj-path segs))]
     [(and (DELETE? m) (repo-obj-path segs))                 (ep-repo-delete req (repo-obj-path segs))]
     [(and (PUT? m)  (repo-key-path segs))                   (ep-repo-put req (repo-key-path segs))]
+    ;; S3 access keys — managed here, used on the S3 port
+    [(and (GET? m)  (equal? segs '("api" "s3" "credentials")))  (ep-s3-creds req)]
+    [(and (POST? m) (equal? segs '("api" "s3" "credentials")))  (ep-s3-cred-create req)]
+    [(and (DELETE? m) (= (length segs) 4) (equal? (car segs) "api")
+          (equal? (cadr segs) "s3") (equal? (caddr segs) "credentials"))
+     (ep-s3-cred-revoke req (list-ref segs 3))]
     ;; workflows (slice 46) — /schema is matched before /<slug> on purpose
     [(and (POST? m) (equal? segs '("api" "workflows")))     (ep-workflows-create req)]
     [(and (GET? m)  (equal? segs '("api" "workflows")))     (ep-workflows-list req)]
@@ -1623,6 +1669,16 @@
   (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · max upload: ~a MiB)\n"
           (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off")
           (quotient (max-upload-bytes) (* 1024 1024)))
+  ;; The S3 front door is a SEPARATE listener on a separate port: it runs on
+  ;; web-kit/http1 because it must answer `Expect: 100-continue` and stream bodies
+  ;; the servlet would buffer. Off unless TELEMACHUS_S3_PORT is set — an S3 endpoint
+  ;; is surface area, and surface area should be asked for.
+  (when (s3-port)
+    (http1-listen (make-s3-handler db-conn)
+                  #:port (s3-port) #:listen-ip ip
+                  #:on-error (lambda (e) (printf "s3: ~a\n" (exn-message e)) (flush-output)))
+    (printf "s3 endpoint on http://~a:~a  (path-style · region ~a · bucket = team slug)\n"
+            ip (s3-port) (s3-region)))
   (flush-output)
   (if tls?
       (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes)

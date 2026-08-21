@@ -21,7 +21,7 @@
          "../authz/sha2.rkt")
 
 (provide register-blob-store! blob-store-names active-blob-store-name
-         blob-put! blob-get blob-delete! blob-size blob-exists?
+         blob-put! blob-get blob-delete! blob-size blob-exists? blob-stage!
          digest-of-bytes digest-of-port valid-digest?
          current-blob-root)
 
@@ -84,6 +84,38 @@
   ((hash-ref (active-store) 'stat) ns digest))
 
 (define (blob-exists? ns digest) (and (blob-size ns digest) #t))
+
+;; Stream a port into the store and return (values digest size).
+;;
+;; The temp file is the price of content addressing: the name IS the digest, and the
+;; digest is not known until the last byte has been read. Everything that stores
+;; bytes goes through here — a whole object, one multipart part — so there is one
+;; place where "spill, hash, commit, clean up on every path" is written down.
+(define (blob-stage! ns in #:max-bytes [max-bytes #f])
+  (define tmp (make-temporary-file "telemachus-blob-~a"))
+  (with-handlers ([(lambda (_) #t) (lambda (e) (delete-file* tmp) (raise e))])
+    (call-with-output-file tmp #:exists 'truncate/replace
+      (lambda (out) (copy-limited in out max-bytes)))
+    (define-values (digest size) (call-with-input-file tmp digest-of-port))
+    (call-with-input-file tmp (lambda (bin) (blob-put! ns digest bin size)))
+    (delete-file* tmp)
+    (values digest size)))
+
+(define (delete-file* p) (when (and p (file-exists? p)) (delete-file p)))
+
+;; A ceiling so a client cannot spend unbounded disk before anything gets to judge it.
+(define (copy-limited in out limit)
+  (define buf (make-bytes (* 128 1024)))
+  (let loop ([total 0])
+    (define n (read-bytes-avail! buf in))
+    (cond
+      [(eof-object? n) total]
+      [else
+       (define t (+ total n))
+       (when (and limit (> t limit))
+         (raise-user-error 'blob-stage! "upload exceeds the ~a byte limit" limit))
+       (write-bytes buf out 0 n)
+       (loop t)])))
 
 ;; ---- the built-in filesystem store -------------------------------------------
 ;; `rs3` is the shipped plugin and is what a deployment uses; this identical
