@@ -46,10 +46,16 @@
   "SELECT id, team_id, slug, version, source, spec, status, created_by, created_at FROM workflow_defs")
 
 (define (row->def r #:spec [with-spec #t])
+  (define spec (js (vr r 5)))
+  ;; name/description ride along even when the spec body is dropped: a listing has to
+  ;; be able to say what a workflow IS, and they are the only human-readable fields.
   (define base (hasheq 'id (vr r 0) 'team_id (vr r 1) 'slug (vr r 2) 'version (vr r 3)
                        'source (vr r 4) 'status (vr r 6)
+                       'name (hash-ref spec 'name (vr r 2))
+                       'description (hash-ref spec 'description 'null)
+                       'step_count (length (hash-ref spec 'steps '()))
                        'created_by (nz (vr r 7)) 'created_at (vr r 8)))
-  (if with-spec (hash-set base 'spec (js (vr r 5))) base))
+  (if with-spec (hash-set base 'spec spec) base))
 
 ;; A definition is an ownable resource, so cross-org reads die at step 0 of `can?`
 ;; rather than at a WHERE clause. Visibility is "team": per TEN-2a an org admin may
@@ -137,15 +143,20 @@
 
 ;; ---- runs --------------------------------------------------------------------
 (define RSELECT
+  ;; the def's slug rides along so a run can name itself without a second lookup —
+  ;; the console lists runs before it has fetched any definition.
   (string-append "SELECT id, def_id, team_id, user_id, status, input, output, error, cursor_json, "
-                 "steps_used, created_at, started_at, finished_at FROM workflow_runs"))
+                 "steps_used, created_at, started_at, finished_at, "
+                 "(SELECT slug FROM workflow_defs d WHERE d.id = workflow_runs.def_id) "
+                 "FROM workflow_runs"))
 
 (define (row->run r)
   (hasheq 'id (vr r 0) 'def_id (vr r 1) 'team_id (vr r 2) 'user_id (vr r 3)
           'status (vr r 4) 'input (js (vr r 5))
           'output (if (sql-null? (vr r 6)) 'null (js (vr r 6)))
           'error (nz (vr r 7)) 'cursor (js (vr r 8)) 'steps_used (vr r 9)
-          'created_at (vr r 10) 'started_at (nz (vr r 11)) 'finished_at (nz (vr r 12))))
+          'created_at (vr r 10) 'started_at (nz (vr r 11)) 'finished_at (nz (vr r 12))
+          'slug (nz (vr r 13))))
 
 (define (run-row conn id) (query-maybe-row conn (string-append RSELECT " WHERE id = ?") id))
 

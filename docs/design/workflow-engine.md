@@ -261,9 +261,14 @@ the `cursor` column in `workflow_runs`. Run state is private and may change free
 
 ### The visual interface, staged
 
-- **v1 — read-only, ships with the engine.** Render the spec as a DAG, and a run as
-  the same DAG with node status colours. Mermaid is MIT and needs no build step.
-  Seeing what a workflow does is most of the value; editing is the rest.
+- **v0 — a table, shipped in slice 48.** The Workflows tab lists definitions, runs
+  one from a form generated out of the spec's own `input` map, and polls the run
+  with each step's status, retries and output — a `map` step's children indented
+  under it. It calls only the documented endpoints, which is the first real proof
+  that the contract is usable by something that is not the engine.
+- **v1 — read-only DAG.** Render the spec as a graph, and a run as the same graph
+  with node status colours. Mermaid is MIT and needs no build step. Seeing the
+  *shape* of a workflow is what the table cannot show; editing is the rest.
 - **v2 — an optional canvas editor** round-tripping the same JSON. Drawflow,
   Rete.js and React Flow are all MIT; the choice can wait until someone asks to
   drag a box.
@@ -336,8 +341,9 @@ over-build. It is not, because a handler cannot:
 |---|---|---|
 | **46** ✅ | `define-workflow` macro *and* the spec it emits + the single strict validator + `advance` interpreter + the `flow.step` job kind + `tool`/`choice` steps + tables + endpoints + `/schema` + tests | **Done.** `domain/flow/{bind,spec,dsl,run}.rkt`, migration `0017-workflows`, `test/flow-tests.rkt` (15 cases, incl. a run resumed by a second process against the same file database and a cross-org refusal) |
 | **47** ✅ | `map` + the plugin `workflows` export and `workflows/*.json` loader + `users.locale` + the Translate Chat demo plugin. *(`agent`, `job:` and `flow:` step kinds deferred — nothing needed them yet.)* | **Done.** `plugins/translate-chat/` ships a three-step workflow with two chained fan-outs; `test/translate-chat-demo.sh` drives it against a live model |
-| **48** | Run view in the console + Mermaid DAG + the `approve` gate + audit events | A parked run is visible, approvable, and the approval is in `audit_log` |
-| **49** | *Optional.* Canvas editor round-tripping the spec | Only if someone asks to drag a box |
+| **48** ✅ | The **Workflows tab**: definitions, a run form generated from the spec's `input`, a polling run view with the fan-out nested, cancel, and the team's run history + the `workflows` feature gate + `test/e2e/workflow-tour.mjs`. *(Mermaid DAG and the `approve` gate deferred to 49.)* | **Done.** `static/index.html`; the tab is a pure client of the endpoints slice 46 already shipped — no new engine code |
+| **49** | Mermaid DAG of the spec and of a run + the `approve` gate + audit events | A parked run is visible, approvable, and the approval is in `audit_log` |
+| **50** | *Optional.* Canvas editor round-tripping the spec | Only if someone asks to drag a box |
 
 Slice 46 is the only irreversible commitment, and it ships the Racket authoring
 surface with it — nobody writes JSON by hand to try the feature. 47–49 are additive

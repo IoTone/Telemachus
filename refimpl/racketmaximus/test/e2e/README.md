@@ -38,9 +38,25 @@ so the tour still passes (the model steps just show the fallback).
 | `run.sh` | boot a temp-DB server on `127.0.0.1:8835`, run the tour, build the catalog, tear down |
 | `boot-server.sh` | the throwaway-server launch (temp DB, binds 127.0.0.1) |
 | `run-tour.mjs` | the tour: drives the UI, asserts, writes `catalog/*.png` + `manifest.json` |
+| `workflow-tour.mjs` | the workflow-engine tour: runs a workflow from the **Workflows** tab, watches it advance, forces a failure → `catalog/workflow/` |
 | `build-catalog.mjs` | assembles the screenshots + captions into `catalog/catalog.html` |
 
 `catalog/`, `node_modules/`, and `report/` are git-ignored.
+
+## The workflow tour
+
+Drives the Workflows tab against **any** running instance rather than booting its
+own server:
+
+```bash
+export PATH=~/.nvm/versions/node/v24.18.0/bin:$PATH
+BASE_URL=http://127.0.0.1:8835 node test/e2e/workflow-tour.mjs
+node test/e2e/build-catalog.mjs workflow "Workflow engine" "Steps, fan-out, failure" ""
+```
+
+It signs in as `alice`/`s3cret`, bootstrapping that operator if the instance is
+fresh, and picks the workflow named by `WF_SLUG` (default `translate-chat`). The
+last shot disables `translate_text` to force a failing run, then re-enables it.
 
 ## Adding a step
 

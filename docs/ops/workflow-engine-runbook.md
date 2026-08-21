@@ -93,7 +93,7 @@ export PATH="$(brew --prefix minimal-racket)/bin:$PATH"
 
 ```sh
 cd refimpl/racketmaximus
-export PLTCOLLECTS="$PWD/pkgs:"     # REQUIRED, every shell — see §7
+export PLTCOLLECTS="$PWD/pkgs:"     # REQUIRED, every shell — see §8
 raco make server/main.rkt           # precompile; startup is slow otherwise
 ```
 
@@ -114,7 +114,8 @@ working default.
 | `TELEMACHUS_DATA_DIR` | checkout: `./data` · Nix: `$XDG_STATE_HOME/telemachus` | **all** writable state — the database, TLS material, uploads. `DATABASE_URL` defaults to `sqlite:///$TELEMACHUS_DATA_DIR/telemachus.db`. |
 | `TELEMACHUS_PLUGINS` | `./plugins` | plugin directory; plugins load at startup |
 | `TELEMACHUS_MULTITENANT` | `0` | orgs above teams; workflows are team-scoped either way |
-| `TELEMACHUS_BIND` | **`127.0.0.1`** | loopback by default — a container or remote host must set `0.0.0.0` |
+| `TELEMACHUS_BIND` | **`127.0.0.1`** | loopback by default. Prefer a **specific private address** (a tailnet or VPC IP) over `0.0.0.0`, which also exposes the instance to the local network |
+| `TELEMACHUS_HOME` | `login` | `beta` serves the **beta funnel** at `/` — the console is then reached via the page's "Team sign-in" link, not `/` |
 | `TELEMACHUS_TLS` | off | with `TELEMACHUS_TLS_CERT` / `_KEY` |
 
 > **The one that will burn you.** With `TELEMACHUS_MODEL_URL` **unset**, the server
@@ -126,8 +127,20 @@ working default.
 
 > **Second one that will burn you.** The server binds **loopback** by default. In a
 > container or on a remote host it will come up healthy, log nothing unusual, and be
-> unreachable from outside. Set `TELEMACHUS_BIND=0.0.0.0` (and put a TLS terminator
-> in front, or set `TELEMACHUS_TLS`).
+> unreachable from outside. Bind it explicitly — and put a TLS terminator in front,
+> or set `TELEMACHUS_TLS`.
+>
+> Reach for the **narrowest** address that works. `TELEMACHUS_BIND=<tailnet-ip>`
+> exposes the instance to your tailnet and nothing else; `0.0.0.0` also publishes it
+> to every other machine on the local network, including the unauthenticated
+> `POST /api/bootstrap` route on a fresh database.
+
+> **Third one, and it is the one that actually bites during a trial.** The server
+> reads `static/index.html` **once, at startup**, and serves it from memory. A
+> long-lived process therefore keeps serving the console it started with — no error,
+> no warning, just a UI missing whatever you shipped since. **Any deploy that
+> touches the UI is a restart**, and "Is the console you are serving the one you built?" below is how you
+prove the restart took.
 
 Migrations run automatically at startup. Workflows add `0017-workflows` (three
 tables) and `0018-user-locale` (one column). No manual step.
@@ -145,9 +158,14 @@ curl -s localhost:8835/health
 it is unauthenticated by design so a probe needs no credentials:
 
 ```sh
-curl -s localhost:8835/api/workflows/schema
-# {"spec":1,"step_kinds":["tool:<name>","choice","map"],"unknown_fields":"rejected", …}
+curl -s localhost:8835/api/workflows/schema \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["spec"], d["step_kinds"], d["unknown_fields"])'
+# 1 ['tool:<name>', 'choice', 'map'] rejected
 ```
+
+The full document also carries `predicates`, `references`, `step_fields`, `limits`
+and `planned_step_kinds` — everything an author or a second implementation needs in
+order to write a spec this build will accept.
 
 A non-200, or a `spec` that is not the version your workflow documents declare, is
 the signal to stop the rollout.
@@ -158,9 +176,139 @@ Plugins that shipped workflows are listed on startup and at `/api/plugins`:
   plugin: translate-chat v0.1.0 — 2 tool(s), 1 workflow(s)
 ```
 
+### Is the console you are serving the one you built?
+
+`/health` reports a static version string, so it cannot answer this. The served
+asset can — the console is one file, so grep the thing the process is actually
+handing out:
+
+```sh
+B=http://127.0.0.1:8835
+diff <(curl -s $B/ | grep -o "const tabs=\[[^]]*\]") \
+     <(grep -o "const tabs=\[[^]]*\]" static/index.html) \
+  && echo "console is current" || echo "STALE — restart the server"
+```
+
+A mismatch means the running process predates your checkout. Nothing is broken;
+it is holding a startup-time copy. Restart it.
+
 ---
 
-## 5. The test tiers
+## 5. Standing it up for a trial
+
+The engine adds no daemon and no datastore, so "deploying workflows" is just
+deploying the server. What follows is the whole sequence, in order.
+
+```sh
+cd refimpl/racketmaximus
+export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"   # skip under `nix develop`
+export PLTCOLLECTS="$PWD/pkgs:"
+
+export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"       # absolute — see §8
+export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+export TELEMACHUS_MODEL=qwen2.5:7b
+export TELEMACHUS_BIND=127.0.0.1        # or a tailnet/VPC IP to share it
+export PORT=8835
+
+raco make server/main.rkt                # precompile — startup is slow otherwise
+racket server/main.rkt
+```
+
+Under Nix the first three lines are unnecessary and the launch is
+`nix run github:IoTone/Telemachus/dev`; the same environment variables apply.
+
+### Redeploying over a running instance
+
+There is no reload. Stop the old process, then start the new one — and stop it by
+**PID**. `pkill -f 'server/main'` also matches the shell line running it, so it kills
+your own command (exit 144); a bare `pgrep -f` has the same problem and lists the
+wrapper shells alongside the server:
+
+```sh
+pgrep -a -x racket | grep server/main   # 920634 racket server/main.rkt
+kill 920634                             # SIGTERM; in-flight runs resume from the DB
+raco make server/main.rkt && racket server/main.rkt
+```
+
+`-x` matches the *executable* rather than the command line, which is what keeps the
+shell that ran the `pgrep` out of the answer. The plugin subprocesses (`mock-mcp`,
+the sandboxed OOP plugins) are `racket` too, hence the `grep`; they exit with the
+parent.
+
+Killing mid-run is safe: run state is rows, not memory. A step whose job was
+`running` at the moment of death is the one exception — see §10.
+
+After the restart, prove it took, on the server **and** in the browser:
+
+```sh
+curl -s $B/ | grep -c workflowsView     # 0 = stale console, ≥1 = current
+```
+
+Then hard-refresh the client (⇧⌘R / ctrl-shift-R). A cached page looks exactly like
+a stale server, and you will chase the wrong one.
+
+### Exposing it to a trial audience
+
+Bind to the narrowest address that reaches your testers:
+
+| Audience | `TELEMACHUS_BIND` | Reachable at |
+|---|---|---|
+| Just this machine | `127.0.0.1` (default) | `http://127.0.0.1:8835/` |
+| Your tailnet | the node's tailnet IP, e.g. `100.x.y.z` | `http://100.x.y.z:8835/`, or the MagicDNS name if enabled |
+| A LAN / anything wider | `0.0.0.0` | everything on the network — **only behind TLS and a real front door** |
+
+A tailnet IP is the right default for a trial: no port forwarding, no certificate,
+and the instance is invisible to the local network. For HTTPS at a real hostname,
+`tailscale serve --bg 8835` fronts it with a Let's Encrypt certificate and lets you
+keep `TELEMACHUS_BIND=127.0.0.1`.
+
+Whatever you choose, remember `POST /api/bootstrap` is **unauthenticated on a fresh
+database** — it creates the first operator. Bootstrap immediately after first start,
+before anyone else can reach the port.
+
+### Pre-flight checklist
+
+Run through this once per trial deployment. `B` is the base URL — `B=http://127.0.0.1:8835`,
+or whatever you bound to; `A` is the `Authorization: Bearer …` header from §7.
+
+```sh
+curl -s $B/health                                    # "ok":true
+curl -s $B/api/workflows/schema \
+  | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["spec"],d["step_kinds"])'
+curl -s $B/ | grep -c workflowsView                  # ≥1 → the console is current
+curl -s -m 5 "$TELEMACHUS_MODEL_URL" -H 'Content-Type: application/json' \
+  -d "{\"model\":\"$TELEMACHUS_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}" \
+  | head -c 120                                      # the model actually answers
+```
+
+- [ ] `/health` is `"ok":true`
+- [ ] `/api/workflows/schema` reports `1 ['tool:<name>', 'choice', 'map']` — the
+      `spec` version and step kinds your documents rely on
+- [ ] `TELEMACHUS_MODEL_URL` is set **and the endpoint answers** — otherwise every
+      model step returns a simulated echo and the trial silently proves nothing
+- [ ] Startup log lists the plugins you expect, with their workflow counts
+- [ ] The console is current (`grep -c workflowsView` ≥ 1), and you hard-refreshed
+- [ ] Sign in and open **Workflows**: the definitions you expect are listed
+      (a plugin's workflow materializes into the team on that first listing)
+- [ ] Run one end to end and watch it reach `done`
+- [ ] Back up `data/` — every in-flight run lives in that database
+
+### Turning it off
+
+The `workflows` feature is per team, in the database, and defaults to **on**:
+
+```sh
+curl -s -X POST $B/api/features/workflows -H "$A" -d '{"enabled":false}'
+```
+
+The tab disappears from the console and every workflow endpoint returns `403` —
+except `/api/workflows/schema`, which describes the build rather than the instance.
+Existing runs are unaffected; they are already scheduler jobs. This is the kill
+switch for a trial that goes wrong: it needs no restart and no deploy.
+
+---
+
+## 6. The test tiers
 
 Four tiers, cheapest first. Tiers 1–3 need **no model** and run in CI today.
 
@@ -225,6 +373,25 @@ Use `qwen2.5:7b`. Avoid `qwen3.5` "reasoning" models — their answer lands in a
 `reasoning` field the OpenAI-compatible path does not read, so steps come back
 empty.
 
+### Tier 5 — the console (~2 min, browser, needs Node ≥ 18)
+
+Drives the **Workflows tab** the way an operator would: lists what the team can run,
+runs one, watches it advance, and forces a failure. Proof that the GUI and the API
+agree, since the GUI is only a client of the API.
+
+```sh
+export PATH=~/.nvm/versions/node/v24.18.0/bin:$PATH   # box default node may be too old
+cd test/e2e && npm ci                                  # once
+BASE_URL=http://127.0.0.1:8835 node workflow-tour.mjs  # → catalog/workflow/*.png
+```
+
+Point `BASE_URL` at any running instance; it signs in as `alice`/`s3cret` and
+bootstraps that operator if the instance is fresh. `WF_SLUG` picks a different
+workflow. It disables `translate_text` for the last shot and re-enables it after.
+
+Use **plain Playwright**, as the script does — the `@playwright/test` *runner* hangs
+in a headless sandbox with no output.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -238,7 +405,7 @@ touch no deployed data.
 
 ---
 
-## 6. Verifying a deployment by hand
+## 7. Verifying a deployment by hand
 
 ```sh
 B=localhost:8835
@@ -267,6 +434,29 @@ curl -s $B/api/runs/$RID -H "$A"
 
 A healthy run reaches `"status":"done"` within a second or two for tool-only steps.
 
+### In the console
+
+The same thing without curl — sign in and open **Workflows**:
+
+1. **Definitions** lists everything the team can run, with its version, its source
+   (`plugin:<id>` for a workflow a plugin shipped, `api` for one that was POSTed)
+   and its step count. A plugin's workflow appears here the first time the tab is
+   opened — that listing is what materializes it into the team.
+2. **Run** generates a form from the spec's own `input` declaration — the same
+   declaration the server enforces — and POSTs to `/api/workflows/<slug>/run`.
+3. The **run view** polls `/api/runs/<id>` every 1.5 s while the run is live. Each
+   step shows its status, its retry count, and its output; a `map` step's children
+   are the indented rows beneath it, one per item. **Cancel** is offered while the
+   run is still live.
+4. A failed run shows the failing step in red and, above the step table, the run's
+   own error naming which step failed and why — siblings that never started stay
+   `queued` rather than running on.
+5. **Runs** on the tab's landing page is the team's history, newest first.
+
+The tab is hidden and its endpoints return **403** when the `workflows` feature is
+switched off for the team (Admin › Features). `GET /api/workflows/schema` stays open
+either way — it describes the build, not the instance.
+
 ### Endpoints
 
 | Endpoint | Permission | |
@@ -285,17 +475,22 @@ workflow is reading their data by proxy, which TEN‑2a forbids.
 
 ---
 
-## 7. Failure modes
+## 8. Failure modes
 
 Ordered by how often they will actually happen.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| **A shipped UI change is missing — no Workflows tab, an old tab set** | the server cached `static/index.html` at startup; the process predates your checkout | restart it (§5), then hard-refresh the browser. `curl -s $B/ \| grep -c workflowsView` tells you which of the two it was |
 | A wall of unrelated assertion failures | another server already on that port; the scripts' readiness probe was satisfied by *it* | the scripts now refuse to start — heed `port … is already in use` and set `PORT` |
 | Steps complete instantly, output is the input in CAPITALS | `TELEMACHUS_MODEL_URL` unset → simulated echo | set it; restart |
 | `reference to a variable that is not exported` | stale `.zo` after a module's exports changed | `raco make` the tests too, or delete `compiled/` |
 | Module not found / wrong module loaded | `PLTCOLLECTS` unset — `pkgs/{cli-kit,db-kit,web-kit}` collide with any linked Odysseus copies | `export PLTCOLLECTS="$PWD/pkgs:"` |
 | A run sits at `"status":"running"` forever | its steps are `queued` and the team is over quota — deferral, not failure | check `GET /api/usage`; raise the limit or wait for the window |
+| `403 feature workflows is disabled`, and no tab | the team has the `workflows` feature off | Admin › Features → enable, or `POST /api/features/workflows {"enabled":true}` |
+| `/` shows a beta signup page, not the console | `TELEMACHUS_HOME=beta` | follow the page's "Team sign-in" link, or unset the variable and restart |
+| Tab is there, **Definitions** is empty | a plugin's workflows materialize into a team on first listing — an empty list means no plugin shipped one and none was published | check the startup log for `N workflow(s)`; otherwise `POST /api/workflows` |
+| A stopped server left the port bound | a previous process is still alive | `pgrep -a -x racket \| grep server/main`, then `kill <pid>` — **not** `pkill -f`, which matches its own command line |
 | `400 invalid workflow spec: … unknown field 'x'` | strict validation (WF‑10) | remove the field, or the document was written for a newer build |
 | `400 … unsupported spec format version 2` | the document is newer than this server | upgrade the server; do **not** hand-edit the version |
 | `unknown tool 'x' — no plugin registered it` | tool names resolve at run time, not publish time | check the plugin loaded: `GET /api/plugins` |
@@ -325,7 +520,7 @@ the failure are absent because they never ran — a failed step stops the run.
 
 ---
 
-## 8. CI
+## 9. CI
 
 The existing job already covers tiers 1–3; the unit step is a **glob**, so
 `flow-tests.rkt` was picked up with no CI change:
@@ -347,7 +542,7 @@ and report success. To cover it, add a job with a model service and set
 
 ---
 
-## 9. Backup & upgrade
+## 10. Backup & upgrade
 
 - **State** is entirely in the database: `workflow_defs`, `workflow_runs`,
   `workflow_steps`, `jobs`. Back up the database and you have backed up every
@@ -359,3 +554,7 @@ and report success. To cover it, add a job with a model service and set
 - **A step whose job was `running` when the process died** stays `running` — the
   scheduler does not reap orphans. Rare, but if a run is stuck on a step whose job
   is `running` with no worker, cancel the run and start it again.
+- **The console is not state.** It is one file read at startup, so upgrading the UI
+  is a restart and nothing more — there is no build step, no bundle, no cache to
+  invalidate server-side. The browser's cache is the only one you have to think
+  about.
