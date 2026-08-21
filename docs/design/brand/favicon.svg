@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Telemachus">
+  <!-- Tabs render this at 16px over a surface we do not control, so it carries its
+       own aegean ground. Geometry is drawn FOR the tile rather than scaled into it:
+       a nested transform left the mark floating small with uneven margins. -->
+  <rect width="64" height="64" rx="14" fill="#132c46"/>
+  <path d="M17 54 V28 a15 15 0 0 1 30 0 V54 Z
+           M23 29 h18 a5.5 5.5 0 0 1 0 11 h-18 a5.5 5.5 0 0 1 0 -11 Z
+           M29.4 29 h5.2 v17 a2.6 2.6 0 0 1 -5.2 0 Z"
+        fill="#f2ede1" fill-rule="evenodd"/>
+</svg>

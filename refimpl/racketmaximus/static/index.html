@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Telemachus</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23132c46'/%3E%3Cpath d='M17 54 V28 a15 15 0 0 1 30 0 V54 Z M23 29 h18 a5.5 5.5 0 0 1 0 11 h-18 a5.5 5.5 0 0 1 0 -11 Z M29.4 29 h5.2 v17 a2.6 2.6 0 0 1 -5.2 0 Z' fill='%23f2ede1' fill-rule='evenodd'/%3E%3C/svg%3E">
 <style>
   :root{ --bg:#0f1117; --panel:#171a23; --panel2:#1e2230; --line:#2a2f3d; --fg:#e6e8ee;
          --muted:#9aa3b2; --accent:#7c8cff; --accent2:#5a6cff; --ok:#3ddc97; --bad:#ff6b6b; --warn:#ffcc66; }
@@ -29,7 +30,13 @@
     margin:6px 0 0;overflow:auto;max-height:260px;font-size:12px;white-space:pre-wrap;word-break:break-word}
   /* auth */
   .auth{max-width:420px;margin:8vh auto;padding:0 16px}
-  .brand{font-weight:800;letter-spacing:-.02em} .brand .dot{color:var(--accent)}
+  .brand{font-weight:800;letter-spacing:-.02em;display:inline-flex;align-items:center;gap:.42em}
+  .brand .dot{color:var(--accent)}
+  /* Brand rule: the mark is aegean, or a knockout. The console ground is dark, so
+     it is a knockout — it inherits the wordmark's colour rather than borrowing the
+     UI accent, which would put a third blue on the page. */
+  .tmx-mark{display:block;flex:none;color:inherit}
+  .auth .brand{justify-content:center;margin-bottom:.1em}
   /* shell */
   header.top{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
   header.top .sp{flex:1} .chip{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px}
@@ -166,6 +173,14 @@ const L = {
       nodefs:'このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。',
       noruns:'実行履歴はまだありません。',stepsused:'ステップ使用'}
 };
+// The Mentor mark (docs/design/brand/). A Corinthian helm's face opening is
+// already a T, so one aperture carries helm, owl and letter at once. Inherits
+// currentColor, so it themes with whatever it sits in.
+function markSVG(px){
+  return `<svg class="tmx-mark" viewBox="0 0 64 64" width="${px}" height="${px}" aria-hidden="true" focusable="false">
+    <path d="M16 55 V29 a16 16 0 0 1 32 0 V55 Z M22 30 h20 a5.5 5.5 0 0 1 0 11 h-20 a5.5 5.5 0 0 1 0 -11 Z M29.3 30 h5.4 v18 a2.7 2.7 0 0 1 -5.4 0 Z"
+          fill="currentColor" fill-rule="evenodd"/></svg>`;
+}
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
@@ -187,7 +202,7 @@ const val = id => document.getElementById(id).value.trim();
 // ---------- auth ----------
 function authView(){
   return `<div class="auth">
-    <h1 class="brand">Telemachus<span class="dot">.</span></h1>
+    <h1 class="brand">${markSVG(38)}<span>Telemachus<span class="dot">.</span></span></h1>
     <p class="muted">${t('tagline')}</p>
     <div class="langtog" style="margin:10px 0 18px">${langBtns()}</div>
     <div class="card">
@@ -223,7 +238,7 @@ function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
-      <span class="brand">Telemachus<span class="dot">.</span></span>
+      <span class="brand">${markSVG(22)}<span>Telemachus<span class="dot">.</span></span></span>
       <span class="sp"></span>
       <span class="langtog">${langBtns()}</span>
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
@@ -558,7 +573,7 @@ async function doBetaSignup(){
 function teamSignIn(){ S.forceLogin=true; render(); }
 function activateView(token){
   return `<div class="auth">
-    <h1 class="brand">Telemachus<span class="dot">.</span></h1>
+    <h1 class="brand">${markSVG(38)}<span>Telemachus<span class="dot">.</span></span></h1>
     <p class="muted">${t('welcome')}</p>
     <div class="card">
       <h2>${t('setpw')}</h2>
