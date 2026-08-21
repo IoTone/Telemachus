@@ -6,7 +6,7 @@
 ;; prompt) is a pluggable PROVIDER registered through the SDK, so a deployer can
 ;; customize it (default provider ships in plugins/beta-onboarding).
 
-(require db
+(require db-kit/portable   ; NOT `db` — it rewrites ? -> $n on PostgreSQL
          json
          "../db/id.rkt"
          "../authz/authz.rkt")

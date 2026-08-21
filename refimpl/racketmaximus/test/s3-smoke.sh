@@ -27,7 +27,11 @@ done
 
 TMP=$(mktemp -d)
 export TELEMACHUS_DATA_DIR="$TMP/data"
-export DATABASE_URL="sqlite://$TMP/s3.db"
+# respect a pre-set URL so this suite can run against BOTH dialects — the migrations
+# and every query in it are meant to be portable, and that claim is only worth
+# something if it is exercised on Postgres too
+export DATABASE_URL="${DATABASE_URL:-sqlite://$TMP/s3.db}"
+echo "s3-smoke DATABASE_URL=$DATABASE_URL"
 export TELEMACHUS_BIND=127.0.0.1
 export TELEMACHUS_S3_PORT="$S3_PORT"
 racket server/main.rkt >"$TMP/server.log" 2>&1 &

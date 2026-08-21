@@ -12,7 +12,7 @@
 ;; admin publishes, the DB is authoritative and a redeploy will not clobber their
 ;; edits. See docs/design/beta-onboarding-experience.md §2 (+ "ENV launch defaults").
 
-(require db
+(require db-kit/portable   ; NOT `db` — it rewrites ? -> $n on PostgreSQL
          json
          "../db/id.rkt"
          "../authz/authz.rkt"

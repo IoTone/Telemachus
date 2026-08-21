@@ -6,7 +6,7 @@
 ;; No external URLs: a public beta page must not leak a prospect's IP to a CDN, and
 ;; assets stay deterministic with the deployment. See docs/design/beta-onboarding-experience.md §4.
 
-(require db
+(require db-kit/portable   ; NOT `db` — it rewrites ? -> $n on PostgreSQL
          net/base64
          "../db/id.rkt"
          "../authz/authz.rkt")

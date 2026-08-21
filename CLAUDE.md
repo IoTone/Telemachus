@@ -45,7 +45,20 @@ Run a one-off without entering the shell: `nix develop --command <cmd>`.
   Keep SQL dialect-neutral (SQLite now, PostgreSQL target): quote reserved words
   (`"window"`), portable epoch columns for time windows, `db-dialect`-aware clauses.
   `pkgs/db-kit/portable.rkt` is a drop-in for `(require db)` that rewrites `?`→`$n`
-  on Postgres — always `(require db-kit/portable)`, not `(require db)`.
+  on Postgres — always `(require db-kit/portable)`, not `(require db)`. Forgetting is
+  invisible on SQLite and fails on Postgres with `syntax error at or near "AND"`.
+- **Verify on Postgres, not just SQLite.** Both smoke suites honour a pre-set
+  `DATABASE_URL`, so the whole surface runs against either dialect:
+  ```sh
+  initdb -D $PGDATA -U telemachus --auth=trust && \
+    pg_ctl -D $PGDATA -o "-k /tmp/tmxpg -h 127.0.0.1 -p 55432" -l pg.log start
+  createdb -h 127.0.0.1 -p 55432 -U telemachus tmx
+  DATABASE_URL="postgres://telemachus@127.0.0.1:55432/tmx" bash test/server-smoke.sh
+  DATABASE_URL="postgres://telemachus@127.0.0.1:55432/tmx" bash test/s3-smoke.sh
+  ```
+  Keep the socket dir SHORT (`-k /tmp/…`): the 107-byte `sun_path` limit rejects a
+  scratchpad path. Drop and recreate the database between runs — bootstrap is
+  first-run-only, and a stale one silently yields an empty token.
 
 ## Running the server
 
@@ -193,6 +206,10 @@ Any format in, byte-identical out, with the creator setting visibility. See
 - Uploads are a **raw `PUT` body**, not base64 in JSON. `TELEMACHUS_MAX_UPLOAD`
   (default 32 MiB) sets `web-kit`'s `#:max-body-length`; web-server's own default is
   1 MiB and it enforces it by **dropping the connection with no response at all**.
+- **Timestamps differ by dialect** and S3 clients *parse* `LastModified`: SQLite
+  gives `2026-08-21 04:16:09`, Postgres `2026-08-21 10:12:10.225696-07`. `iso8601`
+  in `domain/s3/server.rkt` normalizes both — a malformed one makes every listing
+  fail, not just look wrong.
 - Every download is `Content-Disposition: attachment` + `nosniff` + a denying CSP
   unless the type is on a short inline allowlist. **SVG/HTML are never inline** —
   same origin as the console means stored XSS.

@@ -162,12 +162,20 @@
         [else #f]))
 
 ;; ---- timestamps ---------------------------------------------------------------------------
-;; "2026-08-21 04:16:09" (what SQLite gives us) -> "2026-08-21T04:16:09.000Z"
+;; S3 clients PARSE LastModified, so a malformed one is not cosmetic — botocore
+;; raises and the whole listing fails. The two dialects hand us different shapes for
+;; the same TEXT column:
+;;
+;;   SQLite    "2026-08-21 04:16:09"
+;;   Postgres  "2026-08-21 10:12:10.225696-07"      fractional seconds AND an offset
+;;
+;; Take the date and the seconds, drop everything after them, and stamp Z. Anything
+;; unrecognised passes through rather than being mangled into a plausible-looking
+;; wrong answer.
 (define (iso8601 s)
   (define t (format "~a" s))
-  (if (regexp-match? #px"^[0-9]{4}-[0-9]{2}-[0-9]{2} " t)
-      (string-append (regexp-replace #px" " t "T") ".000Z")
-      t))
+  (define m (regexp-match #px"^([0-9]{4}-[0-9]{2}-[0-9]{2})[ T]([0-9]{2}:[0-9]{2}:[0-9]{2})" t))
+  (if m (string-append (cadr m) "T" (caddr m) ".000Z") t))
 
 (define (etag-of digest) (string-append "\"" (format "~a" digest) "\""))
 
