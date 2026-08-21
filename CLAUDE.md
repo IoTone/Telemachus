@@ -124,6 +124,25 @@ raco test test/tenancy-tests.rkt                          # the authz core, no s
 `POST /api/admin/seed-tenants` (superadmin) seeds Acme + Globex with **known dev
 passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, never prod.
 
+## HTTP/1.1 listener (`web-kit/http1`, slice 51)
+
+`serve/servlet` stays the JSON control plane. `pkgs/web-kit/http1.rkt` is the data
+plane — the thing that can move a 2 GB file.
+
+- Bodies are an **input port**, not bytes. `Content-Length` and `chunked` both.
+- **`Expect: 100-continue` is sent lazily, on the first read of the body.** A
+  handler that refuses before reading (401/403/quota) means the client never sends
+  the body at all. Measured: the AWS CLI gets its continue in **1 ms** here vs
+  **16,016 ms** against `serve/servlet`, which never implements it. Do NOT "fix"
+  this by sending the continue eagerly — that discards the whole point.
+- Never peek at a request body port: peeking fires the continue. `body-state`
+  carries started?/finished?/remaining for the keep-alive decision instead.
+- The path and query stay **percent-encoded** — SigV4 signs what was sent.
+
+```sh
+raco test test/http1-tests.rkt    # 46 cases over raw TCP
+```
+
 ## Document repository (binary documents, slices 49-50)
 
 Any format in, byte-identical out, with the creator setting visibility. See

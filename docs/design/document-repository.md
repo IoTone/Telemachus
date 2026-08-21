@@ -1,9 +1,9 @@
 # Document Repository — binary documents behind an S3 API
 
-**Status:** slices 49 and 50 **built** — the hash layer, the `rs3` blob store, the
-schema, the REST surface and the console Repository tab. Slices 51–53 (the HTTP
-listener and the S3 front door) pending. DOC‑14 and the four questions at the end
-remain open.
+**Status:** slices 49, 50 and 51 **built** — the hash layer, the `rs3` blob store,
+the schema, the REST surface, the console Repository tab, and the HTTP/1.1 listener.
+Slices 52–53 (SigV4 and the S3 operations) pending. DOC‑14 and the four questions at
+the end remain open.
 **Depends on:** `can?` + the org gate (TEN‑2), the quota ledger, the plugin loader,
 and the `documents` table from slice 26.
 **Related:** [rbac-and-teams.md](rbac-and-teams.md) (visibility + grants),
@@ -430,6 +430,21 @@ the estimate should say so plainly. It is also the piece that makes streaming in
 possible later without another redesign, and `web-kit` is already the project's own
 HTTP seam — this is what that seam is for.
 
+**Built, and one design choice is worth recording.** `100 Continue` is emitted
+**lazily — on the first read of the body, not when the headers are parsed.** A
+handler that refuses before touching the body (401, 403, over quota) therefore
+causes the client never to send it at all: the bytes of a rejected 2 GB upload stay
+on the client, and because nothing was ever in flight the connection is still clean
+enough to reuse. Eager emission — which is what a naive implementation does — throws
+away exactly the property the mechanism exists for. Pinned by a test that offers a
+`Content-Length: 2000000000` and asserts the 401 comes back with no body sent.
+
+The same state that makes that possible answers "may this connection be reused?"
+without peeking at the body port — a peek would fire the continue the handler
+declined to ask for. A small unread remainder is drained so the connection survives;
+past 64 KiB the server closes rather than spend unbounded time draining an upload it
+already refused.
+
 Raising `safety-limits` on the existing `serve/servlet` still happens regardless: it
 is what fixes the asset-upload bug (finding 2), and it is one line.
 
@@ -561,6 +576,11 @@ One thing the proposal got right and is worth keeping: the blob store never sees
 principal. Writing `rs3` took about sixty lines precisely because there was no
 authorization question to answer inside it.
 
+Slice 51 added a fourth: **`Expect: 100-continue` is not a latency optimization, it
+is an authorization one.** The 16-second stall is what made it look like a
+performance bug; the actual value is that a server which answers before reading gets
+to refuse an upload for free.
+
 ## Alternatives considered
 
 **WebDAV.** Mounts natively on macOS and Windows, which is genuinely attractive for
@@ -603,7 +623,7 @@ bytes do not.
 |---|---|---|
 | **49** ✅ | `web-kit` `#:max-body-length` + `TELEMACHUS_MAX_UPLOAD` (32 MiB), `domain/authz/sha2.rkt` over libcrypto pinned to the NIST/RFC vectors, `domain/repo/blobs.rkt` seam + the `rs3` plugin, migration `0019-repo` | **Done.** `test/sha2-tests.rkt` (25 cases), `test/repo-tests.rkt` (74 cases) |
 | **50** ✅ | `domain/repo/repo.rkt`, the `/api/repo` + `/api/repo-obj` surface, and the console **Repository** tab: upload, download, visibility, per-person sharing, versions, storage gauge | **Done.** Verified in a browser and in `test/server-smoke.sh` (15 new assertions). *`repo_credentials` moved to slice 52 — it exists only for SigV4.* |
-| **51** | `web-kit` HTTP/1.1 listener (DOC‑15): `Expect: 100-continue`, keep-alive, bodies as an input port, no buffering | `curl -H 'Expect: 100-continue'` gets its `100` immediately; a 200 MB body arrives |
+| **51** ✅ | `pkgs/web-kit/http1.rkt` (DOC‑15): request line, headers, lazy `Expect: 100-continue`, `Content-Length` and chunked request bodies **as an input port**, keep-alive with bounded draining, chunked or length-framed responses | **Done.** `test/http1-tests.rkt` (46 cases over raw TCP). Measured: the AWS CLI sees its `100 Continue` **1 ms** after the headers, against 16,016 ms on the servlet; a 200 MB body arrives in 0.5 s and is counted exactly, with no cap |
 | **52** | SigV4 verification against the official vectors, path-style routing, XML responses and the error table, `GET`/`HEAD`/`PUT`/`DELETE`/`ListObjectsV2`/`ListBuckets` — **and multipart**, which DOC‑17 shows is not optional | `aws s3 cp` both directions, `ls`, `sync`, and a 1 GB file |
 | **53** | Presigned URLs, `Range`, `CopyObject`, `DeleteObjects`; the differential conformance harness in CI | The console previews a PDF through a presigned link; the harness diffs us against a reference server |
 | **54** | *Deferred.* Text extraction → the search index, as a workflow | A `map` step over new objects populates search |
