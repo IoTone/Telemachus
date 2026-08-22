@@ -8,9 +8,12 @@ adopted as drawn there.
 > from that disguise. It is the closest thing in literature to an honest description
 > of an assistant, and it is the reason this project has this name.
 
-An arched helm. Its two round eyes are an owl's. Its nasal guard runs the full drop
-of the face, and the **gold brow bar** laid across the top of that guard completes a
-**T**. Helm, owl, letter — three readings of one drawing.
+An arched helm. Its two **diamond eyes** are an owl's. Its nasal guard runs the full
+drop of the face, and the **gold brow bar** laid across the top of that guard
+completes a **T**. Helm, owl, letter — three readings of one drawing.
+
+The eyes **cross** the guard rather than sitting beside it, so the three holes are a
+single continuous void: two diamonds threaded on a line.
 
 ## Files
 
@@ -45,13 +48,17 @@ base — that is a different mark.
 
 ## The fill rule is `nonzero`, and the holes are wound counter-clockwise
 
-Not decoration. The study painted the eyes and the nasal bar as opaque `#132c46`
-shapes sitting *on* the helm, which works on the study's own aegean field and nowhere
-else, so here they are real holes instead. At 16 px the eyes (r 6, at cx 23 and 41)
-overlap the nasal bar (x 28.5…35.5) by half a unit — and under `evenodd` two
-overlapping holes cancel, filling the overlap back in and welding the face shut. With
-`nonzero` and counter-wound holes they simply union, which is what the drawing wants:
-one connected void at the size where three separate ones would silt up.
+Not decoration — the mark does not work without it. The study painted the eyes and
+the nasal bar as opaque `#132c46` shapes sitting *on* the helm, which works on the
+study's own aegean field and nowhere else, so here they are real holes instead. Every
+eye crosses the guard, and under `evenodd` two overlapping holes **cancel**: each
+crossing would fill back in and weld the face shut. With `nonzero` and counter-wound
+holes they union, which is the drawing.
+
+**How far the eye crosses the bar is load-bearing.** A diamond that merely reaches the
+bar's edge meets it at a knife point and renders as a pinch, not a connection. Each
+eye's inner vertex therefore lands past the far edge; measured at the near edge the
+join is about 5.5 units tall at 64, and wider at the smaller sizes.
 
 If you edit these paths, re-render them and look. A broken fill rule is invisible in
 the markup and obvious on screen — and so is an illegal `--` inside an SVG comment,
@@ -59,10 +66,16 @@ which makes the file silently fail to parse as an image.
 
 ## Why there are three drawings
 
-The same path scaled down is not the same mark. Going small, the eyes open (r 4.6 →
-5 → 6) and move apart, and the nasal widens (5 → 6 → 7) and drops below the brow.
-Use the file that matches the size you are rendering at; do not scale one to cover
-the range.
+The same path scaled down is not the same mark. Going small, the diamonds open
+(half-diagonal 6 → 6.5 → 7.5) and the nasal widens (5 → 6 → 7) and drops below the
+brow. Use the file that matches the size you are rendering at; do not scale one to
+cover the range.
+
+| | eyes (cx · half-diagonal) | nasal | brow |
+|---|---|---|---|
+| **64** | 26.5 / 37.5 · 6 | 5 wide, from y 26 | gold, in the primary |
+| **32** | 26.5 / 37.5 · 6.5 | 6 wide, from y 26 | dropped |
+| **16** | 26 / 38 · 7.5 | 7 wide, from y 30 | dropped |
 
 ## Palette
 
@@ -96,8 +109,9 @@ print.
 ## Do not
 
 - Re-proportion the mark, or scale one drawing across the whole size range
-- Shorten the nasal guard so the base closes, or drop the brow bar where colour is
-  available and the size allows it
+- Shorten the nasal guard so the base closes, or pull the eyes back so they only
+  touch the guard instead of crossing it
+- Drop the brow bar where colour is available and the size allows it
 - Rotate it, outline it, add a gradient, or put it on a busy photograph
 - Recolour the helm in gold — gold is the brow bar and the accent
 - Place the sub-mark inside a lockup with the primary; they are alternates, not a pair

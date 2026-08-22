@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 134" width="220" height="134" role="img" aria-label="Telemachus — self-hosted team AI">
   <g transform="translate(78 0)">  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
-           M19.4 33 a4.6 4.6 0 1 0 9.2 0 a4.6 4.6 0 1 0 -9.2 0 Z
-           M35.4 33 a4.6 4.6 0 1 0 9.2 0 a4.6 4.6 0 1 0 -9.2 0 Z
+           M20.5 34 L26.5 40 L32.5 34 L26.5 28 Z
+           M31.5 34 L37.5 40 L43.5 34 L37.5 28 Z
            M29.5 26 v27 h5 V26 Z"
         fill="currentColor" fill-rule="nonzero"/></g>
   <text x="110" y="100" text-anchor="middle" font-family="Fraunces, Georgia, 'Times New Roman', serif"

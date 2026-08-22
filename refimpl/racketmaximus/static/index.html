@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Telemachus</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23132c46'/%3E%3Cpath d='M13 53 V31 a19 19 0 0 1 38 0 V53 Z M17 33 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z M35 33 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z M28.5 30 v23 h7 V30 Z' fill='%23f2ede1' fill-rule='nonzero'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23132c46'/%3E%3Cpath d='M13 53 V31 a19 19 0 0 1 38 0 V53 Z M18.5 34 L26 41.5 L33.5 34 L26 26.5 Z M30.5 34 L38 41.5 L45.5 34 L38 26.5 Z M28.5 30 v23 h7 V30 Z' fill='%23f2ede1' fill-rule='nonzero'/%3E%3C/svg%3E">
 <style>
   :root{ --bg:#0f1117; --panel:#171a23; --panel2:#1e2230; --line:#2a2f3d; --fg:#e6e8ee;
          --muted:#9aa3b2; --accent:#7c8cff; --accent2:#5a6cff; --ok:#3ddc97; --bad:#ff6b6b; --warn:#ffcc66; }
@@ -173,20 +173,22 @@ const L = {
       nodefs:'このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。',
       noruns:'実行履歴はまだありません。',stepsused:'ステップ使用'}
 };
-// The Mentor mark (docs/design/brand/) — a helm whose two eyes are an owl's and
-// whose nasal guard is the stem of a T. Three size-specific drawings, not one
-// scaled: below ~20px the eyes and nasal have to open up or the face silts shut.
-// The gold brow bar that completes the T needs a second colour, so it lives only
-// in the asset files; here the mark is one path inheriting currentColor.
+// The Mentor mark (docs/design/brand/) — a helm whose two diamond eyes are an
+// owl's and whose nasal guard is the stem of a T. The eyes CROSS the guard, so
+// the three holes are one continuous void: two diamonds threaded on a line.
+// Three size-specific drawings, not one scaled — going small the diamonds open
+// up and the guard widens, or the face silts shut. The gold brow bar that
+// completes the T needs a second colour, so it lives only in the asset files;
+// here the mark is one path inheriting currentColor.
 //
-// fill-rule is NONZERO with every hole wound counter-clockwise. It matters: at
-// 16px the eyes overlap the nasal bar, and under evenodd the overlap would fill
-// back in and weld the face shut.
+// fill-rule is NONZERO with every hole wound counter-clockwise. It matters:
+// under evenodd two overlapping holes CANCEL, so every eye/guard crossing would
+// fill back in and weld the face shut.
 const MARK_SIL = 'M13 53 V31 a19 19 0 0 1 38 0 V53 Z';
 const MARK_D = {
-  16: 'M17 33 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z M35 33 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 Z M28.5 30 v23 h7 V30 Z',
-  32: 'M19 33 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 Z M35 33 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 Z M29 26 v27 h6 V26 Z',
-  64: 'M19.4 33 a4.6 4.6 0 1 0 9.2 0 a4.6 4.6 0 1 0 -9.2 0 Z M35.4 33 a4.6 4.6 0 1 0 9.2 0 a4.6 4.6 0 1 0 -9.2 0 Z M29.5 26 v27 h5 V26 Z'
+  16: 'M18.5 34 L26 41.5 L33.5 34 L26 26.5 Z M30.5 34 L38 41.5 L45.5 34 L38 26.5 Z M28.5 30 v23 h7 V30 Z',
+  32: 'M20 34 L26.5 40.5 L33 34 L26.5 27.5 Z M31 34 L37.5 40.5 L44 34 L37.5 27.5 Z M29 26 v27 h6 V26 Z',
+  64: 'M20.5 34 L26.5 40 L32.5 34 L26.5 28 Z M31.5 34 L37.5 40 L43.5 34 L37.5 28 Z M29.5 26 v27 h5 V26 Z'
 };
 function markSVG(px){
   const d = MARK_D[px <= 20 ? 16 : px <= 40 ? 32 : 64];
