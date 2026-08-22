@@ -308,12 +308,17 @@ assert "content not searchable before indexing" \
 IDXRUN=$(curl -s -X POST $B/api/workflows/index-documents/run -H "Authorization: Bearer $OP" -d '{}')
 IDXID=$(printf '%s' "$IDXRUN" | grep -oP '"id":"\K[^"]+' | head -1)
 assert "index-documents run accepted" "$IDXRUN" '"status":"running"'
-idxs=""
+idxs=""; idxjson=""
 for i in $(seq 1 40); do
-  idxs=$(curl -s "$B/api/runs/$IDXID" -H "Authorization: Bearer $OP" | grep -oP '"status":"\K[^"]+' | head -1)
+  idxjson=$(curl -s "$B/api/runs/$IDXID" -H "Authorization: Bearer $OP")
+  idxs=$(printf '%s' "$idxjson" | grep -oP '"status":"\K[^"]+' | head -1)
   case "$idxs" in done|error|canceled) break;; esac
   sleep 0.5
 done
+# A failed run already knows why — carry it into the FAIL line, or this reads as a
+# mystery. The one that actually bites is a host without poppler-utils: extracting
+# the PDF uploaded further up reports 'missing-tool and fails the run ON PURPOSE.
+[ "$idxs" = done ] || idxs="$idxs — $(printf '%s' "$idxjson" | grep -oP '"error":"\K[^"]*' | head -1)"
 assert "index-documents run completed" "$idxs" "done"
 assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'

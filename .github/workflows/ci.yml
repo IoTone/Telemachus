@@ -36,6 +36,14 @@ jobs:
           # Must be `*-tests.rkt`: a bare `test/*.rkt` would pull in test/mock-*.rkt,
           # which are mock *servers* that block forever.
           raco test test/*-tests.rkt
+      # pdftotext (poppler-utils) is a real dependency of the document-indexing
+      # workflow — flake.nix pins it for the same reason. Without it the smoke's
+      # `index-documents` run ends in `error`, deliberately: a missing extractor
+      # is an operator-fixable fault the engine refuses to swallow. The runner
+      # image does not ship it, so install it here rather than teach the test to
+      # tolerate an environment the product does not.
+      - name: Install poppler-utils (pdftotext)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
       - name: Server smoke
         run: bash test/server-smoke.sh
       # Multi-tenancy is off by default, so the smoke run above already covers the
