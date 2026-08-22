@@ -6,14 +6,20 @@
 <title>Telemachus</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23132c46'/%3E%3Cpath d='M13 53 V31 a19 19 0 0 1 38 0 V53 Z M18.5 34 L26 41.5 L33.5 34 L26 26.5 Z M30.5 34 L38 41.5 L45.5 34 L38 26.5 Z M28.5 30 v23 h7 V30 Z' fill='%23f2ede1' fill-rule='nonzero'/%3E%3C/svg%3E">
 <style>
-  :root{ --bg:#0f1117; --panel:#171a23; --panel2:#1e2230; --line:#2a2f3d; --fg:#e6e8ee;
-         --muted:#9aa3b2; --accent:#7c8cff; --accent2:#5a6cff; --ok:#3ddc97; --bad:#ff6b6b; --warn:#ffcc66; }
+  /* The Mentor palette (docs/design/brand/README.md). Grounds are deep/aegean,
+     ink is bone. --accent is the brand blue lightened until it is legible on a dark
+     ground: it is aegean, not a third hue. --gold is the brand accent and is spent
+     on exactly ONE thing in this UI — the wordmark dot. Semantic ok/warn/bad are a
+     separate set on purpose; a status colour is not a brand colour. */
+  :root{ --bg:#0b1a2b; --panel:#12253a; --panel2:#17304a; --line:#24384f; --fg:#f2ede1;
+         --muted:#93a4b8; --accent:#6fa0d1; --accent2:#245e96; --accent3:#2b6ba8;
+         --gold:#c9a227; --ok:#8fae52; --bad:#e0725f; --warn:#d9a441; }
   *{box-sizing:border-box} html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   a{color:var(--accent)} button{font:inherit;cursor:pointer}
   .btn{background:var(--accent2);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600}
-  .btn:hover{background:var(--accent)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
-  .btn.sm{padding:5px 10px;font-size:13px;border-radius:6px} .btn.bad{background:#3a2030;border:1px solid #5a2a3a;color:#ffb4b4}
+  .btn:hover{background:var(--accent3)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  .btn.sm{padding:5px 10px;font-size:13px;border-radius:6px} .btn.bad{background:#3a2222;border:1px solid #5e332c;color:#f2b8ab}
   input,textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
          border-radius:8px;padding:9px 11px;font:inherit;margin:4px 0 10px}
   label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
@@ -21,8 +27,8 @@
   .row{display:flex;gap:14px;flex-wrap:wrap} .row>*{flex:1;min-width:0}
   .muted{color:var(--muted)} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
-  .badge.ok{color:var(--ok);border-color:#204a3a} .badge.op{color:var(--warn);border-color:#4a3a20}
-  .badge.bad{color:var(--bad);border-color:#5a2a3a} .badge.run{color:var(--accent);border-color:#333d6b}
+  .badge.ok{color:var(--ok);border-color:#3a4a24} .badge.op{color:var(--warn);border-color:#4a3a20}
+  .badge.bad{color:var(--bad);border-color:#5e332c} .badge.run{color:var(--accent);border-color:#2c4a6b}
   /* workflow step tree: a map fan-out's children are indented under their parent row */
   tr.wfkid td:first-child{padding-left:26px;position:relative}
   tr.wfkid td:first-child::before{content:'└';position:absolute;left:10px;color:var(--muted)}
@@ -31,7 +37,7 @@
   /* auth */
   .auth{max-width:420px;margin:8vh auto;padding:0 16px}
   .brand{font-weight:800;letter-spacing:-.02em;display:inline-flex;align-items:center;gap:.42em}
-  .brand .dot{color:var(--accent)}
+  .brand .dot{color:var(--gold)}
   /* Brand rule: the mark is aegean, or a knockout. The console ground is dark, so
      it is a knockout — it inherits the wordmark's colour rather than borrowing the
      UI accent, which would put a third blue on the page. */
@@ -51,28 +57,29 @@
   th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
   .bubble{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
   .bubble .q{color:var(--muted);font-size:13px} .toast{position:fixed;right:16px;bottom:16px;max-width:340px;padding:12px 14px;border-radius:10px;
-         background:#2a1a22;border:1px solid #5a2a3a;color:#ffc9c9;box-shadow:0 8px 30px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.2s}
-  .toast.show{opacity:1;transform:none} .toast.ok{background:#12271f;border-color:#204a3a;color:#bff3dd}
+         background:#2e1c18;border:1px solid #5e332c;color:#f2c9bf;box-shadow:0 8px 30px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.2s}
+  .toast.show{opacity:1;transform:none} .toast.ok{background:#1a2415;border-color:#3a4a24;color:#d3e6ae}
   h1,h2,h3{letter-spacing:-.01em} h2{margin:.2em 0 .6em}
   /* ---- Tier-A skinnable beta landing: fully theme-token driven, scoped to .bx ---- */
-  .bx{min-height:100vh;background:var(--bx-bg,#0f1117);color:var(--bx-ink,#e6e8ee);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
+  .bx{min-height:100vh;background:var(--bx-bg,#0b1a2b);color:var(--bx-ink,#f2ede1);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
   .bx-wrap{max-width:940px;margin:0 auto;padding:0 20px}
   .bx-head{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
-  .bx-logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--bx-ink)}
+  .bx-logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--bx-ink);
+           display:inline-flex;align-items:center;gap:.45em}
   .bx-logo-img{height:32px;width:auto;max-width:220px;display:block}
   .bx-frame{border:0;width:100%;height:100vh;display:block}
   .bx-nav{display:flex;gap:18px;font-size:14px}
-  .bx-nav a{color:var(--bx-muted,#9aa3b2);text-decoration:none}
+  .bx-nav a{color:var(--bx-muted,#93a4b8);text-decoration:none}
   .bx-hero{background:var(--bx-hero,transparent);border-radius:calc(var(--bx-radius,10px) + 4px);padding:42px 30px;margin:6px 0 26px}
-  .bx-eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--bx-brand,#5a6cff);font-weight:700;margin-bottom:10px}
+  .bx-eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--bx-brand,#c9a227);font-weight:700;margin-bottom:10px}
   .bx-hero h1{font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.08;margin:0 0 10px;color:var(--bx-ink);font-family:var(--bx-fontd,inherit)}
   .bx-hero p{font-size:1.04rem;color:var(--bx-muted);max-width:52ch;margin:0}
   .bx-main{display:grid;grid-template-columns:1.05fr .95fr;gap:28px;align-items:start;padding-bottom:36px}
   @media(max-width:760px){.bx-main{grid-template-columns:1fr}}
-  .bx-card{background:var(--bx-surface,#171a23);border:1px solid var(--bx-line,rgba(255,255,255,.10));border-radius:var(--bx-radius,10px);padding:22px}
+  .bx-card{background:var(--bx-surface,#12253a);border:1px solid var(--bx-line,rgba(255,255,255,.10));border-radius:var(--bx-radius,10px);padding:22px}
   .bx-card label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--bx-muted);margin:0 0 4px}
   .bx-card input,.bx-card select,.bx-card textarea{width:100%;background:var(--bx-bg);border:1px solid var(--bx-line,rgba(255,255,255,.14));color:var(--bx-ink);border-radius:calc(var(--bx-radius,10px) - 2px);padding:9px 11px;font:inherit;margin:0 0 12px}
-  .bx-cta{width:100%;background:var(--bx-brand,#5a6cff);color:var(--bx-brandink,#fff);border:0;border-radius:calc(var(--bx-radius,10px) - 2px);padding:12px;font-weight:800;font-size:15px;cursor:pointer}
+  .bx-cta{width:100%;background:var(--bx-brand,#c9a227);color:var(--bx-brandink,#132c46);border:0;border-radius:calc(var(--bx-radius,10px) - 2px);padding:12px;font-weight:800;font-size:15px;cursor:pointer}
   .bx-cta[disabled]{opacity:.8;cursor:default}
   .bx-details h3{font-size:1.05rem;margin:0 0 4px;color:var(--bx-ink)}
   .bx-details p{color:var(--bx-muted);margin:0 0 16px;font-size:.95rem;white-space:pre-line}
@@ -527,8 +534,8 @@ function bxVars(cfg){ const th=(cfg&&cfg.theme)||{}; const mode=th.mode||'dark';
     ? `linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),url(${assetUrl(th.heroImage)}) center/cover`
     : (th.heroBg||'transparent');
   const font=th.fontFile ? 'bxcustom,'+fontStack(th.fontBody) : fontStack(th.fontBody);
-  const pairs=[['--bx-bg',th.bg||'#0f1117'],['--bx-surface',th.surface||'#171a23'],['--bx-ink',th.ink||'#e6e8ee'],
-    ['--bx-muted',th.muted||'#9aa3b2'],['--bx-brand',th.brand||'#5a6cff'],['--bx-brandink',th.brandInk||'#ffffff'],
+  const pairs=[['--bx-bg',th.bg||'#0b1a2b'],['--bx-surface',th.surface||'#12253a'],['--bx-ink',th.ink||'#f2ede1'],
+    ['--bx-muted',th.muted||'#93a4b8'],['--bx-brand',th.brand||'#c9a227'],['--bx-brandink',th.brandInk||'#132c46'],
     ['--bx-radius',th.radius||'12px'],['--bx-hero',hero],['--bx-line',line],
     ['--bx-font',font],['--bx-fontd',th.fontFile?'bxcustom,'+fontStack(th.fontDisplay||th.fontBody):fontStack(th.fontDisplay||th.fontBody)]];
   return pairs.map(([k,v])=>k+':'+bxSan(v)).join(';'); }
@@ -549,9 +556,13 @@ function renderLandingShell(cfg, mode){
       <div id="betamsg" style="margin-top:10px"></div>`;
   const th=cfg.theme||{};
   const fontFace = th.fontFile ? `<style>@font-face{font-family:bxcustom;font-display:swap;src:url(${esc(assetUrl(th.fontFile))})}</style>` : '';
+  // The Mentor mark rides along only on an UNBRANDED funnel. An operator who has
+  // uploaded a logo, or renamed the wordmark, is running their own brand here —
+  // putting our helm beside "Acme" would be worse than showing no mark at all.
+  const logoText = cfg.logo || 'Telemachus';
   const logo = cfg.logoImage
     ? `<img class="bx-logo-img" src="${esc(assetUrl(cfg.logoImage))}" alt="${esc(cfg.logo||'')}">`
-    : `<div class="bx-logo">${esc(cfg.logo||'Telemachus')}</div>`;
+    : `<div class="bx-logo">${logoText === 'Telemachus' ? markSVG(26) : ''}<span>${esc(logoText)}</span></div>`;
   return `${fontFace}<div class="bx" style="${bxVars(cfg)}"><div class="bx-wrap">
     <header class="bx-head">${logo}<nav class="bx-nav">${nav}</nav></header>
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>
@@ -732,7 +743,7 @@ async function s3Card(){
       <td>${c.status==='active'?'<span class="badge ok">active</span>':`<span class="badge">${esc(c.status)}</span>`}</td>
       <td>${c.status==='active'?`<button class="btn sm ghost" onclick="s3Revoke('${esc(c.id)}')">${t('revoke')}</button>`:''}</td>
     </tr>`).join('');
-  const newkey = S.s3New ? `<div class="card" style="margin-top:10px;border-color:#204a3a">
+  const newkey = S.s3New ? `<div class="card" style="margin-top:10px;border-color:#3a4a24">
       <b>${t('s3once')}</b>
       <pre class="wfjson">AWS_ACCESS_KEY_ID=${esc(S.s3New.access_key_id)}
 AWS_SECRET_ACCESS_KEY=${esc(S.s3New.secret_access_key)}</pre></div>` : '';
@@ -827,7 +838,7 @@ async function repoLink(id){
   if(!r.ok) return toast(r.json.error||'error');
   const mins=Math.round((r.json.expires_in||900)/60);
   const el=document.getElementById('rdetail');
-  el.innerHTML=`<div class="card" style="margin-top:14px;border-color:#204a3a">
+  el.innerHTML=`<div class="card" style="margin-top:14px;border-color:#3a4a24">
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0">${t('link')} — <span class="mono">${esc(r.json.key)}</span></h3>
       <div style="flex:none">
@@ -1046,7 +1057,7 @@ async function wfRunView(id){
       <td>${wfOut(s)}</td></tr>`;
   const rows=steps.filter(s=>!s.parent_id).map(s=>row(s,false)+kidsOf(s).map(k=>row(k,true)).join('')).join('');
   const err=(run.error&&run.error!=='null')
-    ? `<div class="card" style="margin-top:14px;border-color:#5a2a3a"><b style="color:var(--bad)">error</b>
+    ? `<div class="card" style="margin-top:14px;border-color:#5e332c"><b style="color:var(--bad)">error</b>
        <div class="mono" style="font-size:13px;margin-top:6px">${esc(run.error)}</div></div>` : '';
   return `<h2>${esc(run.slug||t('runs'))} <span class="muted mono" style="font-size:14px">${esc(run.id.slice(0,8))}…</span></h2>
     <div class="card">
@@ -1133,7 +1144,7 @@ async function bxUpload(input,target){ const f=input.files&&input.files[0]; if(!
   rd.readAsDataURL(f); }
 function bxGet(path){ return path.split('.').reduce((o,k)=>o&&o[k],S.exp); }
 function bxClear(target){ bxSet(target,''); bxRerender(); }
-const BX_STARTER_TEMPLATE = '<style>\n  body{margin:0;font:16px/1.6 ui-sans-serif,system-ui,sans-serif;background:#0f1117;color:#e6e8ee}\n  .wrap{max-width:560px;margin:0 auto;padding:40px 22px}\n  .eyebrow{letter-spacing:.16em;text-transform:uppercase;font-size:12px;color:#7c8cff;font-weight:700}\n  h1{font-size:2rem;line-height:1.1;margin:.2em 0 .3em}\n  form{background:#171a23;border:1px solid #2a2f3d;border-radius:12px;padding:22px;margin-top:18px}\n  label{display:block;font-size:12px;text-transform:uppercase;color:#9aa3b2;margin:0 0 4px}\n  input,select,textarea{width:100%;box-sizing:border-box;background:#0f1117;border:1px solid #2a2f3d;color:#e6e8ee;border-radius:8px;padding:10px 12px;font:inherit}\n  p{margin:0 0 12px}\n  button{width:100%;margin-top:6px;background:#5a6cff;color:#fff;border:0;border-radius:8px;padding:12px;font-weight:800;cursor:pointer}\n</style>\n<div class="wrap">\n  <div class="eyebrow">{{eyebrow}}</div>\n  <h1>{{title}}</h1>\n  <p>{{subtitle}}</p>\n  <form>\n    {{fields}}\n    <button data-beta-submit>{{cta}}</button>\n    {{message}}\n  </form>\n</div>';
+const BX_STARTER_TEMPLATE = '<style>\n  body{margin:0;font:16px/1.6 ui-sans-serif,system-ui,sans-serif;background:#0b1a2b;color:#f2ede1}\n  .wrap{max-width:560px;margin:0 auto;padding:40px 22px}\n  .eyebrow{letter-spacing:.16em;text-transform:uppercase;font-size:12px;color:#c9a227;font-weight:700}\n  h1{font-size:2rem;line-height:1.1;margin:.2em 0 .3em}\n  form{background:#12253a;border:1px solid #24384f;border-radius:12px;padding:22px;margin-top:18px}\n  label{display:block;font-size:12px;text-transform:uppercase;color:#93a4b8;margin:0 0 4px}\n  input,select,textarea{width:100%;box-sizing:border-box;background:#0b1a2b;border:1px solid #24384f;color:#f2ede1;border-radius:8px;padding:10px 12px;font:inherit}\n  p{margin:0 0 12px}\n  button{width:100%;margin-top:6px;background:#c9a227;color:#132c46;border:0;border-radius:8px;padding:12px;font-weight:800;cursor:pointer}\n</style>\n<div class="wrap">\n  <div class="eyebrow">{{eyebrow}}</div>\n  <h1>{{title}}</h1>\n  <p>{{subtitle}}</p>\n  <form>\n    {{fields}}\n    <button data-beta-submit>{{cta}}</button>\n    {{message}}\n  </form>\n</div>';
 function bxSetLanding(v){
   if(v==='bundle') S.exp.landing={type:'bundle',plugin:(S.exp.landing&&S.exp.landing.plugin)||'beta-onboarding'};
   else if(v==='template'){ S.exp.landing={type:'template'}; if(!S.exp.template) S.exp.template=BX_STARTER_TEMPLATE; }
@@ -1160,8 +1171,8 @@ function bxContrast(a,b){ const la=bxLum(a), lb=bxLum(b); if(la===null||lb===nul
   return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05); }
 function bxContrastWarnings(th){
   th=th||{};
-  const bg=th.bg||'#0f1117', ink=th.ink||'#e6e8ee', muted=th.muted||'#9aa3b2';
-  const brand=th.brand||'#5a6cff', brandInk=th.brandInk||'#ffffff';
+  const bg=th.bg||'#0b1a2b', ink=th.ink||'#f2ede1', muted=th.muted||'#93a4b8';
+  const brand=th.brand||'#c9a227', brandInk=th.brandInk||'#132c46';
   // pair, threshold, why it matters — 4.5:1 is the WCAG AA floor for body text, 3:1 for large/UI
   const checks=[
     ['Text on background',      ink,      bg,       4.5],
@@ -1219,9 +1230,9 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
 
     <div class="sec">Theme</div>
     <div class="bx-swatches">
-      ${color('Brand','theme.brand','#5a6cff')}${color('Brand text','theme.brandInk','#ffffff')}
-      ${color('Background','theme.bg','#0f1117')}${color('Surface','theme.surface','#171a23')}
-      ${color('Text','theme.ink','#e6e8ee')}${color('Muted','theme.muted','#9aa3b2')}</div>
+      ${color('Brand','theme.brand','#c9a227')}${color('Brand text','theme.brandInk','#132c46')}
+      ${color('Background','theme.bg','#0b1a2b')}${color('Surface','theme.surface','#12253a')}
+      ${color('Text','theme.ink','#f2ede1')}${color('Muted','theme.muted','#93a4b8')}</div>
     ${bxContrastWarnings(th)}
     <div class="row" style="margin-top:10px">
       <div><label>Font</label><select onchange="bxSet('theme.fontBody',this.value)">${['System','Serif','Rounded','Mono'].map(f=>`<option ${th.fontBody===f?'selected':''}>${f}</option>`).join('')}</select></div>
