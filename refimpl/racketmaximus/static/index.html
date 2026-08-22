@@ -1350,14 +1350,23 @@ async function doSearch(){
         <td>${x.type==='file'?`<button class="btn sm ghost" onclick="repoDownload('${esc(x.id)}','${esc(x.title||'')}')">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : '<p class="muted">no results</p>';
 }
+// `render` awaits four times (branding, me, config/features). Anything that
+// changes S while one is in flight — logout nulling S.me is the easy one — used
+// to let the stale run resume and paint with the new state half-applied, which
+// threw "Cannot read properties of null (reading 'is_operator')" out of
+// appShell(). A generation counter makes the older run stand down at each await
+// boundary, so the newest render always wins and no half-render reaches the DOM.
+let shellSeq = 0;
 async function render(){
+  const seq = ++shellSeq;
+  const stale = () => seq !== shellSeq;
   const app=document.getElementById('app');
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
-  await loadBranding();
-  await refreshMe();
+  await loadBranding(); if(stale()) return;
+  await refreshMe();    if(stale()) return;
   if(!S.me){
-    const cfg=await api('/api/config'); S.home = cfg.ok ? cfg.json.home : 'login';
+    const cfg=await api('/api/config'); if(stale()) return; S.home = cfg.ok ? cfg.json.home : 'login';
     const atLoginPath = location.pathname.replace(/\/$/,'').endsWith('/login');
     const forceLogin = S.forceLogin || atLoginPath || new URLSearchParams(location.search).get('login')==='1';
     if(S.home==='beta' && !forceLogin){
@@ -1365,12 +1374,15 @@ async function render(){
       if(l && l.type==='bundle' && l.url){ location.replace(l.url); return; }   // Tier-B: hand-coded plugin bundle
       if(l && l.type==='template' && l.url){                                    // Tier-C: sandboxed custom HTML template
         app.innerHTML='<iframe class="bx-frame" sandbox="allow-scripts allow-forms allow-top-navigation-by-user-activation" src="'+l.url+'"></iframe>'; return; }
-      app.innerHTML=await betaLandingView(); return;                            // Tier-A: built-in themeable shell
+      const bx=await betaLandingView(); if(stale()) return;
+      app.innerHTML=bx; return;                                                 // Tier-A: built-in themeable shell
     }
     app.innerHTML=authView(); return;
   }
-  const fr=await api('/api/features'); S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
+  const fr=await api('/api/features'); if(stale()) return;
+  S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
   if(S.features[S.tab]===false) S.tab='team';
+  if(!S.me) return;                      // signed out while we were awaiting
   app.innerHTML=appShell(); renderTab(); }
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;

@@ -36,8 +36,17 @@ const BASE = process.env.BASE_URL || 'http://127.0.0.1:8835';
 const OUT = process.env.OUT_DIR || path.join(HERE, 'catalog', 'validate');
 fs.mkdirSync(OUT, { recursive: true });
 
-const USER = 'demo-validator';
-const PASS = 'validate-me-9';
+// Against a fresh server this bootstraps the first operator. Against a LIVE box
+// that already has one, bootstrap is not available — set VALIDATE_USER /
+// VALIDATE_PASS and it signs in instead.
+const USER = process.env.VALIDATE_USER || 'demo-validator';
+const PASS = process.env.VALIDATE_PASS || 'validate-me-9';
+const SIGN_IN = !!process.env.VALIDATE_USER;
+
+// On a live box the instance already has branding an operator chose. Record it on
+// the way in and put it back on the way out, so validating a deployment does not
+// silently rebrand it.
+let restoreBrand = null;
 
 // ── tiny harness ─────────────────────────────────────────────────────────────
 let pass = 0;
@@ -91,7 +100,18 @@ const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 
 page.on('pageerror', e => pageErrors.push(String(e)));
-page.on('console', m => { if (m.type() === 'error') pageErrors.push('console: ' + m.text()); });
+// Console errors count — a silent JS exception is a broken console. But the
+// browser also logs "Failed to load resource" for every 4xx, and an expected 4xx
+// is the app working: /api/me returns 401 before sign-in and again right after
+// sign-out. Those are not app errors, and failing on them would train everyone to
+// ignore this gate. Server faults are still caught by the 5xx watcher below.
+const EXPECTED_4XX = /Failed to load resource.*\b(401|403|404)\b/i;
+page.on('console', m => {
+  if (m.type() !== 'error') return;
+  const text = m.text();
+  if (EXPECTED_4XX.test(text)) return;
+  pageErrors.push('console: ' + text);
+});
 page.on('response', r => { if (r.status() >= 500) httpErrors.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
 
 try {
@@ -107,15 +127,21 @@ try {
   ok('GET /api/branding is public (no token yet)', brandApi.ok, `status ${brandApi.status}`);
   eq('default branding title', brandApi.json && brandApi.json.title, 'Telemachus');
 
-  // ── 2. first run: bootstrap the operator ────────────────────────────────────
-  step('first-run bootstrap');
-  await page.click('summary:has-text("First run")');
-  await page.fill('#bu', USER);
-  await page.fill('#bp', PASS);
-  await page.evaluate(() => window.doBootstrap());
+  // ── 2. get into the console: bootstrap (fresh) or sign in (live) ────────────
+  step(SIGN_IN ? 'sign in' : 'first-run bootstrap');
+  if (SIGN_IN) {
+    await page.fill('#lu', USER);
+    await page.fill('#lp', PASS);
+    await page.evaluate(() => window.doLogin());
+  } else {
+    await page.click('summary:has-text("First run")');
+    await page.fill('#bu', USER);
+    await page.fill('#bp', PASS);
+    await page.evaluate(() => window.doBootstrap());
+  }
   const shell = await until(page, () => !!document.querySelector('nav.tabs'), { timeout: 25000 });
-  ok('console shell rendered after bootstrap', shell);
-  if (!shell) throw new Error('bootstrap did not reach the console');
+  ok('console shell rendered', shell);
+  if (!shell) throw new Error((SIGN_IN ? 'sign-in' : 'bootstrap') + ' did not reach the console');
   const tabs = await page.locator('nav.tabs button').allInnerTexts();
   ok('core tabs present', ['Notes', 'Documents', 'Repository', 'Admin'].every(x => tabs.includes(x)), tabs.join(','));
 
@@ -212,6 +238,7 @@ try {
   await page.evaluate(() => window.go('admin'));
   await page.waitForSelector('#brt', { timeout: 15000 });
   ok('branding card present in Admin', await page.locator('#brt').count() === 1);
+  restoreBrand = (await apiCall(page, '/api/branding')).json;
 
   await page.fill('#brt', 'Ithaca Labs');
   await page.fill('#brg', 'Private AI for one team');
@@ -231,16 +258,25 @@ try {
   ok('uploaded logo replaces the mark in the header',
     await until(page, () => !!document.querySelector('header.top .brand img.tmx-logo'), { timeout: 15000 }));
 
-  // reset puts the shipped identity back
+  // put back whatever this instance had before the run
   await page.evaluate(() => window.go('admin'));
   await page.waitForSelector('#brt', { timeout: 10000 });
-  await page.evaluate(() => window.doBrandReset());
-  ok('reset restores the Mentor mark',
-    await until(page, () => {
-      const b = document.querySelector('header.top .brand');
-      return !!b && !!b.querySelector('svg.tmx-mark') && b.innerText.includes('Telemachus');
-    }, { timeout: 15000 }));
-  eq('reset restores the browser title', await page.title(), 'Telemachus');
+  const back = await apiCall(page, '/api/branding', { method: 'PUT', body: restoreBrand || {} });
+  ok('branding restored to its pre-run value', back.ok, `status ${back.status}`);
+  await page.evaluate(b => window.applyBrand(b), restoreBrand || {});
+  const wantTitle = (restoreBrand && restoreBrand.title) || 'Telemachus';
+  const headerOk = await until(page, () => {
+    const el = document.querySelector('header.top .brand');
+    return !!el && (el.innerText || '') + (el.querySelector('img') ? ' [logo]' : '') !== '';
+  }, { timeout: 15000 });
+  ok('header re-rendered after restore', headerOk);
+  eq('browser title restored', await page.title(), wantTitle);
+  const finalBrand = (await apiCall(page, '/api/branding')).json;
+  eq('stored branding matches what we found', finalBrand && finalBrand.title, wantTitle);
+  eq('stored tagline matches what we found', finalBrand && finalBrand.tagline,
+     (restoreBrand && restoreBrand.tagline) || '');
+  eq('stored logo matches what we found', finalBrand && finalBrand.logo,
+     (restoreBrand && restoreBrand.logo) || '');
 
   // ── 9. sign out and back in ─────────────────────────────────────────────────
   step('sign out and sign back in');
