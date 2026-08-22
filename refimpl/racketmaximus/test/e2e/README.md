@@ -12,6 +12,33 @@ doubles as a smoke test of the full UI. Structural checks are hard (they fail th
 run); model-output waits are soft (a slow/absent model won't fail the tour, the
 screenshot is still captured).
 
+## Validate the demo (the deploy gate)
+
+`demo-validate.mjs` is the other kind of job: **no screenshots, all assertions.**
+The tours above will happily photograph a broken page; this one exits non-zero.
+
+```bash
+bash test/e2e/validate.sh                                   # fresh throwaway server
+BASE_URL=http://100.70.154.54:8835 bash test/e2e/validate.sh --no-server   # a live box
+```
+
+31 checks, top to bottom: sign-in and default branding → first-run bootstrap →
+notes → **documents create *and edit*** → repository upload with a byte-identical
+download → search → workflows/jobs/usage render → **Admin › Branding** round-trip
+(title, tagline, logo upload, reset) → sign out and back in.
+
+Three things fail the run, not just the explicit checks:
+
+- any **uncaught page or console error** — a silent JS exception is a broken
+  console even when the assertions happen to pass;
+- any **5xx** from any request the page makes;
+- any assertion above.
+
+The `--no-server` form bootstraps a `demo-validator` operator, so point it at a
+throwaway or at a box that already has one.
+
+Failure screenshots land in `catalog/validate/`.
+
 ## Run
 
 ```bash

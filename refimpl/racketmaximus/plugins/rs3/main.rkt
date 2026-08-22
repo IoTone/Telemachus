@@ -17,19 +17,24 @@
 ;; copies on purpose.
 
 (require racket/file racket/port racket/string
+         (only-in "../../config.rkt" data-dir anchor-path)
          (only-in "../../domain/repo/blobs.rkt" register-blob-store!))
 
 (provide init! rs3-root)
 
-;; RS3_ROOT wins, then TELEMACHUS_DATA_DIR/blobs, then ./data/blobs — the same
-;; precedence the rest of the server uses for state.
+;; RS3_ROOT wins, then TELEMACHUS_DATA_DIR/blobs, then <impl-root>/data/blobs — the
+;; same precedence the rest of the server uses for state.
+;;
+;; Every branch is made ABSOLUTE. A relative root is resolved lazily, at write
+;; time, against `current-directory` — and `serve/servlet` points that at the web
+;; server's own web root while handling a request, which on a packaged install is
+;; inside the read-only Nix store. The failure surfaces as EACCES on the first
+;; upload from the console, long after startup looked healthy.
 (define (rs3-root)
   (define explicit (getenv "TELEMACHUS_RS3_ROOT"))
   (if (and explicit (not (string=? explicit "")))
-      (string->path explicit)
-      (build-path (let ([d (getenv "TELEMACHUS_DATA_DIR")])
-                    (if (and d (not (string=? d ""))) d "data"))
-                  "blobs")))
+      (anchor-path explicit)
+      (build-path (data-dir) "blobs")))
 
 (define (blob-path ns digest)
   (build-path (rs3-root) ns (substring digest 0 2) (substring digest 2 4) digest))

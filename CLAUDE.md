@@ -285,6 +285,51 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## Branding (Admin > Branding)
+
+Instance title, tagline and logo, editable by an operator. `domain/branding/branding.rkt`
+over a generic `instance_settings` key/value table (migration `0023`), so the next
+instance-wide setting needs code, not a migration.
+
+- **`GET /api/branding` is PUBLIC** and must stay so — the sign-in screen renders the
+  title/tagline/logo for someone who has no token yet. Writes are `instance:manage`.
+- The logo reuses `onboarding_assets` and the existing public `/api/beta/asset/<id>`
+  route. One asset mechanism, not two.
+- An uploaded logo REPLACES the mark and the wordmark both; the console falls back to
+  the Mentor mark plus `S.brand.title` when there is none. This is separate from the
+  beta funnel's own theme — that is a public marketing page, this is the product name.
+
+## Paths: anchor at definition, never at use
+
+**`serve/servlet` repoints `current-directory` at the web server's own default web
+root while it handles a request** — inside the read-only Nix store on a packaged
+install. Any relative path resolved lazily, at write time, therefore aims at the
+store. This shipped once: the blob root defaulted to `"data/blobs"` and the first
+document save returned
+`make-directory: ... /nix/store/.../web-server/default-web-root/htdocs/data/ Permission denied`.
+Startup was healthy and every unit test passed.
+
+Use `anchor-path` / `data-dir` from `config.rkt` for anything on disk. Three things
+now guard it: roots are absolute by construction, `test/repo-tests.rkt` asserts
+"blob roots are absolute and cwd-independent", and **`server/main.rkt` refuses to
+boot with a relative blob root** (after plugins load, so it checks the store that
+will actually be used).
+
+## Validating the demo end to end
+
+```sh
+bash test/e2e/validate.sh                                        # fresh throwaway server
+BASE_URL=http://<host>:8835 bash test/e2e/validate.sh --no-server   # a live box
+DATABASE_URL="postgres://…" bash test/e2e/validate.sh            # honours a pre-set URL
+```
+
+31 assertions, no screenshots: sign-in + branding → bootstrap → notes → documents
+create **and edit** → repository upload with byte-identical download → search →
+workflows/jobs/usage → Admin > Branding round-trip → sign out/in. It also fails on
+**any uncaught page/console error** and **any 5xx**, which is how a broken write path
+gets caught even when no assertion names it. The screenshot *tours* do not assert and
+will photograph a broken page — use this to gate a deploy.
+
 ## Git
 
 - Commit/push only when asked. Branch before committing on the default branch.

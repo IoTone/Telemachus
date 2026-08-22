@@ -43,6 +43,7 @@
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
          "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
+         "../domain/branding/branding.rkt"        ; instance title / tagline / logo (Admin)
          "../domain/beta/template.rkt"            ; Tier-C sandboxed custom HTML templates
          "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
@@ -343,6 +344,35 @@
                          'multitenant (multitenant?)
                          'onboarding (hash-ref (resolve-experience db-conn team) 'name "beta")
                          'landing (experience-landing db-conn team))))
+
+;; ---- instance branding (Admin > Branding) --------------------------------------
+;; READ IS PUBLIC, and has to be: the sign-in screen renders the title, tagline and
+;; logo for someone who has no token yet. It is the text on the front door.
+(define (ep-branding-get req)
+  (define b (branding-get db-conn))
+  (json-response
+   (hash-set b 'logoUrl (let ([id (hash-ref b 'logo "")])
+                          (if (string=? id "") "" (string-append "/api/beta/asset/" id))))))
+
+(define (ep-branding-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (json-response (branding-set! db-conn (if (hash? b) b (hasheq)))))))
+
+;; The logo rides the existing asset table and is served by the existing PUBLIC
+;; /api/beta/asset/<id> route — one asset mechanism, not two.
+(define (ep-branding-logo req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define id (asset-store! db-conn p #:mime (fmt b 'mime) #:filename (fmt b 'filename)
+                               #:data-base64 (fmt b 'data)))
+      (define cur (branding-get db-conn))
+      (json-response (hasheq 'ok #t 'id id 'url (string-append "/api/beta/asset/" id)
+                             'branding (branding-set! db-conn (hash-set cur 'logo id)))
+                     #:code 201)))))
 
 (define (ep-beta-config req)     ; public: the effective experience (published DB row, else ENV/provider base)
   (cors-json (resolve-experience-public db-conn (default-team db-conn))))
@@ -1480,6 +1510,9 @@
     [(and (GET? m)  (equal? segs '("beta-sdk.js")))         (serve-file (build-path impl-root "static" "beta-sdk.js"))]
     [(and (GET? m)  (bundle-file-path segs))                (serve-file (bundle-file-path segs))]
     [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
+    [(and (GET? m)  (equal? segs '("api" "branding")))     (ep-branding-get req)]
+    [(and (PUT? m)  (equal? segs '("api" "branding")))     (ep-branding-put req)]
+    [(and (POST? m) (equal? segs '("api" "branding" "logo"))) (ep-branding-logo req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
     [(and (GET? m)  (equal? segs '("beta" "template")))     (ep-beta-template req)]
     [(and (OPTIONS? m) (member segs '(("api" "beta" "signup") ("api" "beta" "config") ("api" "beta" "challenge")))) (cors-preflight)]
@@ -1618,6 +1651,22 @@
     (flush-output))
   (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
   (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
+  ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
+  ;; `current-directory` at the web server's own web root while it handles a
+  ;; request, so a relative root aims writes at whatever that is — for a Nix
+  ;; install, the read-only store. That surfaced as a 500 on the first document
+  ;; save, with a mkdir EACCES deep inside /nix/store, long after a boot that
+  ;; looked completely healthy. Fail here instead, where the message is about the
+  ;; configuration and not about a mkdir. Plugins load first because rs3 replaces
+  ;; the built-in store and this must check the one that will actually be used.
+  (let ([r (blob-root)])
+    (unless (absolute-path? r)
+      (error 'telemachus
+             (string-append "blob store root is relative (~a).\n"
+                            "  It would be resolved against the web server's working directory at write\n"
+                            "  time, not against the install. Set TELEMACHUS_DATA_DIR (or\n"
+                            "  TELEMACHUS_RS3_ROOT) to an absolute path.")
+             r)))
   (when (pair? plugins) (printf "loaded ~a plugin(s) from ~a\n" (length plugins) plugins-dir))
   (define mcp-config (let ([e (env* "TELEMACHUS_MCP")]) (if e (string->path e) (build-path impl-root "mcp.json"))))
   (define mcps (connect-mcp-servers! mcp-config #:log (lambda (s) (printf "  mcp: ~a\n" s))))

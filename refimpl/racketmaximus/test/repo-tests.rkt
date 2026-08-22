@@ -19,6 +19,7 @@
          "../domain/authz/authz.rkt"
          "../domain/quota/quota.rkt"
          "../domain/repo/blobs.rkt"
+         (only-in "../config.rkt" data-dir)
          "../domain/repo/repo.rkt")
 
 ;; ---- fixtures -----------------------------------------------------------------
@@ -258,3 +259,49 @@
 (check-exn exn:fail? (lambda () (blob-get "org" "../../etc/passwd")))
 
 (delete-directory/files BLOB-ROOT #:must-exist? #f)
+
+;; ---- the blob root is ABSOLUTE, whatever the current directory is --------------
+;;
+;; Regression for a live-only failure: the default root was the relative path
+;; "data/blobs", resolved at WRITE time against `current-directory`. `serve/servlet`
+;; repoints that at the web server's own default web root while it handles a
+;; request, so on a packaged install the first document edit tried to mkdir inside
+;; the read-only Nix store and died with EACCES. Startup was healthy, every unit
+;; test passed, and the console broke.
+;;
+;; The invariant that actually prevents it: every configured root resolves to an
+;; absolute path, and resolves to the SAME path from any working directory.
+(test-case "blob roots are absolute and cwd-independent"
+  (define elsewhere (find-system-path 'temp-dir))
+
+  ;; default (no TELEMACHUS_DATA_DIR)
+  (parameterize ([current-blob-root #f])
+    (define a (parameterize ([current-directory elsewhere]) (data-dir)))
+    (define b (data-dir))
+    (check-true (absolute-path? a) "data-dir must be absolute")
+    (check-equal? a b "data-dir must not depend on current-directory"))
+
+  ;; a RELATIVE override is anchored too — otherwise it reintroduces the same bug
+  (define saved (getenv "TELEMACHUS_DATA_DIR"))
+  (putenv "TELEMACHUS_DATA_DIR" "some-relative-state")
+  (define r1 (parameterize ([current-directory elsewhere]) (data-dir)))
+  (define r2 (data-dir))
+  (check-true (absolute-path? r1) "a relative TELEMACHUS_DATA_DIR must still resolve absolute")
+  (check-equal? r1 r2 "a relative TELEMACHUS_DATA_DIR must not depend on current-directory")
+  (if saved (putenv "TELEMACHUS_DATA_DIR" saved) (putenv "TELEMACHUS_DATA_DIR" ""))
+
+  ;; the STORE's own default root, which is what actually broke
+  (parameterize ([current-blob-root #f])
+    (define a (parameterize ([current-directory elsewhere]) (blob-root)))
+    (check-true (absolute-path? a) "the blob store's default root must be absolute")
+    (check-equal? a (blob-root) "the blob root must not depend on current-directory"))
+
+  ;; and a write really does land where the root says, from a foreign cwd
+  (define root (make-temporary-file "telemachus-cwdtest-~a" 'directory))
+  (parameterize ([current-blob-root root])
+    (define d (parameterize ([current-directory elsewhere])
+                (blob-put! "org-cwd-test" (digest-of-bytes #"hello") (open-input-bytes #"hello") 5)
+                (digest-of-bytes #"hello")))
+    (check-true (blob-exists? "org-cwd-test" d) "blob written from a foreign cwd is findable")
+    (check-equal? (port->bytes (blob-get "org-cwd-test" d)) #"hello"))
+  (delete-directory/files root))

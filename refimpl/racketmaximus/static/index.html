@@ -42,6 +42,7 @@
      it is a knockout — it inherits the wordmark's colour rather than borrowing the
      UI accent, which would put a third blue on the page. */
   .tmx-mark{display:block;flex:none;color:inherit}
+  .tmx-logo{display:block;flex:none;width:auto;max-width:260px;object-fit:contain}
   .auth .brand{justify-content:center;margin-bottom:.1em}
   /* shell */
   header.top{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
@@ -121,6 +122,10 @@ const L = {
       documents:'Documents',newdoc:'New document',content:'Content',
       jobs:'Jobs',submitjob:'Submit a job',submit:'Submit',refresh:'Refresh',cancel:'Cancel',
       testing:'Testing tools',seed:'Load sample data',
+      branding:'Branding',save:'Save',saved:'Saved',
+      brandinghint:'The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.',
+      brandtitle:'Title',brandtagline:'Tagline',brandlogo:'Logo',
+      brandclearlogo:'Remove logo',brandreset:'Reset to default',
       beta:'Beta',requestaccess:'Request access',teamsignin:'Team sign-in',qualify:'Qualify',reject:'Reject',
       repository:'Repository',upload:'Upload',uploading:'Uploading',uploaded:'Uploaded',
       file:'File',key:'Path',size:'Size',updated:'Updated',objects:'Documents',store:'Store',
@@ -157,6 +162,10 @@ const L = {
       documents:'ドキュメント',newdoc:'新規ドキュメント',content:'内容',
       jobs:'ジョブ',submitjob:'ジョブを送信',submit:'送信',refresh:'更新',cancel:'キャンセル',
       testing:'テストツール',seed:'サンプルデータを読み込む',
+      branding:'ブランディング',save:'保存',saved:'保存しました',
+      brandinghint:'このインスタンスの名称・タグライン・ロゴ。サインイン画面、ヘッダー、ブラウザタブに反映されます。',
+      brandtitle:'名称',brandtagline:'タグライン',brandlogo:'ロゴ',
+      brandclearlogo:'ロゴを削除',brandreset:'既定に戻す',
       beta:'ベータ',requestaccess:'アクセスを申請',teamsignin:'チームサインイン',qualify:'承認',reject:'却下',
       repository:'ドキュメント保管',upload:'アップロード',uploading:'アップロード中',uploaded:'アップロードしました',
       file:'ファイル',key:'パス',size:'サイズ',updated:'更新',objects:'ドキュメント',store:'保管先',
@@ -203,6 +212,25 @@ function markSVG(px){
     <path d="${MARK_SIL} ${d}" fill="currentColor" fill-rule="nonzero"/></svg>`;
 }
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
+
+// Instance branding (Admin > Branding). Loaded before auth, because the sign-in
+// screen has to render it for someone who has no token yet. Defaults keep the
+// shipped identity, so an untouched instance still has a name.
+S.brand = {title:'Telemachus', tagline:'', logo:'', logoUrl:''};
+async function loadBranding(){
+  const r = await api('/api/branding');
+  if(r.ok && r.json) S.brand = Object.assign(S.brand, r.json);
+  document.title = S.brand.title || 'Telemachus';
+}
+// The lockup: an uploaded logo REPLACES the mark and the wordmark both — an
+// operator who supplies their own logo is not asking for ours beside it. The
+// trailing dot is ours, so it goes with the mark.
+function brandLockup(px){
+  if(S.brand.logoUrl)
+    return `<img class="tmx-logo" src="${esc(S.brand.logoUrl)}" alt="${esc(S.brand.title)}" style="height:${Math.round(px*1.15)}px">`;
+  return `${markSVG(px)}<span>${esc(S.brand.title)}<span class="dot">.</span></span>`;
+}
+const brandTagline = () => S.brand.tagline || t('tagline');
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 async function api(path, {method='GET', body=null}={}){
@@ -223,8 +251,8 @@ const val = id => document.getElementById(id).value.trim();
 // ---------- auth ----------
 function authView(){
   return `<div class="auth">
-    <h1 class="brand">${markSVG(38)}<span>Telemachus<span class="dot">.</span></span></h1>
-    <p class="muted">${t('tagline')}</p>
+    <h1 class="brand">${brandLockup(38)}</h1>
+    <p class="muted">${esc(brandTagline())}</p>
     <div class="langtog" style="margin:10px 0 18px">${langBtns()}</div>
     <div class="card">
       <h2>${t('signin')}</h2>
@@ -259,7 +287,7 @@ function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
-      <span class="brand">${markSVG(22)}<span>Telemachus<span class="dot">.</span></span></span>
+      <span class="brand">${brandLockup(22)}</span>
       <span class="sp"></span>
       <span class="langtog">${langBtns()}</span>
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
@@ -456,11 +484,54 @@ async function adminView(){
     compute=`<div class="card" style="margin-top:14px"><h3>Compute <span class="muted" style="font-size:13px">— federated executors</span></h3>
       <table><thead><tr><th>executor</th><th>model</th><th>endpoint</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
+  const B = S.brand;
+  const brandCard=`<div class="card" style="margin-top:14px"><h3>${t('branding')}</h3>
+    <p class="muted" style="margin-top:0">${t('brandinghint')}</p>
+    <div class="row">
+      <div><label>${t('brandtitle')}</label><input id="brt" maxlength="48" value="${esc(B.title||'')}"></div>
+      <div><label>${t('brandtagline')}</label><input id="brg" maxlength="160" placeholder="${esc(t('tagline'))}" value="${esc(B.tagline||'')}"></div>
+    </div>
+    <label>${t('brandlogo')}</label>
+    <div class="row" style="align-items:center">
+      <div style="flex:0 0 auto;min-width:0">
+        <span class="brand" style="font-size:20px">${brandLockup(30)}</span>
+      </div>
+      <div><input type="file" id="brf" accept="image/png,image/jpeg,image/svg+xml,image/webp" onchange="doBrandLogo(this)"></div>
+      ${B.logo?`<div style="flex:0 0 auto"><button class="btn sm ghost" onclick="doBrandLogoClear()">${t('brandclearlogo')}</button></div>`:''}
+    </div>
+    <div style="margin-top:10px"><button class="btn" onclick="doBrandSave()">${t('save')}</button>
+      <button class="btn ghost" style="margin-left:8px" onclick="doBrandReset()">${t('brandreset')}</button></div></div>`;
   const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
     <button class="btn" onclick="doSeedSamples()">${t('seed')}</button></div>`;
-  return `<h2>${t('admin')}</h2>${body}${compute}${seedCard}`;
+  return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${seedCard}`;
 }
+// ---- branding (Admin) ----
+// Every write re-reads the server's normalized answer into S.brand and re-renders
+// the whole shell, so the header, the sign-in lockup and the preview can never
+// disagree with what was actually stored.
+async function applyBrand(b){ if(b) S.brand=Object.assign(S.brand,b,{logoUrl:b.logo?('/api/beta/asset/'+b.logo):''});
+  document.title=S.brand.title||'Telemachus'; render(); }
+async function doBrandSave(){
+  const r=await api('/api/branding',{method:'PUT',body:{title:val('brt'),tagline:val('brg'),logo:S.brand.logo||''}});
+  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+async function doBrandReset(){
+  const r=await api('/api/branding',{method:'PUT',body:{title:'Telemachus',tagline:'',logo:''}});
+  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+async function doBrandLogoClear(){
+  const r=await api('/api/branding',{method:'PUT',body:{title:S.brand.title,tagline:S.brand.tagline,logo:''}});
+  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+async function doBrandLogo(input){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const b64=await new Promise((res,rej)=>{ const rd=new FileReader();
+    rd.onload=()=>res(String(rd.result).split(',')[1]); rd.onerror=rej; rd.readAsDataURL(f); });
+  const r=await api('/api/branding/logo',{method:'POST',body:{mime:f.type,filename:f.name,data:b64}});
+  if(r.ok){ await applyBrand(r.json.branding); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+
 async function doSeedSamples(){
   const r=await api('/api/admin/seed',{method:'POST'});
   if(r.ok){ toast(`seeded ${r.json.notes} notes, ${r.json.documents} docs, ${r.json.jobs} jobs`,true); renderTab(); }
@@ -598,7 +669,7 @@ async function doBetaSignup(){
 function teamSignIn(){ S.forceLogin=true; render(); }
 function activateView(token){
   return `<div class="auth">
-    <h1 class="brand">${markSVG(38)}<span>Telemachus<span class="dot">.</span></span></h1>
+    <h1 class="brand">${brandLockup(38)}</h1>
     <p class="muted">${t('welcome')}</p>
     <div class="card">
       <h2>${t('setpw')}</h2>
@@ -1283,6 +1354,7 @@ async function render(){
   const app=document.getElementById('app');
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
+  await loadBranding();
   await refreshMe();
   if(!S.me){
     const cfg=await api('/api/config'); S.home = cfg.ok ? cfg.json.home : 'login';

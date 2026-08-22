@@ -717,5 +717,19 @@
         "UPDATE resource_grants SET resource_type = 'repo' WHERE resource_type = 'documents'")
       (exec* conn "DROP TABLE documents"))))
 
+;; 0023 — instance settings (branding). A generic key/value document store for
+;; instance-wide configuration, so the NEXT such setting needs code, not a
+;; migration. `key` is the primary key; `value` is a JSON document.
+(define m-0023-instance-settings
+  (migration "0023-instance-settings"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE instance_settings ("
+        "  key TEXT PRIMARY KEY,"
+        "  value TEXT NOT NULL,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
-                             m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents))
+                             m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
+                             m-0023-instance-settings))

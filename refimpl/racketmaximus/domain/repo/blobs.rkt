@@ -18,12 +18,13 @@
 ;; is what stops that, and it is the store's job to keep the two apart.
 
 (require racket/file racket/port racket/string
+         (only-in "../../config.rkt" data-dir)
          "../authz/sha2.rkt")
 
 (provide register-blob-store! blob-store-names active-blob-store-name
          blob-put! blob-get blob-delete! blob-size blob-exists? blob-stage!
          digest-of-bytes digest-of-port valid-digest?
-         current-blob-root)
+         current-blob-root blob-root)
 
 ;; ---- registry ----------------------------------------------------------------
 (define *stores* (box (hash)))
@@ -123,9 +124,16 @@
 ;; plugins directory at all. rs3 registers over it by name.
 (define current-blob-root (make-parameter #f))
 
+;; ABSOLUTE, always. A relative default here resolved against `current-directory`,
+;; which `serve/servlet` repoints at the web server's own web root for the duration
+;; of a request — inside the read-only Nix store on a packaged install. The symptom
+;; was a doc edit failing with EACCES on a path under
+;; .../web-server-lib/web-server/default-web-root/htdocs/data/. See `anchor-path`.
+(define (blob-root) (root))   ; exported so a test can assert the invariant below
+
 (define (root)
   (or (current-blob-root)
-      (build-path (or (getenv "TELEMACHUS_DATA_DIR") "data") "blobs")))
+      (build-path (data-dir) "blobs")))
 
 ;; two levels of fan-out, so no directory ends up with a million entries
 (define (blob-path ns digest)
