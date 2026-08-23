@@ -25,6 +25,7 @@
          web-server/http
          json
          web-kit
+         web-kit/http1
          db-kit
          "../config.rkt"
          "../domain/db/migrations.rkt"
@@ -42,6 +43,7 @@
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
          "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
+         "../domain/branding/branding.rkt"        ; instance title / tagline / logo (Admin)
          "../domain/beta/template.rkt"            ; Tier-C sandboxed custom HTML templates
          "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
@@ -49,6 +51,14 @@
          "../domain/quota/quota.rkt"
          "../domain/sched/governor.rkt"
          "../domain/sched/scheduler.rkt"          ; async job queue + worker pool
+         "../domain/s3/server.rkt"                ; the S3 protocol front door (slice 52)
+         "../domain/s3/sigv4.rkt"                 ; …and presigned links (slice 53)
+         "../domain/s3/creds.rkt"                 ; …and its access keys
+         "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
+         "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
+         "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
+         "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
+         "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/agent/run.rkt"
@@ -84,6 +94,13 @@
 ;; (the /api/orgs + /api/org management planes), not the authorization semantics.
 (define (multitenant?) (and (member (or (env* "TELEMACHUS_MULTITENANT") "") '("1" "true" "yes" "on")) #t))
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
+;; Largest request body the transport will accept. web-server's own default is 1 MiB
+;; and it enforces it by DROPPING the connection — no status, no log line — so a
+;; handler's own size check never runs. Deliberate here rather than inherited.
+(define (max-upload-bytes)
+  (define raw (env* "TELEMACHUS_MAX_UPLOAD"))
+  (define n (and raw (string->number raw)))
+  (if (and n (exact-positive-integer? n)) n default-max-body-length))
 (define default-port 8835)                                     ; "TEL" on a keypad; 8080 is too crowded to squat on
 (define (listen-port)   ; TELEMACHUS_PORT wins, then PORT (the common convention), else the default
   (define raw (or (env* "TELEMACHUS_PORT") (env* "PORT")))
@@ -328,6 +345,35 @@
                          'onboarding (hash-ref (resolve-experience db-conn team) 'name "beta")
                          'landing (experience-landing db-conn team))))
 
+;; ---- instance branding (Admin > Branding) --------------------------------------
+;; READ IS PUBLIC, and has to be: the sign-in screen renders the title, tagline and
+;; logo for someone who has no token yet. It is the text on the front door.
+(define (ep-branding-get req)
+  (define b (branding-get db-conn))
+  (json-response
+   (hash-set b 'logoUrl (let ([id (hash-ref b 'logo "")])
+                          (if (string=? id "") "" (string-append "/api/beta/asset/" id))))))
+
+(define (ep-branding-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (json-response (branding-set! db-conn (if (hash? b) b (hasheq)))))))
+
+;; The logo rides the existing asset table and is served by the existing PUBLIC
+;; /api/beta/asset/<id> route — one asset mechanism, not two.
+(define (ep-branding-logo req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define id (asset-store! db-conn p #:mime (fmt b 'mime) #:filename (fmt b 'filename)
+                               #:data-base64 (fmt b 'data)))
+      (define cur (branding-get db-conn))
+      (json-response (hasheq 'ok #t 'id id 'url (string-append "/api/beta/asset/" id)
+                             'branding (branding-set! db-conn (hash-set cur 'logo id)))
+                     #:code 201)))))
+
 (define (ep-beta-config req)     ; public: the effective experience (published DB row, else ENV/provider base)
   (cors-json (resolve-experience-public db-conn (default-team db-conn))))
 
@@ -471,8 +517,22 @@
                                                "SELECT slug FROM orgs WHERE id = ?" o)) 'null))
                              'org_role (or (principal-org-role p) 'null)
                              'multitenant (multitenant?)
+                             'locale (user-locale db-conn (principal-user-id p))
                              'permissions (perms-of p)
                              'token_scopes (or (principal-token-scopes p) 'null)))))
+
+;; the user's own language — the durable preference a workflow binds to as
+;; ${principal.locale}, as opposed to the per-request Accept-Language header
+(define (ep-profile req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define loc (hash-ref b 'locale #f))
+    (cond
+      [(not (and (string? loc) (regexp-match #px"^[a-zA-Z]{2,3}([-_][A-Za-z0-9]{2,8})*$" loc)))
+       (err "locale required, e.g. \"es\" or \"es-419\"" 400)]
+      [else
+       (set-user-locale! db-conn (principal-user-id p) loc)
+       (json-response (hasheq 'ok #t 'locale loc))]))))
 
 (define (ep-members-list req)
   (with-auth req (lambda (p)
@@ -1073,6 +1133,244 @@
       [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
       [else (err "not found" 404)]))))
 
+;; ---- document repository (slices 49-50) --------------------------------------
+;; The data plane is deliberately NOT JSON: a document is bytes, and base64 inside a
+;; JSON envelope costs a third of the wire and forces the whole file into memory at
+;; both ends. Upload is a raw body with the key in the path; download streams back.
+;;
+;; This is the control plane the S3 front door will NOT replace (DOC-12) — sharing,
+;; grants and visibility have no expression in the S3 protocol.
+
+(define (obj-json o)
+  (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
+          'visibility (hash-ref o 'visibility) 'owner_user_id (hash-ref o 'owner_user_id)
+          'size (hash-ref o 'size) 'content_type (hash-ref o 'content_type)
+          'filename (hash-ref o 'filename) 'version (hash-ref o 'version)
+          'digest (hash-ref o 'digest)
+          'created_at (hash-ref o 'created_at) 'updated_at (hash-ref o 'updated_at)))
+
+;; Uploads land as the raw request body. `request-post-data/raw` buffers it, which is
+;; why TELEMACHUS_MAX_UPLOAD exists and why DOC-15's listener is the next slice — the
+;; port handed to repo-put! is honest about streaming even though what feeds it today
+;; is not.
+(define (ep-repo-put req key)
+  (with-auth req (lambda (p)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define raw (or (request-post-data/raw req) #""))
+      (define o (repo-put! db-conn p
+                           #:key key
+                           #:port (open-input-bytes raw)
+                           #:content-type (or (req-header req #"content-type") "application/octet-stream")
+                           #:filename (query-param req 'filename "")
+                           #:visibility (let ([v (query-param req 'visibility "")])
+                                          (and (member v VISIBILITIES) v))
+                           #:max-bytes (max-upload-bytes)))
+      (json-response (obj-json o) #:code 201)))))
+
+(define (ep-repo-list req)
+  (with-auth req (lambda (p)
+    (define objs (repo-list db-conn p
+                            #:prefix (query-param req 'prefix "")
+                            #:limit (or (string->number (query-param req 'limit "100")) 100)
+                            #:offset (or (string->number (query-param req 'offset "0")) 0)))
+    (json-response (hasheq 'objects (map obj-json objs)
+                           'usage (repo-usage db-conn p))))))
+
+(define (ep-repo-meta req id)
+  (with-auth req (lambda (p)
+    (define o (repo-get db-conn p id))
+    (if o
+        (json-response (hash-set (obj-json o) 'versions (repo-versions db-conn p id)))
+        (err "not found" 404)))))
+
+;; DOC-10: every document is served as an attachment with nosniff and a
+;; script-denying CSP unless its type is on the short inline allowlist. An SVG
+;; rendered inline from this origin is stored XSS with the console behind it, and
+;; "any format" was a requirement about what may be STORED, not about what a browser
+;; may be talked into executing.
+(define (ep-repo-get req id)
+  (with-auth req (lambda (p)
+    (define-values (o in) (repo-open db-conn p id
+                                     #:version (let ([v (query-param req 'version "")])
+                                                 (and (not (string=? v "")) v))))
+    (cond
+      [(not in) (err "not found" 404)]
+      [else
+       (define ct (hash-ref o 'content_type))
+       (define inline? (and (inline-safe? ct) (equal? (query-param req 'disposition "") "inline")))
+       (define fname (let ([f (hash-ref o 'filename)])
+                       (if (string=? f "") (car (reverse (string-split (hash-ref o 'key) "/"))) f)))
+       (define safe-name (regexp-replace* #px"[^A-Za-z0-9._-]" fname "_"))
+       (response/output
+        #:mime-type (string->bytes/utf-8 (if inline? ct "application/octet-stream"))
+        #:headers (list (make-header #"X-Content-Type-Options" #"nosniff")
+                        (make-header #"Content-Security-Policy" #"default-src 'none'; sandbox")
+                        (make-header #"Cache-Control" #"private, max-age=0, must-revalidate")
+                        (make-header #"ETag" (string->bytes/utf-8 (string-append "\"" (hash-ref o 'digest) "\"")))
+                        (make-header #"Content-Disposition"
+                                     (string->bytes/utf-8
+                                      (string-append (if inline? "inline" "attachment")
+                                                     "; filename=\"" safe-name "\""))))
+        (lambda (out)
+          (dynamic-wind void
+                        (lambda () (copy-port in out))
+                        (lambda () (close-input-port in)))))]))))
+
+(define (ep-repo-visibility req id)
+  (with-auth req (lambda (p)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define v (fmt (read-json-body req) 'visibility))
+      (define o (repo-set-visibility! db-conn p id v))
+      (if o (json-response (obj-json o)) (err "not found" 404))))))
+
+(define (ep-repo-share req id)
+  (with-auth req (lambda (p)
+    (define u (fmt (read-json-body req) 'user_id))
+    (cond
+      [(string=? u "") (err "user_id is required" 400)]
+      [(repo-share! db-conn p id #:user u)
+       (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))]
+      [else (err "not found" 404)]))))
+
+(define (ep-repo-unshare req id)
+  (with-auth req (lambda (p)
+    (define u (fmt (read-json-body req) 'user_id))
+    (if (repo-unshare! db-conn p id #:user u)
+        (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))
+        (err "not found" 404)))))
+
+(define (ep-repo-grants req id)
+  (with-auth req (lambda (p)
+    (define g (repo-grants db-conn p id))
+    (if g (json-response (hasheq 'grants g)) (err "not found" 404)))))
+
+;; A presigned link: a time-boxed URL a browser can follow with no bearer token, so
+;; the console can hand a PDF straight to the viewer. Signed with the CALLER'S OWN
+;; newest S3 key, which means the link can never do more than that key can, and
+;; revoking the key kills every link made with it.
+(define (ep-repo-presign req id)
+  (with-auth req (lambda (p)
+    (define o (repo-get db-conn p id))
+    (define port (s3-port))
+    (define cred (and o (s3-cred-newest db-conn p)))
+    (cond
+      [(not o) (err "not found" 404)]
+      [(not port) (err "the S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT)" 409)]
+      [(not cred) (err "create an S3 access key first — a link is signed with one" 409)]
+      [else
+       (define secs (max 1 (min 604800 (or (string->number (query-param req 'expires "900")) 900))))
+       (define host (format "~a:~a" (if (equal? (bind-ip) "0.0.0.0") "127.0.0.1" (bind-ip)) port))
+       ;; the key is signed in the form it will be sent, so encode once, here
+       (define encoded-key
+         (string-join (map (lambda (seg) (aws-uri-encode seg))
+                           (string-split (hash-ref o 'key) "/")) "/"))
+       (define path (string-append "/" (team-slug-of p) "/" encoded-key))
+       (define qs (presign-query #:method "GET" #:path path
+                                 #:access-key (car cred) #:secret (cdr cred)
+                                 #:region (s3-region) #:host host #:expires secs))
+       (json-response (hasheq 'url (format "http://~a~a?~a" host path qs)
+                              'expires_in secs
+                              'key (hash-ref o 'key)))]))))
+
+(define (ep-s3-creds req)
+  (with-auth req (lambda (p) (json-response (hasheq 'credentials (s3-cred-list db-conn p)
+                                                    'endpoint (s3-endpoint-url)
+                                                    'region (s3-region)
+                                                    'bucket (team-slug-of p))))))
+
+(define (ep-s3-cred-create req)
+  (with-auth req (lambda (p)
+    (define b (read-json-body req))
+    (define scopes (let ([v (hash-ref b 'scopes #f)])
+                     (and (list? v) (andmap string? v) v)))
+    ;; the secret is in this response and in no other, ever. With no scopes given the
+    ;; issuer's own default applies — repeating a list here would silently shadow it.
+    (json-response (if scopes
+                       (s3-cred-issue! db-conn p #:name (fmt b 'name) #:scopes scopes)
+                       (s3-cred-issue! db-conn p #:name (fmt b 'name)))
+                   #:code 201))))
+
+(define (ep-s3-cred-revoke req id)
+  (with-auth req (lambda (p) (s3-cred-revoke! db-conn p id) (json-response (hasheq 'ok #t)))))
+
+(define (team-slug-of p)
+  (define v (query-maybe-value db-conn "SELECT slug FROM teams WHERE id = ?" (principal-team-id p)))
+  (if (string? v) v ""))
+
+;; What a client must be told to reach us: S3 lives on its own port because its
+;; transport requirements differ (Expect: 100-continue, unbuffered bodies), and
+;; path-style addressing because virtual-host style would need wildcard DNS.
+(define (s3-port)
+  (define raw (env* "TELEMACHUS_S3_PORT"))
+  (define n (and raw (string->number raw)))
+  (and n (exact-positive-integer? n) n))
+
+(define (s3-endpoint-url)
+  (define p (s3-port))
+  (and p (format "http://~a:~a" (if (equal? (bind-ip) "0.0.0.0") "<host>" (bind-ip)) p)))
+
+(define (ep-repo-delete req id)
+  (with-auth req (lambda (p)
+    (if (repo-delete! db-conn p id) (json-response (hasheq 'ok #t 'id id)) (err "not found" 404)))))
+
+;; ---- workflows (slice 46) ---------------------------------------------------
+;; The spec is the contract: `validate-spec` is reached the same way from here as
+;; from `define-workflow`, so a JSON document and a Racket-authored one are held to
+;; one definition of valid. Every run pins the caller as its principal and each
+;; step re-checks it, so a workflow can never do what its starter could not.
+(define (ep-workflows-create req)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (define d (flow-publish! db-conn p (read-json-body req)))
+    (json-response d #:code 201))))
+
+(define (ep-workflows-list req)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (json-response (hasheq 'workflows (flow-defs db-conn p))))))
+
+;; contract discovery — deliberately unauthenticated: it describes the format this
+;; build accepts, which an editor or a second implementation needs before it holds
+;; a token, and it reveals nothing about the instance.
+(define (ep-workflow-schema req) (json-response (spec-schema)))
+
+(define (ep-workflow-get req slug)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (define d (flow-def-by-slug db-conn p slug))
+    (if d (json-response d) (err "not found" 404)))))
+
+(define (ep-workflow-run req slug)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (define d (flow-def-by-slug db-conn p slug))
+    (cond
+      [(not d) (err "not found" 404)]
+      [else
+       (define b (read-json-body req))
+       (define in (let ([i (hash-ref b 'input (hasheq))]) (if (hash? i) i (hasheq))))
+       (json-response (flow-run-start! db-conn p d #:input in) #:code 202)]))))
+
+(define (ep-runs-list req)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (json-response (hasheq 'runs (flow-runs db-conn p))))))
+
+(define (ep-run-get req id)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (define r (flow-run-get db-conn p id))
+    (if r (json-response r) (err "not found" 404)))))
+
+(define (ep-run-cancel req id)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (define r (flow-run-cancel! db-conn p id))
+    (cond
+      [(eq? r #t) (json-response (hasheq 'ok #t 'id id 'status "canceled"))]
+      [(eq? r 'not-cancelable) (err "run already finished — cannot cancel" 409)]
+      [else (err "not found" 404)]))))
+
 (define (ep-admin-seed req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "settings:manage")
@@ -1166,6 +1464,29 @@
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
 ;; /api/orgs/<id> · /api/orgs/<id>/{suspend,resume,quota}
+;; /api/repo/<key…> — a key contains slashes, so it is the whole tail rather than
+;; one segment. Object operations address the object by ID (/api/repo-obj/<id>/…)
+;; so a key can never be confused with an action.
+(define (repo-key-path segs)
+  (and (>= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "repo")
+       (string-join (cddr segs) "/")))
+(define (repo-obj-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "repo-obj")
+       (caddr segs)))
+(define (repo-obj-action segs action)
+  (and (= (length segs) 4) (equal? (car segs) "api") (equal? (cadr segs) "repo-obj")
+       (equal? (list-ref segs 3) action) (caddr segs)))
+
+(define (workflow-slug segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "workflows") (caddr segs)))
+(define (workflow-run-path segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "workflows")
+       (equal? (list-ref segs 3) "run") (list-ref segs 2)))
+(define (flow-run-id-path segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "runs") (caddr segs)))
+(define (flow-run-cancel-path segs)
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "runs")
+       (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
 (define (org-id-path segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "orgs") (caddr segs)))
 (define (org-action-path segs action)
@@ -1189,6 +1510,9 @@
     [(and (GET? m)  (equal? segs '("beta-sdk.js")))         (serve-file (build-path impl-root "static" "beta-sdk.js"))]
     [(and (GET? m)  (bundle-file-path segs))                (serve-file (bundle-file-path segs))]
     [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
+    [(and (GET? m)  (equal? segs '("api" "branding")))     (ep-branding-get req)]
+    [(and (PUT? m)  (equal? segs '("api" "branding")))     (ep-branding-put req)]
+    [(and (POST? m) (equal? segs '("api" "branding" "logo"))) (ep-branding-logo req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
     [(and (GET? m)  (equal? segs '("beta" "template")))     (ep-beta-template req)]
     [(and (OPTIONS? m) (member segs '(("api" "beta" "signup") ("api" "beta" "config") ("api" "beta" "challenge")))) (cors-preflight)]
@@ -1213,6 +1537,7 @@
     [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
     [(and (POST? m) (equal? segs '("api" "password")))      (ep-password req)]
     [(and (GET? m)  (equal? segs '("api" "whoami")))        (ep-whoami req)]
+    [(and (POST? m) (equal? segs '("api" "profile")))       (ep-profile req)]
     [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
     [(and (GET? m)  (equal? segs '("api" "members")))       (ep-members-list req)]
     [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
@@ -1263,6 +1588,33 @@
     [(and (GET? m)  (equal? segs '("api" "jobs")))         (ep-jobs-list req)]
     [(and (POST? m) (job-cancel-path segs))                (ep-job-cancel req (job-cancel-path segs))]
     [(and (GET? m)  (job-id segs))                         (ep-job-get req (job-id segs))]
+    ;; document repository (slices 49-50). More specific routes first: the bare
+    ;; /api/repo listing, then object actions by id, then the catch-all key path.
+    [(and (GET? m)  (equal? segs '("api" "repo")))          (ep-repo-list req)]
+    [(and (POST? m) (repo-obj-action segs "share"))         (ep-repo-share req (repo-obj-action segs "share"))]
+    [(and (POST? m) (repo-obj-action segs "unshare"))       (ep-repo-unshare req (repo-obj-action segs "unshare"))]
+    [(and (GET? m)  (repo-obj-action segs "grants"))        (ep-repo-grants req (repo-obj-action segs "grants"))]
+    [(and (POST? m) (repo-obj-action segs "visibility"))    (ep-repo-visibility req (repo-obj-action segs "visibility"))]
+    [(and (GET? m)  (repo-obj-action segs "content"))       (ep-repo-get req (repo-obj-action segs "content"))]
+    [(and (POST? m) (repo-obj-action segs "presign"))       (ep-repo-presign req (repo-obj-action segs "presign"))]
+    [(and (GET? m)  (repo-obj-path segs))                   (ep-repo-meta req (repo-obj-path segs))]
+    [(and (DELETE? m) (repo-obj-path segs))                 (ep-repo-delete req (repo-obj-path segs))]
+    [(and (PUT? m)  (repo-key-path segs))                   (ep-repo-put req (repo-key-path segs))]
+    ;; S3 access keys — managed here, used on the S3 port
+    [(and (GET? m)  (equal? segs '("api" "s3" "credentials")))  (ep-s3-creds req)]
+    [(and (POST? m) (equal? segs '("api" "s3" "credentials")))  (ep-s3-cred-create req)]
+    [(and (DELETE? m) (= (length segs) 4) (equal? (car segs) "api")
+          (equal? (cadr segs) "s3") (equal? (caddr segs) "credentials"))
+     (ep-s3-cred-revoke req (list-ref segs 3))]
+    ;; workflows (slice 46) — /schema is matched before /<slug> on purpose
+    [(and (POST? m) (equal? segs '("api" "workflows")))     (ep-workflows-create req)]
+    [(and (GET? m)  (equal? segs '("api" "workflows")))     (ep-workflows-list req)]
+    [(and (GET? m)  (equal? segs '("api" "workflows" "schema"))) (ep-workflow-schema req)]
+    [(and (POST? m) (workflow-run-path segs))               (ep-workflow-run req (workflow-run-path segs))]
+    [(and (GET? m)  (workflow-slug segs))                   (ep-workflow-get req (workflow-slug segs))]
+    [(and (GET? m)  (equal? segs '("api" "runs")))          (ep-runs-list req)]
+    [(and (POST? m) (flow-run-cancel-path segs))            (ep-run-cancel req (flow-run-cancel-path segs))]
+    [(and (GET? m)  (flow-run-id-path segs))                (ep-run-get req (flow-run-id-path segs))]
     [(and (POST? m) (equal? segs '("api" "admin" "seed")))  (ep-admin-seed req)]
     [(and (GET? m)  (equal? segs '("api" "metrics")))      (ep-metrics req)]
     [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
@@ -1277,6 +1629,9 @@
   (parameterize ([current-localizer (localizer-for (accept-language req))])
     (with-handlers ([exn:fail:forbidden?
                      (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
+                    ;; a refused workflow spec is the caller's mistake — and the
+                    ;; detail is the whole point of rejecting rather than ignoring
+                    [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
                     [exn:fail? (lambda (e) (err (exn-message e) 500))])
       (route req))))
 
@@ -1296,6 +1651,22 @@
     (flush-output))
   (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
   (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
+  ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
+  ;; `current-directory` at the web server's own web root while it handles a
+  ;; request, so a relative root aims writes at whatever that is — for a Nix
+  ;; install, the read-only store. That surfaced as a 500 on the first document
+  ;; save, with a mkdir EACCES deep inside /nix/store, long after a boot that
+  ;; looked completely healthy. Fail here instead, where the message is about the
+  ;; configuration and not about a mkdir. Plugins load first because rs3 replaces
+  ;; the built-in store and this must check the one that will actually be used.
+  (let ([r (blob-root)])
+    (unless (absolute-path? r)
+      (error 'telemachus
+             (string-append "blob store root is relative (~a).\n"
+                            "  It would be resolved against the web server's working directory at write\n"
+                            "  time, not against the install. Set TELEMACHUS_DATA_DIR (or\n"
+                            "  TELEMACHUS_RS3_ROOT) to an absolute path.")
+             r)))
   (when (pair? plugins) (printf "loaded ~a plugin(s) from ~a\n" (length plugins) plugins-dir))
   (define mcp-config (let ([e (env* "TELEMACHUS_MCP")]) (if e (string->path e) (build-path impl-root "mcp.json"))))
   (define mcps (connect-mcp-servers! mcp-config #:log (lambda (s) (printf "  mcp: ~a\n" s))))
@@ -1375,9 +1746,21 @@
   (define ip (bind-ip))
   (define port (listen-port))
   (when tls? (ensure-cert!))
-  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a)\n"
-          (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off"))
+  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · max upload: ~a MiB)\n"
+          (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off")
+          (quotient (max-upload-bytes) (* 1024 1024)))
+  ;; The S3 front door is a SEPARATE listener on a separate port: it runs on
+  ;; web-kit/http1 because it must answer `Expect: 100-continue` and stream bodies
+  ;; the servlet would buffer. Off unless TELEMACHUS_S3_PORT is set — an S3 endpoint
+  ;; is surface area, and surface area should be asked for.
+  (when (s3-port)
+    (http1-listen (make-s3-handler db-conn)
+                  #:port (s3-port) #:listen-ip ip
+                  #:on-error (lambda (e) (printf "s3: ~a\n" (exn-message e)) (flush-output)))
+    (printf "s3 endpoint on http://~a:~a  (path-style · region ~a · bucket = team slug)\n"
+            ip (s3-port) (s3-region)))
   (flush-output)
   (if tls?
-      (serve handle #:port port #:listen-ip ip #:ssl-cert (tls-cert) #:ssl-key (tls-key))
-      (serve handle #:port port #:listen-ip ip)))
+      (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes)
+             #:ssl-cert (tls-cert) #:ssl-key (tls-key))
+      (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes))))

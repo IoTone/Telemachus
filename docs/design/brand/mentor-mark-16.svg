@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16" height="16" role="img" aria-label="Telemachus — a helm whose eyes and nasal bar read as an owl and as the letter T">
+  <!-- 20 px and below, a DIFFERENT DRAWING: diamonds opened to 7.5, nasal 7 wide
+       and dropped to y=30. Fattest join of the three, because this is the
+       size where a thin one closes up. -->
+  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
+           M18.5 34 L26 41.5 L33.5 34 L26 26.5 Z
+           M30.5 34 L38 41.5 L45.5 34 L38 26.5 Z
+           M28.5 30 v23 h7 V30 Z"
+        fill="currentColor" fill-rule="nonzero"/>
+</svg>

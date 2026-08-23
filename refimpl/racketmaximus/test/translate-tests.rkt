@@ -4,14 +4,14 @@
 ;; used in the prompt), RBAC, and catalog translation. The model call is injected
 ;; so these are deterministic and need no live model.  raco test test/translate-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/apps/translate.rkt"
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 (define (upcase-chat text sys) (values (string-upcase text) 7))
 
 (test-case "translate!: returns result + tokens and records team history"

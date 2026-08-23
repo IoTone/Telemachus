@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="can? — many front doors, one gate">
+  <!-- Direction 04 from the same study, kept as an optional technical sub-mark.
+       Lives where engineers are: README badges, the architecture page, a CLI
+       banner. Never beside the primary in the same lockup. -->
+  <g stroke="currentColor" stroke-width="3.2" stroke-linecap="round" fill="none">
+    <path d="M6 18 H28"/><path d="M6 32 H28"/><path d="M6 46 H28"/>
+    <path d="M23 14 l5 4 -5 4"/><path d="M23 28 l5 4 -5 4"/><path d="M23 42 l5 4 -5 4"/>
+  </g>
+  <rect x="33" y="8" width="6.5" height="48" rx="2" fill="#c9a227"/>
+  <g stroke="currentColor" stroke-width="3.2" stroke-linecap="round" fill="none">
+    <path d="M44 32 H58"/><path d="M53 28 l5 4 -5 4"/>
+  </g>
+</svg>

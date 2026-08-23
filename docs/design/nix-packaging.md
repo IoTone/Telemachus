@@ -154,12 +154,20 @@ deliverable. It lives in the devShell only.
 
 Same cadence as the rest of the port — each slice ships, tests, and demos alone.
 
+> **Built (2026‑08‑19).** The first two slices below shipped as **48** and **49** —
+> 45/46/47 were taken by multi-tenancy and the workflow engine while this doc sat
+> unimplemented. Root `flake.nix` + `nix/telemachus.nix`, verified end to end on
+> x86_64-linux: `nix build` (unit suite + l10n gate in the sandbox), `nix flake
+> check` (adds the HTTP smoke), `nix develop`, and the packaged server run from
+> `/tmp` with plugins, MCP and the OOP host all loading from the store. What the
+> plan got right, wrong, and missed is recorded at the end of this document.
+
 | Slice | Title | Contents |
 |---|---|---|
-| **45** | Flake skeleton + devShell | Root `flake.nix` pinned to nixpkgs; `devShells.default` with racket 9.2, sqlite, openssl, node, `PLTCOLLECTS` preset. Verify `crypto`/argon2id availability. Docs: `nix develop` replaces the brew/PATH ritual. |
-| **46** | The package | `packages.telemachus`: `raco make`, `doCheck` (unit suite + l10n gate), `makeWrapper` entrypoints, PATH/data-dir wiring. Fix the two subprocess-arg resolutions (#1) and confirm plugins/MCP/OOP load from the store. |
-| **47** | Live Postgres gate | Use the devShell's postgresql to run `server-smoke.sh` against a real PG in `checks`, closing the slice-32 gap. Wire as a CI lane beside the SQLite one. |
-| **48** | Deploy | `nixosModule` with a systemd unit (state dir, `DynamicUser`, env for model/home/port), and a runbook update so the tailnet deploy uses it instead of a hand-run process. |
+| **48** *(was 45)* ✅ | Flake skeleton + devShell | Root `flake.nix` pinned to nixpkgs; `devShells.default` with racket 9.2, sqlite, openssl, node, `PLTCOLLECTS` preset. Verify `crypto`/argon2id availability. Docs: `nix develop` replaces the brew/PATH ritual. |
+| **49** *(was 46)* ✅ | The package | `packages.telemachus`: `raco make`, `doCheck` (unit suite + l10n gate), `makeWrapper` entrypoints, PATH/data-dir wiring. Fix the two subprocess-arg resolutions (#1) and confirm plugins/MCP/OOP load from the store. |
+| **50** *(was 47)* | Live Postgres gate | Use the devShell's postgresql to run `server-smoke.sh` against a real PG in `checks`, closing the slice-32 gap. Wire as a CI lane beside the SQLite one. |
+| **51** *(was 48)* | Deploy | `nixosModule` with a systemd unit (state dir, `DynamicUser`, env for model/home/port), and a runbook update so the tailnet deploy uses it instead of a hand-run process. |
 
 ## Decisions to confirm
 
@@ -179,3 +187,40 @@ Same cadence as the rest of the port — each slice ships, tests, and demos alon
   and a distraction until someone asks for it.
 
 *Nothing here changes the platform's contracts — only how it is built and run.*
+
+## What the plan got right, wrong, and missed
+
+Recorded after building it, because the differences are the useful part.
+
+**Right.** nixpkgs does carry Racket **9.2** — the version we develop against, now
+verified rather than assumed. `makeWrapper` over the interpreter (not `raco exe`)
+was the correct call: plugins, MCP servers and the OOP host all load by
+`dynamic-require` from the store with no changes. The absence of `raco pkg install`
+really did make the build trivial. And `doCheck` running the real suite works — the
+sandbox ran all 137 unit tests plus the localization gate.
+
+**Wrong — constraint #2 was misdiagnosed.** The doc blamed `data-dir` defaulting to
+`impl-root/data`. The actual failure was the default **`DATABASE_URL`**, which was
+the *relative* URL `sqlite:///./data/telemachus.db`, resolved against `impl-root`.
+`TELEMACHUS_DATA_DIR` never moved the database at all — it moved the TLS cert and
+nothing else, so the variable was a half-truth long before Nix existed. Nobody
+noticed because every demo script sets both. Fixed in `config.rkt`: the default
+database URL now derives from `data-dir`, so one variable names one writable state
+directory. That is a bug fix for checkouts too.
+
+**Missed entirely — Nix only sees git-tracked files.** The first `nix build` failed
+with `cannot open module file: domain/flow/run.rkt` because the whole workflow
+engine was still untracked. This is a *feature* (the flake refuses to build from
+files that would not reach a clone) but it is a surprising first failure, and it is
+now in the runbook's failure table.
+
+**Confirmed as predicted.** Constraint #1 (subprocess `args` resolved against CWD)
+was real: fixed in `domain/mcp/client.rkt` and `domain/oop/host.rkt` by resolving a
+relative `.rkt` argument against `impl-root`, which also fixes running the server
+from another directory in a checkout. Constraint #4 held: the packaged server
+reports `pbkdf2_sha1`, exactly as a checkout does — argon2id remains an unclaimed
+upgrade, not a regression.
+
+**Unlocked immediately.** `nix develop` ships **PostgreSQL 18.6**, so the live
+dialect gate (slice 50) is now blocked on nothing but the work itself — no root, no
+Docker, no glibc problem.

@@ -8,7 +8,7 @@
 
 (provide known-features feature-enabled? set-feature-enabled! features-for)
 
-(define known-features '("chat" "agent" "translate" "search"))
+(define known-features '("chat" "agent" "translate" "search" "workflows"))
 
 (define (feature-enabled? conn team-id feature)
   (define v (query-maybe-value conn

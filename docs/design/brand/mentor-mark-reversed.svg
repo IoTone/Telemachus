@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Telemachus — a helm whose eyes and nasal bar read as an owl and as the letter T">
+  <!-- For an aegean or otherwise dark ground. This is the presentation the
+       study itself showed: bone helm, gold brow, on #132c46. -->
+  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
+           M20.5 34 L26.5 40 L32.5 34 L26.5 28 Z
+           M31.5 34 L37.5 40 L43.5 34 L37.5 28 Z
+           M29.5 26 v27 h5 V26 Z"
+        fill="#f2ede1" fill-rule="nonzero"/>
+  <path d="M13 26 h38" stroke="#c9a227" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+</svg>

@@ -30,6 +30,10 @@ const SECTION = {
   '08-onboarding-editor': ['Skin it', '/#beta'],
   '09-tier-c-template': ['Tier C', '/#beta'],
   '10-tier-b-bundle': ['Tier B', '/beta/bundle/…'],
+  // workflow-engine walkthrough
+  '01-definitions': ['Definitions', '/#workflows'], '02-run-form': ['Run', '/#workflows'],
+  '03-in-flight': ['In flight', '/#workflows'], '04-completed': ['Completed', '/#workflows'],
+  '05-failed': ['Failure', '/#workflows'],
 };
 const secOf = (id) => (SECTION[id.replace('.png', '')] || [id, '/'])[0];
 const routeOf = (id) => (SECTION[id.replace('.png', '')] || [id, '/'])[1];

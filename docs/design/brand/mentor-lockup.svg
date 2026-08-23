@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" width="300" height="64" role="img" aria-label="Telemachus">
+  <!-- Clear space on every side = half the mark's width (19 units). The wordmark
+       sits on the mark's baseline. For print, outline the text first. -->
+  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
+           M20.5 34 L26.5 40 L32.5 34 L26.5 28 Z
+           M31.5 34 L37.5 40 L43.5 34 L37.5 28 Z
+           M29.5 26 v27 h5 V26 Z"
+        fill="currentColor" fill-rule="nonzero"/>
+  <text x="69" y="53" font-family="Fraunces, Georgia, 'Times New Roman', serif"
+        font-size="35" font-weight="600" letter-spacing="-0.8" fill="currentColor">Telemachus</text>
+</svg>

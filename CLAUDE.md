@@ -16,14 +16,26 @@ owner-authored Racket + owner-authored docs** may be carried over (see
 
 ## Build / test (run from `refimpl/racketmaximus/`)
 
-Racket is linuxbrew **minimal-racket 9.2 CS** (apt Racket is only 8.2 — don't use it):
+**Nix is the toolchain. There is no second one.** `nix develop` from the repo root
+pins Racket 9.2, exports `PLTCOLLECTS`, and adds postgres/sqlite/openssl/node.
+`nix build` runs the unit suite in the sandbox; `nix flake check` adds the HTTP
+smoke. Nix only sees **git-tracked** files, so `git add` a new source file before
+building.
 
 ```sh
-export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"
-export PLTCOLLECTS="$(pwd)/pkgs:"        # REQUIRED — pkgs/{cli-kit,db-kit,web-kit} collide with any linked Odysseus copies
+nix develop                              # from the repo root; then:
+cd refimpl/racketmaximus
 raco make server/main.rkt                # precompile before running/smoke (startup is slow otherwise)
 raco test test/*-tests.rkt               # the unit suite
 ```
+
+Run a one-off without entering the shell: `nix develop --command <cmd>`.
+
+> **Do not use linuxbrew/homebrew — it is a proven bad path and was removed from
+> these notes.** Its glibc mismatch breaks `libcrypto` (so no SHA‑256, and the
+> `openssl` binary won't run), and it is the "python spice kitchen" the
+> deterministic-deps tenet exists to prevent. apt Racket is 8.2 and also unusable.
+> If Nix is unavailable on a box, that box is not a build host.
 
 - **Never `raco test test/*.rkt`** — the glob pulls in `test/mock-*.rkt`, which are
   mock *servers* that block forever. Use `test/*-tests.rkt`.
@@ -33,7 +45,29 @@ raco test test/*-tests.rkt               # the unit suite
   Keep SQL dialect-neutral (SQLite now, PostgreSQL target): quote reserved words
   (`"window"`), portable epoch columns for time windows, `db-dialect`-aware clauses.
   `pkgs/db-kit/portable.rkt` is a drop-in for `(require db)` that rewrites `?`→`$n`
-  on Postgres — always `(require db-kit/portable)`, not `(require db)`.
+  on Postgres — always `(require db-kit/portable)`, not `(require db)`. Forgetting is
+  invisible on SQLite and fails on Postgres with `syntax error at or near "AND"`.
+- **Verify on Postgres, not just SQLite.** The unit suite AND both smoke suites
+  honour a pre-set `DATABASE_URL`, so everything runs against either dialect. Unit
+  fixtures come from `test/db-fixture.rkt`: `(fresh-db)` gives a migrated, isolated
+  database — in-memory on SQLite, a private SCHEMA per fixture on Postgres (test
+  files run concurrently and would otherwise share one). `(fresh-db #:shared k)` is
+  for the rare test needing two connections over the SAME data (workflow
+  durability); `close-db!` drops the schema. **Test files issue raw SQL too, so they
+  need `db-kit/portable`, not `db`** — same rule as production code.
+  ```sh
+  DATABASE_URL="postgres://…" raco test test/*-tests.rkt
+  ```
+  ```sh
+  initdb -D $PGDATA -U telemachus --auth=trust && \
+    pg_ctl -D $PGDATA -o "-k /tmp/tmxpg -h 127.0.0.1 -p 55432" -l pg.log start
+  createdb -h 127.0.0.1 -p 55432 -U telemachus tmx
+  DATABASE_URL="postgres://telemachus@127.0.0.1:55432/tmx" bash test/server-smoke.sh
+  DATABASE_URL="postgres://telemachus@127.0.0.1:55432/tmx" bash test/s3-smoke.sh
+  ```
+  Keep the socket dir SHORT (`-k /tmp/…`): the 107-byte `sun_path` limit rejects a
+  scratchpad path. Drop and recreate the database between runs — bootstrap is
+  first-run-only, and a stale one silently yields an empty token.
 
 ## Running the server
 
@@ -68,8 +102,9 @@ node build-catalog.mjs beta "<title>" "<subtitle>" "<footer>"   # → catalog/be
 ## Environment constraints (this sandbox)
 
 - **No root**; `sudo` is broken (`sudoers_audit` plugin fails). No Docker (no root).
-  glibc 2.35 (too old for the brew Postgres bottle). To run live Postgres, use a host
-  with working sudo → `apt install postgresql` — **do NOT use conda/brew** (see the
+  glibc 2.35 (too old for brew bottles generally — this is why brew is out). To run
+  live Postgres, use a host with working sudo → `apt install postgresql`, or the
+  `nix develop` shell, which already provides it — **do NOT use conda/brew** (see the
   deterministic-deps tenet: no "python spice kitchen").
 - The **Bash tool** reaps `&`-backgrounded procs when the call returns and blocks
   foreground `sleep` — run long-lived servers via `run_in_background`, poll with a
@@ -110,6 +145,190 @@ raco test test/tenancy-tests.rkt                          # the authz core, no s
 
 `POST /api/admin/seed-tenants` (superadmin) seeds Acme + Globex with **known dev
 passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, never prod.
+
+## S3 endpoint (slice 52)
+
+`TELEMACHUS_S3_PORT=8836` turns it on — a SECOND listener, on `web-kit/http1`, off by
+default. `aws`, `rclone`, `boto3` and Cyberduck all work. Bucket = team slug,
+path-style, region from `TELEMACHUS_S3_REGION` (default `us-east-1`).
+
+- `domain/s3/sigv4.rkt` verifies signatures. **Built from the spec, not ported** —
+  pinned to AWS's published vectors AND to real aws-cli requests captured on the wire.
+- **S3 rules that differ from the generic SigV4 suite:** the path is used AS RECEIVED
+  (no re-encode, no normalize — `web-kit/http1` keeps it raw for this reason), and the
+  payload hash comes from `x-amz-content-sha256` so verification never needs the body.
+- **Query values arrive percent-encoded.** Decode every one in the handler
+  (`delimiter=%2F`!) — forgetting produces a plausible wrong answer, not an error.
+- **`Range` is mandatory.** `aws s3 cp` downloads large objects as parallel ranged
+  GETs; ignoring `Range` yields a corrupt file the client calls a success.
+- Multipart is mandatory too (aws switches above 8 MiB). Parts arrive out of order,
+  each is its own blob, assembled at Complete via `input-port-append` → `repo-put!`.
+- Access keys are `repo_credentials`, secret stored **in the clear** — SigV4 needs it
+  to verify. Scopes cap it (RBAC-4). Same trust boundary as `users.totp_secret`.
+- Unimplemented sub-resources (`?acl`, `?policy`, …) answer **501**, never a silent
+  success — a swallowed bucket policy is the worst failure this subsystem could have.
+- **Presigned links** (slice 53): `POST /api/repo-obj/<id>/presign`. Signed with the
+  CALLER'S own newest S3 key, so a link can never exceed that key and revoking the
+  key kills the link. `X-Amz-Signature` is excluded from its own canonical query;
+  every other `X-Amz-*` is included. Expiry is a second, separate clock check and has
+  its own verdict (`'expired`) so the message can say "ask for a new link".
+
+```sh
+raco test test/sigv4-tests.rkt     # 64 cases, AWS's own vectors + presign rules
+bash test/s3-smoke.sh              # 33 checks with the real aws CLI (skips if absent)
+```
+
+## HTTP/1.1 listener (`web-kit/http1`, slice 51)
+
+`serve/servlet` stays the JSON control plane. `pkgs/web-kit/http1.rkt` is the data
+plane — the thing that can move a 2 GB file.
+
+- Bodies are an **input port**, not bytes. `Content-Length` and `chunked` both.
+- **`Expect: 100-continue` is sent lazily, on the first read of the body.** A
+  handler that refuses before reading (401/403/quota) means the client never sends
+  the body at all. Measured: the AWS CLI gets its continue in **1 ms** here vs
+  **16,016 ms** against `serve/servlet`, which never implements it. Do NOT "fix"
+  this by sending the continue eagerly — that discards the whole point.
+- Never peek at a request body port: peeking fires the continue. `body-state`
+  carries started?/finished?/remaining for the keep-alive decision instead.
+- The path and query stay **percent-encoded** — SigV4 signs what was sent.
+
+```sh
+raco test test/http1-tests.rkt    # 46 cases over raw TCP
+```
+
+## Document repository (binary documents, slices 49-50)
+
+Any format in, byte-identical out, with the creator setting visibility. See
+`docs/design/document-repository.md` (decisions DOC-1…DOC-17).
+
+- `domain/repo/repo.rkt` is the ownable resource; **`can?` governs it with no new
+  authorization code** — same `team_id`/`owner_user_id`/`visibility` triple as notes.
+- Bytes live in a **content-addressed** store keyed by SHA-256, never in the DB.
+  `domain/repo/blobs.rkt` is the seam; `plugins/rs3/` is the local filesystem one
+  (`TELEMACHUS_BLOB_STORE`, default `rs3`). **The store is never handed a principal**
+  — only a namespace and a digest — so a backend has no authorization to get wrong.
+- The namespace is the **org id**, deliberately: global dedup across tenants is an
+  existence oracle. Blob refcounts must be org-scoped too (DOC-6).
+- `domain/authz/sha2.rkt` is SHA-256/HMAC-SHA256 over **libcrypto** — do NOT add it
+  to `crypto.rkt`, whose contract is "no native deps". Pinned to NIST/RFC vectors.
+- Uploads are a **raw `PUT` body**, not base64 in JSON. `TELEMACHUS_MAX_UPLOAD`
+  (default 32 MiB) sets `web-kit`'s `#:max-body-length`; web-server's own default is
+  1 MiB and it enforces it by **dropping the connection with no response at all**.
+- **Timestamps differ by dialect** and S3 clients *parse* `LastModified`: SQLite
+  gives `2026-08-21 04:16:09`, Postgres `2026-08-21 10:12:10.225696-07`. `iso8601`
+  in `domain/s3/server.rkt` normalizes both — a malformed one makes every listing
+  fail, not just look wrong.
+- Every download is `Content-Disposition: attachment` + `nosniff` + a denying CSP
+  unless the type is on a short inline allowlist. **SVG/HTML are never inline** —
+  same origin as the console means stored XSS.
+- `storage.bytes` is a **gauge**: `+size` on write, `-size` on delete, window
+  `"total"` (the ledger's `window-clause` falls through to `1 = 1`).
+- **Search covers repo objects** (`domain/apps/search.rkt`) by key, filename, AND
+  extracted content (`repo_text`, slice 54), with the same per-row `can?` filter as
+  notes.
+- **The `documents` table is GONE** (migration `0022-fold-documents`, slice 55). A
+  text document is a repo object: `content_type text/markdown`, title in the
+  version's `filename` (verbatim), key `documents/<slug>-<id8>.md`, body a blob,
+  text in `repo_text`. `domain/documents/documents.rkt` is a compatibility SHIM
+  keeping the old five-function API — do not add features there; add them to the
+  repository. The object kept the old document's id, so grants survived. Tests that
+  create documents MUST set `current-blob-root` to a temp dir or they write blobs
+  into the checkout's `data/`.
+- **Content indexing (slice 54)**: run the `index-documents` workflow (plugin
+  `doc-indexer`) — find-unindexed → map → extract, ≤40 docs/run, idempotent. Tools in
+  `domain/repo/index-tools.rkt`; extractors in `domain/repo/extract.rkt` (txt/md,
+  html/xml/svg tag-stripped, docx via `file/unzip`, pdf via `pdftotext` — pinned as
+  nixpkgs `poppler-utils`). Gotchas: a tool handler may return a jsexpr list (the
+  agent boundary stringifies; `map #:over` needs the real list); an UNREADABLE file
+  is recorded as processed-with-nothing, never raised — one corrupt PDF must not
+  wedge the team's indexing forever ('missing-tool still fails hard, deliberately);
+  quota admission defers `flow.step` jobs too — an over-budget team stops indexing.
+
+  ```sh
+  raco test test/index-tests.rkt   # extractors + the whole pipeline via the scheduler
+  ```
+
+```sh
+raco test test/repo-tests.rkt test/sha2-tests.rkt   # 99 cases, no server
+bash test/server-smoke.sh                            # includes the repository block
+```
+
+## Workflow engine (plugins that process in steps)
+
+Slice 46. A workflow is a **validated data spec** — that spec is the public
+contract (WF‑9), and `define-workflow` is a macro that emits it, the same move
+`define-tool` already makes for tools. See `docs/design/workflow-engine.md`.
+
+- `domain/flow/spec.rkt` is **normative**: both the macro's output and a document
+  posted to `/api/workflows` go through `validate-spec`. Never add a second path.
+- **Unknown fields are rejected** (WF‑10), including a newer `spec` version and a
+  step kind this build lacks. That refusal is the design, not a gap.
+- The binding sublanguage is **frozen** (`domain/flow/bind.rkt`): references and
+  seven predicates, no arithmetic, no eval. The escape hatch is "write a tool".
+- Execution is a reducer: `flow-advance!` reads the run from the DB and enqueues
+  the next step as a `flow.step` **scheduler job**, so durability, cancel, quota
+  admission and the org gate are all inherited. Nothing lives in memory — a run
+  survives a restart because the rows are the state.
+- Ships `tool:<name>`, `choice` and `map` (fan-out). `agent`/`job:`/`flow:` deferred.
+- A plugin may `(provide workflows)` or drop `workflows/*.json`; those specs are
+  **materialized** into a team's `workflow_defs` on first lookup (`source:
+  'plugin:<id>'`) — a plugin has no team at load time.
+- `${principal.locale}` is `users.locale` (migration 0018), NOT `Accept-Language`.
+
+Operator runbook: `docs/ops/workflow-engine-runbook.md`.
+
+```sh
+raco test test/flow-tests.rkt      # 20 cases, no server
+bash test/server-smoke.sh          # includes publish → run → assert over HTTP
+# needs a live model; refuses to start without one, on purpose:
+TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
+```
+
+## Branding (Admin > Branding)
+
+Instance title, tagline and logo, editable by an operator. `domain/branding/branding.rkt`
+over a generic `instance_settings` key/value table (migration `0023`), so the next
+instance-wide setting needs code, not a migration.
+
+- **`GET /api/branding` is PUBLIC** and must stay so — the sign-in screen renders the
+  title/tagline/logo for someone who has no token yet. Writes are `instance:manage`.
+- The logo reuses `onboarding_assets` and the existing public `/api/beta/asset/<id>`
+  route. One asset mechanism, not two.
+- An uploaded logo REPLACES the mark and the wordmark both; the console falls back to
+  the Mentor mark plus `S.brand.title` when there is none. This is separate from the
+  beta funnel's own theme — that is a public marketing page, this is the product name.
+
+## Paths: anchor at definition, never at use
+
+**`serve/servlet` repoints `current-directory` at the web server's own default web
+root while it handles a request** — inside the read-only Nix store on a packaged
+install. Any relative path resolved lazily, at write time, therefore aims at the
+store. This shipped once: the blob root defaulted to `"data/blobs"` and the first
+document save returned
+`make-directory: ... /nix/store/.../web-server/default-web-root/htdocs/data/ Permission denied`.
+Startup was healthy and every unit test passed.
+
+Use `anchor-path` / `data-dir` from `config.rkt` for anything on disk. Three things
+now guard it: roots are absolute by construction, `test/repo-tests.rkt` asserts
+"blob roots are absolute and cwd-independent", and **`server/main.rkt` refuses to
+boot with a relative blob root** (after plugins load, so it checks the store that
+will actually be used).
+
+## Validating the demo end to end
+
+```sh
+bash test/e2e/validate.sh                                        # fresh throwaway server
+BASE_URL=http://<host>:8835 bash test/e2e/validate.sh --no-server   # a live box
+DATABASE_URL="postgres://…" bash test/e2e/validate.sh            # honours a pre-set URL
+```
+
+31 assertions, no screenshots: sign-in + branding → bootstrap → notes → documents
+create **and edit** → repository upload with byte-identical download → search →
+workflows/jobs/usage → Admin > Branding round-trip → sign out/in. It also fails on
+**any uncaught page/console error** and **any 5xx**, which is how a broken write path
+gets caught even when no assertion names it. The screenshot *tours* do not assert and
+will photograph a broken page — use this to gate a deploy.
 
 ## Git
 

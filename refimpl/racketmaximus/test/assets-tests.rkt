@@ -4,14 +4,14 @@
 ;; (type + size), base64/data-URI handling, round-trip serve, RBAC, delete.
 ;; raco test test/assets-tests.rkt
 
-(require rackunit
-         db net/base64
+(require rackunit db-kit/portable net/base64
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/beta/assets.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 (define (b64 bs) (bytes->string/latin-1 (base64-encode bs #"")))
 
 (test-case "mime allowlist + kind classification"

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Telemachus — a helm whose eyes and nasal bar read as an owl and as the letter T">
+  <!-- One path, one colour, no gold: stencil, laser, embroidery, terminal.
+       The brow bar is the first thing to go when a second colour is not
+       available — the study drops it at 32 and 16 for the same reason. -->
+  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
+           M20.5 34 L26.5 40 L32.5 34 L26.5 28 Z
+           M31.5 34 L37.5 40 L43.5 34 L37.5 28 Z
+           M29.5 26 v27 h5 V26 Z"
+        fill="currentColor" fill-rule="nonzero"/>
+</svg>

@@ -4,15 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Telemachus</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23132c46'/%3E%3Cpath d='M13 53 V31 a19 19 0 0 1 38 0 V53 Z M18.5 34 L26 41.5 L33.5 34 L26 26.5 Z M30.5 34 L38 41.5 L45.5 34 L38 26.5 Z M28.5 30 v23 h7 V30 Z' fill='%23f2ede1' fill-rule='nonzero'/%3E%3C/svg%3E">
 <style>
-  :root{ --bg:#0f1117; --panel:#171a23; --panel2:#1e2230; --line:#2a2f3d; --fg:#e6e8ee;
-         --muted:#9aa3b2; --accent:#7c8cff; --accent2:#5a6cff; --ok:#3ddc97; --bad:#ff6b6b; --warn:#ffcc66; }
+  /* The Mentor palette (docs/design/brand/README.md). Grounds are deep/aegean,
+     ink is bone. --accent is the brand blue lightened until it is legible on a dark
+     ground: it is aegean, not a third hue. --gold is the brand accent and is spent
+     on exactly ONE thing in this UI — the wordmark dot. Semantic ok/warn/bad are a
+     separate set on purpose; a status colour is not a brand colour. */
+  :root{ --bg:#0b1a2b; --panel:#12253a; --panel2:#17304a; --line:#24384f; --fg:#f2ede1;
+         --muted:#93a4b8; --accent:#6fa0d1; --accent2:#245e96; --accent3:#2b6ba8;
+         --gold:#c9a227; --ok:#8fae52; --bad:#e0725f; --warn:#d9a441; }
   *{box-sizing:border-box} html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   a{color:var(--accent)} button{font:inherit;cursor:pointer}
   .btn{background:var(--accent2);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600}
-  .btn:hover{background:var(--accent)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
-  .btn.sm{padding:5px 10px;font-size:13px;border-radius:6px} .btn.bad{background:#3a2030;border:1px solid #5a2a3a;color:#ffb4b4}
+  .btn:hover{background:var(--accent3)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  .btn.sm{padding:5px 10px;font-size:13px;border-radius:6px} .btn.bad{background:#3a2222;border:1px solid #5e332c;color:#f2b8ab}
   input,textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
          border-radius:8px;padding:9px 11px;font:inherit;margin:4px 0 10px}
   label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
@@ -20,10 +27,23 @@
   .row{display:flex;gap:14px;flex-wrap:wrap} .row>*{flex:1;min-width:0}
   .muted{color:var(--muted)} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
-  .badge.ok{color:var(--ok);border-color:#204a3a} .badge.op{color:var(--warn);border-color:#4a3a20}
+  .badge.ok{color:var(--ok);border-color:#3a4a24} .badge.op{color:var(--warn);border-color:#4a3a20}
+  .badge.bad{color:var(--bad);border-color:#5e332c} .badge.run{color:var(--accent);border-color:#2c4a6b}
+  /* workflow step tree: a map fan-out's children are indented under their parent row */
+  tr.wfkid td:first-child{padding-left:26px;position:relative}
+  tr.wfkid td:first-child::before{content:'└';position:absolute;left:10px;color:var(--muted)}
+  pre.wfjson{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;
+    margin:6px 0 0;overflow:auto;max-height:260px;font-size:12px;white-space:pre-wrap;word-break:break-word}
   /* auth */
   .auth{max-width:420px;margin:8vh auto;padding:0 16px}
-  .brand{font-weight:800;letter-spacing:-.02em} .brand .dot{color:var(--accent)}
+  .brand{font-weight:800;letter-spacing:-.02em;display:inline-flex;align-items:center;gap:.42em}
+  .brand .dot{color:var(--gold)}
+  /* Brand rule: the mark is aegean, or a knockout. The console ground is dark, so
+     it is a knockout — it inherits the wordmark's colour rather than borrowing the
+     UI accent, which would put a third blue on the page. */
+  .tmx-mark{display:block;flex:none;color:inherit}
+  .tmx-logo{display:block;flex:none;width:auto;max-width:260px;object-fit:contain}
+  .auth .brand{justify-content:center;margin-bottom:.1em}
   /* shell */
   header.top{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
   header.top .sp{flex:1} .chip{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13px}
@@ -38,28 +58,29 @@
   th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
   .bubble{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
   .bubble .q{color:var(--muted);font-size:13px} .toast{position:fixed;right:16px;bottom:16px;max-width:340px;padding:12px 14px;border-radius:10px;
-         background:#2a1a22;border:1px solid #5a2a3a;color:#ffc9c9;box-shadow:0 8px 30px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.2s}
-  .toast.show{opacity:1;transform:none} .toast.ok{background:#12271f;border-color:#204a3a;color:#bff3dd}
+         background:#2e1c18;border:1px solid #5e332c;color:#f2c9bf;box-shadow:0 8px 30px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.2s}
+  .toast.show{opacity:1;transform:none} .toast.ok{background:#1a2415;border-color:#3a4a24;color:#d3e6ae}
   h1,h2,h3{letter-spacing:-.01em} h2{margin:.2em 0 .6em}
   /* ---- Tier-A skinnable beta landing: fully theme-token driven, scoped to .bx ---- */
-  .bx{min-height:100vh;background:var(--bx-bg,#0f1117);color:var(--bx-ink,#e6e8ee);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
+  .bx{min-height:100vh;background:var(--bx-bg,#0b1a2b);color:var(--bx-ink,#f2ede1);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
   .bx-wrap{max-width:940px;margin:0 auto;padding:0 20px}
   .bx-head{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
-  .bx-logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--bx-ink)}
+  .bx-logo{font-weight:800;font-size:20px;letter-spacing:-.02em;color:var(--bx-ink);
+           display:inline-flex;align-items:center;gap:.45em}
   .bx-logo-img{height:32px;width:auto;max-width:220px;display:block}
   .bx-frame{border:0;width:100%;height:100vh;display:block}
   .bx-nav{display:flex;gap:18px;font-size:14px}
-  .bx-nav a{color:var(--bx-muted,#9aa3b2);text-decoration:none}
+  .bx-nav a{color:var(--bx-muted,#93a4b8);text-decoration:none}
   .bx-hero{background:var(--bx-hero,transparent);border-radius:calc(var(--bx-radius,10px) + 4px);padding:42px 30px;margin:6px 0 26px}
-  .bx-eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--bx-brand,#5a6cff);font-weight:700;margin-bottom:10px}
+  .bx-eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--bx-brand,#c9a227);font-weight:700;margin-bottom:10px}
   .bx-hero h1{font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.08;margin:0 0 10px;color:var(--bx-ink);font-family:var(--bx-fontd,inherit)}
   .bx-hero p{font-size:1.04rem;color:var(--bx-muted);max-width:52ch;margin:0}
   .bx-main{display:grid;grid-template-columns:1.05fr .95fr;gap:28px;align-items:start;padding-bottom:36px}
   @media(max-width:760px){.bx-main{grid-template-columns:1fr}}
-  .bx-card{background:var(--bx-surface,#171a23);border:1px solid var(--bx-line,rgba(255,255,255,.10));border-radius:var(--bx-radius,10px);padding:22px}
+  .bx-card{background:var(--bx-surface,#12253a);border:1px solid var(--bx-line,rgba(255,255,255,.10));border-radius:var(--bx-radius,10px);padding:22px}
   .bx-card label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--bx-muted);margin:0 0 4px}
   .bx-card input,.bx-card select,.bx-card textarea{width:100%;background:var(--bx-bg);border:1px solid var(--bx-line,rgba(255,255,255,.14));color:var(--bx-ink);border-radius:calc(var(--bx-radius,10px) - 2px);padding:9px 11px;font:inherit;margin:0 0 12px}
-  .bx-cta{width:100%;background:var(--bx-brand,#5a6cff);color:var(--bx-brandink,#fff);border:0;border-radius:calc(var(--bx-radius,10px) - 2px);padding:12px;font-weight:800;font-size:15px;cursor:pointer}
+  .bx-cta{width:100%;background:var(--bx-brand,#c9a227);color:var(--bx-brandink,#132c46);border:0;border-radius:calc(var(--bx-radius,10px) - 2px);padding:12px;font-weight:800;font-size:15px;cursor:pointer}
   .bx-cta[disabled]{opacity:.8;cursor:default}
   .bx-details h3{font-size:1.05rem;margin:0 0 4px;color:var(--bx-ink)}
   .bx-details p{color:var(--bx-muted);margin:0 0 16px;font-size:.95rem;white-space:pre-line}
@@ -85,7 +106,7 @@
 <div id="app"></div>
 <div id="toast" class="toast"></div>
 <script>
-const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null };
+const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0 };
 const L = {
   en:{tagline:'Team AI platform — reference implementation',chat:'Chat',agent:'Agent',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
@@ -101,7 +122,32 @@ const L = {
       documents:'Documents',newdoc:'New document',content:'Content',
       jobs:'Jobs',submitjob:'Submit a job',submit:'Submit',refresh:'Refresh',cancel:'Cancel',
       testing:'Testing tools',seed:'Load sample data',
-      beta:'Beta',requestaccess:'Request access',teamsignin:'Team sign-in',qualify:'Qualify',reject:'Reject'},
+      branding:'Branding',save:'Save',saved:'Saved',
+      brandinghint:'The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.',
+      brandtitle:'Title',brandtagline:'Tagline',brandlogo:'Logo',
+      brandclearlogo:'Remove logo',brandreset:'Reset to default',
+      beta:'Beta',requestaccess:'Request access',teamsignin:'Team sign-in',qualify:'Qualify',reject:'Reject',
+      repository:'Repository',upload:'Upload',uploading:'Uploading',uploaded:'Uploaded',
+      file:'File',key:'Path',size:'Size',updated:'Updated',objects:'Documents',store:'Store',
+      download:'Download',details:'Details',close:'Close',versions:'Versions',
+      sharewith:'Share with',sharedwith:'Shared with',noshares:'Not shared with anyone.',
+      noothers:'No one else on this team',shared:'Shared',revoked:'Revoked',deleted:'Deleted',
+      vis_team:'Team \u2014 everyone on this team',vis_private:'Private \u2014 only me',
+      vis_shared:'Shared \u2014 only the people below',visupdated:'Visibility updated',
+      link:'Link',copy:'Copy',copied:'Copied',searchph:'notes, documents, files, translations\u2026',
+      linkhint:'Anyone with this link can download the document for the next {m} minutes, without signing in. It carries your S3 key\u2019s permissions and stops working if that key is revoked.',
+      s3keys:'S3 access keys',s3created:'Key created',status:'Status',name:'Name',
+      s3hint:'Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.',
+      s3once:'Copy the secret now \u2014 it is not shown again.',
+      s3off:'The S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT).',
+      newversion:'Saved as a new version',willversion:'This path exists \u2014 uploading saves a new version and keeps its current visibility',
+      nolimit:'no limit',norepoobjects:'No documents yet. Any format \u2014 pdf, svg, png, docx, xml, md.',
+      uploadhint:'Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.',
+      vishint:'You set this because you uploaded it. Sharing narrows a team document to just the people you name.',
+      workflows:'Workflows',workflow:'Workflow',definitions:'Definitions',runwf:'Run',runs:'Runs',viewrun:'View',back:'Back',
+      steps:'Steps',input:'Input',output:'Output',source:'Source',version:'Version',started:'Started',status:'Status',
+      nodefs:'No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.',
+      noruns:'No runs yet.',stepsused:'steps used'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
@@ -116,9 +162,75 @@ const L = {
       documents:'ドキュメント',newdoc:'新規ドキュメント',content:'内容',
       jobs:'ジョブ',submitjob:'ジョブを送信',submit:'送信',refresh:'更新',cancel:'キャンセル',
       testing:'テストツール',seed:'サンプルデータを読み込む',
-      beta:'ベータ',requestaccess:'アクセスを申請',teamsignin:'チームサインイン',qualify:'承認',reject:'却下'}
+      branding:'ブランディング',save:'保存',saved:'保存しました',
+      brandinghint:'このインスタンスの名称・タグライン・ロゴ。サインイン画面、ヘッダー、ブラウザタブに反映されます。',
+      brandtitle:'名称',brandtagline:'タグライン',brandlogo:'ロゴ',
+      brandclearlogo:'ロゴを削除',brandreset:'既定に戻す',
+      beta:'ベータ',requestaccess:'アクセスを申請',teamsignin:'チームサインイン',qualify:'承認',reject:'却下',
+      repository:'ドキュメント保管',upload:'アップロード',uploading:'アップロード中',uploaded:'アップロードしました',
+      file:'ファイル',key:'パス',size:'サイズ',updated:'更新',objects:'ドキュメント',store:'保管先',
+      download:'ダウンロード',details:'詳細',close:'閉じる',versions:'バージョン',
+      sharewith:'共有相手',sharedwith:'共有中',noshares:'まだ誰とも共有していません。',
+      noothers:'このチームに他のメンバーがいません',shared:'共有しました',revoked:'解除しました',deleted:'削除しました',
+      vis_team:'チーム \u2014 チーム全員',vis_private:'非公開 \u2014 自分のみ',
+      vis_shared:'限定共有 \u2014 下記の相手のみ',visupdated:'公開範囲を更新しました',
+      link:'リンク',copy:'コピー',copied:'コピーしました',searchph:'ノート、ドキュメント、ファイル、翻訳\u2026',
+      linkhint:'このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。あなたのS3キーの権限で動作し、キーを失効させると無効になります。',
+      s3keys:'S3アクセスキー',s3created:'キーを作成しました',status:'状態',name:'名前',
+      s3hint:'aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。',
+      s3once:'シークレットは今だけ表示されます。必ず控えてください。',
+      s3off:'このインスタンスではS3エンドポイントが無効です（TELEMACHUS_S3_PORT）。',
+      newversion:'新しいバージョンとして保存しました',willversion:'このパスは既にあります \u2014 新しいバージョンとして保存され、公開範囲は現状のままです',
+      nolimit:'上限なし',norepoobjects:'まだドキュメントがありません。形式は自由です。',
+      uploadhint:'どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。',
+      vishint:'アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。',
+      workflows:'ワークフロー',workflow:'ワークフロー',definitions:'定義',runwf:'実行',runs:'実行履歴',viewrun:'表示',back:'戻る',
+      steps:'ステップ',input:'入力',output:'出力',source:'ソース',version:'バージョン',started:'開始',status:'状態',
+      nodefs:'このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。',
+      noruns:'実行履歴はまだありません。',stepsused:'ステップ使用'}
 };
+// The Mentor mark (docs/design/brand/) — a helm whose two diamond eyes are an
+// owl's and whose nasal guard is the stem of a T. The eyes CROSS the guard, so
+// the three holes are one continuous void: two diamonds threaded on a line.
+// Three size-specific drawings, not one scaled — going small the diamonds open
+// up and the guard widens, or the face silts shut. The gold brow bar that
+// completes the T needs a second colour, so it lives only in the asset files;
+// here the mark is one path inheriting currentColor.
+//
+// fill-rule is NONZERO with every hole wound counter-clockwise. It matters:
+// under evenodd two overlapping holes CANCEL, so every eye/guard crossing would
+// fill back in and weld the face shut.
+const MARK_SIL = 'M13 53 V31 a19 19 0 0 1 38 0 V53 Z';
+const MARK_D = {
+  16: 'M18.5 34 L26 41.5 L33.5 34 L26 26.5 Z M30.5 34 L38 41.5 L45.5 34 L38 26.5 Z M28.5 30 v23 h7 V30 Z',
+  32: 'M20 34 L26.5 40.5 L33 34 L26.5 27.5 Z M31 34 L37.5 40.5 L44 34 L37.5 27.5 Z M29 26 v27 h6 V26 Z',
+  64: 'M20.5 34 L26.5 40 L32.5 34 L26.5 28 Z M31.5 34 L37.5 40 L43.5 34 L37.5 28 Z M29.5 26 v27 h5 V26 Z'
+};
+function markSVG(px){
+  const d = MARK_D[px <= 20 ? 16 : px <= 40 ? 32 : 64];
+  return `<svg class="tmx-mark" viewBox="0 0 64 64" width="${px}" height="${px}" aria-hidden="true" focusable="false">
+    <path d="${MARK_SIL} ${d}" fill="currentColor" fill-rule="nonzero"/></svg>`;
+}
 const t = k => (L[S.lang]&&L[S.lang][k]) || L.en[k] || k;
+
+// Instance branding (Admin > Branding). Loaded before auth, because the sign-in
+// screen has to render it for someone who has no token yet. Defaults keep the
+// shipped identity, so an untouched instance still has a name.
+S.brand = {title:'Telemachus', tagline:'', logo:'', logoUrl:''};
+async function loadBranding(){
+  const r = await api('/api/branding');
+  if(r.ok && r.json) S.brand = Object.assign(S.brand, r.json);
+  document.title = S.brand.title || 'Telemachus';
+}
+// The lockup: an uploaded logo REPLACES the mark and the wordmark both — an
+// operator who supplies their own logo is not asking for ours beside it. The
+// trailing dot is ours, so it goes with the mark.
+function brandLockup(px){
+  if(S.brand.logoUrl)
+    return `<img class="tmx-logo" src="${esc(S.brand.logoUrl)}" alt="${esc(S.brand.title)}" style="height:${Math.round(px*1.15)}px">`;
+  return `${markSVG(px)}<span>${esc(S.brand.title)}<span class="dot">.</span></span>`;
+}
+const brandTagline = () => S.brand.tagline || t('tagline');
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 async function api(path, {method='GET', body=null}={}){
@@ -139,8 +251,8 @@ const val = id => document.getElementById(id).value.trim();
 // ---------- auth ----------
 function authView(){
   return `<div class="auth">
-    <h1 class="brand">Telemachus<span class="dot">.</span></h1>
-    <p class="muted">${t('tagline')}</p>
+    <h1 class="brand">${brandLockup(38)}</h1>
+    <p class="muted">${esc(brandTagline())}</p>
     <div class="langtog" style="margin:10px 0 18px">${langBtns()}</div>
     <div class="card">
       <h2>${t('signin')}</h2>
@@ -172,10 +284,10 @@ async function doBootstrap(){
 // ---------- shell ----------
 function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','translate','search','notes','documents','jobs','team','usage'].filter(x=>S.features[x]!==false);
+  const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
-      <span class="brand">Telemachus<span class="dot">.</span></span>
+      <span class="brand">${brandLockup(22)}</span>
       <span class="sp"></span>
       <span class="langtog">${langBtns()}</span>
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
@@ -185,6 +297,9 @@ function appShell(){
     <main class="wrap" id="main"></main>`;
 }
 function go(tab){ S.tab=tab; S.newToken=null;
+  if(tab!=='workflows'){ S.wfRun=null; S.wfSel=null; S.wfSpec=null; }   // leaving drops any run poll in flight
+  if(tab!=='repository'){ S.repoDetail=null; S.s3New=null; }
+  S.wfPoll++;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }
 
@@ -369,11 +484,54 @@ async function adminView(){
     compute=`<div class="card" style="margin-top:14px"><h3>Compute <span class="muted" style="font-size:13px">— federated executors</span></h3>
       <table><thead><tr><th>executor</th><th>model</th><th>endpoint</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
+  const B = S.brand;
+  const brandCard=`<div class="card" style="margin-top:14px"><h3>${t('branding')}</h3>
+    <p class="muted" style="margin-top:0">${t('brandinghint')}</p>
+    <div class="row">
+      <div><label>${t('brandtitle')}</label><input id="brt" maxlength="48" value="${esc(B.title||'')}"></div>
+      <div><label>${t('brandtagline')}</label><input id="brg" maxlength="160" placeholder="${esc(t('tagline'))}" value="${esc(B.tagline||'')}"></div>
+    </div>
+    <label>${t('brandlogo')}</label>
+    <div class="row" style="align-items:center">
+      <div style="flex:0 0 auto;min-width:0">
+        <span class="brand" style="font-size:20px">${brandLockup(30)}</span>
+      </div>
+      <div><input type="file" id="brf" accept="image/png,image/jpeg,image/svg+xml,image/webp" onchange="doBrandLogo(this)"></div>
+      ${B.logo?`<div style="flex:0 0 auto"><button class="btn sm ghost" onclick="doBrandLogoClear()">${t('brandclearlogo')}</button></div>`:''}
+    </div>
+    <div style="margin-top:10px"><button class="btn" onclick="doBrandSave()">${t('save')}</button>
+      <button class="btn ghost" style="margin-left:8px" onclick="doBrandReset()">${t('brandreset')}</button></div></div>`;
   const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
     <button class="btn" onclick="doSeedSamples()">${t('seed')}</button></div>`;
-  return `<h2>${t('admin')}</h2>${body}${compute}${seedCard}`;
+  return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${seedCard}`;
 }
+// ---- branding (Admin) ----
+// Every write re-reads the server's normalized answer into S.brand and re-renders
+// the whole shell, so the header, the sign-in lockup and the preview can never
+// disagree with what was actually stored.
+async function applyBrand(b){ if(b) S.brand=Object.assign(S.brand,b,{logoUrl:b.logo?('/api/beta/asset/'+b.logo):''});
+  document.title=S.brand.title||'Telemachus'; render(); }
+async function doBrandSave(){
+  const r=await api('/api/branding',{method:'PUT',body:{title:val('brt'),tagline:val('brg'),logo:S.brand.logo||''}});
+  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+async function doBrandReset(){
+  const r=await api('/api/branding',{method:'PUT',body:{title:'Telemachus',tagline:'',logo:''}});
+  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+async function doBrandLogoClear(){
+  const r=await api('/api/branding',{method:'PUT',body:{title:S.brand.title,tagline:S.brand.tagline,logo:''}});
+  if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+async function doBrandLogo(input){
+  const f=input.files&&input.files[0]; if(!f) return;
+  const b64=await new Promise((res,rej)=>{ const rd=new FileReader();
+    rd.onload=()=>res(String(rd.result).split(',')[1]); rd.onerror=rej; rd.readAsDataURL(f); });
+  const r=await api('/api/branding/logo',{method:'POST',body:{mime:f.type,filename:f.name,data:b64}});
+  if(r.ok){ await applyBrand(r.json.branding); toast(t('saved'),true); } else toast(r.json.error||'error');
+}
+
 async function doSeedSamples(){
   const r=await api('/api/admin/seed',{method:'POST'});
   if(r.ok){ toast(`seeded ${r.json.notes} notes, ${r.json.documents} docs, ${r.json.jobs} jobs`,true); renderTab(); }
@@ -430,7 +588,7 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
   el.innerHTML='<p class="muted">…</p>';
-  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)();
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html; }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
@@ -447,8 +605,8 @@ function bxVars(cfg){ const th=(cfg&&cfg.theme)||{}; const mode=th.mode||'dark';
     ? `linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.45)),url(${assetUrl(th.heroImage)}) center/cover`
     : (th.heroBg||'transparent');
   const font=th.fontFile ? 'bxcustom,'+fontStack(th.fontBody) : fontStack(th.fontBody);
-  const pairs=[['--bx-bg',th.bg||'#0f1117'],['--bx-surface',th.surface||'#171a23'],['--bx-ink',th.ink||'#e6e8ee'],
-    ['--bx-muted',th.muted||'#9aa3b2'],['--bx-brand',th.brand||'#5a6cff'],['--bx-brandink',th.brandInk||'#ffffff'],
+  const pairs=[['--bx-bg',th.bg||'#0b1a2b'],['--bx-surface',th.surface||'#12253a'],['--bx-ink',th.ink||'#f2ede1'],
+    ['--bx-muted',th.muted||'#93a4b8'],['--bx-brand',th.brand||'#c9a227'],['--bx-brandink',th.brandInk||'#132c46'],
     ['--bx-radius',th.radius||'12px'],['--bx-hero',hero],['--bx-line',line],
     ['--bx-font',font],['--bx-fontd',th.fontFile?'bxcustom,'+fontStack(th.fontDisplay||th.fontBody):fontStack(th.fontDisplay||th.fontBody)]];
   return pairs.map(([k,v])=>k+':'+bxSan(v)).join(';'); }
@@ -469,9 +627,13 @@ function renderLandingShell(cfg, mode){
       <div id="betamsg" style="margin-top:10px"></div>`;
   const th=cfg.theme||{};
   const fontFace = th.fontFile ? `<style>@font-face{font-family:bxcustom;font-display:swap;src:url(${esc(assetUrl(th.fontFile))})}</style>` : '';
+  // The Mentor mark rides along only on an UNBRANDED funnel. An operator who has
+  // uploaded a logo, or renamed the wordmark, is running their own brand here —
+  // putting our helm beside "Acme" would be worse than showing no mark at all.
+  const logoText = cfg.logo || 'Telemachus';
   const logo = cfg.logoImage
     ? `<img class="bx-logo-img" src="${esc(assetUrl(cfg.logoImage))}" alt="${esc(cfg.logo||'')}">`
-    : `<div class="bx-logo">${esc(cfg.logo||'Telemachus')}</div>`;
+    : `<div class="bx-logo">${logoText === 'Telemachus' ? markSVG(26) : ''}<span>${esc(logoText)}</span></div>`;
   return `${fontFace}<div class="bx" style="${bxVars(cfg)}"><div class="bx-wrap">
     <header class="bx-head">${logo}<nav class="bx-nav">${nav}</nav></header>
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>
@@ -507,7 +669,7 @@ async function doBetaSignup(){
 function teamSignIn(){ S.forceLogin=true; render(); }
 function activateView(token){
   return `<div class="auth">
-    <h1 class="brand">Telemachus<span class="dot">.</span></h1>
+    <h1 class="brand">${brandLockup(38)}</h1>
     <p class="muted">${t('welcome')}</p>
     <div class="card">
       <h2>${t('setpw')}</h2>
@@ -574,6 +736,412 @@ async function doCancelJob(id){
   const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
   if(r.ok){ toast('canceled',true); renderTab(); } else toast(r.json.error||'error');
 }
+// ---------- repository (slices 49-50) ----------
+// Binary documents. The upload is a raw PUT of the File itself — no base64, no JSON
+// envelope — so a 30 MB PDF costs 30 MB on the wire instead of 40, and neither end
+// has to hold a string copy of it. Downloads go through a blob URL because the
+// endpoint needs an Authorization header, which a plain <a href> cannot carry.
+function humanBytes(n){
+  if(n===null||n===undefined) return '—';
+  const u=['B','KB','MB','GB']; let i=0, v=Number(n);
+  while(v>=1024 && i<u.length-1){ v/=1024; i++; }
+  return (i===0?v:v.toFixed(1))+' '+u[i];
+}
+function visBadge(v){
+  const cls = v==='private' ? 'bad' : (v==='shared' ? 'run' : 'ok');
+  return `<span class="badge ${cls}">${esc(v)}</span>`;
+}
+
+async function repoView(){
+  const r=await api('/api/repo');
+  if(!r.ok) return `<h2>${t('repository')}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
+  const objs=r.json.objects||[], usage=r.json.usage||{};
+  S.repoKeys = objs.map(o=>o.key);
+  const rows=objs.map(o=>`<tr>
+      <td><b class="mono">${esc(o.key)}</b>
+          <div class="muted" style="font-size:12px">${esc(o.content_type)}${o.version>1?` · v${esc(o.version)}`:''}</div></td>
+      <td>${visBadge(o.visibility)}</td>
+      <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(o.size))}</td>
+      <td class="muted" style="font-size:12px">${esc(o.updated_at)}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm" onclick="repoDownload('${esc(o.id)}','${esc(o.key)}')">${t('download')}</button>
+        <button class="btn sm ghost" onclick="repoLink('${esc(o.id)}')">${t('link')}</button>
+        <button class="btn sm ghost" onclick="repoOpenDetail('${esc(o.id)}')">${t('details')}</button>
+      </td></tr>`).join('');
+  const limit = (usage.limit===null||usage.limit===undefined) ? t('nolimit') : humanBytes(usage.limit);
+  return `<h2>${t('repository')}
+      <span class="muted" style="font-size:14px">${esc(usage.objects||0)} ${t('objects')} · ${esc(humanBytes(usage.used||0))} / ${esc(limit)} · ${t('store')}: ${esc(usage.store||'?')}</span></h2>
+    <div class="card">
+      <h3 style="margin:0 0 10px">${t('upload')}</h3>
+      <div class="row" style="align-items:end">
+        <div style="flex:2"><label>${t('file')}</label><input type="file" id="rfile" onchange="repoFilePicked()"></div>
+        <div style="flex:2"><label>${t('key')}</label>
+          <input id="rkey" placeholder="reports/2026/q3.pdf" oninput="repoKeyChanged()">
+          <div id="rovr"></div></div>
+        <div style="flex:1"><label>${t('visibility')}</label>
+          <select id="rvis">
+            <option value="team">${t('vis_team')}</option>
+            <option value="private">${t('vis_private')}</option>
+          </select></div>
+        <div style="flex:none"><button class="btn" onclick="repoUpload()">${t('upload')}</button></div>
+      </div>
+      <div class="muted" style="font-size:12px">${t('uploadhint')}</div>
+      <div id="rprog"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 style="margin:0">${t('objects')}</h3>
+        <div style="flex:none"><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
+      ${objs.length
+        ? `<table style="margin-top:8px"><thead><tr><th>${t('key')}</th><th>${t('visibility')}</th><th>${t('size')}</th><th>${t('updated')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="muted" style="margin-top:8px">${t('norepoobjects')}</p>`}
+    </div>
+    <div id="rdetail"></div>
+    ${await s3Card()}`;
+}
+
+// S3 access keys live beside the documents they reach, not in Team with the bearer
+// tokens: the thing an operator needs is the endpoint, the bucket name and a key,
+// together, in the order they will paste them.
+async function s3Card(){
+  const r=await api('/api/s3/credentials');
+  if(!r.ok) return '';
+  const creds=r.json.credentials||[], ep=r.json.endpoint, bucket=r.json.bucket;
+  const rows=creds.map(c=>`<tr>
+      <td>${esc(c.name||'—')}</td>
+      <td class="mono muted">${esc(c.access_key_id)}</td>
+      <td class="mono muted" style="font-size:12px">${(c.scopes||[]).map(esc).join(' ')}</td>
+      <td>${c.status==='active'?'<span class="badge ok">active</span>':`<span class="badge">${esc(c.status)}</span>`}</td>
+      <td>${c.status==='active'?`<button class="btn sm ghost" onclick="s3Revoke('${esc(c.id)}')">${t('revoke')}</button>`:''}</td>
+    </tr>`).join('');
+  const newkey = S.s3New ? `<div class="card" style="margin-top:10px;border-color:#3a4a24">
+      <b>${t('s3once')}</b>
+      <pre class="wfjson">AWS_ACCESS_KEY_ID=${esc(S.s3New.access_key_id)}
+AWS_SECRET_ACCESS_KEY=${esc(S.s3New.secret_access_key)}</pre></div>` : '';
+  const usage = ep
+    ? `<pre class="wfjson">aws --endpoint-url ${esc(ep)} s3 ls s3://${esc(bucket)}/
+aws --endpoint-url ${esc(ep)} s3 cp report.pdf s3://${esc(bucket)}/reports/</pre>`
+    : `<p class="muted">${t('s3off')}</p>`;
+  return `<div class="card" style="margin-top:14px">
+    <h3 style="margin:0 0 4px">${t('s3keys')}</h3>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">${t('s3hint')}</div>
+    ${usage}
+    <div class="row" style="align-items:end;margin-top:10px">
+      <div style="flex:2"><label>${t('name')}</label><input id="s3name" placeholder="laptop"></div>
+      <div style="flex:none"><button class="btn" onclick="s3Create()">${t('createtoken')}</button></div>
+    </div>
+    ${newkey}
+    ${creds.length?`<table style="margin-top:8px"><thead><tr><th>${t('name')}</th><th>access key</th><th>scopes</th><th>${t('status')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:''}
+  </div>`;
+}
+async function s3Create(){
+  const r=await api('/api/s3/credentials',{method:'POST',body:{name:val('s3name')}});
+  if(r.ok){ S.s3New=r.json; toast(t('s3created'),true); renderTab(); } else toast(r.json.error||'error');
+}
+async function s3Revoke(id){
+  const r=await api('/api/s3/credentials/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r.ok){ S.s3New=null; toast(t('revoked'),true); renderTab(); } else toast(r.json.error||'error');
+}
+
+// default the key to the filename, so the common case needs no typing
+function repoFilePicked(){
+  const f=document.getElementById('rfile').files[0];
+  const k=document.getElementById('rkey');
+  if(f && !k.value) k.value=f.name;
+  repoKeyChanged();
+}
+// say out loud what an existing path means, before the button is pressed
+function repoKeyChanged(){
+  const k=(document.getElementById('rkey')||{}).value||'';
+  const hit=(S.repoKeys||[]).indexOf(k.trim())>=0;
+  const sel=document.getElementById('rvis');
+  const note=document.getElementById('rovr');
+  if(sel) sel.disabled=hit;
+  if(note) note.innerHTML = hit ? `<span class="badge run">${t('willversion')}</span>` : '';
+}
+
+async function repoUpload(){
+  const f=document.getElementById('rfile').files[0];
+  if(!f) return toast('choose a file first');
+  const key=val('rkey')||f.name, vis=val('rvis');
+  // Uploading to a path that already exists is a NEW VERSION, not a new document —
+  // so the form's visibility select must not travel with it. Sending it would let a
+  // re-upload silently re-open a document its owner had made private, which is the
+  // one thing "the creator sets the visibility" must never allow by accident.
+  const overwrite = (S.repoKeys||[]).indexOf(key) >= 0;
+  const prog=document.getElementById('rprog');
+  prog.innerHTML=`<p class="muted">${t('uploading')} ${esc(f.name)} (${esc(humanBytes(f.size))})…</p>`;
+  const q='?filename='+encodeURIComponent(f.name)
+        + (overwrite ? '' : '&visibility='+encodeURIComponent(vis));
+  // the raw File goes as the body; the browser sets no Content-Type of its own for a
+  // Blob body unless we ask, so the file's own type is passed explicitly
+  const res=await fetch('/api/repo/'+key.split('/').map(encodeURIComponent).join('/')+q, {
+    method:'PUT',
+    headers:{'Authorization':'Bearer '+S.token,
+             'Content-Type': f.type||'application/octet-stream'},
+    body: f });
+  let j={}; try{ j=await res.json(); }catch(e){}
+  prog.innerHTML='';
+  if(res.ok){ document.getElementById('rfile').value='';
+              toast(overwrite ? t('newversion') : t('uploaded'), true); renderTab(); }
+  else toast(j.error||('upload failed ('+res.status+')'));
+}
+
+// The content endpoint needs a bearer token, so the file is fetched and handed to
+// the browser as an object URL rather than linked directly.
+async function repoDownload(id, key){
+  const res=await fetch('/api/repo-obj/'+encodeURIComponent(id)+'/content',
+                        {headers:{'Authorization':'Bearer '+S.token}});
+  if(!res.ok) return toast('download failed ('+res.status+')');
+  const blob=await res.blob();
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=(key||'download').split('/').pop();
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 30000);
+}
+
+// A presigned link: shareable, time-boxed, no token needed by whoever opens it.
+// Shown rather than silently copied, because a link that grants access to a document
+// is a thing someone should look at before they paste it somewhere.
+async function repoLink(id){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/presign?expires=900',{method:'POST'});
+  if(!r.ok) return toast(r.json.error||'error');
+  const mins=Math.round((r.json.expires_in||900)/60);
+  const el=document.getElementById('rdetail');
+  el.innerHTML=`<div class="card" style="margin-top:14px;border-color:#3a4a24">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0">${t('link')} — <span class="mono">${esc(r.json.key)}</span></h3>
+      <div style="flex:none">
+        <button class="btn sm" onclick="repoCopyLink()">${t('copy')}</button>
+        <button class="btn sm ghost" onclick="document.getElementById('rdetail').innerHTML=''">${t('close')}</button>
+      </div></div>
+    <div class="muted" style="font-size:12px;margin:6px 0">${t('linkhint').replace('{m}', mins)}</div>
+    <pre class="wfjson" id="rlink">${esc(r.json.url)}</pre></div>`;
+}
+function repoCopyLink(){
+  const el=document.getElementById('rlink'); if(!el) return;
+  navigator.clipboard.writeText(el.textContent).then(()=>toast(t('copied'),true),
+                                                     ()=>toast('copy failed'));
+}
+
+async function repoOpenDetail(id){
+  const [m, g, mem] = await Promise.all([
+    api('/api/repo-obj/'+encodeURIComponent(id)),
+    api('/api/repo-obj/'+encodeURIComponent(id)+'/grants'),
+    api('/api/members')]);
+  const el=document.getElementById('rdetail');
+  if(!m.ok){ toast(m.json.error||'error'); return; }
+  const o=m.json, grants=(g.ok?g.json.grants:[])||[], members=(mem.ok?mem.json.members:[])||[];
+  const vrows=(o.versions||[]).map(v=>`<tr>
+      <td>v${esc(v.version)}${v.current?' <span class="badge ok">current</span>':''}</td>
+      <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(v.size))}</td>
+      <td class="mono muted" style="font-size:12px">${esc(String(v.digest).slice(0,12))}…</td>
+      <td class="muted" style="font-size:12px">${esc(v.created_at)}</td>
+      <td>${v.current?'':`<button class="btn sm ghost" onclick="repoDownloadVersion('${esc(id)}','${esc(v.id)}','${esc(o.key)}')">${t('download')}</button>`}</td>
+    </tr>`).join('');
+  const grows=grants.length
+    ? grants.map(x=>`<tr><td>${esc(x.username||x.principal_id)}</td><td class="mono muted">${esc(x.permission)}</td>
+        <td><button class="btn sm bad" onclick="repoUnshare('${esc(id)}','${esc(x.principal_id)}')">${t('revoke')}</button></td></tr>`).join('')
+    : `<tr><td colspan="3" class="muted">${t('noshares')}</td></tr>`;
+  const opts=members.filter(x=>x.user_id!==o.owner_user_id)
+    .map(x=>`<option value="${esc(x.user_id)}">${esc(x.username)}</option>`).join('');
+  el.innerHTML=`<div class="card" style="margin-top:14px">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0" class="mono">${esc(o.key)}</h3>
+      <div style="flex:none">
+        <button class="btn sm bad" onclick="repoDelete('${esc(id)}')">${t('del')}</button>
+        <button class="btn sm ghost" onclick="document.getElementById('rdetail').innerHTML=''">${t('close')}</button>
+      </div></div>
+    <div class="row" style="margin-top:12px;align-items:end">
+      <div style="flex:1"><label>${t('visibility')}</label>
+        <select id="rdvis" onchange="repoSetVis('${esc(id)}')">
+          ${['team','private','shared'].map(v=>`<option value="${v}"${o.visibility===v?' selected':''}>${t('vis_'+v)}</option>`).join('')}
+        </select></div>
+      <div style="flex:2"><label>${t('sharewith')}</label>
+        <select id="rdshare">${opts||`<option value="">${t('noothers')}</option>`}</select></div>
+      <div style="flex:none"><button class="btn" onclick="repoShare('${esc(id)}')">${t('share')}</button></div>
+    </div>
+    <div class="muted" style="font-size:12px;margin-bottom:12px">${t('vishint')}</div>
+    <div class="row">
+      <div><h4 style="margin:0 0 6px">${t('sharedwith')}</h4>
+        <table><tbody>${grows}</tbody></table></div>
+      <div><h4 style="margin:0 0 6px">${t('versions')}</h4>
+        <table><tbody>${vrows}</tbody></table></div>
+    </div></div>`;
+}
+
+async function repoDownloadVersion(id, versionId, key){
+  const res=await fetch('/api/repo-obj/'+encodeURIComponent(id)+'/content?version='+encodeURIComponent(versionId),
+                        {headers:{'Authorization':'Bearer '+S.token}});
+  if(!res.ok) return toast('download failed ('+res.status+')');
+  const blob=await res.blob(), url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=(key||'download').split('/').pop();
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 30000);
+}
+async function repoSetVis(id){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/visibility',
+                    {method:'POST',body:{visibility:val('rdvis')}});
+  if(r.ok){ toast(t('visupdated'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+}
+async function repoShare(id){
+  const u=val('rdshare'); if(!u) return toast(t('noothers'));
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/share',{method:'POST',body:{user_id:u}});
+  if(r.ok){ toast(t('shared'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+}
+async function repoUnshare(id,u){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/unshare',{method:'POST',body:{user_id:u}});
+  if(r.ok){ toast(t('revoked'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
+}
+async function repoDelete(id){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r.ok){ document.getElementById('rdetail').innerHTML=''; toast(t('deleted'),true); renderTab(); }
+  else toast(r.json.error||'error');
+}
+
+// ---------- workflows (slice 48) ----------
+// The console is a client of exactly the HTTP contract curl uses: list definitions,
+// POST a run, poll the run. It knows nothing about how a step executes — that stays
+// in the engine, which is why a plugin-shipped workflow and a JSON-published one
+// render identically here.
+function wfBadge(s){
+  const cls = s==='done'?'ok':(s==='error'?'bad':(s==='running'?'run':''));
+  return `<span class="badge ${cls}">${esc(s)}</span>`;
+}
+function wfJson(v,label){
+  if(v===null||v===undefined||v==='null') return '';
+  const j=JSON.stringify(v,null,2);
+  if(j==='{}'||j==='null'||j===undefined) return '';
+  return `<details><summary class="muted" style="cursor:pointer;font-size:12px">${esc(label)}</summary><pre class="wfjson">${esc(j)}</pre></details>`;
+}
+// a step's output is {result: …} — show the result inline, full object one click away
+function wfOut(st){
+  if(st.status==='error') return `<span style="color:var(--bad)">${esc((st.error||'failed').slice(0,140))}</span>`;
+  const o=st.output; if(!o||o==='null'||typeof o!=='object') return '<span class="muted">—</span>';
+  if(Array.isArray(o.results))                       // a map parent — its children carry the detail
+    return `<span class="muted">${o.results.length} ${t('results').toLowerCase()}</span>${wfJson(o,'json')}`;
+  const r=('result' in o)?o.result:o;
+  const line=(typeof r==='string'?r:JSON.stringify(r))||'';
+  return `<span class="mono" style="font-size:13px">${esc(line.slice(0,140))}${line.length>140?'…':''}</span>${wfJson(o,'json')}`;
+}
+
+async function workflowsView(){
+  if(S.wfRun) return await wfRunView(S.wfRun);
+  const [dr,rr]=await Promise.all([api('/api/workflows'),api('/api/runs')]);
+  if(!dr.ok) return `<h2>${t('workflows')}</h2><div class="card"><p class="muted">${esc(dr.json.error||'unavailable')}</p></div>`;
+  const defs=dr.json.workflows||[], runs=rr.ok?(rr.json.runs||[]):[];
+  const defRows=defs.map(d=>`<tr>
+      <td><b>${esc(d.name||d.slug)}</b><div class="muted mono" style="font-size:12px">${esc(d.slug)}</div></td>
+      <td class="muted">v${esc(d.version)}</td>
+      <td><span class="badge">${esc(d.source||'api')}</span></td>
+      <td class="muted">${esc(d.step_count)}</td>
+      <td><button class="btn sm${S.wfSel===d.slug?' ghost':''}" onclick="wfSelect('${esc(d.slug)}')">${t('runwf')}</button></td>
+    </tr>`).join('');
+  const runRows=runs.map(r=>`<tr>
+      <td class="mono muted">${esc(r.id.slice(0,8))}</td>
+      <td>${esc(r.slug||'—')}</td>
+      <td>${wfBadge(r.status)}</td>
+      <td class="muted">${esc(r.steps_used)} ${t('stepsused')}</td>
+      <td class="muted" style="font-size:12px">${esc(r.created_at)}</td>
+      <td><button class="btn sm ghost" onclick="wfOpen('${esc(r.id)}')">${t('viewrun')}</button></td>
+    </tr>`).join('');
+  return `<h2>${t('workflows')}</h2>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3 style="margin:0">${t('definitions')}</h3>
+        <div style="flex:none"><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
+      ${defs.length?`<table style="margin-top:8px"><thead><tr><th>${t('workflow')}</th><th>${t('version')}</th><th>${t('source')}</th><th>${t('steps')}</th><th></th></tr></thead><tbody>${defRows}</tbody></table>`
+                   :`<p class="muted" style="margin-top:8px">${t('nodefs')}</p>`}
+    </div>
+    ${S.wfSel?wfRunForm():''}
+    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('runs')}</h3>
+      ${runs.length?`<table><thead><tr><th>id</th><th>workflow</th><th>${t('status')}</th><th></th><th>${t('started')}</th><th></th></tr></thead><tbody>${runRows}</tbody></table>`
+                   :`<p class="muted">${t('noruns')}</p>`}</div>`;
+}
+
+// The run form is generated from the spec's own `input` map — the same declaration
+// `check-input!` enforces server-side, so the form can't drift from what is accepted.
+function wfRunForm(){
+  const d=S.wfSpec; if(!d) return '';
+  const spec=d.spec||{}, inputs=spec.input||{}, keys=S.wfKeys||[];
+  const fields=keys.length?keys.map((k,i)=>{
+    const ty=inputs[k];
+    const lab=`<label>${esc(k)}<span class="muted" style="text-transform:none;letter-spacing:0"> · ${esc(ty)}</span></label>`;
+    if(ty==='object'||ty==='array') return `${lab}<textarea id="wfi_${i}" rows="3" placeholder="${ty==='array'?'[]':'{}'}"></textarea>`;
+    if(ty==='boolean')              return `${lab}<select id="wfi_${i}"><option value="false">false</option><option value="true">true</option></select>`;
+    return `${lab}<input id="wfi_${i}"${ty==='number'?' type="number"':''}>`;
+  }).join(''):'<p class="muted">This workflow takes no input.</p>';
+  const desc=(d.description&&d.description!=='null')?`<p class="muted" style="margin:0 0 10px">${esc(d.description)}</p>`:'';
+  const chain=(spec.steps||[]).map(x=>esc(x.id)).join(' → ');
+  return `<div class="card" style="margin-top:14px">
+    <h3 style="margin:0 0 4px">${t('runwf')} — ${esc(d.name||d.slug)}</h3>${desc}
+    <div class="muted mono" style="font-size:12px;margin-bottom:12px">${esc(d.slug)} v${esc(d.version)} · ${chain}</div>
+    ${fields}
+    <button class="btn" onclick="wfStart()">${t('runwf')}</button>
+    <button class="btn ghost" onclick="wfSelect(null)">${t('cancel')}</button></div>`;
+}
+
+async function wfSelect(slug){
+  if(!slug){ S.wfSel=null; S.wfSpec=null; S.wfKeys=[]; return renderTab(); }
+  const r=await api('/api/workflows/'+encodeURIComponent(slug));
+  if(!r.ok) return toast(r.json.error||'error');
+  S.wfSel=slug; S.wfSpec=r.json; S.wfKeys=Object.keys((r.json.spec||{}).input||{});
+  renderTab();
+}
+async function wfStart(){
+  const d=S.wfSpec; if(!d) return;
+  const inputs=(d.spec||{}).input||{}, keys=S.wfKeys||[], body={};
+  for(let i=0;i<keys.length;i++){
+    const k=keys[i], ty=inputs[k], el=document.getElementById('wfi_'+i); if(!el) continue;
+    const raw=el.value.trim(); if(raw==='') continue;
+    if(ty==='number'){ const n=Number(raw); if(Number.isNaN(n)) return toast(k+': not a number'); body[k]=n; }
+    else if(ty==='boolean'){ body[k]=(raw==='true'); }
+    else if(ty==='object'||ty==='array'){ try{ body[k]=JSON.parse(raw); }catch(e){ return toast(k+': invalid JSON'); } }
+    else body[k]=raw;
+  }
+  const r=await api('/api/workflows/'+encodeURIComponent(d.slug)+'/run',{method:'POST',body:{input:body}});
+  if(r.ok){ S.wfSel=null; S.wfSpec=null; S.wfRun=r.json.id; toast('started',true); renderTab(); }
+  else toast(r.json.error||'error');
+}
+function wfOpen(id){ S.wfRun=id; S.wfPoll++; renderTab(); }
+function wfBack(){ S.wfRun=null; S.wfPoll++; renderTab(); }
+async function wfCancel(id){
+  const r=await api('/api/runs/'+encodeURIComponent(id)+'/cancel',{method:'POST'});
+  toast(r.ok?'canceled':(r.json.error||'error'), r.ok); renderTab();
+}
+
+async function wfRunView(id){
+  const r=await api('/api/runs/'+encodeURIComponent(id));
+  if(!r.ok) return `<h2>${t('runs')}</h2><div class="card"><p class="muted">${esc(r.json.error||'not found')}</p>
+    <button class="btn ghost" onclick="wfBack()">${t('back')}</button></div>`;
+  const run=r.json, steps=run.steps||[];
+  const live=(run.status==='queued'||run.status==='running');
+  // a step row survives a restart because it IS the state — so polling the run is
+  // enough; there is no in-memory progress to miss.
+  if(live){ const gen=++S.wfPoll;
+    setTimeout(()=>{ if(S.tab==='workflows'&&S.wfRun===id&&S.wfPoll===gen) renderTab(); },1500); }
+  const kidsOf=s=>steps.filter(x=>x.parent_id===s.id);         // a map fan-out's children
+  const row=(s,kid)=>`<tr${kid?' class="wfkid"':''}>
+      <td class="mono">${esc(s.step_id)}</td>
+      <td>${wfBadge(s.status)}${s.attempt>1?`<span class="muted" style="font-size:12px"> · try ${esc(s.attempt)}</span>`:''}</td>
+      <td>${wfOut(s)}</td></tr>`;
+  const rows=steps.filter(s=>!s.parent_id).map(s=>row(s,false)+kidsOf(s).map(k=>row(k,true)).join('')).join('');
+  const err=(run.error&&run.error!=='null')
+    ? `<div class="card" style="margin-top:14px;border-color:#5e332c"><b style="color:var(--bad)">error</b>
+       <div class="mono" style="font-size:13px;margin-top:6px">${esc(run.error)}</div></div>` : '';
+  return `<h2>${esc(run.slug||t('runs'))} <span class="muted mono" style="font-size:14px">${esc(run.id.slice(0,8))}…</span></h2>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div style="flex:none">${wfBadge(run.status)} <span class="muted">${esc(run.steps_used)} ${t('stepsused')}</span>${live?' <span class="muted">· live</span>':''}</div>
+        <div style="flex:none">${live?`<button class="btn sm bad" onclick="wfCancel('${esc(run.id)}')">${t('cancel')}</button> `:''}<button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button> <button class="btn sm ghost" onclick="wfBack()">${t('back')}</button></div>
+      </div>
+      ${wfJson(run.input,t('input'))}${wfJson(run.output,t('output'))}
+    </div>${err}
+    <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('steps')}</h3>
+      <table><thead><tr><th>step</th><th>${t('status')}</th><th>${t('output')}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
 async function betaView(){
   const r=await api('/api/beta/prospects'); const ps=r.ok?r.json.prospects:[];
   const cfg=await api('/api/beta/config'); const fields=cfg.ok?(cfg.json.fields||[]):[];   // details rendered generically from the experience's field defs
@@ -647,7 +1215,7 @@ async function bxUpload(input,target){ const f=input.files&&input.files[0]; if(!
   rd.readAsDataURL(f); }
 function bxGet(path){ return path.split('.').reduce((o,k)=>o&&o[k],S.exp); }
 function bxClear(target){ bxSet(target,''); bxRerender(); }
-const BX_STARTER_TEMPLATE = '<style>\n  body{margin:0;font:16px/1.6 ui-sans-serif,system-ui,sans-serif;background:#0f1117;color:#e6e8ee}\n  .wrap{max-width:560px;margin:0 auto;padding:40px 22px}\n  .eyebrow{letter-spacing:.16em;text-transform:uppercase;font-size:12px;color:#7c8cff;font-weight:700}\n  h1{font-size:2rem;line-height:1.1;margin:.2em 0 .3em}\n  form{background:#171a23;border:1px solid #2a2f3d;border-radius:12px;padding:22px;margin-top:18px}\n  label{display:block;font-size:12px;text-transform:uppercase;color:#9aa3b2;margin:0 0 4px}\n  input,select,textarea{width:100%;box-sizing:border-box;background:#0f1117;border:1px solid #2a2f3d;color:#e6e8ee;border-radius:8px;padding:10px 12px;font:inherit}\n  p{margin:0 0 12px}\n  button{width:100%;margin-top:6px;background:#5a6cff;color:#fff;border:0;border-radius:8px;padding:12px;font-weight:800;cursor:pointer}\n</style>\n<div class="wrap">\n  <div class="eyebrow">{{eyebrow}}</div>\n  <h1>{{title}}</h1>\n  <p>{{subtitle}}</p>\n  <form>\n    {{fields}}\n    <button data-beta-submit>{{cta}}</button>\n    {{message}}\n  </form>\n</div>';
+const BX_STARTER_TEMPLATE = '<style>\n  body{margin:0;font:16px/1.6 ui-sans-serif,system-ui,sans-serif;background:#0b1a2b;color:#f2ede1}\n  .wrap{max-width:560px;margin:0 auto;padding:40px 22px}\n  .eyebrow{letter-spacing:.16em;text-transform:uppercase;font-size:12px;color:#c9a227;font-weight:700}\n  h1{font-size:2rem;line-height:1.1;margin:.2em 0 .3em}\n  form{background:#12253a;border:1px solid #24384f;border-radius:12px;padding:22px;margin-top:18px}\n  label{display:block;font-size:12px;text-transform:uppercase;color:#93a4b8;margin:0 0 4px}\n  input,select,textarea{width:100%;box-sizing:border-box;background:#0b1a2b;border:1px solid #24384f;color:#f2ede1;border-radius:8px;padding:10px 12px;font:inherit}\n  p{margin:0 0 12px}\n  button{width:100%;margin-top:6px;background:#c9a227;color:#132c46;border:0;border-radius:8px;padding:12px;font-weight:800;cursor:pointer}\n</style>\n<div class="wrap">\n  <div class="eyebrow">{{eyebrow}}</div>\n  <h1>{{title}}</h1>\n  <p>{{subtitle}}</p>\n  <form>\n    {{fields}}\n    <button data-beta-submit>{{cta}}</button>\n    {{message}}\n  </form>\n</div>';
 function bxSetLanding(v){
   if(v==='bundle') S.exp.landing={type:'bundle',plugin:(S.exp.landing&&S.exp.landing.plugin)||'beta-onboarding'};
   else if(v==='template'){ S.exp.landing={type:'template'}; if(!S.exp.template) S.exp.template=BX_STARTER_TEMPLATE; }
@@ -674,8 +1242,8 @@ function bxContrast(a,b){ const la=bxLum(a), lb=bxLum(b); if(la===null||lb===nul
   return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05); }
 function bxContrastWarnings(th){
   th=th||{};
-  const bg=th.bg||'#0f1117', ink=th.ink||'#e6e8ee', muted=th.muted||'#9aa3b2';
-  const brand=th.brand||'#5a6cff', brandInk=th.brandInk||'#ffffff';
+  const bg=th.bg||'#0b1a2b', ink=th.ink||'#f2ede1', muted=th.muted||'#93a4b8';
+  const brand=th.brand||'#c9a227', brandInk=th.brandInk||'#132c46';
   // pair, threshold, why it matters — 4.5:1 is the WCAG AA floor for body text, 3:1 for large/UI
   const checks=[
     ['Text on background',      ink,      bg,       4.5],
@@ -733,9 +1301,9 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
 
     <div class="sec">Theme</div>
     <div class="bx-swatches">
-      ${color('Brand','theme.brand','#5a6cff')}${color('Brand text','theme.brandInk','#ffffff')}
-      ${color('Background','theme.bg','#0f1117')}${color('Surface','theme.surface','#171a23')}
-      ${color('Text','theme.ink','#e6e8ee')}${color('Muted','theme.muted','#9aa3b2')}</div>
+      ${color('Brand','theme.brand','#c9a227')}${color('Brand text','theme.brandInk','#132c46')}
+      ${color('Background','theme.bg','#0b1a2b')}${color('Surface','theme.surface','#12253a')}
+      ${color('Text','theme.ink','#f2ede1')}${color('Muted','theme.muted','#93a4b8')}</div>
     ${bxContrastWarnings(th)}
     <div class="row" style="margin-top:10px">
       <div><label>Font</label><select onchange="bxSet('theme.fontBody',this.value)">${['System','Serif','Rounded','Mono'].map(f=>`<option ${th.fontBody===f?'selected':''}>${f}</option>`).join('')}</select></div>
@@ -765,7 +1333,7 @@ async function searchView(){
   return `<h2>${t('search')}</h2>
     <div class="card">
       <div class="row" style="align-items:end"><div style="flex:1"><label>${t('search')}</label>
-        <input id="sq" onkeydown="if(event.key==='Enter')doSearch()" placeholder="notes &amp; translations…"></div>
+        <input id="sq" onkeydown="if(event.key==='Enter')doSearch()" placeholder="${t('searchph')}"></div>
         <div><button class="btn" onclick="doSearch()">${t('search')}</button></div></div>
       <div id="sres" style="margin-top:12px"></div></div>`;
 }
@@ -775,17 +1343,30 @@ async function doSearch(){
   const r=await api('/api/search?q='+encodeURIComponent(q));
   const res=r.ok?r.json.results:[];
   el.innerHTML = res.length
-    ? `<table><thead><tr><th>type</th><th>title</th><th>${t('results')}</th></tr></thead><tbody>`+
-      res.map(x=>`<tr><td><span class="badge">${esc(x.type)}</span></td><td>${esc(x.title||'')}</td><td class="muted">${esc(x.snippet||'')}</td></tr>`).join('')+`</tbody></table>`
+    ? `<table><thead><tr><th>type</th><th>title</th><th>${t('results')}</th><th></th></tr></thead><tbody>`+
+      res.map(x=>`<tr><td><span class="badge${x.type==='file'?' run':''}">${esc(x.type)}</span></td>
+        <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}</td>
+        <td class="muted">${esc(x.snippet||'')}</td>
+        <td>${x.type==='file'?`<button class="btn sm ghost" onclick="repoDownload('${esc(x.id)}','${esc(x.title||'')}')">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : '<p class="muted">no results</p>';
 }
+// `render` awaits four times (branding, me, config/features). Anything that
+// changes S while one is in flight — logout nulling S.me is the easy one — used
+// to let the stale run resume and paint with the new state half-applied, which
+// threw "Cannot read properties of null (reading 'is_operator')" out of
+// appShell(). A generation counter makes the older run stand down at each await
+// boundary, so the newest render always wins and no half-render reaches the DOM.
+let shellSeq = 0;
 async function render(){
+  const seq = ++shellSeq;
+  const stale = () => seq !== shellSeq;
   const app=document.getElementById('app');
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
-  await refreshMe();
+  await loadBranding(); if(stale()) return;
+  await refreshMe();    if(stale()) return;
   if(!S.me){
-    const cfg=await api('/api/config'); S.home = cfg.ok ? cfg.json.home : 'login';
+    const cfg=await api('/api/config'); if(stale()) return; S.home = cfg.ok ? cfg.json.home : 'login';
     const atLoginPath = location.pathname.replace(/\/$/,'').endsWith('/login');
     const forceLogin = S.forceLogin || atLoginPath || new URLSearchParams(location.search).get('login')==='1';
     if(S.home==='beta' && !forceLogin){
@@ -793,12 +1374,15 @@ async function render(){
       if(l && l.type==='bundle' && l.url){ location.replace(l.url); return; }   // Tier-B: hand-coded plugin bundle
       if(l && l.type==='template' && l.url){                                    // Tier-C: sandboxed custom HTML template
         app.innerHTML='<iframe class="bx-frame" sandbox="allow-scripts allow-forms allow-top-navigation-by-user-activation" src="'+l.url+'"></iframe>'; return; }
-      app.innerHTML=await betaLandingView(); return;                            // Tier-A: built-in themeable shell
+      const bx=await betaLandingView(); if(stale()) return;
+      app.innerHTML=bx; return;                                                 // Tier-A: built-in themeable shell
     }
     app.innerHTML=authView(); return;
   }
-  const fr=await api('/api/features'); S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
+  const fr=await api('/api/features'); if(stale()) return;
+  S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
   if(S.features[S.tab]===false) S.tab='team';
+  if(!S.me) return;                      // signed out while we were awaiting
   app.innerHTML=appShell(); renderTab(); }
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;

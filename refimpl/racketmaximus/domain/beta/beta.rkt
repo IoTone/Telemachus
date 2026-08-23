@@ -6,7 +6,7 @@
 ;; prompt) is a pluggable PROVIDER registered through the SDK, so a deployer can
 ;; customize it (default provider ships in plugins/beta-onboarding).
 
-(require db
+(require db-kit/portable   ; NOT `db` — it rewrites ? -> $n on PostgreSQL
          json
          "../db/id.rkt"
          "../authz/authz.rkt")
@@ -98,9 +98,12 @@
           'eyebrow "Private beta"
           'cta "Request access"
           'footer "© Telemachus — self-hosted, privacy-first team AI."
-          'theme (hasheq 'brand "#5a6cff" 'brandInk "#ffffff" 'bg "#0f1117" 'surface "#171a23"
-                         'ink "#e6e8ee" 'muted "#9aa3b2" 'radius "12px" 'mode "dark"
-                         'fontBody "System" 'heroBg "linear-gradient(135deg,#1c2140,#0f1117)")
+          ;; The Mentor palette (docs/design/brand/README.md). Gold CTA on aegean ink
+          ;; is 5.9:1, so it clears the theme editor's own 4.5 contrast gate — which
+          ;; a default has to do, or the first thing an admin sees is a warning.
+          'theme (hasheq 'brand "#c9a227" 'brandInk "#132c46" 'bg "#0b1a2b" 'surface "#12253a"
+                         'ink "#f2ede1" 'muted "#93a4b8" 'radius "12px" 'mode "dark"
+                         'fontBody "System" 'heroBg "linear-gradient(135deg,#132c46,#0b1a2b)")
           'details (list (hasheq 'heading "What you get"
                                  'body "Early access to the platform and a direct line to the team building it.")
                          (hasheq 'heading "Who it's for"

@@ -77,7 +77,13 @@
       [(not (tool-enabled? conn (principal-team-id p) name)) (format "Tool '~a' is disabled" name)]
       [(not (can? conn p "tools:invoke")) "Permission denied: tools:invoke"]
       [(and (tool-perm t) (not (can? conn p (tool-perm t)))) (format "Permission denied: ~a" (tool-perm t))]
-      [else ((tool-handler t) conn p args)])))
+      [else
+       ;; The agent transcript needs text, but a handler may return structured data
+       ;; for the WORKFLOW engine's benefit (a `map #:over` needs a real array —
+       ;; see repo_list_unindexed). Stringify at this boundary, not in the handler,
+       ;; so one handler serves both surfaces.
+       (define r ((tool-handler t) conn p args))
+       (if (string? r) r (jsexpr->string r))])))
 
 (define (make-exec conn p on-event)
   (lambda (tb)

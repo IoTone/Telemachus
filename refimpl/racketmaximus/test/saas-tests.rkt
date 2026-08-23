@@ -3,14 +3,14 @@
 ;; test/saas-tests.rkt — hosted onboarding: seed-one-owner, activation, idempotency,
 ;; and suspend/resume.  raco test test/saas-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/saas/onboarding.rkt"
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 (define (users c) (query-value c "SELECT COUNT(*) FROM users"))
 
 (test-case "provision seeds exactly one invited owner + plan quotas; token issued"

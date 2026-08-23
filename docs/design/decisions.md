@@ -137,6 +137,16 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | ONB‑6 | 72h activation TTL, resendable | ✅ built |
 | ONB‑7 | suspend = `402` + read-only, data retained | ✅ built |
 | ONB‑8 | 30-day retention then deprovision + export | ⏳ control-plane |
+| WF‑1 | workflow **spec is the contract**; `define-workflow` compiles to it | ✅ decided [^4] |
+| WF‑2 | binding sublanguage **frozen** (references + fixed predicates, no eval) | ✅ decided |
+| WF‑3 | borrow CNCF Serverless Workflow **vocabulary**, claim no conformance | ✅ decided |
+| WF‑4 | durability unit = **one scheduler job per step** | ✅ decided |
+| WF‑5 | human `approve` gate in v1 | ✅ decided |
+| WF‑6 | visual interface **read-only** at v1 | ✅ decided |
+| WF‑7 | `workflows:{read,write,run}`; org admins get `read` only (TEN‑2a) | ✅ decided |
+| WF‑8 | plugin steps run in process, as tools do | ✅ decided — revisit as hardening |
+| WF‑9 | the spec is a **public contract** (documented, versioned, publishable) | ✅ decided |
+| WF‑10 | unknown fields in a submitted spec are **rejected** | ✅ decided |
 
 See [saas-onboarding.md](saas-onboarding.md) for the full flow. ONB‑2 refines the
 doc's "operator service token" to the simpler **provision token** so the seeded
@@ -160,6 +170,16 @@ an org. Superadmin (`instance:*`) and org admin (`org:*`) are distinct tiers,
 neither reachable from a team role. See
 [multi-tenancy.md](multi-tenancy.md); validated by `test/multitenant-demo.sh`
 and `test/tenancy-tests.rkt`.
+
+[^4]: **WF‑1.** Durability and legibility force the same artifact: a run that
+resumes after a restart must record which step it stopped on, and an administrator
+who never reads the source must still see what happens next. Both need the step
+graph to be an inspectable data structure rather than a closure — so the spec gets
+built whether or not it is ever serialized, and serializing it is then nearly free.
+`define-workflow` is the authoring surface and ships in the same slice; the JSON is
+a storage, execution and rendering format, **not** a second authoring surface.
+Non-Racket authoring was explicitly **struck** as a requirement. See
+[workflow-engine.md](workflow-engine.md).
 
 [^2]: **RBAC‑5.** There is no separate operator-account setup step: the first user
 created (first team's owner) is granted the instance **operator** capability at

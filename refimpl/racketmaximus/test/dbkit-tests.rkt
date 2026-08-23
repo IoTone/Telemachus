@@ -6,8 +6,7 @@
 ;; the full suite, which stays green after the portability sweep.)
 ;; raco test test/dbkit-tests.rkt
 
-(require rackunit
-         db-kit            ; postgres-params
+(require rackunit db-kit            ; postgres-params
          db-kit/portable)  ; pg-rewrite
 
 (test-case "pg-rewrite: ? -> $n, skipping quoted string literals"

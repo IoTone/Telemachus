@@ -6,6 +6,8 @@
 ;;   plugins/<id>/plugin.json   {id, name, version, description, entry}
 ;;   plugins/<id>/<entry>.rkt   (provide tools)  ; tools = (list (list name schema perm handler) …)
 ;;                              ; handler : (conn principal args) -> string
+;;                              (provide workflows) ; workflows = (listof spec-jsexpr)
+;;   plugins/<id>/workflows/*.json                 ; …or the same specs as plain files
 ;;
 ;; Plugin tools register through the SAME registry as built-ins, so they inherit
 ;; per-tool RBAC and per-team activation for free — tagged with the plugin id as
@@ -15,7 +17,7 @@
 ;; extensions). Installing one — placing it in the plugins dir — IS the consent.
 ;; Sandboxed/out-of-process plugins are future hardening (see THREAT model).
 
-(require json "registry.rkt")
+(require json racket/list "registry.rkt" "../flow/run.rkt")
 
 (provide load-plugins! loaded-plugins)
 
@@ -38,6 +40,20 @@
           ;; provider, …), not just agent tools. Both are optional.
           (define tools (dynamic-require entry 'tools (lambda () '())))
           (define init! (dynamic-require entry 'init! (lambda () #f)))
+          ;; workflow definitions the plugin contributes (slice 47). Both the
+          ;; `workflows` export and workflows/*.json land in the same registry and
+          ;; go through the same validator as an API-published document.
+          (define wf-dir (build-path pdir "workflows"))
+          (define wfs
+            (append (let ([w (dynamic-require entry 'workflows (lambda () '()))]) (if (list? w) w '()))
+                    (if (directory-exists? wf-dir)
+                        (for/list ([f (in-list (sort (map path->string (directory-list wf-dir)) string<?))]
+                                   #:when (regexp-match #rx"[.]json$" f))
+                          (call-with-input-file (build-path wf-dir f) read-json))
+                        '())))
+          (define wf-slugs
+            (for/list ([w (in-list wfs)])
+              (hash-ref (register-plugin-workflow! id w) 'slug)))
           (when (procedure? init!) (init!))
           (define names
             (for/list ([t (in-list tools)])
@@ -46,7 +62,9 @@
           (set-box! *loaded*
             (append (unbox *loaded*)
                     (list (hasheq 'id id 'name (hash-ref m 'name id) 'version (hash-ref m 'version "")
-                                  'description (hash-ref m 'description "") 'tools names))))
-          (log (format "~a v~a — ~a tool(s)~a" id (hash-ref m 'version "?") (length names)
+                                  'description (hash-ref m 'description "") 'tools names
+                                  'workflows wf-slugs))))
+          (log (format "~a v~a — ~a tool(s)~a~a" id (hash-ref m 'version "?") (length names)
+                       (if (null? wf-slugs) "" (format ", ~a workflow(s)" (length wf-slugs)))
                        (if (procedure? init!) " +init" "")))))))
   (unbox *loaded*))

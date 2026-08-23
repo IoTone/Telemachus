@@ -5,15 +5,16 @@
 
 (require rackunit
          racket/string
-         db
+         db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/crypto.rkt"
          "../domain/authz/passwords.rkt"
          "../domain/authz/authz.rkt")
 
 (define (fresh)
-  (define c (sqlite3-connect #:database 'memory))
+  (define c (fresh-db #:migrate? #f))
   (migrate! c all-migrations)
   c)
 

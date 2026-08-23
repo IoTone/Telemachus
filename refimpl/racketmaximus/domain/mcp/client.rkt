@@ -10,7 +10,7 @@
 ;; teardown. Calls on one connection are serialized so concurrent agent requests
 ;; don't interleave.
 
-(require json
+(require (only-in "../../config.rkt" impl-root) json
          racket/string
          racket/port
          racket/system
@@ -59,8 +59,19 @@
 (define (read-line/timeout port secs)
   (let ([r (sync/timeout secs (read-line-evt port 'any))]) (if r r eof)))
 
+;; A config's relative script path (e.g. "test/mock-mcp.rkt") means "relative to the
+;; implementation", not "relative to wherever the server happened to be started" —
+;; which was already broken when running from another directory, and is guaranteed
+;; broken for a packaged install whose CWD is arbitrary.
+(define (resolve-arg a)
+  (if (and (string? a) (regexp-match #rx"[.]rkt$" a) (not (absolute-path? a))
+           (file-exists? (build-path impl-root a)))
+      (path->string (build-path impl-root a))
+      a))
+
 (define (mcp-connect-stdio command args #:init-timeout [t 15])
-  (define-values (proc out in err) (apply subprocess #f #f #f (resolve-cmd command) args))
+  (define-values (proc out in err)
+    (apply subprocess #f #f #f (resolve-cmd command) (map resolve-arg args)))
   (define (send obj) (write-json obj in) (write-char #\newline in) (flush-output in))
   (define (rpc obj id secs)
     (send obj)

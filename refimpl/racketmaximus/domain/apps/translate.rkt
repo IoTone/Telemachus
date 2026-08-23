@@ -25,7 +25,7 @@
 (define lang-names
   (hash "en" "English" "ja" "Japanese" "nl" "Dutch" "es-419" "Latin American Spanish"
         "es" "Spanish" "fr" "French" "de" "German" "it" "Italian" "pt" "Portuguese"
-        "zh" "Chinese" "ko" "Korean" "la" "Latin"))
+        "zh" "Chinese" "ko" "Korean" "la" "Latin" "is" "Icelandic"))
 (define (lang-label code) (hash-ref lang-names code code))
 
 ;; ---- glossary ---------------------------------------------------------------

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 134" width="220" height="134" role="img" aria-label="Telemachus — self-hosted team AI">
+  <g transform="translate(78 0)">  <path d="M13 53 V31 a19 19 0 0 1 38 0 V53 Z
+           M20.5 34 L26.5 40 L32.5 34 L26.5 28 Z
+           M31.5 34 L37.5 40 L43.5 34 L37.5 28 Z
+           M29.5 26 v27 h5 V26 Z"
+        fill="currentColor" fill-rule="nonzero"/></g>
+  <text x="110" y="100" text-anchor="middle" font-family="Fraunces, Georgia, 'Times New Roman', serif"
+        font-size="30" font-weight="600" letter-spacing="-0.5" fill="currentColor">Telemachus</text>
+  <text x="110" y="121" text-anchor="middle" font-family="Archivo, ui-sans-serif, system-ui, sans-serif"
+        font-size="9.5" letter-spacing="3.4" fill="currentColor" opacity="0.6">SELF-HOSTED TEAM AI</text>
+</svg>

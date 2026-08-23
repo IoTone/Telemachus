@@ -1,0 +1,7 @@
+{
+  "id": "doc-indexer",
+  "name": "Document Indexer",
+  "version": "0.1.0",
+  "description": "A workflow that extracts text from repository documents into the search index: find what is unindexed, fan out, extract. Re-run it any time; it only touches what changed.",
+  "entry": "main.rkt"
+}

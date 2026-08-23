@@ -4,17 +4,17 @@
 ;; dispatch. The model round-trip needs a live model; here we pin the pure parser
 ;; and the exec dispatcher.  raco test test/agent-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/agent/loop.rkt"       ; assistant-msg accessors
          "../domain/agent/run.rkt"        ; parse-agent-response, make-exec
          "../domain/agent/registry.rkt"   ; set-tool-enabled!, tool-settings-for
          "../domain/tools/convert.rkt")   ; tool-block
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "parse-agent-response: content + native tool_calls"
   (define resp

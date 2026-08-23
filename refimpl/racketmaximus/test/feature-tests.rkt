@@ -2,13 +2,13 @@
 
 ;; test/feature-tests.rkt — per-team feature activation.  raco test test/feature-tests.rkt
 
-(require rackunit
-         db
+(require rackunit db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/features/features.rkt")
 
-(define (fresh) (define c (sqlite3-connect #:database 'memory)) (migrate! c all-migrations) c)
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (test-case "features default on; toggle off/on; per-team; features-for lists all"
   (define c (fresh))
