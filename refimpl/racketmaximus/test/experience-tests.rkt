@@ -128,3 +128,25 @@
     (lambda ()
       (putenv "TELEMACHUS_ONBOARDING_FILE" "")
       (delete-file f))))
+
+;; Regression (see issue: renamed experience silently lost). The console's
+;; onboarding editor lets an admin change `name`. experience-save! used to key
+;; the row on that value while experience-draft and experience-publish! read it
+;; back under experience-active-key, so a rename wrote an orphan row: the editor
+;; reloaded the old config and Publish answered "nothing to publish".
+(test-case "a renamed experience still round-trips through draft and publish"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define renamed (hasheq 'name "rcnt-private-beta" 'title "RCNT Private Beta"
+                          'subtitle "s" 'fields '() 'judge-system "j"))
+
+  (check-true (experience-save! c alice renamed))
+  ;; exactly one draft row, and it is the one the editor reads back
+  (check-equal? (length (experience-list c alice)) 1)
+  (check-equal? (hash-ref (experience-draft c alice) 'title) "RCNT Private Beta")
+  (check-equal? (hash-ref (experience-draft c alice) 'name) "rcnt-private-beta")
+
+  ;; and Publish finds it
+  (check-true (experience-publish! c alice))
+  (check-equal? (hash-ref (resolve-experience c tid) 'title) "RCNT Private Beta"))
