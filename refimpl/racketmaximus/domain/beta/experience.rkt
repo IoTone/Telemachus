@@ -108,8 +108,14 @@
   (require-perm conn p "settings:manage")
   (unless (hash? config) (error 'experience-save! "config must be an object"))
   (define team (principal-team-id p))
-  (define key (let ([n (hash-ref config 'name #f)]) (if (and (string? n) (not (string=? n ""))) n (experience-active-key))))
-  (upsert! conn team key "draft" config (principal-user-id p))
+  ;; Key on the ACTIVE experience, never on a caller-supplied config.name. The
+  ;; draft must land where experience-draft and experience-publish! read it back
+  ;; from, and both resolve the key through experience-active-key. Keying on
+  ;; config.name meant an admin who edited the name in the console wrote an
+  ;; orphan row: the editor reloaded the old config and Publish answered
+  ;; "nothing to publish — save a draft first". The name is still preserved
+  ;; inside the config; it just no longer decides where the row lives.
+  (upsert! conn team (experience-active-key) "draft" config (principal-user-id p))
   #t)
 
 ;; promote the current draft to published (no draft → nothing to publish)
