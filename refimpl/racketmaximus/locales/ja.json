@@ -4,6 +4,26 @@
     "locale": "ja"
   },
   "messages": {
+    "http.already_initialized": {
+      "text": "すでに初期化されています。",
+      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    },
+    "beta.not_ready": {
+      "text": "インスタンスが初期化されていません。",
+      "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
+    },
+    "beta.domain_cap": {
+      "text": "同じ組織からのお申し込みが多数あります。直接お問い合わせください。",
+      "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
+    },
+    "beta.name_required": {
+      "text": "氏名を入力してください。",
+      "hash": "431a950e6bcbabd6c3c18de6f2eea712093d369c"
+    },
+    "beta.rate_limited": {
+      "text": "リクエストが多すぎます。少し時間をおいてお試しください。",
+      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    },
     "greeting.hello": {
       "text": "こんにちは、{name}さん！",
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
@@ -11,6 +31,26 @@
     "authz.bootstrap_done": {
       "text": "オペレーター{user}とチーム{team}を作成しました。",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "beta.email_invalid": {
+      "text": "有効なメールアドレスを入力してください。",
+      "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
+    },
+    "beta.challenge_expired": {
+      "text": "認証の有効期限が切れました。ページを再読み込みしてください。",
+      "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "beta.duplicate": {
+      "text": "お申し込みはすでに受け付けています。追ってご連絡いたします。",
+      "hash": "c8d1650c41717eab582e6d326f7036c1060d88b5"
+    },
+    "authz.forbidden": {
+      "text": "権限がありません：{perm}",
+      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "beta.verify_failed": {
+      "text": "認証に失敗しました。ページを再読み込みしてください。",
+      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
     },
     "notes.saved": {
       "text": "ノートを保存しました。",
@@ -20,13 +60,13 @@
       "text": "認証が必要です。",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
-    "http.already_initialized": {
-      "text": "すでに初期化されています。",
-      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    "beta.email_disposable": {
+      "text": "勤務先のメールアドレスをご利用ください。",
+      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
     },
-    "authz.forbidden": {
-      "text": "権限がありません：{perm}",
-      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    "beta.thanks": {
+      "text": "ありがとうございます。お申し込みを確認しています。",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
     },
     "inbox.summary": {
       "text": "新着メッセージが{count}件あります。",

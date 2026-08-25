@@ -124,6 +124,34 @@ bundle (`/beta/bundle/<plugin>/` + `window.Telemachus.beta` SDK), **C** sandboxe
 template (`/beta/template`). ENV seeds first-boot defaults (`TELEMACHUS_ONBOARDING`,
 `TELEMACHUS_ONBOARDING_FILE`); a published DB experience then wins.
 
+### Localizing the funnel
+
+The funnel's copy is operator-authored, so it is an **`i18n` overlay on the
+experience document**, not a catalog — `{"i18n":{"ja":{"title":…,"fields":{"email":
+{"label":…}}}}}`. Base config stays the default-locale copy, so no overlay = today's
+behaviour exactly.
+
+- **Translation is presentation only** (ONB‑8). An overlay matches fields BY KEY and
+  takes only `label`/`options`; it can never rename a key, change a type, flip
+  `required`, or reach `judge-system`/`theme`/`landing`/`template`. The submitted
+  body is identical in every language, which is why `doBetaSignup()` fetches the
+  field list with no locale.
+- Resolution is `?lang=` → `X-Telemachus-Locale` → instance default. `?lang=` wins
+  because a funnel is a page people are LINKED to — the switcher must leave a
+  shareable URL. An unknown locale falls back **whole**, never half-translated.
+- The switcher renders from `locales`, derived server-side from the document, so it
+  cannot offer a language with no copy behind it. It vanishes when instance
+  negotiation is off.
+- The public slice ships ONE language — never the overlay table, never the judge prompt.
+- Three homes, do not mix them: funnel **copy** → the experience document; funnel
+  **chrome** → the console's `const L`; server **refusals** → `surface/messages.rkt`
+  + `locales/*.json`. The third was bare English until the Aug 2026 sweep.
+- The honeypot's fake success must use the SAME localized string as the real one.
+
+```sh
+bash test/e2e/funnel-l10n.sh    # 16 browser assertions; boots with TELEMACHUS_HOME=beta
+```
+
 ## Localization (Admin > Localization)
 
 Instance-wide default locale plus an off switch, `domain/i18n/policy.rkt` over the
@@ -158,8 +186,9 @@ is now the shared accessor — use it for the next instance-wide setting).
 - `test/server-smoke.sh` asserts on real Japanese text (`権限がありません`,
   `認証が必要です`) — changing those strings means changing those assertions.
 - Review sheet: `python3 scripts/build-l10n-review.py` regenerates
-  `build/l10n-ja-review.html` from the real sources (console `const L` +
-  `locales/*.json`). A string in no group, or a note for a key that no longer
+  `build/l10n-ja-review.html` from the real sources (console `const L`,
+  `locales/*.json`, and the funnel copy in `domain/beta/beta.rkt` — the last read by
+  EVALUATING the module through `racket`, so run it inside `nix develop`). A string in no group, or a note for a key that no longer
   exists, is a build error — both by design.
 
 ## Multi-tenancy (several companies on one instance)

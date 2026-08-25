@@ -140,6 +140,7 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | ONB‑5 | 2FA optional at activation | ✅ default |
 | ONB‑6 | 72h activation TTL, resendable | ✅ built |
 | ONB‑7 | suspend = `402` + read-only, data retained | ✅ built |
+| ONB‑8 | funnel copy localizes via an `i18n` **overlay on the experience document**; translation is **presentation only** | ✅ built — an overlay matches fields by key and takes only `label`/`options`, so the submitted body and the anti-abuse config are identical in every language by construction |
 | ONB‑8 | 30-day retention then deprovision + export | ⏳ control-plane |
 | WF‑1 | workflow **spec is the contract**; `define-workflow` compiles to it | ✅ decided [^4] |
 | WF‑2 | binding sublanguage **frozen** (references + fixed predicates, no eval) | ✅ decided |

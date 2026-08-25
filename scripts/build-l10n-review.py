@@ -3,8 +3,12 @@
 
 Reads the two places Telemachus keeps user-facing Japanese —
 
-    refimpl/racketmaximus/static/index.html   the console dictionary (const L)
+    refimpl/racketmaximus/static/index.html    the console dictionary (const L)
     refimpl/racketmaximus/locales/{en,ja}.json  the server message catalogue
+    refimpl/racketmaximus/domain/beta/beta.rkt  the shipped beta-funnel copy and
+                                                its `i18n` overlay (read by
+                                                evaluating the module, not by
+                                                regex, so it cannot go stale)
 
 — and emits a single self-contained HTML review form. It is generated from the
 REAL sources on every run, so it cannot drift from what ships: change a string,
@@ -20,7 +24,7 @@ is an error, not a silent no-op — a renamed string must not quietly lose its n
 This is a development tool, not shipped code, and not part of the Racket build.
 """
 
-import argparse, html, json, os, re, sys
+import argparse, html, json, os, re, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONSOLE = os.path.join(ROOT, "refimpl/racketmaximus/static/index.html")
@@ -52,6 +56,67 @@ def js_pairs(body):
         order.append(k)
     dups = sorted({k for k in order if order.count(k) > 1})
     return out, dups
+
+
+IMPL = os.path.join(ROOT, "refimpl/racketmaximus")
+
+
+def beta_provider():
+    """The registered onboarding provider, as JSON.
+
+    Evaluated rather than parsed: the funnel copy is Racket data, and a regex over
+    it would silently drift the first time someone reformats the literal. Needs
+    the Nix dev shell (racket + PLTCOLLECTS); without it the funnel group is
+    skipped with a warning rather than the whole sheet failing, because a sheet
+    covering two of three sources still beats no sheet.
+    """
+    mod = os.path.join(IMPL, "domain/beta/beta.rkt").replace("\\", "/")
+    expr = ('(require (file "%s") json)'
+            '(write-json (hash-remove (active-onboarding) (quote judge-system)))' % mod)
+    env = dict(os.environ, PLTCOLLECTS=os.path.join(IMPL, "pkgs") + ":")
+    try:
+        out = subprocess.run(["racket", "-e", expr], cwd=IMPL, env=env,
+                             capture_output=True, timeout=180)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        return json.loads(out.stdout.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+# (english, japanese, key, note-key) rows for the shipped funnel copy
+FUNNEL_SCALARS = ["title", "subtitle", "eyebrow", "cta", "footer"]
+
+
+def funnel_rows(prov):
+    over = (prov.get("i18n") or {}).get("ja") or {}
+    rows = []
+    for k in FUNNEL_SCALARS:
+        if prov.get(k):
+            rows.append(("funnel." + k, prov[k], over.get(k, "")))
+    for i, d in enumerate(prov.get("details") or []):
+        o = (over.get("details") or [])
+        od = o[i] if i < len(o) else {}
+        for part in ("heading", "body"):
+            if d.get(part):
+                rows.append(("funnel.details.%d.%s" % (i, part), d[part], od.get(part, "")))
+    ofields = over.get("fields") or {}
+    for f in prov.get("fields") or []:
+        k = f.get("key")
+        of = ofields.get(k) or {}
+        if f.get("label"):
+            rows.append(("funnel.field.%s" % k, f["label"], of.get("label", "")))
+        if f.get("options"):
+            # Options are localizable but often deliberately are NOT localized
+            # (currency bands, numerals). Show them as one row so the reviewer
+            # decides once per field rather than per option.
+            rows.append(("funnel.field.%s.options" % k,
+                         " · ".join(str(o) for o in f["options"]),
+                         " · ".join(str(o) for o in (of.get("options") or []))))
+    return rows
 
 
 def read_sources():
@@ -121,11 +186,24 @@ GROUPS = [
     ("brand", "Branding", "static/index.html", None,
      "brandinghint brandtitle brandtagline brandlogo brandclearlogo brandreset"),
 
+    ("funnel", "Beta funnel \u2014 shipped copy", "domain/beta/beta.rkt",
+     "The public sign-up page, and the only Japanese a prospect ever reads. This is "
+     "an <code>i18n</code> overlay on the experience document, not a catalog: a "
+     "deployment overrides it wholesale via <code>TELEMACHUS_ONBOARDING_FILE</code>, "
+     "so treat these as OUR default copy rather than the last word. Field keys, "
+     "types and <code>required</code> are never localized \u2014 only what is read.",
+     None),
+
     ("loc", "Localization settings (Admin)", "static/index.html",
      "New in this sweep, and the only Japanese written after the review started — "
      "so it has had no native pass at all. The instance default and the switch that "
      "turns per-request negotiation off entirely.",
      "localization deflocale loctoggle lochint locoffhint locavail"),
+
+    ("bx", "Beta funnel \u2014 chrome", "static/index.html",
+     "Rendered by the console around the operator's copy: what a prospect sees while "
+     "submitting, and after. New in this sweep.",
+     "bxverifying bxthanks bxtouch bxrestart"),
 ]
 
 # ------------------------------------------------------------------- notes
@@ -204,6 +282,40 @@ NOTES = {
  "vis_shared": ("punct",
    "See <code>tagline</code>. Also confirm 「限定共有」 is unambiguous against 「共有」 used as a verb "
    "on the same screen."),
+
+ # --- beta funnel: the server's own refusals -------------------------------
+ "beta.not_ready": ("new", "Written in this sweep. Only seen before an instance has an operator."),
+ "beta.rate_limited": ("new", "Written in this sweep."),
+ "beta.challenge_expired": ("new", "Written in this sweep."),
+ "beta.verify_failed": ("new", "Written in this sweep."),
+ "beta.email_invalid": ("new",
+   "Written in this sweep. Probably the most-read Japanese string in the whole product \u2014 "
+   "it is what a mistyped address returns on the public form."),
+ "beta.email_disposable": ("new",
+   "Written in this sweep. Confirm the tone: this refuses a real person's real address."),
+ "beta.name_required": ("new", "Written in this sweep."),
+ "beta.duplicate": ("new", "Written in this sweep \u2014 a friendly refusal, not an error."),
+ "beta.domain_cap": ("new", "Written in this sweep."),
+ "beta.thanks": ("new",
+   "Written in this sweep. Also returned to the HONEYPOT, which must be "
+   "indistinguishable from a real success \u2014 so this string has to be identical "
+   "in both paths, in every language."),
+
+ # --- beta funnel: shipped copy --------------------------------------------
+ "funnel.title": ("new", "Written in this sweep. The first line a Japanese prospect reads."),
+ "funnel.subtitle": ("new", "Written in this sweep \u2014 the longest funnel string, worth reading aloud."),
+ "funnel.eyebrow": ("new", "Written in this sweep."),
+ "funnel.cta": ("new", "Written in this sweep. Matches the console's <code>requestaccess</code>."),
+ "funnel.footer": ("new", "Written in this sweep."),
+ "funnel.field.use_case": ("new",
+   "Written in this sweep. The only funnel label that is a question \u2014 confirm the "
+   "\u300c\uff1f\u300d and the level of politeness suit a first-contact form."),
+ "funnel.field.revenue.options": (None,
+   "Deliberately NOT translated: these are USD bands, and converting a currency is a "
+   "commercial decision rather than a translation. Approve to confirm that, or supply "
+   "\u5186 bands if the Japanese funnel should quote in yen."),
+ "funnel.field.team_size.options": (None,
+   "Deliberately NOT translated \u2014 numerals read the same. Approve to confirm."),
 
  # --- new strings, no native pass yet --------------------------------------
  "localization": ("new", "Written in this sweep. 「言語設定」 vs 「ローカライズ」 — your call."),
@@ -287,6 +399,7 @@ def row(file, key, en, ja, note):
 
 def build():
     en, ja, dups, men, mja = read_sources()
+    prov = beta_provider()
 
     assigned, sections, total = set(), [], 0
     for gid, title, file, stand, keys in GROUPS:
@@ -295,6 +408,13 @@ def build():
             for k in men:
                 rows.append(row("locales/ja.json", k, men[k]["text"],
                                 mja.get(k, {}).get("text", ""), NOTES.get(k)))
+        elif gid == "funnel":
+            if prov is None:
+                print("  ! skipping the funnel group: could not evaluate beta.rkt "
+                      "(run inside `nix develop`)", file=sys.stderr)
+            else:
+                for k, en_s, ja_s in funnel_rows(prov):
+                    rows.append(row("domain/beta/beta.rkt", k, en_s, ja_s, NOTES.get(k)))
         else:
             for k in keys.split():
                 if k not in en:
@@ -309,7 +429,8 @@ def build():
     missed = sorted(set(en) - assigned)
     if missed:
         raise SystemExit("console keys in no group (add them to GROUPS): " + ", ".join(missed))
-    stale = sorted(set(NOTES) - set(en) - set(men))
+    funnel_keys = {k for k, _e, _j in funnel_rows(prov)} if prov else set()
+    stale = sorted(set(NOTES) - set(en) - set(men) - funnel_keys)
     if stale:
         raise SystemExit("NOTES refer to keys that no longer exist: " + ", ".join(stale))
 

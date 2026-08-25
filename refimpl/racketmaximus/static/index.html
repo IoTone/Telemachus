@@ -71,6 +71,12 @@
   .bx-frame{border:0;width:100%;height:100vh;display:block}
   .bx-nav{display:flex;gap:18px;font-size:14px}
   .bx-nav a{color:var(--bx-muted,#93a4b8);text-decoration:none}
+  .bx-lang{display:flex;gap:6px;margin-left:18px}
+  .bx-lang button{background:none;border:1px solid var(--bx-muted,#93a4b8);color:var(--bx-muted,#93a4b8);
+    border-radius:999px;padding:2px 10px;font-size:12px;cursor:pointer;line-height:1.6}
+  .bx-lang button.active{background:var(--bx-brand,#c9a227);border-color:var(--bx-brand,#c9a227);
+    color:var(--bx-brandInk,#132c46);font-weight:600}
+  .bx-lang button:focus-visible{outline:2px solid var(--bx-brand,#c9a227);outline-offset:2px}
   .bx-hero{background:var(--bx-hero,transparent);border-radius:calc(var(--bx-radius,10px) + 4px);padding:42px 30px;margin:6px 0 26px}
   .bx-eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--bx-brand,#c9a227);font-weight:700;margin-bottom:10px}
   .bx-hero h1{font-size:clamp(1.7rem,4vw,2.5rem);line-height:1.08;margin:0 0 10px;color:var(--bx-ink);font-family:var(--bx-fontd,inherit)}
@@ -145,6 +151,9 @@ const L = {
       nolimit:'no limit',norepoobjects:'No documents yet. Any format \u2014 pdf, svg, png, docx, xml, md.',
       uploadhint:'Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.',
       vishint:'You set this because you uploaded it. Sharing narrows a team document to just the people you name.',
+      bxverifying:'Verifying you\u2019re human\u2026',
+      bxthanks:'Thanks \u2014 your request is in review.',bxtouch:'We\u2019ll be in touch.',
+      bxrestart:'could not start \u2014 please reload',
       localization:'Localization',deflocale:'Default language',
       loctoggle:'Let people choose their language',
       lochint:'The language this instance answers in when a visitor has not chosen one \u2014 including on the sign-in screen, before anyone has an account.',
@@ -190,6 +199,9 @@ const L = {
       nolimit:'上限なし',norepoobjects:'まだドキュメントがありません。形式は自由です \u2014 pdf、svg、png、docx、xml、md。',
       uploadhint:'どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。',
       vishint:'アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。',
+      bxverifying:'本人確認を行っています\u2026',
+      bxthanks:'ありがとうございます \u2014 お申し込みを確認しています。',bxtouch:'追ってご連絡いたします。',
+      bxrestart:'開始できませんでした \u2014 再読み込みしてください',
       localization:'言語設定',deflocale:'既定の言語',
       loctoggle:'利用者による言語の切り替えを許可する',
       lochint:'訪問者が言語を選んでいないときに、このインスタンスが応答する言語です。アカウント作成前のサインイン画面にも適用されます。',
@@ -673,6 +685,30 @@ function bxVars(cfg){ const th=(cfg&&cfg.theme)||{}; const mode=th.mode||'dark';
     ['--bx-font',font],['--bx-fontd',th.fontFile?'bxcustom,'+fontStack(th.fontDisplay||th.fontBody):fontStack(th.fontDisplay||th.fontBody)]];
   return pairs.map(([k,v])=>k+':'+bxSan(v)).join(';'); }
 // one field input (scoped ids bf_<key>); shared by the live page and the editor preview
+// The funnel's own language switcher. Driven by `cfg.locales`, which the server
+// derives from the experience document — so it can only ever offer a language the
+// funnel actually has copy for. Hidden when the operator has turned negotiation
+// off instance-wide, and when there is only one language to pick.
+function bxLangBtns(cfg){
+  const av = (cfg && cfg.locales) || [];
+  if(!S.i18n.enabled || av.length < 2) return '';
+  const cur = (cfg && cfg.locale) || S.lang;
+  return `<span class="bx-lang">${av.map(l=>
+    `<button type="button" class="${cur===l?'active':''}" onclick="bxSetLang('${esc(l)}')">${esc(LANGNAME[l]||l.toUpperCase())}</button>`
+  ).join('')}</span>`;
+}
+// ?lang= is the funnel's carrier, not localStorage: a funnel is a page people are
+// LINKED to, so the switcher has to leave a shareable URL behind. It also sets
+// S.lang so the chrome ("Thanks — your request is in review") follows the copy.
+function bxSetLang(l){
+  S.lang = l;
+  try{
+    const u = new URL(location.href);
+    u.searchParams.set('lang', l);
+    history.replaceState(null, '', u);
+  }catch(e){}
+  render();
+}
 function bxField(f){ const id='bf_'+f.key; const req=f.required?' *':'';
   if(f.type==='textarea') return `<label>${esc(f.label)}${req}</label><textarea id="${id}" rows="3"></textarea>`;
   if(f.type==='select') return `<label>${esc(f.label)}${req}</label><select id="${id}"><option value=""></option>${(f.options||[]).map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
@@ -697,7 +733,7 @@ function renderLandingShell(cfg, mode){
     ? `<img class="bx-logo-img" src="${esc(assetUrl(cfg.logoImage))}" alt="${esc(cfg.logo||'')}">`
     : `<div class="bx-logo">${logoText === 'Telemachus' ? markSVG(26) : ''}<span>${esc(logoText)}</span></div>`;
   return `${fontFace}<div class="bx" style="${bxVars(cfg)}"><div class="bx-wrap">
-    <header class="bx-head">${logo}<nav class="bx-nav">${nav}</nav></header>
+    <header class="bx-head">${logo}<nav class="bx-nav">${nav}${live?bxLangBtns(cfg):''}</nav></header>
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>
     <div class="bx-main">
       <div class="bx-card">${form}</div>
@@ -706,8 +742,18 @@ function renderLandingShell(cfg, mode){
     <footer class="bx-foot">${esc(cfg.footer||'')}</footer>
   </div></div>`;
 }
+// ?lang= wins over the instance default so a shared link lands in its language.
+function funnelLang(){
+  const q = new URLSearchParams(location.search).get('lang');
+  return (q && S.i18n.enabled) ? q : S.lang;
+}
 async function betaLandingView(){
-  const r=await api('/api/beta/config'); const cfg=r.ok?r.json:{title:'Beta',subtitle:'',fields:[]};
+  const lang=funnelLang();
+  const r=await api('/api/beta/config?lang='+encodeURIComponent(lang));
+  const cfg=r.ok?r.json:{title:'Beta',subtitle:'',fields:[],locales:[]};
+  // The server decides which locale the funnel is actually answered in; follow it
+  // so the chrome cannot end up in a different language from the copy.
+  if(cfg.locale) S.lang=cfg.locale;
   const ch=await api('/api/beta/challenge'); S.betaChallenge = ch.ok?ch.json:null;   // issued at load → human fill time passes the min-age gate
   return renderLandingShell(cfg,'live');
 }
@@ -715,17 +761,20 @@ async function betaLandingView(){
 function powhash(s){ let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h=(h^s.charCodeAt(i))>>>0; h=Math.imul(h,16777619)>>>0; } return h>>>0; }
 function solvePow(nonce,difficulty){ const mask=(difficulty>=32)?0xFFFFFFFF:(((1<<difficulty)>>>0)-1); for(let n=0;;n++){ if((powhash(nonce+':'+n)&mask)===0) return n; } }
 async function doBetaSignup(){
-  const msg=document.getElementById('betamsg'); msg.innerHTML='<span class="muted">Verifying you’re human…</span>';
+  const msg=document.getElementById('betamsg'); msg.innerHTML=`<span class="muted">${esc(t('bxverifying'))}</span>`;
+  // no ?lang= needed: an overlay may localize a field's LABEL but never its key,
+  // so the submitted body is identical in every language (experience.rkt).
   const cfgR=await api('/api/beta/config'); const fields=cfgR.ok?cfgR.json.fields:[];
   if(!S.betaChallenge){ const chR=await api('/api/beta/challenge'); S.betaChallenge=chR.ok?chR.json:null; }
-  if(!S.betaChallenge){ msg.innerHTML='<span class="badge">could not start — reload</span>'; return; }
+  if(!S.betaChallenge){ msg.innerHTML=`<span class="badge">${esc(t('bxrestart'))}</span>`; return; }
   const {challenge,difficulty,honeypot}=S.betaChallenge;
   const pow=solvePow(challenge.split('.')[0], difficulty);      // proof of work (CPU cost per signup)
   const body={}; for(const f of fields){ const el=document.getElementById('bf_'+f.key); if(el) body[f.key]=el.value; }
   const hp=document.getElementById('bf__hp'); body[honeypot||'_hp']=hp?hp.value:'';
   body.challenge=challenge; body.pow=pow;
   const res=await api('/api/beta/signup',{method:'POST',body});
-  if(res.ok){ document.getElementById('betaform').style.display='none'; msg.innerHTML='<b>Thanks — your request is in review.</b><br><span class="muted">We’ll be in touch.</span>'; }
+  if(res.ok){ document.getElementById('betaform').style.display='none';
+    msg.innerHTML=`<b>${esc(t('bxthanks'))}</b><br><span class="muted">${esc(t('bxtouch'))}</span>`; }
   else { S.betaChallenge=null; msg.innerHTML=`<span class="badge">${esc(res.json.error||'error')}</span>`; }   // drop the used/stale challenge
 }
 function teamSignIn(){ S.forceLogin=true; render(); }
@@ -1454,7 +1503,7 @@ window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=
 window.doActivate=doActivate; window.doCreateToken=doCreateToken; window.doRevokeToken=doRevokeToken; window.doSearch=doSearch; window.doToggleFeature=doToggleFeature;
 window.doCreateDoc=doCreateDoc; window.doDelDoc=doDelDoc; window.doMoreDocs=doMoreDocs;
 window.doSubmitJob=doSubmitJob; window.doCancelJob=doCancelJob; window.doSeedSamples=doSeedSamples;
-window.doBetaSignup=doBetaSignup; window.teamSignIn=teamSignIn; window.betaLandingView=betaLandingView; window.doDecide=doDecide;
+window.bxSetLang=bxSetLang; window.doBetaSignup=doBetaSignup; window.teamSignIn=teamSignIn; window.betaLandingView=betaLandingView; window.doDecide=doDecide;
 window.betaSub=betaSub; window.bxSet=bxSet; window.bxSaveDraft=bxSaveDraft; window.bxPublish=bxPublish;
 window.bxAddField=bxAddField; window.bxDelField=bxDelField; window.bxSetField=bxSetField;
 window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.bxSetLanding=bxSetLanding; window.S=S;

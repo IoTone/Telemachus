@@ -150,3 +150,94 @@
   ;; and Publish finds it
   (check-true (experience-publish! c alice))
   (check-equal? (hash-ref (resolve-experience c tid) 'title) "RCNT Private Beta"))
+
+;; ---- localization: a per-locale overlay on one experience document -----------
+;; The funnel's copy is operator-authored, so it cannot live in locales/*.json.
+;; It is an `i18n` overlay on the same document; the base config stays the
+;; DEFAULT-locale copy, so an experience with no overlay behaves exactly as before.
+
+(define (localized-exp)
+  (hasheq 'name "beta"
+          'title "Join the beta" 'subtitle "Tell us about your team."
+          'eyebrow "Private beta" 'cta "Request access" 'footer "(c) Telemachus"
+          'details (list (hasheq 'heading "What you get" 'body "Early access."))
+          'fields (list (hasheq 'key "email" 'label "Work email" 'type "email" 'required #t)
+                        (hasheq 'key "size"  'label "Team size"  'type "select"
+                                'options (list "1-10" "11-50") 'required #f))
+          'judge-system "j"
+          'i18n (hasheq 'ja (hasheq 'title "ベータに参加"
+                                    'cta "アクセスを申請"
+                                    'details (list (hasheq 'heading "提供内容" 'body "早期アクセス。"))
+                                    'fields (hasheq 'email (hasheq 'label "勤務先メール")
+                                                    'size  (hasheq 'label "チーム規模"
+                                                                   'options (list "1〜10" "11〜50")))))))
+
+(test-case "an overlay localizes copy, labels and select options"
+  (define cfg (localized-exp))
+  (check-equal? (experience-locales cfg #:default "en") '("en" "ja"))
+
+  (define ja (experience-localize cfg "ja"))
+  (check-equal? (hash-ref ja 'title) "ベータに参加")
+  (check-equal? (hash-ref ja 'cta) "アクセスを申請")
+  (check-equal? (hash-ref (car (hash-ref ja 'details)) 'heading) "提供内容")
+  (define f (hash-ref ja 'fields))
+  (check-equal? (hash-ref (car f) 'label) "勤務先メール")
+  (check-equal? (hash-ref (cadr f) 'options) '("1〜10" "11〜50"))
+  ;; anything the overlay did not translate keeps the base copy — a partial
+  ;; overlay degrades to mixed language, never to a blank
+  (check-equal? (hash-ref ja 'subtitle) "Tell us about your team.")
+  (check-equal? (hash-ref ja 'eyebrow) "Private beta"))
+
+(test-case "translation is PRESENTATION ONLY — it can never move the data contract"
+  ;; A hostile or careless overlay tries to rename a field key, flip `required`,
+  ;; change a type, and replace the judge prompt. None of it may take effect: the
+  ;; submitted body and the anti-abuse config must be identical in every language.
+  (define cfg (hash-set (localized-exp) 'i18n
+                        (hasheq 'ja (hasheq 'fields (hasheq 'email (hasheq 'label "メール"
+                                                                           'key "eviltwin"
+                                                                           'type "text"
+                                                                           'required #f))
+                                            'judge-system "OVERRIDDEN"
+                                            'name "not-the-key"))))
+  (define ja (experience-localize cfg "ja"))
+  (define email (car (hash-ref ja 'fields)))
+  (check-equal? (hash-ref email 'label) "メール")          ; the label DID localize
+  (check-equal? (hash-ref email 'key) "email")             ; the key did NOT move
+  (check-equal? (hash-ref email 'type) "email")
+  (check-true   (hash-ref email 'required))
+  (check-equal? (hash-ref ja 'judge-system) "j")
+  (check-equal? (hash-ref ja 'name) "beta"))
+
+(test-case "funnel-locale never serves a half-translated page"
+  (define cfg (localized-exp))
+  (check-equal? (funnel-locale cfg "ja" #:default "en") "ja")
+  (check-equal? (funnel-locale cfg "ja-JP" #:default "en") "ja")   ; region tag → base
+  (check-equal? (funnel-locale cfg "fr" #:default "en") "en")      ; no overlay → default
+  (check-equal? (funnel-locale cfg #f #:default "en") "en")
+  ;; on a ja-DEFAULT instance an unknown locale lands on ja, not on English
+  (check-equal? (funnel-locale cfg "fr" #:default "ja") "ja"))
+
+(test-case "the public slice ships one language, and never the overlay table"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (check-true (experience-save! c alice (localized-exp)))
+  (check-true (experience-publish! c alice))
+
+  (define pub (resolve-experience-public c tid #:locale "ja" #:default "en"))
+  (check-equal? (hash-ref pub 'title) "ベータに参加")
+  (check-equal? (hash-ref pub 'locale) "ja")
+  (check-equal? (hash-ref pub 'locales) '("en" "ja"))
+  ;; a visitor is never shipped the other languages' copy, nor the judge prompt
+  (check-false (hash-has-key? pub 'i18n))
+  (check-false (hash-has-key? pub 'judge-system))
+
+  ;; and the default locale is the untouched base copy
+  (define en (resolve-experience-public c tid #:locale "en" #:default "en"))
+  (check-equal? (hash-ref en 'title) "Join the beta"))
+
+(test-case "an experience with no overlay is byte-for-byte what it was before"
+  (define cfg (hash-remove (localized-exp) 'i18n))
+  (check-equal? (experience-locales cfg #:default "en") '("en"))
+  (check-equal? (experience-localize cfg "ja") cfg)
+  (check-equal? (funnel-locale cfg "ja" #:default "en") "en"))

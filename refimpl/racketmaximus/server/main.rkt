@@ -405,8 +405,28 @@
                              'branding (branding-set! db-conn (hash-set cur 'logo id)))
                      #:code 201)))))
 
+;; The locale a PUBLIC funnel request asked for. `?lang=` comes first and exists
+;; on purpose: the funnel is a page a visitor is linked to, so the switcher has to
+;; produce a shareable URL, and there is no signed-in console state to carry a
+;; preference. Falls back to the usual header, then to the instance default.
+(define (funnel-requested-locale req)
+  (let ([q (query-param req 'lang "")])
+    (if (string=? q "") (accept-language req) q)))
+
+(define (funnel-default-locale)
+  (hash-ref (i18n-policy db-conn (locales-dir)) 'default "en"))
+
+;; If the operator has turned per-request negotiation OFF, the funnel does not get
+;; a say either — same rule as every other surface.
+(define (funnel-locale-for req)
+  (if (hash-ref (i18n-policy db-conn (locales-dir)) 'enabled #t)
+      (funnel-requested-locale req)
+      #f))
+
 (define (ep-beta-config req)     ; public: the effective experience (published DB row, else ENV/provider base)
-  (cors-json (resolve-experience-public db-conn (default-team db-conn))))
+  (cors-json (resolve-experience-public db-conn (default-team db-conn)
+                                        #:locale (funnel-locale-for req)
+                                        #:default (funnel-default-locale))))
 
 ;; public: the Tier-C custom template, sanitized + wrapped with our submission
 ;; bootstrap. Served for the sandboxed iframe (see domain/beta/template.rkt).
@@ -414,7 +434,12 @@
   (define team (default-team db-conn))
   (define exp (resolve-experience db-conn team))
   (define tpl (let ([t (hash-ref exp 'template #f)]) (if (and (string? t) (not (string=? t ""))) t DEFAULT-TEMPLATE)))
-  (define public-cfg (hash-remove exp 'judge-system))
+  ;; the localized slice, so a Tier-C template is translated by the overlay
+  ;; without its author writing a line of i18n code
+  (define public-cfg
+    (resolve-experience-public db-conn team
+                               #:locale (funnel-locale-for req)
+                               #:default (funnel-default-locale)))
   (html-response (template-page public-cfg tpl)))
 
 ;; ---- admin: edit & publish the onboarding experience (settings:manage) -------
@@ -473,21 +498,21 @@
   (define key (client-key req))
   (define team (default-team db-conn))
   (cond
-    [(not team) (err "instance not initialized" 503)]
+    [(not team) (err (msg-beta-not-ready) 503)]
     [(not (limiter-allow? beta-limiter key now #:max 5 #:window 60))
-     (bump-blocked! "rate") (err "too many requests — please slow down" 429)]
+     (bump-blocked! "rate") (err (msg-beta-rate) 429)]
     [(not (string=? (fmt b '_hp) ""))                    ; honeypot: pretend success, store nothing
-     (bump-blocked! "honeypot") (json-response (hasheq 'ok #t 'message "Thanks — your request is in review.") #:code 201)]
+     (bump-blocked! "honeypot") (json-response (hasheq 'ok #t 'message (msg-beta-thanks)) #:code 201)]
     [else
      (define tok (fmt b 'challenge))
      (define nonce (let ([ps (string-split tok ".")]) (if (pair? ps) (car ps) "")))
      (define ch (verify-challenge tok #:secret beta-secret #:now now #:used beta-used))
      (cond
-       [(not (eq? ch 'ok)) (bump-blocked! (format "challenge-~a" ch)) (err "invalid or expired challenge — reload the page" 400)]
-       [(not (verify-pow nonce (fmt b 'pow) pow-bits)) (bump-blocked! "pow") (err "verification failed — reload the page" 400)]
-       [(not (valid-email? (fmt b 'email))) (bump-blocked! "email") (err "a valid email is required" 400)]
-       [(disposable-email? (fmt b 'email)) (bump-blocked! "disposable") (err "please use a work email address" 400)]
-       [(string=? (fmt b 'name) "") (err "name is required" 400)]
+       [(not (eq? ch 'ok)) (bump-blocked! (format "challenge-~a" ch)) (err (msg-beta-challenge) 400)]
+       [(not (verify-pow nonce (fmt b 'pow) pow-bits)) (bump-blocked! "pow") (err (msg-beta-verify) 400)]
+       [(not (valid-email? (fmt b 'email))) (bump-blocked! "email") (err (msg-beta-email) 400)]
+       [(disposable-email? (fmt b 'email)) (bump-blocked! "disposable") (err (msg-beta-work-email) 400)]
+       [(string=? (fmt b 'name) "") (err (msg-beta-name) 400)]
        [else
         (define email (fmt b 'email))
         (define domain (or (email-domain email) ""))
@@ -497,9 +522,9 @@
         (define dom-count (count-recent-domain db-conn team domain since))
         (cond
           [(>= (count-recent-email db-conn team email since) email-cap)
-           (bump-blocked! "email-cap") (err "we already have your request — we'll be in touch" 429)]
+           (bump-blocked! "email-cap") (err (msg-beta-duplicate) 429)]
           [(>= dom-count domain-cap)
-           (bump-blocked! "domain-cap") (err "too many requests from your organization — please reach out directly" 429)]
+           (bump-blocked! "domain-cap") (err (msg-beta-domain-cap) 429)]
           [else
            ;; signals the LLM judge weighs (how the signup arrived)
            (define signals (hasheq 'domain_signups_24h dom-count 'free_email (free-email? email)))

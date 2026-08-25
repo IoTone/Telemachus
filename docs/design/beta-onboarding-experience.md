@@ -211,6 +211,66 @@ app chrome. Everything downstream reads only these tokens, so reskinning is data
 - **Light/dark** — the experience declares its own `mode`; a branded page is usually
   committed to one look, independent of the viewer's app theme.
 
+## 5. Localization — an overlay on the document, not a catalog
+
+The funnel's copy is **operator-authored marketing text**, so it cannot live in
+`locales/*.json` alongside shipped product strings: a deployment replaces it
+wholesale. It is a per-locale **overlay on the same experience document**:
+
+```json
+{ "title": "Join the Telemachus beta",
+  "cta":   "Request access",
+  "fields": [{"key":"email","label":"Work email","type":"email","required":true}],
+  "i18n": {
+    "ja": { "title": "Telemachus ベータ版に参加する",
+            "cta":   "アクセスを申請",
+            "fields": { "email": {"label": "勤務先メールアドレス"} } } } }
+```
+
+The base document stays exactly what it is today — the **default-locale** copy —
+so an experience with no `i18n` key behaves byte for byte as before. That is what
+makes this safe to ship over live funnels, and it means a deployment localizes by
+adding one key to `TELEMACHUS_ONBOARDING_FILE`.
+
+**Translation is presentation only.** ✅ **Decided (ONB‑8).** An overlay may
+replace `title`, `subtitle`, `eyebrow`, `cta`, `footer`, `logo`, `nav`, `details`,
+and — matched **by key** — a field's `label` and `options`. It may not rename a
+field key, change a type, flip `required`, or touch `judge-system`, `theme`,
+`landing` or `template`. So the submitted body and the anti-abuse configuration
+are identical in every language *by construction*, not by review. This is why
+`doBetaSignup()` can fetch the field list without a locale at all.
+
+**Resolution** is `?lang=` → `X-Telemachus-Locale` → the instance default
+(LOC‑7). `?lang=` comes first deliberately: a funnel is a page people are *linked
+to*, so the switcher has to leave a shareable URL behind, and there is no
+signed-in console state to carry a preference. A locale with no overlay falls back
+**whole** — never a half-translated page — and `ja-JP` reaches a `ja` overlay.
+
+**The switcher offers `locales`**, which the server derives from the document
+(default + every overlay that carries content). It can therefore never advertise a
+language the funnel has no copy for. It disappears entirely when the operator has
+turned negotiation off instance-wide, or when there is only one language.
+
+Three kinds of string, three homes — worth keeping straight:
+
+| String | Lives in | Localized by |
+|---|---|---|
+| Funnel copy (title, labels, options) | the experience document | an `i18n` overlay, per deployment |
+| Funnel chrome ("Thanks — your request is in review") | the console's `const L` | shipped catalogs |
+| Server refusals ("a valid email is required") | `surface/messages.rkt` → `locales/*.json` | shipped catalogs |
+
+The third was bare English until this change, which meant a Japanese applicant who
+mistyped an address got an English error on an otherwise Japanese page — the most
+likely message on the form, untranslated. The honeypot's fake success uses the
+same localized string as the real one, because it has to be indistinguishable.
+
+The public slice ships **one** language: the resolved `locale` and the available
+`locales`, never the overlay table (and never the judge prompt).
+
+```sh
+bash test/e2e/funnel-l10n.sh    # 16 browser assertions: switcher, repaint, submit path
+```
+
 ## Security & the tenets
 
 - **Trust boundary.** The *author* is a trusted admin (RBAC `settings:manage`,

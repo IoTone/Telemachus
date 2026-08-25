@@ -3,6 +3,26 @@
     "locale": "en"
   },
   "messages": {
+    "http.already_initialized": {
+      "text": "Already initialized.",
+      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    },
+    "beta.not_ready": {
+      "text": "instance not initialized",
+      "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
+    },
+    "beta.domain_cap": {
+      "text": "too many requests from your organization — please reach out directly",
+      "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
+    },
+    "beta.name_required": {
+      "text": "name is required",
+      "hash": "431a950e6bcbabd6c3c18de6f2eea712093d369c"
+    },
+    "beta.rate_limited": {
+      "text": "too many requests — please slow down",
+      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    },
     "greeting.hello": {
       "text": "Hello, {name}!",
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
@@ -10,6 +30,26 @@
     "authz.bootstrap_done": {
       "text": "Created operator {user} and team {team}.",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "beta.email_invalid": {
+      "text": "a valid email is required",
+      "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
+    },
+    "beta.challenge_expired": {
+      "text": "invalid or expired challenge — reload the page",
+      "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "beta.duplicate": {
+      "text": "we already have your request — we'll be in touch",
+      "hash": "c8d1650c41717eab582e6d326f7036c1060d88b5"
+    },
+    "authz.forbidden": {
+      "text": "Forbidden: {perm}",
+      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "beta.verify_failed": {
+      "text": "verification failed — reload the page",
+      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
     },
     "notes.saved": {
       "text": "Note saved.",
@@ -19,13 +59,13 @@
       "text": "Authentication required.",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
-    "http.already_initialized": {
-      "text": "Already initialized.",
-      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    "beta.email_disposable": {
+      "text": "please use a work email address",
+      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
     },
-    "authz.forbidden": {
-      "text": "Forbidden: {perm}",
-      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    "beta.thanks": {
+      "text": "Thanks — your request is in review.",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
     },
     "inbox.summary": {
       "text": "You have {count, plural, one {# new message} other {# new messages}}.",

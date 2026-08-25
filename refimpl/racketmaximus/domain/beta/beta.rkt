@@ -121,6 +121,36 @@
                         (hasheq 'key "team_size" 'label "Team size" 'type "select"
                                 'options (list "1–10" "11–50" "51–200" "200+") 'required #f)
                         (hasheq 'key "use_case" 'label "What would you use Telemachus for?" 'type "textarea" 'required #t))
+          ;; The shipped funnel is bilingual out of the box, so a deployment that
+          ;; sets nothing still demonstrates the switcher. An overlay carries ONLY
+          ;; presentation: field keys, types and `required` come from the base
+          ;; above in every language (see experience.rkt), which is what keeps the
+          ;; submitted body identical whichever language the applicant read.
+          ;;
+          ;; `revenue` deliberately keeps its base options — those are USD bands,
+          ;; and converting a currency is a commercial decision, not a translation.
+          'i18n
+          (hasheq
+           'ja
+           (hasheq
+            'title "Telemachus ベータ版に参加する"
+            'subtitle "デザインパートナーとして、少数のチームを募集しています。あなたのチームについてお聞かせください。"
+            'eyebrow "プライベートベータ"
+            'cta "アクセスを申請"
+            'footer "© Telemachus — セルフホスト型、プライバシーを最優先するチーム向けAI。"
+            'details (list (hasheq 'heading "提供内容"
+                                   'body "プラットフォームへの早期アクセスと、開発チームへの直接の窓口。")
+                           (hasheq 'heading "対象となるチーム"
+                                   'body "セルフホストでプライベートなAIを必要とするチーム。データが自社インフラの外に出ることはありません。"))
+            'fields (hasheq 'name (hasheq 'label "氏名")
+                            'email (hasheq 'label "勤務先メールアドレス")
+                            'job_title (hasheq 'label "役職")
+                            'phone (hasheq 'label "電話番号（任意）")
+                            'company (hasheq 'label "会社名（任意）")
+                            'company_address (hasheq 'label "会社所在地")
+                            'revenue (hasheq 'label "年間売上")
+                            'team_size (hasheq 'label "チーム規模")
+                            'use_case (hasheq 'label "Telemachus をどのように活用したいですか？"))))
           'judge-system DEFAULT-JUDGE))
 (register-onboarding! "beta" DEFAULT-PROVIDER)
 

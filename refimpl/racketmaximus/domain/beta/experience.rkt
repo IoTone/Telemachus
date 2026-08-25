@@ -21,7 +21,8 @@
 (provide experience-file-config base-experience experience-active-key
          resolve-experience resolve-experience-public experience-judge-system
          experience-draft experience-save! experience-publish! experience-list
-         experience-landing)
+         experience-landing
+         experience-locales experience-localize funnel-locale)
 
 ;; ---- ENV launch defaults ----------------------------------------------------
 ;; A deployer can point TELEMACHUS_ONBOARDING_FILE at a JSON file describing the
@@ -75,9 +76,106 @@
   (define pub (row-config conn team (experience-active-key) "published"))
   (or (and pub (parse-config pub)) (base-experience)))
 
-;; the public slice the SPA renders from — never leak the judge prompt
-(define (public-slice cfg) (hash-remove cfg 'judge-system))
-(define (resolve-experience-public conn team) (public-slice (resolve-experience conn team)))
+;; ---- localization: a per-locale OVERLAY on one experience document ----------
+;; The funnel's copy is operator-authored marketing text, not a shipped product
+;; string, so it cannot live in locales/*.json. It lives here instead, as an
+;; overlay on the same document:
+;;
+;;   { "title": "Join the beta", "cta": "Request access",
+;;     "fields": [{"key":"email","label":"Work email"}],
+;;     "i18n": { "ja": { "title": "…", "cta": "…",
+;;                       "fields": { "email": {"label":"勤務先メール"} } } } }
+;;
+;; The base document stays exactly what it is today — the DEFAULT-locale copy —
+;; so an experience with no `i18n` key behaves byte for byte as before. That is
+;; what makes this safe to ship over live funnels.
+;;
+;; TRANSLATION IS PRESENTATION ONLY. An overlay may replace visible strings and
+;; nothing else: `fields` are matched BY KEY and only their `label`/`options` are
+;; taken, so a translation can never rename a field key, change its type, make a
+;; required field optional, or touch `judge-system`, `theme`, `landing` or
+;; `template`. The form's data contract and the anti-abuse configuration are the
+;; same in every language, by construction rather than by review.
+
+;; keys an overlay is allowed to replace wholesale
+(define OVERLAY-STRINGS '(title subtitle eyebrow cta footer logo))
+(define OVERLAY-LISTS   '(nav details))     ; replaced as a whole list, not merged
+
+;; fields: matched by `key`; only label/options are localizable.
+(define (localize-fields fields over)
+  (cond
+    [(not (hash? over)) fields]
+    [else
+     (for/list ([f (in-list fields)])
+       (define k (and (hash? f) (hash-ref f 'key #f)))
+       (define o (and k (hash-ref over (string->symbol (format "~a" k)) #f)))
+       (cond
+         [(not (hash? o)) f]
+         [else
+          (let* ([lab (hash-ref o 'label #f)]
+                 [opts (hash-ref o 'options #f)]
+                 [f (if (string? lab) (hash-set f 'label lab) f)])
+            (if (list? opts) (hash-set f 'options opts) f))]))]))
+
+;; every locale this experience can actually render: the default copy, plus each
+;; overlay that carries something. Derived from the document, never stored
+;; separately, so the switcher cannot offer a language with no content behind it.
+(define (experience-locales cfg #:default [dflt "en"])
+  (define i18n (hash-ref cfg 'i18n #f))
+  (define extra
+    (if (hash? i18n)
+        (sort (for/list ([(k v) (in-hash i18n)] #:when (and (hash? v) (positive? (hash-count v))))
+                (symbol->string k))
+              string<?)
+        '()))
+  (cons dflt (filter (lambda (l) (not (string=? l dflt))) extra)))
+
+;; Apply one overlay. An unknown locale, or the default, returns the base config.
+(define (experience-localize cfg locale)
+  (define i18n (hash-ref cfg 'i18n #f))
+  (define over (and (hash? i18n) locale (hash-ref i18n (string->symbol locale) #f)))
+  (cond
+    [(not (hash? over)) cfg]
+    [else
+     (define with-strings
+       (for/fold ([h cfg]) ([k (in-list OVERLAY-STRINGS)])
+         (let ([v (hash-ref over k #f)]) (if (string? v) (hash-set h k v) h))))
+     (define with-lists
+       (for/fold ([h with-strings]) ([k (in-list OVERLAY-LISTS)])
+         (let ([v (hash-ref over k #f)]) (if (list? v) (hash-set h k v) h))))
+     (hash-set with-lists 'fields
+               (localize-fields (hash-ref with-lists 'fields '()) (hash-ref over 'fields #f)))]))
+
+;; Which locale a PUBLIC funnel request is answered in. `requested` is the
+;; ?lang= query value or the X-Telemachus-Locale header, or #f. It only wins if
+;; the experience actually has copy for it — otherwise the instance default,
+;; never a half-translated page.
+(define (funnel-locale cfg requested #:default [dflt "en"])
+  (define avail (experience-locales cfg #:default dflt))
+  (cond
+    [(and requested (member requested avail)) requested]
+    ;; ja-JP should reach a `ja` overlay
+    [(and requested
+          (let ([base (car (regexp-split #rx"-" requested))])
+            (and (member base avail) base)))
+     => values]
+    [else dflt]))
+
+;; the public slice the SPA renders from — never leak the judge prompt, and never
+;; ship the other languages' copy to a visitor who asked for one of them. The
+;; overlay table is replaced by the resolved `locale` plus the `locales` a
+;; switcher may offer.
+(define (public-slice cfg #:locale [locale #f] #:locales [locales #f])
+  (define base (hash-remove (hash-remove cfg 'judge-system) 'i18n))
+  (let* ([h (if locale (hash-set base 'locale locale) base)]
+         [h (if locales (hash-set h 'locales locales) h)])
+    h))
+
+(define (resolve-experience-public conn team #:locale [requested #f] #:default [dflt "en"])
+  (define cfg (resolve-experience conn team))
+  (define avail (experience-locales cfg #:default dflt))
+  (define loc (funnel-locale cfg requested #:default dflt))
+  (public-slice (experience-localize cfg loc) #:locale loc #:locales avail))
 
 ;; the judge prompt for a team's active experience (falls back to the built-in)
 (define (experience-judge-system conn team)

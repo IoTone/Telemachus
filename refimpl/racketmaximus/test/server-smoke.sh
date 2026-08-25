@@ -332,6 +332,37 @@ assert "restore en" \
   "$(curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $OP" -d '{"default":"en","enabled":true}')" '"default":"en"'
 assert "…and 401 is English again" "$(curl -s $B/api/whoami)" 'Authentication required'
 
+# ---- beta funnel localization (the public sign-up page) --------------------------
+# The funnel's copy is operator-authored config, not a shipped catalog, so it is an
+# `i18n` overlay on the experience document. What must hold over HTTP: the visitor
+# gets ONE language, never the overlay table, and the field KEYS are identical in
+# every language — the submitted body cannot depend on which language was read.
+BXEN=$(curl -s "$B/api/beta/config")
+assert "funnel advertises its locales"  "$BXEN" '"locales":'
+assert "…including ja"                  "$BXEN" '"ja"'
+assert "…default answers in en"         "$BXEN" '"locale":"en"'
+assert "…English copy"                  "$BXEN" 'Join the Telemachus beta'
+BXJA=$(curl -s "$B/api/beta/config?lang=ja")
+assert "?lang=ja answers in ja"         "$BXJA" '"locale":"ja"'
+assert "…localized title"               "$BXJA" 'ベータ版に参加する'
+assert "…localized CTA"                 "$BXJA" 'アクセスを申請'
+assert "…localized field label"         "$BXJA" '勤務先メールアドレス'
+# the data contract is language-independent, by construction (experience.rkt)
+assert "…field keys unchanged"          "$BXJA" '"key":"use_case"'
+refute "…overlay table never shipped"   "$BXJA" '"i18n"'
+refute "…judge prompt never shipped"    "$BXJA" 'judge-system'
+# the header works too, and a region tag reaches the base language
+assert "header selects ja" "$(curl -s "$B/api/beta/config" -H 'X-Telemachus-Locale: ja')" '"locale":"ja"'
+assert "ja-JP → ja"        "$(curl -s "$B/api/beta/config?lang=ja-JP")" '"locale":"ja"'
+# a locale with no overlay falls back whole, never half-translated
+BXFR=$(curl -s "$B/api/beta/config?lang=fr")
+assert "unknown locale falls back"  "$BXFR" '"locale":"en"'
+assert "…to complete English"       "$BXFR" 'Join the Telemachus beta'
+# and the instance off switch governs the funnel like every other surface
+curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $OP" -d '{"default":"en","enabled":false}' >/dev/null
+assert "negotiation off pins the funnel" "$(curl -s "$B/api/beta/config?lang=ja")" '"locale":"en"'
+curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $OP" -d '{"default":"en","enabled":true}' >/dev/null
+
 # ---- slice 54: the indexing workflow makes document CONTENT searchable ------------
 # The word "wombat" appears only in the bytes, never in the key — so this hit can
 # only come from extraction, through the real engine, over HTTP.
