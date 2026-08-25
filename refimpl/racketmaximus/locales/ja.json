@@ -16,13 +16,9 @@
       "text": "同じ組織からのお申し込みが多数あります。直接お問い合わせください。",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
-    "beta.name_required": {
-      "text": "氏名を入力してください。",
-      "hash": "431a950e6bcbabd6c3c18de6f2eea712093d369c"
-    },
-    "beta.rate_limited": {
-      "text": "リクエストが多すぎます。少し時間をおいてお試しください。",
-      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    "beta.field_required": {
+      "text": "{field}を入力してください。",
+      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
     },
     "greeting.hello": {
       "text": "こんにちは、{name}さん！",
@@ -40,6 +36,10 @@
       "text": "認証の有効期限が切れました。ページを再読み込みしてください。",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
     },
+    "beta.field_too_short": {
+      "text": "{field}は{n}文字以上で入力してください。",
+      "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
+    },
     "beta.duplicate": {
       "text": "お申し込みはすでに受け付けています。追ってご連絡いたします。",
       "hash": "c8d1650c41717eab582e6d326f7036c1060d88b5"
@@ -47,6 +47,10 @@
     "authz.forbidden": {
       "text": "権限がありません：{perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "beta.field_too_long": {
+      "text": "{field}は{n}文字以内で入力してください。",
+      "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
     },
     "beta.verify_failed": {
       "text": "認証に失敗しました。ページを再読み込みしてください。",
@@ -60,17 +64,25 @@
       "text": "認証が必要です。",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
-    "beta.email_disposable": {
-      "text": "勤務先のメールアドレスをご利用ください。",
-      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
-    },
-    "beta.thanks": {
-      "text": "ありがとうございます。お申し込みを確認しています。",
-      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    "beta.field_digits": {
+      "text": "{field}は半角数字のみで入力してください。",
+      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
     },
     "inbox.summary": {
       "text": "新着メッセージが{count}件あります。",
       "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
+    },
+    "beta.email_disposable": {
+      "text": "勤務先のメールアドレスをご利用ください。",
+      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
+    },
+    "beta.rate_limited": {
+      "text": "リクエストが多すぎます。少し時間をおいてお試しください。",
+      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    },
+    "beta.thanks": {
+      "text": "ありがとうございます。お申し込みを確認しています。",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
     }
   }
 }

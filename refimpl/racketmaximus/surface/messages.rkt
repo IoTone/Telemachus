@@ -9,8 +9,10 @@
 (provide msg-forbidden msg-bootstrap-done msg-note-saved
          msg-unauthorized msg-already-init
          msg-beta-not-ready msg-beta-rate msg-beta-challenge msg-beta-verify
-         msg-beta-email msg-beta-work-email msg-beta-name
-         msg-beta-duplicate msg-beta-domain-cap msg-beta-thanks)
+         msg-beta-email msg-beta-work-email
+         msg-beta-duplicate msg-beta-domain-cap msg-beta-thanks
+         msg-beta-field-required msg-beta-field-digits
+         msg-beta-field-short msg-beta-field-long)
 
 (define (msg-forbidden perm)
   (t "authz.forbidden" #:default "Forbidden: {perm}" #:args (hasheq 'perm perm)))
@@ -55,9 +57,6 @@
 (define (msg-beta-work-email)
   (t "beta.email_disposable" #:default "please use a work email address"))
 
-(define (msg-beta-name)
-  (t "beta.name_required" #:default "name is required"))
-
 (define (msg-beta-duplicate)
   (t "beta.duplicate" #:default "we already have your request — we'll be in touch"))
 
@@ -68,3 +67,24 @@
 ;; one, which means it has to be localized in exactly the same way.
 (define (msg-beta-thanks)
   (t "beta.thanks" #:default "Thanks — your request is in review."))
+
+;; Per-field refusals. `{field}` is the field's own label AS THE APPLICANT SAW IT
+;; — the localized one, so on a Japanese funnel the message names 「法人番号」 and
+;; not `corporate_number`. That is why the caller localizes the experience before
+;; validating rather than after.
+
+(define (msg-beta-field-required label)
+  (t "beta.field_required" #:default "{field} is required"
+     #:args (hasheq 'field label)))
+
+(define (msg-beta-field-digits label)
+  (t "beta.field_digits" #:default "{field} must contain digits only"
+     #:args (hasheq 'field label)))
+
+(define (msg-beta-field-short label n)
+  (t "beta.field_too_short" #:default "{field} must be at least {n} characters"
+     #:args (hasheq 'field label 'n n)))
+
+(define (msg-beta-field-long label n)
+  (t "beta.field_too_long" #:default "{field} must be at most {n} characters"
+     #:args (hasheq 'field label 'n n)))

@@ -293,7 +293,15 @@ NOTES = {
    "it is what a mistyped address returns on the public form."),
  "beta.email_disposable": ("new",
    "Written in this sweep. Confirm the tone: this refuses a real person's real address."),
- "beta.name_required": ("new", "Written in this sweep."),
+ "beta.field_required": ("new",
+   "Written in this sweep. <code>{field}</code> is the field's own LOCALIZED label, so on a "
+   "Japanese funnel this reads \u300c\u6cd5\u4eba\u756a\u53f7\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u300d. Check the particle reads correctly "
+   "after an arbitrary operator-authored label."),
+ "beta.field_digits": ("new",
+   "Written in this sweep. \u300c\u534a\u89d2\u6570\u5b57\u300d is explicit about full-width digits, which a "
+   "Japanese IME will happily produce \u2014 confirm that is the behaviour you want to name."),
+ "beta.field_too_short": ("new", "Written in this sweep. Carries a count, so check the counter word."),
+ "beta.field_too_long": ("new", "Written in this sweep. Carries a count, so check the counter word."),
  "beta.duplicate": ("new", "Written in this sweep \u2014 a friendly refusal, not an error."),
  "beta.domain_cap": ("new", "Written in this sweep."),
  "beta.thanks": ("new",

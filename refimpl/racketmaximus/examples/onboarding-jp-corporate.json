@@ -1,0 +1,69 @@
+{
+  "_comment": [
+    "An example TELEMACHUS_ONBOARDING_FILE: a Japanese-market beta funnel that",
+    "collects 法人番号 (the 13-digit Corporate Number) INSTEAD of annual revenue.",
+    "",
+    "  export TELEMACHUS_ONBOARDING_FILE=examples/onboarding-jp-corporate.json",
+    "  export TELEMACHUS_HOME=beta",
+    "",
+    "Two things to notice.",
+    "",
+    "1. `revenue` is simply absent from `fields`, and that is all it takes to turn",
+    "   it off — nothing else in the product demands it. `email` is the ONE field",
+    "   that cannot be removed: the anti-abuse model is keyed on it (per-email and",
+    "   per-domain velocity caps, the disposable-address check, prospect dedup).",
+    "",
+    "2. `corporate_number` is not a reserved column, so it needs no migration — it",
+    "   lands in the prospect's `attributes` blob and shows up in Admin > Beta",
+    "   like any other field. Nothing was added to the schema for it.",
+    "",
+    "Validation vocabulary is deliberately small and safe: required, digits,",
+    "minlength, maxlength. There is no regex, on purpose — an admin-authored",
+    "pattern would run against attacker-chosen input on a public endpoint."
+  ],
+
+  "name": "beta",
+  "title": "Join the Telemachus beta",
+  "subtitle": "We're onboarding a limited group of design-partner teams.",
+  "eyebrow": "Private beta",
+  "cta": "Request access",
+  "footer": "© Telemachus — self-hosted, privacy-first team AI.",
+
+  "fields": [
+    {"key": "name",             "label": "Full name",   "type": "text",     "required": true},
+    {"key": "email",            "label": "Work email",  "type": "email",    "required": true},
+    {"key": "company",          "label": "Company",     "type": "text",     "required": true},
+    {"key": "corporate_number", "label": "Corporate number (法人番号)",
+     "type": "text", "required": true, "digits": true, "minlength": 13, "maxlength": 13},
+    {"key": "job_title",        "label": "Your role",   "type": "text",     "required": false},
+    {"key": "use_case",         "label": "What would you use Telemachus for?",
+     "type": "textarea", "required": true}
+  ],
+
+  "details": [
+    {"heading": "What you get",
+     "body": "Early access to the platform and a direct line to the team building it."}
+  ],
+
+  "i18n": {
+    "ja": {
+      "title": "Telemachus ベータ版に参加する",
+      "subtitle": "デザインパートナーとして、少数のチームを募集しています。",
+      "eyebrow": "プライベートベータ",
+      "cta": "アクセスを申請",
+      "footer": "© Telemachus — セルフホスト型、プライバシーを最優先するチーム向けAI。",
+      "details": [
+        {"heading": "提供内容",
+         "body": "プラットフォームへの早期アクセスと、開発チームへの直接の窓口。"}
+      ],
+      "fields": {
+        "name":             {"label": "氏名"},
+        "email":            {"label": "勤務先メールアドレス"},
+        "company":          {"label": "会社名"},
+        "corporate_number": {"label": "法人番号"},
+        "job_title":        {"label": "役職"},
+        "use_case":         {"label": "Telemachus をどのように活用したいですか？"}
+      }
+    }
+  }
+}

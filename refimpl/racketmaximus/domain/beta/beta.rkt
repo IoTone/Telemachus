@@ -16,6 +16,8 @@
          default-team team-owner-id count-recent-email count-recent-domain
          ;; extensible model: reserved (typed) keys vs. the attributes blob
          reserved-field-keys reserved-field? prospect-field
+         ;; per-field validation, driven by the experience document
+         structural-field? field-problem
          ;; onboarding provider registry (SDK seam)
          register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names
          ;; judge-reply parsing (robust against small-model formatting)
@@ -160,6 +162,57 @@
 ;; program-specific field needs no migration. See docs/design/beta-onboarding-experience.md §1.
 (define reserved-field-keys '("name" "email" "company" "job_title" "revenue" "use_case" "company_address" "phone"))
 (define (reserved-field? key) (and (member key reserved-field-keys) #t))
+
+;; ---- which fields an operator may turn off -----------------------------------
+;; `email` is STRUCTURAL, not merely reserved: the whole anti-abuse model is keyed
+;; on it (per-email and per-domain velocity caps, the disposable-address check, the
+;; free-provider signal the judge weighs) and a prospect is identified by it. An
+;; instance that stopped collecting it would silently lose its dedup and its rate
+;; limiting, so it is the one field the config cannot remove.
+;;
+;; Everything else — including `name`, which used to be demanded by a hardcoded
+;; check no matter what the form actually showed — is the operator's call.
+(define (structural-field? key) (equal? key "email"))
+
+;; Validate a submission against the experience's OWN field definitions.
+;; Returns #f when everything passes, else (list reason label detail) where reason
+;; is 'required | 'too-short | 'too-long | 'digits and label is the field's
+;; (already localized) label, so the caller can build a message naming the field
+;; the applicant actually saw.
+;;
+;; The vocabulary is deliberately tiny — `required`, `minlength`, `maxlength`,
+;; `digits` — and deliberately NOT a regex. An admin-authored pattern would be
+;; applied to public, attacker-chosen input on an unauthenticated endpoint, which
+;; is a catastrophic-backtracking foot-gun aimed at the funnel; this is the same
+;; call the workflow binding sublanguage makes (frozen, no eval, "write a tool" as
+;; the escape hatch). These four cover the shapes a signup form actually needs —
+;; a 13-digit 法人番号 is `digits` + min/max 13 — and each is trivially bounded.
+(define (field-problem fields body-ref)
+  (for/or ([f (in-list fields)])
+    (define k (hash-ref f 'key ""))
+    (define label (let ([l (hash-ref f 'label #f)]) (if (and (string? l) (not (string=? l ""))) l k)))
+    (define v (body-ref k))
+    ;; Accept 13 and "13" alike. A hand-written TELEMACHUS_ONBOARDING_FILE will
+    ;; sooner or later quote a number, and silently ignoring the constraint is a
+    ;; far worse failure than accepting it.
+    (define (num key)
+      (define n (hash-ref f key #f))
+      (define i (cond [(exact-integer? n) n]
+                      [(and (string? n) (regexp-match? #px"^[0-9]+$" n)) (string->number n)]
+                      [else #f]))
+      (and i (positive? i) i))
+    (cond
+      [(string=? v "")
+       ;; an empty optional field is simply not answered — never an error
+       (and (eq? (hash-ref f 'required #f) #t) (list 'required label #f))]
+      [(and (eq? (hash-ref f 'digits #f) #t)
+            (not (regexp-match? #px"^[0-9]+$" v)))
+       (list 'digits label #f)]
+      [(and (num 'minlength) (< (string-length v) (num 'minlength)))
+       (list 'too-short label (num 'minlength))]
+      [(and (num 'maxlength) (> (string-length v) (num 'maxlength)))
+       (list 'too-long label (num 'maxlength))]
+      [else #f])))
 
 ;; Value of any configured field on a prospect hash — from its typed column if
 ;; reserved, else from the parsed attributes blob. Always returns a string. key: string.

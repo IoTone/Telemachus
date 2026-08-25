@@ -709,11 +709,26 @@ function bxSetLang(l){
   }catch(e){}
   render();
 }
+// The SERVER is the authority on whether a submission is acceptable — these
+// attributes are here for the things only the browser can do: cap typing at
+// maxlength, put a numeric keypad in front of a 法人番号 on a phone, and mark a
+// required field for assistive tech. Deliberately NOT a second copy of the
+// validation messages, which would drift from locales/*.json the first time one
+// of them changed.
+function bxAttrs(f){
+  let a='';
+  if(f.required) a+=' required aria-required="true"';
+  if(Number.isInteger(f.minlength)&&f.minlength>0) a+=` minlength="${f.minlength}"`;
+  if(Number.isInteger(f.maxlength)&&f.maxlength>0) a+=` maxlength="${f.maxlength}"`;
+  if(f.digits) a+=' inputmode="numeric" pattern="[0-9]*"';
+  return a;
+}
 function bxField(f){ const id='bf_'+f.key; const req=f.required?' *':'';
-  if(f.type==='textarea') return `<label>${esc(f.label)}${req}</label><textarea id="${id}" rows="3"></textarea>`;
-  if(f.type==='select') return `<label>${esc(f.label)}${req}</label><select id="${id}"><option value=""></option>${(f.options||[]).map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
+  const at=bxAttrs(f);
+  if(f.type==='textarea') return `<label>${esc(f.label)}${req}</label><textarea id="${id}" rows="3"${at}></textarea>`;
+  if(f.type==='select') return `<label>${esc(f.label)}${req}</label><select id="${id}"${f.required?' required':''}><option value=""></option>${(f.options||[]).map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
   const itype=f.type==='email'?'email':(f.type==='tel'?'tel':'text');
-  return `<label>${esc(f.label)}${req}</label><input id="${id}" type="${itype}"${f.type==='tel'?' inputmode="tel" autocomplete="tel"':''}>`; }
+  return `<label>${esc(f.label)}${req}</label><input id="${id}" type="${itype}"${f.type==='tel'?' inputmode="tel" autocomplete="tel"':''}${at}>`; }
 // the Tier-A landing shell — same component for the public page ('live') and the editor ('preview')
 function renderLandingShell(cfg, mode){
   cfg=cfg||{}; const live=mode!=='preview'; const fields=cfg.fields||[];
@@ -1338,7 +1353,17 @@ function bxAddDetail(){ (S.exp.details=S.exp.details||[]).push({heading:'',body:
 function bxDelDetail(i){ S.exp.details.splice(i,1); bxRerender(); }
 function bxAddField(){ const fs=(S.exp.fields=S.exp.fields||[]); fs.push({key:'field'+(fs.length+1),label:'New field',type:'text',required:false}); bxRerender(); }
 function bxDelField(i){ S.exp.fields.splice(i,1); bxRerender(); }
-function bxSetField(i,prop,val){ if(prop==='options') val=val.split(',').map(s=>s.trim()).filter(Boolean); S.exp.fields[i][prop]=val;
+function bxSetField(i,prop,val){
+  if(prop==='options') val=val.split(',').map(s=>s.trim()).filter(Boolean);
+  // A number input hands back a STRING. Storing "13" would publish a constraint
+  // the server then ignores (it wants an integer) — a silent no-op, which is the
+  // worst outcome for a validation rule. Blank removes the key entirely.
+  if(prop==='minlength'||prop==='maxlength'){
+    const n=parseInt(val,10);
+    if(!Number.isInteger(n)||n<=0){ delete S.exp.fields[i][prop]; bxPreview(); return; }
+    val=n;
+  }
+  S.exp.fields[i][prop]=val;
   if(prop==='type'||prop==='required') bxRerender(); else bxPreview(); }
 // ---- contrast checking for the theme editor (WCAG 2.x relative luminance) ----
 // A brandable public page is easy to theme into illegibility — this catches it while editing
@@ -1377,6 +1402,10 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
       <div class="row"><div><label>Type</label><select onchange="bxSetField(${i},'type',this.value)">${['text','email','tel','textarea','select'].map(t=>`<option ${f.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
         <div style="flex:0 0 auto"><label>Required</label><input type="checkbox" style="width:auto" ${f.required?'checked':''} onchange="bxSetField(${i},'required',this.checked)"></div></div>
       ${f.type==='select'?`<label>Options (comma-separated)</label><input ${iv((f.options||[]).join(', '))} oninput="bxSetField(${i},'options',this.value)">`:''}
+      ${f.type==='select'?'':`<div class="row">
+        <div><label>Min length</label><input type="number" min="0" ${iv(f.minlength)} oninput="bxSetField(${i},'minlength',this.value)"></div>
+        <div><label>Max length</label><input type="number" min="0" ${iv(f.maxlength)} oninput="bxSetField(${i},'maxlength',this.value)"></div>
+        <div style="flex:0 0 auto"><label>Digits only</label><input type="checkbox" style="width:auto" ${f.digits?'checked':''} onchange="bxSetField(${i},'digits',this.checked)"></div></div>`}
       <button class="btn sm bad" onclick="bxDelField(${i})">Remove field</button></div>`;
   const detailRow=(d,i)=>`<div class="fieldrow"><label>Heading</label><input ${iv(d.heading)} oninput="S.exp.details[${i}].heading=this.value;bxPreview()">
       <label>Body</label><textarea rows="2" oninput="S.exp.details[${i}].body=this.value;bxPreview()">${esc(d.body||'')}</textarea>

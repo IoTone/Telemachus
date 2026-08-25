@@ -418,6 +418,14 @@
 
 ;; If the operator has turned per-request negotiation OFF, the funnel does not get
 ;; a say either — same rule as every other surface.
+;; the funnel locale for a request, against a KNOWN team's experience
+(define (funnel-locale-for* req team)
+  (if (hash-ref (i18n-policy db-conn (locales-dir)) 'enabled #t)
+      (funnel-locale (resolve-experience db-conn team)
+                     (funnel-requested-locale req)
+                     #:default (funnel-default-locale))
+      (funnel-default-locale)))
+
 (define (funnel-locale-for req)
   (if (hash-ref (i18n-policy db-conn (locales-dir)) 'enabled #t)
       (funnel-requested-locale req)
@@ -512,7 +520,25 @@
        [(not (verify-pow nonce (fmt b 'pow) pow-bits)) (bump-blocked! "pow") (err (msg-beta-verify) 400)]
        [(not (valid-email? (fmt b 'email))) (bump-blocked! "email") (err (msg-beta-email) 400)]
        [(disposable-email? (fmt b 'email)) (bump-blocked! "disposable") (err (msg-beta-work-email) 400)]
-       [(string=? (fmt b 'name) "") (err (msg-beta-name) 400)]
+       ;; Everything else the form asks for is validated from the experience's OWN
+       ;; field definitions — so turning a field off actually turns it off, and
+       ;; `required` finally means something. Localized FIRST, so the refusal names
+       ;; the field as the applicant saw it (「法人番号」, not `corporate_number`).
+       [(field-problem
+         (hash-ref (experience-localize (resolve-experience db-conn team)
+                                        (funnel-locale-for* req team))
+                   'fields '())
+         (lambda (k) (fmt b (string->symbol k))))
+        => (lambda (p)
+             (bump-blocked! "field")
+             (define label (cadr p))
+             (define n (caddr p))
+             (err (case (car p)
+                    [(required)   (msg-beta-field-required label)]
+                    [(digits)     (msg-beta-field-digits label)]
+                    [(too-short)  (msg-beta-field-short label n)]
+                    [else         (msg-beta-field-long label n)])
+                  400))]
        [else
         (define email (fmt b 'email))
         (define domain (or (email-domain email) ""))

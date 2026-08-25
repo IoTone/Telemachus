@@ -211,6 +211,61 @@ app chrome. Everything downstream reads only these tokens, so reskinning is data
 - **Light/dark** — the experience declares its own `mode`; a branded page is usually
   committed to one look, independent of the viewer's app theme.
 
+## 4b. Turning fields off, and adding new ones
+
+The form is the experience document's `fields` list, and that list is now the
+whole truth. Two things had to become true for that to hold — both were bugs
+hiding behind each other:
+
+- **`required` is enforced from the config.** It used to render a `*` and nothing
+  checked it, so a field an operator marked mandatory was optional in practice.
+- **A field that is not configured is not demanded.** A hardcoded rule required
+  `name` no matter what the form actually showed, so removing `name` produced a
+  funnel nobody could submit — `400 name is required` against a form with no name
+  box. Turning a field off did not work at all.
+
+**`email` is structural** ✅ **(ONB‑9)** — the only field the config cannot remove.
+The whole anti-abuse model is keyed on it (per-email and per-domain velocity caps,
+the disposable-address check, the free-provider signal the judge weighs) and a
+prospect is identified by it, so an instance that stopped collecting it would
+silently lose its dedup and its rate limiting. Everything else, `name` included, is
+the operator's call.
+
+**Adding a field needs no migration.** Any key outside `reserved-field-keys` lands
+in the prospect's `attributes` JSON blob, and Admin › Beta renders prospect details
+generically from the field definitions — so a new field appears in the review table
+with no code change. `examples/onboarding-jp-corporate.json` is a worked example:
+a Japanese-market funnel that drops `revenue` and collects 法人番号 instead.
+
+### The validation vocabulary is deliberately small
+
+| Key | Meaning |
+|---|---|
+| `required` | must be answered |
+| `digits` | value is ASCII digits only |
+| `minlength` / `maxlength` | bounds on length |
+
+**There is no regex, on purpose.** A pattern would be admin-authored and then run
+against attacker-chosen input on an unauthenticated public endpoint — a
+catastrophic-backtracking foot-gun aimed squarely at the funnel. This is the same
+call the workflow binding sublanguage makes (frozen, no arithmetic, no eval, "write
+a tool" as the escape hatch). These four cover the shapes a signup form needs: a
+13-digit 法人番号 is `digits` + `minlength`/`maxlength` of 13.
+
+A quoted number (`"minlength": "13"`) is accepted as well as `13`. Hand-written
+JSON will eventually quote one, and silently dropping the constraint is a far worse
+failure than honouring it.
+
+The refusal **names the field using its localized label** — 「法人番号を入力して
+ください。」, not `corporate_number` — which is why the server localizes the
+experience *before* validating rather than after.
+
+The browser gets `required`, `minlength`, `maxlength` and `inputmode="numeric"`
+from the same definitions, but only for what the browser can uniquely do: cap
+typing, pick a numeric keypad, mark a field for assistive tech. The **server is the
+authority** on acceptance; duplicating the messages client-side would drift from
+`locales/*.json` the first time one changed.
+
 ## 5. Localization — an overlay on the document, not a catalog
 
 The funnel's copy is **operator-authored marketing text**, so it cannot live in

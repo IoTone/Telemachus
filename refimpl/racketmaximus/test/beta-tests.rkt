@@ -118,3 +118,67 @@
   (define pid (prospect-create! c #:team tid #:name "D" #:email "d@x.com" #:created-epoch 1000
                                 #:signals (hasheq 'free_email #t 'domain_signups_24h 3)))
   (check-equal? (hash-ref (hash-ref (prospect-get c (user-principal c uid tid) pid) 'signals) 'domain_signups_24h) 3))
+
+;; ---- configurable fields: turning them off, adding new ones -------------------
+;; The form an applicant fills in is the experience document's `fields` list. Two
+;; things had to become true for that to be the whole truth: `required` has to be
+;; enforced from the config (it used to be decorative), and a field that is NOT in
+;; the config must not be demanded anyway (a hardcoded check used to demand `name`
+;; whatever the form actually showed, so removing it made the funnel unusable).
+
+(define (probe fields body)
+  (field-problem fields (lambda (k) (hash-ref body k ""))))
+
+(test-case "required is enforced from the config, not decoration"
+  (define fs (list (hasheq 'key "corporate_number" 'label "Corporate number" 'required #t)))
+  (check-equal? (car (probe fs (hash))) 'required)
+  (check-equal? (cadr (probe fs (hash))) "Corporate number")     ; the message names the field
+  (check-false (probe fs (hash "corporate_number" "1234567890123"))))
+
+(test-case "an optional field left blank is not an error"
+  (define fs (list (hasheq 'key "phone" 'label "Phone" 'required #f)))
+  (check-false (probe fs (hash)))
+  (check-false (probe fs (hash "phone" ""))))
+
+(test-case "a field that is not configured is never demanded"
+  ;; the exact regression: a form with no `name` field must still accept a
+  ;; submission that has no name
+  (define fs (list (hasheq 'key "email" 'label "Work email" 'required #t)))
+  (check-false (probe fs (hash "email" "a@corp.example"))))
+
+(test-case "digits / minlength / maxlength — the 法人番号 shape"
+  (define fs (list (hasheq 'key "corporate_number" 'label "法人番号" 'required #t
+                           'digits #t 'minlength 13 'maxlength 13)))
+  (check-false (probe fs (hash "corporate_number" "1234567890123")))
+  (check-equal? (car (probe fs (hash "corporate_number" "12345ABC90123"))) 'digits)
+  (check-equal? (car (probe fs (hash "corporate_number" "12345"))) 'too-short)
+  (check-equal? (car (probe fs (hash "corporate_number" "12345678901234"))) 'too-long)
+  ;; the message carries the number the operator configured, so it can say "13"
+  (check-equal? (caddr (probe fs (hash "corporate_number" "12345"))) 13))
+
+(test-case "a quoted number in a hand-written config still constrains"
+  ;; TELEMACHUS_ONBOARDING_FILE is hand-authored JSON; "13" must not silently
+  ;; disable the rule, which is a worse failure than rejecting the config
+  (define fs (list (hasheq 'key "cn" 'label "CN" 'minlength "13")))
+  (check-equal? (car (probe fs (hash "cn" "12345"))) 'too-short))
+
+(test-case "email is structural — every other field is the operator's call"
+  (check-true (structural-field? "email"))
+  (for ([k (in-list '("name" "company" "revenue" "phone" "use_case" "corporate_number"))])
+    (check-false (structural-field? k) k)))
+
+(test-case "the first problem wins, in field order"
+  (define fs (list (hasheq 'key "a" 'label "A" 'required #t)
+                   (hasheq 'key "b" 'label "B" 'required #t)))
+  (check-equal? (cadr (probe fs (hash))) "A"))
+
+(test-case "a custom field needs no migration — it lands in the attributes blob"
+  (check-false (reserved-field? "corporate_number"))
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define pid (prospect-create! c #:team tid #:name "N" #:email "n@corp.example"
+                                #:attributes (hasheq 'corporate_number "1234567890123")))
+  (define pr (prospect-get c (user-principal c uid tid) pid))
+  (check-equal? (prospect-field pr "corporate_number") "1234567890123")
+  ;; and a reserved one still reads from its typed column
+  (check-equal? (prospect-field pr "email") "n@corp.example"))

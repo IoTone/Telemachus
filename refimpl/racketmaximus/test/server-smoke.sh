@@ -115,14 +115,37 @@ CH=$(curl -s $B/api/beta/challenge); TOK=$(printf '%s' "$CH" | grep -oP '"challe
 DIFF=$(printf '%s' "$CH" | grep -oP '"difficulty":\K[0-9]+'); NONCE=${TOK%%.*}
 POW=$(PLTCOLLECTS="$(pwd)/pkgs:" racket -e "(require (file \"$(pwd)/domain/beta/antispam.rkt\"))(display (pow-of \"$NONCE\" $DIFF))" 2>/dev/null)
 sleep 2   # min fill-time gate
-SIGN=$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dana\",\"email\":\"dana@acme.com\",\"company\":\"Acme\",\"use_case\":\"team chat\",\"challenge\":\"$TOK\",\"pow\":$POW}")
+# `job_title` is required:true in the shipped experience. Until required was
+# actually ENFORCED this submission passed while omitting it — the form said the
+# field was mandatory and the server did not care.
+SIGN=$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dana\",\"email\":\"dana@acme.com\",\"company\":\"Acme\",\"job_title\":\"CTO\",\"use_case\":\"team chat\",\"challenge\":\"$TOK\",\"pow\":$POW}")
 assert "beta signup"      "$SIGN" '"ok":true'
 PID=$(printf '%s' "$SIGN" | grep -oP '"id":"\K[^"]+')
 # velocity: a second signup for the same email is capped (default 1 / 24h)
 CH2=$(curl -s $B/api/beta/challenge); TOK2=$(printf '%s' "$CH2" | grep -oP '"challenge":"\K[^"]+'); NONCE2=${TOK2%%.*}
 POW2=$(PLTCOLLECTS="$(pwd)/pkgs:" racket -e "(require (file \"$(pwd)/domain/beta/antispam.rkt\"))(display (pow-of \"$NONCE2\" $DIFF))" 2>/dev/null)
 sleep 2
-assert "beta email cap"   "$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dupe\",\"email\":\"dana@acme.com\",\"challenge\":\"$TOK2\",\"pow\":$POW2}")" 'we already have your request'
+assert "beta email cap"   "$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Dupe\",\"email\":\"dana@acme.com\",\"job_title\":\"CTO\",\"use_case\":\"x\",\"challenge\":\"$TOK2\",\"pow\":$POW2}")" 'we already have your request'
+
+# ---- configurable fields: `required` is enforced FROM THE EXPERIENCE -------------
+# The form an applicant fills in is the experience document's `fields` list, and
+# until now that list was advisory: `required` rendered a "*" and nothing checked
+# it, while a hardcoded rule demanded `name` whatever the form actually showed.
+CH3=$(curl -s $B/api/beta/challenge); TOK3=$(printf '%s' "$CH3" | grep -oP '"challenge":"\K[^"]+'); NONCE3=${TOK3%%.*}
+POW3=$(PLTCOLLECTS="$(pwd)/pkgs:" racket -e "(require (file \"$(pwd)/domain/beta/antispam.rkt\"))(display (pow-of \"$NONCE3\" $DIFF))" 2>/dev/null)
+sleep 2
+# use_case is required:true in the shipped config — omitting it is now a refusal,
+# and the refusal NAMES the field using the label the applicant actually saw
+REQ=$(curl -s -X POST $B/api/beta/signup -d "{\"name\":\"Eve\",\"email\":\"eve@acme.com\",\"job_title\":\"CTO\",\"challenge\":\"$TOK3\",\"pow\":$POW3}")
+assert "required field enforced" "$REQ" 'is required'
+assert "…and named by its label" "$REQ" 'What would you use Telemachus for?'
+
+# The localized-label case lives in test/e2e/funnel-l10n.sh instead: this suite has
+# already spent its 5-per-minute signup budget by here, so asserting it would test
+# the rate limiter rather than the message.
+# the experience's field constraints are served to the client too, so the browser
+# can cap typing and pick a numeric keypad
+assert "constraints reach the client" "$(curl -s $B/api/beta/config)" '"required":true'
 assert "beta list owner"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP")" 'dana@acme.com'
 assert "beta member 403"  "$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $BOB")" 'Forbidden: settings:manage'
 PS=''; for i in $(seq 1 40); do PS=$(curl -s $B/api/beta/prospects -H "Authorization: Bearer $OP"); printf '%s' "$PS" | grep -q '"status":"reviewed"' && break; sleep 0.25; done

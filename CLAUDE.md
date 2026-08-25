@@ -124,6 +124,34 @@ bundle (`/beta/bundle/<plugin>/` + `window.Telemachus.beta` SDK), **C** sandboxe
 template (`/beta/template`). ENV seeds first-boot defaults (`TELEMACHUS_ONBOARDING`,
 `TELEMACHUS_ONBOARDING_FILE`); a published DB experience then wins.
 
+### Configuring the funnel's fields
+
+The experience document's `fields` list IS the form — turning a field off means
+removing it from the list, adding one means adding it. Two things used to make that
+untrue and are now fixed (ONB‑9):
+
+- **`required` is enforced from the config** (`field-problem` in `domain/beta/beta.rkt`).
+  It used to render a `*` and nothing checked it.
+- **An unconfigured field is never demanded.** A hardcoded rule required `name`
+  whatever the form showed, so removing `name` gave a funnel nobody could submit.
+- **`email` is structural** and cannot be removed — the velocity caps, disposable
+  check and prospect dedup are all keyed on it (`structural-field?`).
+- Adding a field needs **no migration**: any key outside `reserved-field-keys` lands
+  in the `attributes` blob, and Admin > Beta renders prospect details generically.
+- Validation vocabulary is `required` / `digits` / `minlength` / `maxlength` and is
+  deliberately **NOT a regex** — it would be admin-authored and run against
+  attacker-chosen input on a public endpoint. Same call as the frozen workflow
+  binding sublanguage. A 13-digit 法人番号 is `digits` + min/max 13.
+- `"minlength": "13"` (quoted) is accepted too — hand-written JSON will quote a
+  number eventually, and silently dropping the rule is the worse failure.
+- The refusal names the **localized** label, so the server localizes the experience
+  BEFORE validating. Worked example: `examples/onboarding-jp-corporate.json`.
+- Client-side gets `required`/`minlength`/`maxlength`/`inputmode` only — the server
+  is the authority; duplicating messages would drift from `locales/*.json`.
+- **Enforcing `required` is a behaviour change**: a caller that omitted a field the
+  config marks required now gets a 400 where it used to succeed. `test/server-smoke.sh`
+  was omitting `job_title` and had to be fixed.
+
 ### Localizing the funnel
 
 The funnel's copy is operator-authored, so it is an **`i18n` overlay on the

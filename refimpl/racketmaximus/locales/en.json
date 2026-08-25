@@ -15,13 +15,9 @@
       "text": "too many requests from your organization — please reach out directly",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
-    "beta.name_required": {
-      "text": "name is required",
-      "hash": "431a950e6bcbabd6c3c18de6f2eea712093d369c"
-    },
-    "beta.rate_limited": {
-      "text": "too many requests — please slow down",
-      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    "beta.field_required": {
+      "text": "{field} is required",
+      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
     },
     "greeting.hello": {
       "text": "Hello, {name}!",
@@ -39,6 +35,10 @@
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
     },
+    "beta.field_too_short": {
+      "text": "{field} must be at least {n} characters",
+      "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
+    },
     "beta.duplicate": {
       "text": "we already have your request — we'll be in touch",
       "hash": "c8d1650c41717eab582e6d326f7036c1060d88b5"
@@ -46,6 +46,10 @@
     "authz.forbidden": {
       "text": "Forbidden: {perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "beta.field_too_long": {
+      "text": "{field} must be at most {n} characters",
+      "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
     },
     "beta.verify_failed": {
       "text": "verification failed — reload the page",
@@ -59,17 +63,25 @@
       "text": "Authentication required.",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
-    "beta.email_disposable": {
-      "text": "please use a work email address",
-      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
-    },
-    "beta.thanks": {
-      "text": "Thanks — your request is in review.",
-      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    "beta.field_digits": {
+      "text": "{field} must contain digits only",
+      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
     },
     "inbox.summary": {
       "text": "You have {count, plural, one {# new message} other {# new messages}}.",
       "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
+    },
+    "beta.email_disposable": {
+      "text": "please use a work email address",
+      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
+    },
+    "beta.rate_limited": {
+      "text": "too many requests — please slow down",
+      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    },
+    "beta.thanks": {
+      "text": "Thanks — your request is in review.",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
     }
   }
 }

@@ -51,6 +51,17 @@ ok('shared ?lang=ja link opens in Japanese',
 // SERVER's refusal (locales/ja.json, via surface/messages.rkt). Submitting the
 // empty form exercises the second — the message a real applicant is most likely
 // to see, and the one that was bare English until this change.
+// The anti-abuse gate refuses a challenge younger than 2s ("too fast"), and
+// switching language re-rendered the page and fetched a fresh one. Without this
+// wait the refusal we read back is the CHALLENGE error, not the field error —
+// which is exactly how the looser version of this assertion passed while proving
+// nothing about locales/ja.json.
+await page.waitForTimeout(2600);
+// Give it a valid email so the STRUCTURAL check passes and the config-driven one
+// is what answers. `name` is required:true in the shipped experience but left
+// blank here, so the refusal should name 「氏名」 — the label as rendered, not the
+// key `name`.
+await page.fill('#bf_email', 'probe@corp.example');
 await page.click('.bx-cta');
 // wait past the client-side placeholder for the SERVER's answer, or this reads
 // t('bxverifying') and proves nothing about locales/ja.json
@@ -61,8 +72,12 @@ await page.waitForFunction(() => {
 }, null, { timeout: 20000 });
 const msg = await page.locator('#betamsg').innerText();
 ok('submit feedback is Japanese, not English', !/[A-Za-z]{4,}/.test(msg), msg);
-ok('…and it is a real server-side refusal',
-   /メールアドレス|氏名|認証|リクエスト/.test(msg), msg);
+// The shipped form marks `name` required, so an empty submit is refused by the
+// CONFIG-driven check — and the refusal must name the field with the label the
+// applicant actually read (「氏名」), not its key (`name`). That is the whole
+// point of localizing the experience before validating it.
+ok('…refusal names the localized field label', /氏名/.test(msg), msg);
+ok('…and it is the required-field message', /入力してください/.test(msg), msg);
 
 ok('no uncaught page errors', errs.length === 0, errs.slice(0,3).join(' | '));
 await b.close();
