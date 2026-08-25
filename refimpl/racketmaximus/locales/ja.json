@@ -9,11 +9,11 @@
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
     },
     "authz.bootstrap_done": {
-      "text": "",
+      "text": "オペレーター{user}とチーム{team}を作成しました。",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
     },
     "notes.saved": {
-      "text": "",
+      "text": "ノートを保存しました。",
       "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
     },
     "http.unauthorized": {
@@ -21,15 +21,15 @@
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
     "http.already_initialized": {
-      "text": "",
+      "text": "すでに初期化されています。",
       "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
     },
     "authz.forbidden": {
-      "text": "禁止されています: {perm}",
+      "text": "権限がありません：{perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
     },
     "inbox.summary": {
-      "text": "",
+      "text": "新着メッセージが{count}件あります。",
       "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
     }
   }

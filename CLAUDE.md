@@ -124,22 +124,84 @@ bundle (`/beta/bundle/<plugin>/` + `window.Telemachus.beta` SDK), **C** sandboxe
 template (`/beta/template`). ENV seeds first-boot defaults (`TELEMACHUS_ONBOARDING`,
 `TELEMACHUS_ONBOARDING_FILE`); a published DB experience then wins.
 
+## Localization (Admin > Localization)
+
+Instance-wide default locale plus an off switch, `domain/i18n/policy.rkt` over the
+same generic `instance_settings` table branding uses (`domain/settings/settings.rkt`
+is now the shared accessor — use it for the next instance-wide setting).
+
+- Resolution is `resolve-locale`: `X-Telemachus-Locale` → `Accept-Language` → the
+  **instance default**. It used to end at a hardcoded `"en"`, which made a
+  Japanese-default instance impossible. Never reintroduce a literal fallback here.
+- **An unknown locale falls back to the instance default, not to English** — `fr`
+  on a `ja` instance gets Japanese.
+- `enabled: false` pins EVERY request to the default and makes the console drop its
+  language switcher. It does not remove catalogs; flipping it back restores them.
+- `available` is derived from the `locales/*.json` on disk, never stored, so the
+  instance cannot advertise a language it cannot render. `default` is validated
+  against it — an unknown one is a 400, not a silent substitution.
+- **The read rides on the PUBLIC `GET /api/config`** and must stay public: the
+  sign-in screen picks its language before anyone has a token. Write is
+  `PUT /api/i18n`, `instance:manage`.
+- Console: `loadI18n()` runs on every render pass (a signed-in user must see an
+  operator turn the switcher off). A stored `tmx_lang` only wins while switching is
+  enabled AND the catalog still ships.
+- Settings are deliberately **not cached** — one indexed single-row lookup beside
+  the token and permission queries the same request already runs. A cache would
+  have to be keyed by connection to stay correct under `fresh-db`.
+- Catalogue hashes in `locales/ja.json` are the **source** hash (sha1 of the
+  English), i.e. what the translation was made against. Editing Japanese text does
+  not change them; editing English marks the translation stale.
+- **An empty target string is dropped at load** and falls through to English — so a
+  blank looks like "not translated yet", never a blank UI. Four shipped that way
+  until the Aug 2026 sweep.
+- `test/server-smoke.sh` asserts on real Japanese text (`権限がありません`,
+  `認証が必要です`) — changing those strings means changing those assertions.
+- Review sheet: `python3 scripts/build-l10n-review.py` regenerates
+  `build/l10n-ja-review.html` from the real sources (console `const L` +
+  `locales/*.json`). A string in no group, or a note for a key that no longer
+  exists, is a build error — both by design.
+
 ## Multi-tenancy (several companies on one instance)
 
 Off by default. `TELEMACHUS_MULTITENANT=1` adds an **org** layer above teams plus two
 management planes — see `docs/design/multi-tenancy.md` (decision TEN‑2, supersedes TEN).
+
+Operator runbook: `docs/ops/multi-tenancy-runbook.md`.
 
 - **superadmin** (`instance:*`, from bootstrap) runs the instance: `/api/orgs*`.
 - **org admin** (`org:*`, `users.org_role_key`) runs one company: `/api/org*`.
   It **manages but does not read** team data (TEN‑2a).
 - Isolation is **step 0 of `can?`** — an unconditional deny *before* permissions,
   owner-ok, token scopes and resource grants, so a share can't tunnel out of an org.
+  The gate never reads the feature flag: turning the flag off on a populated
+  instance hides the management planes and keeps enforcing, which leaves tenants
+  nobody can administer. The flag is not an off switch.
 - `teams.slug` is now unique **per org** (migration `0016-orgs` rebuilds the table on
   SQLite); `users.username` stays instance-global — use email.
 - Org quotas nest above team quotas (`subject_type='org'`); admission needs both.
+- **Onboarding a company needs no restart** — `POST /api/orgs` writes rows and the
+  org, its team and its owner are live on the next request. Setting
+  `TELEMACHUS_MULTITENANT=1` is the only restart the subsystem ever needs.
+- Every `/api/orgs/<ref>` route takes an **id or a slug** (`org-resolve`); a pipeline
+  holds the slug it declared, not the id the server minted.
+- **Create is a converging operation** (TEN‑2f): an explicit `slug` is a natural key
+  and a re-run is `409`; a slug *derived from `name`* still suffixes to `acme-1`.
+  Getting this backwards mints duplicate companies silently.
+- `PATCH /api/orgs/<ref>` renames and/or changes the plan — a plan change
+  **re-applies that plan's caps**, so a hand-set quota survives only until the next
+  plan write. Name-only patches never touch quotas.
+- Always send `owner_password` on create: without it `password_hash` is NULL,
+  `authenticate` refuses forever, and the 201's token is the account's ONLY
+  credential (nothing mints a token for another user).
+- The superadmin **cannot** add people to a customer org — `/api/org/members` is
+  always the caller's own org, and the superadmin's is `system`. Chain off the
+  owner token the create call returned.
+- There is deliberately **no `DELETE /api/orgs`** (TEN‑2g) and **no console UI** —
+  the whole surface is HTTP.
 
 ```sh
-TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # seeds 2 companies, 46 assertions
+TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # 2 seeded companies + 1 provisioned, 84 assertions
 raco test test/tenancy-tests.rkt                          # the authz core, no server
 ```
 

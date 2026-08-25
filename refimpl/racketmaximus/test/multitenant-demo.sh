@@ -14,6 +14,7 @@
 #   7  the org quota caps the company above its teams
 #   8  suspending a company freezes only that company
 #   9  flag OFF → the whole surface is 404 and single-tenant behaves as before
+#  10  a company is provisioned from a devops pipeline, with NO restart
 #
 # Run from refimpl/racketmaximus/ :  bash test/multitenant-demo.sh
 # Read it top-to-bottom as the narrated demo; the logins it prints are usable by
@@ -39,7 +40,7 @@ refute(){ # <label> <haystack> <needle-that-must-be-absent>
 # read a value out of a JSON body: jget '<python expr over d>' <<< "$JSON"
 jget(){ python3 -c 'import sys,json;print(eval(sys.argv[1],{"d":json.load(sys.stdin)}))' "$1"; }
 
-# declared before the trap: with `set -u` an EXIT before section 10 would otherwise
+# declared before the trap: with `set -u` an EXIT before section 11 would otherwise
 # abort the cleanup on an unbound variable and leak the temp dir
 SRV2=""; DIR2=""
 
@@ -191,7 +192,66 @@ assert "resume acme" "$(pj /api/orgs/$ACME_ORG/resume $ROOT)" '"status":"active"
 assert "acme writes restored" "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $ACME_DEV" -d '{"title":"back"}')" '"title":"back"'
 
 echo
-echo "== 10. flag OFF → the surface disappears, single-tenant is unchanged ==========="
+echo "== 10. onboarding a company from a pipeline (no restart) ========================"
+# This is the devops path: a superadmin token, one POST, declarative and re-runnable.
+# The server is the SAME PROCESS that has been serving sections 0-9 — nothing here
+# restarts it, and Initech is live on the very next request.
+PIPE='{"name":"Initech","slug":"initech","plan":"starter","owner_username":"admin@initech.test","owner_password":"initech-admin1","team_name":"Platform","team_slug":"platform"}'
+NEW=$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ROOT" -d "$PIPE")
+assert "org provisioned"      "$NEW" '"org_slug":"initech"'
+assert "…on the starter plan" "$NEW" '"plan":"starter"'
+assert "…with an owner token" "$NEW" '"token":"tk_'
+INI_OWNER=$(jget 'd["token"]' <<<"$NEW")
+INI_ID=$(jget 'd["org_id"]' <<<"$NEW")
+# usable IMMEDIATELY — no restart, no reload, no cache to invalidate
+assert "owner works at once"  "$(g /api/org $INI_OWNER)" '"slug":"initech"'
+assert "…isolated on arrival" "$(g /api/notes/$ACME_NOTE $INI_OWNER)" 'Forbidden'
+
+# addressable by the SLUG the pipeline declared, not just the id the server minted
+assert "GET by slug"     "$(g /api/orgs/initech $ROOT)" '"slug":"initech"'
+assert "GET by id"       "$(g /api/orgs/$INI_ID $ROOT)" '"slug":"initech"'
+assert "unknown ref 404" "$(g /api/orgs/no-such-company $ROOT)" 'not found'
+
+# RE-RUNNING the pipeline must not mint a second Initech. An explicit slug is a
+# natural key: 409, never `initech-1`.
+RERUN=$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ROOT" -d "$PIPE")
+assert "re-run refused"     "$RERUN" "already exists"
+refute "no shadow company"  "$(g /api/orgs $ROOT)" '"slug":"initech-1"'
+# ...even when the owner differs, which is the case the username check misses
+RERUN2=$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ROOT" \
+  -d '{"name":"Initech","slug":"initech","owner_username":"someone-else@initech.test"}')
+assert "re-run w/ new owner refused" "$RERUN2" "already exists"
+refute "still no shadow company"     "$(g /api/orgs $ROOT)" '"slug":"initech-1"'
+# a slug DERIVED from the name still suffixes — two humans may really mean two
+# companies, and there is no declared key to honour
+DERIVED=$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ROOT" \
+  -d '{"name":"Initech","owner_username":"admin@initech2.test"}')
+assert "derived slug suffixes" "$DERIVED" '"org_slug":"initech-1"'
+
+# plan changes are live: PATCH re-applies that plan's caps
+assert "starter cap" "$(g /api/orgs/initech $ROOT)" '"limit":1000000'
+UP=$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"plan":"pro"}')
+assert "plan upgraded"   "$UP" '"plan":"pro"'
+assert "caps re-applied" "$UP" '"quotas_reapplied":true'
+assert "pro cap live"    "$(g /api/orgs/initech $ROOT)" '"limit":10000000'
+assert "rename"          "$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"name":"Initech Holdings"}')" '"ok":true'
+assert "…name changed"   "$(g /api/orgs/initech $ROOT)" 'Initech Holdings'
+refute "…rename leaves the plan alone" "$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"name":"Initech Holdings"}')" '"quotas_reapplied":true'
+assert "bad plan refused"    "$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"plan":"enterprize"}')" 'unknown plan'
+assert "empty patch refused" "$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{}')" 'required'
+assert "bad plan at create"  "$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ROOT" -d '{"name":"Hooli","plan":"gold","owner_username":"admin@hooli.test"}')" 'unknown plan'
+
+# suspend/resume/quota address by slug too — the lifecycle a pipeline drives
+assert "suspend by slug" "$(pj /api/orgs/initech/suspend $ROOT)" '"status":"suspended"'
+assert "quota by slug"   "$(pj /api/orgs/initech/quota $ROOT '{"dimension":"ai.requests","limit":5,"window":"day"}')" '"ok":true'
+assert "resume by slug"  "$(pj /api/orgs/initech/resume $ROOT)" '"status":"active"'
+
+# an org owner still cannot reach ANY of it
+assert "org owner ✗ create" "$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ACME_OWNER" -d '{"name":"Sneaky","owner_username":"x@y.test"}')" 'Forbidden: instance:manage'
+assert "org owner ✗ patch"  "$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ACME_OWNER" -d '{"plan":"enterprise"}')" 'Forbidden: instance:manage'
+
+echo
+echo "== 11. flag OFF → the surface disappears, single-tenant is unchanged ==========="
 kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
 # Always SQLite here regardless of an outer DATABASE_URL: this section needs a
 # virgin database to bootstrap into, which on Postgres would mean provisioning a

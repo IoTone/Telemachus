@@ -19,8 +19,9 @@
 ;; a column per field, because the next instance-wide setting should not need a
 ;; migration. The value is a JSON document under one key.
 
-(require db-kit/portable racket/string json
-         "../db/id.rkt")
+(require db-kit/portable racket/string
+         "../db/id.rkt"
+         "../settings/settings.rkt")   ; the generic instance_settings accessor
 
 (provide branding-get branding-set! branding-defaults
          branding-title-max branding-tagline-max)
@@ -57,29 +58,11 @@
           'logo    (clean-logo (g 'logo))))
 
 (define (branding-get conn)
-  (define row (query-maybe-value conn "SELECT value FROM instance_settings WHERE key = ?" KEY))
-  (cond
-    [(not row) (branding-defaults)]
-    [else
-     ;; A hand-edited or truncated row must not take the console down; fall back.
-     (with-handlers ([exn:fail? (lambda (_) (branding-defaults))])
-       (define v (string->jsexpr (if (string? row) row (format "~a" row))))
-       (if (hash? v) (normalize v) (branding-defaults)))]))
+  ;; `setting-ref` already turns an absent or corrupt row into the fallback, so a
+  ;; mangled row reads as the shipped identity rather than 500-ing the PUBLIC
+  ;; sign-in screen. `normalize` then clamps whatever survived.
+  (define v (setting-ref conn KEY #f))
+  (if v (normalize v) (branding-defaults)))
 
 (define (branding-set! conn h)
-  (define v (normalize (if (hash? h) h (hasheq))))
-  (define blob (jsexpr->string v))
-  ;; No ON CONFLICT: the dialects spell it differently and this is a single row.
-  (define existing (query-maybe-value conn "SELECT key FROM instance_settings WHERE key = ?" KEY))
-  (if existing
-      (query-exec conn "UPDATE instance_settings SET value = ?, updated_at = ? WHERE key = ?"
-                  blob (now-iso) KEY)
-      (query-exec conn "INSERT INTO instance_settings (key, value, updated_at) VALUES (?, ?, ?)"
-                  KEY blob (now-iso)))
-  v)
-
-(define (now-iso)
-  (define d (seconds->date (current-seconds) #f))
-  (define (p n) (if (< n 10) (format "0~a" n) (number->string n)))
-  (format "~a-~a-~a ~a:~a:~a" (date-year d) (p (date-month d)) (p (date-day d))
-          (p (date-hour d)) (p (date-minute d)) (p (date-second d))))
+  (setting-set! conn KEY (normalize (if (hash? h) h (hasheq)))))

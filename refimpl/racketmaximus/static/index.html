@@ -106,7 +106,8 @@
 <div id="app"></div>
 <div id="toast" class="toast"></div>
 <script>
-const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en', me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0 };
+const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
+  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0 };
 const L = {
   en:{tagline:'Team AI platform — reference implementation',chat:'Chat',agent:'Agent',notes:'Notes',team:'Team',usage:'Usage',admin:'Admin',
       signin:'Sign in',user:'Username',pass:'Password',code:'2FA code (if enabled)',firstrun:'First run — create the first operator',
@@ -144,15 +145,20 @@ const L = {
       nolimit:'no limit',norepoobjects:'No documents yet. Any format \u2014 pdf, svg, png, docx, xml, md.',
       uploadhint:'Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.',
       vishint:'You set this because you uploaded it. Sharing narrows a team document to just the people you name.',
+      localization:'Localization',deflocale:'Default language',
+      loctoggle:'Let people choose their language',
+      lochint:'The language this instance answers in when a visitor has not chosen one \u2014 including on the sign-in screen, before anyone has an account.',
+      locoffhint:'With this off, every reply uses the default language and the language switcher disappears.',
+      locavail:'Shipped in this build',
       workflows:'Workflows',workflow:'Workflow',definitions:'Definitions',runwf:'Run',runs:'Runs',viewrun:'View',back:'Back',
-      steps:'Steps',input:'Input',output:'Output',source:'Source',version:'Version',started:'Started',status:'Status',
+      steps:'Steps',input:'Input',output:'Output',source:'Source',version:'Version',started:'Started',
       nodefs:'No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.',
       noruns:'No runs yet.',stepsused:'steps used'},
   ja:{tagline:'チームAIプラットフォーム — リファレンス実装',chat:'チャット',agent:'エージェント',notes:'ノート',team:'チーム',usage:'使用状況',admin:'管理',
       signin:'サインイン',user:'ユーザー名',pass:'パスワード',code:'2FAコード（有効な場合）',firstrun:'初回起動 — 最初のオペレーターを作成',
       createop:'オペレーターを作成',send:'送信',prompt:'プロンプト',reply:'返信',newnote:'新規ノート',title:'タイトル',body:'本文',
       visibility:'公開範囲',create:'作成',share:'共有',del:'削除',members:'メンバー',addmember:'メンバー追加',role:'ロール',
-      setquota:'上限を設定',dimension:'項目',limit:'上限',logout:'サインアウト',operator:'オペレーター',model:'モデル',
+      setquota:'上限を設定',dimension:'指標',limit:'上限',logout:'サインアウト',operator:'オペレーター',model:'モデル',
       chpw:'パスワードの変更',curpw:'現在のパスワード',newpw:'新しいパスワード',updpw:'パスワードを更新',
       tools:'ツール',tool:'ツール',enable:'有効化',disable:'無効化',
       translate:'翻訳',sourcetext:'翻訳するテキスト',target:'翻訳先の言語',translation:'翻訳',
@@ -167,27 +173,32 @@ const L = {
       brandtitle:'名称',brandtagline:'タグライン',brandlogo:'ロゴ',
       brandclearlogo:'ロゴを削除',brandreset:'既定に戻す',
       beta:'ベータ',requestaccess:'アクセスを申請',teamsignin:'チームサインイン',qualify:'承認',reject:'却下',
-      repository:'ドキュメント保管',upload:'アップロード',uploading:'アップロード中',uploaded:'アップロードしました',
+      repository:'ドキュメント保管庫',upload:'アップロード',uploading:'アップロード中',uploaded:'アップロードしました',
       file:'ファイル',key:'パス',size:'サイズ',updated:'更新',objects:'ドキュメント',store:'保管先',
       download:'ダウンロード',details:'詳細',close:'閉じる',versions:'バージョン',
       sharewith:'共有相手',sharedwith:'共有中',noshares:'まだ誰とも共有していません。',
-      noothers:'このチームに他のメンバーがいません',shared:'共有しました',revoked:'解除しました',deleted:'削除しました',
+      noothers:'このチームに他のメンバーがいません。',shared:'共有しました',revoked:'失効しました',deleted:'削除しました',
       vis_team:'チーム \u2014 チーム全員',vis_private:'非公開 \u2014 自分のみ',
       vis_shared:'限定共有 \u2014 下記の相手のみ',visupdated:'公開範囲を更新しました',
       link:'リンク',copy:'コピー',copied:'コピーしました',searchph:'ノート、ドキュメント、ファイル、翻訳\u2026',
-      linkhint:'このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。あなたのS3キーの権限で動作し、キーを失効させると無効になります。',
+      linkhint:'このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。ご自身のS3キーの権限で動作し、キーを失効させると無効になります。',
       s3keys:'S3アクセスキー',s3created:'キーを作成しました',status:'状態',name:'名前',
       s3hint:'aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。',
       s3once:'シークレットは今だけ表示されます。必ず控えてください。',
       s3off:'このインスタンスではS3エンドポイントが無効です（TELEMACHUS_S3_PORT）。',
       newversion:'新しいバージョンとして保存しました',willversion:'このパスは既にあります \u2014 新しいバージョンとして保存され、公開範囲は現状のままです',
-      nolimit:'上限なし',norepoobjects:'まだドキュメントがありません。形式は自由です。',
+      nolimit:'上限なし',norepoobjects:'まだドキュメントがありません。形式は自由です \u2014 pdf、svg、png、docx、xml、md。',
       uploadhint:'どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。',
       vishint:'アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。',
+      localization:'言語設定',deflocale:'既定の言語',
+      loctoggle:'利用者による言語の切り替えを許可する',
+      lochint:'訪問者が言語を選んでいないときに、このインスタンスが応答する言語です。アカウント作成前のサインイン画面にも適用されます。',
+      locoffhint:'オフにすると、応答は常に既定の言語になり、言語切り替えは表示されません。',
+      locavail:'このビルドに含まれる言語',
       workflows:'ワークフロー',workflow:'ワークフロー',definitions:'定義',runwf:'実行',runs:'実行履歴',viewrun:'表示',back:'戻る',
-      steps:'ステップ',input:'入力',output:'出力',source:'ソース',version:'バージョン',started:'開始',status:'状態',
-      nodefs:'このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。',
-      noruns:'実行履歴はまだありません。',stepsused:'ステップ使用'}
+      steps:'ステップ',input:'入力',output:'出力',source:'ソース',version:'バージョン',started:'開始',
+      nodefs:'このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。それ以外の場合は /api/workflows に仕様をPOSTしてください。',
+      noruns:'実行履歴はまだありません。',stepsused:'使用ステップ数'}
 };
 // The Mentor mark (docs/design/brand/) — a helm whose two diamond eyes are an
 // owl's and whose nasal guard is the stem of a T. The eyes CROSS the guard, so
@@ -222,6 +233,23 @@ async function loadBranding(){
   if(r.ok && r.json) S.brand = Object.assign(S.brand, r.json);
   document.title = S.brand.title || 'Telemachus';
 }
+// The instance localization policy. Public, and fetched on EVERY render pass —
+// including for a signed-in user, who otherwise would never see an operator turn
+// the switcher off. Applying it is what settles S.lang: a stored per-browser
+// preference only wins while the operator allows switching AND still ships that
+// catalog. Otherwise the instance default is the answer, which is the whole point
+// of the setting — a Japanese instance greets a first-time visitor in Japanese.
+async function loadI18n(){
+  const r = await api('/api/config');
+  if(r.ok && r.json){
+    if(r.json.localization) S.i18n = Object.assign(S.i18n, r.json.localization);
+    S.home = r.json.home || S.home;
+    S.cfg = r.json;
+  }
+  const pref = localStorage.getItem('tmx_lang');
+  const avail = S.i18n.available || ['en'];
+  S.lang = (S.i18n.enabled && pref && avail.indexOf(pref)>=0) ? pref : S.i18n.default;
+}
 // The lockup: an uploaded logo REPLACES the mark and the wordmark both — an
 // operator who supplies their own logo is not asking for ours beside it. The
 // trailing dot is ours, so it goes with the mark.
@@ -243,7 +271,8 @@ async function api(path, {method='GET', body=null}={}){
 }
 function toast(msg, ok=false){ const el=document.getElementById('toast'); el.textContent=msg; el.className='toast show'+(ok?' ok':'');
   setTimeout(()=>el.className='toast',2600); }
-function setLang(l){ S.lang=l; localStorage.setItem('tmx_lang',l); render(); }
+function setLang(l){ if(!S.i18n.enabled) return; if((S.i18n.available||[]).indexOf(l)<0) return;
+  S.lang=l; localStorage.setItem('tmx_lang',l); render(); }
 function setTok(tk){ S.token=tk; localStorage.setItem('tmx_token',tk); }
 function logout(){ S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.forceLogin=false; render(); }
 const val = id => document.getElementById(id).value.trim();
@@ -282,7 +311,12 @@ async function doBootstrap(){
 }
 
 // ---------- shell ----------
-function langBtns(){ return ['en','ja'].map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${l==='en'?'EN':'日本語'}</button>`).join(''); }
+const LANGNAME = {en:'EN', ja:'日本語'};
+// Empty when the operator has turned negotiation off — there is nothing to
+// choose, so offering a chooser would be a lie.
+function langBtns(){ if(!S.i18n.enabled) return '';
+  const av = S.i18n.available||['en']; if(av.length<2) return '';
+  return av.map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
 function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
@@ -501,10 +535,38 @@ async function adminView(){
     </div>
     <div style="margin-top:10px"><button class="btn" onclick="doBrandSave()">${t('save')}</button>
       <button class="btn ghost" style="margin-left:8px" onclick="doBrandReset()">${t('brandreset')}</button></div></div>`;
+  // Localization: instance-wide, `instance:manage`, and the reason it sits beside
+  // Branding rather than in a user preference pane — it is what an ANONYMOUS
+  // visitor gets, so it cannot live behind a sign-in.
+  const I = S.i18n;
+  const locCard=`<div class="card" style="margin-top:14px"><h3>${t('localization')}</h3>
+    <p class="muted" style="margin-top:0">${t('lochint')}</p>
+    <div class="row">
+      <div><label>${t('deflocale')}</label>
+        <select id="locdef">${(I.available||['en']).map(l=>`<option value="${esc(l)}"${I.default===l?' selected':''}>${esc(LANGNAME[l]||l)}</option>`).join('')}</select></div>
+      <div><label>&nbsp;</label>
+        <label class="muted" style="display:flex;align-items:center;gap:8px;font-weight:normal">
+          <input type="checkbox" id="locsw"${I.enabled?' checked':''}> ${t('loctoggle')}</label></div>
+    </div>
+    <p class="muted" style="margin-top:6px;font-size:12px">${t('locoffhint')}</p>
+    <p class="muted" style="font-size:12px">${t('locavail')}: ${(I.available||[]).map(l=>esc(LANGNAME[l]||l)).join(' \u00b7 ')}</p>
+    <div style="margin-top:10px"><button class="btn" onclick="doI18nSave()">${t('save')}</button></div></div>`;
   const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
     <button class="btn" onclick="doSeedSamples()">${t('seed')}</button></div>`;
-  return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${seedCard}`;
+  return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${locCard}${seedCard}`;
+}
+// ---- localization (Admin) ----
+// Re-render the whole shell on success: turning the switcher off has to remove it
+// from the header in the same beat, and changing the default may change the
+// language this very page is written in.
+async function doI18nSave(){
+  const r=await api('/api/i18n',{method:'PUT',
+    body:{default:val('locdef'), enabled:document.getElementById('locsw').checked}});
+  if(r.ok && r.json){ S.i18n=Object.assign(S.i18n,r.json);
+    if(!S.i18n.enabled) localStorage.removeItem('tmx_lang');
+    toast(t('saved')); render(); }
+  else toast((r.json&&r.json.error)||'error');
 }
 // ---- branding (Admin) ----
 // Every write re-reads the server's normalized answer into S.brand and re-renders
@@ -1364,9 +1426,11 @@ async function render(){
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
   await loadBranding(); if(stale()) return;
+  await loadI18n();     if(stale()) return;
   await refreshMe();    if(stale()) return;
   if(!S.me){
-    const cfg=await api('/api/config'); if(stale()) return; S.home = cfg.ok ? cfg.json.home : 'login';
+    const cfg = S.cfg ? {ok:true, json:S.cfg} : await api('/api/config');   // loadI18n() already fetched it
+    if(stale()) return; S.home = cfg.ok ? cfg.json.home : 'login';
     const atLoginPath = location.pathname.replace(/\/$/,'').endsWith('/login');
     const forceLogin = S.forceLogin || atLoginPath || new URLSearchParams(location.search).get('login')==='1';
     if(S.home==='beta' && !forceLogin){

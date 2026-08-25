@@ -21,8 +21,8 @@
          "../authz/authz.rkt"
          "../quota/quota.rkt")
 
-(provide org-slugify
-         org-create! org-list org-get org-get-by-slug
+(provide org-slugify org-plan? org-resolve
+         org-create! org-update! org-list org-get
          org-set-status! org-suspended? tenant-read-only?
          org-teams org-members org-audit org-add-team! org-attach-member!
          org-usage set-org-limit! org-quota
@@ -54,6 +54,11 @@
         "pro"        (list (cons "ai.tokens.total" 10000000) (cons "ai.requests" 100000) (cons "ai.concurrency" 8))
         "enterprise" (list (cons "ai.tokens.total" 99000000) (cons "ai.requests" 990000) (cons "ai.concurrency" 16))))
 
+;; A plan the instance actually sells. Checked at the edge rather than left to
+;; `hash-ref`'s default, which would quietly sell a typo'd "enterprize" the trial
+;; caps and only surface months later as "why is this customer throttled".
+(define (org-plan? p) (and (hash-ref org-plan-quotas p #f) #t))
+
 (define (apply-org-plan! conn org-id plan)
   (for ([kv (in-list (hash-ref org-plan-quotas plan (hash-ref org-plan-quotas "trial")))])
     (set-limit! conn "org" org-id (car kv) (cdr kv)
@@ -68,7 +73,22 @@
                      #:owner-username owner-username #:owner-password [owner-pw #f]
                      #:owner-name [owner-name #f]
                      #:team-name [team-name "General"] #:team-slug [team-slug "general"])
-  (define oslug (unique-org-slug conn (org-slugify (or slug name))))
+  ;; An EXPLICIT slug is a NATURAL KEY, a derived one is a convenience. A pipeline
+  ;; that says `"slug": "acme"` twice means one company both times; suffixing the
+  ;; re-run to `acme-1` would answer it with a SECOND company — silently, visible
+  ;; only on the invoice. So: taken + explicit => refuse (#f, the caller GETs it
+  ;; instead); taken + derived-from-name => suffix, because two humans typing
+  ;; "Acme" really may mean two companies.
+  (define oslug
+    (if slug
+        (let ([s (org-slugify slug)])
+          (and (not (query-maybe-value conn "SELECT id FROM orgs WHERE slug = ?" s)) s))
+        (unique-org-slug conn (org-slugify name))))
+  (and oslug (org-create-rows! conn actor oslug name plan owner-username owner-pw owner-name
+                               team-name team-slug)))
+
+(define (org-create-rows! conn actor oslug name plan
+                          owner-username owner-pw owner-name team-name team-slug)
   (define oid (create-org! conn #:name name #:slug oslug #:plan plan))
   (apply-org-plan! conn oid plan)
   (define tid (create-team! conn #:name team-name #:slug team-slug #:org oid))
@@ -86,6 +106,13 @@
   (hasheq 'org_id oid 'org_slug oslug 'org_name name 'plan plan
           'team_id tid 'team_slug team-slug
           'owner_user_id uid 'owner_username owner-username 'token tok))
+
+;; id-or-slug -> id. Every /api/orgs/<ref> route goes through this: a devops
+;; caller holds the slug it declared, not an id the server minted.
+(define (org-resolve conn ref)
+  (and ref
+       (or (query-maybe-value conn "SELECT id FROM orgs WHERE id = ?" ref)
+           (query-maybe-value conn "SELECT id FROM orgs WHERE slug = ?" ref))))
 
 ;; ---- reading ----------------------------------------------------------------
 (define (org-row->jsexpr conn r)
@@ -108,10 +135,6 @@
                     'member_list (org-members conn org-id)
                     'quota (org-quota conn org-id)
                     'usage (org-usage conn org-id))))
-
-(define (org-get-by-slug conn slug)
-  (define oid (query-maybe-value conn "SELECT id FROM orgs WHERE slug = ?" slug))
-  (and oid (org-get conn oid)))
 
 (define (org-teams conn org-id)
   (for/list ([r (in-list (query-rows conn
@@ -184,6 +207,31 @@
      (define-values (tok _t) (issue-token! conn #:user uid #:team tid #:scopes '("*:*")))
      (hasheq 'user_id uid 'username username 'team_id tid 'role role
              'org_role (or org-role 'null) 'token tok)]))
+
+;; Rename a company, or move it onto a different plan. A PLAN CHANGE RE-APPLIES
+;; that plan's caps — an operator who "upgrades this customer to pro" and gets no
+;; more tokens has been lied to, so `plan` is a live setting, not a label. The
+;; corollary, which the runbook states: a bespoke cap set afterwards through
+;; POST /api/orgs/<ref>/quota survives until the NEXT plan change, then it is
+;; overwritten. Renaming alone never touches quotas.
+(define (org-update! conn actor org-id #:name [name #f] #:plan [plan #f])
+  (cond
+    [(not (query-maybe-value conn "SELECT id FROM orgs WHERE id = ?" org-id)) #f]
+    [else
+     (when name
+       (query-exec conn "UPDATE orgs SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                   name org-id))
+     (when plan
+       (query-exec conn "UPDATE orgs SET plan = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                   plan org-id)
+       (apply-org-plan! conn org-id plan))
+     (audit! conn #:action "org.update" #:actor-type "user"
+             #:actor-id (if actor (principal-user-id actor) "system")
+             #:resource-type "org" #:resource-id org-id)
+     (hasheq 'ok #t 'org_id org-id
+             'name (or name 'null) 'plan (or plan 'null)
+             'quotas_reapplied (and plan #t)
+             'quota (org-quota conn org-id))]))
 
 (define (org-set-status! conn actor org-id status)
   (define exists (query-maybe-value conn "SELECT id FROM orgs WHERE id = ?" org-id))

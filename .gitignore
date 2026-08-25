@@ -32,3 +32,6 @@ Thumbs.db
 result
 result-*
 .direnv/
+
+# generated review sheets (scripts/build-l10n-review.py)
+build/

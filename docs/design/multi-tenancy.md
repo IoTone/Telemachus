@@ -3,6 +3,8 @@
 **Status:** designed + built behind a flag (slice 45).
 **Supersedes:** decision **TEN** ("team = boundary, single implicit org, no `org_id`
 in the schema"). See [decisions.md](decisions.md) — **TEN‑2**.
+**Operators:** [../ops/multi-tenancy-runbook.md](../ops/multi-tenancy-runbook.md) —
+turning it on, onboarding a company by hand or from a pipeline, day-2, offboarding.
 
 ## Why this is one design element, not a rewrite
 
@@ -152,16 +154,42 @@ needs no schema change. The rule is a nesting, not a replacement:
 
 ## Endpoints
 
-**Superadmin** — all gated `instance:manage`, all `404` when the flag is off:
+**Superadmin** — all gated `instance:manage`, all `404` when the flag is off.
+`<ref>` is the org's **id or its slug**: a provisioning pipeline holds the slug it
+declared in source control, never the id the server minted.
 
 | | |
 |---|---|
-| `POST /api/orgs` | create an org + its first `org_owner` (returns a login token) |
+| `POST /api/orgs` | create an org + its first team + its `org_owner` (returns a login token) |
 | `GET /api/orgs` | list orgs with team/user/usage counts |
-| `GET /api/orgs/<id>` | one org: teams, members, quota, status |
-| `POST /api/orgs/<id>/suspend` \| `/resume` | freeze / unfreeze a company |
-| `POST /api/orgs/<id>/quota` | set the company's cap |
+| `GET /api/orgs/<ref>` | one org: teams, members, quota, status |
+| `PATCH /api/orgs/<ref>` | rename, and/or move the company onto another plan |
+| `POST /api/orgs/<ref>/suspend` \| `/resume` | freeze / unfreeze a company |
+| `POST /api/orgs/<ref>/quota` | set the company's cap |
 | `POST /api/admin/seed-tenants` | seed the demo fixture (below) |
+
+**Provisioning is an API operation, not a deploy.** Creating a company writes rows;
+the org, its team and its owner are live on the next request, and the only restart
+multi-tenancy ever needs is the one that first sets the flag. That makes
+`POST /api/orgs` the seam a devops pipeline drives, which in turn makes its
+**re-run behaviour part of the contract** (TEN‑2f):
+
+| the caller sends | slug free | slug taken |
+|---|---|---|
+| `slug` explicitly | creates it | **`409`**, nothing written |
+| only `name`, slug derived | creates it | suffixes: `acme-1`, `acme-2`, … |
+
+An explicit slug is a **natural key** — the pipeline declared *which* company it
+means, so answering a re-run with a second one named `acme-1` would be a silent
+duplicate discovered on an invoice. A derived slug has no declared key to honour,
+and two humans typing "Acme" may really mean two companies, so there it still
+suffixes. Check-then-create against `GET /api/orgs/<slug>` is the converging shape.
+
+A **plan is live, not a label**: `PATCH` with a `plan` re-applies that plan's caps,
+because an operator who upgrades a customer and gets no more tokens has been lied
+to. The cost, stated in the runbook: a bespoke cap set afterwards through
+`/quota` survives until the next plan write, then it is overwritten. A `PATCH`
+carrying only `name` never touches quotas.
 
 **Org admin** — gated `org:manage`, scoped to the caller's own org:
 
@@ -207,8 +235,12 @@ that matter:
    under-limit team is still refused;
 8. suspending Acme makes every Acme team read-only and leaves Globex untouched;
    resume restores it;
-9. with the flag **off**, `/api/orgs` and `/api/org` are `404` and the
-   single-tenant bootstrap → members → notes flow is byte-identical to today.
+9. a company is provisioned **from a pipeline against the running process** — no
+   restart, the owner token works on the next request, the new org is isolated on
+   arrival, a re-run is `409` rather than a shadow `initech-1`, and a plan `PATCH`
+   moves the caps;
+10. with the flag **off**, `/api/orgs` and `/api/org` are `404` and the
+    single-tenant bootstrap → members → notes flow is byte-identical to today.
 
 ## Decisions to confirm
 
@@ -220,3 +252,5 @@ that matter:
 | TEN‑2c | A user belongs to **exactly one** org (`users.org_id`) | ✅ decided — cross-org membership is a non-goal; it would reintroduce exactly the ambiguity the gate exists to remove |
 | TEN‑2d | Per-org custom branding / domain routing (`orgs.slug` → subdomain) | ⬜ open — the column exists, routing does not |
 | TEN‑2e | Per-org model endpoints (a company brings its own inference) | ⬜ open — `executors` are instance-scoped today |
+| TEN‑2f | Provisioning is an **API** operation with an explicit re-run contract: an explicit slug is a natural key (`409`), a derived one suffixes | ✅ decided — a pipeline must converge, and a duplicated company is worse than a refused call |
+| TEN‑2g | **No `DELETE /api/orgs`.** Suspend is the API's terminal state; erasure is a maintenance-window SQL procedure | ✅ decided — the cascade crosses teams, users, tokens, blobs and audit; it should not be one verb away from a shell-history typo |

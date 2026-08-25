@@ -278,6 +278,46 @@ try {
   eq('stored logo matches what we found', finalBrand && finalBrand.logo,
      (restoreBrand && restoreBrand.logo) || '');
 
+  // ── 8b. Admin › Localization — the instance default and the off switch ──────
+  // The API is covered exhaustively in test/server-smoke.sh; what only a browser
+  // can prove is that the switcher actually LEAVES the header when an operator
+  // turns negotiation off, and that the console comes back up in the instance's
+  // language rather than a hardcoded 'en'.
+  step('admin: localization');
+  await page.evaluate(() => window.go('admin'));
+  await page.waitForSelector('#locdef', { timeout: 15000 });
+  ok('localization card present in Admin', await page.locator('#locdef').count() === 1);
+  const restoreI18n = (await apiCall(page, '/api/config')).json.localization;
+  ok('switcher offered while negotiation is on',
+    await page.locator('header.top .langtog button').count() >= 2);
+
+  // default → ja: the console must repaint in Japanese without a reload
+  await page.selectOption('#locdef', 'ja');
+  await page.evaluate(() => window.doI18nSave());
+  ok('console repaints in Japanese',
+    await until(page, () => (document.querySelector('nav.tabs') || {}).innerText?.includes('チャット'),
+                { timeout: 15000 }));
+
+  // negotiation off: the switcher has to disappear, not merely stop working
+  await page.evaluate(() => window.go('admin'));
+  await page.waitForSelector('#locsw', { timeout: 15000 });
+  await page.uncheck('#locsw');
+  await page.evaluate(() => window.doI18nSave());
+  ok('language switcher removed when negotiation is off',
+    await until(page, () => document.querySelectorAll('header.top .langtog button').length === 0,
+                { timeout: 15000 }));
+  const off = (await apiCall(page, '/api/config')).json.localization;
+  eq('policy reads back as off', off && off.enabled, false);
+  eq('…still pinned to ja', off && off.default, 'ja');
+
+  // put the instance back the way we found it
+  const backI18n = await apiCall(page, '/api/i18n', { method: 'PUT', body: restoreI18n || {} });
+  ok('localization restored to its pre-run value', backI18n.ok, `status ${backI18n.status}`);
+  await page.evaluate(() => window.render());
+  ok('switcher returns with negotiation back on',
+    await until(page, () => document.querySelectorAll('header.top .langtog button').length >= 2,
+                { timeout: 15000 }));
+
   // ── 9. sign out and back in ─────────────────────────────────────────────────
   step('sign out and sign back in');
   await page.evaluate(() => window.logout());

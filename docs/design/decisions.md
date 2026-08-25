@@ -69,6 +69,7 @@ RBAC‑2 and SCHED‑5"). Choices get recorded in the **Decision log** at the bo
 | **LOC‑4** | Release gate | **Advisory in v1** (only `en` 100% is hard-required) · vs coverage-blocking now | How strict CI is at launch. |
 | **LOC‑5** | AI drafting | **Opt-in per locale**, via a new **`translation` model role** (fallback `utility`) · vs on-by-default | Auto-draft behavior + which model. |
 | **LOC‑6** | Doc generation | **Separate follow-up design doc** · vs fold in now | Keeps localization doc focused. |
+| **LOC‑7** | Default locale owner | **Instance operator** (`instance:manage`) + an off switch for negotiation · vs per-team · vs browser-only | Decides what an anonymous visitor is answered in. Browser-only was the old behaviour and made a Japanese instance impossible. |
 
 ---
 
@@ -103,6 +104,8 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | TEN‑2c | a user belongs to **exactly one** org | ✅ built — enforced at the `add-member!` seam |
 | TEN‑2d | per-org branding / subdomain routing | ⬜ open — `orgs.slug` exists, routing does not |
 | TEN‑2e | per-org model endpoints (BYO inference) | ⬜ open — executors are instance-scoped |
+| TEN‑2f | provisioning is an **API** operation; explicit slug = natural key (`409` on re-run), derived slug suffixes | ✅ built — a pipeline must converge; a silent duplicate company is worse than a refused call |
+| TEN‑2g | **no `DELETE /api/orgs`** — suspend is the terminal API state, erasure is a SQL maintenance procedure | ✅ decided — the cascade spans teams, users, tokens, blobs and audit |
 | RBAC‑1 | owner/admin/member/viewer | ✅ default |
 | RBAC‑2 | allow custom per-team roles | ✅ default |
 | RBAC‑3 | within-team shares only (v1) | ✅ default |
@@ -129,6 +132,7 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | LOC‑4 | advisory coverage (v1) | ✅ default |
 | LOC‑5 | opt-in AI draft, translation role | ✅ default |
 | LOC‑6 | separate doc-gen design | ✅ default |
+| LOC‑7 | **instance** operator sets the default locale, and may turn per-request negotiation off | ✅ built — `Admin › Localization`; the sign-in screen belongs to no team and cannot be configured by the visitor |
 | ONB‑1 | instance-per-tenant (hosted) | ✅ built (slice 19) |
 | ONB‑2 | provider auth via **provision token**, no operator user | ✅ built |
 | ONB‑3 | both `/api/provision` + boot-env seeding | ✅ built |

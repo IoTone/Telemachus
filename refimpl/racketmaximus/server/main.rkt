@@ -43,7 +43,8 @@
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
          "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
-         "../domain/branding/branding.rkt"        ; instance title / tagline / logo (Admin)
+         "../domain/branding/branding.rkt"
+         "../domain/i18n/policy.rkt"              ; instance localization policy (default locale + off switch)        ; instance title / tagline / logo (Admin)
          "../domain/beta/template.rkt"            ; Tier-C sandboxed custom HTML templates
          "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
@@ -131,9 +132,17 @@
 ;; forbid setting Accept-Language from fetch) wins, else Accept-Language.
 (define (accept-language req)
   (define h (or (req-header req #"x-telemachus-locale") (req-header req #"accept-language")))
-  (if (not h) "en"
-      (let ([tag (string-trim (car (string-split (car (string-split h ",")) ";")))])
-        (if (string=? tag "") "en" tag))))
+  (and h (let ([tag (string-trim (car (string-split (car (string-split h ",")) ";")))])
+           (and (not (string=? tag "")) tag))))
+
+(define (locales-dir) (build-path impl-root "locales"))
+
+;; What this request is actually answered in. The instance policy decides: with
+;; negotiation off the header is ignored outright, and an unknown locale lands on
+;; the instance default rather than on a hardcoded "en" — which would be the wrong
+;; language on an instance whose default is ja.
+(define (request-locale req)
+  (resolve-locale db-conn (locales-dir) (accept-language req)))
 
 (define (query-param req name [default ""])
   (cond [(assq name (url-query (request-uri req))) => (lambda (kv) (or (cdr kv) default))]
@@ -342,6 +351,10 @@
   (define team (default-team db-conn))
   (json-response (hasheq 'home (home-mode) 'service "telemachus"
                          'multitenant (multitenant?)
+                         ;; PUBLIC, and it has to be: the sign-in screen must know
+                         ;; which language to render in before anyone has a token,
+                         ;; and whether to offer the switcher at all.
+                         'localization (i18n-policy db-conn (locales-dir))
                          'onboarding (hash-ref (resolve-experience db-conn team) 'name "beta")
                          'landing (experience-landing db-conn team))))
 
@@ -362,6 +375,24 @@
 
 ;; The logo rides the existing asset table and is served by the existing PUBLIC
 ;; /api/beta/asset/<id> route — one asset mechanism, not two.
+;; ---- instance localization (Admin > Localization) ------------------------------
+;; Read rides on the PUBLIC /api/config; the write is `instance:manage`, exactly
+;; like branding. An unknown locale is a 400 and not a silent substitution: an
+;; operator who asks for a language this build cannot render must be told, or the
+;; instance claims a locale it will never actually serve.
+(define (ep-i18n-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (with-handlers ([exn:fail? (lambda (e) (err (exn-message e) 400))])
+      (define v (i18n-policy-set! db-conn (locales-dir)
+                                  (hasheq 'default (hash-ref b 'default
+                                                             (hash-ref (i18n-policy db-conn (locales-dir)) 'default))
+                                          'enabled (hash-ref b 'enabled #t))))
+      (audit! db-conn #:action "i18n.set" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "instance" #:resource-id "i18n")
+      (json-response v)))))
+
 (define (ep-branding-logo req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
@@ -608,8 +639,11 @@
         [(or (not name) (not owner)) (err "name and owner_username required" 400)]
         [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" owner))
          (err "owner_username already exists on this instance" 409)]     ; TEN-2b: usernames are global
+        [(and (hash-ref b 'plan #f) (not (org-plan? (format "~a" (hash-ref b 'plan)))))
+         (err (format "unknown plan; expected one of ~a"
+                      (string-join (sort (hash-keys org-plan-quotas) string<?) ", ")) 400)]
         [else
-         (json-response
+         (define created
           (org-create! db-conn p
                        #:name (format "~a" name)
                        #:slug (let ([sl (hash-ref b 'slug #f)]) (and sl (format "~a" sl)))
@@ -618,39 +652,60 @@
                        #:owner-password (let ([pw (hash-ref b 'owner_password #f)]) (and pw (format "~a" pw)))
                        #:owner-name (let ([n (hash-ref b 'owner_name #f)]) (and n (format "~a" n)))
                        #:team-name (format "~a" (hash-ref b 'team_name "Engineering"))
-                       #:team-slug (org-slugify (hash-ref b 'team_slug "engineering")))
-          #:code 201)]))))))
+                       #:team-slug (org-slugify (hash-ref b 'team_slug "engineering"))))
+         ;; #f means the caller named a slug that is already a company. Refusing is
+         ;; the whole point: a pipeline re-run must not mint `acme-1`. 409 + the
+         ;; slug tells the caller to GET /api/orgs/<slug> instead.
+         (if created
+             (json-response created #:code 201)
+             (err (format "an organization with slug '~a' already exists"
+                          (org-slugify (hash-ref b 'slug "")))
+                  409))]))))))
 
-(define (ep-org-get req id)
+;; Every /api/orgs/<ref> route addresses a company by EITHER its id or its slug.
+;; A devops caller holds the slug it declared in source control; it never saw the
+;; id the server minted. Resolve once, here, so no endpoint has to remember.
+(define (with-org req ref proc)
   (with-mt req (lambda ()
     (with-auth req (lambda (p)
       (require-perm db-conn p "instance:manage")
-      (define o (org-get db-conn id))
-      (if o (json-response o) (err "not found" 404)))))))
+      (define id (org-resolve db-conn ref))
+      (if id (proc p id) (err "not found" 404)))))))
 
-(define (ep-org-status req id status)
-  (with-mt req (lambda ()
-    (with-auth req (lambda (p)
-      (require-perm db-conn p "instance:manage")
-      (if (org-set-status! db-conn p id status)
-          (json-response (hasheq 'ok #t 'org_id id 'status status))
-          (err "not found" 404)))))))
+(define (ep-org-get req ref)
+  (with-org req ref (lambda (p id) (json-response (org-get db-conn id)))))
 
-(define (ep-org-quota req id)
-  (with-mt req (lambda ()
-    (with-auth req (lambda (p)
-      (require-perm db-conn p "instance:manage")
-      (define b (read-json-body req))
-      (define dim (hash-ref b 'dimension #f))
-      (define lim (hash-ref b 'limit #f))
-      (cond
-        [(or (not dim) (not lim)) (err "dimension and limit required" 400)]
-        [(not (query-maybe-value db-conn "SELECT id FROM orgs WHERE id = ?" id)) (err "not found" 404)]
-        [else
-         (set-org-limit! db-conn id (format "~a" dim) lim #:window (format "~a" (hash-ref b 'window "day")))
-         (audit! db-conn #:action "org.quota.set" #:actor-type "user" #:actor-id (principal-user-id p)
-                 #:resource-type "org" #:resource-id id)
-         (json-response (hasheq 'ok #t 'org_id id 'dimension dim 'limit lim))]))))))
+(define (ep-org-status req ref status)
+  (with-org req ref (lambda (p id)
+    (org-set-status! db-conn p id status)
+    (json-response (hasheq 'ok #t 'org_id id 'status status)))))
+
+;; PATCH — rename, or move the company onto another plan. Partial: send only the
+;; fields you mean. A plan change re-applies that plan's caps (see org-update!).
+(define (ep-org-update req ref)
+  (with-org req ref (lambda (p id)
+    (define b (read-json-body req))
+    (define name (let ([n (hash-ref b 'name #f)]) (and n (format "~a" n))))
+    (define plan (let ([pl (hash-ref b 'plan #f)]) (and pl (format "~a" pl))))
+    (cond
+      [(and (not name) (not plan)) (err "name and/or plan required" 400)]
+      [(and plan (not (org-plan? plan)))
+       (err (format "unknown plan; expected one of ~a"
+                    (string-join (sort (hash-keys org-plan-quotas) string<?) ", ")) 400)]
+      [else (json-response (org-update! db-conn p id #:name name #:plan plan))]))))
+
+(define (ep-org-quota req ref)
+  (with-org req ref (lambda (p id)
+    (define b (read-json-body req))
+    (define dim (hash-ref b 'dimension #f))
+    (define lim (hash-ref b 'limit #f))
+    (cond
+      [(or (not dim) (not lim)) (err "dimension and limit required" 400)]
+      [else
+       (set-org-limit! db-conn id (format "~a" dim) lim #:window (format "~a" (hash-ref b 'window "day")))
+       (audit! db-conn #:action "org.quota.set" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:resource-type "org" #:resource-id id)
+       (json-response (hasheq 'ok #t 'org_id id 'dimension dim 'limit lim))]))))
 
 ;; demo fixture: two complete companies with known dev logins (see
 ;; domain/samples/tenants.rkt). Superadmin-only, refuses to run twice.
@@ -1439,6 +1494,7 @@
 (define (POST? m) (bytes=? m #"POST"))
 (define (PUT? m) (bytes=? m #"PUT"))
 (define (DELETE? m) (bytes=? m #"DELETE"))
+(define (PATCH? m) (bytes=? m #"PATCH"))
 (define (OPTIONS? m) (bytes=? m #"OPTIONS"))
 
 ;; /api/notes/<id> → id ; /api/notes/<id>/share → id
@@ -1463,7 +1519,7 @@
 (define (share-id segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
        (equal? (list-ref segs 3) "share") (list-ref segs 2)))
-;; /api/orgs/<id> · /api/orgs/<id>/{suspend,resume,quota}
+;; /api/orgs/<ref> · /api/orgs/<ref>/{suspend,resume,quota} — <ref> is an id OR a slug
 ;; /api/repo/<key…> — a key contains slashes, so it is the whole tail rather than
 ;; one segment. Object operations address the object by ID (/api/repo-obj/<id>/…)
 ;; so a key can never be confused with an action.
@@ -1513,6 +1569,7 @@
     [(and (GET? m)  (equal? segs '("api" "branding")))     (ep-branding-get req)]
     [(and (PUT? m)  (equal? segs '("api" "branding")))     (ep-branding-put req)]
     [(and (POST? m) (equal? segs '("api" "branding" "logo"))) (ep-branding-logo req)]
+    [(and (PUT? m)  (equal? segs '("api" "i18n")))         (ep-i18n-put req)]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
     [(and (GET? m)  (equal? segs '("beta" "template")))     (ep-beta-template req)]
     [(and (OPTIONS? m) (member segs '(("api" "beta" "signup") ("api" "beta" "config") ("api" "beta" "challenge")))) (cors-preflight)]
@@ -1548,6 +1605,7 @@
     [(and (POST? m) (org-action-path segs "resume"))        (ep-org-status req (org-action-path segs "resume") "active")]
     [(and (POST? m) (org-action-path segs "quota"))         (ep-org-quota req (org-action-path segs "quota"))]
     [(and (GET? m)  (org-id-path segs))                     (ep-org-get req (org-id-path segs))]
+    [(and (PATCH? m) (org-id-path segs))                    (ep-org-update req (org-id-path segs))]
     [(and (POST? m) (equal? segs '("api" "admin" "seed-tenants"))) (ep-seed-tenants req)]
     [(and (GET? m)  (equal? segs '("api" "org")))           (ep-my-org req)]
     [(and (GET? m)  (equal? segs '("api" "org" "teams")))   (ep-my-org-teams req)]
@@ -1626,7 +1684,7 @@
     [else (err "not found" 404)]))
 
 (define (handle req)
-  (parameterize ([current-localizer (localizer-for (accept-language req))])
+  (parameterize ([current-localizer (localizer-for (request-locale req))])
     (with-handlers ([exn:fail:forbidden?
                      (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
                     ;; a refused workflow spec is the caller's mistake — and the

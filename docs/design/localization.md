@@ -53,9 +53,38 @@ Everything user-facing goes through the catalog, not just the UI:
 
 ## Locale resolution & roadmap
 
-Resolution order: request/user preference → team default → deployment default.
-**Fallback chain** ends at English: e.g. `es-419 → es → en`, `ja → en`. English is
-always complete, so a missing string degrades gracefully, never blanks.
+Resolution order: request/user preference → **instance default** (LOC‑7). The team
+tier is not built and may never be — an instance-wide default plus a per-request
+header covered every case we actually had. **Fallback chain** ends at English:
+e.g. `es-419 → es → en`, `ja → en`. English is always complete, so a missing
+string degrades gracefully, never blanks.
+
+### The instance policy (LOC‑7, built)
+
+`domain/i18n/policy.rkt`, one document in `instance_settings`, `instance:manage`
+to write, and **readable without a token** on `GET /api/config` — the sign-in
+screen has to know which language to render in before anyone has an account.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `default` | `en` | the locale a request gets when it names none, names one this build has no catalog for, or when negotiation is off |
+| `enabled` | `true` | `false` pins **every** request to `default` and tells the console to drop its language switcher |
+| `available` | *derived* | not a setting — whichever `<locale>.json` files the build ships |
+
+Three properties worth stating, because each replaced a wrong behaviour:
+
+- **An unknown locale falls back to the instance default, not to English.** On an
+  instance whose default is `ja`, a browser asking for `fr` gets Japanese. The
+  old code hardcoded `"en"` at the end of the resolution chain, so there was no
+  way to run a Japanese instance for Japanese-speaking visitors.
+- **`available` is a fact, not a field.** It is read off the catalogs on disk, so
+  the instance can never advertise a language it cannot render — and `default` is
+  validated against it, so `{"default":"de"}` on a build with no German catalog is
+  a `400`, not an instance quietly serving English while claiming German.
+- **Turning negotiation off is not the same as shipping one catalog.** The other
+  catalogs stay; a bilingual instance can still choose to answer everyone in one
+  voice — support scripts, manual screenshots and audit conversations all get
+  simpler — and flipping it back on restores the choice.
 
 | Order | Locale | Code | Notes |
 |---|---|---|---|
@@ -205,3 +234,8 @@ scheduler + quotas.
    role drives it (`utility` vs a dedicated `translation` role)?
 6. **Documentation generation** — spin its pipeline into a separate design doc now,
    or fold doc strings into this one for v1?
+7. **LOC‑7 — who picks the default locale?** ✅ **Decided + built:** the *instance*
+   operator, via Admin › Localization (`instance:manage`), with an explicit switch
+   to turn per-request negotiation off entirely. Not a per-team setting: the
+   sign-in screen belongs to no team, and it is the one page whose language a
+   visitor cannot configure their way out of.

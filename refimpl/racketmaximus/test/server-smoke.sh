@@ -52,7 +52,7 @@ MB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"usernam
 assert "member token"    "$MB" '"token":"tk_'
 BOB=$(printf '%s' "$MB" | grep -oP '"token":\s*"\K[^"]+')
 assert "member 403 en"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
-assert "member 403 ja"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja')" '禁止されています'
+assert "member 403 ja"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja')" '権限がありません'
 # notes: ownership + sharing over HTTP
 CB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"carol","role":"member"}')
 CAROL_ID=$(printf '%s' "$CB" | grep -oP '"user_id":\s*"\K[^"]+')
@@ -291,6 +291,46 @@ assert "…titled by its path"              "$SR" 'reports/findme-q3.pdf'
 assert "…and a colleague finds it too" \
   "$(curl -s "$B/api/search?q=findme" -H "Authorization: Bearer $BOB")" 'reports/findme-q3.pdf'
 rm -f /tmp/tmx-smoke-find.pdf
+
+# ---- instance localization policy (default locale + the off switch) --------------
+# Before this the fallback was the literal string "en" in the request wrapper, so
+# an operator running a Japanese instance had no way to say so — every visitor
+# whose browser did not volunteer `ja` got English, sign-in screen included.
+CFG=$(curl -s $B/api/config)
+assert "policy is public"        "$CFG" '"localization"'
+assert "…default is en"          "$CFG" '"default":"en"'
+assert "…negotiation on"         "$CFG" '"enabled":true'
+assert "…advertises its catalogs" "$CFG" '"ja"'
+# with negotiation ON, the header decides
+assert "ja honoured"   "$(curl -s $B/api/whoami -H 'Accept-Language: ja')" '認証が必要です'
+assert "en honoured"   "$(curl -s $B/api/whoami -H 'Accept-Language: en')" 'Authentication required'
+# an unknown locale lands on the instance DEFAULT, not on a hardcoded English
+assert "unknown → default" "$(curl -s $B/api/whoami -H 'Accept-Language: fr')" 'Authentication required'
+
+# flip the instance to Japanese
+assert "set default ja" \
+  "$(curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $OP" -d '{"default":"ja","enabled":true}')" '"default":"ja"'
+assert "no header → ja now"  "$(curl -s $B/api/whoami)" '認証が必要です'
+assert "unknown → ja now"    "$(curl -s $B/api/whoami -H 'Accept-Language: fr')" '認証が必要です'
+assert "en still honoured"   "$(curl -s $B/api/whoami -H 'Accept-Language: en')" 'Authentication required'
+
+# turn negotiation OFF: the header stops having a say at all
+assert "switch off" \
+  "$(curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $OP" -d '{"default":"ja","enabled":false}')" '"enabled":false'
+assert "en request forced to ja" "$(curl -s $B/api/whoami -H 'Accept-Language: en')" '認証が必要です'
+assert "console told to hide it" "$(curl -s $B/api/config)" '"enabled":false'
+
+# an unknown locale is a 400, never a silent substitution
+assert "unknown locale refused" \
+  "$(curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $OP" -d '{"default":"de","enabled":true}')" 'unknown locale'
+assert "…and nothing changed"    "$(curl -s $B/api/config)" '"default":"ja"'
+# members cannot touch it
+assert "member cannot set" \
+  "$(curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $BOB" -d '{"default":"en"}')" 'instance:manage'
+# put it back so the rest of the run reads English
+assert "restore en" \
+  "$(curl -s -X PUT $B/api/i18n -H "Authorization: Bearer $OP" -d '{"default":"en","enabled":true}')" '"default":"en"'
+assert "…and 401 is English again" "$(curl -s $B/api/whoami)" 'Authentication required'
 
 # ---- slice 54: the indexing workflow makes document CONTENT searchable ------------
 # The word "wombat" appears only in the bytes, never in the key — so this hit can
