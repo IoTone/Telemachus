@@ -1403,7 +1403,12 @@ function bxContrastWarnings(th){
     `<div>${esc(w.label)} — <b>${w.ratio.toFixed(2)}:1</b> (needs ${w.min}:1)</div>`).join('')}
     <div class="muted" style="margin-top:6px">Readers may not be able to see this text.</div></div>`; }
 function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
-  const iv=(p,v)=>`value="${esc(v==null?'':v)}"`;
+  // Takes ONE argument: every call site passes a single value (`iv(f.label)`).
+  // Declared `(p,v)` it silently bound the value to `p`, left `v` undefined, and
+  // emitted value="" for every input in this editor -- so existing copy looked
+  // unset. Untouched inputs never wrote back (bxSet fires on input), so nothing
+  // was lost, but the form was unreadable and unsafe to edit.
+  const iv=(v)=>`value="${esc(v==null?'':v)}"`;
   const color=(label,path,def)=>`<div><label>${label}</label><input type="color" ${iv(path.split('.').reduce((o,k)=>o&&o[k],e)||def)} oninput="bxSet('${path}',this.value)"></div>`;
   const fieldRow=(f,i)=>`<div class="fieldrow">
       <div class="row"><div><label>Label</label><input ${iv(f.label)} oninput="bxSetField(${i},'label',this.value)"></div>
