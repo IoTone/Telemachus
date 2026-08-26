@@ -51,7 +51,12 @@ def js_pairs(body):
     out, order = {}, []
     for m in re.finditer(r"(\w+)\s*:\s*'((?:[^'\\]|\\.)*)'", body):
         k, v = m.group(1), m.group(2)
-        v = v.encode().decode("unicode_escape") if "\\u" in v else v.replace("\\'", "'")
+        # Decode ONLY the \uXXXX escapes. The old `v.encode().decode("unicode_escape")`
+        # round-tripped UTF-8 bytes through latin-1, so every Japanese string that
+        # also contained a \uXXXX escape (e.g. \u2014) reached the sheet as mojibake
+        # -- and a reviewer was asked to approve it.
+        v = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), v)
+        v = v.replace("\\'", "'")
         out[k] = v
         order.append(k)
     dups = sorted({k for k in order if order.count(k) > 1})
@@ -437,7 +442,11 @@ def build():
     missed = sorted(set(en) - assigned)
     if missed:
         raise SystemExit("console keys in no group (add them to GROUPS): " + ", ".join(missed))
-    funnel_keys = {k for k, _e, _j in funnel_rows(prov)} if prov else set()
+    # With no racket on PATH the funnel group is skipped (documented behaviour), so
+    # its NOTES keys have nothing to match. Excluding them keeps the skip path a
+    # skip instead of a hard exit on "keys that no longer exist".
+    funnel_keys = ({k for k, _e, _j in funnel_rows(prov)} if prov
+                   else {k for k in NOTES if k.startswith("funnel.")})
     stale = sorted(set(NOTES) - set(en) - set(men) - funnel_keys)
     if stale:
         raise SystemExit("NOTES refer to keys that no longer exist: " + ", ".join(stale))

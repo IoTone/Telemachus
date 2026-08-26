@@ -22,7 +22,8 @@
          resolve-experience resolve-experience-public experience-judge-system
          experience-draft experience-save! experience-publish! experience-list
          experience-landing
-         experience-locales experience-localize funnel-locale)
+         experience-locales experience-localize funnel-locale
+         experience-base-locale locale-key? check-structural-fields! check-publishable!)
 
 ;; ---- ENV launch defaults ----------------------------------------------------
 ;; A deployer can point TELEMACHUS_ONBOARDING_FILE at a JSON file describing the
@@ -120,15 +121,34 @@
 ;; every locale this experience can actually render: the default copy, plus each
 ;; overlay that carries something. Derived from the document, never stored
 ;; separately, so the switcher cannot offer a language with no content behind it.
+;; A locale KEY is rendered into the public funnel's language switcher, so its
+;; shape is validated here rather than trusted. The `i18n` object is authored by
+;; a settings:manage admin or by TELEMACHUS_ONBOARDING_FILE — neither is the same
+;; trust level as an anonymous visitor of the page it ends up on.
+(define LOCALE-KEY-RX #px"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
+(define (locale-key? s) (and (string? s) (regexp-match? LOCALE-KEY-RX s) #t))
+
+;; The locale the BASE document is written in. This is a property of the
+;; experience, NOT of the instance: an operator who sets the instance default to
+;; `ja` has not thereby translated an English funnel. Conflating the two made the
+;; base copy unreachable (`?lang=en` served the ja overlay) and collapsed
+;; `locales` to one entry, which hides the switcher.
+(define (experience-base-locale cfg)
+  (define b (and (hash? cfg) (hash-ref cfg 'base-locale #f)))
+  (if (locale-key? b) b "en"))
+
 (define (experience-locales cfg #:default [dflt "en"])
+  (define base (experience-base-locale cfg))
   (define i18n (hash-ref cfg 'i18n #f))
   (define extra
     (if (hash? i18n)
-        (sort (for/list ([(k v) (in-hash i18n)] #:when (and (hash? v) (positive? (hash-count v))))
+        (sort (for/list ([(k v) (in-hash i18n)]
+                         #:when (and (hash? v) (positive? (hash-count v))
+                                     (locale-key? (symbol->string k))))
                 (symbol->string k))
               string<?)
         '()))
-  (cons dflt (filter (lambda (l) (not (string=? l dflt))) extra)))
+  (cons base (filter (lambda (l) (not (string=? l base))) extra)))
 
 ;; Apply one overlay. An unknown locale, or the default, returns the base config.
 (define (experience-localize cfg locale)
@@ -152,14 +172,19 @@
 ;; never a half-translated page.
 (define (funnel-locale cfg requested #:default [dflt "en"])
   (define avail (experience-locales cfg #:default dflt))
+  ;; Nothing matched: prefer the INSTANCE default, but only if this experience
+  ;; actually has copy for it. Otherwise serve the base document rather than a
+  ;; locale we would have to render from missing strings.
+  (define fallback (if (member dflt avail) dflt (experience-base-locale cfg)))
   (cond
     [(and requested (member requested avail)) requested]
-    ;; ja-JP should reach a `ja` overlay
+    ;; ja-JP should reach a `ja` overlay. `regexp-split` keeps empty pieces, so
+    ;; a degenerate tag yields "" here and simply fails to match — no `car` trap.
     [(and requested
           (let ([base (car (regexp-split #rx"-" requested))])
             (and (member base avail) base)))
      => values]
-    [else dflt]))
+    [else fallback]))
 
 ;; the public slice the SPA renders from — never leak the judge prompt, and never
 ;; ship the other languages' copy to a visitor who asked for one of them. The
@@ -202,9 +227,48 @@
   (define d (row-config conn team (experience-active-key) "draft"))
   (or (and d (parse-config d)) (resolve-experience conn team)))
 
+;; A config that drops a structural field is refused at the door. `email` is how a
+;; prospect is identified, deduped and rate-limited, and `field-problem` rejects
+;; every submission without one — so a funnel missing the field shows an applicant
+;; "a valid email is required" beside no field that could satisfy it. This was
+;; documented as an invariant when the field model landed (`structural-field?`,
+;; beta.rkt) but nothing enforced it; the only callers were tests.
+;; Drafts stay permissive and publishing is strict: an editor mid-edit may hold a
+;; config with no field list yet, but the page the public sees must be usable.
+(define (has-structural-field? fields)
+  (and (list? fields)
+       (for/or ([f (in-list fields)] #:when (hash? f))
+         (structural-field? (format "~a" (hash-ref f 'key ""))))))
+
+(define STRUCTURAL-MSG
+  "the email field cannot be removed - it identifies, dedups and rate-limits a prospect")
+
+;; save: refuse a field list that HAS fields but dropped email — the actual
+;; "admin deleted the email row" case. An absent or empty list is not yet a
+;; decision, so it passes here and is caught at publish.
+(define (check-structural-fields! config)
+  (define fields (hash-ref config 'fields #f))
+  (when (and (list? fields) (pair? fields) (not (has-structural-field? fields)))
+    (raise-user-error 'experience-save! STRUCTURAL-MSG)))
+
+;; publish: the config is about to become the public page, so the field list must
+;; exist, be non-empty, and carry email — but only for the built-in Tier-A shell,
+;; which is the tier that renders `fields`. A Tier-B bundle and a Tier-C template
+;; ship their own markup and their own form, so the shell's field list is not what
+;; an applicant sees there and an empty one is not a broken page.
+(define (shell-landing? config)
+  (define l (hash-ref config 'landing #f))
+  (not (and (hash? l) (member (hash-ref l 'type #f) '("bundle" "template")) #t)))
+
+(define (check-publishable! config)
+  (when (shell-landing? config)
+    (unless (has-structural-field? (hash-ref config 'fields #f))
+      (raise-user-error 'experience-publish! STRUCTURAL-MSG))))
+
 (define (experience-save! conn p config)
   (require-perm conn p "settings:manage")
   (unless (hash? config) (error 'experience-save! "config must be an object"))
+  (check-structural-fields! config)
   (define team (principal-team-id p))
   ;; Key on the ACTIVE experience, never on a caller-supplied config.name. The
   ;; draft must land where experience-draft and experience-publish! read it back
@@ -222,6 +286,7 @@
   (define team (principal-team-id p))
   (define key (experience-active-key))
   (define d (row-config conn team key "draft"))
+  (when d (let ([cfg (parse-config d)]) (when cfg (check-publishable! cfg))))
   (and d
        (let ([cfg (parse-config d)])
          (and cfg (begin (upsert! conn team key "published" cfg (principal-user-id p)) #t)))))

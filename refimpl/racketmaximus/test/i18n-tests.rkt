@@ -5,9 +5,13 @@
 
 (require rackunit
          racket/runtime-path
+         db-kit/migrate
+         "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
          "../domain/i18n/icu.rkt"
          "../domain/i18n/catalog.rkt"
          "../domain/i18n/i18n.rkt"
+         "../domain/i18n/policy.rkt"
          "../domain/i18n/lint.rkt")
 
 ;; ---- ICU MessageFormat ------------------------------------------------------
@@ -78,3 +82,24 @@
   (define-values (tforms violations) (analyze-file bad-fixture))
   (check-equal? (length violations) 1)
   (check-equal? (hash-ref (car violations) 'text) "Unlocalized!"))
+
+;; ---- instance locale policy (i18n review, finding 2) -----------------------
+;; `resolve-locale` runs on EVERY request, off an unauthenticated header. A
+;; degenerate tag must resolve, not raise: `string-split` drops empty pieces, so
+;; "-" split on "-" is '() and the old `(car ...)` took the head of an empty list.
+(define-runtime-path locales-path "../locales")
+
+(test-case "a degenerate locale tag resolves instead of raising"
+  (define c (fresh-db #:migrate? #f))
+  (migrate! c all-migrations)
+  (define dir (path->string locales-path))
+  (define dflt (hash-ref (i18n-policy c dir) 'default))
+  (for ([bad (in-list (list "-" "--" "---" "" "-ja" "ja-" "-----"))])
+    (check-not-exn (lambda () (resolve-locale c dir bad))
+                   (format "resolve-locale raised on ~s" bad))
+    (check-true (string? (resolve-locale c dir bad))))
+  ;; and the ordinary paths still behave
+  (check-equal? (resolve-locale c dir "ja") "ja")
+  (check-equal? (resolve-locale c dir "ja-JP") "ja")
+  (check-equal? (resolve-locale c dir "zz") dflt)
+  (check-equal? (resolve-locale c dir #f) dflt))

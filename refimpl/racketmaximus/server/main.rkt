@@ -385,10 +385,13 @@
     (require-perm db-conn p "instance:manage")
     (define b (read-json-body req))
     (with-handlers ([exn:fail? (lambda (e) (err (exn-message e) 400))])
+      ;; Read the CURRENT policy once and default both fields from it. Defaulting
+      ;; `enabled` to #t meant a partial update like {"default":"ja"} silently
+      ;; switched negotiation back on for an operator who had turned it off.
+      (define cur (i18n-policy db-conn (locales-dir)))
       (define v (i18n-policy-set! db-conn (locales-dir)
-                                  (hasheq 'default (hash-ref b 'default
-                                                             (hash-ref (i18n-policy db-conn (locales-dir)) 'default))
-                                          'enabled (hash-ref b 'enabled #t))))
+                                  (hasheq 'default (hash-ref b 'default (hash-ref cur 'default))
+                                          'enabled (hash-ref b 'enabled (hash-ref cur 'enabled)))))
       (audit! db-conn #:action "i18n.set" #:actor-type "user" #:actor-id (principal-user-id p)
               #:resource-type "instance" #:resource-id "i18n")
       (json-response v)))))
@@ -459,8 +462,12 @@
 (define (ep-beta-experience-put req)
   (define p (current-principal req))
   (cond [(not p) (unauthorized)]
-        [else (experience-save! db-conn p (read-json-body req))
-              (json-response (hasheq 'ok #t 'status "draft"))]))
+        [else
+         ;; a config the editor should not have built (e.g. no email field) is the
+         ;; caller's mistake, and the message names what to put back
+         (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+           (experience-save! db-conn p (read-json-body req))
+           (json-response (hasheq 'ok #t 'status "draft")))]))
 
 (define (ep-beta-experience-publish req)
   (define p (current-principal req))
@@ -1735,14 +1742,22 @@
     [else (err "not found" 404)]))
 
 (define (handle req)
-  (parameterize ([current-localizer (localizer-for (request-locale req))])
+  ;; `request-locale` reads the DB and the locales directory, so it can raise.
+  ;; Resolving it in the `parameterize` ARGUMENT put it outside these handlers,
+  ;; where any failure escaped as a raw servlet error page on every route. It is
+  ;; now inside, with a last-resort fallback so a broken locale still gets a
+  ;; handled response rather than no response.
+  (parameterize ([current-localizer (localizer-for "en")])
     (with-handlers ([exn:fail:forbidden?
                      (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
                     ;; a refused workflow spec is the caller's mistake — and the
                     ;; detail is the whole point of rejecting rather than ignoring
                     [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
                     [exn:fail? (lambda (e) (err (exn-message e) 500))])
-      (route req))))
+      (parameterize ([current-localizer
+                      (localizer-for (with-handlers ([exn:fail? (lambda (_) "en")])
+                                       (request-locale req)))])
+        (route req)))))
 
 (module+ main
   (init-db!)

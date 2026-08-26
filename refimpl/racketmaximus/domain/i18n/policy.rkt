@@ -92,7 +92,11 @@
     [(not requested) dflt]
     [else
      (define avail (hash-ref p 'available))
-     (define base (car (string-split requested "-")))
+     ;; `string-split` DROPS empty pieces, so a degenerate tag like "-" or "--"
+     ;; splits to '() and `car` raises. This runs on every request, from an
+     ;; unauthenticated header, so an unguarded `car` is a one-header outage.
+     (define parts (string-split requested "-"))
+     (define base (if (null? parts) requested (car parts)))
      (cond
        [(member requested avail) requested]
        ;; `ja-JP` should reach the `ja` catalog; the localizer's own chain would

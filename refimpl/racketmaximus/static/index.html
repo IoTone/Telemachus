@@ -271,7 +271,10 @@ function brandLockup(px){
   return `${markSVG(px)}<span>${esc(S.brand.title)}<span class="dot">.</span></span>`;
 }
 const brandTagline = () => S.brand.tagline || t('tagline');
-const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Escapes `'` as well as `&<>"`: this value is interpolated into single-quoted
+// attributes too, and a missing apostrophe there is an attribute break, not a
+// cosmetic bug.
+const esc = s => (''+ (s??'')).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 async function api(path, {method='GET', body=null}={}){
   const headers = {'X-Telemachus-Locale': S.lang};
@@ -328,7 +331,9 @@ const LANGNAME = {en:'EN', ja:'日本語'};
 // choose, so offering a chooser would be a lie.
 function langBtns(){ if(!S.i18n.enabled) return '';
   const av = S.i18n.available||['en']; if(av.length<2) return '';
-  return av.map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
+  return `<span onclick="langBtnClick(event)">`+av.map(l=>`<button class="${S.lang===l?'active':''}" data-lang="${esc(l)}">${esc(LANGNAME[l]||l.toUpperCase())}</button>`).join('')+`</span>`; }
+function langBtnClick(ev){ const b=ev.target.closest('button[data-lang]'); if(b) setLang(b.dataset.lang); }
+function bxLangClick(ev){ const b=ev.target.closest('button[data-lang]'); if(b) bxSetLang(b.dataset.lang); }
 function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
@@ -693,8 +698,12 @@ function bxLangBtns(cfg){
   const av = (cfg && cfg.locales) || [];
   if(!S.i18n.enabled || av.length < 2) return '';
   const cur = (cfg && cfg.locale) || S.lang;
-  return `<span class="bx-lang">${av.map(l=>
-    `<button type="button" class="${cur===l?'active':''}" onclick="bxSetLang('${esc(l)}')">${esc(LANGNAME[l]||l.toUpperCase())}</button>`
+  // The locale key reaches this markup from the experience document, which an
+  // admin authors. It goes in as a DATA ATTRIBUTE read back by a delegated
+  // listener — never interpolated into an inline handler, where a crafted key
+  // would execute for every anonymous visitor of the funnel.
+  return `<span class="bx-lang" onclick="bxLangClick(event)">${av.map(l=>
+    `<button type="button" class="${cur===l?'active':''}" data-lang="${esc(l)}">${esc(LANGNAME[l]||l.toUpperCase())}</button>`
   ).join('')}</span>`;
 }
 // ?lang= is the funnel's carrier, not localStorage: a funnel is a page people are
@@ -1535,7 +1544,7 @@ window.doSubmitJob=doSubmitJob; window.doCancelJob=doCancelJob; window.doSeedSam
 window.bxSetLang=bxSetLang; window.doBetaSignup=doBetaSignup; window.teamSignIn=teamSignIn; window.betaLandingView=betaLandingView; window.doDecide=doDecide;
 window.betaSub=betaSub; window.bxSet=bxSet; window.bxSaveDraft=bxSaveDraft; window.bxPublish=bxPublish;
 window.bxAddField=bxAddField; window.bxDelField=bxDelField; window.bxSetField=bxSetField;
-window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.bxSetLanding=bxSetLanding; window.S=S;
+window.bxLangClick=bxLangClick; window.langBtnClick=langBtnClick; window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.bxSetLanding=bxSetLanding; window.S=S;
 render();
 </script>
 </body>

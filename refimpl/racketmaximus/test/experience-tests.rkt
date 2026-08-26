@@ -35,7 +35,8 @@
 
   ;; save a draft with a changed title
   (check-true (experience-save! c alice (hasheq 'name "beta" 'title "Our Private Beta"
-                                                'subtitle "hi" 'fields '() 'judge-system "j")))
+                                                'subtitle "hi" 'judge-system "j"
+                                                'fields (list (hasheq 'key "email" 'label "Email" 'type "email" 'required #t)))))
   ;; serving is unchanged until publish
   (check-equal? (hash-ref (resolve-experience c tid) 'title) base-title)
   ;; but the editor sees the draft
@@ -139,7 +140,8 @@
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (define alice (user-principal c uid tid))
   (define renamed (hasheq 'name "rcnt-private-beta" 'title "RCNT Private Beta"
-                          'subtitle "s" 'fields '() 'judge-system "j"))
+                          'subtitle "s" 'judge-system "j"
+                          'fields (list (hasheq 'key "email" 'label "Email" 'type "email" 'required #t))))
 
   (check-true (experience-save! c alice renamed))
   ;; exactly one draft row, and it is the one the editor reads back
@@ -241,3 +243,70 @@
   (check-equal? (experience-locales cfg #:default "en") '("en"))
   (check-equal? (experience-localize cfg "ja") cfg)
   (check-equal? (funnel-locale cfg "ja" #:default "en") "en"))
+
+;; ---- review follow-ups (i18n review, findings 1, 3, 4) ----------------------
+
+;; The base document's locale is a property of the EXPERIENCE, not of the
+;; instance. Conflating them made the English base unreachable on a ja-default
+;; instance and collapsed `locales` to one entry, which hides the switcher.
+(test-case "the instance default never masquerades as the base document's locale"
+  (define cfg (localized-exp))                       ; English base + ja overlay
+  ;; an operator sets the instance default to ja — a supported action
+  (check-equal? (experience-locales cfg #:default "ja") '("en" "ja"))
+  (check-equal? (funnel-locale cfg "en" #:default "ja") "en")   ; base still reachable
+  (check-equal? (funnel-locale cfg "ja" #:default "ja") "ja")
+  ;; nothing requested → the instance default, because this experience HAS ja copy
+  (check-equal? (funnel-locale cfg #f #:default "ja") "ja")
+  ;; two entries, so the switcher renders
+  (check-true (>= (length (experience-locales cfg #:default "ja")) 2)))
+
+(test-case "an experience authored in another language declares its own base-locale"
+  (define cfg (hash-set (localized-exp) 'base-locale "ja"))
+  (check-equal? (car (experience-locales cfg #:default "en")) "ja")
+  ;; the ja key is the base now, so it is not also listed as an overlay
+  (check-equal? (length (experience-locales cfg #:default "en")) 1))
+
+(test-case "an instance default this experience has no copy for falls back to the base"
+  (define cfg (hasheq 'name "beta" 'title "Only English" 'fields '()))
+  (check-equal? (experience-locales cfg #:default "fr") '("en"))
+  (check-equal? (funnel-locale cfg #f #:default "fr") "en"))
+
+;; Locale keys reach the public funnel's switcher markup, so their shape is
+;; validated server-side rather than trusted to the admin who authored them.
+(test-case "malformed locale keys are refused, not rendered"
+  (check-true  (locale-key? "en"))
+  (check-true  (locale-key? "ja"))
+  (check-true  (locale-key? "pt-BR"))
+  (check-false (locale-key? "x');alert(1);('"))
+  (check-false (locale-key? "en'"))
+  (check-false (locale-key? ""))
+  (define cfg (hasheq 'name "beta" 'title "t" 'fields '()
+                      'i18n (hasheq '|x');alert(1);('| (hasheq 'title "pwned")
+                                    'ja (hasheq 'title "日本語"))))
+  (check-equal? (experience-locales cfg #:default "en") '("en" "ja")))
+
+;; `email` identifies, dedups and rate-limits a prospect; field-problem refuses
+;; every submission without one, so a funnel missing the field is unusable.
+(test-case "publishing a config with no email field is refused"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define no-email (hasheq 'name "beta" 'title "t" 'subtitle "s"
+                           'fields (list (hasheq 'key "name" 'label "Name" 'type "text" 'required #t))))
+  (check-exn exn:fail:user? (lambda () (experience-save! c alice no-email)))
+  ;; nothing was written
+  (check-equal? (length (experience-list c alice)) 0)
+  ;; an empty field list is not yet a decision, so a DRAFT may hold one...
+  (check-true (experience-save! c alice (hasheq 'name "beta" 'title "t" 'fields '())))
+  ;; ...but publishing it would put an unusable form on a public page
+  (check-exn exn:fail:user? (lambda () (experience-publish! c alice)))
+  ;; a Tier-B bundle brings its own form, so the shell's field list is not the
+  ;; thing an applicant sees and an empty one is publishable
+  (check-true (experience-save! c alice (hasheq 'name "beta" 'fields '()
+                                                'landing (hasheq 'type "bundle" 'plugin "beta-onboarding"))))
+  (check-true (experience-publish! c alice))
+  ;; the same config WITH email saves
+  (define ok (hash-set no-email 'fields
+                       (list (hasheq 'key "name"  'label "Name"  'type "text"  'required #t)
+                             (hasheq 'key "email" 'label "Email" 'type "email" 'required #t))))
+  (check-true (experience-save! c alice ok)))
