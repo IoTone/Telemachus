@@ -197,6 +197,27 @@ curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"en
 curl -s -X POST $B/api/quota -H "Authorization: Bearer $OP" -d '{"dimension":"ai.tokens.total","limit":3,"window":"day"}' >/dev/null
 assert "quota 429"       "$(curl -s -X POST $B/api/ai/echo -H "Authorization: Bearer $OP" -d '{"prompt":"exceeds the tiny token budget now"}')" 'quota exceeded'
 assert "ui served"       "$(curl -s $B/)" '<!doctype html>'
+
+# HEAD reaches every GET route (monitors and unfurlers probe with HEAD; before
+# 2026-09-04 every HEAD returned a JSON 404 from a healthy server), and
+# web-server suppresses response bodies for HEAD itself.
+assert "HEAD / is not a 404"        "$(curl -s -o /dev/null -w '%{http_code}' -I $B/)" "200"
+assert "HEAD /health is not a 404"  "$(curl -s -o /dev/null -w '%{http_code}' -I $B/health)" "200"
+assert "HEAD /api/branding is not a 404" "$(curl -s -o /dev/null -w '%{http_code}' -I $B/api/branding)" "200"
+
+# The raw HTML title comes from the instance's configured branding, not the
+# codename hardcoded in the static shell -- crawlers and unfurlers never run
+# the SPA that would otherwise correct it. Fresh instance: the shipped
+# default. After branding is set: the configured title, HTML-escaped.
+assert "unbranded instance serves the default title" "$(curl -s $B/)" '<title>Telemachus</title>'
+assert "branding title set" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"RCNT","tagline":"Import Compliance AI Platform"}')" '"title":"RCNT"'
+assert "branded instance serves the configured title" "$(curl -s $B/)" '<title>RCNT</title>'
+assert "a markup-bearing title is escaped, not injected" \
+  "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"<script>x</script>"}' >/dev/null; curl -s $B/)" \
+  '<title>&lt;script&gt;x&lt;/script&gt;</title>'
+# restore the default so later assertions and reruns start from a clean slate
+curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{}' >/dev/null
+assert "blank title put falls back to the default" "$(curl -s $B/api/branding)" '"title":"Telemachus"'
 assert "members list"    "$(curl -s $B/api/members -H "Authorization: Bearer $OP")" '"username":"bob"'
 assert "unauth 401 en"   "$(curl -s $B/api/whoami)" 'Authentication required.'
 assert "unauth 401 ja"   "$(curl -s $B/api/whoami -H 'Accept-Language: ja')" '認証が必要です'
