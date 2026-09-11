@@ -18,6 +18,8 @@ forks flagged **Decisions to confirm** in each doc.
 | [document-repository.md](document-repository.md) | **Document repository** | Binary documents of any format, team access control with creator-set visibility, exposed as an S3-compatible API; content-addressed bytes behind a plugin seam (`rs3` local). *(✅ Built, slices 49–55 — including content search and the documents fold. Operators: [../ops/document-repository-runbook.md](../ops/document-repository-runbook.md).)* |
 | [saas-onboarding.md](saas-onboarding.md) | **Onboarding / SaaS** | Provision a per-tenant instance seeded with exactly one owner (signup / subscription / VM launch); operator-vs-owner split, magic-link activation. |
 | [beta-onboarding-experience.md](beta-onboarding-experience.md) | **Beta onboarding** | Skinnable, admin-configurable pre-sales lead capture; core = mechanism, plugin = presentation; extensible `attributes` model + a token-themed render contract. |
+| [documentation-generation.md](documentation-generation.md) | **Documentation generation** | Generate the reference (tools, workflows, permissions, API, plugins) from the source of truth; commit it, drift-gate it in CI, and make its prose a `doc.` namespace the Localization Manager translates. Forces a declarative route table and permission descriptions. *(Proposal.)* |
+| [knowledge-graph.md](knowledge-graph.md) | **Knowledge Graph** | Entities and relations extracted from the team's documents, every fact traceable to a document version; visibility inherited from the source via `can?`; extracted by a workflow, queried through search, an agent tool and a tab. *(Proposal.)* |
 | [nix-packaging.md](nix-packaging.md) | **Build & deploy** *(toolchain, not a platform subsystem)* | ✅ **Built.** Reproducible `nix develop` / `nix build` / `nix run`; retires the brew+`PLTCOLLECTS` ritual and unlocks live Postgres testing. |
 
 ## How they interlock
@@ -87,13 +89,11 @@ just a deployment with the flag off.
 
 ## Follow-up design items (noted, not yet drafted)
 
-- **Documentation generation.** The project needs generated docs (SDK contracts,
-  backend APIs, tool catalog, permission catalog) emitted as **localizable**
-  Markdown that flows into the localization pipeline (§localization → Documentation).
-  Its own design doc is a planned follow-up.
 - **Management-contract & audit.** The uniform per-feature management/activate
   interface and the shared `audit_log` are referenced by every doc; they may earn a
   short dedicated spec.
+- **Security model.** The posture is built and spread across the subsystem docs
+  and `CLAUDE.md`; a consolidated design doc is owed (see the FSD).
 
 ## Kickoff decisions
 

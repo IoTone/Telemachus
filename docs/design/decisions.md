@@ -159,6 +159,29 @@ doc's "operator service token" to the simpler **provision token** so the seeded
 instance holds exactly one user (the owner); provider actions
 (provision/suspend/resume) authenticate with that per-instance secret.
 
+## Documentation generation (DOCGEN) — proposed, see [documentation-generation.md](documentation-generation.md)
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **DOCGEN‑1** | Where generated docs live | **Committed under `docs/reference/`, drift-gated in CI** · vs built at release · vs on demand | The PR that changes a tool shows the doc change. |
+| **DOCGEN‑2** | Making routes declarable | **A declarative route table `route` dispatches over** · vs annotating the `cond` · vs regexing it | Only a table gives permission, public-ness and description a home CI can assert. |
+| **DOCGEN‑3** | Permission descriptions | **Beside the declaration; a missing one is a build error** · vs a parallel table | A parallel table drifts. |
+| **DOCGEN‑4** | What gets localized | **Prose only, `doc.` namespace, a JSON surface for `extract`** · vs whole pages as documents | Structure is identical in every language. |
+| **DOCGEN‑5** | Rendering | **Plain Markdown, no site generator** · vs an HTML site now | No new dependency; readable on GitHub today. |
+| **DOCGEN‑6** | Determinism | **Byte-identical output from identical sources** | The drift gate is meaningless otherwise. |
+
+## Knowledge graph (KG) — proposed, see [knowledge-graph.md](knowledge-graph.md)
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **KG‑1** | Entity types | **Open vocabulary + shipped starter set; plugins may extend** · vs closed schema · vs fully open | Closed refuses real things; unbounded is unqueryable. |
+| **KG‑2** | Scope | **Team-scoped, org gate at step 0** · vs instance-wide | A company's knowledge is not the product's. |
+| **KG‑3** | Fact visibility | **Visible if ANY source mention is readable; snippets filtered per row** · vs all sources must be readable | All-sources hides a public fact because a private note repeats it. |
+| **KG‑4** | Dedup | **`(type, name_norm)`; no cross-type merging in v1** · vs embedding-based entity resolution | Cross-type merging is where knowledge graphs die. |
+| **KG‑5** | Query language | **None; `hops ≤ 2` from a named entity** · vs Cypher/Gremlin/SPARQL | No dependency, no parser, no injection surface, no demand. |
+| **KG‑6** | Visualization | **Lists with citations; hand-drawn SVG neighbourhood later if used** · vs a graph-viz library now | A dependency and a week of tuning before anyone asks a question. |
+| **KG‑7** | Extraction model | **`utility` role, opt-in per team (LOC‑5 precedent)** · vs always the chat model | Extraction is bulk and cheap-model-shaped. |
+
 [^1]: **TEN.** A deployment serves one organization/legal entity that may contain
 one or many **teams**. Isolating *different legal entities* on a shared instance is
 explicitly **out of scope** — hosted multitenant offerings serve that need. No
