@@ -18,6 +18,7 @@
 ;;   GET  /api/admin/status                           → operator only (instance:manage)
 
 (require racket/path
+         (only-in racket/list take)
          racket/string
          racket/file
          racket/system
@@ -503,6 +504,39 @@
                              'written n
                              'path (path->string path)
                              'note "restart to serve the new catalog")))))) 
+
+(define l10n-draft-batch 20)
+
+;; Queue AI drafts for the strings that have none. `manage` rather than
+;; `translate`: this spends the team's AI budget, so it is an administrative act.
+(define (ep-l10n-draft req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define loc (fmt b 'locale))
+      (when (string=? loc "") (raise-user-error 'l10n "locale is required"))
+      (when (string=? loc "en") (raise-user-error 'l10n "en is the source; there is nothing to draft"))
+      (define ns (let ([v (fmt b 'namespace)]) (and (not (string=? v "")) v)))
+      (define cap (let ([v (hash-ref b 'limit 200)]) (if (exact-positive-integer? v) (min v 500) 200)))
+      (define missing
+        (hash-ref (l10n-list db-conn loc #:status "missing" #:namespace ns #:limit cap) 'items))
+      (define ids (map (lambda (h) (hash-ref h 'message_id)) missing))
+      (define batches
+        (let loop ([xs ids] [acc '()])
+          (cond [(null? xs) (reverse acc)]
+                [(<= (length xs) l10n-draft-batch) (reverse (cons xs acc))]
+                [else (loop (list-tail xs l10n-draft-batch)
+                            (cons (take xs l10n-draft-batch) acc))])))
+      (define jobs
+        (for/list ([batch (in-list batches)])
+          (enqueue-job! db-conn #:team (principal-team-id p) #:user (principal-user-id p)
+                        #:kind "l10n_draft"
+                        #:payload (hasheq 'locale loc 'message_ids batch))))
+      (audit! db-conn #:action "l10n.draft" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "instance" #:resource-id loc)
+      (json-response (hasheq 'ok #t 'locale loc 'queued (length ids)
+                             'batches (length jobs) 'jobs jobs))))))
 
 (define (ep-branding-logo req)
   (with-auth req (lambda (p)
@@ -1742,6 +1776,7 @@
     [(and (GET? m)  (equal? segs '("api" "l10n" "messages")))  (ep-l10n-messages req)]
     [(and (POST? m) (equal? segs '("api" "l10n" "import")))    (ep-l10n-import req)]
     [(and (POST? m) (equal? segs '("api" "l10n" "export")))    (ep-l10n-export req)]
+    [(and (POST? m) (equal? segs '("api" "l10n" "draft")))     (ep-l10n-draft req)]
     [(and (PUT? m)  (l10n-message-path segs))                  (ep-l10n-submit req (l10n-message-path segs))]
     [(and (POST? m) (l10n-review-path segs))                   (ep-l10n-review req (l10n-review-path segs))]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
@@ -1932,6 +1967,57 @@
       (define reply (if done (hash-ref done 'reply "") ""))
       (hasheq 'reply reply 'rounds (if done (hash-ref done 'rounds 0) 0)
               'tools tools 'tokens_used (estimate-tokens prompt reply))))
+;; One scheduler job per BATCH of missing strings, so a five-thousand-string draft
+;; is a queue of small jobs rather than one that runs for an hour and cannot be
+;; cancelled. Inside a batch the calls are sequential; the governor's concurrency
+;; cap is what stops a bulk draft from flattening the local model.
+;;
+;; Output lands as `machine`, never `approved`. A human still reviews it — that is
+;; the whole bargain: the tool drafts, people complete and approve.
+  (register-job-kind! "l10n_draft"
+    (lambda (conn p payload)
+      (define loc (format "~a" (hash-ref payload 'locale "")))
+      (define ids (let ([v (hash-ref payload 'message_ids '())]) (if (list? v) v '())))
+      (define total-tokens (box 0))
+      (define drafted (box 0))
+      (for ([mid (in-list ids)])
+        (define m (l10n-message-ref conn (format "~a" mid)))
+        (when m
+          (define src (hash-ref m 'source_text))
+          ;; Placeholders are the thing a model will happily "improve". They are
+          ;; ICU arguments — {user}, {team} — and a translation that renames one
+          ;; renders the literal braces to an end user.
+          (define prompt
+            (string-append
+             "Translate the following user-interface string into " loc ".
+"
+             "Rules, all mandatory:
+"
+             "- Reply with ONLY the translation. No quotes, no commentary, no alternatives.
+"
+             "- Preserve every placeholder in curly braces EXACTLY as written: {like_this}.
+"
+             "- Keep it as short as the original; this is UI text, not prose.
+"
+             "- Preserve any leading or trailing punctuation.
+
+"
+             "String:
+" src))
+          (define-values (reply tokens) (run-chat prompt))
+          (set-box! total-tokens (+ (unbox total-tokens) tokens))
+          (define text (string-trim (format "~a" reply)))
+          ;; A draft that dropped a placeholder is worse than no draft: it would sit
+          ;; in the review queue looking finished. Refuse it and leave the string
+          ;; missing, which is at least honest about the state.
+          (define want (regexp-match* #px"\\{[a-zA-Z0-9_]+\\}" src))
+          (define got  (regexp-match* #px"\\{[a-zA-Z0-9_]+\\}" text))
+          (when (and (not (string=? text ""))
+                     (equal? (sort want string<?) (sort got string<?)))
+            (l10n-submit! conn (hash-ref m 'id) loc text "" #:status "machine")
+            (set-box! drafted (add1 (unbox drafted))))))
+      (hasheq 'locale loc 'requested (length ids) 'drafted (unbox drafted)
+              'tokens_used (unbox total-tokens))))
   (register-job-kind! "beta_judge"    ; vet a beta prospect with the LLM, store the verdict
     (lambda (conn p payload)
       (define pid (format "~a" (hash-ref payload 'prospect_id "")))

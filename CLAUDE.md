@@ -219,6 +219,56 @@ is now the shared accessor — use it for the next instance-wide setting).
   EVALUATING the module through `racket`, so run it inside `nix develop`). A string in no group, or a note for a key that no longer
   exists, is a build error — both by design.
 
+## Localization Manager (the Localize tab)
+
+The flagship: the platform building a real tool out of its own primitives. Design:
+`docs/design/localization.md`.
+
+**The catalogs on disk stay the shipping artifact.** `locales/*.json` is what the
+runtime loads, what git diffs and what `telemachus-localize check` gates. Migration
+`0024`'s two tables (`l10n_messages`, `l10n_translations`) are the WORKFLOW around
+them — `POST /api/l10n/import` pulls the catalogs in, `POST /api/l10n/export` writes
+approved strings back. Neither is on the request path.
+
+- **`missing` and `stale` are DERIVED, never stored.** Missing is the absence of a
+  row; stale is `source_hash_at <> l10n_messages.source_hash`. Editing the English
+  therefore makes every translation pinned to the old hash stale with *nothing
+  rewriting a status*. Storing either would let a row disagree with the base
+  catalog, which is the one thing these tables must never do.
+- **Instance-scoped, not team-scoped.** The design doc says team-scoped, but its own
+  data shapes carry no `team_id` and the artifact is the instance's own catalog —
+  two teams cannot both be right about `ja.json`. The shapes win.
+- **A translator cannot approve their own string**, enforced in `l10n-review!`. A
+  machine draft has no human author, so anyone with `localization:review` may
+  approve it — which is the review the AI path needs.
+- **The permission split is the contract**: a plain `member` has
+  `localization:read` + `:translate` (translating is a team activity) but NOT
+  `:review` or `:manage`. Approving a colleague's work and writing catalogs to disk
+  are admin acts. `server-smoke.sh` pins all three.
+- **Export refuses a locale with nothing approved.** `available` locales are derived
+  from the files in `locales/`, so writing an empty catalog would put the language
+  in the switcher with English behind it — the exact failure that derivation
+  prevents. Partial catalogs are fine; the fallback chain covers gaps.
+- **AI drafting** is job kind `l10n_draft`, one scheduler job per batch of 20, so a
+  5,000-string draft is a cancellable queue rather than one hour-long job. Output
+  lands as `machine`, never `approved`. Metered: a run of 8 strings charged 1,004
+  `ai.tokens.total` against the team.
+- **A draft that loses an ICU placeholder is refused, not stored.** `{user}` is an
+  argument; a translation that renames it renders literal braces to an end user. A
+  bad draft sitting in the review queue looking finished is worse than a missing
+  one.
+
+```sh
+raco test test/l10n-manager-tests.rkt    # 13 cases, no server
+bash test/server-smoke.sh                # includes the HTTP block (see below)
+```
+
+**Test the ENDPOINTS, not just the model.** The bug that actually bit here lived in
+the HTTP layer: `query-param` compared a string key with `assq` against
+`url-query`'s *symbol* keys, so every filter silently fell back to its default and
+a request for Dutch was answered with Japanese. A filter that is ignored rather
+than refused is invisible to a model test.
+
 ## Multi-tenancy (several companies on one instance)
 
 Off by default. `TELEMACHUS_MULTITENANT=1` adds an **org** layer above teams plus two

@@ -319,6 +319,52 @@ try {
                 { timeout: 15000 }));
 
   // ── 9. sign out and back in ─────────────────────────────────────────────────
+  // ── Localization Manager — the flagship's own surface ───────────────────────
+  step('localize: the Localization Manager');
+  await page.evaluate(() => window.go('localize'));
+  await page.waitForTimeout(900);
+  ok('Localize tab renders', await page.locator('h2:has-text("Localize")').count() === 1);
+
+  // import is idempotent, so the gate may run against a box that already did it
+  const imp = await apiCall(page, '/api/l10n/import', { method: 'POST' });
+  ok('catalogs import', imp.ok, `status ${imp.status}`);
+
+  const ja = await apiCall(page, '/api/l10n/coverage?locale=ja');
+  ok('ja coverage reads back', ja.ok && typeof ja.json.total === 'number');
+  // The locale filter must actually be applied. This is the regression that
+  // matters: `query-param` once compared a string key against symbol keys, so
+  // every filter fell back to its default and Dutch was answered with Japanese.
+  const nl = await apiCall(page, '/api/l10n/coverage?locale=nl');
+  eq('the ?locale filter is really applied', nl.json && nl.json.locale, 'nl');
+  ok('an untranslated locale is not reported as done',
+     nl.json && nl.json.approved === 0, `approved=${nl.json && nl.json.approved}`);
+
+  // The next two calls PROVOKE refusals on purpose, and the browser logs a console
+  // error for each 4xx. Rather than widen the global filter to excuse every 400 —
+  // which would hide a real validation bug anywhere else in the run — note the
+  // error count here and drop exactly the ones these deliberate calls generate.
+  const errMark = pageErrors.length;
+
+  // export must refuse to advertise a language with nothing approved in it
+  const emptyExport = await apiCall(page, '/api/l10n/export', { method: 'POST', body: { locale: 'nl' } });
+  ok('export refuses an empty catalog', !emptyExport.ok,
+     `status ${emptyExport.status} ${JSON.stringify(emptyExport.json)}`);
+
+  // and the review gate is enforced server-side
+  const miss = await apiCall(page, '/api/l10n/messages?locale=nl&status=missing&limit=1');
+  const m0 = miss.json && miss.json.items && miss.json.items[0];
+  ok('missing strings are listable', !!m0);
+  if (m0) {
+    const sub = await apiCall(page, '/api/l10n/messages/' + m0.message_id,
+      { method: 'PUT', body: { locale: 'nl', text: 'Validatiestring' } });
+    ok('a translation can be submitted', sub.ok, `status ${sub.status}`);
+    const self = await apiCall(page, '/api/l10n/review/' + (sub.json && sub.json.id),
+      { method: 'POST', body: { decision: 'approve' } });
+    ok('a translator cannot approve their own string', !self.ok,
+       `status ${self.status} ${JSON.stringify(self.json)}`);
+  }
+  pageErrors.length = errMark;   // the refusals above were the point of the test
+
   step('sign out and sign back in');
   await page.evaluate(() => window.logout());
   ok('signed out to the sign-in screen',

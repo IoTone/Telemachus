@@ -130,6 +130,11 @@ const L = {
       jobs:'Jobs',submitjob:'Submit a job',submit:'Submit',refresh:'Refresh',cancel:'Cancel',
       testing:'Testing tools',seed:'Load sample data',
       branding:'Branding',save:'Save',saved:'Saved',
+      localize:'Localize',l10ntarget:'Translating into',l10nhint:'Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.',
+      l10ncoverage:'Coverage',l10nimport:'Import catalogs',l10ndraft:'AI draft',l10nexport:'Export',
+      l10nkey:'Key',l10nsource:'English',l10ntranslation:'Translation',l10nstatus:'Status',
+      l10napprove:'Approve',l10nreject:'Reject',l10nall:'All statuses',l10nsearch:'Search key or text',
+      l10nnothing:'Nothing matches that filter.',l10nself:'You cannot approve your own translation.',
       brandinghint:'The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.',
       brandtitle:'Title',brandtagline:'Tagline',brandlogo:'Logo',
       brandclearlogo:'Remove logo',brandreset:'Reset to default',
@@ -178,6 +183,11 @@ const L = {
       jobs:'ジョブ',submitjob:'ジョブを送信',submit:'送信',refresh:'更新',cancel:'キャンセル',
       testing:'テストツール',seed:'サンプルデータを読み込む',
       branding:'ブランディング',save:'保存',saved:'保存しました',
+      localize:'翻訳管理',l10ntarget:'翻訳先の言語',l10nhint:'製品の翻訳。AIが下訳を作り、人が承認します。未レビューのものは製品に入りません。',
+      l10ncoverage:'進捗',l10nimport:'カタログを取り込む',l10ndraft:'AI下訳',l10nexport:'書き出し',
+      l10nkey:'キー',l10nsource:'英語',l10ntranslation:'訳文',l10nstatus:'状態',
+      l10napprove:'承認',l10nreject:'差し戻し',l10nall:'すべての状態',l10nsearch:'キーまたは本文を検索',
+      l10nnothing:'条件に一致するものがありません。',l10nself:'自分の訳は承認できません。',
       brandinghint:'このインスタンスの名称・タグライン・ロゴ。サインイン画面、ヘッダー、ブラウザタブに反映されます。',
       brandtitle:'名称',brandtagline:'タグライン',brandlogo:'ロゴ',
       brandclearlogo:'ロゴを削除',brandreset:'既定に戻す',
@@ -271,6 +281,16 @@ function brandLockup(px){
   return `${markSVG(px)}<span>${esc(S.brand.title)}<span class="dot">.</span></span>`;
 }
 const brandTagline = () => S.brand.tagline || t('tagline');
+
+// The server is the authority; this only decides what to SHOW. A surface the
+// caller cannot use is worse than a missing one — it offers work that will 403.
+function canPerm(perm){
+  const ps = (S.me && S.me.permissions) || [];
+  if (ps.includes('*:*') || ps.includes(perm)) return true;
+  const [area] = perm.split(':');
+  return ps.includes(area + ':*');
+}
+S.l10n = {locale:'ja', status:'', ns:'', q:'', offset:0};
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 async function api(path, {method='GET', body=null}={}){
@@ -331,6 +351,7 @@ function langBtns(){ if(!S.i18n.enabled) return '';
   return av.map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
 function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
+  if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">${brandLockup(22)}</span>
@@ -516,6 +537,131 @@ async function doSetQuota(){ const r=await api('/api/quota',{method:'POST',body:
 async function doToggleTool(name,enabled){ const r=await api('/api/tools/'+name,{method:'POST',body:{enabled}});
   if(r.ok){ toast(name+(enabled?' enabled':' disabled'),true); renderTab(); } else toast(r.json.error||'error'); }
 
+// ---------- Localization Manager (the flagship) ----------
+// The catalogs on disk stay the shipping artifact; this is the workflow around
+// them. Import pulls them in, people translate and review here, export writes the
+// APPROVED strings back. Nothing else reaches the product.
+const L10N_STATUS_BADGE = {
+  missing:'', machine:'badge op', drafted:'badge', needs_review:'badge op', approved:'badge ok', stale:'badge bad'
+};
+function l10nBadge(st){
+  return `<span class="${L10N_STATUS_BADGE[st]||'badge'}">${esc(st.replace('_',' '))}</span>`;
+}
+async function localizeView(){
+  const S3 = S.l10n;
+  const cov = await api(`/api/l10n/coverage?locale=${encodeURIComponent(S3.locale)}`);
+  if(!cov.ok) return `<h2>${t('localize')}</h2><p class="badge bad">${esc(cov.json.error||'error')}</p>`;
+  const c = cov.json;
+  const known = Array.from(new Set([...(c.locales||[]), 'ja','nl','es-419'])).filter(x=>x!=='en').sort();
+
+  const qs = new URLSearchParams({locale:S3.locale, limit:'50', offset:String(S3.offset)});
+  if(S3.status) qs.set('status', S3.status);
+  if(S3.ns)     qs.set('namespace', S3.ns);
+  if(S3.q)      qs.set('q', S3.q);
+  const ms = await api('/api/l10n/messages?'+qs.toString());
+  const items = ms.ok ? ms.json.items : [];
+  const total = ms.ok ? ms.json.total : 0;
+
+  const manage = canPerm('localization:manage');
+  const review = canPerm('localization:review');
+  const write  = canPerm('localization:translate');
+
+  const bar = `<div style="height:8px;background:var(--panel2);border-radius:999px;overflow:hidden;margin:6px 0 2px">
+      <div style="height:100%;width:${c.pct}%;background:var(--ok)"></div></div>`;
+
+  const statusCounts = Object.entries(c.by_status||{})
+    .filter(([,n])=>n>0)
+    .map(([k,n])=>`${l10nBadge(k)} ${n}`).join(' &nbsp; ');
+
+  const rows = items.map(i=>{
+    const tid = i.translation_id;
+    const mine = i.translated_by && S.me && i.translated_by === S.me.user_id;
+    const canApprove = review && tid && i.status !== 'approved' && i.status !== 'missing' && !mine;
+    return `<tr>
+      <td class="mono" style="font-size:12px;vertical-align:top;white-space:nowrap">${esc(i.key)}</td>
+      <td style="vertical-align:top;max-width:280px">${esc(i.source_text)}</td>
+      <td style="vertical-align:top;min-width:260px">
+        <textarea id="l10n_${esc(i.message_id)}" rows="2" ${write?'':'disabled'}>${esc(i.text)}</textarea></td>
+      <td style="vertical-align:top;white-space:nowrap">${l10nBadge(i.status)}</td>
+      <td style="vertical-align:top;white-space:nowrap">
+        ${write?`<button class="btn sm" onclick="l10nSave('${esc(i.message_id)}')">${t('save')}</button>`:''}
+        ${canApprove?`<button class="btn sm ghost" onclick="l10nReview('${esc(tid)}','approve')">${t('l10napprove')}</button>
+                      <button class="btn sm ghost" onclick="l10nReview('${esc(tid)}','reject')">${t('l10nreject')}</button>`:''}
+        ${(review && mine && tid && i.status!=='approved')?`<span class="muted" style="font-size:12px">${esc(t('l10nself'))}</span>`:''}
+      </td></tr>`;
+  }).join('');
+
+  const pager = `<div class="row" style="margin-top:8px">
+      ${S3.offset>0?`<button class="btn sm ghost" onclick="l10nPage(${Math.max(0,S3.offset-50)})">« prev</button>`:''}
+      ${(S3.offset+50)<total?`<button class="btn sm ghost" onclick="l10nPage(${S3.offset+50})">next »</button>`:''}
+      <span class="muted" style="font-size:12px;align-self:center">${S3.offset+1}–${Math.min(S3.offset+50,total)} / ${total}</span></div>`;
+
+  return `<h2>${t('localize')}</h2>
+    <p class="muted" style="margin-top:0">${esc(t('l10nhint'))}</p>
+    <div class="card">
+      <div class="row" style="align-items:end">
+        <div style="flex:0 0 170px"><label>${t('l10ntarget')}</label>
+          <select onchange="l10nSetLocale(this.value)">
+            ${known.map(l=>`<option value="${esc(l)}" ${l===S3.locale?'selected':''}>${esc(l)}</option>`).join('')}
+          </select></div>
+        <div style="flex:2">
+          <label>${t('l10ncoverage')} — ${c.approved} / ${c.total} (${c.pct}%)</label>
+          ${bar}<div style="font-size:12px">${statusCounts}</div></div>
+        <div style="flex:0 0 auto">
+          ${manage?`<button class="btn sm ghost" onclick="l10nImport()">${t('l10nimport')}</button>
+                    <button class="btn sm" onclick="l10nDraft()">${t('l10ndraft')}</button>
+                    <button class="btn sm ghost" onclick="l10nExport()">${t('l10nexport')}</button>`:''}
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="align-items:end">
+        <div style="flex:0 0 180px"><label>${t('l10nstatus')}</label>
+          <select onchange="l10nFilter('status',this.value)">
+            <option value="">${t('l10nall')}</option>
+            ${['missing','machine','drafted','needs_review','approved','stale'].map(x=>
+              `<option value="${x}" ${S3.status===x?'selected':''}>${x.replace('_',' ')}</option>`).join('')}
+          </select></div>
+        <div style="flex:0 0 160px"><label>namespace</label>
+          <select onchange="l10nFilter('ns',this.value)">
+            <option value="">all</option>
+            ${(c.by_namespace||[]).map(n=>`<option value="${esc(n.namespace)}" ${S3.ns===n.namespace?'selected':''}>${esc(n.namespace)} (${n.approved}/${n.total})</option>`).join('')}
+          </select></div>
+        <div style="flex:2"><label>${t('l10nsearch')}</label>
+          <input id="l10nq" value="${esc(S3.q)}" onchange="l10nFilter('q',this.value)"></div>
+      </div>
+      ${items.length? `<table><thead><tr><th>${t('l10nkey')}</th><th>${t('l10nsource')}</th><th>${t('l10ntranslation')}</th><th>${t('l10nstatus')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>${pager}`
+                    : `<p class="muted">${esc(t('l10nnothing'))}</p>`}
+    </div>`;
+}
+function l10nSetLocale(v){ S.l10n.locale=v; S.l10n.offset=0; renderTab(); }
+function l10nFilter(k,v){ S.l10n[k]=v; S.l10n.offset=0; renderTab(); }
+function l10nPage(off){ S.l10n.offset=off; renderTab(); }
+async function l10nSave(mid){
+  const el=document.getElementById('l10n_'+mid); if(!el) return;
+  const r=await api('/api/l10n/messages/'+mid,{method:'PUT',body:{locale:S.l10n.locale,text:el.value}});
+  if(r.ok){ toast(t('saved'),true); renderTab(); } else toast(r.json.error||'error');
+}
+async function l10nReview(tid,decision){
+  const r=await api('/api/l10n/review/'+tid,{method:'POST',body:{decision}});
+  if(r.ok){ toast(t('saved'),true); renderTab(); } else toast(r.json.error||'error');
+}
+async function l10nImport(){
+  const r=await api('/api/l10n/import',{method:'POST'});
+  if(r.ok){ toast(`+${r.json.added} keys, ${r.json.linked} linked, ${r.json.updated} changed`,true); renderTab(); }
+  else toast(r.json.error||'error');
+}
+async function l10nDraft(){
+  const r=await api('/api/l10n/draft',{method:'POST',body:{locale:S.l10n.locale,namespace:S.l10n.ns||''}});
+  if(r.ok){ toast(`queued ${r.json.queued} in ${r.json.batches} batch(es) — they land as "machine" for review`,true); }
+  else toast(r.json.error||'error');
+}
+async function l10nExport(){
+  const r=await api('/api/l10n/export',{method:'POST',body:{locale:S.l10n.locale}});
+  if(r.ok) toast(`wrote ${r.json.written} approved strings — restart to serve them`,true);
+  else toast(r.json.error||'error');
+}
+
 async function adminView(){
   const r=await api('/api/admin/status');
   const mr=await api('/api/metrics'); const M=mr.ok?mr.json:{};
@@ -662,7 +808,7 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
   el.innerHTML='<p class="muted">…</p>';
-  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,admin:adminView}[S.tab]||chatView)();
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html; }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
@@ -1526,6 +1672,9 @@ async function render(){
   if(S.features[S.tab]===false) S.tab='team';
   if(!S.me) return;                      // signed out while we were awaiting
   app.innerHTML=appShell(); renderTab(); }
+window.localizeView=localizeView; window.l10nSetLocale=l10nSetLocale; window.l10nFilter=l10nFilter;
+window.l10nPage=l10nPage; window.l10nSave=l10nSave; window.l10nReview=l10nReview;
+window.l10nImport=l10nImport; window.l10nDraft=l10nDraft; window.l10nExport=l10nExport;
 window.doLogin=doLogin; window.doBootstrap=doBootstrap; window.setLang=setLang; window.logout=logout; window.go=go;
 window.doChat=doChat; window.doAgent=doAgent; window.doCreateNote=doCreateNote; window.doShare=doShare; window.doDelNote=doDelNote;
 window.doAddMember=doAddMember; window.doSetQuota=doSetQuota; window.doChangePw=doChangePw; window.doToggleTool=doToggleTool;

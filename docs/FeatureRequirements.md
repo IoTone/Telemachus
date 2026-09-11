@@ -57,8 +57,9 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       produced *by the localization tool*.
       *Runtime built* (catalogs + ICU + fallback chain, instance default locale and
       off switch, localized server refusals, localized funnel copy). **English and
-      Japanese ship.** Dutch and es-419 are pending the Manager, on purpose — they
-      are meant to be produced *by* the tool, which is the proof.
+      Japanese ship.** The Manager that produces the rest is now built; Dutch and
+      es-419 remain to be drafted, reviewed and exported *with it* — which is the
+      proof the flagship exists for.
       Design: [`design/localization.md`](design/localization.md) · impl `domain/i18n/`.
 - [ ] **Documentation** — generated, localizable project docs (SDK contracts, APIs,
       tool & permission catalogs). Not started. Feeds the localization pipeline, so
@@ -80,11 +81,15 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
 - [~] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that
       proves the platform can build tools.
-      *Built*: the extractor/lint, the `telemachus-localize` CLI
-      (`extract` / `sync-locale` / `check` / `report`), and the **CI gate**.
-      *Missing*: the team workflow — per-string status lifecycle, coverage
-      dashboard, review/approve gating, and AI-assisted drafting through the
-      scheduler and quotas. **In progress.**
+      *Built*: the extractor/lint, the `telemachus-localize` CLI, the **CI gate**,
+      and (migration 0024) the **team workflow** — per-string status lifecycle with
+      derived `missing`/`stale`, coverage dashboard, review gating that refuses
+      self-approval, the **Localize** console tab, and **AI drafting** as scheduler
+      jobs metered against the team's AI quota. Import/export keeps `locales/*.json`
+      the shipping artifact.
+      *Remaining*: produce **nl** and **es-419** with it — the drafting and review
+      loop is proven end to end, but a language only ships once its strings are
+      actually reviewed. See the localization line above.
 - [ ] **Knowledge Graph** — not started; no design doc yet. The largest unknown
       remaining in this list.
 
