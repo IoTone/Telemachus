@@ -214,3 +214,41 @@
 (test-case "an empty draft is refused"
   (check-false (draft-acceptable? "Note saved." ""))
   (check-false (draft-acceptable? "Note saved." "   ")))
+
+;; ---- the rules the console drafts forced ------------------------------------
+(test-case "a prompt heading echoed as a suffix is refused (trailing colon)"
+  (check-false (draft-acceptable? "Chat" "Chats, alle verplicht:" #:locale "nl"))
+  (check-false (draft-acceptable? "Translation" "Reglas, todos obligatorios:" #:locale "es-419"))
+  (check-true  (draft-acceptable? "Password:" "Wachtwoord:" #:locale "nl") "a source that ends in a colon may keep it"))
+
+(test-case "an overlong draft is refused, but real expansion is not"
+  (check-false (draft-acceptable? "Sign in" "Inloggen, alle velden verplicht:" #:locale "nl"))
+  (check-true  (draft-acceptable? "Reset to default" "Restablecer a los valores predeterminados" #:locale "es-419")
+               "41 chars for 16 is a correct Spanish rendering, not an echo")
+  (check-true  (draft-acceptable? "Tools" "gereedschappen" #:locale "nl")))
+
+(test-case "a multi-line reply is the model talking, not translating"
+  (check-false (draft-acceptable? "Sign out" "Uitloggen, alle velden verplicht:\n-仅为翻译，不加引号\n-注销" #:locale "nl")))
+
+(test-case "CJK in a non-CJK locale is refused; in a CJK locale it is the point"
+  (check-false (draft-acceptable? "Coverage" "Dekking氾eelbaar" #:locale "nl"))
+  (check-true  (draft-acceptable? "Coverage" "進捗" #:locale "ja")))
+
+(test-case "an untranslated loanword is acceptable"
+  (check-true (draft-acceptable? "Download" "Download" #:locale "nl")))
+
+(test-case "discard removes machine drafts only, never human work"
+  (define conn (fresh))
+  (l10n-import! conn (base '("ui.a" . "A") '("ui.b" . "B") '("http.c" . "C")) '())
+  (define items (hash-ref (l10n-list conn "nl") 'items))
+  (define by (for/hash ([h items]) (values (hash-ref h 'key) (hash-ref h 'message_id))))
+  (l10n-submit! conn (hash-ref by "ui.a") "nl" "machine A" "" #:status "machine")
+  (l10n-submit! conn (hash-ref by "ui.b") "nl" "human B" ALICE)
+  (l10n-submit! conn (hash-ref by "http.c") "nl" "machine C" "" #:status "machine")
+  (check-equal? (l10n-discard-machine! conn "nl" #:namespace "ui") 1 "only the ui machine draft")
+  (define after (for/hash ([h (hash-ref (l10n-list conn "nl") 'items)]) (values (hash-ref h 'key) (hash-ref h 'status))))
+  (check-equal? (hash-ref after "ui.a") "missing")
+  (check-equal? (hash-ref after "ui.b") "needs_review" "human work untouched")
+  (check-equal? (hash-ref after "http.c") "machine" "other namespace untouched")
+  (check-equal? (l10n-discard-machine! conn "nl") 1 "and without a namespace, the rest")
+  (close-db! conn))

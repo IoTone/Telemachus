@@ -171,9 +171,10 @@ behaviour exactly.
   cannot offer a language with no copy behind it. It vanishes when instance
   negotiation is off.
 - The public slice ships ONE language — never the overlay table, never the judge prompt.
-- Three homes, do not mix them: funnel **copy** → the experience document; funnel
-  **chrome** → the console's `const L`; server **refusals** → `surface/messages.rkt`
-  + `locales/*.json`. The third was bare English until the Aug 2026 sweep.
+- Three homes, do not mix them: funnel **copy** → the experience document; server
+  **refusals** → `surface/messages.rkt` + `locales/*.json`; and, since Sept 2026,
+  the console's own **chrome** ALSO lives in `locales/*.json`, under the `ui.`
+  namespace — see "Localization Manager" below. There is no `const L` any more.
 - The honeypot's fake success must use the SAME localized string as the real one.
 
 ```sh
@@ -253,6 +254,15 @@ approved strings back. Neither is on the request path.
   5,000-string draft is a cancellable queue rather than one hour-long job. Output
   lands as `machine`, never `approved`. Metered: a run of 8 strings charged 1,004
   `ai.tokens.total` against the team.
+- **A bulk draft STOPS when the team is over its AI budget, and it looks like a
+  hang.** Draft jobs are quota-admitted like every scheduler job: with the default
+  `ai.tokens.total` of 2,000/day, the first two batches of the console's 170
+  strings spent 4,571 tokens and the remaining 16 jobs sat `queued` with nothing
+  `running`. That is the platform working. Before drafting a whole namespace,
+  raise the team's budget (`POST /api/quota {"dimension":"ai.tokens.total",
+  "limit":200000,"window":"day"}`, operator) — 170 UI strings cost roughly 20k
+  tokens on qwen2.5:7b. The Localize tab should say this when it queues a draft;
+  it does not yet.
 - **A draft that loses, invents, or mangles a placeholder is refused, not stored**
   (`draft-acceptable?` in `manager.rkt`). Two checks: the simple-placeholder set
   must match, AND the **brace count** must match. The second is what catches the
@@ -267,6 +277,20 @@ approved strings back. Neither is on the request path.
   but mixed tú/usted — normalized to usted for system messages). The catalogs
   cover the SERVER messages only; the console's `const L` is a separate home
   (see "Three homes" above) and still ships `en`/`ja`, with a hardcoded switcher.
+- **The console's strings are in the catalogs too.** `static/ui-strings.json` is
+  the English source of truth for the console (a flat `{"ui.key": "text"}` object);
+  the extractor treats a `.json` path as a **JSON surface** and folds it into the
+  SAME `en.json` as the Racket surfaces, so one `extract` and one Manager cover
+  everything. Japanese lives in `ja.json` under `ui.*`; `const L` is gone. The
+  console fetches its strings pre-auth from **`GET /api/i18n/catalog?locale=`**
+  (public — the sign-in screen needs them before any token), already resolved
+  through the fallback chain server-side, so a 40%-translated locale still gets a
+  complete UI in one fetch. A miss shows the bare key, visibly. The CI gate
+  includes `static/ui-strings.json`; so does `scripts/build-l10n-review.py`, which
+  reads the JSON now rather than scraping `index.html`, and refuses any console
+  key that is in no review group.
+- **`localizer-for` goes through `locales-dir`** too, so the runtime and the Manager
+  see the same catalogs during a test run.
 - **The server honours `TELEMACHUS_LOCALES`** (as the CLI does) because export
   WRITES into that directory. The smoke and e2e suites point it at a temp copy
   and use the pseudo-locale `qps` for "a locale with no catalog" — a real locale

@@ -3,7 +3,8 @@
 
 Reads the two places Telemachus keeps user-facing Japanese —
 
-    refimpl/racketmaximus/static/index.html    the console dictionary (const L)
+    refimpl/racketmaximus/static/ui-strings.json   the console's English (a JSON surface)
+    refimpl/racketmaximus/locales/ja.json          the console's Japanese, under `ui.`
     refimpl/racketmaximus/locales/{en,ja}.json  the server message catalogue
     refimpl/racketmaximus/domain/beta/beta.rkt  the shipped beta-funnel copy and
                                                 its `i18n` overlay (read by
@@ -27,36 +28,10 @@ This is a development tool, not shipped code, and not part of the Racket build.
 import argparse, html, json, os, re, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONSOLE = os.path.join(ROOT, "refimpl/racketmaximus/static/index.html")
+UI_STRINGS = os.path.join(ROOT, "refimpl/racketmaximus/static/ui-strings.json")
 LOCALES = os.path.join(ROOT, "refimpl/racketmaximus/locales")
 
 # ---------------------------------------------------------------- extraction
-
-def js_dict(blob, tag):
-    """Pull one `tag:{...}` object literal out of the console's `const L`."""
-    start = blob.index(tag + ":{")
-    depth, i = 0, blob.index("{", start)
-    for p in range(i, len(blob)):
-        if blob[p] == "{":
-            depth += 1
-        elif blob[p] == "}":
-            depth -= 1
-            if depth == 0:
-                return blob[i + 1:p]
-    raise SystemExit(f"unbalanced braces in L.{tag}")
-
-
-def js_pairs(body):
-    """key -> value, plus the keys that were defined more than once."""
-    out, order = {}, []
-    for m in re.finditer(r"(\w+)\s*:\s*'((?:[^'\\]|\\.)*)'", body):
-        k, v = m.group(1), m.group(2)
-        v = v.encode().decode("unicode_escape") if "\\u" in v else v.replace("\\'", "'")
-        out[k] = v
-        order.append(k)
-    dups = sorted({k for k in order if order.count(k) > 1})
-    return out, dups
-
 
 IMPL = os.path.join(ROOT, "refimpl/racketmaximus")
 
@@ -120,15 +95,21 @@ def funnel_rows(prov):
 
 
 def read_sources():
-    src = open(CONSOLE, encoding="utf-8").read()
-    blob = src[src.index("const L = {"):]
-    en, dup_en = js_pairs(js_dict(blob, "en"))
-    ja, dup_ja = js_pairs(js_dict(blob, "ja"))
+    """The console's strings live in the catalogs now, under the `ui.` namespace:
+    English in static/ui-strings.json (the extractor's source), Japanese in
+    locales/ja.json. The review sheet keeps addressing them by their bare key
+    (`chat`, not `ui.chat`) so the groups below did not have to change."""
+    ui = json.load(open(UI_STRINGS, encoding="utf-8"))
+    men_all = json.load(open(os.path.join(LOCALES, "en.json"), encoding="utf-8"))["messages"]
+    mja_all = json.load(open(os.path.join(LOCALES, "ja.json"), encoding="utf-8"))["messages"]
+    en = {k[3:]: v for k, v in ui.items() if k.startswith("ui.")}
+    ja = {k[3:]: v["text"] for k, v in mja_all.items() if k.startswith("ui.")}
     if set(en) != set(ja):
-        raise SystemExit(f"console dictionaries disagree: {set(en) ^ set(ja)}")
-    men = json.load(open(os.path.join(LOCALES, "en.json"), encoding="utf-8"))["messages"]
-    mja = json.load(open(os.path.join(LOCALES, "ja.json"), encoding="utf-8"))["messages"]
-    return en, ja, sorted(set(dup_en) | set(dup_ja)), men, mja
+        raise SystemExit(f"console strings disagree between ui-strings.json and ja.json: {sorted(set(en) ^ set(ja))}")
+    # the "server messages" group is everything that is NOT the console
+    men = {k: v for k, v in men_all.items() if not k.startswith("ui.")}
+    mja = {k: v for k, v in mja_all.items() if not k.startswith("ui.")}
+    return en, ja, [], men, mja
 
 # ------------------------------------------------------------------ grouping
 # Every console key must land in exactly one group; the build asserts it, so a
@@ -140,13 +121,13 @@ GROUPS = [
      "<b>An empty one is not a blank screen — it silently falls back to English</b>, so these "
      "outrank everything below.", None),
 
-    ("nav", "Navigation &amp; global chrome", "static/index.html",
+    ("nav", "Navigation &amp; global chrome", "static/ui-strings.json",
      "Tabs, section headers and the words that frame every other screen. Wrong register here "
      "is felt on every page.",
      "tagline chat agent notes team usage admin beta repository workflows documents jobs "
      "search features audit testing branding logout operator model"),
 
-    ("act", "Common actions &amp; field labels", "static/index.html",
+    ("act", "Common actions &amp; field labels", "static/ui-strings.json",
      "Buttons and column headings, reused across screens. These carry the house convention: "
      "bare nouns on controls, polite ~ました on the toast that follows.",
      "create save saved del deleted cancel close back refresh submit send share shared revoke "
@@ -154,36 +135,36 @@ GROUPS = [
      "status title body content key size updated source version started input output results "
      "recent file store objects visibility"),
 
-    ("auth", "Sign-in, first run &amp; account", "static/index.html",
+    ("auth", "Sign-in, first run &amp; account", "static/ui-strings.json",
      "The first Japanese a new user ever reads, and the only screen an unauthenticated visitor sees.",
      "signin user pass code firstrun createop welcome setpw confirmpw activate chpw curpw newpw "
      "updpw teamsignin requestaccess"),
 
-    ("chat", "Chat, agent &amp; tools", "static/index.html", None,
+    ("chat", "Chat, agent &amp; tools", "static/ui-strings.json", None,
      "prompt reply tools tool"),
 
-    ("tr", "Translation &amp; glossary", "static/index.html",
+    ("tr", "Translation &amp; glossary", "static/ui-strings.json",
      "Worth extra care: a translation feature whose own UI reads awkwardly undercuts itself.",
      "translate sourcetext target translation glossary term addterm useglossary"),
 
-    ("note", "Notes, documents &amp; visibility", "static/index.html",
+    ("note", "Notes, documents &amp; visibility", "static/ui-strings.json",
      "Visibility wording is load-bearing — a reader who misjudges 「限定共有」 shares the wrong thing.",
      "newnote newdoc vis_team vis_private vis_shared visupdated sharewith sharedwith noshares "
      "noothers vishint"),
 
-    ("repo", "Repository, uploads &amp; S3", "static/index.html",
+    ("repo", "Repository, uploads &amp; S3", "static/ui-strings.json",
      "The longest strings in the product, and the ones most likely to have drifted from their English.",
      "norepoobjects uploadhint newversion willversion versions s3keys s3created s3hint s3once "
      "s3off linkhint searchph"),
 
-    ("wf", "Workflows, runs &amp; jobs", "static/index.html", None,
+    ("wf", "Workflows, runs &amp; jobs", "static/ui-strings.json", None,
      "workflow definitions runwf runs viewrun steps stepsused nodefs noruns submitjob"),
 
-    ("team", "Team, members, quotas &amp; tokens", "static/index.html", None,
+    ("team", "Team, members, quotas &amp; tokens", "static/ui-strings.json", None,
      "members addmember role setquota dimension limit nolimit apitokens createtoken seed "
      "qualify reject"),
 
-    ("brand", "Branding", "static/index.html", None,
+    ("brand", "Branding", "static/ui-strings.json", None,
      "brandinghint brandtitle brandtagline brandlogo brandclearlogo brandreset"),
 
     ("funnel", "Beta funnel \u2014 shipped copy", "domain/beta/beta.rkt",
@@ -194,16 +175,24 @@ GROUPS = [
      "types and <code>required</code> are never localized \u2014 only what is read.",
      None),
 
-    ("loc", "Localization settings (Admin)", "static/index.html",
+    ("loc", "Localization settings (Admin)", "static/ui-strings.json",
      "New in this sweep, and the only Japanese written after the review started — "
      "so it has had no native pass at all. The instance default and the switch that "
      "turns per-request negotiation off entirely.",
      "localization deflocale loctoggle lochint locoffhint locavail"),
 
-    ("bx", "Beta funnel \u2014 chrome", "static/index.html",
+    ("bx", "Beta funnel \u2014 chrome", "static/ui-strings.json",
      "Rendered by the console around the operator's copy: what a prospect sees while "
      "submitting, and after. New in this sweep.",
      "bxverifying bxthanks bxtouch bxrestart"),
+
+    ("l10n", "Localization Manager (the Localize tab)", "static/ui-strings.json",
+     "The flagship's own surface: coverage, the per-string editor, review. Written "
+     "with the tab in Sept 2026 and translated in the same pass, so it has had no "
+     "native review yet.",
+     "localize l10ntarget l10nhint l10ncoverage l10nimport l10ndraft l10nexport "
+     "l10nkey l10nsource l10ntranslation l10nstatus l10napprove l10nreject l10nall "
+     "l10nsearch l10nnothing l10nself"),
 ]
 
 # ------------------------------------------------------------------- notes
@@ -430,7 +419,7 @@ def build():
                 if k in assigned:
                     raise SystemExit(f"key {k!r} assigned to two groups")
                 assigned.add(k)
-                rows.append(row("static/index.html", k, en[k], ja[k], NOTES.get(k)))
+                rows.append(row("static/ui-strings.json", k, en[k], ja[k], NOTES.get(k)))
         total += len(rows)
         sections.append((gid, title, file, stand, rows))
 

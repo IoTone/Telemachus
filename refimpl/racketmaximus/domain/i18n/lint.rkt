@@ -1,4 +1,5 @@
 #lang racket/base
+(require json)
 
 ;; domain/i18n/lint.rkt — reader-based extractor + bare-literal scanner.
 ;;
@@ -13,7 +14,25 @@
 (require racket/list
          racket/path)
 
-(provide analyze-file analyze-paths rkt-files-under)
+(provide analyze-file analyze-json-file analyze-paths rkt-files-under)
+
+;; ---- JSON surfaces ------------------------------------------------------------
+;; A flat {"id": "English text"} object. This is how a frontend that is not
+;; Racket — the console — contributes its English to the SAME base catalog the
+;; Racket surfaces do, so one `extract` produces one en.json and one Manager
+;; reviews one catalog. The console's ids carry a `ui.` prefix, which is what
+;; makes them a namespace in the coverage report.
+;;
+;; It yields (id default line) triples and NO violations: JSON has no code in it
+;; to scan for bare literals. Bare-literal detection for JavaScript is a separate
+;; extractor, not this one.
+(define (analyze-json-file path)
+  (define j (call-with-input-file path read-json))
+  (unless (hash? j)
+    (error 'analyze-json-file "~a: expected a JSON object of id → text" path))
+  (values (for/list ([(k v) (in-hash j)] #:when (string? v))
+            (list (symbol->string k) v 0))
+          '()))
 
 ;; (values t-forms violations)
 ;;   t-forms    : (listof (list id default line))
@@ -77,8 +96,16 @@
     [else '()]))
 
 ;; aggregate analysis over many paths → (values t-forms violations)
+(define (json-surface? p)
+  (define pp (if (path? p) p (string->path p)))
+  (and (file-exists? pp) (path-has-extension? pp #".json")))
+
 (define (analyze-paths paths)
-  (define files (append-map (lambda (p) (rkt-files-under p)) paths))
-  (for/fold ([tf '()] [vs '()]) ([f (in-list files)])
-    (define-values (t v) (analyze-file f))
+  (define jsons (filter json-surface? paths))
+  (define files (append-map (lambda (p) (rkt-files-under p)) (filter (lambda (p) (not (json-surface? p))) paths)))
+  (for/fold ([tf '()] [vs '()])
+            ([f (in-list (append (map (lambda (p) (cons 'json p)) jsons)
+                                 (map (lambda (p) (cons 'rkt p)) files)))])
+    (define-values (t v)
+      (if (eq? (car f) 'json) (analyze-json-file (cdr f)) (analyze-file (cdr f))))
     (values (append tf t) (append vs v))))

@@ -30,7 +30,7 @@
 (provide l10n-import! l10n-export l10n-coverage l10n-list l10n-locales
          l10n-submit! l10n-review! l10n-message-ref
          l10n-status-of l10n-statuses
-         draft-acceptable?)
+         draft-acceptable? l10n-discard-machine!)
 
 ;; The stored lifecycle. `missing` and `stale` are computed, so they are not here.
 (define l10n-statuses '("drafted" "machine" "needs_review" "approved"))
@@ -266,28 +266,59 @@
 ;; Is a machine draft structurally safe to put in the review queue?
 ;;
 ;; A bad draft that LOOKS finished is worse than a missing string: it sits in the
-;; queue wearing a status, and a tired reviewer approves it. Two checks, both
-;; cheap, both found necessary by reading real model output:
+;; queue wearing a status, and a tired reviewer approves it. Every rule here was
+;; added because a real reply from qwen2.5:7b got through without it:
 ;;
-;;   1. every simple placeholder in the source ({user}, {n}) appears in the draft,
-;;      and no extra ones — a model will happily "translate" {user} to {gebruiker}
-;;      and the product then renders literal braces;
-;;   2. the COUNT of braces matches. This is what catches the stray `{}` or `{.}`
-;;      a model appends to the end of a sentence, which check 1 cannot see
-;;      because there is no name inside — and the ICU renderer will not reject it
-;;      either, it renders an empty name as "". It also catches a mangled plural
-;;      block, whose nested braces have no simple name to match on.
+;;   1. simple placeholders match exactly — {user} renamed to {gebruiker} renders
+;;      literal braces to an end user;
+;;   2. brace COUNT matches — catches the stray `{}` / `{.}` appended to a sentence
+;;      (no name inside, so rule 1 cannot see it, and the ICU renderer renders an
+;;      empty name as "" rather than failing) and a mangled plural block;
+;;   3. no newline unless the source has one — a multi-line reply is the model
+;;      echoing its instructions, not translating;
+;;   4. length ≤ 3× the source + 12 — "Chat" does not need 22 characters. Loose
+;;      on purpose: Spanish renders "Reset to default" in 41 characters and that
+;;      is correct, so a tight ratio would refuse real translations;
+;;   5. no trailing colon the source does not have — the exact signature of a
+;;      prompt heading echoed back ("Titel, alle verplicht:");
+;;   6. no CJK characters unless the target is a CJK locale — half a Chinese
+;;      sentence turned up inside a Dutch string.
 ;;
-;; Deliberately NOT a parse with the real formatter: it is lenient by design
-;; (a missing argument renders as ""), so it accepts exactly the drafts that
-;; need refusing.
-(define (draft-acceptable? source draft)
+;; Deliberately NOT a parse with the real formatter: it is lenient by design (a
+;; missing argument renders as ""), so it accepts exactly the drafts that need
+;; refusing.
+(define CJK-RX #px"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
+(define (cjk-locale? loc)
+  (and (member (car (string-split (string-downcase loc) "-")) '("ja" "zh" "ko")) #t))
+
+(define (draft-acceptable? source draft #:locale [locale "en"])
   (define (names s) (sort (regexp-match* #px"\\{[a-zA-Z0-9_]+\\}" s) string<?))
   (define (braces s c) (for/sum ([ch (in-string s)]) (if (char=? ch c) 1 0)))
-  (and (not (string=? (string-trim draft) ""))
-       (equal? (names source) (names draft))
-       (= (braces source #\{) (braces draft #\{))
-       (= (braces source #\}) (braces draft #\}))))
+  (define (ends-colon? s) (and (> (string-length s) 0)
+                               (char=? (string-ref s (sub1 (string-length s))) #\:)))
+  (define d (string-trim draft))
+  (and (not (string=? d ""))
+       (equal? (names source) (names d))
+       (= (braces source #\{) (braces d #\{))
+       (= (braces source #\}) (braces d #\}))
+       (or (regexp-match? #rx"\n" source) (not (regexp-match? #rx"\n" d)))
+       (<= (string-length d) (+ 12 (* 3 (string-length source))))
+       (or (ends-colon? source) (not (ends-colon? d)))
+       (or (cjk-locale? locale) (not (regexp-match? CJK-RX d)))))
+
+;; Throw away MACHINE drafts for a locale (optionally one namespace) so they can be
+;; drafted again — after a bad model run, a prompt fix, a model change. Human work
+;; is never touched: only rows with status 'machine', which by construction have
+;; no translated_by. Returns the number discarded.
+(define (l10n-discard-machine! conn locale #:namespace [ns #f])
+  (define sql
+    (string-append "SELECT t.id FROM l10n_translations t JOIN l10n_messages m ON m.id = t.message_id "
+                   "WHERE t.locale = ? AND t.status = 'machine'"
+                   (if ns " AND m.namespace = ?" "")))
+  (define ids (apply query-list conn sql (if ns (list locale ns) (list locale))))
+  (for ([id (in-list ids)])
+    (query-exec conn "DELETE FROM l10n_translations WHERE id = ?" (s id)))
+  (length ids))
 
 ;; ---- export ------------------------------------------------------------------
 ;; Build the catalog to write to locales/<locale>.json.

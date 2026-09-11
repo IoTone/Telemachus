@@ -83,6 +83,686 @@
     "beta.thanks": {
       "text": "ありがとうございます。お申し込みを確認しています。",
       "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    },
+    "ui.activate": {
+      "text": "アカウントを有効化",
+      "hash": "b9186563deea94527f03558a5ec059806d363c49"
+    },
+    "ui.addmember": {
+      "text": "メンバー追加",
+      "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
+    },
+    "ui.addterm": {
+      "text": "用語を追加",
+      "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
+    },
+    "ui.admin": {
+      "text": "管理",
+      "hash": "4e7afebcfbae000b22c7c85e5560f89a2a0280b4"
+    },
+    "ui.agent": {
+      "text": "エージェント",
+      "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
+    },
+    "ui.apitokens": {
+      "text": "APIトークン",
+      "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
+    },
+    "ui.audit": {
+      "text": "監査ログ",
+      "hash": "3cfc5f1cc987f398078bb799369d4c03588802d9"
+    },
+    "ui.back": {
+      "text": "戻る",
+      "hash": "b52b36b7269fbfc58ec24bb724691951a3decbe8"
+    },
+    "ui.beta": {
+      "text": "ベータ",
+      "hash": "f03b60f7e52b7ce49ed1e4f9fa511c452a2185bb"
+    },
+    "ui.body": {
+      "text": "本文",
+      "hash": "718a7e8a582e982e452dd5700addba4ffc1cf40d"
+    },
+    "ui.brandclearlogo": {
+      "text": "ロゴを削除",
+      "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
+    },
+    "ui.branding": {
+      "text": "ブランディング",
+      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
+    },
+    "ui.brandinghint": {
+      "text": "このインスタンスの名称・タグライン・ロゴ。サインイン画面、ヘッダー、ブラウザタブに反映されます。",
+      "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
+    },
+    "ui.brandlogo": {
+      "text": "ロゴ",
+      "hash": "83fce8327410848c9eb609acb21732c7c0fec96a"
+    },
+    "ui.brandreset": {
+      "text": "既定に戻す",
+      "hash": "39c90eb758c57422548baebb38a39652279feb65"
+    },
+    "ui.brandtagline": {
+      "text": "タグライン",
+      "hash": "b0f794835fa03c22f59c3a0c0efe64d0512fdab3"
+    },
+    "ui.brandtitle": {
+      "text": "名称",
+      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "ui.bxrestart": {
+      "text": "開始できませんでした — 再読み込みしてください",
+      "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
+    },
+    "ui.bxthanks": {
+      "text": "ありがとうございます — お申し込みを確認しています。",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    },
+    "ui.bxtouch": {
+      "text": "追ってご連絡いたします。",
+      "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "ui.bxverifying": {
+      "text": "本人確認を行っています…",
+      "hash": "c2527f263d0c2ca67f88d5da7f7273c6873eb796"
+    },
+    "ui.cancel": {
+      "text": "キャンセル",
+      "hash": "77dfd2135f4db726c47299bb55be26f7f4525a46"
+    },
+    "ui.chat": {
+      "text": "チャット",
+      "hash": "2ced57f125910a9e8ab95deea86e4ad7be418b5a"
+    },
+    "ui.chpw": {
+      "text": "パスワードの変更",
+      "hash": "88dee350141b934bd32db882794a951a7a40d898"
+    },
+    "ui.close": {
+      "text": "閉じる",
+      "hash": "bbfa773e5a63a5ea58c9b6207e608ca0120e592a"
+    },
+    "ui.code": {
+      "text": "2FAコード（有効な場合）",
+      "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
+    },
+    "ui.confirmpw": {
+      "text": "パスワードの確認",
+      "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
+    },
+    "ui.content": {
+      "text": "内容",
+      "hash": "4f9be057f0ea5d2ba72fd2c810e8d7b9aa98b469"
+    },
+    "ui.copied": {
+      "text": "コピーしました",
+      "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
+    },
+    "ui.copy": {
+      "text": "コピー",
+      "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
+    },
+    "ui.create": {
+      "text": "作成",
+      "hash": "6e157c5da4410b7e9de85f5c93026b9176e69064"
+    },
+    "ui.createop": {
+      "text": "オペレーターを作成",
+      "hash": "aed7b1a1cb14a92bdfa831efac4ad2b950129f36"
+    },
+    "ui.createtoken": {
+      "text": "トークンを作成",
+      "hash": "4b3c8e356a7a5537138823e1fe97ad6235b665b6"
+    },
+    "ui.curpw": {
+      "text": "現在のパスワード",
+      "hash": "19dff4dad0a7214ece14624f8c4c9fb206a1cfdd"
+    },
+    "ui.definitions": {
+      "text": "定義",
+      "hash": "15225baac48fc3d689cb2b0f74b936eff4339ff7"
+    },
+    "ui.deflocale": {
+      "text": "既定の言語",
+      "hash": "852814f288cc2951733962464a5ac17702f46f35"
+    },
+    "ui.del": {
+      "text": "削除",
+      "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
+    },
+    "ui.deleted": {
+      "text": "削除しました",
+      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
+    },
+    "ui.details": {
+      "text": "詳細",
+      "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
+    },
+    "ui.dimension": {
+      "text": "指標",
+      "hash": "45e147abd920eeb1aca320340e18cf67b4c77252"
+    },
+    "ui.disable": {
+      "text": "無効化",
+      "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
+    },
+    "ui.documents": {
+      "text": "ドキュメント",
+      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
+    },
+    "ui.download": {
+      "text": "ダウンロード",
+      "hash": "a479c9c34e878d07b4d67a73a48f432ad7dc53c8"
+    },
+    "ui.enable": {
+      "text": "有効化",
+      "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
+    },
+    "ui.features": {
+      "text": "機能",
+      "hash": "fc338f87a058158eb824b53705961801516a9460"
+    },
+    "ui.file": {
+      "text": "ファイル",
+      "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "ui.firstrun": {
+      "text": "初回起動 — 最初のオペレーターを作成",
+      "hash": "da6847a10e476c38e1e6115bc9b1a6009437adba"
+    },
+    "ui.glossary": {
+      "text": "用語集",
+      "hash": "7427cf697be16a4ec1d916910128a59d920125e7"
+    },
+    "ui.input": {
+      "text": "入力",
+      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
+    },
+    "ui.jobs": {
+      "text": "ジョブ",
+      "hash": "437736fdb5bb707abdc048483193c86b9a99983e"
+    },
+    "ui.key": {
+      "text": "パス",
+      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
+    },
+    "ui.l10nall": {
+      "text": "すべての状態",
+      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
+    },
+    "ui.l10napprove": {
+      "text": "承認",
+      "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
+    },
+    "ui.l10ncoverage": {
+      "text": "進捗",
+      "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
+    },
+    "ui.l10ndraft": {
+      "text": "AI下訳",
+      "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
+    },
+    "ui.l10nexport": {
+      "text": "書き出し",
+      "hash": "f3e4fadb9e370a1e2c0c622c01fc8c77daf93a2c"
+    },
+    "ui.l10nhint": {
+      "text": "製品の翻訳。AIが下訳を作り、人が承認します。未レビューのものは製品に入りません。",
+      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
+    },
+    "ui.l10nimport": {
+      "text": "カタログを取り込む",
+      "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
+    },
+    "ui.l10nkey": {
+      "text": "キー",
+      "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
+    },
+    "ui.l10nnothing": {
+      "text": "条件に一致するものがありません。",
+      "hash": "0f9b93bb965ce681887989cc7cea0ac7b93f4c22"
+    },
+    "ui.l10nreject": {
+      "text": "差し戻し",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    },
+    "ui.l10nsearch": {
+      "text": "キーまたは本文を検索",
+      "hash": "158dee2d34c71cee576d705f120a65012edc6027"
+    },
+    "ui.l10nself": {
+      "text": "自分の訳は承認できません。",
+      "hash": "fd49da1345752b110591d786f4541af26f37b1ff"
+    },
+    "ui.l10nsource": {
+      "text": "英語",
+      "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
+    },
+    "ui.l10nstatus": {
+      "text": "状態",
+      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    },
+    "ui.l10ntarget": {
+      "text": "翻訳先の言語",
+      "hash": "dae38f11269fd17ad122a3ec4e99cc99ca9fbc74"
+    },
+    "ui.l10ntranslation": {
+      "text": "訳文",
+      "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
+    },
+    "ui.limit": {
+      "text": "上限",
+      "hash": "24d948e4bdbe5b8224bbc0dfbab1923fab00b98e"
+    },
+    "ui.link": {
+      "text": "リンク",
+      "hash": "d0517071aa376e797705058bbad4b658954b9930"
+    },
+    "ui.linkhint": {
+      "text": "このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。ご自身のS3キーの権限で動作し、キーを失効させると無効になります。",
+      "hash": "7f9956fa5eca1bdb0470b328be9a2bdc32a49c33"
+    },
+    "ui.localization": {
+      "text": "言語設定",
+      "hash": "b9fc941160f1b0396956bfd39853ec712bd8d1fb"
+    },
+    "ui.localize": {
+      "text": "翻訳管理",
+      "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "ui.locavail": {
+      "text": "このビルドに含まれる言語",
+      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
+    },
+    "ui.lochint": {
+      "text": "訪問者が言語を選んでいないときに、このインスタンスが応答する言語です。アカウント作成前のサインイン画面にも適用されます。",
+      "hash": "888ae32444f9106401926c83bd00ebcde5f99635"
+    },
+    "ui.locoffhint": {
+      "text": "オフにすると、応答は常に既定の言語になり、言語切り替えは表示されません。",
+      "hash": "a6bd7ff056cb8175b899353a0931069c5b8467ea"
+    },
+    "ui.loctoggle": {
+      "text": "利用者による言語の切り替えを許可する",
+      "hash": "f727a2857c4b05748fe85e72f82a53c4b5f42a4e"
+    },
+    "ui.logout": {
+      "text": "サインアウト",
+      "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
+    },
+    "ui.members": {
+      "text": "メンバー",
+      "hash": "1cb449c1126609b4b41e1d87f65f0d7cd19b49b9"
+    },
+    "ui.model": {
+      "text": "モデル",
+      "hash": "68c2cc7f0ceaa3e499ecb4db331feb4debbbcc23"
+    },
+    "ui.name": {
+      "text": "名前",
+      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
+    },
+    "ui.newdoc": {
+      "text": "新規ドキュメント",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
+    },
+    "ui.newnote": {
+      "text": "新規ノート",
+      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
+    },
+    "ui.newpw": {
+      "text": "新しいパスワード",
+      "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
+    },
+    "ui.newversion": {
+      "text": "新しいバージョンとして保存しました",
+      "hash": "b9dcda73378ea2eefe58d13865d4e79407f77d6c"
+    },
+    "ui.nodefs": {
+      "text": "このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。それ以外の場合は /api/workflows に仕様をPOSTしてください。",
+      "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
+    },
+    "ui.nolimit": {
+      "text": "上限なし",
+      "hash": "f8e7920f869502bc3ba3e7eff30889bc66888286"
+    },
+    "ui.noothers": {
+      "text": "このチームに他のメンバーがいません。",
+      "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
+    },
+    "ui.norepoobjects": {
+      "text": "まだドキュメントがありません。形式は自由です — pdf、svg、png、docx、xml、md。",
+      "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
+    },
+    "ui.noruns": {
+      "text": "実行履歴はまだありません。",
+      "hash": "7a8b1c283d427ac045b0fa7629bbaf611736e8e3"
+    },
+    "ui.noshares": {
+      "text": "まだ誰とも共有していません。",
+      "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
+    },
+    "ui.notes": {
+      "text": "ノート",
+      "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
+    },
+    "ui.objects": {
+      "text": "ドキュメント",
+      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
+    },
+    "ui.operator": {
+      "text": "オペレーター",
+      "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
+    },
+    "ui.output": {
+      "text": "出力",
+      "hash": "4bed336194a9a5c86b6a734f03b3570d2aae1a68"
+    },
+    "ui.pass": {
+      "text": "パスワード",
+      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
+    },
+    "ui.prompt": {
+      "text": "プロンプト",
+      "hash": "a817d7eb8e0f1dab755ab5203a082e5c3c094fce"
+    },
+    "ui.qualify": {
+      "text": "承認",
+      "hash": "d8be1dde249c69ada1a96d5946aed689468a43f2"
+    },
+    "ui.recent": {
+      "text": "最近",
+      "hash": "76eec760c9b6e63eda7e9834fa40bc26d6f58eef"
+    },
+    "ui.refresh": {
+      "text": "更新",
+      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
+    },
+    "ui.reject": {
+      "text": "却下",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    },
+    "ui.reply": {
+      "text": "返信",
+      "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
+    },
+    "ui.repository": {
+      "text": "ドキュメント保管庫",
+      "hash": "312386841084261c610413fa4de8b7505f469407"
+    },
+    "ui.requestaccess": {
+      "text": "アクセスを申請",
+      "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
+    },
+    "ui.results": {
+      "text": "結果",
+      "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
+    },
+    "ui.revoke": {
+      "text": "失効",
+      "hash": "0be720759ff04d13c5706881d5d227a2621f91a6"
+    },
+    "ui.revoked": {
+      "text": "失効しました",
+      "hash": "85f17ac049c4218273f708cd24197325bd4369b9"
+    },
+    "ui.role": {
+      "text": "ロール",
+      "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
+    },
+    "ui.runs": {
+      "text": "実行履歴",
+      "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
+    },
+    "ui.runwf": {
+      "text": "実行",
+      "hash": "b1b392607deaf29a7e81453e069b7c07a32a6b18"
+    },
+    "ui.s3created": {
+      "text": "キーを作成しました",
+      "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
+    },
+    "ui.s3hint": {
+      "text": "aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。",
+      "hash": "c779fcf2a535aaa614b214b37cdfc8f52112f1a4"
+    },
+    "ui.s3keys": {
+      "text": "S3アクセスキー",
+      "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
+    },
+    "ui.s3off": {
+      "text": "このインスタンスではS3エンドポイントが無効です（TELEMACHUS_S3_PORT）。",
+      "hash": "5c2e33d5d944b2c8eaf0e207473c8f61b6ca91f2"
+    },
+    "ui.s3once": {
+      "text": "シークレットは今だけ表示されます。必ず控えてください。",
+      "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
+    },
+    "ui.save": {
+      "text": "保存",
+      "hash": "efc007a393f66cdb14d57d385822a3d9e36ef873"
+    },
+    "ui.saved": {
+      "text": "保存しました",
+      "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
+    },
+    "ui.search": {
+      "text": "検索",
+      "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
+    },
+    "ui.searchph": {
+      "text": "ノート、ドキュメント、ファイル、翻訳…",
+      "hash": "bc6e4dbaec36a991517cc9f23c22f1f6fa25572d"
+    },
+    "ui.seed": {
+      "text": "サンプルデータを読み込む",
+      "hash": "5c92151e013ae959e55f44466b85e5d2b90da0df"
+    },
+    "ui.send": {
+      "text": "送信",
+      "hash": "9bc2575c3930437e80555f78757b783c842e8e66"
+    },
+    "ui.setpw": {
+      "text": "パスワードを設定",
+      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
+    },
+    "ui.setquota": {
+      "text": "上限を設定",
+      "hash": "634082ec4f01e693739b71275495c576e4988663"
+    },
+    "ui.share": {
+      "text": "共有",
+      "hash": "09ca55ca52d207f2cc1d9339e0226a88e9e96e2f"
+    },
+    "ui.shared": {
+      "text": "共有しました",
+      "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
+    },
+    "ui.sharedwith": {
+      "text": "共有中",
+      "hash": "6203f44916a227ea2b0c8ec936b090f9d57e31ee"
+    },
+    "ui.sharewith": {
+      "text": "共有相手",
+      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
+    },
+    "ui.signin": {
+      "text": "サインイン",
+      "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
+    },
+    "ui.size": {
+      "text": "サイズ",
+      "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
+    },
+    "ui.source": {
+      "text": "ソース",
+      "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "ui.sourcetext": {
+      "text": "翻訳するテキスト",
+      "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
+    },
+    "ui.started": {
+      "text": "開始",
+      "hash": "faa9e7e7ef5a264c58c68a4a0b9c8bd54241450a"
+    },
+    "ui.status": {
+      "text": "状態",
+      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    },
+    "ui.steps": {
+      "text": "ステップ",
+      "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
+    },
+    "ui.stepsused": {
+      "text": "使用ステップ数",
+      "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
+    },
+    "ui.store": {
+      "text": "保管先",
+      "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
+    },
+    "ui.submit": {
+      "text": "送信",
+      "hash": "2dacf65959849884a011f36f76a04eebea94c5ea"
+    },
+    "ui.submitjob": {
+      "text": "ジョブを送信",
+      "hash": "510341190745d586870fc9862595a371c925fc0f"
+    },
+    "ui.tagline": {
+      "text": "チームAIプラットフォーム — リファレンス実装",
+      "hash": "376a8698238975b4eeda809c249ad17e73944eda"
+    },
+    "ui.target": {
+      "text": "翻訳先の言語",
+      "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
+    },
+    "ui.team": {
+      "text": "チーム",
+      "hash": "218887269ad5946d9dc53238651c90472884fb0f"
+    },
+    "ui.teamsignin": {
+      "text": "チームサインイン",
+      "hash": "681a8401eb4d38203e8dd2f2c7e847c608c0a17b"
+    },
+    "ui.term": {
+      "text": "用語",
+      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
+    "ui.testing": {
+      "text": "テストツール",
+      "hash": "3d3998625037d01c3f0c18b46c8e2f6a0db08edf"
+    },
+    "ui.title": {
+      "text": "タイトル",
+      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "ui.tool": {
+      "text": "ツール",
+      "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
+    },
+    "ui.tools": {
+      "text": "ツール",
+      "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
+    },
+    "ui.translate": {
+      "text": "翻訳",
+      "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    },
+    "ui.translation": {
+      "text": "翻訳",
+      "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
+    },
+    "ui.updated": {
+      "text": "更新",
+      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
+    },
+    "ui.updpw": {
+      "text": "パスワードを更新",
+      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
+    },
+    "ui.upload": {
+      "text": "アップロード",
+      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    },
+    "ui.uploaded": {
+      "text": "アップロードしました",
+      "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
+    },
+    "ui.uploadhint": {
+      "text": "どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。",
+      "hash": "f5f77acd95ec7cf3b7c708ab20228dace868bc92"
+    },
+    "ui.uploading": {
+      "text": "アップロード中",
+      "hash": "de27240983ef2f1432e07df25dd609712f69a107"
+    },
+    "ui.usage": {
+      "text": "使用状況",
+      "hash": "0bb18642b70b9f8a9c12ccf39487328f306b8e19"
+    },
+    "ui.useglossary": {
+      "text": "用語集を使用",
+      "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
+    },
+    "ui.user": {
+      "text": "ユーザー名",
+      "hash": "84c29015de33e5d22422382a372caba5c58f8c01"
+    },
+    "ui.version": {
+      "text": "バージョン",
+      "hash": "2da600bf9404843107a9531694f654e5662959e0"
+    },
+    "ui.versions": {
+      "text": "バージョン",
+      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
+    },
+    "ui.viewrun": {
+      "text": "表示",
+      "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
+    },
+    "ui.vis_private": {
+      "text": "非公開 — 自分のみ",
+      "hash": "ce5d97592d02df5ef8f88d1a118572f123833d86"
+    },
+    "ui.vis_shared": {
+      "text": "限定共有 — 下記の相手のみ",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
+    "ui.vis_team": {
+      "text": "チーム — チーム全員",
+      "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
+    },
+    "ui.vishint": {
+      "text": "アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。",
+      "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
+    },
+    "ui.visibility": {
+      "text": "公開範囲",
+      "hash": "7d9ff4f0de398581c4640bcbb6e536c355a391be"
+    },
+    "ui.visupdated": {
+      "text": "公開範囲を更新しました",
+      "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
+    },
+    "ui.welcome": {
+      "text": "ようこそ — アカウント設定を完了してください。",
+      "hash": "97a86e68a1e32b85151da9fefe1b1bda6a4f6b84"
+    },
+    "ui.willversion": {
+      "text": "このパスは既にあります — 新しいバージョンとして保存され、公開範囲は現状のままです",
+      "hash": "3629795f10a247e233253f04af4fef7439e9a459"
+    },
+    "ui.workflow": {
+      "text": "ワークフロー",
+      "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
+    },
+    "ui.workflows": {
+      "text": "ワークフロー",
+      "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
     }
   }
 }

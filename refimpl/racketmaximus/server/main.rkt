@@ -170,9 +170,35 @@
       (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (bytes->jsexpr raw))
       (hasheq)))
 
+;; Through `locales-dir`, not impl-root directly: the suites point that at a temp
+;; copy so the runtime and the Manager see the same catalogs during a test run.
 (define (localizer-for locale)
   (with-handlers ([exn:fail? (lambda (_) empty-localizer)])
-    (load-localizer (build-path impl-root "locales") #:locale locale)))
+    (load-localizer (locales-dir) #:locale locale)))
+
+;; PUBLIC — and it has to be. The console's own strings live in the same catalogs
+;; as the server's (namespace `ui.`), and the sign-in screen has to render them
+;; for someone who has no token yet. Same rationale as /api/config and
+;; /api/branding. Nothing in a UI string is a secret.
+;;
+;; The fallback chain is resolved HERE, once for the whole namespace, so the
+;; console makes one fetch per language and never needs the English catalog as
+;; a second request: a locale that has 40% of its strings gets the other 60% in
+;; English from the same reply. A miss on every catalog is simply absent, and the
+;; console shows the key — visibly, not silently.
+(define (ep-i18n-catalog req)
+  (define want (let ([q (query-param req "locale" "")])
+                 (if (string=? q "") (accept-language req) q)))
+  (define loc (resolve-locale db-conn (locales-dir) want))
+  (define L (localizer-for loc))
+  (define msgs
+    (for*/fold ([acc (hasheq)])
+               ([l (in-list (localizer-fallback L))]
+                [(k v) (in-hash (hash-ref (localizer-catalogs L) l (hash)))]
+                #:when (and (> (string-length k) 3) (string=? (substring k 0 3) "ui."))
+                #:unless (hash-has-key? acc (string->symbol k)))
+      (hash-set acc (string->symbol k) v)))
+  (json-response (hasheq 'locale loc 'messages msgs)))
 
 ;; ---- identity ---------------------------------------------------------------
 (define (current-principal req)
@@ -512,6 +538,19 @@
                              'path (path->string path)
                              'note "restart to serve the new catalog")))))) 
 
+(define (ep-l10n-discard req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define loc (fmt b 'locale))
+      (when (string=? loc "") (raise-user-error 'l10n "locale is required"))
+      (define ns (let ([v (fmt b 'namespace)]) (and (not (string=? v "")) v)))
+      (define n (l10n-discard-machine! db-conn loc #:namespace ns))
+      (audit! db-conn #:action "l10n.discard" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "instance" #:resource-id loc)
+      (json-response (hasheq 'ok #t 'locale loc 'discarded n))))))
+
 (define l10n-draft-batch 20)
 
 ;; Queue AI drafts for the strings that have none. `manage` rather than
@@ -542,8 +581,16 @@
                         #:payload (hasheq 'locale loc 'message_ids batch))))
       (audit! db-conn #:action "l10n.draft" #:actor-type "user" #:actor-id (principal-user-id p)
               #:resource-type "instance" #:resource-id loc)
+      ;; Drafts are quota-admitted like every job, so an over-budget team's queue
+      ;; simply stops — which looks like a hang. Hand the caller the budget so the
+      ;; tab can say so up front. ~120 tokens per string on qwen2.5:7b, measured.
+      (define q (quota-check db-conn "team" (principal-team-id p) "ai.tokens.total" 0))
       (json-response (hasheq 'ok #t 'locale loc 'queued (length ids)
-                             'batches (length jobs) 'jobs jobs))))))
+                             'batches (length jobs) 'jobs jobs
+                             'budget (hasheq 'dimension "ai.tokens.total"
+                                             'used (hash-ref q 'used) 'limit (hash-ref q 'limit)
+                                             'remaining (hash-ref q 'remaining)
+                                             'estimate (* 120 (length ids)))))))))
 
 (define (ep-branding-logo req)
   (with-auth req (lambda (p)
@@ -1778,12 +1825,14 @@
     [(and (GET? m)  (equal? segs '("api" "branding")))     (ep-branding-get req)]
     [(and (PUT? m)  (equal? segs '("api" "branding")))     (ep-branding-put req)]
     [(and (POST? m) (equal? segs '("api" "branding" "logo"))) (ep-branding-logo req)]
+    [(and (GET? m)  (equal? segs '("api" "i18n" "catalog"))) (ep-i18n-catalog req)]
     [(and (PUT? m)  (equal? segs '("api" "i18n")))         (ep-i18n-put req)]
     [(and (GET? m)  (equal? segs '("api" "l10n" "coverage")))  (ep-l10n-coverage req)]
     [(and (GET? m)  (equal? segs '("api" "l10n" "messages")))  (ep-l10n-messages req)]
     [(and (POST? m) (equal? segs '("api" "l10n" "import")))    (ep-l10n-import req)]
     [(and (POST? m) (equal? segs '("api" "l10n" "export")))    (ep-l10n-export req)]
     [(and (POST? m) (equal? segs '("api" "l10n" "draft")))     (ep-l10n-draft req)]
+    [(and (POST? m) (equal? segs '("api" "l10n" "discard")))   (ep-l10n-discard req)]
     [(and (PUT? m)  (l10n-message-path segs))                  (ep-l10n-submit req (l10n-message-path segs))]
     [(and (POST? m) (l10n-review-path segs))                   (ep-l10n-review req (l10n-review-path segs))]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
@@ -1994,30 +2043,34 @@
           ;; Placeholders are the thing a model will happily "improve". They are
           ;; ICU arguments — {user}, {team} — and a translation that renames one
           ;; renders the literal braces to an end user.
+          ;; JSON in, JSON out. The first prompt ended its rules with a colon-
+          ;; terminated heading ("Rules, all mandatory:") and a 7B model, given a
+          ;; four-character string to translate, translated the HEADING and
+          ;; appended it — "Chats, alle verplicht:" — dozens of times. Nothing in
+          ;; this prompt ends in a colon, the payload is the last thing the model
+          ;; sees, and the reply has a shape to parse rather than a line to trust.
           (define prompt
             (string-append
-             "Translate the following user-interface string into " loc ".
-"
-             "Rules, all mandatory:
-"
-             "- Reply with ONLY the translation. No quotes, no commentary, no alternatives.
-"
-             "- Preserve every placeholder in curly braces EXACTLY as written: {like_this}.
-"
-             "- Keep it as short as the original; this is UI text, not prose.
-"
-             "- Preserve any leading or trailing punctuation.
-
-"
-             "String:
-" src))
+             "You are translating one user-interface string into the locale \"" loc "\".\n"
+             "Reply with a JSON object containing a single field, translation, and nothing else.\n"
+             "Keep every placeholder in curly braces exactly as written. Keep it as short as the\n"
+             "original; this is UI text. Do not add quotes, notes, or alternatives.\n"
+             (jsexpr->string (hasheq 'text src 'locale loc))))
           (define-values (reply tokens) (run-chat prompt))
           (set-box! total-tokens (+ (unbox total-tokens) tokens))
-          (define text (string-trim (format "~a" reply)))
-          ;; A draft that dropped or invented a placeholder is worse than no draft:
-          ;; it would sit in the review queue looking finished. Refuse it and leave
-          ;; the string missing, which is at least honest. See `draft-acceptable?`.
-          (when (draft-acceptable? src text)
+          (define raw (format "~a" reply))
+          ;; The outermost {…} is the object even when the string itself has {user}
+          ;; in it; fall back to the bare reply if the model ignored the shape.
+          (define text
+            (string-trim
+             (or (let ([a (for/first ([i (in-naturals)] [c (in-string raw)] #:when (char=? c #\{)) i)]
+                       [b (for/last  ([i (in-naturals)] [c (in-string raw)] #:when (char=? c #\})) i)])
+                   (and a b (> b a)
+                        (with-handlers ([exn:fail? (lambda (_) #f)])
+                          (define j (string->jsexpr (substring raw a (add1 b))))
+                          (and (hash? j) (let ([v (hash-ref j 'translation #f)]) (and (string? v) v))))))
+                 raw)))
+          (when (draft-acceptable? src text #:locale loc)
             (l10n-submit! conn (hash-ref m 'id) loc text "" #:status "machine")
             (set-box! drafted (add1 (unbox drafted))))))
       (hasheq 'locale loc 'requested (length ids) 'drafted (unbox drafted)

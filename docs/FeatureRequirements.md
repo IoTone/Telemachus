@@ -52,22 +52,20 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
 - [~] **Backend APIs & protocols** — the stable surface between swappable frontends
       and backends. The surface exists and is exercised by the smoke suites; it has
       **no generated reference**. Blocked on the documentation item below.
-- [~] **Localization (i18n), top to bottom** — every user-facing surface
+- [x] **Localization (i18n), top to bottom** — every user-facing surface
       localizable; English at launch; then Japanese, Dutch, Latin American Spanish
       produced *by the localization tool*.
-      *Runtime built* (catalogs + ICU + fallback chain, instance default locale and
-      off switch, localized server refusals, localized funnel copy). **English,
-      Japanese, Dutch and Latin American Spanish ship** for the server message
-      catalog — and `nl` and `es-419` were produced **by the Localization Manager**:
-      AI-drafted through the scheduler, every string human-reviewed, exported,
-      and passing the tool's own CI gate at 100%. That is the proof the flagship
-      exists for.
-      *Why still `[~]`*: the catalog pipeline covers the **server** messages. The
-      **console chrome** (`const L` in `static/index.html`, ~150 strings) is a
-      separate home with only `en`/`ja`, and its language switcher is hardcoded to
-      those two — so Dutch and Spanish users get localized refusals under an
-      English UI. Bringing the console's strings into the catalog pipeline is the
-      remaining piece of "top to bottom".
+      Runtime: catalogs + ICU + fallback chain, instance default locale and off
+      switch, localized server refusals, localized funnel copy. **The console's
+      own chrome is in the same catalogs** (`ui.` namespace; English source in
+      `static/ui-strings.json`, folded into `en.json` by the extractor; served
+      pre-auth by `GET /api/i18n/catalog`, chain-resolved server-side) — so one
+      `extract`, one Manager and one CI gate cover the server and the UI alike.
+      **English, Japanese, Dutch and Latin American Spanish ship, 190/190 each.**
+      `nl` and `es-419` were produced *by the Localization Manager*: AI-drafted
+      through the scheduler under the team's AI quota, every string
+      human-reviewed (169 of 340 UI drafts corrected), exported, and passing the
+      tool's own gate. That is the proof the flagship exists for.
       Design: [`design/localization.md`](design/localization.md) · impl `domain/i18n/`.
 - [ ] **Documentation** — generated, localizable project docs (SDK contracts, APIs,
       tool & permission catalogs). Not started. Feeds the localization pipeline, so
@@ -95,8 +93,10 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       self-approval, the **Localize** console tab, and **AI drafting** as scheduler
       jobs metered against the team's AI quota, with a structural guard that
       refuses drafts that lose or invent placeholders. Import/export keeps
-      `locales/*.json` the shipping artifact. **Used to produce `nl` and `es-419`**
-      (see the localization line above).
+      `locales/*.json` the shipping artifact; `discard` throws away a bad machine
+      run without touching human work, and a queued draft reports the team's AI
+      budget so an over-budget queue does not look like a hang. **Used to produce
+      `nl` and `es-419`, server and console** (see the localization line above).
 - [ ] **Knowledge Graph** — not started; no design doc yet. The largest unknown
       remaining in this list.
 

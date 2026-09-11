@@ -3,6 +3,78 @@
     "locale": "en"
   },
   "messages": {
+    "ui.deleted": {
+      "text": "Deleted",
+      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
+    },
+    "ui.curpw": {
+      "text": "Current password",
+      "hash": "19dff4dad0a7214ece14624f8c4c9fb206a1cfdd"
+    },
+    "beta.email_disposable": {
+      "text": "please use a work email address",
+      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
+    },
+    "ui.updpw": {
+      "text": "Update password",
+      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
+    },
+    "ui.store": {
+      "text": "Store",
+      "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
+    },
+    "ui.documents": {
+      "text": "Documents",
+      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
+    },
+    "ui.content": {
+      "text": "Content",
+      "hash": "4f9be057f0ea5d2ba72fd2c810e8d7b9aa98b469"
+    },
+    "ui.team": {
+      "text": "Team",
+      "hash": "218887269ad5946d9dc53238651c90472884fb0f"
+    },
+    "ui.version": {
+      "text": "Version",
+      "hash": "2da600bf9404843107a9531694f654e5662959e0"
+    },
+    "ui.refresh": {
+      "text": "Refresh",
+      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
+    },
+    "ui.create": {
+      "text": "Create",
+      "hash": "6e157c5da4410b7e9de85f5c93026b9176e69064"
+    },
+    "ui.prompt": {
+      "text": "Prompt",
+      "hash": "a817d7eb8e0f1dab755ab5203a082e5c3c094fce"
+    },
+    "ui.vis_team": {
+      "text": "Team — everyone on this team",
+      "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
+    },
+    "beta.domain_cap": {
+      "text": "too many requests from your organization — please reach out directly",
+      "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
+    },
+    "ui.limit": {
+      "text": "Limit",
+      "hash": "24d948e4bdbe5b8224bbc0dfbab1923fab00b98e"
+    },
+    "ui.s3once": {
+      "text": "Copy the secret now — it is not shown again.",
+      "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
+    },
+    "ui.addterm": {
+      "text": "Add term",
+      "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
+    },
+    "ui.copied": {
+      "text": "Copied",
+      "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
+    },
     "http.already_initialized": {
       "text": "Already initialized.",
       "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
@@ -11,33 +83,257 @@
       "text": "instance not initialized",
       "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
     },
-    "beta.domain_cap": {
-      "text": "too many requests from your organization — please reach out directly",
-      "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
+    "ui.useglossary": {
+      "text": "Use glossary",
+      "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
     },
-    "beta.field_required": {
-      "text": "{field} is required",
-      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    "ui.l10nexport": {
+      "text": "Export",
+      "hash": "f3e4fadb9e370a1e2c0c622c01fc8c77daf93a2c"
+    },
+    "ui.newversion": {
+      "text": "Saved as a new version",
+      "hash": "b9dcda73378ea2eefe58d13865d4e79407f77d6c"
+    },
+    "ui.source": {
+      "text": "Source",
+      "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "ui.objects": {
+      "text": "Documents",
+      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
+    },
+    "ui.l10nnothing": {
+      "text": "Nothing matches that filter.",
+      "hash": "0f9b93bb965ce681887989cc7cea0ac7b93f4c22"
+    },
+    "ui.audit": {
+      "text": "Audit log",
+      "hash": "3cfc5f1cc987f398078bb799369d4c03588802d9"
+    },
+    "beta.rate_limited": {
+      "text": "too many requests — please slow down",
+      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    },
+    "ui.welcome": {
+      "text": "Welcome — finish setting up your account.",
+      "hash": "97a86e68a1e32b85151da9fefe1b1bda6a4f6b84"
+    },
+    "ui.viewrun": {
+      "text": "View",
+      "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
+    },
+    "ui.l10napprove": {
+      "text": "Approve",
+      "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
+    },
+    "ui.admin": {
+      "text": "Admin",
+      "hash": "4e7afebcfbae000b22c7c85e5560f89a2a0280b4"
+    },
+    "ui.brandlogo": {
+      "text": "Logo",
+      "hash": "83fce8327410848c9eb609acb21732c7c0fec96a"
+    },
+    "ui.l10nhint": {
+      "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
+      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
+    },
+    "ui.definitions": {
+      "text": "Definitions",
+      "hash": "15225baac48fc3d689cb2b0f74b936eff4339ff7"
+    },
+    "ui.newpw": {
+      "text": "New password",
+      "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
+    },
+    "ui.noothers": {
+      "text": "No one else on this team",
+      "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
+    },
+    "ui.features": {
+      "text": "Features",
+      "hash": "fc338f87a058158eb824b53705961801516a9460"
+    },
+    "ui.bxthanks": {
+      "text": "Thanks — your request is in review.",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    },
+    "ui.started": {
+      "text": "Started",
+      "hash": "faa9e7e7ef5a264c58c68a4a0b9c8bd54241450a"
     },
     "greeting.hello": {
       "text": "Hello, {name}!",
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
     },
+    "ui.s3keys": {
+      "text": "S3 access keys",
+      "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
+    },
+    "ui.submitjob": {
+      "text": "Submit a job",
+      "hash": "510341190745d586870fc9862595a371c925fc0f"
+    },
+    "ui.send": {
+      "text": "Send",
+      "hash": "9bc2575c3930437e80555f78757b783c842e8e66"
+    },
+    "beta.field_required": {
+      "text": "{field} is required",
+      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    },
+    "ui.key": {
+      "text": "Path",
+      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
+    },
+    "ui.apitokens": {
+      "text": "API tokens",
+      "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
+    },
+    "ui.noshares": {
+      "text": "Not shared with anyone.",
+      "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
+    },
+    "ui.enable": {
+      "text": "Enable",
+      "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
+    },
+    "ui.l10ncoverage": {
+      "text": "Coverage",
+      "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
+    },
     "authz.bootstrap_done": {
       "text": "Created operator {user} and team {team}.",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "ui.link": {
+      "text": "Link",
+      "hash": "d0517071aa376e797705058bbad4b658954b9930"
+    },
+    "ui.body": {
+      "text": "Body",
+      "hash": "718a7e8a582e982e452dd5700addba4ffc1cf40d"
     },
     "beta.email_invalid": {
       "text": "a valid email is required",
       "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
     },
+    "ui.updated": {
+      "text": "Updated",
+      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
+    },
+    "ui.norepoobjects": {
+      "text": "No documents yet. Any format — pdf, svg, png, docx, xml, md.",
+      "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
+    },
+    "ui.del": {
+      "text": "Delete",
+      "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
+    },
+    "ui.uploaded": {
+      "text": "Uploaded",
+      "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
+    },
     "beta.challenge_expired": {
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
     },
+    "ui.steps": {
+      "text": "Steps",
+      "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
+    },
+    "ui.l10nall": {
+      "text": "All statuses",
+      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
+    },
+    "ui.noruns": {
+      "text": "No runs yet.",
+      "hash": "7a8b1c283d427ac045b0fa7629bbaf611736e8e3"
+    },
     "beta.field_too_short": {
       "text": "{field} must be at least {n} characters",
       "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
+    },
+    "ui.revoked": {
+      "text": "Revoked",
+      "hash": "85f17ac049c4218273f708cd24197325bd4369b9"
+    },
+    "ui.loctoggle": {
+      "text": "Let people choose their language",
+      "hash": "f727a2857c4b05748fe85e72f82a53c4b5f42a4e"
+    },
+    "ui.size": {
+      "text": "Size",
+      "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
+    },
+    "ui.brandinghint": {
+      "text": "The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.",
+      "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
+    },
+    "ui.brandtagline": {
+      "text": "Tagline",
+      "hash": "b0f794835fa03c22f59c3a0c0efe64d0512fdab3"
+    },
+    "ui.role": {
+      "text": "Role",
+      "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
+    },
+    "ui.code": {
+      "text": "2FA code (if enabled)",
+      "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
+    },
+    "ui.firstrun": {
+      "text": "First run — create the first operator",
+      "hash": "da6847a10e476c38e1e6115bc9b1a6009437adba"
+    },
+    "ui.locavail": {
+      "text": "Shipped in this build",
+      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
+    },
+    "ui.deflocale": {
+      "text": "Default language",
+      "hash": "852814f288cc2951733962464a5ac17702f46f35"
+    },
+    "ui.seed": {
+      "text": "Load sample data",
+      "hash": "5c92151e013ae959e55f44466b85e5d2b90da0df"
+    },
+    "ui.createtoken": {
+      "text": "Create token",
+      "hash": "4b3c8e356a7a5537138823e1fe97ad6235b665b6"
+    },
+    "ui.translate": {
+      "text": "Translate",
+      "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    },
+    "ui.usage": {
+      "text": "Usage",
+      "hash": "0bb18642b70b9f8a9c12ccf39487328f306b8e19"
+    },
+    "beta.thanks": {
+      "text": "Thanks — your request is in review.",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    },
+    "ui.saved": {
+      "text": "Saved",
+      "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
+    },
+    "ui.sharewith": {
+      "text": "Share with",
+      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
+    },
+    "ui.upload": {
+      "text": "Upload",
+      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    },
+    "ui.visupdated": {
+      "text": "Visibility updated",
+      "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
+    },
+    "ui.stepsused": {
+      "text": "steps used",
+      "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
     },
     "beta.duplicate": {
       "text": "we already have your request — we'll be in touch",
@@ -47,9 +343,149 @@
       "text": "Forbidden: {perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
     },
+    "ui.sharedwith": {
+      "text": "Shared with",
+      "hash": "6203f44916a227ea2b0c8ec936b090f9d57e31ee"
+    },
+    "ui.status": {
+      "text": "Status",
+      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    },
+    "ui.operator": {
+      "text": "operator",
+      "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
+    },
+    "ui.output": {
+      "text": "Output",
+      "hash": "4bed336194a9a5c86b6a734f03b3570d2aae1a68"
+    },
+    "ui.nodefs": {
+      "text": "No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.",
+      "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
+    },
+    "ui.tools": {
+      "text": "Tools",
+      "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
+    },
+    "ui.l10ndraft": {
+      "text": "AI draft",
+      "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
+    },
+    "ui.disable": {
+      "text": "Disable",
+      "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
+    },
     "beta.field_too_long": {
       "text": "{field} must be at most {n} characters",
       "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
+    },
+    "ui.l10nsearch": {
+      "text": "Search key or text",
+      "hash": "158dee2d34c71cee576d705f120a65012edc6027"
+    },
+    "ui.glossary": {
+      "text": "Glossary",
+      "hash": "7427cf697be16a4ec1d916910128a59d920125e7"
+    },
+    "ui.testing": {
+      "text": "Testing tools",
+      "hash": "3d3998625037d01c3f0c18b46c8e2f6a0db08edf"
+    },
+    "ui.requestaccess": {
+      "text": "Request access",
+      "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
+    },
+    "ui.chat": {
+      "text": "Chat",
+      "hash": "2ced57f125910a9e8ab95deea86e4ad7be418b5a"
+    },
+    "ui.locoffhint": {
+      "text": "With this off, every reply uses the default language and the language switcher disappears.",
+      "hash": "a6bd7ff056cb8175b899353a0931069c5b8467ea"
+    },
+    "ui.beta": {
+      "text": "Beta",
+      "hash": "f03b60f7e52b7ce49ed1e4f9fa511c452a2185bb"
+    },
+    "ui.recent": {
+      "text": "Recent",
+      "hash": "76eec760c9b6e63eda7e9834fa40bc26d6f58eef"
+    },
+    "ui.user": {
+      "text": "Username",
+      "hash": "84c29015de33e5d22422382a372caba5c58f8c01"
+    },
+    "ui.vishint": {
+      "text": "You set this because you uploaded it. Sharing narrows a team document to just the people you name.",
+      "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
+    },
+    "ui.agent": {
+      "text": "Agent",
+      "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
+    },
+    "ui.visibility": {
+      "text": "Visibility",
+      "hash": "7d9ff4f0de398581c4640bcbb6e536c355a391be"
+    },
+    "ui.workflow": {
+      "text": "Workflow",
+      "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
+    },
+    "ui.confirmpw": {
+      "text": "Confirm password",
+      "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
+    },
+    "ui.vis_private": {
+      "text": "Private — only me",
+      "hash": "ce5d97592d02df5ef8f88d1a118572f123833d86"
+    },
+    "ui.l10nstatus": {
+      "text": "Status",
+      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    },
+    "ui.share": {
+      "text": "Share",
+      "hash": "09ca55ca52d207f2cc1d9339e0226a88e9e96e2f"
+    },
+    "ui.translation": {
+      "text": "Translation",
+      "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
+    },
+    "ui.jobs": {
+      "text": "Jobs",
+      "hash": "437736fdb5bb707abdc048483193c86b9a99983e"
+    },
+    "ui.runwf": {
+      "text": "Run",
+      "hash": "b1b392607deaf29a7e81453e069b7c07a32a6b18"
+    },
+    "ui.l10nself": {
+      "text": "You cannot approve your own translation.",
+      "hash": "fd49da1345752b110591d786f4541af26f37b1ff"
+    },
+    "ui.brandtitle": {
+      "text": "Title",
+      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "ui.search": {
+      "text": "Search",
+      "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
+    },
+    "ui.bxrestart": {
+      "text": "could not start — please reload",
+      "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
+    },
+    "ui.copy": {
+      "text": "Copy",
+      "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
+    },
+    "ui.activate": {
+      "text": "Activate account",
+      "hash": "b9186563deea94527f03558a5ec059806d363c49"
+    },
+    "ui.brandreset": {
+      "text": "Reset to default",
+      "hash": "39c90eb758c57422548baebb38a39652279feb65"
     },
     "beta.verify_failed": {
       "text": "verification failed — reload the page",
@@ -59,29 +495,273 @@
       "text": "Note saved.",
       "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
     },
+    "ui.branding": {
+      "text": "Branding",
+      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
+    },
+    "ui.repository": {
+      "text": "Repository",
+      "hash": "312386841084261c610413fa4de8b7505f469407"
+    },
+    "ui.revoke": {
+      "text": "Revoke",
+      "hash": "0be720759ff04d13c5706881d5d227a2621f91a6"
+    },
+    "ui.logout": {
+      "text": "Sign out",
+      "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
+    },
     "http.unauthorized": {
       "text": "Authentication required.",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
-    "beta.field_digits": {
-      "text": "{field} must contain digits only",
-      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
+    "ui.l10ntranslation": {
+      "text": "Translation",
+      "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
+    },
+    "ui.newnote": {
+      "text": "New note",
+      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
+    },
+    "ui.qualify": {
+      "text": "Qualify",
+      "hash": "d8be1dde249c69ada1a96d5946aed689468a43f2"
+    },
+    "ui.title": {
+      "text": "Title",
+      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "ui.setquota": {
+      "text": "Set limit",
+      "hash": "634082ec4f01e693739b71275495c576e4988663"
+    },
+    "ui.sourcetext": {
+      "text": "Text to translate",
+      "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
+    },
+    "ui.nolimit": {
+      "text": "no limit",
+      "hash": "f8e7920f869502bc3ba3e7eff30889bc66888286"
+    },
+    "ui.l10nkey": {
+      "text": "Key",
+      "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
+    },
+    "ui.localize": {
+      "text": "Localize",
+      "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "ui.members": {
+      "text": "Members",
+      "hash": "1cb449c1126609b4b41e1d87f65f0d7cd19b49b9"
+    },
+    "ui.linkhint": {
+      "text": "Anyone with this link can download the document for the next {m} minutes, without signing in. It carries your S3 key’s permissions and stops working if that key is revoked.",
+      "hash": "7f9956fa5eca1bdb0470b328be9a2bdc32a49c33"
+    },
+    "ui.pass": {
+      "text": "Password",
+      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
+    },
+    "ui.s3off": {
+      "text": "The S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT).",
+      "hash": "5c2e33d5d944b2c8eaf0e207473c8f61b6ca91f2"
+    },
+    "ui.vis_shared": {
+      "text": "Shared — only the people below",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
+    "ui.back": {
+      "text": "Back",
+      "hash": "b52b36b7269fbfc58ec24bb724691951a3decbe8"
+    },
+    "ui.willversion": {
+      "text": "This path exists — uploading saves a new version and keeps its current visibility",
+      "hash": "3629795f10a247e233253f04af4fef7439e9a459"
+    },
+    "ui.createop": {
+      "text": "Create operator",
+      "hash": "aed7b1a1cb14a92bdfa831efac4ad2b950129f36"
+    },
+    "ui.lochint": {
+      "text": "The language this instance answers in when a visitor has not chosen one — including on the sign-in screen, before anyone has an account.",
+      "hash": "888ae32444f9106401926c83bd00ebcde5f99635"
+    },
+    "ui.s3created": {
+      "text": "Key created",
+      "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
+    },
+    "ui.l10nsource": {
+      "text": "English",
+      "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
+    },
+    "ui.l10ntarget": {
+      "text": "Translating into",
+      "hash": "dae38f11269fd17ad122a3ec4e99cc99ca9fbc74"
+    },
+    "ui.localization": {
+      "text": "Localization",
+      "hash": "b9fc941160f1b0396956bfd39853ec712bd8d1fb"
+    },
+    "ui.model": {
+      "text": "Model",
+      "hash": "68c2cc7f0ceaa3e499ecb4db331feb4debbbcc23"
+    },
+    "ui.l10nimport": {
+      "text": "Import catalogs",
+      "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
     },
     "inbox.summary": {
       "text": "You have {count, plural, one {# new message} other {# new messages}}.",
       "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
     },
-    "beta.email_disposable": {
-      "text": "please use a work email address",
-      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
+    "ui.signin": {
+      "text": "Sign in",
+      "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
     },
-    "beta.rate_limited": {
-      "text": "too many requests — please slow down",
-      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    "ui.reply": {
+      "text": "Reply",
+      "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
     },
-    "beta.thanks": {
-      "text": "Thanks — your request is in review.",
-      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    "ui.input": {
+      "text": "Input",
+      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
+    },
+    "ui.newdoc": {
+      "text": "New document",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
+    },
+    "ui.setpw": {
+      "text": "Set your password",
+      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
+    },
+    "beta.field_digits": {
+      "text": "{field} must contain digits only",
+      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
+    },
+    "ui.addmember": {
+      "text": "Add member",
+      "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
+    },
+    "ui.download": {
+      "text": "Download",
+      "hash": "a479c9c34e878d07b4d67a73a48f432ad7dc53c8"
+    },
+    "ui.s3hint": {
+      "text": "Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.",
+      "hash": "c779fcf2a535aaa614b214b37cdfc8f52112f1a4"
+    },
+    "ui.results": {
+      "text": "Results",
+      "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
+    },
+    "ui.versions": {
+      "text": "Versions",
+      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
+    },
+    "ui.workflows": {
+      "text": "Workflows",
+      "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
+    },
+    "ui.notes": {
+      "text": "Notes",
+      "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
+    },
+    "ui.submit": {
+      "text": "Submit",
+      "hash": "2dacf65959849884a011f36f76a04eebea94c5ea"
+    },
+    "ui.searchph": {
+      "text": "notes, documents, files, translations…",
+      "hash": "bc6e4dbaec36a991517cc9f23c22f1f6fa25572d"
+    },
+    "ui.brandclearlogo": {
+      "text": "Remove logo",
+      "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
+    },
+    "ui.target": {
+      "text": "Target language",
+      "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
+    },
+    "ui.term": {
+      "text": "Term",
+      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
+    "ui.l10nreject": {
+      "text": "Reject",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    },
+    "ui.tagline": {
+      "text": "Team AI platform — reference implementation",
+      "hash": "376a8698238975b4eeda809c249ad17e73944eda"
+    },
+    "ui.tool": {
+      "text": "Tool",
+      "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
+    },
+    "ui.file": {
+      "text": "File",
+      "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "ui.runs": {
+      "text": "Runs",
+      "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
+    },
+    "ui.details": {
+      "text": "Details",
+      "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
+    },
+    "ui.name": {
+      "text": "Name",
+      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
+    },
+    "ui.bxverifying": {
+      "text": "Verifying you’re human…",
+      "hash": "c2527f263d0c2ca67f88d5da7f7273c6873eb796"
+    },
+    "ui.uploadhint": {
+      "text": "Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.",
+      "hash": "f5f77acd95ec7cf3b7c708ab20228dace868bc92"
+    },
+    "ui.uploading": {
+      "text": "Uploading",
+      "hash": "de27240983ef2f1432e07df25dd609712f69a107"
+    },
+    "ui.dimension": {
+      "text": "Dimension",
+      "hash": "45e147abd920eeb1aca320340e18cf67b4c77252"
+    },
+    "ui.cancel": {
+      "text": "Cancel",
+      "hash": "77dfd2135f4db726c47299bb55be26f7f4525a46"
+    },
+    "ui.reject": {
+      "text": "Reject",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    },
+    "ui.save": {
+      "text": "Save",
+      "hash": "efc007a393f66cdb14d57d385822a3d9e36ef873"
+    },
+    "ui.shared": {
+      "text": "Shared",
+      "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
+    },
+    "ui.bxtouch": {
+      "text": "We’ll be in touch.",
+      "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "ui.close": {
+      "text": "Close",
+      "hash": "bbfa773e5a63a5ea58c9b6207e608ca0120e592a"
+    },
+    "ui.teamsignin": {
+      "text": "Team sign-in",
+      "hash": "681a8401eb4d38203e8dd2f2c7e847c608c0a17b"
+    },
+    "ui.chpw": {
+      "text": "Change your password",
+      "hash": "88dee350141b934bd32db882794a951a7a40d898"
     }
   }
 }
