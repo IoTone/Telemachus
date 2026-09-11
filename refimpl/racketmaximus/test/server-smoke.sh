@@ -418,5 +418,56 @@ assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
 rm -f /tmp/tmx-smoke-idx.md
 
+# ---- Localization Manager (the flagship) --------------------------------------
+# These run over HTTP on purpose. The model has its own unit suite, but the bug
+# that actually bit here lived in the ENDPOINT layer: `query-param` compared a
+# string key with assq against url-query's symbol keys, so every filter silently
+# fell back to its default and a request for Dutch was answered with Japanese.
+# A filter that is ignored rather than refused is invisible to a model test.
+curl -s -X POST $B/api/l10n/import -H "Authorization: Bearer $OP" >/dev/null
+assert "l10n import links the shipped ja catalog as approved" \
+  "$(curl -s "$B/api/l10n/coverage?locale=ja" -H "Authorization: Bearer $OP")" '"locale":"ja"'
+
+# the locale filter is really applied — nl has no catalog, so nothing is approved
+nlcov=$(curl -s "$B/api/l10n/coverage?locale=nl" -H "Authorization: Bearer $OP")
+assert "l10n coverage honours ?locale (nl is not ja)" "$nlcov" '"locale":"nl"'
+assert "l10n coverage: nothing approved in nl"        "$nlcov" '"approved":0'
+
+# the status filter is really applied
+lmid=$(curl -s "$B/api/l10n/messages?locale=nl&status=missing&limit=1" -H "Authorization: Bearer $OP" \
+       | grep -oP '"message_id":"\K[^"]+' | head -1)
+assert "l10n messages?status=missing returns a message" "$lmid" "-"
+curl -s -X PUT "$B/api/l10n/messages/$lmid" -H "Authorization: Bearer $OP" \
+     -d '{"locale":"nl","text":"Verboden"}' >/dev/null
+ltid=$(curl -s "$B/api/l10n/messages?locale=nl&status=needs_review" -H "Authorization: Bearer $OP" \
+       | grep -oP '"translation_id":"\K[^"]+' | head -1)
+assert "a submitted string lands in needs_review" "$ltid" "-"
+
+# the review gate is enforced server-side, not merely hidden in the UI
+assert "a translator cannot approve their own string" \
+  "$(curl -s -X POST "$B/api/l10n/review/$ltid" -H "Authorization: Bearer $OP" -d '{"decision":"approve"}')" \
+  "cannot approve their own"
+
+# export is approved-only, and refuses to advertise a language with nothing in it
+assert "export refuses an empty catalog" \
+  "$(curl -s -X POST $B/api/l10n/export -H "Authorization: Bearer $OP" -d '{"locale":"nl"}')" \
+  "nothing is approved"
+assert "en is never an export target" \
+  "$(curl -s -X POST $B/api/l10n/export -H "Authorization: Bearer $OP" -d '{"locale":"en"}')" \
+  "source catalog"
+
+# The permission split is the point: translating is a TEAM activity, so a plain
+# member may read and draft. Approving your colleague's work and writing the
+# catalogs to disk are not a member's to do.
+assert "a member may read the catalogue" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/l10n/coverage?locale=ja" -H "Authorization: Bearer $BOB")" \
+  "200"
+assert "a member may NOT review" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/l10n/review/$ltid" -H "Authorization: Bearer $BOB" -d '{"decision":"approve"}')" \
+  "403"
+assert "a member may NOT export to disk" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/l10n/export" -H "Authorization: Bearer $BOB" -d '{"locale":"nl"}')" \
+  "403"
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

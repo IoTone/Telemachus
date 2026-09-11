@@ -1,51 +1,106 @@
 # Telemachus — Feature Requirements
 
-> **Skeleton — to be authored by the maintainer.** This document is filled in by
-> reviewing the predecessor's feature inventory (`Features.md` in the Odysseus
-> repo) and deciding what Telemachus requires. Sections below are an agenda, not
-> decisions. Delete/rewrite freely.
+> **Status record, not an agenda.** This began (Aug 2026) as a skeleton to be filled
+> in from the predecessor's inventory. It is now a record of what the platform
+> requires and where each requirement stands. Every line links to its design doc
+> and, where it exists, its implementation. Checked means **built and tested**, not
+> "decided".
+
+Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
 
 ## Inputs
 - Odysseus feature inventory: `../../odysseus/Features.md` (what the predecessor does).
 - Design tenets: see the project `README.md`.
+- Subsystem index + how they interlock: [`design/README.md`](design/README.md).
+- Decision log: [`design/decisions.md`](design/decisions.md).
 
-## Platform requirements (to specify)
-- [ ] **RBAC & teams** — roles, groups, capability/data/management gating.
-- [ ] **Quotas** — per-user / per-team limits; what is metered and enforced.
-- [ ] **AI concurrency control** — queuing of AI use and multi-step flows;
+## Platform requirements
+
+- [x] **RBAC & teams** — roles, groups, capability/data/management gating.
+      One contract (`can?`) governs every resource. Design:
+      [`design/rbac-and-teams.md`](design/rbac-and-teams.md) · impl `domain/authz/`.
+- [x] **Quotas** — per-user / per-team limits; metered and enforced at admission.
+      v1 dimensions are AI-first (tokens / requests / concurrency / rate) plus
+      `storage.bytes` as a gauge. Design: [`design/quotas.md`](design/quotas.md) ·
+      impl `domain/quota/`.
+- [x] **AI concurrency control** — queuing of AI use and multi-step flows;
       rate/concurrency limits to prevent accidental self-DDOS or host/upstream
-      max-out.
-- [ ] **Management interface** — per-feature admin surface; activate/deactivate
+      max-out. Design: [`design/ai-queue-and-concurrency.md`](design/ai-queue-and-concurrency.md)
+      · impl `domain/sched/`.
+- [x] **Queuing** of resources to enable workload distribution, enforcement of any
+      custom policy for system use. Same scheduler; a *workload* queue, not a
+      message bus. Remote transport deliberately deferred (SCHED‑3).
+- [x] **Persistence** — SQLite for prototyping, PostgreSQL as the target; schema
+      abstraction so no SQLite-only assumptions leak in. `pkgs/db-kit/portable.rkt`
+      rewrites `?`→`$n`; the unit suite and both smoke suites run on either dialect.
+- [~] **Management interface** — per-feature admin surface; activate/deactivate
       contract every feature must satisfy.
-- [ ] **Security model** — auth, session, secret handling, plugin isolation,
+      *Built in practice* (`features` registry, per-feature Admin surfaces, shared
+      `audit_log`). The uniform **contract** is still unwritten — see the follow-up
+      note in [`design/README.md`](design/README.md).
+- [~] **Security model** — auth, session, secret handling, plugin isolation,
       prompt-injection posture, multi-tenant data isolation.
-- [ ] **SDK contract** — how third parties add tools, integrations, datasets,
+      *Built in practice*: password+2FA, token scopes (RBAC‑4), sandboxed
+      out-of-process plugins, org gate at step 0 of `can?`, SigV4 for S3, secrets
+      handled at a stated trust boundary. **No consolidated design doc yet** — the
+      posture is currently spread across the subsystem docs and `CLAUDE.md`.
+- [~] **SDK contract** — how third parties add tools, integrations, datasets,
       localizations; declaration vs execution; consent/scope enforcement.
-- [ ] **Backend APIs & protocols** — the stable surface between swappable
-      frontends and backends.
-- [ ] **Persistence** — SQLite for prototyping, PostgreSQL as the target; schema
-      abstraction so no SQLite-only assumptions leak in.
-- [ ] **Queuing** of resources to enable workload distribution, enforcement of
-      any custom policy  for system use
-- [ ] **Localization (i18n), top to bottom** — every user-facing surface
+      *Partially built*: `define-tool` and `define-workflow` emit validated specs,
+      plugin seams exist for tools/workflows/blob stores/onboarding, and the beta
+      funnel ships a browser SDK. **Not yet published as a contract document.**
+- [~] **Backend APIs & protocols** — the stable surface between swappable frontends
+      and backends. The surface exists and is exercised by the smoke suites; it has
+      **no generated reference**. Blocked on the documentation item below.
+- [~] **Localization (i18n), top to bottom** — every user-facing surface
       localizable; English at launch; then Japanese, Dutch, Latin American Spanish
-      produced *by the localization tool*. (Design: `design/localization.md`.)
-- [ ] **Documentation** — generated, localizable project docs (SDK contracts,
-      APIs, tool & permission catalogs).
+      produced *by the localization tool*.
+      *Runtime built* (catalogs + ICU + fallback chain, instance default locale and
+      off switch, localized server refusals, localized funnel copy). **English and
+      Japanese ship.** Dutch and es-419 are pending the Manager, on purpose — they
+      are meant to be produced *by* the tool, which is the proof.
+      Design: [`design/localization.md`](design/localization.md) · impl `domain/i18n/`.
+- [ ] **Documentation** — generated, localizable project docs (SDK contracts, APIs,
+      tool & permission catalogs). Not started. Feeds the localization pipeline, so
+      it wants to land after the Localization Manager. Design doc not yet drafted.
 
+## Generic applications
 
-## Generic applications (to specify)
-- [ ] **Chat**
-- [ ] **Research**
-- [ ] **Document translation**
-- [ ] **Document Search**
-- [ ] **Knowledge Graph**
-- [ ] **Localization Manager** — extract unlocalized strings, team-managed
-      translation completion, AI-assisted drafts, CI gate on commits. Flagship
-      that proves the platform can build tools. (Design: `design/localization.md`.)
+- [x] **Chat** — console tab; real model via `TELEMACHUS_MODEL_URL`, deterministic
+      fallback otherwise.
+- [x] **Research** — realized as the **documents / repository** app rather than a
+      separate surface: binary documents of any format, team access control with
+      creator-set visibility, content search across extracted text.
+      Design: [`design/document-repository.md`](design/document-repository.md).
+- [x] **Document translation** — console tab with team history and a per-language
+      glossary; meters AI spend through the usual quotas. Impl `domain/apps/translate.rkt`.
+- [x] **Document Search** — notes + repo objects by key, filename and **extracted
+      content**, each row filtered by `can?`. Impl `domain/apps/search.rkt`;
+      extraction via the `index-documents` workflow.
+- [~] **Localization Manager** — extract unlocalized strings, team-managed
+      translation completion, AI-assisted drafts, CI gate on commits. Flagship that
+      proves the platform can build tools.
+      *Built*: the extractor/lint, the `telemachus-localize` CLI
+      (`extract` / `sync-locale` / `check` / `report`), and the **CI gate**.
+      *Missing*: the team workflow — per-string status lifecycle, coverage
+      dashboard, review/approve gating, and AI-assisted drafting through the
+      scheduler and quotas. **In progress.**
+- [ ] **Knowledge Graph** — not started; no design doc yet. The largest unknown
+      remaining in this list.
 
-## Out of scope / non-goals (to specify)
+## Out of scope / non-goals
+
 - [x] **Open-core tiers** — explicitly a non-goal (pure OSS, no held-back tier).
-- [x] **Cross-legal-entity multitenancy** — a deployment serves one organization
-      (many teams OK); isolating different legal entities on a shared instance is
-      out of scope (hosted offerings serve that need).
+
+### Reversed
+
+- **Cross-legal-entity multitenancy** was listed here as out of scope (decision
+  **TEN**: a deployment serves one organization, many teams OK). **That is no longer
+  true.** Decision **TEN‑2** supersedes it: an **org** layer sits above teams and
+  `TELEMACHUS_MULTITENANT=1` lets several companies share one instance, isolated by
+  an org gate that runs *before* every permission, grant and token-scope check, with
+  a superadmin plane and a per-company org-admin plane.
+  Design: [`design/multi-tenancy.md`](design/multi-tenancy.md) ·
+  operators: [`ops/multi-tenancy-runbook.md`](ops/multi-tenancy-runbook.md).
+  The hosted offering can now serve separate legal entities either way — one
+  isolated instance per tenant, or several orgs on one instance.

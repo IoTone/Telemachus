@@ -17,7 +17,8 @@
 ;;   POST /api/members     {username, role}           → add member (members:manage)
 ;;   GET  /api/admin/status                           → operator only (instance:manage)
 
-(require racket/string
+(require racket/path
+         racket/string
          racket/file
          racket/system
          racket/port
@@ -43,8 +44,10 @@
          "../domain/beta/beta.rkt"                ; beta onboarding: prospects + judge + provider registry
          "../domain/beta/experience.rkt"          ; admin-editable onboarding experience (DB + ENV defaults)
          "../domain/beta/assets.rkt"              ; locally-hosted brand assets (logo/hero/font)
-         "../domain/branding/branding.rkt"
-         "../domain/i18n/policy.rkt"              ; instance localization policy (default locale + off switch)        ; instance title / tagline / logo (Admin)
+         "../domain/branding/branding.rkt"        ; instance title / tagline / logo (Admin)
+         "../domain/i18n/policy.rkt"              ; instance localization policy (default locale + off switch)
+         "../domain/i18n/catalog.rkt"             ; the on-disk catalogs the Manager imports/exports
+         "../domain/i18n/manager.rkt"             ; the Localization Manager (Admin > Localization)
          "../domain/beta/template.rkt"            ; Tier-C sandboxed custom HTML templates
          "../domain/beta/antispam.rkt"            ; self-hosted anti-abuse for the public signup
          (only-in net/url url-query)
@@ -144,8 +147,13 @@
 (define (request-locale req)
   (resolve-locale db-conn (locales-dir) (accept-language req)))
 
+;; `url-query` returns an alist keyed by SYMBOL, so comparing a string key with
+;; assq never matches and every caller silently gets its default — a filter that
+;; is quietly ignored rather than refused. Normalize the key.
 (define (query-param req name [default ""])
-  (cond [(assq name (url-query (request-uri req))) => (lambda (kv) (or (cdr kv) default))]
+  (define k (if (symbol? name) name (string->symbol name)))
+  (cond [(assq k (url-query (request-uri req)))
+         => (lambda (kv) (if (and (cdr kv) (not (string=? (cdr kv) ""))) (cdr kv) default))]
         [else default]))
 
 (define (read-json-body req)
@@ -392,6 +400,109 @@
       (audit! db-conn #:action "i18n.set" #:actor-type "user" #:actor-id (principal-user-id p)
               #:resource-type "instance" #:resource-id "i18n")
       (json-response v)))))
+
+;; ---- Localization Manager ------------------------------------------------------
+;; The flagship tool. Instance-scoped on purpose: the artifact being translated is
+;; the instance's own catalog on disk, so two teams cannot both be right about
+;; `ja.json`. Governed by the `localization:*` permissions, which already existed.
+;;
+;; Read is `localization:read`, writing a string is `:translate`, approving is
+;; `:review`, and anything that touches the files on disk is `:manage`.
+
+(define (ep-l10n-coverage req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:read")
+    (define loc (query-param req "locale" "ja"))
+    (json-response (hash-set (l10n-coverage db-conn loc)
+                             'locales (l10n-locales db-conn))))))
+
+(define (ep-l10n-messages req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:read")
+    (define (opt k) (let ([v (query-param req k "")]) (and (not (string=? v "")) v)))
+    (define limit (let ([n (string->number (query-param req "limit" "50"))])
+                    (if (and n (exact-positive-integer? n)) (min n 200) 50)))
+    (define offset (let ([n (string->number (query-param req "offset" "0"))])
+                     (if (and n (exact-nonnegative-integer? n)) n 0)))
+    (json-response
+     (l10n-list db-conn (query-param req "locale" "ja")
+                #:status (opt "status") #:namespace (opt "namespace") #:q (opt "q")
+                #:limit limit #:offset offset)))))
+
+(define (ep-l10n-submit req message-id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:translate")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define loc (fmt b 'locale))
+      (when (string=? loc "") (raise-user-error 'l10n "locale is required"))
+      (define t (l10n-submit! db-conn message-id loc (fmt b 'text) (principal-user-id p)))
+      (audit! db-conn #:action "l10n.submit" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "l10n" #:resource-id message-id)
+      (json-response t)))))
+
+(define (ep-l10n-review req translation-id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:review")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define d (string->symbol (fmt b 'decision)))
+      (define t (l10n-review! db-conn translation-id d (principal-user-id p)))
+      (audit! db-conn #:action (format "l10n.~a" d) #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "l10n" #:resource-id translation-id)
+      (json-response t)))))
+
+;; Pull locales/*.json into the working tables. Safe to re-run: the database wins
+;; for anything already under review.
+(define (ep-l10n-import req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:manage")
+    (with-handlers ([exn:fail? (lambda (e) (err (exn-message e) 400))])
+      (define dir (locales-dir))
+      (define base-path (build-path dir "en.json"))
+      (unless (catalog-exists? base-path) (raise-user-error 'l10n "no base catalog at locales/en.json"))
+      (define base (read-catalog base-path))
+      (define targets
+        (for/list ([f (in-list (directory-list dir))]
+                   #:when (and (path-has-extension? f #".json")
+                               (not (equal? (path->string f) "en.json"))))
+          (read-catalog (build-path dir f))))
+      (define r (l10n-import! db-conn base targets))
+      (audit! db-conn #:action "l10n.import" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "instance" #:resource-id "l10n")
+      (json-response r)))))
+
+;; Write approved strings back to locales/<locale>.json — the shipping artifact.
+;; This is the ONLY way the manager reaches the product, and it is approved-only.
+(define (ep-l10n-export req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "localization:manage")
+    (with-handlers ([exn:fail? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define loc (fmt b 'locale))
+      (when (string=? loc "") (raise-user-error 'l10n "locale is required"))
+      (when (string=? loc "en") (raise-user-error 'l10n "en is the source catalog; it is extracted, not exported"))
+      (define cat (l10n-export db-conn loc))
+      (define n (hash-count (catalog-messages cat)))
+      ;; Refuse to write an EMPTY catalog. `available` is derived from the files in
+      ;; locales/, precisely so the instance cannot advertise a language it cannot
+      ;; render — and a catalog with nothing approved in it renders entirely as
+      ;; English fallback. Writing one would put Dutch in the language switcher and
+      ;; then show English behind it, which is worse than not offering it at all.
+      ;; Translate something first; a PARTIAL catalog is fine, the fallback chain
+      ;; covers the gaps.
+      (when (zero? n)
+        (raise-user-error 'l10n
+          (string-append "nothing is approved in " loc " yet — exporting now would "
+                         "advertise the language with an empty catalog")))
+      (define path (build-path (locales-dir) (string-append loc ".json")))
+      (write-catalog path cat)
+      (audit! db-conn #:action "l10n.export" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "instance" #:resource-id loc)
+      (json-response (hasheq 'ok #t 'locale loc
+                             'written n
+                             'path (path->string path)
+                             'note "restart to serve the new catalog")))))) 
 
 (define (ep-branding-logo req)
   (with-auth req (lambda (p)
@@ -1564,6 +1675,12 @@
 (define (job-cancel-path segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "jobs")
        (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
+(define (l10n-message-path segs)     ; PUT /api/l10n/messages/<message-id>
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "l10n")
+       (equal? (list-ref segs 2) "messages") (list-ref segs 3)))
+(define (l10n-review-path segs)      ; POST /api/l10n/review/<translation-id>
+  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "l10n")
+       (equal? (list-ref segs 2) "review") (list-ref segs 3)))
 (define (beta-decide-path segs)
   (and (= (length segs) 5) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
        (equal? (list-ref segs 2) "prospects") (equal? (list-ref segs 4) "decide") (list-ref segs 3)))
@@ -1621,6 +1738,12 @@
     [(and (PUT? m)  (equal? segs '("api" "branding")))     (ep-branding-put req)]
     [(and (POST? m) (equal? segs '("api" "branding" "logo"))) (ep-branding-logo req)]
     [(and (PUT? m)  (equal? segs '("api" "i18n")))         (ep-i18n-put req)]
+    [(and (GET? m)  (equal? segs '("api" "l10n" "coverage")))  (ep-l10n-coverage req)]
+    [(and (GET? m)  (equal? segs '("api" "l10n" "messages")))  (ep-l10n-messages req)]
+    [(and (POST? m) (equal? segs '("api" "l10n" "import")))    (ep-l10n-import req)]
+    [(and (POST? m) (equal? segs '("api" "l10n" "export")))    (ep-l10n-export req)]
+    [(and (PUT? m)  (l10n-message-path segs))                  (ep-l10n-submit req (l10n-message-path segs))]
+    [(and (POST? m) (l10n-review-path segs))                   (ep-l10n-review req (l10n-review-path segs))]
     [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
     [(and (GET? m)  (equal? segs '("beta" "template")))     (ep-beta-template req)]
     [(and (OPTIONS? m) (member segs '(("api" "beta" "signup") ("api" "beta" "config") ("api" "beta" "challenge")))) (cors-preflight)]

@@ -730,6 +730,53 @@
         "  value TEXT NOT NULL,"
         "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")))))
 
+;; 0024 — the Localization Manager's working surface (the flagship tool).
+;;
+;; The JSON catalogs under `locales/` remain the SHIPPING ARTIFACT: they are what
+;; the runtime loads, what git diffs, and what `telemachus-localize check` gates.
+;; These tables are the WORKFLOW around them — who drafted a string, who reviewed
+;; it, whether the English moved since. Import pulls the catalogs in, export writes
+;; them back. Nothing here is read on the request path.
+;;
+;; Deliberately NOT team-scoped, unlike most features. The artifact being
+;; translated is the instance's OWN catalog on disk; two teams holding different
+;; opinions about `ja.json` could not both be right. Access is governed by the
+;; `localization:read|translate|review|manage` permissions, which already existed
+;; in the RBAC catalog. (The design doc says "team-scoped like every other
+;; feature", but its own data shapes carry no team_id — the shapes win.)
+(define m-0024-l10n
+  (migration "0024-l10n"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE l10n_messages ("
+        "  id TEXT PRIMARY KEY,"
+        "  msg_key TEXT NOT NULL UNIQUE,"          ; the catalog id, e.g. http.forbidden
+        "  namespace TEXT NOT NULL DEFAULT '',"    ; derived: the segment before the first dot
+        "  source_text TEXT NOT NULL,"
+        "  source_hash TEXT NOT NULL,"             ; sha1 of source_text; moves when English moves
+        "  first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  deprecated INTEGER NOT NULL DEFAULT 0)")
+       "CREATE INDEX idx_l10n_messages_ns ON l10n_messages(namespace)"
+       (string-append
+        "CREATE TABLE l10n_translations ("
+        "  id TEXT PRIMARY KEY,"
+        "  message_id TEXT NOT NULL,"
+        "  locale TEXT NOT NULL,"
+        "  text TEXT NOT NULL DEFAULT '',"
+        ;; drafted | machine | needs_review | approved.
+        ;; `missing` and `stale` are DERIVED, never stored: missing is the absence
+        ;; of a row (or empty text), stale is source_hash_at <> the message's
+        ;; current source_hash. Storing either would let a row disagree with the
+        ;; base catalog, which is the one thing this table must never do.
+        "  status TEXT NOT NULL DEFAULT 'drafted',"
+        "  translated_by TEXT,"
+        "  reviewed_by TEXT,"
+        "  source_hash_at TEXT NOT NULL DEFAULT '',"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(message_id, locale))")
+       "CREATE INDEX idx_l10n_translations_locale ON l10n_translations(locale, status)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings))
+                             m-0023-instance-settings m-0024-l10n))
