@@ -1,7 +1,6 @@
 # Documentation generation
 
-*Proposal for review. Data shapes and contracts are concrete enough to build from;
-the policy forks are under **Decisions to confirm**.*
+*Decided 11 Sep 2026 — the recommendations under **Decisions to confirm** are adopted (DOCGEN‑1…6). Build from here.*
 
 The platform already knows what it is. Every tool declares an OpenAI-compatible
 schema through `define-tool`; every workflow is a validated spec; the permission

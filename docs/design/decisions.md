@@ -159,7 +159,7 @@ doc's "operator service token" to the simpler **provision token** so the seeded
 instance holds exactly one user (the owner); provider actions
 (provision/suspend/resume) authenticate with that per-instance secret.
 
-## Documentation generation (DOCGEN) — proposed, see [documentation-generation.md](documentation-generation.md)
+## Documentation generation (DOCGEN) — **decided 11 Sep 2026: recommendations adopted**, see [documentation-generation.md](documentation-generation.md)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|
@@ -170,7 +170,7 @@ instance holds exactly one user (the owner); provider actions
 | **DOCGEN‑5** | Rendering | **Plain Markdown, no site generator** · vs an HTML site now | No new dependency; readable on GitHub today. |
 | **DOCGEN‑6** | Determinism | **Byte-identical output from identical sources** | The drift gate is meaningless otherwise. |
 
-## Knowledge graph (KG) — proposed, see [knowledge-graph.md](knowledge-graph.md)
+## Knowledge graph (KG) — **decided 11 Sep 2026: recommendations adopted**, see [knowledge-graph.md](knowledge-graph.md)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|
@@ -181,6 +181,30 @@ instance holds exactly one user (the owner); provider actions
 | **KG‑5** | Query language | **None; `hops ≤ 2` from a named entity** · vs Cypher/Gremlin/SPARQL | No dependency, no parser, no injection surface, no demand. |
 | **KG‑6** | Visualization | **Lists with citations; hand-drawn SVG neighbourhood later if used** · vs a graph-viz library now | A dependency and a week of tuning before anyone asks a question. |
 | **KG‑7** | Extraction model | **`utility` role, opt-in per team (LOC‑5 precedent)** · vs always the chat model | Extraction is bulk and cheap-model-shaped. |
+
+## Document sharing (DSH) — proposed, see [document-sharing.md](document-sharing.md)
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **DSH‑1** | What a person picks when sharing | **Three capabilities (view / edit / manage) that grant permission sets** · vs permission strings · vs a boolean | Explainable in one sentence; the grant row stays exact. |
+| **DSH‑2** | Who may re-share | **Only `manage`** · vs any viewer | Keeps the set of people who can widen access small and auditable. |
+| **DSH‑3** | Expiring grants | **v1, optional `expires_at`, expired rows kept** · vs later · vs never | Links already expire; a grant should not outlive a contract. |
+| **DSH‑4** | Groups | **Deferred; user + team principals** · vs build groups now | A later principal type changes nothing here. |
+| **DSH‑5** | Derived documents | **Inherit visibility + grants at creation, then independent** · vs live-linked · vs private-by-default | The only rule explainable in a sentence. |
+| **DSH‑6** | Cross-team sharing | **Inside an org only; the org gate already guarantees it** | Cross-team without a tenancy hole. |
+
+## Document workflows (DWF) — proposed, see [document-workflows.md](document-workflows.md)
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **DWF‑1** | Where triggers fire | **Inside `repo-put!`, after the version commits** · vs per-endpoint hooks | One seam covers console, shim and S3; three hooks drift. |
+| **DWF‑2** | Whose principal a triggered run uses | **The uploader's** · vs the trigger creator's · vs a service account | A run reads only what its uploader could; outputs are owned by someone real. |
+| **DWF‑3** | Re-firing | **Once per version; derived documents do not re-trigger unless opted in** · vs fire on every write | Otherwise a pipeline runs itself forever. |
+| **DWF‑4** | Where outputs live | **Repository documents with a provenance row** · vs blobs in run state | Shareable, versioned, searchable; provenance is a click. |
+| **DWF‑5** | Extraction output | **Validated against a caller-supplied JSON schema; refused on mismatch** · vs accept and flag | A wrong extraction that looks finished is worse than a failed step. |
+| **DWF‑6** | Form rendering | **Markdown/HTML v1, DOCX via template; PDF deferred** · vs a PDF renderer now | Every PDF renderer is a dependency. |
+| **DWF‑7** | Manual vs automatic | **Same `run` path; "Run workflow…" ships first** · vs triggers only | Test by hand, automate the same code. |
+| **DWF‑8** | The first-user path | **A shipped `doc-pipeline` plugin, configured per trigger** · vs bespoke per customer | One workflow, many configurations. |
 
 [^1]: **TEN.** A deployment serves one organization/legal entity that may contain
 one or many **teams**. Isolating *different legal entities* on a shared instance is

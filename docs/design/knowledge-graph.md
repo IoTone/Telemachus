@@ -1,9 +1,6 @@
 # Knowledge Graph
 
-*Proposal for review. The largest unknown left in the FSD, so this is deliberately
-the narrowest thing that is still a knowledge graph — a v1 you can build, ship, and
-then find out what people actually ask of it. The policy forks are under
-**Decisions to confirm**.*
+*Decided 11 Sep 2026 — the recommendations under **Decisions to confirm** are adopted (KG‑1…7). Deliberately the narrowest thing that is still a knowledge graph: a v1 to build, ship, and then find out what people actually ask of it.*
 
 ## What it is, and what it is not
 
