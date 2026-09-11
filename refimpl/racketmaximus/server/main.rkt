@@ -139,7 +139,14 @@
   (and h (let ([tag (string-trim (car (string-split (car (string-split h ",")) ";")))])
            (and (not (string=? tag "")) tag))))
 
-(define (locales-dir) (build-path impl-root "locales"))
+;; Honours TELEMACHUS_LOCALES, as the CLI does. The reason is the test suites:
+;; export writes catalogs INTO this directory, and with it hardcoded to the
+;; checkout's locales/ a smoke run could clobber a tracked catalog with whatever
+;; its throwaway database held. It did once — idempotently, by luck. Suites point
+;; this at a temp copy; a deployment leaves it unset.
+(define (locales-dir)
+  (define e (env* "TELEMACHUS_LOCALES"))
+  (if e (anchor-path e) (build-path impl-root "locales")))
 
 ;; What this request is actually answered in. The instance policy decides: with
 ;; negotiation off the header is ignored outright, and an unknown locale lands on
@@ -2007,13 +2014,10 @@
           (define-values (reply tokens) (run-chat prompt))
           (set-box! total-tokens (+ (unbox total-tokens) tokens))
           (define text (string-trim (format "~a" reply)))
-          ;; A draft that dropped a placeholder is worse than no draft: it would sit
-          ;; in the review queue looking finished. Refuse it and leave the string
-          ;; missing, which is at least honest about the state.
-          (define want (regexp-match* #px"\\{[a-zA-Z0-9_]+\\}" src))
-          (define got  (regexp-match* #px"\\{[a-zA-Z0-9_]+\\}" text))
-          (when (and (not (string=? text ""))
-                     (equal? (sort want string<?) (sort got string<?)))
+          ;; A draft that dropped or invented a placeholder is worse than no draft:
+          ;; it would sit in the review queue looking finished. Refuse it and leave
+          ;; the string missing, which is at least honest. See `draft-acceptable?`.
+          (when (draft-acceptable? src text)
             (l10n-submit! conn (hash-ref m 'id) loc text "" #:status "machine")
             (set-box! drafted (add1 (unbox drafted))))))
       (hasheq 'locale loc 'requested (length ids) 'drafted (unbox drafted)

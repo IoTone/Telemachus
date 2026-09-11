@@ -29,7 +29,8 @@
 
 (provide l10n-import! l10n-export l10n-coverage l10n-list l10n-locales
          l10n-submit! l10n-review! l10n-message-ref
-         l10n-status-of l10n-statuses)
+         l10n-status-of l10n-statuses
+         draft-acceptable?)
 
 ;; The stored lifecycle. `missing` and `stale` are computed, so they are not here.
 (define l10n-statuses '("drafted" "machine" "needs_review" "approved"))
@@ -260,6 +261,33 @@
        by (now-iso) translation-id)]
     [else (raise-user-error 'l10n-review! "decision must be approve or reject")])
   (l10n-translation-ref conn (s (vector-ref r 0)) (s (vector-ref r 1))))
+
+;; ---- draft acceptance --------------------------------------------------------
+;; Is a machine draft structurally safe to put in the review queue?
+;;
+;; A bad draft that LOOKS finished is worse than a missing string: it sits in the
+;; queue wearing a status, and a tired reviewer approves it. Two checks, both
+;; cheap, both found necessary by reading real model output:
+;;
+;;   1. every simple placeholder in the source ({user}, {n}) appears in the draft,
+;;      and no extra ones — a model will happily "translate" {user} to {gebruiker}
+;;      and the product then renders literal braces;
+;;   2. the COUNT of braces matches. This is what catches the stray `{}` or `{.}`
+;;      a model appends to the end of a sentence, which check 1 cannot see
+;;      because there is no name inside — and the ICU renderer will not reject it
+;;      either, it renders an empty name as "". It also catches a mangled plural
+;;      block, whose nested braces have no simple name to match on.
+;;
+;; Deliberately NOT a parse with the real formatter: it is lenient by design
+;; (a missing argument renders as ""), so it accepts exactly the drafts that
+;; need refusing.
+(define (draft-acceptable? source draft)
+  (define (names s) (sort (regexp-match* #px"\\{[a-zA-Z0-9_]+\\}" s) string<?))
+  (define (braces s c) (for/sum ([ch (in-string s)]) (if (char=? ch c) 1 0)))
+  (and (not (string=? (string-trim draft) ""))
+       (equal? (names source) (names draft))
+       (= (braces source #\{) (braces draft #\{))
+       (= (braces source #\}) (braces draft #\}))))
 
 ;; ---- export ------------------------------------------------------------------
 ;; Build the catalog to write to locales/<locale>.json.

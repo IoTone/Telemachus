@@ -56,10 +56,18 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       localizable; English at launch; then Japanese, Dutch, Latin American Spanish
       produced *by the localization tool*.
       *Runtime built* (catalogs + ICU + fallback chain, instance default locale and
-      off switch, localized server refusals, localized funnel copy). **English and
-      Japanese ship.** The Manager that produces the rest is now built; Dutch and
-      es-419 remain to be drafted, reviewed and exported *with it* — which is the
-      proof the flagship exists for.
+      off switch, localized server refusals, localized funnel copy). **English,
+      Japanese, Dutch and Latin American Spanish ship** for the server message
+      catalog — and `nl` and `es-419` were produced **by the Localization Manager**:
+      AI-drafted through the scheduler, every string human-reviewed, exported,
+      and passing the tool's own CI gate at 100%. That is the proof the flagship
+      exists for.
+      *Why still `[~]`*: the catalog pipeline covers the **server** messages. The
+      **console chrome** (`const L` in `static/index.html`, ~150 strings) is a
+      separate home with only `en`/`ja`, and its language switcher is hardcoded to
+      those two — so Dutch and Spanish users get localized refusals under an
+      English UI. Bringing the console's strings into the catalog pipeline is the
+      remaining piece of "top to bottom".
       Design: [`design/localization.md`](design/localization.md) · impl `domain/i18n/`.
 - [ ] **Documentation** — generated, localizable project docs (SDK contracts, APIs,
       tool & permission catalogs). Not started. Feeds the localization pipeline, so
@@ -78,18 +86,17 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
 - [x] **Document Search** — notes + repo objects by key, filename and **extracted
       content**, each row filtered by `can?`. Impl `domain/apps/search.rkt`;
       extraction via the `index-documents` workflow.
-- [~] **Localization Manager** — extract unlocalized strings, team-managed
+- [x] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that
       proves the platform can build tools.
-      *Built*: the extractor/lint, the `telemachus-localize` CLI, the **CI gate**,
-      and (migration 0024) the **team workflow** — per-string status lifecycle with
+      The extractor/lint, the `telemachus-localize` CLI, the **CI gate**, and
+      (migration 0024) the **team workflow**: per-string status lifecycle with
       derived `missing`/`stale`, coverage dashboard, review gating that refuses
       self-approval, the **Localize** console tab, and **AI drafting** as scheduler
-      jobs metered against the team's AI quota. Import/export keeps `locales/*.json`
-      the shipping artifact.
-      *Remaining*: produce **nl** and **es-419** with it — the drafting and review
-      loop is proven end to end, but a language only ships once its strings are
-      actually reviewed. See the localization line above.
+      jobs metered against the team's AI quota, with a structural guard that
+      refuses drafts that lose or invent placeholders. Import/export keeps
+      `locales/*.json` the shipping artifact. **Used to produce `nl` and `es-419`**
+      (see the localization line above).
 - [ ] **Knowledge Graph** — not started; no design doc yet. The largest unknown
       remaining in this list.
 

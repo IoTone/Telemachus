@@ -1,0 +1,88 @@
+{
+  "meta": {
+    "fallback": "en",
+    "locale": "nl"
+  },
+  "messages": {
+    "http.already_initialized": {
+      "text": "Al geïnitialiseerd.",
+      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    },
+    "beta.not_ready": {
+      "text": "instantie niet geïnitialiseerd",
+      "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
+    },
+    "beta.domain_cap": {
+      "text": "te veel aanvragen vanuit uw organisatie — neem rechtstreeks contact met ons op",
+      "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
+    },
+    "beta.field_required": {
+      "text": "{field} is verplicht",
+      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    },
+    "greeting.hello": {
+      "text": "Hallo, {name}!",
+      "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
+    },
+    "authz.bootstrap_done": {
+      "text": "Operator {user} en team {team} aangemaakt.",
+      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "beta.email_invalid": {
+      "text": "een geldig e-mailadres is vereist",
+      "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
+    },
+    "beta.challenge_expired": {
+      "text": "ongeldige of verlopen uitdaging — laad de pagina opnieuw",
+      "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "beta.field_too_short": {
+      "text": "{field} moet minimaal {n} tekens bevatten",
+      "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
+    },
+    "beta.duplicate": {
+      "text": "we hebben uw aanvraag al ontvangen — we nemen contact met u op",
+      "hash": "c8d1650c41717eab582e6d326f7036c1060d88b5"
+    },
+    "authz.forbidden": {
+      "text": "Verboden: {perm}",
+      "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "beta.field_too_long": {
+      "text": "{field} mag maximaal {n} tekens bevatten",
+      "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
+    },
+    "beta.verify_failed": {
+      "text": "verificatie mislukt — laad de pagina opnieuw",
+      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
+    },
+    "notes.saved": {
+      "text": "Notitie opgeslagen.",
+      "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
+    },
+    "http.unauthorized": {
+      "text": "Authenticatie vereist.",
+      "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
+    },
+    "beta.field_digits": {
+      "text": "{field} mag alleen cijfers bevatten",
+      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
+    },
+    "inbox.summary": {
+      "text": "U hebt {count, plural, one {# nieuw bericht} other {# nieuwe berichten}}.",
+      "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
+    },
+    "beta.email_disposable": {
+      "text": "gebruik een zakelijk e-mailadres",
+      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
+    },
+    "beta.rate_limited": {
+      "text": "te veel aanvragen — even geduld alstublieft",
+      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    },
+    "beta.thanks": {
+      "text": "Bedankt — uw aanvraag wordt beoordeeld.",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    }
+  }
+}

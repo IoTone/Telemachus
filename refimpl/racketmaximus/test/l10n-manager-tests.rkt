@@ -185,3 +185,32 @@
   (check-equal? (length (hash-ref (l10n-list conn "nl" #:status "approved") 'items)) 0)
   (check-equal? (length (hash-ref (l10n-list conn "nl" #:q "ui.") 'items)) 1 "search hits the key")
   (close-db! conn))
+
+;; ---- draft acceptance --------------------------------------------------------
+;; Every case here is a real shape qwen2.5:7b produced for these catalogs.
+(test-case "a draft that keeps its placeholders is acceptable"
+  (check-true (draft-acceptable? "Forbidden: {perm}" "Verboden: {perm}"))
+  (check-true (draft-acceptable? "Created operator {user} and team {team}."
+                                 "Operator {user} en team {team} aangemaakt.")))
+
+(test-case "a renamed or dropped placeholder is refused"
+  (check-false (draft-acceptable? "Forbidden: {perm}" "Verboden: {recht}"))
+  (check-false (draft-acceptable? "{field} must be at least {n} characters"
+                                  "{field} moet minimaal tekens bevatten")))
+
+(test-case "a stray empty brace pair is refused — the case the name check cannot see"
+  ;; the model appended `{}` to a sentence; the ICU renderer would print "" for
+  ;; it rather than fail, so this is the only thing standing in the way
+  (check-false (draft-acceptable? "Authentication required." "Authenticatie vereist.{}"))
+  (check-false (draft-acceptable? "please use a work email address"
+                                  "Por favor, usa un correo electrónico de trabajo{.}")))
+
+(test-case "a plural block must keep its structure"
+  (define src "You have {count, plural, one {# new message} other {# new messages}}.")
+  (check-true  (draft-acceptable? src "U hebt {count, plural, one {# nieuw bericht} other {# nieuwe berichten}}."))
+  (check-false (draft-acceptable? src "U hebt {count, plural, one {# nieuw bericht} other # nieuwe berichten}."))
+  (check-false (draft-acceptable? src "U hebt # nieuwe berichten.")))
+
+(test-case "an empty draft is refused"
+  (check-false (draft-acceptable? "Note saved." ""))
+  (check-false (draft-acceptable? "Note saved." "   ")))

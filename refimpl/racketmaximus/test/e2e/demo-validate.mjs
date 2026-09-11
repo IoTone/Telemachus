@@ -334,10 +334,10 @@ try {
   // The locale filter must actually be applied. This is the regression that
   // matters: `query-param` once compared a string key against symbol keys, so
   // every filter fell back to its default and Dutch was answered with Japanese.
-  const nl = await apiCall(page, '/api/l10n/coverage?locale=nl');
-  eq('the ?locale filter is really applied', nl.json && nl.json.locale, 'nl');
+  const qps = await apiCall(page, '/api/l10n/coverage?locale=qps');
+  eq('the ?locale filter is really applied', qps.json && qps.json.locale, 'qps');
   ok('an untranslated locale is not reported as done',
-     nl.json && nl.json.approved === 0, `approved=${nl.json && nl.json.approved}`);
+     qps.json && qps.json.approved === 0, `approved=${qps.json && qps.json.approved}`);
 
   // The next two calls PROVOKE refusals on purpose, and the browser logs a console
   // error for each 4xx. Rather than widen the global filter to excuse every 400 —
@@ -346,17 +346,17 @@ try {
   const errMark = pageErrors.length;
 
   // export must refuse to advertise a language with nothing approved in it
-  const emptyExport = await apiCall(page, '/api/l10n/export', { method: 'POST', body: { locale: 'nl' } });
+  const emptyExport = await apiCall(page, '/api/l10n/export', { method: 'POST', body: { locale: 'qps' } });
   ok('export refuses an empty catalog', !emptyExport.ok,
      `status ${emptyExport.status} ${JSON.stringify(emptyExport.json)}`);
 
   // and the review gate is enforced server-side
-  const miss = await apiCall(page, '/api/l10n/messages?locale=nl&status=missing&limit=1');
+  const miss = await apiCall(page, '/api/l10n/messages?locale=qps&status=missing&limit=1');
   const m0 = miss.json && miss.json.items && miss.json.items[0];
   ok('missing strings are listable', !!m0);
   if (m0) {
     const sub = await apiCall(page, '/api/l10n/messages/' + m0.message_id,
-      { method: 'PUT', body: { locale: 'nl', text: 'Validatiestring' } });
+      { method: 'PUT', body: { locale: 'qps', text: 'Validatiestring' } });
     ok('a translation can be submitted', sub.ok, `status ${sub.status}`);
     const self = await apiCall(page, '/api/l10n/review/' + (sub.json && sub.json.id),
       { method: 'POST', body: { decision: 'approve' } });

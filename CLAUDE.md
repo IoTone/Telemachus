@@ -253,10 +253,25 @@ approved strings back. Neither is on the request path.
   5,000-string draft is a cancellable queue rather than one hour-long job. Output
   lands as `machine`, never `approved`. Metered: a run of 8 strings charged 1,004
   `ai.tokens.total` against the team.
-- **A draft that loses an ICU placeholder is refused, not stored.** `{user}` is an
-  argument; a translation that renames it renders literal braces to an end user. A
-  bad draft sitting in the review queue looking finished is worse than a missing
-  one.
+- **A draft that loses, invents, or mangles a placeholder is refused, not stored**
+  (`draft-acceptable?` in `manager.rkt`). Two checks: the simple-placeholder set
+  must match, AND the **brace count** must match. The second is what catches the
+  stray `{}` / `{.}` qwen2.5:7b appends to sentences — the name check cannot see
+  it, and the ICU renderer will not reject it either (it renders an empty name as
+  `""`). Never replace this with "does it parse": the formatter is lenient by
+  design and accepts exactly the drafts that need refusing. A bad draft in the
+  review queue looking finished is worse than a missing one.
+- **`nl` and `es-419` were produced with the tool** — drafted by qwen2.5:7b, every
+  string reviewed (Dutch quality was rough: Chinese characters in one string, an
+  untranslated `AlREADY INITIALIZED.`, `Notitie`→`Regel`; Spanish was mostly fine
+  but mixed tú/usted — normalized to usted for system messages). The catalogs
+  cover the SERVER messages only; the console's `const L` is a separate home
+  (see "Three homes" above) and still ships `en`/`ja`, with a hardcoded switcher.
+- **The server honours `TELEMACHUS_LOCALES`** (as the CLI does) because export
+  WRITES into that directory. The smoke and e2e suites point it at a temp copy
+  and use the pseudo-locale `qps` for "a locale with no catalog" — a real locale
+  name there is a bug waiting for the day someone produces it, which is exactly
+  what happened with `nl`.
 
 ```sh
 raco test test/l10n-manager-tests.rkt    # 13 cases, no server

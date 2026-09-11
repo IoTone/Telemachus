@@ -50,6 +50,8 @@ if [ "$OWN_SERVER" = "1" ]; then
   # test/repo-tests.rkt ("blob roots are absolute and cwd-independent") and the
   # boot guard in server/main.rkt, which refuses to serve with a relative root.
   export TELEMACHUS_DATA_DIR="$TMPDATA"
+  # a COPY of the catalogs, so the Localize checks can never export into the checkout
+  cp -r locales "$TMPDATA/locales" && export TELEMACHUS_LOCALES="$TMPDATA/locales"
   # Honour a pre-set DATABASE_URL, like the unit suite and both smoke suites do,
   # so this can be run against Postgres: drop/recreate the database first,
   # because bootstrap is first-run-only.
