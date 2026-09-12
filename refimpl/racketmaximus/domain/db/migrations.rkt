@@ -777,6 +777,35 @@
         "  UNIQUE(message_id, locale))")
        "CREATE INDEX idx_l10n_translations_locale ON l10n_translations(locale, status)"))))
 
+;; 0025 — document sharing (slice 56, DSH-3 / DSH-5): expiring grants and
+;; derivation provenance.
+(define m-0025-sharing
+  (migration "0025-sharing"
+    (lambda (conn)
+      (exec* conn
+       ;; Epoch seconds, portable across dialects, like the quota ledger's windows.
+       ;; NULL means never. Expired rows are IGNORED by has-grant?, never deleted:
+       ;; they are the audit trail of who was given what (DSH-3).
+       ;; BIGINT, not INTEGER: on Postgres INTEGER is int4 and an expiry past 2038
+       ;; (the smoke uses 2099) fails with "cannot convert given value to SQL
+       ;; type … expected: int32?". SQLite treats both as integer affinity.
+       "ALTER TABLE resource_grants ADD COLUMN expires_at BIGINT"
+       ;; A derived document (a translation, an extraction, a filled form) records
+       ;; what it was made from and by which run. Visibility and grants were COPIED
+       ;; from the source at creation; this row is the only link that remains.
+       (string-append
+        "CREATE TABLE repo_derivations ("
+        "  id TEXT PRIMARY KEY,"
+        "  object_id TEXT NOT NULL,"            ; the derived document
+        "  version_id TEXT,"
+        "  source_object_id TEXT NOT NULL,"
+        "  source_version_id TEXT,"
+        "  run_id TEXT,"
+        "  step_id TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_repo_derivations_object ON repo_derivations(object_id)"
+       "CREATE INDEX idx_repo_derivations_source ON repo_derivations(source_object_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing))

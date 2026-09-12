@@ -1557,26 +1557,51 @@
       (define o (repo-set-visibility! db-conn p id v))
       (if o (json-response (obj-json o)) (err "not found" 404))))))
 
+;; Sharing (DSH). The body names a principal — `{principal_type, principal_id}` —
+;; and a capability (view | edit | manage, default view) with an optional
+;; `expires_at` (ISO-8601 or epoch seconds). The original `{user_id}` still works
+;; and means "this person, view", so existing callers are untouched.
+(define (share-principal b)
+  (define legacy (fmt b 'user_id))
+  (define ptype  (fmt b 'principal_type))
+  (define pid    (fmt b 'principal_id))
+  (values (if (string=? ptype "") (if (string=? legacy "") #f "user") ptype)
+          (if (string=? pid "") legacy pid)))
+
 (define (ep-repo-share req id)
   (with-auth req (lambda (p)
-    (define u (fmt (read-json-body req) 'user_id))
-    (cond
-      [(string=? u "") (err "user_id is required" 400)]
-      [(repo-share! db-conn p id #:user u)
-       (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))]
-      [else (err "not found" 404)]))))
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define-values (ptype pid) (share-principal b))
+      (define cap (let ([c (fmt b 'capability)]) (if (string=? c "") "view" c)))
+      (define exp (expiry->seconds (hash-ref b 'expires_at #f)))
+      (cond
+        [(string=? pid "") (err "principal_id (or user_id) is required" 400)]
+        [(repo-share! db-conn p id #:principal-type ptype #:principal-id pid
+                      #:capability cap #:expires-at exp)
+         (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))]
+        [else (err "not found" 404)])))))
 
 (define (ep-repo-unshare req id)
   (with-auth req (lambda (p)
-    (define u (fmt (read-json-body req) 'user_id))
-    (if (repo-unshare! db-conn p id #:user u)
-        (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))
-        (err "not found" 404)))))
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define-values (ptype pid) (share-principal (read-json-body req)))
+      (cond
+        [(string=? pid "") (err "principal_id (or user_id) is required" 400)]
+        [(repo-unshare! db-conn p id #:principal-type ptype #:principal-id pid)
+         (json-response (hasheq 'ok #t 'grants (repo-grants db-conn p id)))]
+        [else (err "not found" 404)])))))
 
 (define (ep-repo-grants req id)
   (with-auth req (lambda (p)
     (define g (repo-grants db-conn p id))
     (if g (json-response (hasheq 'grants g)) (err "not found" 404)))))
+
+;; provenance: what a derived document was made from (DSH-5 / DWF-4)
+(define (ep-repo-derivations req id)
+  (with-auth req (lambda (p)
+    (define d (repo-derivations db-conn p id))
+    (if d (json-response (hasheq 'derivations d)) (err "not found" 404)))))
 
 ;; A presigned link: a time-boxed URL a browser can follow with no bearer token, so
 ;; the console can hand a PDF straight to the viewer. Signed with the CALLER'S OWN
@@ -1954,6 +1979,7 @@
     [(and (POST? m) (repo-obj-action segs "share"))         (ep-repo-share req (repo-obj-action segs "share"))]
     [(and (POST? m) (repo-obj-action segs "unshare"))       (ep-repo-unshare req (repo-obj-action segs "unshare"))]
     [(and (GET? m)  (repo-obj-action segs "grants"))        (ep-repo-grants req (repo-obj-action segs "grants"))]
+    [(and (GET? m)  (repo-obj-action segs "derivations"))   (ep-repo-derivations req (repo-obj-action segs "derivations"))]
     [(and (POST? m) (repo-obj-action segs "visibility"))    (ep-repo-visibility req (repo-obj-action segs "visibility"))]
     [(and (GET? m)  (repo-obj-action segs "content"))       (ep-repo-get req (repo-obj-action segs "content"))]
     [(and (POST? m) (repo-obj-action segs "presign"))       (ep-repo-presign req (repo-obj-action segs "presign"))]

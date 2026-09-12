@@ -347,7 +347,7 @@ Ordered by how often they will actually happen.
 | Uploads over the JSON plane fail at exactly 32 MiB with a dropped connection | `TELEMACHUS_MAX_UPLOAD` — the servlet drops, it cannot 413 | raise the variable, or use the S3 plane, which streams |
 | PDFs never become content-searchable; runs error with "pdftotext is not installed" | off-Nix host without poppler | use the Nix package (pinned) or install `poppler-utils` |
 | Indexing run sits `running`, steps `queued`, forever | quota deferral (§9) | check `GET /api/usage`; raise or wait |
-| `?acl` / `?policy` / lifecycle tooling errors with 501 | not implemented, by design | manage sharing in the console or `/api/repo-obj/<id>/share` — S3 has no vocabulary for this instance's ACLs |
+| `?acl` / `?policy` / lifecycle tooling errors with 501 | not implemented, by design | manage sharing in the console or `POST /api/repo-obj/<id>/share {principal_type: user\|team, principal_id, capability: view\|edit\|manage, expires_at?}` — S3 has no vocabulary for this instance's ACLs |
 | S3 port answers nothing at all | `TELEMACHUS_S3_PORT` unset — off is the default | set it and restart |
 
 ---

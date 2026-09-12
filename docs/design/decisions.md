@@ -182,7 +182,7 @@ instance holds exactly one user (the owner); provider actions
 | **KG‑6** | Visualization | **Lists with citations; hand-drawn SVG neighbourhood later if used** · vs a graph-viz library now | A dependency and a week of tuning before anyone asks a question. |
 | **KG‑7** | Extraction model | **`utility` role, opt-in per team (LOC‑5 precedent)** · vs always the chat model | Extraction is bulk and cheap-model-shaped. |
 
-## Document sharing (DSH) — proposed, see [document-sharing.md](document-sharing.md)
+## Document sharing (DSH) — decided 12 Sep 2026, see [document-sharing.md](document-sharing.md)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|

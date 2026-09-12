@@ -18,7 +18,7 @@
 ;; makes "just re-upload it" safe advice.
 
 (require db-kit/portable
-         racket/file racket/port racket/string racket/list
+         racket/file racket/port racket/string racket/list racket/date
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../quota/quota.rkt"
@@ -27,6 +27,9 @@
 (provide repo-put! repo-get repo-open repo-list repo-versions
          repo-set-visibility! repo-delete! repo-usage
          repo-share! repo-unshare! repo-grants
+         repo-inherit! repo-derivations
+         CAPABILITIES capability-permissions permissions->capability
+         expiry->seconds seconds->iso8601
          VISIBILITIES valid-key? inline-safe? STORAGE-DIMENSION)
 
 (define STORAGE-DIMENSION "storage.bytes")
@@ -237,52 +240,256 @@
   (define o (repo-get conn p id))
   (and o
        (let ()
-         (require-perm conn p "files:write" #:resource (obj->resource o))
+         ;; DSH-1: changing who can see a document is `manage`, not `edit` — an
+         ;; editor may replace the bytes, not widen the audience.
+         (require-perm conn p "files:manage" #:resource (obj->resource o))
          (query-exec conn "UPDATE repo_objects SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?" vis id)
          (audit! conn #:action "repo.visibility" #:actor-type "user" #:actor-id (principal-user-id p)
                  #:team-id (hash-ref o 'team_id) #:resource-type "repo" #:resource-id id
                  #:meta (format "{\"visibility\":~s}" vis))
          (row->obj (obj-row conn id)))))
 
-;; Sharing is what `shared` means: private, plus an explicit grant list. Only someone
-;; who may write the object may hand out access to it.
-(define (repo-share! conn p id #:user user-id #:permission [perm "files:read"])
+;; ---- capabilities (DSH-1) ---------------------------------------------------------
+;; A person sharing a document picks one of three words. Each is a SET of permission
+;; strings, granted row by row, never a wildcard: a grant row says exactly what it
+;; says. `manage` implies `edit` implies `view` because the sets nest. The owner
+;; holds all three by owner-ok and needs no row.
+;;
+;; `manage` carries files:delete as well as files:manage — the catalog has a
+;; separate delete permission, and "manage" that cannot delete is not stewardship.
+(define CAPABILITIES
+  '(("view"   "files:read")
+    ("edit"   "files:read" "files:write")
+    ("manage" "files:read" "files:write" "files:delete" "files:manage")))
+(define ALL-CAPABILITY-PERMS
+  (remove-duplicates (append* (map cdr CAPABILITIES))))
+
+(define (capability-permissions cap)
+  (define e (assoc cap CAPABILITIES))
+  (and e (cdr e)))
+
+;; the widest capability whose whole set the given permissions cover; #f if none
+;; (a hand-written grant of files:write alone is not a capability)
+(define (permissions->capability perms)
+  (for/fold ([best #f]) ([e (in-list CAPABILITIES)])
+    (if (for/and ([q (in-list (cdr e))]) (and (member q perms) #t)) (car e) best)))
+
+(define PRINCIPAL-TYPES '("user" "team"))
+
+;; ---- expiry (DSH-3) --------------------------------------------------------------
+;; The API accepts ISO-8601 ("2026-12-31T00:00:00Z", an offset, or a bare date) or
+;; epoch seconds; the row stores epoch seconds; listings hand back ISO-8601 UTC.
+(define (expiry->seconds v)
+  (cond
+    [(or (not v) (eq? v 'null) (equal? v "")) #f]
+    [(exact-integer? v) v]
+    [(and (real? v) (integer? v)) (inexact->exact v)]
+    [(and (string? v) (regexp-match? #px"^[0-9]+$" v)) (string->number v)]
+    [(string? v)
+     (define m (regexp-match
+                #px"^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:[T ]([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?(?:\\.[0-9]+)?)?(Z|[+-][0-9]{2}:?[0-9]{2})?$"
+                v))
+     (unless m (raise-user-error 'repo "expires_at must be ISO-8601 or epoch seconds"))
+     (define (n i) (let ([x (list-ref m i)]) (if x (string->number x) 0)))
+     (define base
+       (with-handlers ([exn:fail? (lambda (_) (raise-user-error 'repo "expires_at is not a valid date"))])
+         (find-seconds (n 6) (n 5) (n 4) (n 3) (n 2) (n 1) #f)))
+     (define tz (list-ref m 7))
+     (define offset
+       (cond
+         [(or (not tz) (string=? tz "Z")) 0]
+         [else
+          (define sign (if (char=? (string-ref tz 0) #\-) -1 1))
+          (define digits (regexp-replace* #px"[^0-9]" tz ""))
+          (* sign (+ (* 3600 (string->number (substring digits 0 2)))
+                     (* 60 (string->number (substring digits 2 4)))))]))
+     (- base offset)]
+    [else (raise-user-error 'repo "expires_at must be ISO-8601 or epoch seconds")]))
+
+(define (seconds->iso8601 secs)
+  (define d (seconds->date secs #f))
+  (define (two n) (if (< n 10) (format "0~a" n) (number->string n)))
+  (format "~a-~a-~aT~a:~a:~aZ" (date-year d) (two (date-month d)) (two (date-day d))
+          (two (date-hour d)) (two (date-minute d)) (two (date-second d))))
+
+;; DSH-6: a grant may name a person or a team, and only one in THIS org. The org
+;; gate would leave a cross-company row inert anyway; refusing it here means nobody
+;; is told "shared" about something that will never open.
+(define (principal-in-org? conn ptype pid org)
+  (cond
+    [(equal? ptype "team") (equal? (team-org conn pid) org)]
+    [else
+     (or (equal? (user-org conn pid) org)
+         ;; an operator's users.org_id is NULL; membership in a team of the org
+         ;; is the other way to belong to it
+         (positive? (query-value conn
+           (string-append "SELECT COUNT(*) FROM memberships m JOIN teams t ON t.id = m.team_id "
+                          "WHERE m.user_id = ? AND m.status = 'active' AND t.org_id = ?")
+           pid org)))]))
+
+;; ---- sharing (DSH-1, DSH-2, DSH-3, DSH-6) -------------------------------------------
+;; Sharing is what `shared` means: private, plus an explicit grant list. It is a
+;; stewardship act (DSH-2): the owner, a team admin, or a `manage` grantee. A viewer
+;; cannot forward what they were shown; neither can an editor.
+;;
+;; `#:user` is the original spelling and still means "this person, view".
+;; Sharing again with the SAME principal replaces the capability — narrowing an
+;; editor to a viewer drops the write row — and renews the expiry.
+(define (repo-share! conn p id
+                     #:user [user-id #f]
+                     #:principal-type [ptype* #f] #:principal-id [pid* #f]
+                     #:capability [cap "view"]
+                     #:expires-at [expires-at #f])
+  (define ptype (or ptype* (and user-id "user")))
+  (define pid   (or pid* user-id))
+  (unless (member ptype PRINCIPAL-TYPES)
+    (raise-user-error 'repo "principal_type must be one of ~a" (string-join PRINCIPAL-TYPES ", ")))
+  (unless (and (string? pid) (not (string=? pid "")))
+    (raise-user-error 'repo "principal_id is required"))
+  (define perms (capability-permissions cap))
+  (unless perms
+    (raise-user-error 'repo "capability must be one of ~a" (string-join (map car CAPABILITIES) ", ")))
+  (when (and expires-at (<= expires-at (current-seconds)))
+    (raise-user-error 'repo "expires_at is in the past"))
   (define o (repo-get conn p id))
   (and o
        (let ()
-         (require-perm conn p "files:write" #:resource (obj->resource o))
-         (grant! conn #:resource-type "repo" #:resource-id id
-                 #:principal-type "user" #:principal-id user-id
-                 #:permission perm #:by (principal-user-id p))
+         (require-perm conn p "files:manage" #:resource (obj->resource o))
+         (unless (principal-in-org? conn ptype pid (hash-ref o 'org_id))
+           (raise-user-error 'repo "no such ~a in this organization" ptype))
+         (for ([perm (in-list perms)])
+           (grant! conn #:resource-type "repo" #:resource-id id
+                   #:principal-type ptype #:principal-id pid
+                   #:permission perm #:by (principal-user-id p) #:expires-at expires-at))
+         (for ([perm (in-list ALL-CAPABILITY-PERMS)] #:unless (member perm perms))
+           (revoke! conn #:resource-type "repo" #:resource-id id
+                    #:principal-type ptype #:principal-id pid #:permission perm))
          ;; a team-visible object gains nothing from a grant; sharing implies narrowing
          (when (equal? (hash-ref o 'visibility) "team")
            (query-exec conn "UPDATE repo_objects SET visibility = 'shared' WHERE id = ?" id))
          (audit! conn #:action "repo.share" #:actor-type "user" #:actor-id (principal-user-id p)
                  #:team-id (hash-ref o 'team_id) #:resource-type "repo" #:resource-id id
-                 #:meta (format "{\"user\":~s,\"permission\":~s}" user-id perm))
+                 #:meta (format "{\"principal_type\":~s,\"principal_id\":~s,\"capability\":~s,\"expires_at\":~a}"
+                                ptype pid cap (if expires-at (format "~s" (seconds->iso8601 expires-at)) "null")))
          #t)))
 
-(define (repo-unshare! conn p id #:user user-id #:permission [perm "files:read"])
+;; Revoking removes every row the principal holds on the object — a revoke is a
+;; revoke, not a permission-by-permission negotiation. (An EXPIRED row is left by
+;; time, not by this; see has-grant?.)
+(define (repo-unshare! conn p id
+                       #:user [user-id #f]
+                       #:principal-type [ptype* #f] #:principal-id [pid* #f]
+                       ;; the original spelling took one permission; ignored now —
+                       ;; kept so old callers still compile
+                       #:permission [_perm #f])
+  (define ptype (or ptype* (and user-id "user")))
+  (define pid   (or pid* user-id))
+  (unless (member ptype PRINCIPAL-TYPES)
+    (raise-user-error 'repo "principal_type must be one of ~a" (string-join PRINCIPAL-TYPES ", ")))
+  (unless (and (string? pid) (not (string=? pid "")))
+    (raise-user-error 'repo "principal_id is required"))
   (define o (repo-get conn p id))
   (and o
        (let ()
-         (require-perm conn p "files:write" #:resource (obj->resource o))
-         (revoke! conn #:resource-type "repo" #:resource-id id
-                  #:principal-type "user" #:principal-id user-id #:permission perm)
+         (require-perm conn p "files:manage" #:resource (obj->resource o))
+         (query-exec conn
+           (string-append "DELETE FROM resource_grants WHERE resource_type = 'repo' AND resource_id = ? "
+                          "AND principal_type = ? AND principal_id = ?")
+           id ptype pid)
+         (audit! conn #:action "repo.unshare" #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:team-id (hash-ref o 'team_id) #:resource-type "repo" #:resource-id id
+                 #:meta (format "{\"principal_type\":~s,\"principal_id\":~s}" ptype pid))
          #t)))
 
+;; One entry per principal, with the capability its rows add up to. Expired rows
+;; are listed and flagged rather than hidden — "who could see this in March" is a
+;; question the list should still answer.
 (define (repo-grants conn p id)
   (define o (repo-get conn p id))
   (and o
        (let ()
-         (require-perm conn p "files:write" #:resource (obj->resource o))
-         (for/list ([r (in-list (query-rows conn
-                (string-append "SELECT g.principal_type, g.principal_id, g.permission, u.username "
-                               "FROM resource_grants g LEFT JOIN users u ON u.id = g.principal_id "
-                               "WHERE g.resource_type = 'repo' AND g.resource_id = ?") id))])
-           (hasheq 'principal_type (vector-ref r 0) 'principal_id (vector-ref r 1)
-                   'permission (vector-ref r 2)
-                   'username (nz (vector-ref r 3)))))))
+         (require-perm conn p "files:manage" #:resource (obj->resource o))
+         (define rows (query-rows conn
+                (string-append "SELECT g.principal_type, g.principal_id, g.permission, g.granted_by, "
+                               "       g.created_at, g.expires_at, u.username, t.name "
+                               "FROM resource_grants g "
+                               "LEFT JOIN users u ON g.principal_type = 'user' AND u.id = g.principal_id "
+                               "LEFT JOIN teams t ON g.principal_type = 'team' AND t.id = g.principal_id "
+                               "WHERE g.resource_type = 'repo' AND g.resource_id = ? "
+                               "ORDER BY g.created_at, g.principal_type, g.principal_id, g.permission") id))
+         (define now (current-seconds))
+         ;; group by principal, keeping first-seen order
+         (define order '())
+         (define groups (make-hash))
+         (for ([r (in-list rows)])
+           (define k (cons (vector-ref r 0) (vector-ref r 1)))
+           (unless (hash-has-key? groups k) (set! order (cons k order)))
+           (hash-update! groups k (lambda (l) (cons r l)) '()))
+         (for/list ([k (in-list (reverse order))])
+           (define rs (reverse (hash-ref groups k)))
+           (define perms (map (lambda (r) (vector-ref r 2)) rs))
+           (define r0 (car rs))
+           (define exp (let ([e (vector-ref r0 5)]) (if (sql-null? e) #f e)))
+           (hasheq 'principal_type (car k) 'principal_id (cdr k)
+                   'username (nz (vector-ref r0 6))
+                   'name (nz (if (equal? (car k) "team") (vector-ref r0 7) (vector-ref r0 6)))
+                   'capability (or (permissions->capability perms) 'null)
+                   'permissions perms
+                   'granted_by (nz (vector-ref r0 3))
+                   'created_at (format "~a" (vector-ref r0 4))
+                   'expires_at (if exp (seconds->iso8601 exp) 'null)
+                   'expired (and exp (<= exp now)))))))
+
+;; ---- derived documents (DSH-5) --------------------------------------------------------
+;; A workflow output takes the source's visibility and LIVE grants at the moment of
+;; creation, and is owned by the run's principal (that is who wrote it). After this
+;; call the two are independent: narrowing the source later does not narrow a
+;; translation already shared. The derivation row is what records that the copy
+;; happened, and from what — provenance for "where did this form come from?".
+(define (repo-inherit! conn p #:source source-id #:target target-id
+                       #:run-id [run-id #f] #:step-id [step-id #f])
+  (define src (repo-get conn p source-id))          ; files:read on the source
+  (define dst (repo-get conn p target-id))
+  (unless (and src dst) (raise-user-error 'repo "inherit: no such object"))
+  (when (equal? source-id target-id) (raise-user-error 'repo "inherit: a document cannot derive from itself"))
+  ;; copying grants onto the target is sharing it — the same stewardship check.
+  ;; The run's principal owns what it just wrote, so owner-ok covers the normal case.
+  (require-perm conn p "files:manage" #:resource (obj->resource dst))
+  (query-exec conn "UPDATE repo_objects SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+              (hash-ref src 'visibility) target-id)
+  (for ([r (in-list (query-rows conn
+              (string-append "SELECT principal_type, principal_id, permission, granted_by, expires_at "
+                             "FROM resource_grants WHERE resource_type = 'repo' AND resource_id = ? "
+                             "AND (expires_at IS NULL OR expires_at > ?)")
+              source-id (current-seconds)))])
+    (grant! conn #:resource-type "repo" #:resource-id target-id
+            #:principal-type (vector-ref r 0) #:principal-id (vector-ref r 1)
+            #:permission (vector-ref r 2)
+            #:by (let ([b (vector-ref r 3)]) (if (sql-null? b) (principal-user-id p) b))
+            #:expires-at (let ([e (vector-ref r 4)]) (if (sql-null? e) #f e))))
+  (define (nullable v) (if (or (not v) (eq? v 'null)) sql-null v))
+  (query-exec conn
+    (string-append "INSERT INTO repo_derivations "
+                   "(id, object_id, version_id, source_object_id, source_version_id, run_id, step_id) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?)")
+    (new-id) target-id (nullable (hash-ref dst 'version_id))
+    source-id (nullable (hash-ref src 'version_id)) (nullable run-id) (nullable step-id))
+  (audit! conn #:action "repo.inherit" #:actor-type "user" #:actor-id (principal-user-id p)
+          #:team-id (hash-ref dst 'team_id) #:resource-type "repo" #:resource-id target-id
+          #:meta (format "{\"source\":~s,\"run_id\":~s}" source-id (or run-id "")))
+  (row->obj (obj-row conn target-id)))
+
+;; where a document came from: its derivation rows, newest first. Reading
+;; provenance needs only files:read on the document itself.
+(define (repo-derivations conn p id)
+  (define o (repo-get conn p id))
+  (and o
+       (for/list ([r (in-list (query-rows conn
+              (string-append "SELECT source_object_id, source_version_id, version_id, run_id, step_id, created_at "
+                             "FROM repo_derivations WHERE object_id = ? ORDER BY created_at DESC") id))])
+         (hasheq 'source_object_id (vector-ref r 0) 'source_version_id (nz (vector-ref r 1))
+                 'version_id (nz (vector-ref r 2)) 'run_id (nz (vector-ref r 3))
+                 'step_id (nz (vector-ref r 4)) 'created_at (format "~a" (vector-ref r 5))))))
 
 ;; ---- deleting ---------------------------------------------------------------------
 ;; The object row is tombstoned rather than removed, so the key frees up while the

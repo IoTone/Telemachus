@@ -305,6 +305,44 @@ BOBID=$(printf '%s' "$MB" | grep -oP '"user_id":\s*"\K[^"]+')
 curl -s -X POST "$B/api/repo-obj/$RID/share" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\"}" >/dev/null
 assert "repo shared read"   "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $BOB")" '"key":"reports/q3.pdf"'
 
+# ---- sharing with permissions (slice 56, DSH-1…6) ---------------------------------
+SHARE="$B/api/repo-obj/$RID/share"; UNSHARE="$B/api/repo-obj/$RID/unshare"
+# a VIEWER cannot forward what they were shown (DSH-2)
+assert "share: viewer no re-share" "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $BOB" -d "{\"user_id\":\"$CAROL_ID\"}")" 'Forbidden: files:manage'
+assert "share: carol still out"   "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" 'Forbidden: files:read'
+# the grant list names a CAPABILITY, not a permission string
+assert "share: grants list"       "$(curl -s "$B/api/repo-obj/$RID/grants" -H "Authorization: Bearer $OP")" '"capability":"view"'
+# expiry (DSH-3): the past is refused, garbage is refused, the future opens and is listed
+assert "share: past expiry 400"   "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$CAROL_ID\",\"expires_at\":\"2020-01-01T00:00:00Z\"}")" 'in the past'
+assert "share: bad expiry 400"    "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$CAROL_ID\",\"expires_at\":\"soon\"}")" 'ISO-8601'
+SH=$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"user\",\"principal_id\":\"$CAROL_ID\",\"capability\":\"edit\",\"expires_at\":\"2099-01-01T00:00:00Z\"}")
+assert "share: edit capability"   "$SH" '"capability":"edit"'
+assert "share: expiry listed"     "$SH" '"expires_at":"2099-01-01T00:00:00Z"'
+assert "share: editor reads"      "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+assert "share: editor no re-share" "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $CAROL" -d "{\"user_id\":\"$BOBID\"}")" 'Forbidden: files:manage'
+# revoke removes every row the principal held
+curl -s -X POST "$UNSHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"user\",\"principal_id\":\"$CAROL_ID\"}" >/dev/null
+assert "share: revoked"           "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" 'Forbidden: files:read'
+# a TEAM is a principal (DSH-6): every member reads it, nobody needed a row
+TEAMID=$(curl -s $B/api/whoami -H "Authorization: Bearer $OP" | grep -oP '"team_id":\s*"\K[^"]+')
+assert "share: team grant"        "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"team\",\"principal_id\":\"$TEAMID\"}")" '"principal_type":"team"'
+assert "share: team member reads" "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+curl -s -X POST "$UNSHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"team\",\"principal_id\":\"$TEAMID\"}" >/dev/null
+assert "share: team revoked"      "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" 'Forbidden: files:read'
+# `manage` delegates stewardship of ONE document: bob, a plain member, may now share it onward
+curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\",\"capability\":\"manage\"}" >/dev/null
+assert "share: manage re-shares"  "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $BOB" -d "{\"user_id\":\"$CAROL_ID\"}")" '"ok":true'
+assert "share: carol reads again" "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+# bad input is a 400, never a row
+assert "share: bad capability"    "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$CAROL_ID\",\"capability\":\"owner\"}")" 'capability must be one of'
+assert "share: unknown user"      "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d '{"user_id":"nobody"}')" 'no such user'
+assert "share: no principal"      "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d '{}')" 'is required'
+# provenance: an upload derives from nothing
+assert "share: derivations"       "$(curl -s "$B/api/repo-obj/$RID/derivations" -H "Authorization: Bearer $OP")" '"derivations":[]'
+# leave bob as a viewer, which is what the checks below assume
+curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\"}" >/dev/null
+assert "share: narrowed to view"  "$(curl -s "$B/api/repo-obj/$RID/grants" -H "Authorization: Bearer $OP")" '"permissions":["files:read"]'
+
 # an overwrite versions rather than destroys, and keeps the visibility it had
 printf 'second draft' > /tmp/tmx-smoke-doc2.pdf
 RPUT2=$(curl -s -X PUT "$B/api/repo/reports/q3.pdf" -H "Authorization: Bearer $OP" \

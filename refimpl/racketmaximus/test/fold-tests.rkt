@@ -60,9 +60,13 @@
   (old-doc! plan-id "Quarterly Plan" "launch the platform in autumn" "team")
   (old-doc! secret-id "Salary Bands" "the walrus number is 90000" "private")
   (old-doc! odd-id "  Ünïcode / slashes & <tags>!  " "" "team")   ; hostile title, EMPTY body
-  ;; a pre-fold share: alice shared the private doc with bob (not carol)
-  (grant! c #:resource-type "documents" #:resource-id secret-id
-          #:principal-type "user" #:principal-id bob #:permission "files:read")
+  ;; a pre-fold share: alice shared the private doc with bob (not carol). Raw SQL,
+  ;; because this database predates 0025 and grant! now writes expires_at.
+  (query-exec c
+    (string-append "INSERT INTO resource_grants "
+                   "(id, resource_type, resource_id, principal_type, principal_id, permission, granted_by) "
+                   "VALUES (?, 'documents', ?, 'user', ?, 'files:read', ?)")
+    (new-id) secret-id bob uid)
 
   ;; ---- the fold ----------------------------------------------------------------
   (migrate! c all-migrations)

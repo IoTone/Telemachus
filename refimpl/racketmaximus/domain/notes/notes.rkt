@@ -66,6 +66,10 @@
 
 ;; owner (or notes:manage / operator) may share the note with another user
 (define (notes-share conn p id #:user target-user #:permission [perm "notes:read"])
+  ;; a grant row on a note carries a notes permission and nothing else — since a
+  ;; grant DELEGATES (slice 56), the string a caller supplies must stay in scope
+  (unless (and (string? perm) (regexp-match? #px"^notes:[a-z]+$" perm))
+    (raise-user-error 'notes "permission must be a notes:* permission"))
   (define r (get-row conn id))
   (and r (let ([n (row->note r)])
            (unless (or (equal? (hash-ref n 'owner_user_id) (principal-user-id p))

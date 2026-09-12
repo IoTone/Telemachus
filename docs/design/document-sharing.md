@@ -1,9 +1,11 @@
 # Document sharing, with permissions
 
-*Proposal for review. Companion to [document-workflows.md](document-workflows.md):
-derived documents need a permission model to inherit from, and this is it. Data
-shapes and contracts are concrete enough to build from; the policy forks are under
-**Decisions to confirm**.*
+*Decided 12 Sep 2026 (DSH‑1…6, see [decisions.md](decisions.md)). Steps 1–2 of
+the plan below and `inherit` are **built** (slice 56): `domain/repo/repo.rkt`,
+migration `0025-sharing`, `test/repo-tests.rkt` case 7, the sharing block of
+`test/server-smoke.sh`. Step 3 (the dialog and "Shared with me") is open.
+Companion to [document-workflows.md](document-workflows.md): derived documents need
+a permission model to inherit from, and this is it.*
 
 ## What exists, and where it stops
 
@@ -30,13 +32,26 @@ vocabulary:
 |---|---|---|
 | **view** | open, download, search hits it | `files:read` |
 | **edit** | upload a new version, change the filename | `files:read` `files:write` |
-| **manage** | change visibility, share and revoke, delete | `files:read` `files:write` `files:manage` |
+| **manage** | change visibility, share and revoke, delete | `files:read` `files:write` `files:delete` `files:manage` |
 
 `manage` implies `edit` implies `view`, enforced by **granting the set**, never by
 a wildcard — a grant row says exactly what it says. The owner holds all three by
-owner‑ok and needs no row. `files:manage` is a new permission (today "manage" is
-owner‑or‑team‑admin); it lets an owner delegate stewardship of one document without
-handing over a team role.
+owner‑ok and needs no row. `files:manage` is a new permission (a team admin holds
+it by role, for the documents the role reaches — a colleague's team-visible one,
+never their private one); it lets an owner delegate stewardship of one document
+without handing over a team role. The set carries `files:delete` too, because the
+catalog has a separate delete permission and a "manage" that cannot delete is not
+stewardship.
+
+**A grant is a delegation.** Before slice 56, `can?` took the permission from the
+caller's *role* and used a grant only to *reach* a private resource — so a viewer
+shown an editable document still could not edit it, and a member handed `manage`
+still could not share. Now a grant on a resource confers its permission for that
+one resource in the team tier, capped by token scopes as before and never reaching
+`instance:*` / `org:*`. That is the whole difference between "sharing" and "a
+narrower way to say what the role already said". Sharing again with the same
+principal **replaces** the capability (narrowing an editor to a viewer drops the
+write row) and **renews** the expiry.
 
 **Only `manage` can re-share.** A viewer cannot forward what they were shown;
 neither can an editor. Sharing is a stewardship act, and DSH‑2 keeps the set of
@@ -112,15 +127,36 @@ existing smoke and e2e keep passing unchanged.
 
 ## Bootstrapping plan
 
-1. `files:manage` in the permission catalog; `expires_at` migration; `has-grant?`
+1. ✅ `files:manage` in the permission catalog; `expires_at` migration; `has-grant?`
    honours expiry. Unit tests on the three capability sets and on expiry.
-2. The share API takes `{principal_type, principal_id, capability, expires_at}`;
+2. ✅ The share API takes `{principal_type, principal_id, capability, expires_at}`;
    `{user_id}` still works. Smoke: a team grant, an expired grant, a viewer who
-   cannot re-share.
-3. The dialog and the "Shared with me" filter.
-4. `inherit` — landed with the first derived-document tool in the workflows slice.
+   cannot re-share, a manage grantee who can.
+3. The dialog and the "Shared with me" filter. *(The existing dialog already renders
+   the capability and expiry of each grant; the pickers are the open part.)*
+4. ✅ `inherit` — `repo-inherit!` plus `GET /api/repo-obj/<id>/derivations`; the
+   first derived-document tool in the workflows slice calls it.
 
-## Decisions to confirm
+### As built
+
+- `expires_at` is **epoch seconds** in the row (portable across dialects, like the
+  quota ledger); the API accepts ISO‑8601 (`2026-12-31T00:00:00Z`, an offset, or a
+  bare date) or epoch seconds, and listings hand back ISO‑8601 UTC. An expiry in
+  the past is a 400, never a row. Expired rows are listed with `expired: true`.
+- A principal must exist **in the object's org** (a user by `users.org_id` or by
+  an active membership in one of its teams — an operator's `org_id` is NULL; a
+  team by `teams.org_id`). Anything else is a 400: the org gate would leave a
+  cross-company row inert anyway, and nobody should be told "shared" about
+  something that will never open.
+- `GET …/grants` returns one entry per principal — `capability` (the widest set
+  the rows cover, `null` for a hand-written row that is no capability),
+  `permissions`, `granted_by`, `created_at`, `expires_at`, `expired`, and the
+  user's `username` or the team's `name`.
+- Revoke is by principal and removes every row that principal held.
+- Notes sharing (`/api/notes/<id>/share`) was already free-form in its permission
+  string; since a grant now delegates, it is pinned to `notes:*`.
+
+## Decisions (confirmed 12 Sep 2026)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|

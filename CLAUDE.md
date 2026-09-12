@@ -462,6 +462,55 @@ raco test test/repo-tests.rkt test/sha2-tests.rkt   # 99 cases, no server
 bash test/server-smoke.sh                            # includes the repository block
 ```
 
+## Document sharing (slice 56)
+
+Three capabilities over the grants table that already existed. Design:
+`docs/design/document-sharing.md` (DSH‑1…6, decided). Built through step 2 plus
+`inherit`; the dialog's pickers and "Shared with me" are open.
+
+- **A grant DELEGATES now.** `can?` used to take the permission from the caller's
+  role and use a grant only to *reach* a private resource, so a member handed
+  `manage` still could not share and a viewer given `edit` could not edit. A
+  matching grant now confers the permission on that one resource, team tier only,
+  still capped by token scopes. This is the single contract change of the slice —
+  if a test that grants `documents:write` to a viewer starts passing, that is why.
+- Capabilities are permission SETS granted row by row (`CAPABILITIES` in
+  `repo.rkt`): view = `files:read`; edit = + `files:write`; manage = +
+  `files:delete` + `files:manage`. Never a wildcard. Sharing again with the same
+  principal REPLACES the set (narrowing drops rows) and renews the expiry.
+- **Only `manage` re-shares** (DSH‑2): `repo-share!`, `repo-unshare!`,
+  `repo-grants` AND `repo-set-visibility!` require `files:manage` on the object.
+  Owner-ok covers the owner; a team admin has it by role for what the role reaches
+  — a colleague's team-visible document, **never their private one** (private is
+  private from admins too; only a grant or the owner opens it).
+- `expires_at` is **epoch seconds** in the row, `NULL` = never; `has-grant?` adds
+  `expires_at IS NULL OR expires_at > now`. Expired rows stay (audit trail) and are
+  listed with `expired: true`. The API takes ISO‑8601 or epoch seconds
+  (`expiry->seconds`), returns ISO‑8601 UTC. A past expiry is a 400, never a row.
+- A principal must be **in the object's org**: a user by `users.org_id` OR an active
+  membership in one of its teams (an operator's `org_id` is NULL — the membership
+  clause is what lets you share with the operator); a team by `teams.org_id`. Else
+  400 — the org gate would leave the row inert, and nobody should be told "shared".
+- `{user_id}` on `POST /api/repo-obj/<id>/share` still means "this person, view".
+  The full body is `{principal_type, principal_id, capability, expires_at}`.
+- `repo-inherit!` (DSH‑5) copies the source's visibility + LIVE grants onto a
+  derived document and writes a `repo_derivations` row; afterwards the two are
+  independent. It needs `files:read` on the source and `files:manage` on the
+  target (owner-ok for the run's principal). `GET /api/repo-obj/<id>/derivations`
+  is the provenance read.
+- `grant!` is now an **upsert** (`ON CONFLICT … DO UPDATE SET expires_at,
+  granted_by`) — granting again renews. `test/fold-tests.rkt` seeds its pre-0025
+  grant with raw SQL because the column does not exist yet in that database.
+- The grants listing is ordered by `created_at`, which has second resolution — a
+  test must find a principal's entry by id, never by position.
+- Notes sharing took a free-form permission string; it is pinned to `notes:*` now,
+  because a grant delegates.
+
+```sh
+raco test test/repo-tests.rkt          # case 7 + expiry parsing (151 cases in the file)
+bash test/server-smoke.sh              # the "share:" block, 20 assertions
+```
+
 ## Workflow engine (plugins that process in steps)
 
 Slice 46. A workflow is a **validated data spec** — that spec is the public

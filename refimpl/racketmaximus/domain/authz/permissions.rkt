@@ -62,7 +62,10 @@
               "notes:read" "notes:write" "notes:delete"
               "tasks:read" "tasks:write" "tasks:delete"
               "memory:read" "memory:write"
-              "files:read" "files:write" "files:delete"
+              ;; files:manage (DSH-1): change visibility, share, revoke — the
+              ;; stewardship of a document. An owner holds it by owner-ok; a team
+              ;; admin holds it here; anyone else needs a `manage` grant.
+              "files:read" "files:write" "files:delete" "files:manage"
               "localization:read" "localization:translate" "localization:review"
               "localization:manage"
               "workflows:read" "workflows:write" "workflows:run")

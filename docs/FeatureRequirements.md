@@ -84,6 +84,12 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
 - [x] **Document Search** — notes + repo objects by key, filename and **extracted
       content**, each row filtered by `can?`. Impl `domain/apps/search.rkt`;
       extraction via the `index-documents` workflow.
+- [x] **Document sharing with permissions** — view / edit / manage capabilities
+      over the grants table; a user or a **team in the same org** as principal;
+      optional expiry; only `manage` re-shares; derived documents inherit at
+      creation. Design: [`design/document-sharing.md`](design/document-sharing.md).
+      *Open:* the dialog's capability/principal/expiry pickers and a "Shared with
+      me" filter (DSH step 3).
 - [x] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that
       proves the platform can build tools.

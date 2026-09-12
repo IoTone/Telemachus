@@ -1122,7 +1122,7 @@ async function repoOpenDetail(id){
       <td>${v.current?'':`<button class="btn sm ghost" onclick="repoDownloadVersion('${esc(id)}','${esc(v.id)}','${esc(o.key)}')">${t('download')}</button>`}</td>
     </tr>`).join('');
   const grows=grants.length
-    ? grants.map(x=>`<tr><td>${esc(x.username||x.principal_id)}</td><td class="mono muted">${esc(x.permission)}</td>
+    ? grants.map(x=>`<tr><td>${esc(x.name||x.username||x.principal_id)}</td><td class="mono muted">${esc(x.capability||'')}${x.expired?' (expired)':(x.expires_at?' until '+esc(x.expires_at.slice(0,10)):'')}</td>
         <td><button class="btn sm bad" onclick="repoUnshare('${esc(id)}','${esc(x.principal_id)}')">${t('revoke')}</button></td></tr>`).join('')
     : `<tr><td colspan="3" class="muted">${t('noshares')}</td></tr>`;
   const opts=members.filter(x=>x.user_id!==o.owner_user_id)
