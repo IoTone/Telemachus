@@ -76,6 +76,11 @@ jobs:
         run: |
           npm install
           npx playwright install --with-deps chromium chromium-headless-shell
+      # The deploy gate: 52 assertions across the whole console, failing on any
+      # 5xx and any uncaught page/console error. Runs BEFORE the tours because a
+      # broken app should fail fast, and the tours would only photograph it.
+      - name: Validate the demo (the e2e gate)
+        run: bash test/e2e/validate.sh
       - name: Run tours (deterministic fallback model) + build catalogs
         run: bash test/e2e/run.sh
       - name: Upload catalogs
