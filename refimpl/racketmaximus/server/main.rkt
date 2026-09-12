@@ -233,6 +233,35 @@
 (define UI-HTML
   (let ([p (build-path impl-root "static" "index.html")])
     (if (file-exists? p) (file->string p) "<!doctype html><h1>Telemachus</h1>")))
+
+;; Escape a branding string for interpolation into HTML. Branding values are
+;; admin-set, but the whole point of the read side being public is that anyone
+;; can read them -- they must never be able to inject markup through them.
+(define (html-escape s)
+  (regexp-replace* #rx"[&<>\"]" s
+                   (lambda (m)
+                     (case (string-ref m 0)
+                       [(#\&) "&amp;"] [(#\<) "&lt;"] [(#\>) "&gt;"] [(#\") "&quot;"]))))
+
+;; The static shell ships with the software's default title baked into the HTML
+;; source, and the SPA only corrects it after JavaScript runs. Crawlers, link
+;; unfurlers and anything else that reads raw HTML never run the SPA, so on a
+;; branded instance they read the internal codename instead of the instance's
+;; own name (hit live on beta.rcn-t.com 2026-09-04: /api/branding correctly
+;; reported the instance's title while every raw-HTML response still said
+;; otherwise). Rewritten per request rather than once at startup: UI-HTML is
+;; read once, but branding is instance state an operator can change while the
+;; server is running. Missing-file fallback UI-HTML has no <title> element;
+;; regexp-replace# simply leaves it alone.
+(define (ui-html-branded)
+  (define title (hash-ref (branding-get db-conn) 'title ""))
+  (if (string=? title "")
+      UI-HTML
+      ;; Procedural replacement, not a string: regexp-replace* expands `&` and
+      ;; `\<n>` in a STRING replacement, so a branded title like "A & B" would
+      ;; corrupt the markup (caught by the smoke test's escape assertion).
+      (regexp-replace* #px"<title>.*?</title>" UI-HTML
+                       (lambda _ (string-append "<title>" (html-escape title) "</title>")))))
 (define (html-response s)
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
@@ -1810,14 +1839,22 @@
        (equal? (list-ref segs 2) "asset") (list-ref segs 3)))
 
 (define (route req)
-  (define m (request-method req))
+  ;; HEAD must reach every GET route: monitors, link unfurlers and health
+  ;; checkers probe with HEAD, and before 2026-09-04 every one of them got a
+  ;; JSON 404 from a perfectly healthy server (hit live on beta.rcn-t.com:
+  ;; HEAD / returned 404 while GET / returned the app). web-server's response
+  ;; layer already suppresses response bodies for HEAD requests
+  ;; (web-server/http/response), so matching HEAD as GET is sufficient and no
+  ;; route can accidentally emit a body.
+  (define m (let ([rm (request-method req)])
+              (if (bytes=? rm #"HEAD") #"GET" rm)))
   (define segs (request-path req))
   (cond
     ;; "login" is a real route so the console has a URL that does not depend on the beta
     ;; landing rendering at all — a themeable page must not be the only way in.
     [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html"))
                         (equal? segs '("activate")) (equal? segs '("login"))))
-     (html-response UI-HTML)]
+     (html-response (ui-html-branded))]
     [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
     [(and (GET? m)  (equal? segs '("beta-sdk.js")))         (serve-file (build-path impl-root "static" "beta-sdk.js"))]
     [(and (GET? m)  (bundle-file-path segs))                (serve-file (bundle-file-path segs))]
