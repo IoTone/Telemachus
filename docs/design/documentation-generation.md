@@ -1,6 +1,6 @@
 # Documentation generation
 
-*Decided 11 Sep 2026 — the recommendations under **Decisions to confirm** are adopted (DOCGEN‑1…6). Build from here.*
+*Decided 11 Sep 2026 (DOCGEN‑1…6). **Built** 13 Sep 2026 (slice 60): `cli/telemachus-docs.rkt`, `server/routes.rkt`, the described permission catalog, `docs/reference/`, the CI drift gate, and `strings.json` in the catalogs. See **As built** at the end.*
 
 The platform already knows what it is. Every tool declares an OpenAI-compatible
 schema through `define-tool`; every workflow is a validated spec; the permission
@@ -150,17 +150,42 @@ advisory (LOC‑4) — the English is required, the rest is coverage.
 
 ## Bootstrapping plan
 
-1. **Route table + permission descriptions** (the two gaps). Mechanical; no
+1. ✅ **Route table + permission descriptions** (the two gaps). Mechanical; no
    behaviour change; `server-smoke.sh` is the proof nothing moved.
-2. **`telemachus-docs describe`** over tools, workflows, permissions, routes,
+2. ✅ **`telemachus-docs describe`** over tools, workflows, permissions, routes,
    plugins. Emit the model.
-3. **`render`** for the four generated pages; commit `docs/reference/`; add the
+3. ✅ **`render`** for the four generated pages; commit `docs/reference/`; add the
    drift gate to CI.
-4. **`strings.json`** + the `doc.` namespace; draft `ja` with the Manager and
-   review it — the same exercise the console just went through.
-5. `sdk.md` and `plugins.md` as narrative-plus-tables, last.
+4. ✅ **`strings.json`** + the `doc.` namespace (249 messages, in `en.json`);
+   `render --locale` works from the catalogs. *Drafting `ja` with the Manager
+   is a run of the tool, not code — it has not been done yet.*
+5. ✅ `sdk.md` and `plugins.md` as narrative-plus-tables.
 
-## Decisions to confirm
+## As built
+
+- **The route table is data** (`server/routes.rkt`, no database, no server):
+  `(R method path handler-key #:auth #:perm #:feature #:doc)`. `main.rkt` binds
+  keys to procedures in `HANDLERS` and refuses to boot if either side names
+  something the other lacks — so an endpoint cannot exist undocumented, or be
+  documented without existing. Patterns are literal segments, `:name`, and
+  `*name` for the rest of the path; first match wins in list order, exactly as
+  the old `cond` did. The permission an entry carries is what the handler
+  ENFORCES; `auth` is how it authenticates (public, bearer, provision,
+  superadmin, org-admin).
+- **A permission with no description is a load error**, checked when
+  `permissions.rkt` is instantiated over every built-in role's grants; the docs
+  CLI checks every route's permission the same way.
+- **Determinism cost one real decision**: a Racket `hasheq`'s iteration order is
+  not stable across processes, so nothing in the generator calls `write-json` on
+  a hash — `json-out` writes sorted keys, tables sort their rows, and two
+  renders in two processes diff empty. The drift gate would otherwise cry wolf.
+- **Materialization raced** once the console fired two lookups in parallel; the
+  plugin-workflow insert is `ON CONFLICT DO NOTHING` now. The e2e gate found it.
+- The generator EVALUATES the plugins (`load-plugins!`), so it runs inside
+  `nix develop`; `init!` hooks that register a blob store or an onboarding
+  provider are harmless there.
+
+## Decisions (confirmed 11 Sep 2026)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|

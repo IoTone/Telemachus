@@ -18,7 +18,7 @@
 ;;   GET  /api/admin/status                           → operator only (instance:manage)
 
 (require racket/path
-         (only-in racket/list take)
+         (only-in racket/list take remove-duplicates)
          racket/string
          racket/file
          racket/system
@@ -63,6 +63,9 @@
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
          (only-in "../domain/repo/doc-tools.rkt")  ; registers the document-pipeline tools (slice 57)
          "../domain/repo/triggers.rkt"            ; upload triggers on repo-put!'s seam (slice 58)
+         "routes.rkt"                             ; the declared HTTP surface (slice 60)
+         "../domain/kg/kg.rkt"                    ; the knowledge graph (slice 61)
+         (only-in "../domain/kg/kg-tools.rkt")     ; registers its tools
          "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
@@ -1859,78 +1862,113 @@
        (set-limit! db-conn "team" (principal-team-id p) dim limit #:window (hash-ref b 'window "day"))
        (json-response (hasheq 'ok #t 'dimension dim 'limit limit))]))))
 
+;; ---- knowledge graph (slice 61) --------------------------------------------------
+;; Every read applies the mention rule inside domain/kg: an entity the caller can
+;; see no mention of does not exist for them. Extraction is the index-knowledge
+;; workflow, queued like any run.
+(define (ep-kg-entities req)
+  (with-auth req (lambda (p)
+    (define q (query-param req 'q ""))
+    (define type (let ([t (query-param req 'type "")]) (and (not (string=? t "")) t)))
+    (json-response (hasheq 'entities (kg-find db-conn p q #:type type)
+                           'stats (kg-stats db-conn p)
+                           'types STARTER-TYPES)))))
+
+(define (ep-kg-entity req id)
+  (with-auth req (lambda (p)
+    (define e (kg-entity db-conn p id))
+    (if e (json-response e) (err "not found" 404)))))
+
+(define (ep-kg-extract req)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (define d (flow-def-by-slug db-conn p "index-knowledge"))
+    (cond
+      [(not d) (err "the knowledge-graph plugin is not loaded" 404)]
+      [else (json-response (flow-run-start! db-conn p d) #:code 202)]))))
+
 ;; ---- routing ----------------------------------------------------------------
 (define (GET? m) (bytes=? m #"GET"))
 (define (POST? m) (bytes=? m #"POST"))
 (define (PUT? m) (bytes=? m #"PUT"))
 (define (DELETE? m) (bytes=? m #"DELETE"))
 (define (PATCH? m) (bytes=? m #"PATCH"))
-(define (OPTIONS? m) (bytes=? m #"OPTIONS"))
 
-;; /api/notes/<id> → id ; /api/notes/<id>/share → id
-(define (note-id segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "notes") (caddr segs)))
-(define (tool-path segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tools") (caddr segs)))
-(define (token-path segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "tokens") (caddr segs)))
-(define (feature-path segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "features") (caddr segs)))
-(define (doc-id segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "documents") (caddr segs)))
-(define (job-id segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "jobs") (caddr segs)))
-(define (job-cancel-path segs)
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "jobs")
-       (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
-(define (l10n-message-path segs)     ; PUT /api/l10n/messages/<message-id>
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "l10n")
-       (equal? (list-ref segs 2) "messages") (list-ref segs 3)))
-(define (l10n-review-path segs)      ; POST /api/l10n/review/<translation-id>
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "l10n")
-       (equal? (list-ref segs 2) "review") (list-ref segs 3)))
-(define (beta-decide-path segs)
-  (and (= (length segs) 5) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
-       (equal? (list-ref segs 2) "prospects") (equal? (list-ref segs 4) "decide") (list-ref segs 3)))
-(define (share-id segs)
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "notes")
-       (equal? (list-ref segs 3) "share") (list-ref segs 2)))
-;; /api/orgs/<ref> · /api/orgs/<ref>/{suspend,resume,quota} — <ref> is an id OR a slug
-;; /api/repo/<key…> — a key contains slashes, so it is the whole tail rather than
-;; one segment. Object operations address the object by ID (/api/repo-obj/<id>/…)
-;; so a key can never be confused with an action.
-(define (repo-key-path segs)
-  (and (>= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "repo")
-       (string-join (cddr segs) "/")))
-(define (repo-obj-path segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "repo-obj")
-       (caddr segs)))
-(define (repo-obj-action segs action)
-  (and (= (length segs) 4) (equal? (car segs) "api") (equal? (cadr segs) "repo-obj")
-       (equal? (list-ref segs 3) action) (caddr segs)))
+;; The surface is DECLARED in server/routes.rkt (method, path, handler key,
+;; permission, auth, feature, doc) and rendered into docs/reference/api.md from
+;; there. This table binds each key to a procedure of (req . path-params); the
+;; boot check below refuses to serve if the two disagree in either direction, so
+;; an endpoint cannot exist without a documented entry, or an entry without code.
+(define HANDLERS
+  (hasheq
+   'ui (lambda (req) (html-response (ui-html-branded)))
+   'health (lambda (req) (ep-health))
+   'beta-sdk (lambda (req) (serve-file (build-path impl-root "static" "beta-sdk.js")))
+   'bundle-file (lambda (req plugin path)
+                  (define f (bundle-file-path (request-path req)))
+                  (if f (serve-file f) (err "not found" 404)))
+   'beta-template ep-beta-template
+   'config ep-config
+   'branding-get ep-branding-get 'branding-put ep-branding-put 'branding-logo ep-branding-logo
+   'i18n-catalog ep-i18n-catalog 'i18n-put ep-i18n-put
+   'l10n-coverage ep-l10n-coverage 'l10n-messages ep-l10n-messages 'l10n-import ep-l10n-import
+   'l10n-export ep-l10n-export 'l10n-draft ep-l10n-draft 'l10n-discard ep-l10n-discard
+   'l10n-submit ep-l10n-submit 'l10n-review ep-l10n-review
+   'beta-config ep-beta-config 'cors-preflight (lambda (req) (cors-preflight))
+   'beta-experience-get ep-beta-experience-get 'beta-experience-put ep-beta-experience-put
+   'beta-experience-publish ep-beta-experience-publish
+   'beta-asset-upload ep-beta-asset-upload 'beta-assets ep-beta-assets
+   'beta-asset ep-beta-asset 'beta-asset-delete ep-beta-asset-delete
+   'beta-challenge ep-beta-challenge 'beta-signup ep-beta-signup
+   'beta-prospects ep-beta-prospects 'beta-decide ep-beta-decide
+   'bootstrap ep-bootstrap 'provision ep-provision 'activate ep-activate
+   'tenant-suspend (lambda (req) (ep-tenant req suspend!))
+   'tenant-resume (lambda (req) (ep-tenant req resume!))
+   'instance-quota ep-instance-quota
+   'login ep-login '2fa-enable ep-2fa-enable 'password ep-password
+   'whoami ep-whoami 'profile ep-profile 'add-member ep-add-member 'members-list ep-members-list
+   'admin-status ep-admin-status
+   'orgs-create ep-orgs-create 'orgs-list ep-orgs-list
+   'org-suspend (lambda (req ref) (ep-org-status req ref "suspended"))
+   'org-resume (lambda (req ref) (ep-org-status req ref "active"))
+   'org-quota ep-org-quota 'org-get ep-org-get 'org-update ep-org-update
+   'seed-tenants ep-seed-tenants
+   'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
+   'my-org-member-add ep-my-org-member-add 'my-org-audit ep-my-org-audit
+   'notes-create ep-notes-create 'notes-list ep-notes-list
+   'documents-create ep-documents-create 'documents-list ep-documents-list
+   'documents-get ep-documents-get 'documents-update ep-documents-update 'documents-delete ep-documents-delete
+   'notes-share ep-notes-share 'notes-get ep-notes-get 'notes-update ep-notes-update 'notes-delete ep-notes-delete
+   'ai-echo ep-ai-echo 'ai-chat ep-ai-chat 'ai-chat-stream ep-ai-chat-stream 'agent ep-agent
+   'translate-catalog ep-translate-catalog 'translate ep-translate 'translate-list ep-translate-list
+   'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
+   'ai-model ep-ai-model 'executors ep-executors
+   'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
+   'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
+   'search ep-search 'audit ep-audit
+   'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
+   'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants
+   'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
+   'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign
+   'repo-meta ep-repo-meta 'repo-delete ep-repo-delete 'repo-put ep-repo-put
+   's3-creds ep-s3-creds 's3-cred-create ep-s3-cred-create 's3-cred-revoke ep-s3-cred-revoke
+   'workflows-create ep-workflows-create 'workflows-list ep-workflows-list 'workflow-schema ep-workflow-schema
+   'workflow-run ep-workflow-run
+   'doc-triggers-list ep-doc-triggers-list 'doc-triggers-create ep-doc-triggers-create
+   'doc-trigger-get ep-doc-trigger-get 'doc-trigger-update ep-doc-trigger-update 'doc-trigger-delete ep-doc-trigger-delete
+   'workflow-get ep-workflow-get 'runs-list ep-runs-list 'run-cancel ep-run-cancel 'run-get ep-run-get
+   'kg-entities ep-kg-entities 'kg-entity ep-kg-entity 'kg-extract ep-kg-extract
+   'admin-seed ep-admin-seed 'metrics ep-metrics 'features ep-features 'feature-toggle ep-feature-toggle
+   'plugins ep-plugins 'mcp ep-mcp 'oop ep-oop 'tool-toggle ep-tool-toggle))
 
-(define (workflow-slug segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "workflows") (caddr segs)))
-(define (doc-trigger-id segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "doc-triggers") (caddr segs)))
-
-(define (workflow-run-path segs)
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "workflows")
-       (equal? (list-ref segs 3) "run") (list-ref segs 2)))
-(define (flow-run-id-path segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "runs") (caddr segs)))
-(define (flow-run-cancel-path segs)
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "runs")
-       (equal? (list-ref segs 3) "cancel") (list-ref segs 2)))
-(define (org-id-path segs)
-  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "orgs") (caddr segs)))
-(define (org-action-path segs action)
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "orgs")
-       (equal? (list-ref segs 3) action) (list-ref segs 2)))
-
-(define (beta-asset-id segs)
-  (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "beta")
-       (equal? (list-ref segs 2) "asset") (list-ref segs 3)))
+;; every declared route has a handler, and every handler is declared
+(let ([declared (remove-duplicates (map rt-handler ROUTES))])
+  (for ([k (in-list declared)])
+    (unless (hash-has-key? HANDLERS k)
+      (error 'routes "server/routes.rkt declares handler '~a' which server/main.rkt does not define" k)))
+  (for ([k (in-hash-keys HANDLERS)])
+    (unless (memq k declared)
+      (error 'routes "server/main.rkt has handler '~a' which server/routes.rkt does not declare" k))))
 
 (define (route req)
   ;; HEAD must reach every GET route: monitors, link unfurlers and health
@@ -1941,150 +1979,10 @@
   ;; (web-server/http/response), so matching HEAD as GET is sufficient and no
   ;; route can accidentally emit a body.
   (define m (let ([rm (request-method req)])
-              (if (bytes=? rm #"HEAD") #"GET" rm)))
-  (define segs (request-path req))
+              (bytes->string/utf-8 (if (bytes=? rm #"HEAD") #"GET" rm))))
+  (define-values (entry params) (match-route m (request-path req)))
   (cond
-    ;; "login" is a real route so the console has a URL that does not depend on the beta
-    ;; landing rendering at all — a themeable page must not be the only way in.
-    [(and (GET? m)  (or (null? segs) (equal? segs '("")) (equal? segs '("index.html"))
-                        (equal? segs '("activate")) (equal? segs '("login"))))
-     (html-response (ui-html-branded))]
-    [(and (GET? m)  (equal? segs '("health")))              (ep-health)]
-    [(and (GET? m)  (equal? segs '("beta-sdk.js")))         (serve-file (build-path impl-root "static" "beta-sdk.js"))]
-    [(and (GET? m)  (bundle-file-path segs))                (serve-file (bundle-file-path segs))]
-    [(and (GET? m)  (equal? segs '("api" "config")))       (ep-config req)]
-    [(and (GET? m)  (equal? segs '("api" "branding")))     (ep-branding-get req)]
-    [(and (PUT? m)  (equal? segs '("api" "branding")))     (ep-branding-put req)]
-    [(and (POST? m) (equal? segs '("api" "branding" "logo"))) (ep-branding-logo req)]
-    [(and (GET? m)  (equal? segs '("api" "i18n" "catalog"))) (ep-i18n-catalog req)]
-    [(and (PUT? m)  (equal? segs '("api" "i18n")))         (ep-i18n-put req)]
-    [(and (GET? m)  (equal? segs '("api" "l10n" "coverage")))  (ep-l10n-coverage req)]
-    [(and (GET? m)  (equal? segs '("api" "l10n" "messages")))  (ep-l10n-messages req)]
-    [(and (POST? m) (equal? segs '("api" "l10n" "import")))    (ep-l10n-import req)]
-    [(and (POST? m) (equal? segs '("api" "l10n" "export")))    (ep-l10n-export req)]
-    [(and (POST? m) (equal? segs '("api" "l10n" "draft")))     (ep-l10n-draft req)]
-    [(and (POST? m) (equal? segs '("api" "l10n" "discard")))   (ep-l10n-discard req)]
-    [(and (PUT? m)  (l10n-message-path segs))                  (ep-l10n-submit req (l10n-message-path segs))]
-    [(and (POST? m) (l10n-review-path segs))                   (ep-l10n-review req (l10n-review-path segs))]
-    [(and (GET? m)  (equal? segs '("api" "beta" "config"))) (ep-beta-config req)]
-    [(and (GET? m)  (equal? segs '("beta" "template")))     (ep-beta-template req)]
-    [(and (OPTIONS? m) (member segs '(("api" "beta" "signup") ("api" "beta" "config") ("api" "beta" "challenge")))) (cors-preflight)]
-    [(and (GET? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-get req)]
-    [(and (PUT? m)  (equal? segs '("api" "beta" "experience"))) (ep-beta-experience-put req)]
-    [(and (POST? m) (equal? segs '("api" "beta" "experience" "publish"))) (ep-beta-experience-publish req)]
-    [(and (POST? m)   (equal? segs '("api" "beta" "assets")))  (ep-beta-asset-upload req)]
-    [(and (GET? m)    (equal? segs '("api" "beta" "assets")))  (ep-beta-assets req)]
-    [(and (GET? m)    (beta-asset-id segs))                    (ep-beta-asset req (beta-asset-id segs))]
-    [(and (DELETE? m) (beta-asset-id segs))                    (ep-beta-asset-delete req (beta-asset-id segs))]
-    [(and (GET? m)  (equal? segs '("api" "beta" "challenge"))) (ep-beta-challenge req)]
-    [(and (POST? m) (equal? segs '("api" "beta" "signup"))) (ep-beta-signup req)]
-    [(and (GET? m)  (equal? segs '("api" "beta" "prospects"))) (ep-beta-prospects req)]
-    [(and (POST? m) (beta-decide-path segs))               (ep-beta-decide req (beta-decide-path segs))]
-    [(and (POST? m) (equal? segs '("api" "bootstrap")))     (ep-bootstrap req)]
-    [(and (POST? m) (equal? segs '("api" "provision")))     (ep-provision req)]
-    [(and (POST? m) (equal? segs '("api" "activate")))      (ep-activate req)]
-    [(and (POST? m) (equal? segs '("api" "instance" "suspend"))) (ep-tenant req suspend!)]
-    [(and (POST? m) (equal? segs '("api" "instance" "resume")))  (ep-tenant req resume!)]
-    [(and (POST? m) (equal? segs '("api" "instance" "quota")))   (ep-instance-quota req)]
-    [(and (POST? m) (equal? segs '("api" "login")))         (ep-login req)]
-    [(and (POST? m) (equal? segs '("api" "2fa" "enable")))  (ep-2fa-enable req)]
-    [(and (POST? m) (equal? segs '("api" "password")))      (ep-password req)]
-    [(and (GET? m)  (equal? segs '("api" "whoami")))        (ep-whoami req)]
-    [(and (POST? m) (equal? segs '("api" "profile")))       (ep-profile req)]
-    [(and (POST? m) (equal? segs '("api" "members")))       (ep-add-member req)]
-    [(and (GET? m)  (equal? segs '("api" "members")))       (ep-members-list req)]
-    [(and (GET? m)  (equal? segs '("api" "admin" "status"))) (ep-admin-status req)]
-    ;; multi-tenancy — superadmin plane (instance:manage) then org-admin plane (org:*)
-    [(and (POST? m) (equal? segs '("api" "orgs")))          (ep-orgs-create req)]
-    [(and (GET? m)  (equal? segs '("api" "orgs")))          (ep-orgs-list req)]
-    [(and (POST? m) (org-action-path segs "suspend"))       (ep-org-status req (org-action-path segs "suspend") "suspended")]
-    [(and (POST? m) (org-action-path segs "resume"))        (ep-org-status req (org-action-path segs "resume") "active")]
-    [(and (POST? m) (org-action-path segs "quota"))         (ep-org-quota req (org-action-path segs "quota"))]
-    [(and (GET? m)  (org-id-path segs))                     (ep-org-get req (org-id-path segs))]
-    [(and (PATCH? m) (org-id-path segs))                    (ep-org-update req (org-id-path segs))]
-    [(and (POST? m) (equal? segs '("api" "admin" "seed-tenants"))) (ep-seed-tenants req)]
-    [(and (GET? m)  (equal? segs '("api" "org")))           (ep-my-org req)]
-    [(and (GET? m)  (equal? segs '("api" "org" "teams")))   (ep-my-org-teams req)]
-    [(and (POST? m) (equal? segs '("api" "org" "teams")))   (ep-my-org-team-create req)]
-    [(and (POST? m) (equal? segs '("api" "org" "members"))) (ep-my-org-member-add req)]
-    [(and (GET? m)  (equal? segs '("api" "org" "audit")))   (ep-my-org-audit req)]
-    [(and (POST? m) (equal? segs '("api" "notes")))        (ep-notes-create req)]
-    [(and (GET? m)  (equal? segs '("api" "notes")))        (ep-notes-list req)]
-    [(and (POST? m) (equal? segs '("api" "documents")))    (ep-documents-create req)]
-    [(and (GET? m)  (equal? segs '("api" "documents")))    (ep-documents-list req)]
-    [(and (GET? m)    (doc-id segs))                       (ep-documents-get req (doc-id segs))]
-    [(and (PUT? m)    (doc-id segs))                       (ep-documents-update req (doc-id segs))]
-    [(and (DELETE? m) (doc-id segs))                       (ep-documents-delete req (doc-id segs))]
-    [(and (POST? m) (share-id segs))                       (ep-notes-share req (share-id segs))]
-    [(and (GET? m)    (note-id segs))                      (ep-notes-get req (note-id segs))]
-    [(and (PUT? m)    (note-id segs))                      (ep-notes-update req (note-id segs))]
-    [(and (DELETE? m) (note-id segs))                      (ep-notes-delete req (note-id segs))]
-    [(and (POST? m) (equal? segs '("api" "ai" "echo")))    (ep-ai-echo req)]
-    [(and (POST? m) (equal? segs '("api" "ai" "chat")))    (ep-ai-chat req)]
-    [(and (POST? m) (equal? segs '("api" "ai" "chat" "stream"))) (ep-ai-chat-stream req)]
-    [(and (POST? m) (equal? segs '("api" "agent")))        (ep-agent req)]
-    [(and (POST? m) (equal? segs '("api" "translate" "catalog"))) (ep-translate-catalog req)]
-    [(and (POST? m) (equal? segs '("api" "translate")))    (ep-translate req)]
-    [(and (GET? m)  (equal? segs '("api" "translate")))    (ep-translate-list req)]
-    [(and (POST? m) (equal? segs '("api" "glossary")))     (ep-glossary-add req)]
-    [(and (GET? m)  (equal? segs '("api" "glossary")))     (ep-glossary-list req)]
-    [(and (GET? m)  (equal? segs '("api" "ai" "model")))   (ep-ai-model req)]
-    [(and (GET? m)  (equal? segs '("api" "executors")))    (ep-executors req)]
-    [(and (GET? m)  (equal? segs '("api" "usage")))        (ep-usage req)]
-    [(and (POST? m) (equal? segs '("api" "quota")))        (ep-quota-set req)]
-    [(and (GET? m)  (equal? segs '("api" "tools")))        (ep-tools-list req)]
-    [(and (POST? m)   (equal? segs '("api" "tokens")))     (ep-tokens-create req)]
-    [(and (GET? m)    (equal? segs '("api" "tokens")))     (ep-tokens-list req)]
-    [(and (DELETE? m) (token-path segs))                   (ep-tokens-revoke req (token-path segs))]
-    [(and (GET? m)  (equal? segs '("api" "search")))       (ep-search req)]
-    [(and (GET? m)  (equal? segs '("api" "audit")))        (ep-audit req)]
-    [(and (POST? m) (equal? segs '("api" "jobs")))         (ep-jobs-create req)]
-    [(and (GET? m)  (equal? segs '("api" "jobs")))         (ep-jobs-list req)]
-    [(and (POST? m) (job-cancel-path segs))                (ep-job-cancel req (job-cancel-path segs))]
-    [(and (GET? m)  (job-id segs))                         (ep-job-get req (job-id segs))]
-    ;; document repository (slices 49-50). More specific routes first: the bare
-    ;; /api/repo listing, then object actions by id, then the catch-all key path.
-    [(and (GET? m)  (equal? segs '("api" "repo")))          (ep-repo-list req)]
-    [(and (POST? m) (repo-obj-action segs "share"))         (ep-repo-share req (repo-obj-action segs "share"))]
-    [(and (POST? m) (repo-obj-action segs "unshare"))       (ep-repo-unshare req (repo-obj-action segs "unshare"))]
-    [(and (GET? m)  (repo-obj-action segs "grants"))        (ep-repo-grants req (repo-obj-action segs "grants"))]
-    [(and (GET? m)  (repo-obj-action segs "derivations"))   (ep-repo-derivations req (repo-obj-action segs "derivations"))]
-    [(and (GET? m)  (repo-obj-action segs "processing"))    (ep-repo-processing req (repo-obj-action segs "processing"))]
-    [(and (GET? m)  (equal? segs '("api" "share-targets")))  (ep-share-targets req)]
-    [(and (POST? m) (repo-obj-action segs "visibility"))    (ep-repo-visibility req (repo-obj-action segs "visibility"))]
-    [(and (GET? m)  (repo-obj-action segs "content"))       (ep-repo-get req (repo-obj-action segs "content"))]
-    [(and (POST? m) (repo-obj-action segs "presign"))       (ep-repo-presign req (repo-obj-action segs "presign"))]
-    [(and (GET? m)  (repo-obj-path segs))                   (ep-repo-meta req (repo-obj-path segs))]
-    [(and (DELETE? m) (repo-obj-path segs))                 (ep-repo-delete req (repo-obj-path segs))]
-    [(and (PUT? m)  (repo-key-path segs))                   (ep-repo-put req (repo-key-path segs))]
-    ;; S3 access keys — managed here, used on the S3 port
-    [(and (GET? m)  (equal? segs '("api" "s3" "credentials")))  (ep-s3-creds req)]
-    [(and (POST? m) (equal? segs '("api" "s3" "credentials")))  (ep-s3-cred-create req)]
-    [(and (DELETE? m) (= (length segs) 4) (equal? (car segs) "api")
-          (equal? (cadr segs) "s3") (equal? (caddr segs) "credentials"))
-     (ep-s3-cred-revoke req (list-ref segs 3))]
-    ;; workflows (slice 46) — /schema is matched before /<slug> on purpose
-    [(and (POST? m) (equal? segs '("api" "workflows")))     (ep-workflows-create req)]
-    [(and (GET? m)  (equal? segs '("api" "workflows")))     (ep-workflows-list req)]
-    [(and (GET? m)  (equal? segs '("api" "workflows" "schema"))) (ep-workflow-schema req)]
-    [(and (POST? m) (workflow-run-path segs))               (ep-workflow-run req (workflow-run-path segs))]
-    [(and (GET? m)  (equal? segs '("api" "doc-triggers")))   (ep-doc-triggers-list req)]
-    [(and (POST? m) (equal? segs '("api" "doc-triggers")))   (ep-doc-triggers-create req)]
-    [(and (GET? m)  (doc-trigger-id segs))                   (ep-doc-trigger-get req (doc-trigger-id segs))]
-    [(and (PATCH? m) (doc-trigger-id segs))                  (ep-doc-trigger-update req (doc-trigger-id segs))]
-    [(and (DELETE? m) (doc-trigger-id segs))                 (ep-doc-trigger-delete req (doc-trigger-id segs))]
-    [(and (GET? m)  (workflow-slug segs))                   (ep-workflow-get req (workflow-slug segs))]
-    [(and (GET? m)  (equal? segs '("api" "runs")))          (ep-runs-list req)]
-    [(and (POST? m) (flow-run-cancel-path segs))            (ep-run-cancel req (flow-run-cancel-path segs))]
-    [(and (GET? m)  (flow-run-id-path segs))                (ep-run-get req (flow-run-id-path segs))]
-    [(and (POST? m) (equal? segs '("api" "admin" "seed")))  (ep-admin-seed req)]
-    [(and (GET? m)  (equal? segs '("api" "metrics")))      (ep-metrics req)]
-    [(and (GET? m)  (equal? segs '("api" "features")))     (ep-features req)]
-    [(and (POST? m) (feature-path segs))                   (ep-feature-toggle req (feature-path segs))]
-    [(and (GET? m)  (equal? segs '("api" "plugins")))      (ep-plugins req)]
-    [(and (GET? m)  (equal? segs '("api" "mcp")))          (ep-mcp req)]
-    [(and (GET? m)  (equal? segs '("api" "oop")))          (ep-oop req)]
-    [(and (POST? m) (tool-path segs))                      (ep-tool-toggle req (tool-path segs))]
+    [entry (apply (hash-ref HANDLERS (rt-handler entry)) req params)]
     [else (err "not found" 404)]))
 
 (define (handle req)

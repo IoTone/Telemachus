@@ -44,14 +44,16 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       out-of-process plugins, org gate at step 0 of `can?`, SigV4 for S3, secrets
       handled at a stated trust boundary. **No consolidated design doc yet** — the
       posture is currently spread across the subsystem docs and `CLAUDE.md`.
-- [~] **SDK contract** — how third parties add tools, integrations, datasets,
+- [x] **SDK contract** — how third parties add tools, integrations, datasets,
       localizations; declaration vs execution; consent/scope enforcement.
-      *Partially built*: `define-tool` and `define-workflow` emit validated specs,
-      plugin seams exist for tools/workflows/blob stores/onboarding, and the beta
-      funnel ships a browser SDK. **Not yet published as a contract document.**
-- [~] **Backend APIs & protocols** — the stable surface between swappable frontends
-      and backends. The surface exists and is exercised by the smoke suites; it has
-      **no generated reference**. Blocked on the documentation item below.
+      `define-tool` and `define-workflow` emit validated specs, plugin seams exist
+      for tools/workflows/blob stores/onboarding, and the beta funnel ships a
+      browser SDK. Published as [`reference/sdk.md`](reference/sdk.md) and
+      [`reference/plugins.md`](reference/plugins.md), generated with the rest.
+- [x] **Backend APIs & protocols** — the stable surface between swappable frontends
+      and backends. **Declared** in `server/routes.rkt` (method, path, auth,
+      permission, feature, one line of doc; the server refuses to boot if the table
+      and the handlers disagree) and rendered to [`reference/api.md`](reference/api.md).
 - [x] **Localization (i18n), top to bottom** — every user-facing surface
       localizable; English at launch; then Japanese, Dutch, Latin American Spanish
       produced *by the localization tool*.
@@ -67,9 +69,16 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       human-reviewed (169 of 340 UI drafts corrected), exported, and passing the
       tool's own gate. That is the proof the flagship exists for.
       Design: [`design/localization.md`](design/localization.md) · impl `domain/i18n/`.
-- [ ] **Documentation** — generated, localizable project docs (SDK contracts, APIs,
-      tool & permission catalogs). Not started. Feeds the localization pipeline, so
-      it wants to land after the Localization Manager. Design doc not yet drafted.
+- [x] **Documentation** — generated, localizable project docs. `telemachus-docs`
+      evaluates the tool registry, the plugin loader, the workflow specs, the
+      permission catalog (every permission now carries a description beside its
+      declaration) and the route table, and renders [`docs/reference/`](reference/)
+      — tools, workflows, permissions with the role matrix, the HTTP API, plugins,
+      the SDK. Committed and drift-gated in CI; byte-identical from identical
+      sources. Every description is a `doc.*` message in the catalogs (249 of them,
+      via `reference/strings.json`), so the Localization Manager translates them and
+      `render --locale ja` writes `reference/ja/`.
+      Design: [`design/documentation-generation.md`](design/documentation-generation.md).
 
 ## Generic applications
 
@@ -116,8 +125,15 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       run without touching human work, and a queued draft reports the team's AI
       budget so an over-budget queue does not look like a hang. **Used to produce
       `nl` and `es-419`, server and console** (see the localization line above).
-- [ ] **Knowledge Graph** — not started; no design doc yet. The largest unknown
-      remaining in this list.
+- [x] **Knowledge Graph** — entities and relations extracted from the team's
+      documents, every fact traceable to the document and version that asserted
+      it. Visibility is inherited from the sources through `can?` (a fact shows if
+      any readable document mentions it; a private document's snippet stays
+      private); a new version supersedes; deleting a document forgets its facts.
+      Extracted by the `index-knowledge` workflow (the extractor refuses a reply
+      whose snippets are not verbatim), surfaced in search, through the agent's
+      `kg_query` tool with citations, and in the Knowledge tab.
+      Design: [`design/knowledge-graph.md`](design/knowledge-graph.md).
 
 ## Out of scope / non-goals
 

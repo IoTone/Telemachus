@@ -842,6 +842,62 @@
         "  PRIMARY KEY (trigger_id, version_id))")
        "CREATE INDEX idx_doc_trigger_fires_object ON doc_trigger_fires(object_id)"))))
 
+;; 0027 — the knowledge graph (slice 61, KG-1…4): entities, relations, and the
+;; mentions that bind each to the document and version that asserted it.
+(define m-0027-kg
+  (migration "0027-kg"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE kg_entities ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  type TEXT NOT NULL,"                 ; open vocabulary with a starter set
+        "  name TEXT NOT NULL,"
+        "  name_norm TEXT NOT NULL,"            ; lower-cased, whitespace-collapsed, suffixes dropped
+        "  description TEXT NOT NULL DEFAULT '',"
+        "  first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(team_id, type, name_norm))")
+       "CREATE INDEX idx_kg_entities_team_name ON kg_entities(team_id, name_norm)"
+       (string-append
+        "CREATE TABLE kg_relations ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  subject_id TEXT NOT NULL,"
+        "  predicate TEXT NOT NULL,"            ; lower_snake_case, the extractor's own word
+        "  object_id TEXT NOT NULL,"
+        "  first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  UNIQUE(team_id, subject_id, predicate, object_id))")
+       "CREATE INDEX idx_kg_relations_subject ON kg_relations(subject_id)"
+       "CREATE INDEX idx_kg_relations_object ON kg_relations(object_id)"
+       ;; exactly one of entity_id / relation_id is set. A mention is the join that
+       ;; makes the graph a VIEW over the documents: keyed to the version that
+       ;; asserted it, filtered per row by can? on the object, gone when it is.
+       (string-append
+        "CREATE TABLE kg_mentions ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  entity_id TEXT,"
+        "  relation_id TEXT,"
+        "  object_id TEXT NOT NULL,"
+        "  version_id TEXT NOT NULL,"
+        "  snippet TEXT NOT NULL DEFAULT '',"
+        "  extracted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_kg_mentions_entity ON kg_mentions(entity_id)"
+       "CREATE INDEX idx_kg_mentions_relation ON kg_mentions(relation_id)"
+       "CREATE INDEX idx_kg_mentions_object ON kg_mentions(object_id)"
+       ;; the marker that makes "unextracted" answerable: a document with no
+       ;; entities in it would otherwise be listed forever. The design's "three
+       ;; tables plus nothing" did not account for the empty document.
+       (string-append
+        "CREATE TABLE kg_extractions ("
+        "  object_id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  version_id TEXT NOT NULL,"
+        "  entities INTEGER NOT NULL DEFAULT 0,"
+        "  relations INTEGER NOT NULL DEFAULT 0,"
+        "  extracted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg))

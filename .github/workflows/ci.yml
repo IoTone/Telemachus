@@ -52,10 +52,17 @@ jobs:
       # Its own ports (8836/8837) so it never races the smoke run's 8835.
       - name: Multi-tenancy demo
         run: bash test/multitenant-demo.sh
+      # The reference under docs/reference/ is generated from the source of truth
+      # (tools, workflows, permissions, the route table, plugins) and COMMITTED;
+      # this fails the build when a PR changes the code without regenerating.
+      - name: Documentation drift gate
+        run: |
+          export PLTCOLLECTS="$(pwd)/pkgs:"
+          racket cli/telemachus-docs.rkt check
       - name: Localization gate
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
-          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json --required en
+          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json ../../docs/reference/strings.json --required en
 
   e2e:
     name: E2E feature tour + catalog

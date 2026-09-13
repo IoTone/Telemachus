@@ -18,7 +18,8 @@
 
 (require db-kit/portable
          racket/string
-         "../authz/authz.rkt")
+         "../authz/authz.rkt"
+         "../kg/kg.rkt")
 
 (provide search-all)
 
@@ -96,4 +97,15 @@
           (hasheq 'type "translation" 'id (vector-ref r 0) 'title (string-append "→ " (vector-ref r 1))
                   'snippet (snippet (vector-ref r 2) q)))
         '()))
-  (append note-hits repo-hits tr-hits))
+  ;; the knowledge graph's fourth kind (slice 61): entities by name, each with at
+  ;; least one mention the caller can read — the mention rule is inside kg-find
+  (define entity-hits
+    (with-handlers ([exn:fail:forbidden? (lambda (_) '())])
+      (for/list ([e (in-list (kg-find conn p q #:limit lim))])
+        (hasheq 'type "entity" 'id (hash-ref e 'id)
+                'title (string-append (hash-ref e 'name) " (" (hash-ref e 'type) ")")
+                'snippet (let ([d (hash-ref e 'description)])
+                           (if (string=? d "")
+                               (format "~a mention(s), ~a relation(s)" (hash-ref e 'mention_count) (hash-ref e 'relation_count))
+                               d))))))
+  (append note-hits repo-hits entity-hits tr-hits))

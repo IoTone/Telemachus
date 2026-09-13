@@ -254,7 +254,7 @@ function langBtns(){ if(!S.i18n.enabled) return '';
   const av = S.i18n.available||['en']; if(av.length<2) return '';
   return av.map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
 function appShell(){
-  const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','jobs','team','usage'].filter(x=>S.features[x]!==false);
+  const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
@@ -717,7 +717,7 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
   el.innerHTML='<p class="muted">…</p>';
-  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html; }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
@@ -1646,6 +1646,65 @@ async function bxSaveDraft(){ const m=document.getElementById('bxmsg'); const r=
 async function bxPublish(){ const m=document.getElementById('bxmsg'); await api('/api/beta/experience',{method:'PUT',body:S.exp});
   const r=await api('/api/beta/experience/publish',{method:'POST'});
   if(r.ok){ if(m)m.textContent='Published — live at the beta URL'; toast('published',true);} else toast(r.json.error||'error'); }
+// ---------- knowledge graph (slice 61) ----------
+// Lists with citations, no graph library (KG-6): an entity browser, and for one
+// entity its relations and every mention with a link to the document. Everything
+// shown passed the mention rule server-side.
+S.kg={q:'',type:'',sel:null};
+async function knowledgeView(){
+  const r=await api('/api/kg/entities?q='+encodeURIComponent(S.kg.q)+'&type='+encodeURIComponent(S.kg.type));
+  if(!r.ok) return `<h2>${t('knowledge')}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
+  const ents=r.json.entities||[], st=r.json.stats||{}, types=r.json.types||[];
+  const rows=ents.map(e=>`<tr>
+      <td><b>${esc(e.name)}</b>${e.description?`<div class="muted" style="font-size:12px">${esc(e.description)}</div>`:''}</td>
+      <td><span class="badge">${esc(e.type)}</span></td>
+      <td class="muted">${esc(e.relation_count)} · ${esc(e.mention_count)}</td>
+      <td><button class="btn sm ghost" onclick="kgOpen('${esc(e.id)}')">${t('details')}</button></td></tr>`).join('');
+  return `<h2>${t('knowledge')}
+      <span class="muted" style="font-size:14px">${esc(st.entities||0)} ${t('kg_entities')} · ${esc(st.relations||0)} ${t('kg_relations')} · ${esc(st.documents||0)} ${t('kg_documents')}${st.unextracted?` · ${esc(st.unextracted)} ${t('kg_unextracted')}`:''}</span></h2>
+    <div class="card">
+      <div class="muted" style="font-size:12px;margin-bottom:8px">${t('kg_hint')}</div>
+      <div class="row" style="align-items:end">
+        <div style="flex:2"><label>${t('kg_search')}</label><input id="kgq" value="${esc(S.kg.q)}" onkeydown="if(event.key==='Enter')kgSearch()"></div>
+        <div style="flex:1"><label>${t('kg_type')}</label>
+          <select id="kgtype"><option value="">${t('kg_alltypes')}</option>${types.map(x=>`<option value="${esc(x)}"${S.kg.type===x?' selected':''}>${esc(x)}</option>`).join('')}</select></div>
+        <div style="flex:none"><button class="btn" onclick="kgSearch()">${t('search')}</button>
+          ${canPerm('workflows:run')?`<button class="btn ghost" onclick="kgExtract()">${t('kg_extract')}</button>`:''}</div>
+      </div>
+      ${ents.length?`<table style="margin-top:10px"><thead><tr><th>${t('kg_entity')}</th><th>${t('kg_type')}</th><th>${t('kg_relations')} · ${t('kg_mentions')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                   :`<p class="muted" style="margin-top:10px">${t('kg_none')}</p>`}
+    </div>
+    <div id="kgdetail">${S.kg.sel?await kgDetailHtml(S.kg.sel):''}</div>`;
+}
+function kgSearch(){ S.kg.q=val('kgq'); S.kg.type=val('kgtype'); S.kg.sel=null; renderTab(); }
+async function kgOpen(id){ S.kg.sel=id; const el=document.getElementById('kgdetail'); if(el) el.innerHTML=await kgDetailHtml(id); }
+async function kgExtract(){
+  const r=await api('/api/kg/extract',{method:'POST'});
+  if(r.ok){ toast(t('kg_queued'),true); go('workflows'); S.wfRun=r.json.id; S.wfPoll++; renderTab(); } else toast(r.json.error||'error');
+}
+function kgOpenDoc(id){ go('repository'); setTimeout(()=>repoOpenDetail(id),400); }
+async function kgDetailHtml(id){
+  const r=await api('/api/kg/entities/'+encodeURIComponent(id));
+  if(!r.ok) return `<div class="card" style="margin-top:14px"><p class="muted">${esc(r.json.error||'not found')}</p></div>`;
+  const e=r.json;
+  const rels=(e.relations||[]).map(x=>`<tr>
+      <td>${x.direction==='out'?`<b>${esc(e.name)}</b>`:`<a href="#" onclick="kgOpen('${esc(x.subject_id)}');return false">${esc(x.subject)}</a>`}</td>
+      <td class="mono muted">${esc(x.predicate)}</td>
+      <td>${x.direction==='in'?`<b>${esc(e.name)}</b>`:`<a href="#" onclick="kgOpen('${esc(x.object_id)}');return false">${esc(x.object)}</a>`}</td>
+      <td class="muted" style="font-size:12px">${(x.mentions||[]).map(m=>`<a href="#" onclick="kgOpenDoc('${esc(m.object_id)}');return false" class="mono">${esc(m.key)}</a>`).join(', ')}</td></tr>`).join('');
+  const ments=(e.mentions||[]).map(m=>`<tr><td><a href="#" onclick="kgOpenDoc('${esc(m.object_id)}');return false" class="mono">${esc(m.key)}</a></td>
+      <td class="muted">“${esc(m.snippet)}”</td></tr>`).join('');
+  return `<div class="card" style="margin-top:14px">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0">${esc(e.name)} <span class="badge">${esc(e.type)}</span></h3>
+      <div style="flex:none"><button class="btn sm ghost" onclick="S.kg.sel=null;document.getElementById('kgdetail').innerHTML=''">${t('close')}</button></div></div>
+    ${e.description?`<p class="muted" style="margin:6px 0 0">${esc(e.description)}</p>`:''}
+    <h4 style="margin:12px 0 6px">${t('kg_relations')}</h4>
+    ${rels?`<table><tbody>${rels}</tbody></table>`:`<p class="muted">${t('kg_norelations')}</p>`}
+    <h4 style="margin:12px 0 6px">${t('kg_mentions')}</h4>
+    <table><tbody>${ments}</tbody></table></div>`;
+}
+
 async function searchView(){
   return `<h2>${t('search')}</h2>
     <div class="card">

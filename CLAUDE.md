@@ -635,6 +635,66 @@ bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model;
 TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
 ```
 
+## The route table and the generated reference (slice 60)
+
+`server/routes.rkt` DECLARES every HTTP route: method, path pattern, handler key,
+auth, permission, feature, one line of doc. `main.rkt`'s `HANDLERS` binds keys to
+procedures of `(req . path-params)` and **refuses to boot** if the two disagree.
+`docs/reference/` is generated from that table, the tool registry, the plugin
+loader, the workflow specs and the permission catalog by `cli/telemachus-docs.rkt`
+and is COMMITTED; CI runs `telemachus-docs check` and fails on drift.
+
+- **Adding an endpoint = one entry in `routes.rkt` + one handler in `HANDLERS`**,
+  then `racket cli/telemachus-docs.rkt render` and commit `docs/reference/`.
+  Forgetting the render fails CI; forgetting either half refuses to boot.
+- Patterns: literal segments, `:name`, `*name` (rest of path). First match wins in
+  list order — keep `/api/workflows/schema` above `/api/workflows/:slug`.
+- **Every permission needs a description** in `PERMISSION-DOCS`
+  (`domain/authz/permissions.rkt`); a built-in role granting an undescribed one
+  is a LOAD error, and the docs CLI checks every route's permission too.
+- **Never `write-json` a hash in the generator**: `hasheq` iteration order is not
+  stable across processes and the drift gate would cry wolf. `json-out` sorts.
+- `docs/reference/strings.json` is a JSON surface for `telemachus-localize`:
+  every description is a `doc.*` message (249). The CI localize gate includes it.
+  `render --locale ja` writes `docs/reference/ja/` from the catalogs, English
+  where a string is not yet translated. Nobody has drafted `doc.*` yet.
+- The CLI evaluates the plugins (`load-plugins!`), so run it inside `nix develop`.
+
+```sh
+racket cli/telemachus-docs.rkt render      # regenerate docs/reference/
+racket cli/telemachus-docs.rkt check       # the CI gate
+```
+
+## Knowledge graph (slice 61)
+
+Entities and relations from the team's documents, every fact bound to the
+document and version that said it. Design: `docs/design/knowledge-graph.md`
+(KG‑1…7, all built). `domain/kg/kg.rkt` + `kg-tools.rkt`; plugin
+`knowledge-graph` (workflow `index-knowledge`); `/api/kg/*`; the Knowledge tab.
+
+- **Nothing enters without a source, and visibility is the source's** (KG‑3):
+  `kg-entity`/`kg-find` return only what has a mention on an object the caller
+  `can?` read, and each relation carries only ITS readable mentions. `#f` means
+  "does not exist or you cannot see it" — indistinguishable on purpose.
+- **The extractor refuses** a reply whose snippet is not a verbatim substring of
+  the text, a relation to an entity not in the reply, or a nameless entity
+  (`validate-extraction`). The step retries once. Same model seam as the pipeline
+  (`current-doc-chat`); with no model it refuses loudly.
+- **`kg_extract` reads `repo_text`** — run `index-documents` first. A document
+  with no text is marked extracted-with-nothing (`kg_extractions`) so it is not
+  listed forever; that fourth table is the one deviation from the design.
+- A new version supersedes (old mentions go, orphans pruned); `repo-delete!`
+  calls the delete hook (`set-delete-hook!` in repo.rkt) → `kg-forget!`.
+- Dedup: `(team, type, normalize-name)` — lower-case, collapsed whitespace, a
+  short suffix list. No cross-type merging (KG‑4).
+- Search returns `type: "entity"` rows under the same rule; the agent's
+  `kg_query` answers in text with `[key]` citations.
+- KG‑7 (a `utility` model role) is not distinct yet — one configured model.
+
+```sh
+raco test test/kg-tests.rkt        # the mention rule, validation, supersession, the pipeline
+```
+
 ## Workflow engine (plugins that process in steps)
 
 Slice 46. A workflow is a **validated data spec** — that spec is the public

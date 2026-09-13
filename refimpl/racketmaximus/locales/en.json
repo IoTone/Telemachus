@@ -3,29 +3,121 @@
     "locale": "en"
   },
   "messages": {
-    "ui.deleted": {
-      "text": "Deleted",
-      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
-    },
-    "ui.curpw": {
-      "text": "Current password",
-      "hash": "19dff4dad0a7214ece14624f8c4c9fb206a1cfdd"
+    "doc.route.get.api.beta.challenge": {
+      "text": "A proof-of-work challenge the funnel solves before signing up.",
+      "hash": "0532400b4f879f7ff40b6c8e0cc827e3c16ed708"
     },
     "beta.email_disposable": {
       "text": "please use a work email address",
       "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
     },
-    "ui.updpw": {
-      "text": "Update password",
-      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
+    "doc.perm.team:write": {
+      "text": "Rename a team in the company.",
+      "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
+    },
+    "ui.kg_queued": {
+      "text": "Extraction queued",
+      "hash": "e077135db696a9104da68d00f0f1384b1783028c"
+    },
+    "ui.deleted": {
+      "text": "Deleted",
+      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
+    },
+    "doc.tool.doc_extract_fields.text": {
+      "text": "The document's text",
+      "hash": "9b4cea367889dc8020e848502ea0156bccac62fd"
+    },
+    "ui.curpw": {
+      "text": "Current password",
+      "hash": "19dff4dad0a7214ece14624f8c4c9fb206a1cfdd"
+    },
+    "doc.perm.files:manage": {
+      "text": "Steward a document: change visibility, share and revoke. Owners hold it by owner-ok; a manage grant delegates it for one document.",
+      "hash": "5f8597154d7cc35b56f411ca771924735caa2302"
+    },
+    "doc.route.post.api.repo-obj.id.unshare": {
+      "text": "Revoke every grant a principal holds on the object.",
+      "hash": "7668b41176bb63b1818277dfb877788ede88c739"
+    },
+    "doc.route.get.api.admin.status": {
+      "text": "Instance counts: users, teams, orgs, notes, tokens, audit events, tenants.",
+      "hash": "51cd4f7ee855df27b9e65a6ffa5816fd3d394fa3"
+    },
+    "doc.route.get.api.doc-triggers": {
+      "text": "The team's upload triggers, with the team's remaining AI budget.",
+      "hash": "bb3d4208581b8636141c176e39bb9cba82bdf617"
     },
     "ui.budget": {
       "text": "AI budget",
       "hash": "d8b28ed5e92646f6133b5e73ccac97d636e34dc9"
     },
+    "doc.perm.localization:translate": {
+      "text": "Submit translations.",
+      "hash": "a1215dd0d6f20b2a3094d0bf3dc04311146ba8b0"
+    },
+    "doc.route.get.api.repo-obj.id": {
+      "text": "Object metadata with its versions.",
+      "hash": "47ddf63dcd09afd8490b700c36942823229ec173"
+    },
     "ui.store": {
       "text": "Store",
       "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
+    },
+    "doc.route.post.api.ai.echo": {
+      "text": "A metered no-model echo, for exercising quotas.",
+      "hash": "861bf88955af70f3bd63f4538436f46a4f899e3e"
+    },
+    "doc.route.post.api.branding.logo": {
+      "text": "Upload the instance logo (replaces the mark and the wordmark).",
+      "hash": "1d6aae8e5cb67d9c8b9623ac227d9a18295f46db"
+    },
+    "ui.updpw": {
+      "text": "Update password",
+      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
+    },
+    "doc.workflow.process-upload": {
+      "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
+      "hash": "41dfd3404a1fc0ec4a33fc8dbf03232097d86cbb"
+    },
+    "doc.workflow.index-documents": {
+      "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
+      "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
+    },
+    "doc.route.post.api.l10n.export": {
+      "text": "Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved.",
+      "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
+    },
+    "doc.route.post.api.beta.experience.publish": {
+      "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
+      "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
+    },
+    "ui.kg_mentions": {
+      "text": "mentions",
+      "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
+    },
+    "doc.route.post.api.members": {
+      "text": "Add a member to the caller's team with a role; returns the new member's first token.",
+      "hash": "c2e81fdfdb83e0915518a9c74ae921bf9375e74f"
+    },
+    "doc.perm.team:delete": {
+      "text": "Delete a team.",
+      "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
+    },
+    "doc.tool.doc_text.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.route.post.api.jobs": {
+      "text": "Enqueue a scheduler job of a registered kind.",
+      "hash": "fff845878822c59c97eb52e16eb48498503ff750"
+    },
+    "ui.s3once": {
+      "text": "Copy the secret now — it is not shown again.",
+      "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
+    },
+    "ui.knowledge": {
+      "text": "Knowledge",
+      "hash": "dec1fccaba73443d77f5cfc48dacf9d496399f53"
     },
     "ui.documents": {
       "text": "Documents",
@@ -39,6 +131,70 @@
       "text": "Team",
       "hash": "218887269ad5946d9dc53238651c90472884fb0f"
     },
+    "doc.route.patch.api.doc-triggers.id": {
+      "text": "Change a trigger's fields; absent fields are left alone.",
+      "hash": "7a33acd43eb1ef2bda67aa3b1c16daaca8fd3afd"
+    },
+    "ui.kg_extract": {
+      "text": "Extract now",
+      "hash": "9dee43b9c3f299103d6cc68724bb51f11ad1a816"
+    },
+    "doc.route.post.api.workflows.slug.run": {
+      "text": "Start a run with {input}; declared inputs are required and typed. Returns 202 with the run.",
+      "hash": "1e305174211be63642083ac5f6d52e3fb3ad453a"
+    },
+    "ui.addterm": {
+      "text": "Add term",
+      "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
+    },
+    "doc.perm.tasks:read": {
+      "text": "Read tasks.",
+      "hash": "736bd92b8e286f7a17a50b38358b9c0151b86a51"
+    },
+    "ui.copied": {
+      "text": "Copied",
+      "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
+    },
+    "doc.tool.repo_extract_text.id": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.tool.create_note.body": {
+      "text": "Note body text",
+      "hash": "22cb4f6d16ab9cc8a7366d340c2ca62ddd020421"
+    },
+    "doc.route.post.api.tokens": {
+      "text": "Issue an API token, optionally scoped; the raw token is shown once.",
+      "hash": "acba7a9e44fae4477cd5678b3d0447a3995b5354"
+    },
+    "doc.route.post.api.2fa.enable": {
+      "text": "Enable TOTP two-factor authentication for the caller; returns the secret once.",
+      "hash": "83bb2e3272b292ad03dcf7509308776e0463261a"
+    },
+    "doc.tool.doc_extract_fields.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "http.already_initialized": {
+      "text": "Already initialized.",
+      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    },
+    "doc.tool.word_count.text": {
+      "text": "The text to count words in",
+      "hash": "9f6ee81cda8dc3daf6b0a143f188de3f949664b0"
+    },
+    "ui.kg_alltypes": {
+      "text": "any type",
+      "hash": "a28c54bd6aac059f8e4c1e9241bd9772b3d2a3a4"
+    },
+    "doc.route.post.api.beta.prospects.id.decide": {
+      "text": "Accept or decline a prospect.",
+      "hash": "56161a4c5d3676ba209a433f4210f490ce593fbe"
+    },
+    "doc.route.post.api.workflows": {
+      "text": "Publish a workflow spec (validated; unknown fields refused); re-publishing a slug bumps its version.",
+      "hash": "57f5717f784659e41b73f398f34d8c757d99d3ff"
+    },
     "ui.version": {
       "text": "Version",
       "hash": "2da600bf9404843107a9531694f654e5662959e0"
@@ -47,9 +203,25 @@
       "text": "Refresh",
       "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
     },
+    "doc.tool.doc_extract_fields": {
+      "text": "Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json.",
+      "hash": "84a1d20ebeaf0b0cf22ee9351924534b9f6079f8"
+    },
     "ui.create": {
       "text": "Create",
       "hash": "6e157c5da4410b7e9de85f5c93026b9176e69064"
+    },
+    "beta.not_ready": {
+      "text": "instance not initialized",
+      "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
+    },
+    "doc.perm.team:read": {
+      "text": "See a team in the company.",
+      "hash": "4199f8d5f9e5b33c92fab79383d9b06b39566bf1"
+    },
+    "doc.workflow.translate-chat": {
+      "text": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
+      "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
     },
     "ui.prompt": {
       "text": "Prompt",
@@ -59,41 +231,53 @@
       "text": "Team — everyone on this team",
       "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
     },
-    "beta.domain_cap": {
-      "text": "too many requests from your organization — please reach out directly",
-      "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
+    "doc.route.get.api.orgs": {
+      "text": "List every org on the instance.",
+      "hash": "d64a348a2f5fb560e61a69808000eddd7aefe1c5"
+    },
+    "doc.tool.doc_render.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "doc.tool.kg_query.type": {
+      "text": "Restrict a name lookup to one entity type, e.g. organization",
+      "hash": "bf3b06e97454031c475151174af5ebabf873a414"
+    },
+    "ui.l10nexport": {
+      "text": "Export",
+      "hash": "f3e4fadb9e370a1e2c0c622c01fc8c77daf93a2c"
     },
     "ui.limit": {
       "text": "Limit",
       "hash": "24d948e4bdbe5b8224bbc0dfbab1923fab00b98e"
     },
-    "ui.s3once": {
-      "text": "Copy the secret now — it is not shown again.",
-      "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
+    "doc.tool.update_note.body": {
+      "text": "New body (optional)",
+      "hash": "3a122816e4cd1131b21101ef2b03720039410f71"
     },
-    "ui.addterm": {
-      "text": "Add term",
-      "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
+    "beta.domain_cap": {
+      "text": "too many requests from your organization — please reach out directly",
+      "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
-    "ui.copied": {
-      "text": "Copied",
-      "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
-    },
-    "http.already_initialized": {
-      "text": "Already initialized.",
-      "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
-    },
-    "beta.not_ready": {
-      "text": "instance not initialized",
-      "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
+    "doc.route.post.api.beta.assets": {
+      "text": "Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB.",
+      "hash": "abd6aaedec0f9ebc0a17e4662212539b1c93384f"
     },
     "ui.useglossary": {
       "text": "Use glossary",
       "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
     },
-    "ui.l10nexport": {
-      "text": "Export",
-      "hash": "f3e4fadb9e370a1e2c0c622c01fc8c77daf93a2c"
+    "doc.route.get.api.runs": {
+      "text": "The team's runs, newest first.",
+      "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
+    },
+    "doc.workflow.index-knowledge.name": {
+      "text": "Index Knowledge",
+      "hash": "25914663dfac64e6314732a7e89badcc8c3ff7b0"
+    },
+    "ui.l10nhint": {
+      "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
+      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
     },
     "ui.newversion": {
       "text": "Saved as a new version",
@@ -103,9 +287,85 @@
       "text": "Source",
       "hash": "6da13addb000b67d42a6d66391713819e634149f"
     },
+    "doc.workflow.translate-chat.name": {
+      "text": "Translate Chat Workflow",
+      "hash": "e75f88b7089bc812a57d24e883339d56314117fa"
+    },
+    "doc.tool.doc_text.version": {
+      "text": "A specific version id (default: the current version)",
+      "hash": "93568375b01d09d481e0d8fadea6dcd818ccb02a"
+    },
+    "doc.route.post.api.bootstrap": {
+      "text": "First run only: create the operator, the first org and team. Returns the operator's token. Refuses once the instance has a user.",
+      "hash": "b8f59ef37a9d9a8df2dfabcb89713cc4ff7aaeaf"
+    },
+    "ui.definitions": {
+      "text": "Definitions",
+      "hash": "15225baac48fc3d689cb2b0f74b936eff4339ff7"
+    },
+    "doc.route.get.api.kg.entities.id": {
+      "text": "One entity with its relations and mentions, each mention filtered by the source document's visibility.",
+      "hash": "d338ecb68c99fd3c3f0e504fab3b623030700b10"
+    },
+    "doc.perm.memory:read": {
+      "text": "Read the agent's memory.",
+      "hash": "321c16ac921e7da92b7b6d8bba60a88f2202c710"
+    },
+    "doc.route.get.api.share-targets": {
+      "text": "Who a document can be shared with: the team's people and the org's teams.",
+      "hash": "a62f22189412b782d7e39c1ce3cf7a66c96f0a61"
+    },
+    "doc.route.get.api.repo-obj.id.processing": {
+      "text": "\"Processed by\": derived documents, sources, and every run that touched the document.",
+      "hash": "bbc2f3bfa24a3a3c3f7557c2fda8df12aaf31d20"
+    },
+    "ui.newpw": {
+      "text": "New password",
+      "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
+    },
+    "doc.route.post.api.l10n.import": {
+      "text": "Pull the catalogs on disk into the Manager's tables.",
+      "hash": "ee1a9aa18b893d69cccefe0369bcdf203aa1ee28"
+    },
+    "doc.perm.instance:manage": {
+      "text": "Instance administration: branding, localization policy, quotas, orgs, metrics.",
+      "hash": "336906f62b986937095973b250bdd09c8493001b"
+    },
+    "ui.noothers": {
+      "text": "No one else on this team",
+      "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
+    },
+    "doc.tool.doc_extract_fields.object": {
+      "text": "The source document's object id — write the fields as a derived document beside it",
+      "hash": "af8362ab557f0334dca5f227dac8d3c64c401ab8"
+    },
+    "doc.perm.*:*": {
+      "text": "Everything at the team tier. Never reaches instance:* or org:*.",
+      "hash": "9858077204559abb30b4e1ca17cb76ef2d5d35f4"
+    },
+    "ui.features": {
+      "text": "Features",
+      "hash": "fc338f87a058158eb824b53705961801516a9460"
+    },
+    "doc.route.get.api.jobs": {
+      "text": "The team's jobs, newest first.",
+      "hash": "2b1247c7a0fb1ca736ef30a6d6ce0649ac55eb2c"
+    },
+    "ui.bxthanks": {
+      "text": "Thanks — your request is in review.",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    },
+    "doc.tool.get_usage": {
+      "text": "Report the team's current AI usage against its quota.",
+      "hash": "e068247f15386c62657ebb749bd6fdd35c0d758a"
+    },
     "ui.objects": {
       "text": "Documents",
       "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
+    },
+    "ui.kg_hint": {
+      "text": "Entities and relations extracted from the team's documents. Every fact links to the document and version that said it; you only see facts from documents you can read.",
+      "hash": "f166845559c7d2906252b22c7bd07c8cac85ac9f"
     },
     "ui.l10nnothing": {
       "text": "Nothing matches that filter.",
@@ -131,9 +391,17 @@
       "text": "Started",
       "hash": "faa9e7e7ef5a264c58c68a4a0b9c8bd54241450a"
     },
+    "doc.route.get.api.beta.prospects": {
+      "text": "List the prospects the funnel captured, with signals and verdicts.",
+      "hash": "3487d465d91b86daddecb132e05ee29f1145e7b5"
+    },
     "ui.viewrun": {
       "text": "View",
       "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
+    },
+    "doc.route.put.api.beta.experience": {
+      "text": "Save a draft of the onboarding experience.",
+      "hash": "da7eda299b32e249d8261670d51c472e5c522447"
     },
     "ui.l10napprove": {
       "text": "Approve",
@@ -147,33 +415,17 @@
       "text": "Logo",
       "hash": "83fce8327410848c9eb609acb21732c7c0fec96a"
     },
-    "ui.l10nhint": {
-      "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
-      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
-    },
-    "ui.definitions": {
-      "text": "Definitions",
-      "hash": "15225baac48fc3d689cb2b0f74b936eff4339ff7"
-    },
-    "ui.newpw": {
-      "text": "New password",
-      "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
-    },
-    "ui.noothers": {
-      "text": "No one else on this team",
-      "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
-    },
-    "ui.features": {
-      "text": "Features",
-      "hash": "fc338f87a058158eb824b53705961801516a9460"
-    },
-    "ui.bxthanks": {
-      "text": "Thanks — your request is in review.",
-      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    "doc.perm.localization:manage": {
+      "text": "Import and export catalogs, queue AI drafts, discard machine drafts.",
+      "hash": "b52a77e55ac80e83559f56f228f3b8afe522ff18"
     },
     "ui.trigger_types": {
       "text": "Content types (blank = any)",
       "hash": "c233fa078f402f539dcc118a797d48b63f1bb591"
+    },
+    "doc.route.post.api.translate.catalog": {
+      "text": "Translate a whole locale catalog, placeholders preserved.",
+      "hash": "7080352270302db86101fdcff7b1226d37276738"
     },
     "ui.apitokens": {
       "text": "API tokens",
@@ -183,13 +435,17 @@
       "text": "Run workflow…",
       "hash": "48e95b8cd7e8597a1a0079c7013822562a36f1b7"
     },
-    "ui.noshares": {
-      "text": "Not shared with anyone.",
-      "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
-    },
     "ui.until": {
       "text": "until",
       "hash": "b310f4d4d89b8570184b9777ad7d90fc1df20457"
+    },
+    "doc.route.get.api.whoami": {
+      "text": "The caller: user, team, operator flag, org, org role, locale, permissions.",
+      "hash": "e891e2db35ff9e676f093991104b1c6232cc5312"
+    },
+    "ui.noshares": {
+      "text": "Not shared with anyone.",
+      "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
     },
     "greeting.hello": {
       "text": "Hello, {name}!",
@@ -198,6 +454,14 @@
     "ui.s3keys": {
       "text": "S3 access keys",
       "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
+    },
+    "ui.l10ncoverage": {
+      "text": "Coverage",
+      "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
+    },
+    "doc.plugin.doc-pipeline": {
+      "text": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
+      "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
     },
     "ui.submitjob": {
       "text": "Submit a job",
@@ -215,6 +479,22 @@
       "text": "disabled",
       "hash": "07596f183f5e91b1778d5e47b2752b8d42aa763d"
     },
+    "doc.route.options.api.beta.challenge": {
+      "text": "CORS preflight for a sandboxed Tier-C template.",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "ui.teamsec": {
+      "text": "Team",
+      "hash": "218887269ad5946d9dc53238651c90472884fb0f"
+    },
+    "doc.perm.notes:read": {
+      "text": "Read notes.",
+      "hash": "64e9a487433b3a19522136b9e8203dcde8ebb7d7"
+    },
+    "doc.route.delete.api.doc-triggers.id": {
+      "text": "Delete a trigger and its history; the runs it started remain.",
+      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
+    },
     "beta.field_required": {
       "text": "{field} is required",
       "hash": "dda50f3ba4eb211a894985a368919f4833011910"
@@ -223,13 +503,13 @@
       "text": "Path",
       "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
     },
+    "doc.tool.update_note": {
+      "text": "Update a note's title and/or body by id.",
+      "hash": "44491022a8c823f95545b85549b446db8e969998"
+    },
     "ui.enable": {
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
-    },
-    "ui.l10ncoverage": {
-      "text": "Coverage",
-      "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
     },
     "authz.bootstrap_done": {
       "text": "Created operator {user} and team {team}.",
@@ -239,33 +519,9 @@
       "text": "Link",
       "hash": "d0517071aa376e797705058bbad4b658954b9930"
     },
-    "ui.teamsec": {
-      "text": "Team",
-      "hash": "218887269ad5946d9dc53238651c90472884fb0f"
-    },
-    "beta.email_invalid": {
-      "text": "a valid email is required",
-      "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
-    },
-    "ui.updated": {
-      "text": "Updated",
-      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
-    },
-    "ui.norepoobjects": {
-      "text": "No documents yet. Any format — pdf, svg, png, docx, xml, md.",
-      "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
-    },
-    "ui.del": {
-      "text": "Delete",
-      "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
-    },
-    "ui.uploaded": {
-      "text": "Uploaded",
-      "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
-    },
-    "beta.challenge_expired": {
-      "text": "invalid or expired challenge — reload the page",
-      "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    "doc.route.get.api.translate": {
+      "text": "The team's translation history.",
+      "hash": "328c612fc6be4758174e7ae79ba5afd7b9517217"
     },
     "ui.all": {
       "text": "All",
@@ -275,6 +531,74 @@
       "text": "Steps",
       "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
     },
+    "doc.tool.translate_text.target": {
+      "text": "Target language code, e.g. es, nl, is",
+      "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
+    },
+    "beta.email_invalid": {
+      "text": "a valid email is required",
+      "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
+    },
+    "ui.updated": {
+      "text": "Updated",
+      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
+    },
+    "doc.tool.doc_translate.locale": {
+      "text": "Target language code, e.g. ja, nl, es-419",
+      "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
+    },
+    "doc.perm.files:delete": {
+      "text": "Delete repository documents.",
+      "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
+    },
+    "doc.plugin.example-tools": {
+      "text": "A sample third-party plugin: adds a word_count tool.",
+      "hash": "08d4c34f73a5f64ccc20307d26f986326bc92808"
+    },
+    "doc.route.get.api.l10n.coverage": {
+      "text": "Per-locale coverage of the Localization Manager's catalog: total, approved, machine, missing, stale.",
+      "hash": "cdb91dd313c4c647ddd892ce2786897c54e061d7"
+    },
+    "ui.norepoobjects": {
+      "text": "No documents yet. Any format — pdf, svg, png, docx, xml, md.",
+      "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
+    },
+    "ui.del": {
+      "text": "Delete",
+      "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
+    },
+    "doc.tool.doc_extract_fields.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "ui.noruns": {
+      "text": "No runs yet.",
+      "hash": "7a8b1c283d427ac045b0fa7629bbaf611736e8e3"
+    },
+    "ui.uploaded": {
+      "text": "Uploaded",
+      "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
+    },
+    "beta.challenge_expired": {
+      "text": "invalid or expired challenge — reload the page",
+      "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "doc.route.delete.api.tokens.id": {
+      "text": "Revoke an API token.",
+      "hash": "2c46f3380d93d3e842b6c8bfd3d579e611841d94"
+    },
+    "doc.route.post.api.login": {
+      "text": "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token.",
+      "hash": "ecef017a0f8bcbc7c67490c35767564bbd76afad"
+    },
+    "doc.plugin.knowledge-graph": {
+      "text": "A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed.",
+      "hash": "05dfb3f0955f1d3e8c3af7a4870181947a094d67"
+    },
+    "beta.field_too_short": {
+      "text": "{field} must be at least {n} characters",
+      "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
+    },
     "ui.l10nall": {
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
@@ -283,13 +607,29 @@
       "text": "History",
       "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
     },
-    "ui.noruns": {
-      "text": "No runs yet.",
-      "hash": "7a8b1c283d427ac045b0fa7629bbaf611736e8e3"
+    "doc.route.post.api.password": {
+      "text": "Change the caller's password.",
+      "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
     },
-    "beta.field_too_short": {
-      "text": "{field} must be at least {n} characters",
-      "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
+    "doc.route.post.api.instance.suspend": {
+      "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
+      "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
+    },
+    "ui.brandtagline": {
+      "text": "Tagline",
+      "hash": "b0f794835fa03c22f59c3a0c0efe64d0512fdab3"
+    },
+    "ui.kg_relations": {
+      "text": "relations",
+      "hash": "9649007e163d3f014a46e4a152bf6377c93bf3e5"
+    },
+    "doc.perm.members:manage": {
+      "text": "Add and remove team members and set their roles.",
+      "hash": "c51e6aa6288bf9dd89d8960203dc141a257942d9"
+    },
+    "doc.route.put.api.branding": {
+      "text": "Set the instance title and tagline.",
+      "hash": "87e80f7e30178ee03e197bff8324b26cd8c80c7a"
     },
     "ui.role": {
       "text": "Role",
@@ -307,6 +647,34 @@
       "text": "Let people choose their language",
       "hash": "f727a2857c4b05748fe85e72f82a53c4b5f42a4e"
     },
+    "ui.kg_norelations": {
+      "text": "No relations yet.",
+      "hash": "4a6068428c1138cbb6c24f3cc1bc07edce04ec85"
+    },
+    "doc.perm.localization:review": {
+      "text": "Approve or send back a colleague's translation (never one's own).",
+      "hash": "fdca6aa60b53adec763a5fa79e2a99a103dbd12d"
+    },
+    "ui.code": {
+      "text": "2FA code (if enabled)",
+      "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
+    },
+    "doc.route.get.api.beta.asset.id": {
+      "text": "Serve one onboarding asset. Public: the funnel and the branding logo load it without a token.",
+      "hash": "fac8d41e29fc24770c6447eb425859743bafbc89"
+    },
+    "doc.route.post.api.orgs.ref.suspend": {
+      "text": "Suspend a company (id or slug); every team in it becomes read-only.",
+      "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
+    },
+    "ui.tokensleft": {
+      "text": "tokens left today",
+      "hash": "9ef8f2c20416fad3aab70dc3a50194dd830ffe73"
+    },
+    "doc.tool.doc_translate": {
+      "text": "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt).",
+      "hash": "77333d768a6432e71994ec915f2aa7f7715177bf"
+    },
     "ui.size": {
       "text": "Size",
       "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
@@ -315,25 +683,41 @@
       "text": "The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.",
       "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
     },
-    "ui.brandtagline": {
-      "text": "Tagline",
-      "hash": "b0f794835fa03c22f59c3a0c0efe64d0512fdab3"
-    },
-    "ui.code": {
-      "text": "2FA code (if enabled)",
-      "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
-    },
-    "ui.tokensleft": {
-      "text": "tokens left today",
-      "hash": "9ef8f2c20416fad3aab70dc3a50194dd830ffe73"
+    "ui.kg_type": {
+      "text": "Type",
+      "hash": "3deb7456519697ecf4eefc455516c969a3681bae"
     },
     "ui.firstrun": {
       "text": "First run — create the first operator",
       "hash": "da6847a10e476c38e1e6115bc9b1a6009437adba"
     },
+    "doc.workflow.process-upload.name": {
+      "text": "Process an uploaded document",
+      "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
+    },
+    "doc.tool.kg_query": {
+      "text": "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too.",
+      "hash": "d6dc9485ecac2f80742e0ddea83e96860cd52f49"
+    },
+    "doc.route.put.api.l10n.messages.id": {
+      "text": "Submit a translation for one message.",
+      "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
+    },
+    "doc.route.get.api.notes.id": {
+      "text": "One note.",
+      "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
+    },
     "ui.locavail": {
       "text": "Shipped in this build",
       "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
+    },
+    "doc.route.post.api.orgs": {
+      "text": "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).",
+      "hash": "42771b6fee9b1756ecf03cfe50df23b762abae38"
+    },
+    "ui.cap_manage": {
+      "text": "manage",
+      "hash": "3f282fcba8933e03a65a6dc92a27de8396961e2f"
     },
     "ui.deflocale": {
       "text": "Default language",
@@ -346,6 +730,30 @@
     "ui.createtoken": {
       "text": "Create token",
       "hash": "4b3c8e356a7a5537138823e1fe97ad6235b665b6"
+    },
+    "doc.route.get.api.documents.id": {
+      "text": "One text document with its body.",
+      "hash": "e1c946b49eef17ee9ada6cc049495cf3904562ed"
+    },
+    "doc.route.post.api.notes": {
+      "text": "Create a note with a visibility.",
+      "hash": "41706c61c8faa1b2f86d5d59a34b621e2571df63"
+    },
+    "doc.workflow.index-knowledge": {
+      "text": "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
+      "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
+    },
+    "doc.tool.kg_query.name": {
+      "text": "An entity name (matched case-insensitively) or an entity id",
+      "hash": "b1ce1930aefa3437d0b627497d2a49f116a75e64"
+    },
+    "doc.perm.tokens:manage": {
+      "text": "Issue and revoke API tokens for the team.",
+      "hash": "57735f99f42f97b584f973ba150d37cf96b322e2"
+    },
+    "doc.route.get.api.repo-obj.id.grants": {
+      "text": "One entry per principal: capability, permissions, granted_by, expiry, expired.",
+      "hash": "7cef4b0996d8ecb5227457be4b77a314da1104a4"
     },
     "ui.translate": {
       "text": "Translate",
@@ -363,17 +771,9 @@
       "text": "Saved",
       "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
     },
-    "ui.cap_manage": {
-      "text": "manage",
-      "hash": "3f282fcba8933e03a65a6dc92a27de8396961e2f"
-    },
-    "ui.sharewith": {
-      "text": "Share with",
-      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
-    },
-    "ui.upload": {
-      "text": "Upload",
-      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    "doc.perm.workflows:write": {
+      "text": "Publish workflows and manage triggers.",
+      "hash": "f981778de4196069299c6a8866294e550bf4c456"
     },
     "ui.enabled": {
       "text": "enabled",
@@ -383,9 +783,49 @@
       "text": "Visibility updated",
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
     },
+    "doc.route.get.api.repo": {
+      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own.",
+      "hash": "a9d3b3f240f08189876fa2e118ce40e9d44f8526"
+    },
+    "doc.route.get.activate": {
+      "text": "The console, on the magic-link activation screen (hosted mode).",
+      "hash": "0e6d2b90bf3be361bf26ba391a9b59f5b6fa617b"
+    },
+    "ui.kg_entities": {
+      "text": "entities",
+      "hash": "9d88f3cc176f53090e9fd457c305bbeb86126bcd"
+    },
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
+    },
+    "ui.sharewith": {
+      "text": "Share with",
+      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
+    },
+    "doc.tool.doc_text": {
+      "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
+      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
+    },
+    "ui.upload": {
+      "text": "Upload",
+      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    },
+    "doc.tool.translate_text.source": {
+      "text": "Source language code, or auto",
+      "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
+    },
+    "doc.perm.roles:read": {
+      "text": "See the team's roles and what they grant.",
+      "hash": "8d9e3136ad48763f056ec3c85beefa5a27b53997"
+    },
+    "doc.route.post.api.beta.signup": {
+      "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
+      "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
+    },
+    "doc.route.get.api.search": {
+      "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?.",
+      "hash": "14d55a26ffc0a283955af67b2f27c140bea36dcd"
     },
     "ui.nofires": {
       "text": "This trigger has not fired yet.",
@@ -394,6 +834,14 @@
     "ui.l10ndraft": {
       "text": "AI draft",
       "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
+    },
+    "doc.route.post.api.quota": {
+      "text": "Set a quota limit for the caller's team (dimension, limit, window).",
+      "hash": "465a2ad05cf18995a51999bd06272b6772b32e52"
+    },
+    "doc.perm.models:serve": {
+      "text": "Register a model executor for the team.",
+      "hash": "f0378315073f278fc7316f2dfb24ed7c1d3eb483"
     },
     "beta.duplicate": {
       "text": "we already have your request — we'll be in touch",
@@ -411,9 +859,25 @@
       "text": "Status",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
     },
+    "ui.kg_search": {
+      "text": "Find an entity",
+      "hash": "5ad82ac25c9a7f7dd60bda8cee0b53bcbb7b97cc"
+    },
+    "doc.perm.files:write": {
+      "text": "Upload documents and new versions.",
+      "hash": "e5297c6ea126b16479b1f9c5061614283b0a5e65"
+    },
     "ui.operator": {
       "text": "operator",
       "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
+    },
+    "doc.perm.team:create": {
+      "text": "Create a team in the company.",
+      "hash": "95faa3304499d95dc823e2ac1b3d55c4db48c57b"
+    },
+    "doc.perm.quota:manage": {
+      "text": "Set quotas.",
+      "hash": "e20b962fe4d92a7bfb238bbbaf4e80cf869bb168"
     },
     "ui.output": {
       "text": "Output",
@@ -423,9 +887,37 @@
       "text": "No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.",
       "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
     },
+    "doc.perm.tools:invoke": {
+      "text": "Call tools from the agent or a workflow step; each tool then checks its own permission.",
+      "hash": "44b342c7a46bbf0734fb7a29be9cfa4d39ff2df0"
+    },
     "ui.tools": {
       "text": "Tools",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
+    },
+    "beta.field_too_long": {
+      "text": "{field} must be at most {n} characters",
+      "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
+    },
+    "doc.tool.repo_list_unindexed": {
+      "text": "List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue.",
+      "hash": "80d72aa4588c5dc0269e9e1de25480ae0bd0a141"
+    },
+    "doc.route.get.api.config": {
+      "text": "Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token.",
+      "hash": "f7ad449011473be8c8f03abe7165a7dbb0d861dc"
+    },
+    "ui.kg_documents": {
+      "text": "documents extracted",
+      "hash": "c3ed5753cea882d8ebba13447927ef2d101ab9cd"
+    },
+    "doc.route.get.": {
+      "text": "The console (or the beta funnel when TELEMACHUS_HOME=beta). The HTML title is rewritten from instance branding.",
+      "hash": "f0005618dfc54747edeb17e48ae0fcfd56c23355"
+    },
+    "doc.route.post.api.profile": {
+      "text": "Update the caller's profile (display name, locale).",
+      "hash": "ae34766f1a6a412439af179c06803b91462967f0"
     },
     "ui.sharedwithme": {
       "text": "Shared with me",
@@ -435,9 +927,33 @@
       "text": "Disable",
       "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
     },
-    "beta.field_too_long": {
-      "text": "{field} must be at most {n} characters",
-      "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
+    "doc.tool.kg_extract": {
+      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
+      "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
+    },
+    "doc.route.get.api.ai.model": {
+      "text": "Which model is configured (or that the simulated fallback is in use).",
+      "hash": "4b99317a92df10325e6b8654caa37d448f7fe8de"
+    },
+    "doc.route.get.api.repo-obj.id.content": {
+      "text": "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.",
+      "hash": "e3519b90c5108493988f2a53343a1245023dbe5c"
+    },
+    "ui.vis_private": {
+      "text": "Private — only me",
+      "hash": "ce5d97592d02df5ef8f88d1a118572f123833d86"
+    },
+    "doc.route.options.api.beta.signup": {
+      "text": "CORS preflight for a sandboxed Tier-C template.",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "doc.route.delete.api.repo-obj.id": {
+      "text": "Delete an object (blobs are released when no other version references them).",
+      "hash": "61d4b7ae735549dc1031d352194d8a56081128e9"
+    },
+    "doc.route.delete.api.notes.id": {
+      "text": "Delete a note.",
+      "hash": "edadf3ea6746bb44145806818cfca51cc6e85140"
     },
     "ui.l10nsearch": {
       "text": "Search key or text",
@@ -454,6 +970,10 @@
     "ui.requestaccess": {
       "text": "Request access",
       "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
+    },
+    "doc.tool.chat_message": {
+      "text": "Send one chat message to the model and return its reply.",
+      "hash": "2f5eee6d8e27557d3c465f31654c3faa6ae5dce0"
     },
     "ui.chat": {
       "text": "Chat",
@@ -475,6 +995,18 @@
       "text": "Username",
       "hash": "84c29015de33e5d22422382a372caba5c58f8c01"
     },
+    "doc.route.post.api.glossary": {
+      "text": "Add or update a glossary term for a target language.",
+      "hash": "7f4c9fae2f220843e7d68aa45e7ff148bff4cd7b"
+    },
+    "doc.tool.repo_extract_text": {
+      "text": "Extract the text of one repository document into the search index.",
+      "hash": "abc97e3c3258563662360c069c8ec834c527371f"
+    },
+    "ui.l10nstatus": {
+      "text": "Status",
+      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    },
     "ui.vishint": {
       "text": "You set this because you uploaded it. Sharing narrows a team document to just the people you name.",
       "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
@@ -483,9 +1015,21 @@
       "text": "Agent",
       "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
     },
+    "doc.plugin.translate-chat": {
+      "text": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
+      "hash": "91f7eb085397a93509322e65886d76dc1659b76f"
+    },
+    "doc.route.get.api.documents": {
+      "text": "List text documents.",
+      "hash": "de4fa39c0955689307a963f108c0396528663e13"
+    },
     "ui.visibility": {
       "text": "Visibility",
       "hash": "7d9ff4f0de398581c4640bcbb6e536c355a391be"
+    },
+    "doc.tool.translate_text.text": {
+      "text": "The text to translate",
+      "hash": "07cc5dd5e4ffdbcefffeb5687c74e77770b518cf"
     },
     "ui.workflow": {
       "text": "Workflow",
@@ -495,17 +1039,25 @@
       "text": "Confirm password",
       "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
     },
-    "ui.vis_private": {
-      "text": "Private — only me",
-      "hash": "ce5d97592d02df5ef8f88d1a118572f123833d86"
+    "doc.route.post.api.ai.chat.stream": {
+      "text": "The same turn as server-sent events, metered at the end.",
+      "hash": "8817c39fca03615973e0c0260b1ac14cb1025a6d"
     },
-    "ui.l10nstatus": {
-      "text": "Status",
-      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    "ui.kg_unextracted": {
+      "text": "waiting",
+      "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
     },
     "ui.cap_view": {
       "text": "view",
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
+    },
+    "ui.brandtitle": {
+      "text": "Title",
+      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "doc.tool.doc_translate.object": {
+      "text": "The document's object id",
+      "hash": "96dce9d90c48f917ad3b12a8baaeb758b1d9dfb1"
     },
     "ui.expires": {
       "text": "Until (optional)",
@@ -523,6 +1075,42 @@
       "text": "Translation",
       "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
     },
+    "doc.perm.chat:use": {
+      "text": "Talk to the model: chat, the agent, translation, AI tools. Metered.",
+      "hash": "828cc8ee6dd6bf4ce22bcc5de9a585f9cd02b63f"
+    },
+    "doc.tool.doc_translate.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "doc.route.post.api.tools.name": {
+      "text": "Enable or disable a tool for the team.",
+      "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
+    },
+    "doc.route.post.api.repo-obj.id.visibility": {
+      "text": "Set private, team or shared.",
+      "hash": "b2f9d2b5be1beb7994c3dd2fc7dad16b2475f989"
+    },
+    "doc.perm.tasks:write": {
+      "text": "Create and edit tasks.",
+      "hash": "ab21675a1a37070f6b06dc92b5bb5598ff1b384a"
+    },
+    "doc.route.get.beta.bundle.plugin.path": {
+      "text": "A file from a Tier-B onboarding plugin's bundle directory.",
+      "hash": "02e562d9603b593449dd54d7be1807ac8120a957"
+    },
+    "doc.perm.*:read": {
+      "text": "Read every team-visible resource; no AI spend, no mutation.",
+      "hash": "b4b905e1f8563427da3e415c721f45d732072ab5"
+    },
+    "doc.route.delete.api.documents.id": {
+      "text": "Delete a text document.",
+      "hash": "f500abea97efc00a4a244e22ffe02227348e511b"
+    },
+    "ui.kg_none": {
+      "text": "No entities match. Index documents first, then extract.",
+      "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
+    },
     "ui.runwf": {
       "text": "Run",
       "hash": "b1b392607deaf29a7e81453e069b7c07a32a6b18"
@@ -530,6 +1118,14 @@
     "ui.l10nself": {
       "text": "You cannot approve your own translation.",
       "hash": "fd49da1345752b110591d786f4541af26f37b1ff"
+    },
+    "doc.route.post.api.s3.credentials": {
+      "text": "Issue an S3 access key, optionally scoped (add workflows:run for a prefix that should fire triggers).",
+      "hash": "147646a5ac123e8be377a93c65a8a202faa5598c"
+    },
+    "doc.route.get.api.executors": {
+      "text": "The local executor and any federated ones.",
+      "hash": "e54804d6a14a8223610680c6e8a335762498cbd8"
     },
     "ui.bytrigger": {
       "text": "trigger",
@@ -539,9 +1135,13 @@
       "text": "could not start — please reload",
       "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
     },
-    "ui.brandtitle": {
-      "text": "Title",
-      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    "doc.perm.features:manage": {
+      "text": "Turn features on and off for teams.",
+      "hash": "3fd875d2a2bc213bb34b68678dc4352354e6861a"
+    },
+    "doc.perm.documents:delete": {
+      "text": "Delete text documents.",
+      "hash": "57f7cce6e25877b0f4c845a6ac47858739d4c03d"
     },
     "ui.search": {
       "text": "Search",
@@ -559,33 +1159,73 @@
       "text": "Activate account",
       "hash": "b9186563deea94527f03558a5ec059806d363c49"
     },
-    "ui.capability": {
-      "text": "Can",
-      "hash": "88e288f3e3ca8d1137556d908dcb9f355209464b"
+    "doc.route.get.api.doc-triggers.id": {
+      "text": "One trigger with its fire history (which version, which run, or why not).",
+      "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
     },
-    "ui.repository": {
-      "text": "Repository",
-      "hash": "312386841084261c610413fa4de8b7505f469407"
+    "doc.tool.doc_render": {
+      "text": "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>.",
+      "hash": "9ffaed59a958dcdfc1f4899bc4a93dd238315d32"
+    },
+    "doc.perm.audit:read": {
+      "text": "Read the audit trail.",
+      "hash": "87c1c4a7b67d30455fcce098e19ad429a1808b91"
     },
     "ui.brandreset": {
       "text": "Reset to default",
       "hash": "39c90eb758c57422548baebb38a39652279feb65"
     },
-    "beta.verify_failed": {
-      "text": "verification failed — reload the page",
-      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
+    "doc.route.get.api.beta.assets": {
+      "text": "List the team's onboarding assets.",
+      "hash": "20267ee4b84d7009da89c1736bcffcc39db17a42"
+    },
+    "doc.route.post.api.admin.seed-tenants": {
+      "text": "Seed Acme and Globex with known dev passwords — demo fixture only.",
+      "hash": "8ebbc1998b371a5d1fe99da2c98f2af7481e2a9a"
+    },
+    "doc.route.put.api.documents.id": {
+      "text": "Update a text document's title, body or visibility (a new version).",
+      "hash": "3fe2ff530ad25f0415478ddb3b6cf245d43a2000"
+    },
+    "doc.perm.quota:read": {
+      "text": "See quotas.",
+      "hash": "fb2e9e15c807d3a4e1c48139107fc7b18f522f21"
+    },
+    "doc.perm.org:read": {
+      "text": "See the company, its teams, members and audit trail.",
+      "hash": "05279417b614668317d0b96f13b779958ddfcdda"
     },
     "notes.saved": {
       "text": "Note saved.",
       "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
     },
-    "ui.addtrigger": {
-      "text": "Add trigger",
-      "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
+    "doc.route.post.api.agent": {
+      "text": "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.",
+      "hash": "ba6777989b583f514ff66b05e086ce6523bef0bc"
     },
-    "ui.branding": {
-      "text": "Branding",
-      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
+    "ui.capability": {
+      "text": "Can",
+      "hash": "88e288f3e3ca8d1137556d908dcb9f355209464b"
+    },
+    "doc.tool.update_note.title": {
+      "text": "New title (optional)",
+      "hash": "8fdccec803eb3978be9bae1f71d5477a1728b73c"
+    },
+    "doc.route.get.api.orgs.ref": {
+      "text": "One company, its teams and quotas.",
+      "hash": "6fc9a5c283b853226eaa9782224aed904fce2152"
+    },
+    "ui.repository": {
+      "text": "Repository",
+      "hash": "312386841084261c610413fa4de8b7505f469407"
+    },
+    "doc.tool.update_note.id": {
+      "text": "The note id",
+      "hash": "fd02a584451d28a275838f32365a74f1b2293116"
+    },
+    "doc.route.get.api.metrics": {
+      "text": "Operational metrics.",
+      "hash": "77665524466afabbf3910faa0fe57d7740e33b24"
     },
     "ui.revoke": {
       "text": "Revoke",
@@ -595,13 +1235,57 @@
       "text": "Sign out",
       "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
     },
+    "doc.route.get.api.features": {
+      "text": "The team's feature flags.",
+      "hash": "bd1955d40c93a9919c316f5efb74b2c6b18f0ad0"
+    },
+    "doc.route.get.api.glossary": {
+      "text": "The team glossary.",
+      "hash": "7986293803bb2029e37ce2d2f2e2c213446c48c7"
+    },
     "http.unauthorized": {
       "text": "Authentication required.",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
+    "doc.plugin.rs3": {
+      "text": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
+      "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
+    },
+    "doc.route.get.api.workflows": {
+      "text": "The team's workflow definitions, plugin-contributed ones materialized on first look.",
+      "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
+    },
+    "beta.verify_failed": {
+      "text": "verification failed — reload the page",
+      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
+    },
+    "ui.addtrigger": {
+      "text": "Add trigger",
+      "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
+    },
+    "ui.branding": {
+      "text": "Branding",
+      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
+    },
+    "doc.route.get.api.members": {
+      "text": "The team's members and roles.",
+      "hash": "32197624e684dac944e94da479c4c79400a6ba47"
+    },
+    "doc.route.post.api.doc-triggers": {
+      "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
+      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
+    },
+    "doc.route.get.api.beta.experience": {
+      "text": "The team's draft onboarding experience, including the judge prompt.",
+      "hash": "c3f2aec9df503e476f868327fba76ede78146862"
+    },
     "ui.l10ntranslation": {
       "text": "Translation",
       "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
+    },
+    "doc.route.get.login": {
+      "text": "The console, sign-in first — a URL that never depends on the beta landing.",
+      "hash": "d02ef5047d3fda355ef1467fbfaf5e5e4667d53b"
     },
     "ui.automationshint": {
       "text": "When a document matching a prefix and type lands in the repository — from the console or over S3 — run this workflow with it, as the uploader.",
@@ -611,6 +1295,18 @@
       "text": "New note",
       "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
     },
+    "doc.route.post.api.admin.seed": {
+      "text": "Seed sample notes and documents into the caller's team.",
+      "hash": "c9a7e323f4abf0ebc6ef99c4a87fee7475aaec0a"
+    },
+    "doc.route.get.api.workflows.slug": {
+      "text": "One workflow definition with its spec.",
+      "hash": "f3a279bebfb752bea2de432d2056d692f5131c8d"
+    },
+    "doc.route.get.api.repo-obj.id.derivations": {
+      "text": "Provenance: what the document was derived from, by which run and step.",
+      "hash": "a4913e813c9302f167c7e1c642e6851205f040f9"
+    },
     "ui.linkhint": {
       "text": "Anyone with this link can download the document for the next {m} minutes, without signing in. It carries your S3 key’s permissions and stops working if that key is revoked.",
       "hash": "7f9956fa5eca1bdb0470b328be9a2bdc32a49c33"
@@ -618,6 +1314,10 @@
     "ui.processedby": {
       "text": "Processed by",
       "hash": "e46e1f2081914128a574b3c06686ccce4454d5b1"
+    },
+    "doc.route.get.api.tokens": {
+      "text": "The team's API tokens.",
+      "hash": "5ba2729ca20d3fedebf8ffb6e6af646ac7d0959d"
     },
     "ui.qualify": {
       "text": "Qualify",
@@ -627,9 +1327,29 @@
       "text": "Title",
       "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
     },
+    "doc.route.get.api.org.teams": {
+      "text": "The teams in the caller's company.",
+      "hash": "7138c15c403d14dc29ff02593fa0f27f089cd859"
+    },
+    "doc.route.get.beta.template": {
+      "text": "The Tier-C sandboxed HTML template, localized by the experience overlay.",
+      "hash": "905e073cb8d041696017518f64247b9392c4fd97"
+    },
+    "doc.perm.workflows:read": {
+      "text": "See workflow definitions, runs and triggers.",
+      "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
+    },
     "ui.setquota": {
       "text": "Set limit",
       "hash": "634082ec4f01e693739b71275495c576e4988663"
+    },
+    "doc.route.get.api.kg.entities": {
+      "text": "Find entities by ?q= and ?type=; only those with a mention the caller can read.",
+      "hash": "5c2bb39d66573cf937e6ed22690d5ceadbc3a831"
+    },
+    "doc.route.post.api.provision": {
+      "text": "Hosted mode: provision this instance with exactly one owner and a magic activation link.",
+      "hash": "97856360470baac26856e94366d4bf93c51bb46e"
     },
     "ui.sourcetext": {
       "text": "Text to translate",
@@ -643,6 +1363,10 @@
       "text": "Key",
       "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
     },
+    "doc.route.post.api.jobs.id.cancel": {
+      "text": "Cancel a queued job (a running one finishes).",
+      "hash": "227ebe818250c89494c01d47fa7b9bef3ef81852"
+    },
     "ui.localize": {
       "text": "Localize",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
@@ -651,49 +1375,241 @@
       "text": "Members",
       "hash": "1cb449c1126609b4b41e1d87f65f0d7cd19b49b9"
     },
-    "ui.pass": {
-      "text": "Password",
-      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
-    },
     "ui.s3off": {
       "text": "The S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT).",
       "hash": "5c2e33d5d944b2c8eaf0e207473c8f61b6ca91f2"
     },
-    "ui.vis_shared": {
-      "text": "Shared — only the people below",
-      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    "doc.route.post.api.documents": {
+      "text": "Create a text document (a repository object with content_type text/markdown).",
+      "hash": "d8633651c22e353d235c4425d3599afa38db6fc0"
     },
-    "ui.back": {
-      "text": "Back",
-      "hash": "b52b36b7269fbfc58ec24bb724691951a3decbe8"
+    "doc.route.get.api.mcp": {
+      "text": "Connected MCP servers.",
+      "hash": "ee2175d19262c5c0d8e0ded042d864a035929822"
     },
-    "ui.willversion": {
-      "text": "This path exists — uploading saves a new version and keeps its current visibility",
-      "hash": "3629795f10a247e233253f04af4fef7439e9a459"
+    "doc.route.get.api.runs.id": {
+      "text": "One run with its steps, inputs, outputs and errors.",
+      "hash": "413e1b81c79fa3b7b825a572f0afd2a188f66588"
     },
-    "ui.createop": {
-      "text": "Create operator",
-      "hash": "aed7b1a1cb14a92bdfa831efac4ad2b950129f36"
+    "ui.pass": {
+      "text": "Password",
+      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
     },
-    "ui.trigger_prefix": {
-      "text": "Key prefix",
-      "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
+    "doc.tool.doc_render.template": {
+      "text": "The template document's object id or key",
+      "hash": "af52889b1f6ef204aecd17b5f6775b46587791f8"
+    },
+    "doc.route.options.api.beta.config": {
+      "text": "CORS preflight for a sandboxed Tier-C template.",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "doc.perm.research:use": {
+      "text": "Use the research surfaces.",
+      "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
+    },
+    "doc.perm.notes:write": {
+      "text": "Create and edit notes.",
+      "hash": "fdd2d6a55dcb86b65c6617635e455431b1e7f095"
+    },
+    "doc.route.delete.api.beta.asset.id": {
+      "text": "Delete an onboarding asset.",
+      "hash": "ca144e9ef80342a5e185b34d4c1f81bd5ac56769"
+    },
+    "doc.perm.workflows:run": {
+      "text": "Start and cancel runs. An S3 key needs this scope for its uploads to fire triggers.",
+      "hash": "21cb174e21ed16c1c221a45bb425838fcd7e8690"
+    },
+    "doc.perm.roles:manage": {
+      "text": "Create and edit team roles.",
+      "hash": "0aea9032d70ee3ea8b424466b95567563af8697a"
+    },
+    "doc.route.post.api.repo-obj.id.presign": {
+      "text": "A time-boxed presigned S3 URL, signed with the caller's own newest S3 key.",
+      "hash": "a4f17cb24cd908a67d10d18e4bffc097d0618254"
+    },
+    "doc.perm.localization:read": {
+      "text": "See the Localization Manager's coverage and messages.",
+      "hash": "da2cba8e84f038c877872c710f02f7f21d1049f8"
     },
     "ui.notriggers": {
       "text": "No triggers yet.",
       "hash": "d002af36e66ebe8d94ff89b02f91420bf027b376"
     },
+    "doc.tool.create_note": {
+      "text": "Create a note for the current user's team.",
+      "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
+    },
+    "doc.route.get.api.jobs.id": {
+      "text": "One job with its result or error.",
+      "hash": "fe32c2dd94dd14a9e9e3c2737fa9398ac5636134"
+    },
+    "doc.route.delete.api.s3.credentials.id": {
+      "text": "Revoke an S3 access key; presigned links signed with it die with it.",
+      "hash": "0d193ba9fd8c47b32b53a58ec0fef45870676b77"
+    },
+    "doc.route.post.api.org.teams": {
+      "text": "Create a team in the caller's company.",
+      "hash": "a7415a3f6a8a4781b80fa476af75d41f60cc2dde"
+    },
     "ui.lochint": {
       "text": "The language this instance answers in when a visitor has not chosen one — including on the sign-in screen, before anyone has an account.",
       "hash": "888ae32444f9106401926c83bd00ebcde5f99635"
+    },
+    "doc.route.post.api.kg.extract": {
+      "text": "Queue the index-knowledge workflow over the team's unextracted documents.",
+      "hash": "2606841d46a8c155e8382e21928cd03be3f511e8"
+    },
+    "doc.tool.doc_translate.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.workflow.index-documents.name": {
+      "text": "Index Documents",
+      "hash": "b658bbb3bc5f374f75c095db243bfd4e36f99f04"
+    },
+    "doc.tool.create_note.visibility": {
+      "text": "Who can see it; defaults to team",
+      "hash": "63f15092782b28f41c2f3abac7e63b008dcaef2f"
     },
     "ui.triggeradded": {
       "text": "Trigger added",
       "hash": "197951dfb575608c5f391dbd1aff0c29c29a34c8"
     },
+    "doc.tool.doc_render.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.perm.settings:manage": {
+      "text": "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail.",
+      "hash": "0062da01a09f0649738228059fa7da1360bbf57c"
+    },
+    "ui.vis_shared": {
+      "text": "Shared — only the people below",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
+    "doc.route.post.api.features.name": {
+      "text": "Enable or disable a feature for the team.",
+      "hash": "70450a5f4b07df469785c31e6aa303ffccafcc74"
+    },
+    "ui.back": {
+      "text": "Back",
+      "hash": "b52b36b7269fbfc58ec24bb724691951a3decbe8"
+    },
+    "doc.route.get.api.workflows.schema": {
+      "text": "The workflow spec format: version, step kinds, binding references, predicates.",
+      "hash": "5b7f95b61ad9613c47931f31046e2e5c7152fb46"
+    },
+    "doc.route.get.health": {
+      "text": "Liveness: {ok, service, version}.",
+      "hash": "b57b58c0a4d2bf987d16ebbe2dde703aa8699b59"
+    },
+    "doc.tool.word_count": {
+      "text": "Count the number of words in a piece of text.",
+      "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
+    },
+    "doc.route.post.api.l10n.review.id": {
+      "text": "Approve or send back a translation. A translator cannot approve their own.",
+      "hash": "694e98ff43653287a34b42e7e75e466a4beb43bd"
+    },
+    "ui.willversion": {
+      "text": "This path exists — uploading saves a new version and keeps its current visibility",
+      "hash": "3629795f10a247e233253f04af4fef7439e9a459"
+    },
+    "doc.route.get.api.notes": {
+      "text": "List the notes the caller can read.",
+      "hash": "bfc837b16414b5a34e848ca6ddab45a72b63a82d"
+    },
+    "doc.tool.create_note.title": {
+      "text": "Short note title",
+      "hash": "54eab342b7a6b5c2b941aee1458cffe618ffcdbe"
+    },
+    "ui.createop": {
+      "text": "Create operator",
+      "hash": "aed7b1a1cb14a92bdfa831efac4ad2b950129f36"
+    },
+    "doc.tool.doc_extract_fields.schema": {
+      "text": "A JSON schema the extracted object must conform to",
+      "hash": "83e904382cbf96b6d364748cb9688696e3f88a3d"
+    },
+    "doc.perm.org:*": {
+      "text": "Everything at the company tier. Never reaches instance:*.",
+      "hash": "52de0860cce2504961d6406e8975a750db44984c"
+    },
     "ui.s3created": {
       "text": "Key created",
       "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
+    },
+    "ui.trigger_prefix": {
+      "text": "Key prefix",
+      "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
+    },
+    "doc.route.patch.api.orgs.ref": {
+      "text": "Rename a company and/or change its plan (a plan change re-applies the plan's caps).",
+      "hash": "093b33177881ac65e6c35826a611a06df0f1182b"
+    },
+    "doc.route.post.api.repo-obj.id.share": {
+      "text": "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.",
+      "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+    },
+    "doc.route.put.api.notes.id": {
+      "text": "Update a note.",
+      "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
+    },
+    "doc.tool.chat_message.text": {
+      "text": "What the user said",
+      "hash": "bfe8aadc4471ada97ff5ddf135d6d3bb0585636f"
+    },
+    "doc.route.get.api.l10n.messages": {
+      "text": "The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged.",
+      "hash": "d6cb6026eb6b9ff6e1665b7c274f8b0282c9c9d0"
+    },
+    "ui.reply": {
+      "text": "Reply",
+      "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
+    },
+    "doc.tool.kg_query.hops": {
+      "text": "1 (default) or 2",
+      "hash": "04e287dac6a68b3604cd14a60fcfe52795c65786"
+    },
+    "doc.route.get.api.i18n.catalog": {
+      "text": "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.",
+      "hash": "80282f87d17426ec9fcc94a64519d2691104a001"
+    },
+    "ui.input": {
+      "text": "Input",
+      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
+    },
+    "doc.route.get.api.usage": {
+      "text": "The team's quota dimensions with used, limit and remaining.",
+      "hash": "17724760ce302a6beba0cc1dcdbdcdcdf7694b07"
+    },
+    "doc.route.get.api.plugins": {
+      "text": "The loaded plugins with their tools and workflows.",
+      "hash": "167fb82427d578125bb3840706a7f14dc9cdc5dd"
+    },
+    "doc.perm.org:manage": {
+      "text": "Administer the company: teams and members. Manages, does not read, team data (TEN-2a).",
+      "hash": "d7516686c8225ea117fb689ec5055fa55f122dea"
+    },
+    "ui.setpw": {
+      "text": "Set your password",
+      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
+    },
+    "doc.route.get.beta-sdk.js": {
+      "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
+      "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
+    },
+    "doc.route.get.api.oop": {
+      "text": "Connected sandboxed (out-of-process) plugins and the capabilities they may ask for.",
+      "hash": "0e0b67a716848dba7d3d889f5b9896b861229066"
+    },
+    "ui.people": {
+      "text": "People",
+      "hash": "b37554f695b15005fd23907b9488e0a8ad4bca5f"
+    },
+    "doc.perm.notes:manage": {
+      "text": "Share notes one does not own.",
+      "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
     },
     "ui.l10nsource": {
       "text": "English",
@@ -723,9 +1639,21 @@
       "text": "Import catalogs",
       "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
     },
+    "ui.addmember": {
+      "text": "Add member",
+      "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
+    },
+    "doc.route.post.api.instance.resume": {
+      "text": "Hosted mode: resume a suspended tenant.",
+      "hash": "2b96e0bd6c952152f27dce21e03f30f906c922d4"
+    },
     "ui.expired": {
       "text": "expired",
       "hash": "45a6f9adb1df3a78aafc71391c7d3bfa7680229b"
+    },
+    "doc.tool.doc_render.object": {
+      "text": "The source document's object id — the form is written beside it (default: beside the template)",
+      "hash": "1b66f9c975259453418803c8fd1c4b6afd18ffa0"
     },
     "ui.download": {
       "text": "Download",
@@ -735,6 +1663,22 @@
       "text": "Nothing has been shared with you yet.",
       "hash": "3e65d083f7d44c17c1b1f6f409bf2db8f3bd7594"
     },
+    "doc.route.get.api.branding": {
+      "text": "Instance title, tagline and logo. Public: the sign-in screen renders them.",
+      "hash": "4125e05ed8a7237592159ed5041f68200890f4bd"
+    },
+    "doc.perm.documents:write": {
+      "text": "Create and edit text documents.",
+      "hash": "71aba7ce1032e99946218b1aa6cdeace59534548"
+    },
+    "doc.perm.tasks:delete": {
+      "text": "Delete tasks.",
+      "hash": "cf30cf825b6d76a348086e00de5cde5bbf6dc319"
+    },
+    "ui.signin": {
+      "text": "Sign in",
+      "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
+    },
     "ui.caphint": {
       "text": "View opens and downloads; edit also uploads new versions; manage also shares, revokes and changes visibility.",
       "hash": "4891ee9161948bec6160f2e086fb5ff879be9550"
@@ -743,61 +1687,101 @@
       "text": "You have {count, plural, one {# new message} other {# new messages}}.",
       "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
     },
-    "ui.signin": {
-      "text": "Sign in",
-      "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
-    },
-    "ui.reply": {
-      "text": "Reply",
-      "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
-    },
-    "ui.input": {
-      "text": "Input",
-      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
-    },
     "ui.newdoc": {
       "text": "New document",
       "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
-    },
-    "ui.setpw": {
-      "text": "Set your password",
-      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
-    },
-    "ui.people": {
-      "text": "People",
-      "hash": "b37554f695b15005fd23907b9488e0a8ad4bca5f"
     },
     "beta.field_digits": {
       "text": "{field} must contain digits only",
       "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
     },
-    "ui.addmember": {
-      "text": "Add member",
-      "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
+    "doc.tool.translate_text": {
+      "text": "Translate text into a target language.",
+      "hash": "97e00a1333476512c5752e4a68c059fc5df84cc4"
     },
     "ui.s3hint": {
       "text": "Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.",
       "hash": "c779fcf2a535aaa614b214b37cdfc8f52112f1a4"
     },
+    "doc.route.post.api.orgs.ref.quota": {
+      "text": "Set an org-level quota; teams nest beneath it.",
+      "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
+    },
     "ui.results": {
       "text": "Results",
       "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
     },
-    "ui.versions": {
-      "text": "Versions",
-      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
-    },
-    "ui.workflows": {
-      "text": "Workflows",
-      "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
+    "doc.route.post.api.activate": {
+      "text": "Hosted mode: redeem an activation token and set the owner's password.",
+      "hash": "4abf505567758f834dd33521715f9792cffaebac"
     },
     "ui.notes": {
       "text": "Notes",
       "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
     },
+    "ui.versions": {
+      "text": "Versions",
+      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
+    },
+    "doc.route.post.api.l10n.discard": {
+      "text": "Remove a locale's machine drafts (never a human's work).",
+      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
+    },
+    "ui.workflows": {
+      "text": "Workflows",
+      "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
+    },
+    "doc.tool.list_notes": {
+      "text": "List the current user's notes (title and visibility).",
+      "hash": "4f1bac788f076a7c3d361dd1dff2b3150e25f62c"
+    },
+    "ui.l10nreject": {
+      "text": "Reject",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    },
+    "doc.tool.doc_render.data": {
+      "text": "The data to fill in, e.g. the extracted fields",
+      "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
+    },
+    "doc.perm.instance:*": {
+      "text": "Everything at the instance tier; the operator (superadmin).",
+      "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
+    },
+    "ui.tool": {
+      "text": "Tool",
+      "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
+    },
+    "doc.route.put.api.i18n": {
+      "text": "Set the instance default locale and whether users may switch.",
+      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
+    },
+    "doc.perm.files:read": {
+      "text": "Open, download and search repository documents; read provenance and the knowledge graph.",
+      "hash": "2efb78bec3b8ff4d1b71b73d0a5d3106dbb524e2"
+    },
+    "doc.perm.documents:read": {
+      "text": "Read text documents.",
+      "hash": "dfb791562cc4c9aff44f300e3d36719565a15092"
+    },
+    "ui.file": {
+      "text": "File",
+      "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "doc.route.post.api.instance.quota": {
+      "text": "Hosted mode: set a quota limit for the tenant's team.",
+      "hash": "bf7f950d26b1d684525c5d31a52a0a5d4d6b8eff"
+    },
     "ui.submit": {
       "text": "Submit",
       "hash": "2dacf65959849884a011f36f76a04eebea94c5ea"
+    },
+    "doc.route.get.api.tools": {
+      "text": "Every registered tool with its permission, source and per-team enabled state.",
+      "hash": "ad48c089a09318e7fc58a39441e92d393cb6874d"
+    },
+    "doc.tool.kg_list_unextracted": {
+      "text": "List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue.",
+      "hash": "8d56c90624c7d25ffa9d65eca11819dee24f2292"
     },
     "ui.searchph": {
       "text": "notes, documents, files, translations…",
@@ -811,6 +1795,14 @@
       "text": "Verifying you’re human…",
       "hash": "c2527f263d0c2ca67f88d5da7f7273c6873eb796"
     },
+    "doc.plugin.doc-indexer": {
+      "text": "A workflow that extracts text from repository documents into the search index: find what is unindexed, fan out, extract. Re-run it any time; it only touches what changed.",
+      "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
+    },
+    "doc.route.post.api.orgs.ref.resume": {
+      "text": "Resume a suspended company.",
+      "hash": "fd7cd74e0a0889ebca0df4ecd0a42fa78193c537"
+    },
     "ui.brandclearlogo": {
       "text": "Remove logo",
       "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
@@ -819,29 +1811,33 @@
       "text": "No workflow has processed this document yet.",
       "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
+    "doc.route.post.api.org.members": {
+      "text": "Add a person to a team in the caller's company.",
+      "hash": "c3fef23375f6c6addc50ba9705103eae80b14ce8"
+    },
     "ui.target": {
       "text": "Target language",
       "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
+    },
+    "doc.tool.kg_extract.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
     },
     "ui.term": {
       "text": "Term",
       "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
     },
-    "ui.l10nreject": {
-      "text": "Reject",
-      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    "doc.perm.webhooks:manage": {
+      "text": "Configure outbound webhooks.",
+      "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
     },
     "ui.tagline": {
       "text": "Team AI platform — reference implementation",
       "hash": "376a8698238975b4eeda809c249ad17e73944eda"
     },
-    "ui.tool": {
-      "text": "Tool",
-      "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
-    },
-    "ui.file": {
-      "text": "File",
-      "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    "doc.route.post.api.notes.id.share": {
+      "text": "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.",
+      "hash": "0d2759fa361a325bf38191358c553fe0a8002de5"
     },
     "ui.runs": {
       "text": "Runs",
@@ -855,6 +1851,26 @@
       "text": "Name",
       "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
     },
+    "doc.route.post.api.runs.id.cancel": {
+      "text": "Cancel a run; a step already executing finishes, the next never starts.",
+      "hash": "a5433876ac6bc58b63613f8ca8dd4e86bf5e0485"
+    },
+    "doc.route.get.api.audit": {
+      "text": "The team's recent audit events.",
+      "hash": "68f2168af4161167c86c370950860b1846399cb4"
+    },
+    "doc.route.get.api.org.audit": {
+      "text": "The company's audit trail.",
+      "hash": "c709a0e57ace017ced6c3b073c4d646da3787214"
+    },
+    "doc.route.post.api.l10n.draft": {
+      "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
+      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
+    },
+    "doc.route.get.api.s3.credentials": {
+      "text": "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.",
+      "hash": "051981c89ce1559f3c98f74b291a5c3a79f2e36b"
+    },
     "ui.uploadhint": {
       "text": "Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.",
       "hash": "f5f77acd95ec7cf3b7c708ab20228dace868bc92"
@@ -862,6 +1878,38 @@
     "ui.uploading": {
       "text": "Uploading",
       "hash": "de27240983ef2f1432e07df25dd609712f69a107"
+    },
+    "doc.perm.notes:delete": {
+      "text": "Delete notes.",
+      "hash": "fe55e03b24dbaafd2872846f5d80257580bc8baa"
+    },
+    "ui.close": {
+      "text": "Close",
+      "hash": "bbfa773e5a63a5ea58c9b6207e608ca0120e592a"
+    },
+    "doc.route.post.api.translate": {
+      "text": "Translate text into a target language, applying the team glossary.",
+      "hash": "6e66e87c1cec75b5d7189cb342fb0b0e273abaa1"
+    },
+    "doc.plugin.beta-onboarding": {
+      "text": "A customized beta funnel (founders program) registered via the SDK's init! hook.",
+      "hash": "42373b624500e7a17676cf53acc366340197d2dc"
+    },
+    "ui.teamsignin": {
+      "text": "Team sign-in",
+      "hash": "681a8401eb4d38203e8dd2f2c7e847c608c0a17b"
+    },
+    "ui.kg_entity": {
+      "text": "Entity",
+      "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
+    },
+    "doc.route.put.api.repo.key": {
+      "text": "Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here.",
+      "hash": "784e7b58fcc81205c89dbf99ed8044ef8f8fa28f"
+    },
+    "ui.chpw": {
+      "text": "Change your password",
+      "hash": "88dee350141b934bd32db882794a951a7a40d898"
     },
     "ui.dimension": {
       "text": "Dimension",
@@ -871,6 +1919,10 @@
       "text": "Cancel",
       "hash": "77dfd2135f4db726c47299bb55be26f7f4525a46"
     },
+    "doc.route.get.index.html": {
+      "text": "The console.",
+      "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
+    },
     "ui.reject": {
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
@@ -878,6 +1930,10 @@
     "ui.save": {
       "text": "Save",
       "hash": "efc007a393f66cdb14d57d385822a3d9e36ef873"
+    },
+    "doc.perm.memory:write": {
+      "text": "Write to the agent's memory.",
+      "hash": "6fc6dea3d5a1fe718255e3222cff9d4a11f28bc8"
     },
     "ui.shared": {
       "text": "Shared",
@@ -887,17 +1943,17 @@
       "text": "We’ll be in touch.",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
     },
-    "ui.close": {
-      "text": "Close",
-      "hash": "bbfa773e5a63a5ea58c9b6207e608ca0120e592a"
+    "doc.route.post.api.ai.chat": {
+      "text": "One model turn. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.",
+      "hash": "1bfac0736a442eddb532bcbfc50846b3d0b8feb9"
     },
-    "ui.teamsignin": {
-      "text": "Team sign-in",
-      "hash": "681a8401eb4d38203e8dd2f2c7e847c608c0a17b"
+    "doc.route.get.api.beta.config": {
+      "text": "The published onboarding experience's public slice (fields, copy, theme) in one language.",
+      "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
     },
-    "ui.chpw": {
-      "text": "Change your password",
-      "hash": "88dee350141b934bd32db882794a951a7a40d898"
+    "doc.route.get.api.org": {
+      "text": "The caller's own company.",
+      "hash": "64fe44cbb3af833179d4b608cf69ed65492b7216"
     }
   }
 }

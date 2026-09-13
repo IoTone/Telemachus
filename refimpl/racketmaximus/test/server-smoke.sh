@@ -485,6 +485,26 @@ assert "index-documents run completed" "$idxs" "done"
 assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
 
+# ---- slice 61: the knowledge graph — the surface exists, and extraction refuses to
+# run on the fallback model (the mention rule and the pipeline are unit-tested;
+# the whole flow over HTTP is in test/doc-pipeline-smoke.sh against a scripted model)
+KGE=$(curl -s "$B/api/kg/entities?q=" -H "Authorization: Bearer $OP")
+assert "kg: empty graph"          "$KGE" '"entities":[]'
+assert "kg: stats count the indexed document as waiting" "$KGE" '"unextracted":'
+assert "kg: unknown entity is 404" "$(curl -s "$B/api/kg/entities/nope" -H "Authorization: Bearer $OP")" 'not found'
+KGRUN=$(curl -s -X POST $B/api/kg/extract -H "Authorization: Bearer $OP")
+KGID=$(printf '%s' "$KGRUN" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "kg: extract queues index-knowledge" "$KGRUN" '"status":"running"'
+kgs=""; kgjson=""
+for i in $(seq 1 40); do
+  kgjson=$(curl -s "$B/api/runs/$KGID" -H "Authorization: Bearer $OP")
+  kgs=$(printf '%s' "$kgjson" | grep -oP '"status":"\K[^"]+' | head -1)
+  case "$kgs" in done|error|canceled) break;; esac
+  sleep 0.5
+done
+assert "kg: extraction fails without a model" "$kgs" "error"
+assert "…and says so"                          "$kgjson" 'no model configured'
+
 # ---- slice 57: the document pipeline plugin is present, and refuses to run on the
 # fallback model. Without this the uppercase-echo fallback would fail every schema
 # with "the model did not return a JSON object" — true, and useless to an operator.

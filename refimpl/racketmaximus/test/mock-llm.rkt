@@ -21,7 +21,7 @@
 ;; so one server scripts a whole pipeline: the extraction prompt carries the word
 ;; "schema", the translation prompt carries "translator".
 
-(require racket/tcp racket/string racket/file json)
+(require racket/tcp racket/string racket/file racket/list json)
 
 (define port (string->number (or (getenv "MOCK_PORT") "8900")))
 (define call-file (or (getenv "MOCK_CALL_FILE") "/tmp/mock-call.json"))
@@ -36,11 +36,14 @@
            (for/list ([m (in-list (let ([m (hash-ref parsed 'messages '())]) (if (list? m) m '())))])
              (define c (and (hash? m) (hash-ref m 'content "")))
              (if (string? c) (string-append c "\n") ""))))
+  ;; the LONGEST needle found in the request wins, so a specific needle can sit
+  ;; beside a general one without depending on hash order
+  (define hits
+    (for/list ([(k v) (in-hash table)]
+               #:when (and (not (eq? k '*)) (string? v) (string-contains? text (symbol->string k))))
+      (cons (string-length (symbol->string k)) v)))
   (define reply
-    (or (for/first ([(k v) (in-hash table)]
-                    #:when (and (not (eq? k '*)) (string? v)
-                                (string-contains? text (symbol->string k))))
-          v)
+    (or (and (pair? hits) (cdr (argmax car hits)))
         (let ([d (hash-ref table '* #f)]) (and (string? d) d))
         "MOCK"))
   (hasheq 'id "chatcmpl-mock" 'object "chat.completion" 'model "mock"

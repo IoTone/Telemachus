@@ -267,5 +267,41 @@ else
   echo "  skip S3 section (no aws CLI)"
 fi
 
+if [ $LIVE = 0 ]; then
+  echo
+  echo "== 8. the knowledge graph: index, extract, ask — with the mention rule (KG-3) ====="
+  # every invoice (the private one and the team-visible auto/ scans share the
+  # line "Widgets 1000\nShipping 250.50") gets entities with snippets verbatim from
+  # its text; every other document gets an empty, valid extraction. The longest
+  # needle wins in the mock, so the specific one beats the generic one.
+  cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"extract a knowledge graph": "{\"entities\":[],\"relations\":[]}",
+ "Widgets 1000\\nShipping 250.50": "{\"entities\":[{\"type\":\"organization\",\"name\":\"Acme Corp\",\"description\":\"a vendor\",\"snippet\":\"Acme Corp\"},{\"type\":\"product\",\"name\":\"Widgets\",\"snippet\":\"Widgets 1000\"}],\"relations\":[{\"subject\":\"Acme Corp\",\"predicate\":\"sells\",\"object\":\"Widgets\",\"snippet\":\"Widgets 1000\"}]}",
+ "*": "MOCK"}
+JSON
+  IDX=$(P /api/workflows/index-documents/run '{}'); IDXID=$(printf '%s' "$IDX" | grep -oP '"id":"\K[^"]+' | head -1)
+  wait_run "$IDXID"; assert "index-documents ran" "$RUNST" "done"
+  KG=$(P /api/kg/extract); KGID=$(printf '%s' "$KG" | grep -oP '"id":"\K[^"]+' | head -1)
+  assert "extract queued" "$KG" '"status":"running"'
+  wait_run "$KGID"; KGST="$RUNST"; [ "$KGST" = done ] || KGST="$KGST — $(printf '%s' "$RUNJSON" | grep -oP '"error":"\K[^"]*' | head -1)"
+  assert "index-knowledge ran" "$KGST" "done"
+  ENTS=$(G "/api/kg/entities?q=acme")
+  assert "Acme Corp is an entity"       "$ENTS" '"name":"Acme Corp"'
+  assert "…one entity across three invoices" "$(printf '%s' "$ENTS" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["entities"]))')" "1"
+  EID=$(printf '%s' "$ENTS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["entities"][0]["id"])')
+  ENT=$(G "/api/kg/entities/$EID")
+  assert "its relation, with a citation"  "$ENT" '"predicate":"sells"'
+  assert "a mention names the invoice"    "$ENT" '"key":"inbox/acme.txt"'
+  assert "search surfaces the entity"     "$(G "/api/search?q=acme")" '"type":"entity"'
+  # the mention rule: bob (view on inbox/acme.txt) sees Acme through the invoice he can read
+  # and through the team-visible auto/ scans; carol sees it ONLY through the team-visible scans
+  assert "bob sees Acme"   "$(curl -s "$B/api/kg/entities?q=acme" -H "Authorization: Bearer $BOB")" '"name":"Acme Corp"'
+  CAROLENT=$(curl -s "$B/api/kg/entities/$EID" -H "Authorization: Bearer $CAROL")
+  assert "carol sees Acme too (team scans mention it)" "$CAROLENT" '"name":"Acme Corp"'
+  refute "…but never the private invoice's mention" "$CAROLENT" '"key":"inbox/acme.txt"'
+  assert "the agent tool answers with citations" "$(G "/api/tools")" '"name":"kg_query"'
+  assert "a second extraction finds nothing new" "$(P /api/kg/extract | grep -c running)" "1"
+fi
+
 echo
 if [ $fail = 0 ]; then echo "doc-pipeline-smoke: PASS"; else echo "doc-pipeline-smoke: FAIL"; tail -30 "$TELEMACHUS_DATA_DIR/server.log"; exit 1; fi

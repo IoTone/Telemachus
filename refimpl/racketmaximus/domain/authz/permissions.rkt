@@ -11,7 +11,8 @@
 
 (provide perm-matches? instance-perm? org-perm? split-perm
          builtin-role-keys builtin-role-names builtin-role-perms
-         builtin-org-role-keys org-role-key?)
+         builtin-org-role-keys org-role-key?
+         permission-doc permission-tier all-permissions)
 
 (define (split-perm p)
   (define parts (string-split p ":"))
@@ -103,3 +104,72 @@
                  "quota:manage" "quota:read"
                  "settings:manage" "features:manage" "tokens:manage"
                  "audit:read" "workflows:read")))
+
+;; ---- the catalog, described (slice 60, DOCGEN-3) -----------------------------------
+;; One line per permission, beside the declaration rather than in a table that
+;; drifts. docs/reference/permissions.md is rendered from this, and the check at
+;; the bottom makes a role permission with no description a LOAD error — the same
+;; move as a console key in no review group.
+(define PERMISSION-DOCS
+  (hash
+   "*:*"          "Everything at the team tier. Never reaches instance:* or org:*."
+   "*:read"       "Read every team-visible resource; no AI spend, no mutation."
+   "members:manage" "Add and remove team members and set their roles."
+   "tokens:manage"  "Issue and revoke API tokens for the team."
+   "webhooks:manage" "Configure outbound webhooks."
+   "settings:manage" "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail."
+   "models:serve"   "Register a model executor for the team."
+   "roles:read"     "See the team's roles and what they grant."
+   "roles:manage"   "Create and edit team roles."
+   "audit:read"     "Read the audit trail."
+   "chat:use"       "Talk to the model: chat, the agent, translation, AI tools. Metered."
+   "tools:invoke"   "Call tools from the agent or a workflow step; each tool then checks its own permission."
+   "research:use"   "Use the research surfaces."
+   "documents:read"   "Read text documents."
+   "documents:write"  "Create and edit text documents."
+   "documents:delete" "Delete text documents."
+   "notes:read"     "Read notes."
+   "notes:write"    "Create and edit notes."
+   "notes:delete"   "Delete notes."
+   "notes:manage"   "Share notes one does not own."
+   "tasks:read"     "Read tasks."
+   "tasks:write"    "Create and edit tasks."
+   "tasks:delete"   "Delete tasks."
+   "memory:read"    "Read the agent's memory."
+   "memory:write"   "Write to the agent's memory."
+   "files:read"     "Open, download and search repository documents; read provenance and the knowledge graph."
+   "files:write"    "Upload documents and new versions."
+   "files:delete"   "Delete repository documents."
+   "files:manage"   "Steward a document: change visibility, share and revoke. Owners hold it by owner-ok; a manage grant delegates it for one document."
+   "localization:read"      "See the Localization Manager's coverage and messages."
+   "localization:translate" "Submit translations."
+   "localization:review"    "Approve or send back a colleague's translation (never one's own)."
+   "localization:manage"    "Import and export catalogs, queue AI drafts, discard machine drafts."
+   "workflows:read"  "See workflow definitions, runs and triggers."
+   "workflows:write" "Publish workflows and manage triggers."
+   "workflows:run"   "Start and cancel runs. An S3 key needs this scope for its uploads to fire triggers."
+   "team:read"    "See a team in the company."
+   "team:write"   "Rename a team in the company."
+   "team:create"  "Create a team in the company."
+   "team:delete"  "Delete a team."
+   "quota:read"   "See quotas."
+   "quota:manage" "Set quotas."
+   "features:manage" "Turn features on and off for teams."
+   "org:*"      "Everything at the company tier. Never reaches instance:*."
+   "org:read"   "See the company, its teams, members and audit trail."
+   "org:manage" "Administer the company: teams and members. Manages, does not read, team data (TEN-2a)."
+   "instance:*"      "Everything at the instance tier; the operator (superadmin)."
+   "instance:manage" "Instance administration: branding, localization policy, quotas, orgs, metrics."))
+
+(define (permission-doc p)
+  (hash-ref PERMISSION-DOCS p
+            (lambda () (error 'permissions "permission ~s has no description — add it to PERMISSION-DOCS" p))))
+
+(define (permission-tier p)
+  (cond [(instance-perm? p) "instance"] [(org-perm? p) "org"] [else "team"]))
+
+(define (all-permissions) (sort (hash-keys PERMISSION-DOCS) string<?))
+
+;; every permission a built-in role grants must be described — at load, not at doc time
+(for* ([(role perms) (in-hash builtin-role-perms)] [p (in-list perms)])
+  (permission-doc p))

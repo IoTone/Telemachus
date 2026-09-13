@@ -24,7 +24,7 @@
          "../quota/quota.rkt"
          "blobs.rkt")
 
-(provide repo-put! set-put-hook!
+(provide repo-put! set-put-hook! set-delete-hook!
          repo-get repo-open repo-list repo-versions
          repo-set-visibility! repo-delete! repo-usage
          repo-share! repo-unshare! repo-grants
@@ -45,6 +45,9 @@
 ;; the upload — the subscriber owns its own error handling.
 (define put-hook (box (lambda (conn p obj #:derived? derived?) (void))))
 (define (set-put-hook! f) (set-box! put-hook f))
+;; …and one for deletion: the knowledge graph forgets a document's facts here
+(define delete-hook (box (lambda (conn object-id) (void))))
+(define (set-delete-hook! f) (set-box! delete-hook f))
 (define VISIBILITIES '("private" "team" "shared"))
 
 ;; ---- keys --------------------------------------------------------------------
@@ -545,6 +548,7 @@
          ;; the extracted-text index row dies with the object (no FK cascade — SQLite
          ;; portability), or a deleted document would keep matching searches
          (query-exec conn "DELETE FROM repo_text WHERE object_id = ?" id)
+         ((unbox delete-hook) conn id)
          (define freed
            (for/sum ([r (in-list versions)])
              (define digest (vector-ref r 1))
