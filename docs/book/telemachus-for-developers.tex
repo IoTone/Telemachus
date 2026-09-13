@@ -16,6 +16,27 @@
 \usepackage{longtable}
 \usepackage{hyperref}
 \usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{titlesec}
+
+% The PDF gets a real cover page and a sketch on every chapter head; the HTML edition
+% (pandoc) gets the sketch under pandoc's own title block instead. build.sh flips
+% this switch to \pdfonlyfalse on the copy it hands to pandoc.
+\newif\ifpdfonly
+\pdfonlytrue
+
+\ifpdfonly
+  % every chapter opens with Telemachus in the margin — the head vignette from art/
+  \titleformat{\chapter}[display]
+    {\normalfont\bfseries}
+    {\includegraphics[height=2.4cm]{art/telemachus-head.png}\hfill{\Large\chaptertitlename\ \thechapter}}
+    {14pt}{\Huge}
+  \titleformat{name=\chapter,numberless}[display]
+    {\normalfont\bfseries}
+    {\includegraphics[height=2.4cm]{art/telemachus-head.png}}
+    {14pt}{\Huge}
+  \titlespacing*{\chapter}{0pt}{20pt}{30pt}
+\fi
 
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black}
 \lstset{basicstyle=\ttfamily\small, breaklines=true, frame=single, framerule=0.3pt,
@@ -29,7 +50,28 @@
 \date{September 2026 --- version 0.1.0}
 
 \begin{document}
-\maketitle
+\ifpdfonly
+  \begin{titlepage}
+    \centering
+    \vspace*{1.2cm}
+    {\Huge\bfseries Telemachus for Developers\par}
+    \vspace{0.5em}
+    {\large A small book about a Racket-first, self-hosted team AI platform\par}
+    \vspace{1.4cm}
+    \includegraphics[height=0.52\textheight]{art/telemachus-sketch.png}\par
+    \vspace{1.2cm}
+    {\large IoTone, Inc.\par}
+    \vspace{0.3em}
+    {\large September 2026 --- version 0.1.0\par}
+    \vfill
+    {\small\itshape Telemachus, a concept sketch: a young Ithacan with a scroll, Mentor's owl on his shoulder.\par}
+  \end{titlepage}
+\else
+  \maketitle
+  \begin{center}
+    \includegraphics[width=0.55\textwidth]{art/telemachus-sketch.png}
+  \end{center}
+\fi
 
 \chapter*{How to read this}
 

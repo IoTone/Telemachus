@@ -706,6 +706,16 @@ Tectonic fetches TeX packages on first run (a 429 from the bundle mirror is a
 retry, not a failure) and caches them under `~/.cache/Tectonic`. The built PDF
 and HTML are committed beside the source; rebuild and commit them together.
 
+- **The character art is `docs/book/art/telemachus-sketch.svg`** (hand-authored
+  SVG: ink paths, a `feTurbulence` wobble, construction marks) and
+  `telemachus-head.svg`, the same drawing cropped to the head for chapter heads.
+  `art/render.mjs` renders both to PNG at 3× with the e2e directory's Playwright
+  (`node docs/book/art/render.mjs` from the repo root) — the PDF needs the PNGs,
+  the HTML gets the SVG inlined by `book.css` and the artifact page.
+- **`\ifpdfonly`** guards the title page and the `titlesec` chapter format; pandoc
+  honours TeX conditionals, and `build.sh` flips the switch to false on the copy
+  it hands to pandoc, so the HTML gets `\maketitle` plus the sketch instead.
+
 ## Workflow engine (plugins that process in steps)
 
 Slice 46. A workflow is a **validated data spec** — that spec is the public
