@@ -88,8 +88,8 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       over the grants table; a user or a **team in the same org** as principal;
       optional expiry; only `manage` re-shares; derived documents inherit at
       creation. Design: [`design/document-sharing.md`](design/document-sharing.md).
-      *Open:* the dialog's capability/principal/expiry pickers and a "Shared with
-      me" filter (DSH step 3).
+      The share dialog picks a person or a team in the org, a capability and an
+      optional expiry; the Repository tab filters to "Shared with me".
 - [x] **Document workflows (the first-user path)** — a team uploads a file and a
       workflow processes it: text → fields validated against a JSON schema (refused
       on mismatch) → a filled form template → translations, every output a
@@ -98,9 +98,11 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       hand from any document or **fired by an upload** — console, shim or S3 —
       through a trigger (`/api/doc-triggers`: key prefix, content types, the
       workflow and its configuration; exactly once per version; as the uploader).
+      The Workflows tab's **Automations** card manages triggers; every document
+      carries a **"Processed by"** panel; form templates may be Markdown, HTML or
+      **DOCX**; the e2e gate runs the invoice scenario end to end.
       Design: [`design/document-workflows.md`](design/document-workflows.md).
-      *Open:* the Automations card and "Processed by" panel (step 4), DOCX
-      rendering (step 5).
+      *Deferred:* PDF rendering (DWF‑6).
 - [x] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that
       proves the platform can build tools.

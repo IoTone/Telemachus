@@ -339,6 +339,12 @@ assert "share: unknown user"      "$(curl -s -X POST "$SHARE" -H "Authorization:
 assert "share: no principal"      "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d '{}')" 'is required'
 # provenance: an upload derives from nothing
 assert "share: derivations"       "$(curl -s "$B/api/repo-obj/$RID/derivations" -H "Authorization: Bearer $OP")" '"derivations":[]'
+# DSH step 3 / DWF step 4 reads: who can be shared with, what was shared with me, what processed it
+assert "share targets: people"  "$(curl -s "$B/api/share-targets" -H "Authorization: Bearer $OP")" '"username":"bob"'
+assert "share targets: teams"   "$(curl -s "$B/api/share-targets" -H "Authorization: Bearer $OP")" '"own":true'
+assert "shared with me (carol)" "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+if curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $OP" | grep -qF 'reports/q3.pdf'; then echo "  FAIL shared with me (owner) — the owner's own document is not 'shared with me'"; fail=1; else echo "  ok   shared with me (owner)"; fi
+assert "processing: nothing yet" "$(curl -s "$B/api/repo-obj/$RID/processing" -H "Authorization: Bearer $OP")" '"runs":[]'
 # leave bob as a viewer, which is what the checks below assume
 curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\"}" >/dev/null
 assert "share: narrowed to view"  "$(curl -s "$B/api/repo-obj/$RID/grants" -H "Authorization: Bearer $OP")" '"permissions":["files:read"]'

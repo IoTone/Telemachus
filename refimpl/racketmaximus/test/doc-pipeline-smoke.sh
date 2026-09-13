@@ -137,6 +137,37 @@ assert "…and the FORM as source"   "$DER" "\"source_object_id\":\"$FORMID\""
 assert "the fields derive from the invoice" "$(G "/api/repo-obj/$FID/derivations")" "\"source_object_id\":\"$INVID\""
 assert "the invoice derives from nothing"   "$(G "/api/repo-obj/$INVID/derivations")" '"derivations":[]'
 assert "AI spend was metered" "$(G /api/usage)" '"dimension":"ai.tokens.total"'
+# "Processed by" (DWF step 4): the invoice's derived documents and the run that made them
+PROC=$(G "/api/repo-obj/$INVID/processing")
+assert "processing lists the fields document" "$PROC" '"key":"inbox/acme.txt.extracted.json"'
+assert "processing lists the form"            "$PROC" '"key":"inbox/acme.txt.form.md"'
+assert "processing names the run"             "$PROC" "\"id\":\"$RID\""
+assert "the form's panel says where it came from" "$(G "/api/repo-obj/$FORMID/processing")" '"derived_from":[{'
+# "Shared with me" (DSH step 3): bob was handed the invoice; the outputs inherited it
+assert "shared with me: the invoice"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt"'
+assert "shared with me: its outputs"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt.form.md"'
+# a DOCX template (DWF-6, step 5): the form comes back as a .docx
+python3 - "$TELEMACHUS_DATA_DIR/approval.docx" <<'PY'
+import sys, zipfile
+xml = ('<w:document><w:body><w:p><w:r><w:t>Vendor: {{ven</w:t></w:r><w:r><w:t>dor}}</w:t></w:r></w:p>'
+       '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>{{#each items}}</w:t></w:r></w:p></w:tc></w:tr>'
+       '<w:tr><w:tc><w:p><w:r><w:t>{{description}}</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>{{amount}}</w:t></w:r></w:p></w:tc></w:tr>'
+       '<w:tr><w:tc><w:p><w:r><w:t>{{/each}}</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>')
+with zipfile.ZipFile(sys.argv[1], 'w') as z:
+    z.writestr('[Content_Types].xml', '<Types/>'); z.writestr('word/document.xml', xml)
+PY
+DOCX_CT='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+assert "docx template uploaded" "$(curl -s -X PUT "$B/api/repo/templates/approval.docx" -H "Authorization: Bearer $TOK" -H "Content-Type: $DOCX_CT" --data-binary @"$TELEMACHUS_DATA_DIR/approval.docx")" '"key":"templates/approval.docx"'
+RUND=$(P /api/workflows/process-upload/run "{\"input\":{\"object_id\":\"$INVID\",\"schema\":$SCHEMA,\"template\":\"templates/approval.docx\",\"locales\":[]}}")
+RIDD=$(printf '%s' "$RUND" | grep -oP '"id":"\K[^"]+' | head -1)
+wait_run "$RIDD"; STD="$RUNST"; [ "$STD" = done ] || STD="$STD — $(printf '%s' "$RUNJSON" | head -c 300)"
+assert "docx run finished" "$STD" "done"
+LISTD=$(G "/api/repo?prefix=inbox/acme.txt.form.docx")
+assert "the form is a .docx beside the source" "$LISTD" '"key":"inbox/acme.txt.form.docx"'
+assert "…with the DOCX content type" "$LISTD" "\"content_type\":\"$DOCX_CT\""
+DID=$(printf '%s' "$LISTD" | python3 -c 'import sys,json;print(json.load(sys.stdin)["objects"][0]["id"])')
+curl -s "$B/api/repo-obj/$DID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/form.docx"
+assert "the .docx opens and is filled" "$(python3 -c 'import sys,zipfile;print(zipfile.ZipFile(sys.argv[1]).read("word/document.xml").decode())' "$TELEMACHUS_DATA_DIR/form.docx")" 'Vendor: Acme Corp'
 
 echo
 echo "== 4. no template: the SOURCE is translated; a re-run supersedes ==============="

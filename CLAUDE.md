@@ -465,8 +465,17 @@ bash test/server-smoke.sh                            # includes the repository b
 ## Document sharing (slice 56)
 
 Three capabilities over the grants table that already existed. Design:
-`docs/design/document-sharing.md` (DSH‑1…6, decided). Built through step 2 plus
-`inherit`; the dialog's pickers and "Shared with me" are open.
+`docs/design/document-sharing.md` (DSH‑1…6, decided; all built — slice 59 added
+the dialog's pickers and "Shared with me").
+
+- **The share dialog's principal picker is `GET /api/share-targets`**: the team's
+  active members plus the org's teams (`own: true` marks the caller's). Nothing
+  outside the org is ever offered — DSH‑6 by construction, not by validation.
+- **`GET /api/repo?shared=1`** is "handed to me": objects with a LIVE grant for
+  the caller (user or acting team) that the caller does not own. A team-visible
+  document is not "shared with me", and neither is your own.
+- The dialog sends `expires_at` as `<date>T23:59:59Z` — "until this day",
+  inclusive. Revoke is per principal (`principal_type` + `principal_id`).
 
 - **A grant DELEGATES now.** `can?` used to take the permission from the caller's
   role and use a grant only to *reach* a private resource, so a member handed
@@ -515,8 +524,8 @@ bash test/server-smoke.sh              # the "share:" block, 20 assertions
 
 Upload a file, run `process-upload` (by hand, or let a **trigger** run it on
 arrival), get fields + a filled form + translations back as documents beside the
-source. Design: `docs/design/document-workflows.md` (DWF‑1…8, decided; built
-through step 3 — the Automations card is step 4). Four core tools in
+source. Design: `docs/design/document-workflows.md` (DWF‑1…8, decided; all
+five steps built, slices 57–59). Four core tools in
 `domain/repo/doc-tools.rkt` (`doc_text`, `doc_extract_fields`, `doc_render`,
 `doc_translate`), composed by `plugins/doc-pipeline/`; triggers in
 `domain/repo/triggers.rkt` on the seam at the end of `repo-put!`.
@@ -551,6 +560,33 @@ through step 3 — the Automations card is step 4). Four core tools in
 ```sh
 raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, derived guard, scoped keys
 ```
+
+### "Processed by", Automations, DOCX (slice 59)
+
+- `GET /api/repo-obj/<id>/processing` (`object-processing` in `triggers.rkt`):
+  derived documents, sources, and every run that touched the document — found
+  through derivation rows, trigger fires, and a `LIKE '%"object_id":"<id>"%'`
+  over `workflow_runs.input` (the JSON is written without spaces, so the pair is
+  one substring). Each row is authorized on its own. Runs are ordered by
+  `created_at`, which is second-resolution — do not assert "newest first" on
+  runs started in the same second.
+- The Automations card lives on the **Workflows** tab (`automationsCard`), with
+  `trgCreate/trgToggle/trgDelete/trgHistory`; the create form's input textarea
+  is prefilled with `PIPELINE_EXAMPLE_SCHEMA`.
+- **DOCX**: `render-docx` unzips to a temp dir, runs `docx-prepare` on
+  `word/document.xml` (re-joins placeholders Word split across runs; turns a
+  marker-only table row into the `{{#each}}` marker so the rows between repeat),
+  renders with XML escaping, and zips back with `file/zip` from inside the temp
+  dir. A template that is not a zip, or a zip with no `word/document.xml`, is a
+  named error. Tests build real .docx files with `file/zip`; the smoke with
+  Python's `zipfile`.
+- **The e2e gate boots the scripted mock model** (`test/mock-llm.rkt`, chat
+  mode) when it boots its own server, so the pipeline scenario is deterministic
+  and takes seconds; `VALIDATE_PIPELINE=1` opts a live box in. The scenario
+  drives the console only: `repoRunWorkflow`, the run form by `S.wfKeys` index
+  (input order is a hash's — never assume `#wfi_0` is `object_id`), `wfStart`,
+  `repoOpenDetail` → `#rprocessed`, `repoFilter(true)` → `#rf_shared`,
+  `trgCreate` → `trgHistory` → `#tg_history`.
 
 - **The model is a parameter**: `current-doc-chat`. Tests script it; the HTTP
   smoke uses `test/mock-llm.rkt`'s CHAT mode (`MOCK_REPLY_FILE`, a `{"needle":
@@ -618,7 +654,11 @@ contract (WF‑9), and `define-workflow` is a macro that emits it, the same move
 - Ships `tool:<name>`, `choice` and `map` (fan-out). `agent`/`job:`/`flow:` deferred.
 - A plugin may `(provide workflows)` or drop `workflows/*.json`; those specs are
   **materialized** into a team's `workflow_defs` on first lookup (`source:
-  'plugin:<id>'`) — a plugin has no team at load time.
+  'plugin:<id>'`) — a plugin has no team at load time. The insert is `ON
+  CONFLICT DO NOTHING`: the console fires the Workflows list and a "Run
+  workflow…" lookup in parallel, and on a team that had never looked, both saw
+  no row and the second insert 500ed on `UNIQUE(team_id, slug, version)`. The
+  e2e gate caught it; the smokes, which look things up one at a time, never did.
 - `${principal.locale}` is `users.locale` (migration 0018), NOT `Accept-Language`.
 
 Operator runbook: `docs/ops/workflow-engine-runbook.md`.
@@ -668,9 +708,11 @@ BASE_URL=http://<host>:8835 bash test/e2e/validate.sh --no-server   # a live box
 DATABASE_URL="postgres://…" bash test/e2e/validate.sh            # honours a pre-set URL
 ```
 
-31 assertions, no screenshots: sign-in + branding → bootstrap → notes → documents
-create **and edit** → repository upload with byte-identical download → search →
-workflows/jobs/usage → Admin > Branding round-trip → sign out/in. It also fails on
+No screenshots: sign-in + branding → bootstrap → notes → documents create **and
+edit** → repository upload with byte-identical download → search → **the document
+pipeline** (upload → "Run workflow…" → derived documents → "Processed by" → an
+Automation firing on an upload; against the scripted mock model, see slice 59)
+→ workflows/jobs/usage → Admin > Branding round-trip → sign out/in. It also fails on
 **any uncaught page/console error** and **any 5xx**, which is how a broken write path
 gets caught even when no assertion names it. The screenshot *tours* do not assert and
 will photograph a broken page — use this to gate a deploy.

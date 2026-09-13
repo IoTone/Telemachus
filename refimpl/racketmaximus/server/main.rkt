@@ -1508,7 +1508,8 @@
     (define objs (repo-list db-conn p
                             #:prefix (query-param req 'prefix "")
                             #:limit (or (string->number (query-param req 'limit "100")) 100)
-                            #:offset (or (string->number (query-param req 'offset "0")) 0)))
+                            #:offset (or (string->number (query-param req 'offset "0")) 0)
+                            #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))))
     (json-response (hasheq 'objects (map obj-json objs)
                            'usage (repo-usage db-conn p))))))
 
@@ -1598,6 +1599,29 @@
   (with-auth req (lambda (p)
     (define g (repo-grants db-conn p id))
     (if g (json-response (hasheq 'grants g)) (err "not found" 404)))))
+
+;; "Processed by": derived documents, sources, and every run that touched it (DWF step 4)
+(define (ep-repo-processing req id)
+  (with-auth req (lambda (p)
+    (define r (object-processing db-conn p id))
+    (if r (json-response r) (err "not found" 404)))))
+
+;; who a document can be shared with: the team's people and the org's teams (DSH-6)
+(define (ep-share-targets req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (define users
+      (for/list ([r (in-list (query-rows db-conn
+                       (string-append "SELECT u.id, u.username FROM memberships m JOIN users u ON u.id = m.user_id "
+                                      "WHERE m.team_id = ? AND m.status = 'active' ORDER BY u.username")
+                       (principal-team-id p)))])
+        (hasheq 'user_id (vector-ref r 0) 'username (vector-ref r 1))))
+    (define org (team-org db-conn (principal-team-id p)))
+    (define teams
+      (for/list ([t (in-list (if org (org-teams db-conn org) '()))])
+        (hasheq 'id (hash-ref t 'id) 'name (hash-ref t 'name) 'slug (hash-ref t 'slug)
+                'own (equal? (hash-ref t 'id) (principal-team-id p)))))
+    (json-response (hasheq 'users users 'teams teams)))))
 
 ;; provenance: what a derived document was made from (DSH-5 / DWF-4)
 (define (ep-repo-derivations req id)
@@ -2025,6 +2049,8 @@
     [(and (POST? m) (repo-obj-action segs "unshare"))       (ep-repo-unshare req (repo-obj-action segs "unshare"))]
     [(and (GET? m)  (repo-obj-action segs "grants"))        (ep-repo-grants req (repo-obj-action segs "grants"))]
     [(and (GET? m)  (repo-obj-action segs "derivations"))   (ep-repo-derivations req (repo-obj-action segs "derivations"))]
+    [(and (GET? m)  (repo-obj-action segs "processing"))    (ep-repo-processing req (repo-obj-action segs "processing"))]
+    [(and (GET? m)  (equal? segs '("api" "share-targets")))  (ep-share-targets req)]
     [(and (POST? m) (repo-obj-action segs "visibility"))    (ep-repo-visibility req (repo-obj-action segs "visibility"))]
     [(and (GET? m)  (repo-obj-action segs "content"))       (ep-repo-get req (repo-obj-action segs "content"))]
     [(and (POST? m) (repo-obj-action segs "presign"))       (ep-repo-presign req (repo-obj-action segs "presign"))]

@@ -13,6 +13,7 @@
 
 (require rackunit db-kit/portable
          racket/port racket/string racket/file racket/list
+         file/zip file/unzip
          json
          db-kit/migrate
          "../domain/db/migrations.rkt"
@@ -23,10 +24,55 @@
          "../domain/repo/repo.rkt"
          "../domain/tools/jsonschema.rkt"
          "../domain/repo/doc-tools.rkt"          ; registers the tools
+         "../domain/repo/triggers.rkt"           ; object-processing
          "../domain/agent/tools.rkt"             ; the rest of the catalog
          "../domain/sched/scheduler.rkt"
          "../domain/flow/run.rkt"
          (prefix-in pipeline: "../plugins/doc-pipeline/main.rkt"))
+
+;; a real .docx built with the zip writer: word/document.xml with placeholders that
+;; Word has split across runs, and a table whose first and last rows are markers
+(define (make-docx xml)
+  (define dir (make-temporary-file "docx-tmpl-~a" 'directory))
+  (make-directory* (build-path dir "word"))
+  (call-with-output-file (build-path dir "[Content_Types].xml")
+    (lambda (out) (write-string "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"/>" out)))
+  (call-with-output-file (build-path dir "word" "document.xml") (lambda (out) (write-string xml out)))
+  (define zpath (build-path dir "t.docx"))
+  (parameterize ([current-directory dir])
+    (zip zpath (build-path "[Content_Types].xml") (build-path "word" "document.xml")))
+  (define bs (file->bytes zpath))
+  (delete-directory/files dir)
+  bs)
+
+(define (make-docx-without-body)
+  (define dir (make-temporary-file "docx-nobody-~a" 'directory))
+  (call-with-output-file (build-path dir "[Content_Types].xml") (lambda (out) (write-string "<Types/>" out)))
+  (define zpath (build-path dir "t.docx"))
+  (parameterize ([current-directory dir]) (zip zpath (build-path "[Content_Types].xml")))
+  (define bs (file->bytes zpath))
+  (delete-directory/files dir)
+  bs)
+
+(define (docx-document-xml bs)
+  (define out #f)
+  (unzip (open-input-bytes bs)
+         (lambda (name dir? in . _)
+           (when (and (not dir?) (equal? name #"word/document.xml"))
+             (set! out (port->string in)))))
+  out)
+
+(define SPLIT-DOCX-XML
+  (string-append
+   "<w:document><w:body>"
+   "<w:p><w:r><w:t>Vendor: {{ven</w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>dor}}</w:t></w:r></w:p>"
+   "<w:p><w:r><w:t>Total: {</w:t></w:r><w:r><w:t>{total}</w:t></w:r><w:r><w:t>}</w:t></w:r></w:p>"
+   "<w:tbl>"
+   "<w:tr><w:tc><w:p><w:r><w:t>{{#each items}}</w:t></w:r></w:p></w:tc></w:tr>"
+   "<w:tr><w:tc><w:p><w:r><w:t>{{description}}</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>{{amount}}</w:t></w:r></w:p></w:tc></w:tr>"
+   "<w:tr><w:tc><w:p><w:r><w:t>{{/each}}</w:t></w:r></w:p></w:tc></w:tr>"
+   "</w:tbl>"
+   "</w:body></w:document>"))
 
 ;; ---- fixtures -----------------------------------------------------------------
 (define BLOB-ROOT (make-temporary-file "telemachus-pipeline-blobs-~a" 'directory))
@@ -127,6 +173,27 @@
   (check-exn #rx"needs an array" (lambda () (render-template "{{#each vendor}}{{/each}}" data)))
   (check-exn #rx"unclosed" (lambda () (render-template "{{#each items}}x" data)))
   (check-exn #rx"stray" (lambda () (render-template "x{{/each}}" data))))
+
+;; ---- 1c. DOCX: split placeholders re-joined, marker rows become a row block ----------
+(test-case "docx-prepare and render-docx"
+  (define prepared (docx-prepare SPLIT-DOCX-XML))
+  (check-true (regexp-match? #rx"Vendor: {{vendor}}" prepared) "a placeholder split across runs is one run again")
+  (check-true (regexp-match? #rx"Total: {{total}}" prepared) "split braces are re-joined")
+  (check-true (regexp-match? #rx"<w:tbl>{{#each items}}<w:tr>" prepared) "the marker row became the marker")
+  (check-true (regexp-match? #rx"</w:tr>{{/each}}</w:tbl>" prepared))
+  (define out (render-docx (make-docx SPLIT-DOCX-XML)
+                           (hasheq 'vendor "Acme & Sons" 'total 1250.5
+                                   'items (list (hasheq 'description "Widgets" 'amount 1000)
+                                                (hasheq 'description "Shipping <air>" 'amount 250.5)))))
+  (define xml (docx-document-xml out))
+  (check-true (and xml #t) "the output is a zip with word/document.xml")
+  (check-true (regexp-match? #rx"Vendor: Acme &amp; Sons" xml) "values are XML-escaped")
+  (check-true (regexp-match? #rx"Total: 1250.5" xml))
+  (check-equal? (length (regexp-match* #rx"<w:tr>" xml)) 2 "one table row per item, marker rows gone")
+  (check-true (regexp-match? #rx"Widgets.*1000.*Shipping &lt;air&gt;.*250.5" xml))
+  (check-exn #rx"not a .docx" (lambda () (render-docx #"PK\3\4not really" (hasheq))))
+  (check-exn #rx"no word/document.xml" (lambda () (render-docx (make-docx-without-body) (hasheq))))
+  (check-exn #rx"data has no total" (lambda () (render-docx (make-docx SPLIT-DOCX-XML) (hasheq 'vendor "x" 'items '())))))
 
 ;; ---- 2. extraction refuses what does not conform ----------------------------------
 (test-case "extract-fields: conforming JSON is accepted, everything else is refused"
@@ -294,6 +361,49 @@
                           'template "templates/nope.md" 'locales '()))))
   (check-equal? (hash-ref no-tmpl 'status) "error")
   (check-true (regexp-match? #rx"no such template" (hash-ref no-tmpl 'error)))
+
+  ;; --- a DOCX template renders a DOCX form beside the source (DWF-6, step 5) ---
+  (repo-put! conn alice #:key "templates/approval.docx" #:port (open-input-bytes (make-docx SPLIT-DOCX-XML))
+             #:content-type DOCX-TYPE #:filename "approval.docx")
+  (define docx-run
+    (parameterize ([current-doc-chat (scripted #:fields (jsexpr->string GOOD-FIELDS))])
+      (run! alice (hasheq 'object_id (hash-ref invoice 'id) 'schema INVOICE-SCHEMA
+                          'template "templates/approval.docx" 'locales '("ja")))))
+  (check-equal? (hash-ref docx-run 'status) "done" (format "(error: ~a)" (hash-ref docx-run 'error)))
+  (define docx-form (by-key alice "inbox/acme.txt.form.docx"))
+  (check-true (and docx-form #t) "the form is a .docx beside the source")
+  (check-equal? (hash-ref docx-form 'content_type) DOCX-TYPE)
+  (check-true (regexp-match? #rx"Vendor: Acme Corp" (docx-document-xml (read-back conn alice (hash-ref docx-form 'id)))))
+  (check-true (and (by-key alice "inbox/acme.txt.form.ja.txt") #t)
+              "a DOCX form's translation is its text, as .txt, locale before the extension")
+
+  ;; --- "Processed by": everything the invoice has been through (DWF step 4) ---
+  (define proc (object-processing conn alice (hash-ref invoice 'id)))
+  (define derived-keys (map (lambda (d) (hash-ref d 'key)) (hash-ref proc 'derived)))
+  (for ([k '("inbox/acme.txt.extracted.json" "inbox/acme.txt.form.md" "inbox/acme.txt.form.docx" "inbox/acme.nl.txt")])
+    (check-true (and (member k derived-keys) #t) (format "derived lists ~a" k)))
+  (check-false (member "inbox/acme.txt.form.ja.md" derived-keys) "a grandchild derives from the form, not the invoice")
+  (check-equal? (hash-ref proc 'derived_from) '() "the invoice was not derived")
+  (define run-ids (map (lambda (r) (hash-ref r 'id)) (hash-ref proc 'runs)))
+  (for ([r (list done again src-only form-only docx-run)])
+    (check-true (and (member (hash-ref r 'id) run-ids) #t) "every run started with the invoice as input is listed"))
+  (check-true (and (member (hash-ref done 'id) run-ids) #t))
+  ;; the form's own panel: derived from the invoice, one grandchild
+  (define fproc (object-processing conn alice (hash-ref form-doc 'id)))
+  (check-equal? (hash-ref (car (hash-ref fproc 'derived_from)) 'key) "inbox/acme.txt")
+  (check-true (and (member "inbox/acme.txt.form.ja.md" (map (lambda (d) (hash-ref d 'key)) (hash-ref fproc 'derived))) #t))
+  ;; bob sees only what he can read; carol sees nothing of it
+  (check-true (>= (length (hash-ref (object-processing conn bob (hash-ref invoice 'id)) 'derived)) 4)
+              "bob's inherited grants cover the outputs")
+  (check-exn exn:fail:forbidden? (lambda () (object-processing conn carol (hash-ref invoice 'id))))
+
+  ;; --- "Shared with me" (DSH step 3): what was handed to bob, not what the team can see ---
+  (define mine (map (lambda (o) (hash-ref o 'key)) (repo-list conn bob #:shared-with-me? #t)))
+  (check-true (and (member "inbox/acme.txt" mine) #t) "the invoice alice shared with bob")
+  (check-true (and (member "inbox/acme.txt.form.md" mine) #t) "…and the outputs that inherited the grant")
+  (check-false (member "templates/approval.md" mine) "a team-visible template is not 'shared with me'")
+  (check-equal? (repo-list conn alice #:shared-with-me? #t) '() "the owner holds no grant on her own documents")
+  (check-equal? (repo-list conn carol #:shared-with-me? #t) '())
 
   ;; --- bob (a viewer of the invoice) can run the pipeline, but cannot write beside
   ;; alice's private document: the outputs are HIS documents, private, derived from hers ---

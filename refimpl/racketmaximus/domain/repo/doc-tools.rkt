@@ -29,7 +29,8 @@
 ;;   inbox/acme.ja.txt             a translation of the SOURCE (text out of a PDF)
 
 (require db-kit/portable
-         racket/string racket/list racket/port
+         racket/string racket/list racket/port racket/file
+         file/unzip file/zip
          json
          "../tools/dsl.rkt"
          "../tools/jsonschema.rkt"
@@ -42,8 +43,8 @@
          "extract.rkt")
 
 (provide current-doc-chat
-         extract-fields render-template
-         TRANSLATE-CAP)
+         extract-fields render-template render-docx docx-prepare
+         DOCX-TYPE TRANSLATE-CAP)
 
 ;; ---- the model seam --------------------------------------------------------------
 ;; (chat prompt #:system sys) -> (values reply tokens). Temperature 0: extraction and
@@ -199,7 +200,7 @@
 
 ;; ---- doc_render ------------------------------------------------------------------
 (define-tool doc_render
-  #:description "Fill a form template (a Markdown or HTML document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside. Writes the result beside the source as <key>.form.<ext>."
+  #:description "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>."
   (template string #:description "The template document's object id or key")
   (data object #:description "The data to fill in, e.g. the extracted fields")
   (object string #:optional #:description "The source document's object id — the form is written beside it (default: beside the template)")
@@ -302,6 +303,65 @@
             (loop (cdr toks) (cons (show v) out))])])))
   (render tokens (list data)))
 
+;; ---- DOCX (DWF-6, step 5) --------------------------------------------------------
+;; A .docx is a zip whose word/document.xml carries the text. The template's
+;; paragraphs carry the same {{placeholders}} as a Markdown one; two things make
+;; that harder than it sounds and are handled in docx-prepare:
+;;
+;;   1. Word SPLITS a placeholder across runs as soon as the author pauses,
+;;      corrects a letter, or the spell-checker looks at it:
+;;        <w:r><w:t>{{ven</w:t></w:r><w:r><w:t>dor}}</w:t></w:r>
+;;      Every tag between a {{ and its }} is dropped, so the placeholder is one
+;;      run again (with the formatting of its first character — good enough).
+;;   2. Line items want a TABLE ROW per item. A row whose only text is
+;;      {{#each items}} opens a block and a row whose only text is {{/each}} closes
+;;      it; the rows between are the per-item template. The marker rows are
+;;      removed and the markers kept as text, which turns the whole thing into
+;;      the generic {{#each}} the renderer already knows.
+;;
+;; Values are XML-escaped. A newline in a value does not become a line break in
+;; Word; that is a v2 concern, like images and DOCX-native tables of contents.
+(define DOCX-TYPE "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+(define (docx-prepare xml)
+  ;; (1) re-join split braces and split placeholder bodies until nothing changes
+  (define (join s)
+    (let* ([s (regexp-replace* #px"\\{(?:<[^>]+>)+\\{" s "{{")]
+           [s (regexp-replace* #px"\\}(?:<[^>]+>)+\\}" s "}}")]
+           [s (regexp-replace* #px"(\\{\\{[^{}<]*)(?:<[^>]+>)+([^{}<]*)" s "\\1\\2")])
+      s))
+  (define joined (let loop ([s xml]) (define n (join s)) (if (string=? n s) s (loop n))))
+  ;; (2) table-row blocks: a row that is only a marker becomes the marker
+  (define (row-text row) (string-trim (regexp-replace* #px"<[^>]+>" row "")))
+  (regexp-replace* #px"<w:tr\\b(?:(?!</w:tr>).)*</w:tr>" joined
+                   (lambda (row)
+                     (define txt (row-text row))
+                     (cond [(regexp-match? #px"^\\{\\{#each [^}]+\\}\\}$" txt) txt]
+                           [(string=? txt "{{/each}}") txt]
+                           [else row]))))
+
+;; template bytes × data -> the filled .docx as bytes
+(define (render-docx tbytes data)
+  (define dir (make-temporary-file "telemachus-docx-~a" 'directory))
+  (dynamic-wind
+    void
+    (lambda ()
+      (with-handlers ([exn:fail? (lambda (e) (error 'doc_render "the template is not a .docx (not a zip: ~a)" (exn-message e)))])
+        (unzip (open-input-bytes tbytes) (make-filesystem-entry-reader #:dest dir #:exists 'replace)))
+      (define doc (build-path dir "word" "document.xml"))
+      (unless (file-exists? doc) (error 'doc_render "the template is not a .docx (no word/document.xml)"))
+      (define xml (file->string doc))
+      (define filled (render-template (docx-prepare xml) data #:escape? #t))
+      (call-with-output-file doc (lambda (out) (write-string filled out)) #:exists 'truncate)
+      (define out-path (build-path dir "out.docx.zip"))
+      (parameterize ([current-directory dir])
+        (apply zip out-path
+               (for/list ([e (in-list (directory-list dir))]
+                          #:unless (equal? (path->string e) "out.docx.zip"))
+                 e)))
+      (file->bytes out-path))
+    (lambda () (delete-directory/files dir #:must-exist? #f))))
+
 (define (doc-render conn p args)
   (define tref (arg args 'template))
   (define data (hash-ref args 'data #f))
@@ -310,14 +370,18 @@
   (unless tmpl-obj (error 'doc_render "no such template: ~a" tref))
   (define-values (_t tbytes) (read-doc-bytes conn p (hash-ref tmpl-obj 'id)))
   (define ct (hash-ref tmpl-obj 'content_type))
-  (define tmpl (bytes->string/utf-8 tbytes #\?))
-  (define text (render-template tmpl data #:escape? (string-prefix? ct "text/html")))
+  (define docx? (or (string=? ct DOCX-TYPE) (equal? (ext-of (hash-ref tmpl-obj 'key)) "docx")))
+  (define out-bytes
+    (if docx?
+        (render-docx tbytes data)
+        (string->bytes/utf-8
+         (render-template (bytes->string/utf-8 tbytes #\?) data #:escape? (string-prefix? ct "text/html")))))
   (define src (let ([id (opt-arg args 'object)]) (if id (doc-ref conn p id) tmpl-obj)))
   (unless src (error 'doc_render "no such document: ~a" (opt-arg args 'object)))
-  (define ext (or (ext-of (hash-ref tmpl-obj 'key)) "md"))
+  (define ext (or (ext-of (hash-ref tmpl-obj 'key)) (if docx? "docx" "md")))
   (define o (derive! conn p src
                      #:key (string-append (hash-ref src 'key) ".form." ext)
-                     #:bytes (string->bytes/utf-8 text) #:content-type ct
+                     #:bytes out-bytes #:content-type (if docx? DOCX-TYPE ct)
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
   (obj-summary o))
 

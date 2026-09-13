@@ -1,9 +1,10 @@
 # Document sharing, with permissions
 
-*Decided 12 Sep 2026 (DSH‑1…6, see [decisions.md](decisions.md)). Steps 1–2 of
-the plan below and `inherit` are **built** (slice 56): `domain/repo/repo.rkt`,
-migration `0025-sharing`, `test/repo-tests.rkt` case 7, the sharing block of
-`test/server-smoke.sh`. Step 3 (the dialog and "Shared with me") is open.
+*Decided 12 Sep 2026 (DSH‑1…6, see [decisions.md](decisions.md)). **All of the
+plan below is built** (slices 56 and 59): `domain/repo/repo.rkt`, migration
+`0025-sharing`, `test/repo-tests.rkt` case 7, the sharing block of
+`test/server-smoke.sh`, and the console's share dialog (a person or a team in
+the org, a capability, an optional expiry) with the "Shared with me" filter.
 Companion to [document-workflows.md](document-workflows.md): derived documents need
 a permission model to inherit from, and this is it.*
 
@@ -132,8 +133,11 @@ existing smoke and e2e keep passing unchanged.
 2. ✅ The share API takes `{principal_type, principal_id, capability, expires_at}`;
    `{user_id}` still works. Smoke: a team grant, an expired grant, a viewer who
    cannot re-share, a manage grantee who can.
-3. The dialog and the "Shared with me" filter. *(The existing dialog already renders
-   the capability and expiry of each grant; the pickers are the open part.)*
+3. ✅ The dialog and the "Shared with me" filter. The principal picker is fed by
+   `GET /api/share-targets` (the team's people and the org's teams — DSH‑6 by
+   construction); `GET /api/repo?shared=1` lists objects the caller holds a live
+   grant on and does not own, which is what "handed to me" means as distinct from
+   "the team can see it".
 4. ✅ `inherit` — `repo-inherit!` plus `GET /api/repo-obj/<id>/derivations`; the
    first derived-document tool in the workflows slice calls it.
 

@@ -1,13 +1,14 @@
 # Document workflows: uploads that trigger processing
 
-*Decided 12 Sep 2026 (DWF‑1…8, see [decisions.md](decisions.md)). Steps 1–3 of
-the plan below are **built** (slices 57–58): the four tools in
+*Decided 12 Sep 2026 (DWF‑1…8, see [decisions.md](decisions.md)). **All five
+steps of the plan below are built** (slices 57–59): the four tools in
 `domain/repo/doc-tools.rkt`, the validator in `domain/tools/jsonschema.rkt`, the
-`doc-pipeline` plugin, "Run workflow…" on a document, and upload **triggers** on
-the seam in `repo-put!` (`domain/repo/triggers.rkt`, `/api/doc-triggers`), with
+`doc-pipeline` plugin, "Run workflow…" on a document, upload **triggers** on the
+seam in `repo-put!` (`domain/repo/triggers.rkt`, `/api/doc-triggers`), the
+**Automations** card and the **"Processed by"** panel in the console, DOCX
+rendering, and the invoice scenario in the e2e gate — with
 `test/doc-pipeline-tests.rkt`, `test/doc-triggers-tests.rkt` and
-`test/doc-pipeline-smoke.sh` (which ends with an `aws s3 cp` firing a run). The
-Automations card and "Processed by" panel (step 4) are next. This is the
+`test/doc-pipeline-smoke.sh` (which ends with an `aws s3 cp` firing a run).* This is the
 first-user scenario the platform is for: **a team uploads files, and a workflow
 processes them** — extracts the data, runs inference over it, generates filled
 forms, translates the result. Sharing of what the pipeline produces is in
@@ -203,9 +204,9 @@ Tools:
    → four derived documents with provenance.
 3. ✅ Triggers: the tables, the seam in `repo-put!`, exactly-once, the derived-document
    guard. Smoke: an S3 `PUT` fires the run — the path a team will actually use.
-4. The Automations card and the "Processed by" panel; the e2e gate gains the
+4. ✅ The Automations card and the "Processed by" panel; the e2e gate gains the
    invoice scenario end to end.
-5. DOCX rendering. PDF stays deferred until someone needs a PDF that is not a
+5. ✅ DOCX rendering. PDF stays deferred until someone needs a PDF that is not a
    printed DOCX.
 
 ### As built (steps 1–2)
@@ -280,6 +281,34 @@ Tools:
   and "newest first" is a promise the history has to keep.
 - The list endpoint carries the team's **remaining AI budget**: a trigger whose
   runs sit queued is a team out of tokens, not a broken trigger.
+
+### As built (steps 4–5)
+
+- **"Processed by"** is `GET /api/repo-obj/<id>/processing`: what was derived from
+  the document (key, step, run), what it was derived from, and every run that
+  touched it — started by hand with it as input, started by a trigger on it, or
+  the run that wrote it. Each row is authorized on its own; a derived document
+  the caller cannot read is simply absent. The console panel sits under the
+  document's versions with "View" links into the run.
+- **Automations** is a card on the Workflows tab: the team's triggers (workflow,
+  prefix, types, enabled), each with a history (which version, which run, or why
+  not), enable/disable/delete for `workflows:write`, a create form whose input
+  is prefilled with the example schema, and the team's remaining AI budget.
+- **DOCX rendering** (DWF‑6): a `.docx` template is a zip whose
+  `word/document.xml` carries the same `{{placeholders}}`. Two things make that
+  harder than it sounds and `docx-prepare` handles both: Word **splits a
+  placeholder across runs** the moment the author pauses or the spell-checker
+  looks at it (every tag between a `{{` and its `}}` is dropped), and line items
+  want a **table row per item** (a row whose only text is `{{#each items}}`
+  opens a block, a row that is only `{{/each}}` closes it; the rows between are
+  repeated). Values are XML-escaped; the output is `<key>.form.docx` with the
+  DOCX content type, and its translation is its text as `.txt`. Newlines in
+  values, images and native tables of contents are v2.
+- **The e2e gate** boots the scripted mock model when it boots its own server
+  and runs the whole scenario through the console: upload a template and an
+  invoice, "Run workflow…", wait for the run, find the derived documents, open
+  the panel, create a trigger from the Automations card, upload into its prefix,
+  watch it fire. On a live box the scenario runs only with `VALIDATE_PIPELINE=1`.
 
 ## Decisions (confirmed 12 Sep 2026)
 

@@ -224,14 +224,31 @@
 ;; Listing filters by `can?` per row rather than in SQL: the visibility rules live in
 ;; one place, and a private object simply does not appear. Slower and correct beats
 ;; a WHERE clause that has to be kept in step with the authorization code.
-(define (repo-list conn p #:prefix [prefix ""] #:limit [limit 100] #:offset [offset 0])
+(define (repo-list conn p #:prefix [prefix ""] #:limit [limit 100] #:offset [offset 0]
+                   ;; DSH step 3: only objects the caller holds a LIVE grant on and does
+                   ;; not own — what someone handed them, as distinct from what the team
+                   ;; can see anyway. The per-row can? below still runs on each.
+                   #:shared-with-me? [shared? #f])
   (require-perm conn p "files:read")
-  (define rows (query-rows conn
-    (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key LIKE ? "
-                   "ORDER BY o.key ASC LIMIT ? OFFSET ?")
-    (principal-team-id p)
-    (string-append (escape-like prefix) "%")
-    limit offset))
+  (define rows
+    (if shared?
+        (query-rows conn
+          (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key LIKE ? "
+                         "AND o.owner_user_id <> ? "
+                         "AND EXISTS (SELECT 1 FROM resource_grants g WHERE g.resource_type = 'repo' "
+                         "  AND g.resource_id = o.id AND (g.expires_at IS NULL OR g.expires_at > ?) "
+                         "  AND ((g.principal_type = 'user' AND g.principal_id = ?) "
+                         "    OR (g.principal_type = 'team' AND g.principal_id = ?))) "
+                         "ORDER BY o.updated_at DESC LIMIT ? OFFSET ?")
+          (principal-team-id p) (string-append (escape-like prefix) "%")
+          (principal-user-id p) (current-seconds) (principal-user-id p) (or (principal-team-id p) "")
+          limit offset)
+        (query-rows conn
+          (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key LIKE ? "
+                         "ORDER BY o.key ASC LIMIT ? OFFSET ?")
+          (principal-team-id p)
+          (string-append (escape-like prefix) "%")
+          limit offset)))
   (for/list ([r (in-list rows)]
              #:when (can? conn p "files:read" #:resource (obj->resource (row->obj r))))
     (row->obj r)))

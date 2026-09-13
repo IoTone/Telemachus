@@ -933,8 +933,9 @@ function visBadge(v){
   return `<span class="badge ${cls}">${esc(v)}</span>`;
 }
 
+function repoFilter(on){ S.repoShared=on; renderTab(); }
 async function repoView(){
-  const r=await api('/api/repo');
+  const r=await api('/api/repo'+(S.repoShared?'?shared=1':''));
   if(!r.ok) return `<h2>${t('repository')}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
   const objs=r.json.objects||[], usage=r.json.usage||{};
   S.repoKeys = objs.map(o=>o.key);
@@ -972,10 +973,13 @@ async function repoView(){
     <div class="card" style="margin-top:14px">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3 style="margin:0">${t('objects')}</h3>
-        <div style="flex:none"><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
+        <div style="flex:none">
+          <button class="btn sm${S.repoShared?' ghost':''}" id="rf_all" onclick="repoFilter(false)">${t('all')}</button>
+          <button class="btn sm${S.repoShared?'':' ghost'}" id="rf_shared" onclick="repoFilter(true)">${t('sharedwithme')}</button>
+          <button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
       ${objs.length
         ? `<table style="margin-top:8px"><thead><tr><th>${t('key')}</th><th>${t('visibility')}</th><th>${t('size')}</th><th>${t('updated')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-        : `<p class="muted" style="margin-top:8px">${t('norepoobjects')}</p>`}
+        : `<p class="muted" style="margin-top:8px">${S.repoShared?t('nosharedwithme'):t('norepoobjects')}</p>`}
     </div>
     <div id="rdetail"></div>
     ${await s3Card()}`;
@@ -1107,13 +1111,16 @@ function repoCopyLink(){
 }
 
 async function repoOpenDetail(id){
-  const [m, g, mem] = await Promise.all([
+  const [m, g, tg, pr] = await Promise.all([
     api('/api/repo-obj/'+encodeURIComponent(id)),
     api('/api/repo-obj/'+encodeURIComponent(id)+'/grants'),
-    api('/api/members')]);
+    api('/api/share-targets'),
+    api('/api/repo-obj/'+encodeURIComponent(id)+'/processing')]);
   const el=document.getElementById('rdetail');
   if(!m.ok){ toast(m.json.error||'error'); return; }
-  const o=m.json, grants=(g.ok?g.json.grants:[])||[], members=(mem.ok?mem.json.members:[])||[];
+  const o=m.json, grants=(g.ok?g.json.grants:[])||[];
+  const users=(tg.ok?tg.json.users:[])||[], teams=(tg.ok?tg.json.teams:[])||[];
+  const proc=pr.ok?pr.json:{derived:[],derived_from:[],runs:[]};
   const vrows=(o.versions||[]).map(v=>`<tr>
       <td>v${esc(v.version)}${v.current?' <span class="badge ok">current</span>':''}</td>
       <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(v.size))}</td>
@@ -1121,12 +1128,33 @@ async function repoOpenDetail(id){
       <td class="muted" style="font-size:12px">${esc(v.created_at)}</td>
       <td>${v.current?'':`<button class="btn sm ghost" onclick="repoDownloadVersion('${esc(id)}','${esc(v.id)}','${esc(o.key)}')">${t('download')}</button>`}</td>
     </tr>`).join('');
+  // one row per principal: who, what they may do, until when — and revoke (DSH step 3)
   const grows=grants.length
-    ? grants.map(x=>`<tr><td>${esc(x.name||x.username||x.principal_id)}</td><td class="mono muted">${esc(x.capability||'')}${x.expired?' (expired)':(x.expires_at?' until '+esc(x.expires_at.slice(0,10)):'')}</td>
-        <td><button class="btn sm bad" onclick="repoUnshare('${esc(id)}','${esc(x.principal_id)}')">${t('revoke')}</button></td></tr>`).join('')
+    ? grants.map(x=>`<tr><td>${x.principal_type==='team'?'<span class="badge">'+t('teamsec')+'</span> ':''}${esc(x.name||x.username||x.principal_id)}</td>
+        <td class="mono muted">${esc(t('cap_'+(x.capability||'view')))}${x.expired?' <span class="badge bad">'+t('expired')+'</span>':(x.expires_at?' · '+t('until')+' '+esc(x.expires_at.slice(0,10)):'')}</td>
+        <td><button class="btn sm bad" onclick="repoUnshare('${esc(id)}','${esc(x.principal_type)}','${esc(x.principal_id)}')">${t('revoke')}</button></td></tr>`).join('')
     : `<tr><td colspan="3" class="muted">${t('noshares')}</td></tr>`;
-  const opts=members.filter(x=>x.user_id!==o.owner_user_id)
-    .map(x=>`<option value="${esc(x.user_id)}">${esc(x.username)}</option>`).join('');
+  // a person on this team, or a team in this org (DSH-6) — never anyone outside it
+  const uopts=users.filter(x=>x.user_id!==o.owner_user_id)
+    .map(x=>`<option value="user:${esc(x.user_id)}">${esc(x.username)}</option>`).join('');
+  const topts=teams.map(x=>`<option value="team:${esc(x.id)}">${esc(x.name)}${x.own?' ('+t('thisteam')+')':''}</option>`).join('');
+  const opts=(uopts?`<optgroup label="${t('people')}">${uopts}</optgroup>`:'')+(topts?`<optgroup label="${t('teamsec')}">${topts}</optgroup>`:'');
+  // "Processed by": what came out of this document, where it came from, every run that touched it (DWF step 4)
+  const drows=(proc.derived||[]).map(d=>`<tr><td><b class="mono">${esc(d.key)}</b><div class="muted" style="font-size:12px">${esc(d.content_type)}${d.version>1?' · v'+esc(d.version):''}</div></td>
+      <td class="muted">${esc(d.step_id||'—')}</td>
+      <td class="muted" style="font-size:12px">${esc(d.created_at)}</td>
+      <td style="white-space:nowrap"><button class="btn sm ghost" onclick="repoOpenDetail('${esc(d.object_id)}')">${t('details')}</button>${d.run_id?` <button class="btn sm ghost" onclick="repoViewRun('${esc(d.run_id)}')">${t('viewrun')}</button>`:''}</td></tr>`).join('');
+  const frows=(proc.derived_from||[]).map(d=>`<tr><td>${t('derivedfrom')} <b class="mono">${esc(d.key||d.source_object_id)}</b></td>
+      <td class="muted">${esc(d.step_id||'—')}</td><td class="muted" style="font-size:12px">${esc(d.created_at)}</td>
+      <td style="white-space:nowrap"><button class="btn sm ghost" onclick="repoOpenDetail('${esc(d.source_object_id)}')">${t('details')}</button>${d.run_id?` <button class="btn sm ghost" onclick="repoViewRun('${esc(d.run_id)}')">${t('viewrun')}</button>`:''}</td></tr>`).join('');
+  const rrows=(proc.runs||[]).map(r=>`<tr><td>${esc(r.slug||'—')}${r.trigger_id?' <span class="badge">'+t('bytrigger')+'</span>':''}</td>
+      <td>${wfBadge(r.status)}</td><td class="muted" style="font-size:12px">${esc(r.created_at)}</td>
+      <td><button class="btn sm ghost" onclick="repoViewRun('${esc(r.id)}')">${t('viewrun')}</button></td></tr>`).join('');
+  const processed = (drows||frows||rrows)
+    ? `<div id="rprocessed" style="margin-top:14px"><h4 style="margin:0 0 6px">${t('processedby')}</h4>
+        ${(drows||frows)?`<table><tbody>${frows}${drows}</tbody></table>`:''}
+        ${rrows?`<table style="margin-top:6px"><thead><tr><th>${t('workflow')}</th><th>${t('status')}</th><th>${t('started')}</th><th></th></tr></thead><tbody>${rrows}</tbody></table>`:''}</div>`
+    : `<div id="rprocessed" class="muted" style="margin-top:14px;font-size:12px">${t('notprocessed')}</div>`;
   el.innerHTML=`<div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0" class="mono">${esc(o.key)}</h3>
@@ -1142,16 +1170,21 @@ async function repoOpenDetail(id){
         </select></div>
       <div style="flex:2"><label>${t('sharewith')}</label>
         <select id="rdshare">${opts||`<option value="">${t('noothers')}</option>`}</select></div>
+      <div style="flex:1"><label>${t('capability')}</label>
+        <select id="rdcap"><option value="view">${t('cap_view')}</option><option value="edit">${t('cap_edit')}</option><option value="manage">${t('cap_manage')}</option></select></div>
+      <div style="flex:1"><label>${t('expires')}</label><input type="date" id="rdexp"></div>
       <div style="flex:none"><button class="btn" onclick="repoShare('${esc(id)}')">${t('share')}</button></div>
     </div>
-    <div class="muted" style="font-size:12px;margin-bottom:12px">${t('vishint')}</div>
+    <div class="muted" style="font-size:12px;margin-bottom:12px">${t('vishint')} ${t('caphint')}</div>
     <div class="row">
       <div><h4 style="margin:0 0 6px">${t('sharedwith')}</h4>
         <table><tbody>${grows}</tbody></table></div>
       <div><h4 style="margin:0 0 6px">${t('versions')}</h4>
         <table><tbody>${vrows}</tbody></table></div>
-    </div></div>`;
+    </div>
+    ${processed}</div>`;
 }
+function repoViewRun(runId){ go('workflows'); S.wfRun=runId; S.wfPoll++; renderTab(); }
 
 // "Run workflow…" on a document (DWF-7): the SAME run endpoint a trigger will use,
 // so what works by hand works on upload. Lands on the Workflows tab with the
@@ -1184,12 +1217,15 @@ async function repoSetVis(id){
   if(r.ok){ toast(t('visupdated'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
 }
 async function repoShare(id){
-  const u=val('rdshare'); if(!u) return toast(t('noothers'));
-  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/share',{method:'POST',body:{user_id:u}});
+  const who=val('rdshare'); if(!who) return toast(t('noothers'));
+  const [principal_type, principal_id]=who.split(':');
+  const body={principal_type, principal_id, capability:val('rdcap')||'view'};
+  const exp=val('rdexp'); if(exp) body.expires_at=exp+'T23:59:59Z';     // "until this day", inclusive
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/share',{method:'POST',body});
   if(r.ok){ toast(t('shared'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
 }
-async function repoUnshare(id,u){
-  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/unshare',{method:'POST',body:{user_id:u}});
+async function repoUnshare(id,ptype,pid){
+  const r=await api('/api/repo-obj/'+encodeURIComponent(id)+'/unshare',{method:'POST',body:{principal_type:ptype||'user',principal_id:pid}});
   if(r.ok){ toast(t('revoked'),true); repoOpenDetail(id); } else toast(r.json.error||'error');
 }
 async function repoDelete(id){
@@ -1224,6 +1260,69 @@ function wfOut(st){
   return `<span class="mono" style="font-size:13px">${esc(line.slice(0,140))}${line.length>140?'…':''}</span>${wfJson(o,'json')}`;
 }
 
+// ---- Automations (slice 58, DWF step 4): triggers, "when a document matching this
+// lands, run that workflow with it". The card shows the team's remaining AI budget
+// because a trigger whose runs sit queued is a team out of tokens, not a broken trigger.
+async function automationsCard(defs){
+  const r=await api('/api/doc-triggers');
+  if(!r.ok) return '';
+  const trg=r.json.triggers||[], b=r.json.budget||{};
+  const budget=(b.limit===null||b.limit===undefined) ? t('nolimit') : `${esc(b.remaining)} / ${esc(b.limit)} ${t('tokensleft')}`;
+  const rows=trg.map(x=>`<tr>
+      <td><b>${esc(x.workflow_slug)}</b><div class="muted mono" style="font-size:12px">${esc(x.match_prefix||'*')}${x.match_types?' · '+esc(x.match_types):''}${x.fire_on_derived?' · '+t('trigger_derived'):''}</div></td>
+      <td>${x.enabled?'<span class="badge ok">'+t('enabled')+'</span>':'<span class="badge">'+t('disabled')+'</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm ghost" onclick="trgHistory('${esc(x.id)}')">${t('fires')}</button>
+        ${canPerm('workflows:write')?`<button class="btn sm ghost" onclick="trgToggle('${esc(x.id)}',${x.enabled?'false':'true'})">${x.enabled?t('disable'):t('enable')}</button>
+        <button class="btn sm bad" onclick="trgDelete('${esc(x.id)}')">${t('del')}</button>`:''}
+      </td></tr>`).join('');
+  const wopts=defs.map(d=>`<option value="${esc(d.slug)}"${d.slug==='process-upload'?' selected':''}>${esc(d.name||d.slug)}</option>`).join('');
+  const form=canPerm('workflows:write')?`<div class="row" style="align-items:end;margin-top:10px">
+      <div style="flex:1"><label>${t('workflow')}</label><select id="tg_wf">${wopts}</select></div>
+      <div style="flex:1"><label>${t('trigger_prefix')}</label><input id="tg_prefix" placeholder="inbox/invoices/"></div>
+      <div style="flex:1"><label>${t('trigger_types')}</label><input id="tg_types" placeholder="application/pdf, text/plain"></div>
+      <div style="flex:none"><label><input type="checkbox" id="tg_derived"> ${t('trigger_derived')}</label></div>
+    </div>
+    <label>${t('trigger_input')}</label>
+    <textarea id="tg_input" rows="4">${esc(JSON.stringify({schema:PIPELINE_EXAMPLE_SCHEMA,template:'',locales:[]},null,1))}</textarea>
+    <div style="margin-top:8px"><button class="btn" onclick="trgCreate()">${t('addtrigger')}</button></div>`:'';
+  return `<div class="card" style="margin-top:14px">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0">${t('automations')}</h3>
+      <div class="muted" style="flex:none;font-size:12px">${t('budget')}: ${budget}</div></div>
+    <div class="muted" style="font-size:12px;margin:4px 0 8px">${t('automationshint')}</div>
+    ${trg.length?`<table><thead><tr><th>${t('workflow')}</th><th>${t('status')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+                :`<p class="muted">${t('notriggers')}</p>`}
+    <div id="tg_history"></div>
+    ${form}</div>`;
+}
+async function trgCreate(){
+  let input={}; const raw=(val('tg_input')||'').trim();
+  if(raw){ try{ input=JSON.parse(raw); }catch(e){ return toast('input: invalid JSON'); } }
+  const r=await api('/api/doc-triggers',{method:'POST',body:{workflow_slug:val('tg_wf'),match_prefix:val('tg_prefix'),
+    match_types:val('tg_types'),input,fire_on_derived:!!document.getElementById('tg_derived').checked}});
+  if(r.ok){ toast(t('triggeradded'),true); renderTab(); } else toast(r.json.error||'error');
+}
+async function trgToggle(id,on){
+  const r=await api('/api/doc-triggers/'+encodeURIComponent(id),{method:'PATCH',body:{enabled:on}});
+  if(r.ok) renderTab(); else toast(r.json.error||'error');
+}
+async function trgDelete(id){
+  const r=await api('/api/doc-triggers/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r.ok){ toast(t('deleted'),true); renderTab(); } else toast(r.json.error||'error');
+}
+async function trgHistory(id){
+  const r=await api('/api/doc-triggers/'+encodeURIComponent(id));
+  const el=document.getElementById('tg_history'); if(!el) return;
+  if(!r.ok) return toast(r.json.error||'error');
+  const fires=r.json.fires||[];
+  el.innerHTML=`<div style="margin-top:8px"><b>${t('fires')}</b> — <span class="mono muted">${esc(r.json.match_prefix||'*')}</span>
+    ${fires.length?`<table style="margin-top:4px"><tbody>${fires.map(f=>`<tr><td class="mono">${esc(f.key||f.object_id)}</td>
+      <td class="muted" style="font-size:12px">${esc(f.fired_at)}</td>
+      <td>${f.run_id?`<button class="btn sm ghost" onclick="repoViewRun('${esc(f.run_id)}')">${t('viewrun')}</button>`:`<span class="badge bad">${esc(f.error||'—')}</span>`}</td></tr>`).join('')}</tbody></table>`
+                 :`<p class="muted" style="margin:4px 0 0">${t('nofires')}</p>`}</div>`;
+}
+
 async function workflowsView(){
   if(S.wfRun) return await wfRunView(S.wfRun);
   const [dr,rr]=await Promise.all([api('/api/workflows'),api('/api/runs')]);
@@ -1253,6 +1352,7 @@ async function workflowsView(){
                    :`<p class="muted" style="margin-top:8px">${t('nodefs')}</p>`}
     </div>
     ${S.wfSel?wfRunForm():''}
+    ${await automationsCard(defs)}
     <div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">${t('runs')}</h3>
       ${runs.length?`<table><thead><tr><th>id</th><th>workflow</th><th>${t('status')}</th><th></th><th>${t('started')}</th><th></th></tr></thead><tbody>${runRows}</tbody></table>`
                    :`<p class="muted">${t('noruns')}</p>`}</div>`;

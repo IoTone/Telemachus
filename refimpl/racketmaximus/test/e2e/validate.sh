@@ -6,6 +6,10 @@
 #                                        # validate an already-running deployment
 #
 # The second form is the deploy gate: point it at the demo box after a restart.
+# The document-pipeline scenario (upload → run by hand → derived documents →
+# "Processed by" → a trigger) runs against the scripted mock model when this
+# script boots its own server. On a live box it is skipped unless
+# VALIDATE_PIPELINE=1 — a real model takes minutes per run.
 # It creates a `demo-validator` operator on a fresh instance, so only aim it at a
 # live one that already has an operator (it signs in) or at a throwaway.
 set -u
@@ -28,6 +32,7 @@ OWN_SERVER=1
 PORT="${PORT:-8899}"
 export BASE_URL="${BASE_URL:-http://127.0.0.1:$PORT}"
 SRV_PID=""
+MOCK_PID=""
 
 cleanup() {
   # kill by PID, never by pattern: `pkill -f server/main` also matches this
@@ -36,6 +41,7 @@ cleanup() {
     kill "$SRV_PID" 2>/dev/null || true
     wait "$SRV_PID" 2>/dev/null || true
   fi
+  [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true
   [ -n "${TMPDATA:-}" ] && rm -rf "$TMPDATA"
 }
 trap cleanup EXIT
@@ -59,6 +65,23 @@ if [ "$OWN_SERVER" = "1" ]; then
   export TELEMACHUS_BIND=127.0.0.1
   export TELEMACHUS_HOME=login
   export PORT
+  # The document-pipeline scenario needs a model. Without a real one configured,
+  # boot the scripted mock (test/mock-llm.rkt, chat mode) so the gate stays
+  # deterministic and runs in seconds; with TELEMACHUS_MODEL_URL set, it is live.
+  if [ -z "${TELEMACHUS_MODEL_URL:-}" ]; then
+    MOCK_PORT="${MOCK_PORT:-$((PORT+100))}"
+    export MOCK_REPLY_FILE="$TMPDATA/mock-reply.json"
+    cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"extract structured data": "{\"title\":\"Acme invoice 2026-09\",\"summary\":\"Widgets and shipping, 1250.50 total\",\"date\":\"2026-09-01\"}",
+ "professional translator": "VERTAALD: Acme invoice 2026-09",
+ "*": "MOCK"}
+JSON
+    MOCK_PORT="$MOCK_PORT" racket test/mock-llm.rkt >"$TMPDATA/mock.log" 2>&1 &
+    MOCK_PID=$!
+    export TELEMACHUS_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions"
+    export TELEMACHUS_MODEL=mock
+    export VALIDATE_PIPELINE="${VALIDATE_PIPELINE:-1}"
+  fi
   echo "booting server on $BASE_URL (data: $TMPDATA)"
   racket server/main.rkt >"$TMPDATA/server.log" 2>&1 &
   SRV_PID=$!

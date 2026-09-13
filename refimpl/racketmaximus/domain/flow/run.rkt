@@ -112,8 +112,13 @@
     (define spec (cdr e))
     (unless (query-maybe-value conn "SELECT id FROM workflow_defs WHERE team_id = ? AND slug = ?"
                                team (spec-slug spec))
+      ;; Two requests can reach this line together — the console fires the
+      ;; Workflows tab's list and a "Run workflow…" lookup in parallel on a team
+      ;; that has never looked — and both see no row. The UNIQUE(team_id, slug,
+      ;; version) makes the second insert a no-op rather than a 500.
       (query-exec conn
-        "INSERT INTO workflow_defs (id, team_id, slug, version, source, spec) VALUES (?, ?, ?, 1, ?, ?)"
+        (string-append "INSERT INTO workflow_defs (id, team_id, slug, version, source, spec) VALUES (?, ?, ?, 1, ?, ?) "
+                       "ON CONFLICT (team_id, slug, version) DO NOTHING")
         (new-id) team (spec-slug spec) (string-append "plugin:" (car e)) (jsexpr->string spec)))))
 
 (define (flow-defs conn p)

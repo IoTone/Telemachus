@@ -25,7 +25,8 @@
          "repo.rkt")
 
 (provide trigger-create! trigger-list trigger-get trigger-update! trigger-delete!
-         trigger-fires trigger-matches? fire-triggers!)
+         trigger-fires trigger-matches? fire-triggers!
+         object-processing)
 
 (define (nz x) (if (sql-null? x) 'null x))
 (define (bool x) (and (number? x) (not (zero? x))))
@@ -245,5 +246,60 @@
                    (or (not derived)
                        (and (hash-ref t 'fire_on_derived) (not (own-descendant? conn t obj derived?)))))
           (fire-one! conn p t obj))))))
+
+;; ---- "Processed by" (DWF step 4) ---------------------------------------------------
+;; Everything a document has been through, for the panel on it: what was derived
+;; FROM it (with the run and step), what it was derived from, and every run that
+;; touched it — started by hand with it as input, started by a trigger on it, or
+;; the run that wrote it. Each row is authorized on its own: a derived document the
+;; caller cannot read is left out, and so is a run they cannot see.
+(define (object-processing conn p id)
+  (define o (repo-get conn p id))
+  (and o
+       (let ()
+         (define (readable-object oid)
+           (with-handlers ([exn:fail:forbidden? (lambda (_) #f)]) (repo-get conn p oid)))
+         (define derived
+           (for*/list ([r (in-list (query-rows conn
+                            (string-append "SELECT d.object_id, d.run_id, d.step_id, d.created_at "
+                                           "FROM repo_derivations d JOIN repo_objects o ON o.id = d.object_id "
+                                           "WHERE d.source_object_id = ? AND o.deleted_at IS NULL "
+                                           "ORDER BY d.created_at DESC") id))]
+                       [d (in-value (readable-object (vector-ref r 0)))]
+                       #:when d)
+             (hasheq 'object_id (hash-ref d 'id) 'key (hash-ref d 'key) 'content_type (hash-ref d 'content_type)
+                     'version (hash-ref d 'version) 'visibility (hash-ref d 'visibility)
+                     'run_id (nz (vector-ref r 1)) 'step_id (nz (vector-ref r 2))
+                     'created_at (format "~a" (vector-ref r 3)))))
+         (define derived-from
+           (for*/list ([d (in-list (repo-derivations conn p id))]
+                       [src (in-value (readable-object (hash-ref d 'source_object_id)))])
+             (hash-set* d 'key (if src (hash-ref src 'key) 'null))))
+         (define run-ids
+           (remove-duplicates
+            (append (for/list ([d (in-list derived)] #:when (string? (hash-ref d 'run_id))) (hash-ref d 'run_id))
+                    (for/list ([d (in-list derived-from)] #:when (string? (hash-ref d 'run_id))) (hash-ref d 'run_id))
+                    (query-list conn "SELECT run_id FROM doc_trigger_fires WHERE object_id = ? AND run_id IS NOT NULL" id)
+                    ;; a run started by hand names the document in its input; the JSON
+                    ;; is written without spaces, so the pair is one substring
+                    (query-list conn "SELECT id FROM workflow_runs WHERE team_id = ? AND input LIKE ?"
+                                (hash-ref o 'team_id)
+                                (string-append "%\"object_id\":\"" id "\"%")))))
+         (define runs
+           (sort
+            (for*/list ([rid (in-list run-ids)]
+                        [run (in-value (with-handlers ([exn:fail:forbidden? (lambda (_) #f)])
+                                         (flow-run-get conn p rid)))]
+                        #:when run)
+              (hasheq 'id (hash-ref run 'id) 'slug (hash-ref run 'slug) 'status (hash-ref run 'status)
+                      'user_id (hash-ref run 'user_id) 'error (hash-ref run 'error)
+                      'created_at (format "~a" (hash-ref run 'created_at))
+                      'finished_at (let ([f (hash-ref run 'finished_at)]) (if (eq? f 'null) 'null (format "~a" f)))
+                      ;; how it was started: which trigger, if any
+                      'trigger_id (nz (or (query-maybe-value conn
+                                            "SELECT trigger_id FROM doc_trigger_fires WHERE run_id = ?" (hash-ref run 'id))
+                                          sql-null))))
+            string>? #:key (lambda (r) (hash-ref r 'created_at))))
+         (hasheq 'object_id id 'derived derived 'derived_from derived-from 'runs runs))))
 
 (set-put-hook! fire-triggers!)
