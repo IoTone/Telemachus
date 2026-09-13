@@ -95,10 +95,11 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       on mismatch) → a filled form template → translations, every output a
       repository document beside the source with provenance and the source's
       grants. Shipped as the `doc-pipeline` plugin over four core tools, run by
-      hand from any document. Design:
-      [`design/document-workflows.md`](design/document-workflows.md).
-      *Open:* upload triggers firing the same run from the seam in `repo-put!`
-      (DWF step 3), the Automations card and "Processed by" panel (step 4), DOCX
+      hand from any document or **fired by an upload** — console, shim or S3 —
+      through a trigger (`/api/doc-triggers`: key prefix, content types, the
+      workflow and its configuration; exactly once per version; as the uploader).
+      Design: [`design/document-workflows.md`](design/document-workflows.md).
+      *Open:* the Automations card and "Processed by" panel (step 4), DOCX
       rendering (step 5).
 - [x] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that

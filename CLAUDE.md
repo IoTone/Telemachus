@@ -511,13 +511,46 @@ raco test test/repo-tests.rkt          # case 7 + expiry parsing (151 cases in t
 bash test/server-smoke.sh              # the "share:" block, 20 assertions
 ```
 
-## Document pipeline (slice 57) — the first-user path
+## Document pipeline (slices 57–58) — the first-user path
 
-Upload a file, run `process-upload`, get fields + a filled form + translations
-back as documents beside the source. Design: `docs/design/document-workflows.md`
-(DWF‑1…8, decided; built through step 2 — triggers are step 3). Four core tools in
+Upload a file, run `process-upload` (by hand, or let a **trigger** run it on
+arrival), get fields + a filled form + translations back as documents beside the
+source. Design: `docs/design/document-workflows.md` (DWF‑1…8, decided; built
+through step 3 — the Automations card is step 4). Four core tools in
 `domain/repo/doc-tools.rkt` (`doc_text`, `doc_extract_fields`, `doc_render`,
-`doc_translate`), composed by `plugins/doc-pipeline/`.
+`doc_translate`), composed by `plugins/doc-pipeline/`; triggers in
+`domain/repo/triggers.rkt` on the seam at the end of `repo-put!`.
+
+### Triggers (slice 58)
+
+- **One seam.** `repo-put!` ends by calling the hook in a box (`set-put-hook!`);
+  requiring `triggers.rkt` installs `fire-triggers!`. Console upload, the
+  documents shim and an S3 PUT all pass through it. The hook never raises into
+  the upload — a fire that cannot start leaves `error` on its `doc_trigger_fires`
+  row and a `doc.trigger.error` audit event.
+- **The run is the uploader's** (DWF‑2), scopes and all. An S3 key issued with the
+  default `files:*` scopes CANNOT start a workflow — the fire row says
+  `workflows:run`. Issue the key with `workflows:read` + `workflows:run`. The
+  smoke's section 7 pins both halves with the real `aws` CLI.
+- **`#:derived?` on `repo-put!` is `#t` or the run id.** The tools pass the run id
+  (`derive!`), because the derivation row is written AFTER `repo-put!` returns and
+  the seam needs to know, right then, that this output came from a run this
+  trigger started. Without it an opted-in trigger on `application/json` fired on
+  its own extracted JSON 50 times in the unit test.
+- **`fire_on_derived` = other pipelines' outputs, never its own** (`own-descendant?`).
+  Off by default (DWF‑3).
+- **Exactly once per version**: the `(trigger_id, version_id)` row is claimed
+  before the run starts; a re-upload is a new version and fires again. Fires are
+  ordered by `fired_ms` (epoch ms) — `CURRENT_TIMESTAMP` is seconds, and a test
+  that asserts "newest first" on two fires in one second will flap.
+- The arrival (`object_id`, `version_id`, `key`, `content_type`) WINS over the
+  trigger's `input` on a clash.
+- `GET /api/doc-triggers` carries `budget` (the team's `ai.tokens.total`): queued
+  runs under a trigger are a team out of tokens, not a broken trigger.
+
+```sh
+raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, derived guard, scoped keys
+```
 
 - **The model is a parameter**: `current-doc-chat`. Tests script it; the HTTP
   smoke uses `test/mock-llm.rkt`'s CHAT mode (`MOCK_REPLY_FILE`, a `{"needle":
@@ -562,7 +595,7 @@ back as documents beside the source. Design: `docs/design/document-workflows.md`
 
 ```sh
 raco test test/doc-pipeline-tests.rkt      # validator, renderer, refusals, the whole pipeline via the scheduler
-bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model; 43 assertions
+bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model; ends with an S3 PUT firing a trigger
 TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
 ```
 

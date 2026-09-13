@@ -62,6 +62,7 @@
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
          (only-in "../domain/repo/doc-tools.rkt")  ; registers the document-pipeline tools (slice 57)
+         "../domain/repo/triggers.rkt"            ; upload triggers on repo-put!'s seam (slice 58)
          "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
@@ -1700,6 +1701,46 @@
     (define d (flow-def-by-slug db-conn p slug))
     (if d (json-response d) (err "not found" 404)))))
 
+;; ---- upload triggers (slice 58) ------------------------------------------------
+;; The list carries the team's remaining AI budget: a trigger whose runs sit
+;; queued is a team out of tokens, not a broken trigger, and this is where an
+;; operator looks first.
+(define (ep-doc-triggers-list req)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (json-response (hasheq 'triggers (trigger-list db-conn p)
+                           'budget (tenant-quota-check db-conn p "ai.tokens.total" 0))))))
+
+(define (ep-doc-triggers-create req)
+  (with-auth req (lambda (p)
+    (require-feature p "workflows")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define (flag k d) (let ([v (hash-ref b k d)]) (and v (not (eq? v 'null)))))
+      (json-response
+       (trigger-create! db-conn p #:workflow (fmt b 'workflow_slug)
+                        #:prefix (fmt b 'match_prefix) #:types (hash-ref b 'match_types "")
+                        #:input (let ([i (hash-ref b 'input (hasheq))]) (if (eq? i 'null) (hasheq) i))
+                        #:fire-on-derived? (flag 'fire_on_derived #f) #:enabled? (flag 'enabled #t))
+       #:code 201)))))
+
+(define (ep-doc-trigger-get req id)
+  (with-auth req (lambda (p)
+    (define t (trigger-get db-conn p id))
+    (if t
+        (json-response (hash-set t 'fires (trigger-fires db-conn p id)))
+        (err "not found" 404)))))
+
+(define (ep-doc-trigger-update req id)
+  (with-auth req (lambda (p)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define t (trigger-update! db-conn p id (read-json-body req)))
+      (if t (json-response t) (err "not found" 404))))))
+
+(define (ep-doc-trigger-delete req id)
+  (with-auth req (lambda (p)
+    (if (trigger-delete! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
+
 (define (ep-workflow-run req slug)
   (with-auth req (lambda (p)
     (require-feature p "workflows")
@@ -1846,6 +1887,9 @@
 
 (define (workflow-slug segs)
   (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "workflows") (caddr segs)))
+(define (doc-trigger-id segs)
+  (and (= (length segs) 3) (equal? (car segs) "api") (equal? (cadr segs) "doc-triggers") (caddr segs)))
+
 (define (workflow-run-path segs)
   (and (= (length segs) 4) (equal? (list-ref segs 0) "api") (equal? (list-ref segs 1) "workflows")
        (equal? (list-ref segs 3) "run") (list-ref segs 2)))
@@ -1998,6 +2042,11 @@
     [(and (GET? m)  (equal? segs '("api" "workflows")))     (ep-workflows-list req)]
     [(and (GET? m)  (equal? segs '("api" "workflows" "schema"))) (ep-workflow-schema req)]
     [(and (POST? m) (workflow-run-path segs))               (ep-workflow-run req (workflow-run-path segs))]
+    [(and (GET? m)  (equal? segs '("api" "doc-triggers")))   (ep-doc-triggers-list req)]
+    [(and (POST? m) (equal? segs '("api" "doc-triggers")))   (ep-doc-triggers-create req)]
+    [(and (GET? m)  (doc-trigger-id segs))                   (ep-doc-trigger-get req (doc-trigger-id segs))]
+    [(and (PATCH? m) (doc-trigger-id segs))                  (ep-doc-trigger-update req (doc-trigger-id segs))]
+    [(and (DELETE? m) (doc-trigger-id segs))                 (ep-doc-trigger-delete req (doc-trigger-id segs))]
     [(and (GET? m)  (workflow-slug segs))                   (ep-workflow-get req (workflow-slug segs))]
     [(and (GET? m)  (equal? segs '("api" "runs")))          (ep-runs-list req)]
     [(and (POST? m) (flow-run-cancel-path segs))            (ep-run-cancel req (flow-run-cancel-path segs))]

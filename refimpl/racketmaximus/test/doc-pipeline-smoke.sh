@@ -27,6 +27,8 @@ if port_busy "$PORT"; then echo "port $PORT is in use — set PORT=<free port>" 
 export TELEMACHUS_DATA_DIR="$(mktemp -d)"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/telemachus.db}"
 export TELEMACHUS_BIND=127.0.0.1
+S3_PORT="${S3_PORT:-8842}"
+export TELEMACHUS_S3_PORT="$S3_PORT"      # section 7 uploads through the S3 endpoint
 LIVE=1; MOCK=""
 if [ -z "${TELEMACHUS_MODEL_URL:-}" ]; then
   LIVE=0
@@ -163,6 +165,75 @@ JSON
   assert "…naming the mismatch"    "$RUNJSON" 'expected number, got string'
   assert "the fields step was retried once" "$(printf '%s' "$RUNJSON" | grep -o '"attempt":2' | head -1)" '"attempt":2'
   refute "nothing was written"     "$(G "/api/repo?prefix=inbox/memo")" 'extracted.json'
+fi
+
+echo
+echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
+if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
+ "professional translator": "VERTAALD: Purchase approval for Acme Corp",
+ "*": "MOCK"}
+JSON
+fi
+assert "unpublished workflow refused" "$(P /api/doc-triggers '{"workflow_slug":"nope","match_prefix":"inbox/auto/"}')" 'not published'
+TRG=$(P /api/doc-triggers "{\"workflow_slug\":\"process-upload\",\"match_prefix\":\"inbox/auto/\",\"match_types\":\"text/plain\",\"input\":{\"schema\":$SCHEMA,\"template\":\"templates/approval.md\",\"locales\":[\"ja\"]}}")
+TID=$(printf '%s' "$TRG" | jq_ 'd["id"]')
+assert "trigger created"  "$TRG" '"match_prefix":"inbox/auto/"'
+assert "trigger listed with the team budget" "$(G /api/doc-triggers)" '"budget":{'
+assert "a member cannot create one" "$(curl -s -X POST $B/api/doc-triggers -H "Authorization: Bearer $BOB" -d '{"workflow_slug":"process-upload"}')" 'Forbidden: workflows:write'
+# bob uploads: the run is bob's
+printf 'INVOICE\nAcme Corp\nWidgets 1000\nShipping 250.50\nTotal 1250.50\n' > "$TELEMACHUS_DATA_DIR/auto.txt"
+AUTO=$(curl -s -X PUT "$B/api/repo/inbox/auto/scan-001.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt")
+AUTOID=$(printf '%s' "$AUTO" | jq_ 'd["id"]')
+assert "upload returned at once" "$AUTO" '"key":"inbox/auto/scan-001.txt"'
+FIRES=$(G "/api/doc-triggers/$TID")
+assert "the trigger fired"  "$FIRES" '"key":"inbox/auto/scan-001.txt"'
+ARID=$(printf '%s' "$FIRES" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(f["run_id"] for f in d["fires"] if f["key"]=="inbox/auto/scan-001.txt"))')
+assert "…with a run" "$ARID" "-"
+wait_run "$ARID"; AST="$RUNST"; [ "$AST" = done ] || AST="$AST — $(printf '%s' "$RUNJSON" | grep -oP '"error":"\K[^"]*' | head -1)"
+assert "the triggered run finished" "$AST" "done"
+assert "the run is the uploader's"  "$RUNJSON" "\"user_id\":\"$BOBID\""
+ALIST=$(G "/api/repo?prefix=inbox/auto/")
+for k in inbox/auto/scan-001.txt.extracted.json inbox/auto/scan-001.txt.form.md inbox/auto/scan-001.txt.form.ja.md; do
+  assert "exists: $k" "$ALIST" "\"key\":\"$k\""
+done
+# DWF-3: the three outputs match the prefix; none of them re-fired the trigger
+assert "one fire, not four" "$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))')" "1"
+# an upload outside the prefix, and a non-matching type inside it, stay quiet
+curl -s -X PUT "$B/api/repo/inbox/manual/x.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt" >/dev/null
+curl -s -X PUT "$B/api/repo/inbox/auto/pic.png" -H "Authorization: Bearer $BOB" -H 'Content-Type: image/png' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt" >/dev/null
+assert "still one fire" "$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))')" "1"
+# disable, upload, nothing; enable again
+assert "disabled" "$(curl -s -X PATCH "$B/api/doc-triggers/$TID" -H "Authorization: Bearer $TOK" -d '{"enabled":false}')" '"enabled":false'
+curl -s -X PUT "$B/api/repo/inbox/auto/scan-002.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt" >/dev/null
+assert "a disabled trigger is silent" "$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))')" "1"
+curl -s -X PATCH "$B/api/doc-triggers/$TID" -H "Authorization: Bearer $TOK" -d '{"enabled":true}' >/dev/null
+
+echo
+echo "== 7. the path a team will actually use: an S3 PUT fires it ===================="
+if command -v aws >/dev/null 2>&1; then
+  # a key with the DEFAULT scopes cannot start a workflow — the fire records why
+  CRED=$(P /api/s3/credentials '{"name":"files-only"}')
+  export AWS_ACCESS_KEY_ID=$(printf '%s' "$CRED" | jq_ 'd["access_key_id"]')
+  export AWS_SECRET_ACCESS_KEY=$(printf '%s' "$CRED" | jq_ 'd["secret_access_key"]')
+  export AWS_DEFAULT_REGION=us-east-1 AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+  E="http://127.0.0.1:$S3_PORT"
+  BUCKET=default        # the bucket is the team slug; bootstrap names the first team "default"
+  aws --endpoint-url "$E" s3 cp "$TELEMACHUS_DATA_DIR/auto.txt" "s3://$BUCKET/inbox/auto/scan-s3-a.txt" --content-type text/plain >/dev/null 2>&1
+  F1=$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(((f["error"] or "") for f in d["fires"] if f["key"]=="inbox/auto/scan-s3-a.txt"),""))')
+  assert "S3 PUT with a files-only key: recorded, not run" "$F1" 'workflows:run'
+  # a key issued with workflows:run fires the run
+  CRED2=$(P /api/s3/credentials '{"name":"pipeline","scopes":["files:read","files:write","files:delete","workflows:read","workflows:run"]}')
+  export AWS_ACCESS_KEY_ID=$(printf '%s' "$CRED2" | jq_ 'd["access_key_id"]')
+  export AWS_SECRET_ACCESS_KEY=$(printf '%s' "$CRED2" | jq_ 'd["secret_access_key"]')
+  aws --endpoint-url "$E" s3 cp "$TELEMACHUS_DATA_DIR/auto.txt" "s3://$BUCKET/inbox/auto/scan-s3-b.txt" --content-type text/plain >/dev/null 2>&1
+  SRID=$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(((f["run_id"] or "") for f in d["fires"] if f["key"]=="inbox/auto/scan-s3-b.txt"),""))')
+  assert "S3 PUT with workflows:run started a run" "$SRID" "-"
+  wait_run "$SRID"; SST="$RUNST"; [ "$SST" = done ] || SST="$SST — $(printf '%s' "$RUNJSON" | head -c 300)"
+  assert "…which finished" "$SST" "done"
+  assert "the S3 upload's outputs sit beside it in the bucket" "$(aws --endpoint-url "$E" s3 ls "s3://$BUCKET/inbox/auto/" 2>/dev/null)" 'scan-s3-b.txt.form.ja.md'
+else
+  echo "  skip S3 section (no aws CLI)"
 fi
 
 echo

@@ -1,10 +1,13 @@
 # Document workflows: uploads that trigger processing
 
-*Decided 12 Sep 2026 (DWF‑1…8, see [decisions.md](decisions.md)). Steps 1–2 of
-the plan below are **built** (slice 57): the four tools in
+*Decided 12 Sep 2026 (DWF‑1…8, see [decisions.md](decisions.md)). Steps 1–3 of
+the plan below are **built** (slices 57–58): the four tools in
 `domain/repo/doc-tools.rkt`, the validator in `domain/tools/jsonschema.rkt`, the
-`doc-pipeline` plugin, "Run workflow…" on a document, `test/doc-pipeline-tests.rkt`
-and `test/doc-pipeline-smoke.sh`. Triggers (step 3) are next. This is the
+`doc-pipeline` plugin, "Run workflow…" on a document, and upload **triggers** on
+the seam in `repo-put!` (`domain/repo/triggers.rkt`, `/api/doc-triggers`), with
+`test/doc-pipeline-tests.rkt`, `test/doc-triggers-tests.rkt` and
+`test/doc-pipeline-smoke.sh` (which ends with an `aws s3 cp` firing a run). The
+Automations card and "Processed by" panel (step 4) are next. This is the
 first-user scenario the platform is for: **a team uploads files, and a workflow
 processes them** — extracts the data, runs inference over it, generates filled
 forms, translates the result. Sharing of what the pipeline produces is in
@@ -198,7 +201,7 @@ Tools:
 2. ✅ `doc_render` for Markdown/HTML; `doc_translate`; the `doc-pipeline` plugin with
    `process-upload`; **"Run workflow…"** on a document. Smoke: upload → run by hand
    → four derived documents with provenance.
-3. Triggers: the tables, the seam in `repo-put!`, exactly-once, the derived-document
+3. ✅ Triggers: the tables, the seam in `repo-put!`, exactly-once, the derived-document
    guard. Smoke: an S3 `PUT` fires the run — the path a team will actually use.
 4. The Automations card and the "Processed by" panel; the e2e gate gains the
    invoice scenario end to end.
@@ -250,6 +253,33 @@ Tools:
   theirs** (owned by the run's principal, DWF‑2) — but if the owner already ran it,
   the derived keys exist as the owner's private objects and the viewer's write is
   refused: the run fails cleanly instead of overwriting someone else's document.
+
+### As built (step 3 — triggers)
+
+- **The seam is a box on `repo-put!`** (`set-put-hook!`), installed when
+  `domain/repo/triggers.rkt` is required; the engine never depends on the
+  repository, so there is no cycle. The hook receives the written object and
+  `#:derived?` — `#t`, or the **run id** the output came from. The run id matters
+  because the derivation row is written *after* `repo-put!` returns; at the seam it
+  does not exist yet.
+- **A fire never fails an upload.** `doc_trigger_fires` is claimed before the run
+  starts (exactly once per version); if the run cannot start, the row keeps the
+  reason and an audit event `doc.trigger.error` is written. The two reasons seen in
+  practice: the workflow was unpublished, and **the uploader's credential cannot
+  run workflows** — an S3 key issued with the default `files:*` scopes. Issue the
+  key with `workflows:read` and `workflows:run` for a prefix meant to fire.
+- **The arrival wins on a clash** with the trigger's `input`: a trigger can carry
+  a schema or a template, never redirect the run at a different document.
+- **`fire_on_derived` means "other pipelines' outputs", never its own.** A trigger
+  never fires on the output of a run it started (recognized by the run id at the
+  seam, or by the derivation rows on a re-upload). Without this an opted-in
+  trigger whose output matches itself ran 50 times in the test before the drain
+  limit stopped it; "the operator opted in" is no consolation at 3 a.m.
+- `match_types` takes exact types or a family (`image/*`); `""` is any. Fires are
+  ordered by an epoch-millisecond column, because `CURRENT_TIMESTAMP` is seconds
+  and "newest first" is a promise the history has to keep.
+- The list endpoint carries the team's **remaining AI budget**: a trigger whose
+  runs sit queued is a team out of tokens, not a broken trigger.
 
 ## Decisions (confirmed 12 Sep 2026)
 

@@ -24,7 +24,8 @@
          "../quota/quota.rkt"
          "blobs.rkt")
 
-(provide repo-put! repo-get repo-open repo-list repo-versions
+(provide repo-put! set-put-hook!
+         repo-get repo-open repo-list repo-versions
          repo-set-visibility! repo-delete! repo-usage
          repo-share! repo-unshare! repo-grants
          repo-inherit! repo-derivations
@@ -33,6 +34,17 @@
          VISIBILITIES valid-key? inline-safe? STORAGE-DIMENSION)
 
 (define STORAGE-DIMENSION "storage.bytes")
+
+;; ---- the post-write seam (slice 58, DWF-1) -------------------------------------
+;; Exactly one place learns that a document arrived: the end of repo-put!, once the
+;; version row exists. Console upload, the documents shim and an S3 PUT all pass
+;; through here, so a subscriber (domain/repo/triggers.rkt) sees every arrival
+;; without three copies of the hook. The hook is a box, not a parameter: a value
+;; every thread sees, set once at boot. It is called with the written object and
+;; whether the caller marked it DERIVED (a pipeline output), and it must never fail
+;; the upload — the subscriber owns its own error handling.
+(define put-hook (box (lambda (conn p obj #:derived? derived?) (void))))
+(define (set-put-hook! f) (set-box! put-hook f))
 (define VISIBILITIES '("private" "team" "shared"))
 
 ;; ---- keys --------------------------------------------------------------------
@@ -112,7 +124,13 @@
                    #:allow-empty? [allow-empty? #f]
                    ;; who to record as the author. Multipart completes on behalf of
                    ;; whoever started the upload, which need not be who finishes it.
-                   #:as [as-user #f])
+                   #:as [as-user #f]
+                   ;; a pipeline OUTPUT (DWF-3): #t, or the RUN ID it came from.
+                   ;; Triggers leave it alone unless they opted in — and never fire
+                   ;; on the output of a run they started themselves, which is why
+                   ;; the run id is worth passing: the derivation row that would
+                   ;; say so is written AFTER this call returns.
+                   #:derived? [derived? #f])
   (require-perm conn p "files:write")
   (unless (valid-key? key) (raise-user-error 'repo "invalid key: ~s" key))
   (when (and vis (not (member vis VISIBILITIES)))
@@ -169,7 +187,9 @@
           #:actor-type "user" #:actor-id (principal-user-id p) #:team-id team
           #:resource-type "repo" #:resource-id oid
           #:meta (format "{\"key\":~s,\"size\":~a,\"version\":~a}" key size seq))
-  (row->obj (obj-row conn oid)))
+  (define obj (row->obj (obj-row conn oid)))
+  ((unbox put-hook) conn p obj #:derived? derived?)
+  obj)
 
 ;; ---- reading -------------------------------------------------------------------
 (define (repo-get conn p id-or-key #:by-key [team #f])

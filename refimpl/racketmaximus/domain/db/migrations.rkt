@@ -806,6 +806,42 @@
        "CREATE INDEX idx_repo_derivations_object ON repo_derivations(object_id)"
        "CREATE INDEX idx_repo_derivations_source ON repo_derivations(source_object_id)"))))
 
+;; 0026 — upload triggers (slice 58, DWF-1…3): "when a document matching this
+;; lands, run that workflow with it".
+(define m-0026-doc-triggers
+  (migration "0026-doc-triggers"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE doc_triggers ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  workflow_slug TEXT NOT NULL,"
+        "  enabled INTEGER NOT NULL DEFAULT 1,"
+        "  match_prefix TEXT NOT NULL DEFAULT '',"    ; key prefix, '' = any
+        "  match_types TEXT NOT NULL DEFAULT '',"     ; comma-separated content types, '' = any
+        "  input TEXT NOT NULL DEFAULT '{}',"         ; JSON merged into the run's input
+        "  fire_on_derived INTEGER NOT NULL DEFAULT 0,"
+        "  created_by TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_doc_triggers_team ON doc_triggers(team_id)"
+       ;; exactly-once per VERSION: the primary key is the idempotency key. A row
+       ;; with run_id NULL and an error is a fire that could not start (the
+       ;; uploader's key lacked workflows:run, the workflow was unpublished) — kept,
+       ;; so the trigger's history says why nothing happened.
+       (string-append
+        "CREATE TABLE doc_trigger_fires ("
+        "  trigger_id TEXT NOT NULL,"
+        "  version_id TEXT NOT NULL,"
+        "  object_id TEXT NOT NULL,"
+        "  run_id TEXT,"
+        "  error TEXT,"
+        "  fired_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  fired_ms BIGINT NOT NULL DEFAULT 0,"      ; epoch ms: CURRENT_TIMESTAMP is seconds, and "newest first" needs an order
+        "  PRIMARY KEY (trigger_id, version_id))")
+       "CREATE INDEX idx_doc_trigger_fires_object ON doc_trigger_fires(object_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers))
