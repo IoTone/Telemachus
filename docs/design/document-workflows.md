@@ -1,10 +1,13 @@
 # Document workflows: uploads that trigger processing
 
-*Proposal for review. This is the first-user scenario the platform is for: **a team
-uploads files, and a workflow processes them** — extracts the data, runs inference
-over it, generates filled forms, translates the result. Data shapes and contracts
-are concrete enough to build from; the policy forks are under **Decisions to
-confirm**. Sharing of what the pipeline produces is in
+*Decided 12 Sep 2026 (DWF‑1…8, see [decisions.md](decisions.md)). Steps 1–2 of
+the plan below are **built** (slice 57): the four tools in
+`domain/repo/doc-tools.rkt`, the validator in `domain/tools/jsonschema.rkt`, the
+`doc-pipeline` plugin, "Run workflow…" on a document, `test/doc-pipeline-tests.rkt`
+and `test/doc-pipeline-smoke.sh`. Triggers (step 3) are next. This is the
+first-user scenario the platform is for: **a team uploads files, and a workflow
+processes them** — extracts the data, runs inference over it, generates filled
+forms, translates the result. Sharing of what the pipeline produces is in
 [document-sharing.md](document-sharing.md).*
 
 ## What exists, and the one thing missing
@@ -189,10 +192,10 @@ Tools:
 
 ## Bootstrapping plan
 
-1. `repo_derivations` + `inherit`; `doc_extract_fields` with schema validation and
-   the refuse-on-mismatch tests, run against the deterministic fallback model AND
+1. ✅ `repo_derivations` + `inherit` (slice 56); `doc_extract_fields` with schema
+   validation and the refuse-on-mismatch tests, run against a scripted model AND
    a live one, as the Manager's drafting was.
-2. `doc_render` for Markdown/HTML; `doc_translate`; the `doc-pipeline` plugin with
+2. ✅ `doc_render` for Markdown/HTML; `doc_translate`; the `doc-pipeline` plugin with
    `process-upload`; **"Run workflow…"** on a document. Smoke: upload → run by hand
    → four derived documents with provenance.
 3. Triggers: the tables, the seam in `repo-put!`, exactly-once, the derived-document
@@ -202,7 +205,53 @@ Tools:
 5. DOCX rendering. PDF stays deferred until someone needs a PDF that is not a
    printed DOCX.
 
-## Decisions to confirm
+### As built (steps 1–2)
+
+- **The model is a seam, not a dependency.** `current-doc-chat` (a parameter,
+  default `run-chat` at temperature 0) is what the tools call; the unit tests
+  script it, `test/mock-llm.rkt` gained a CHAT mode (`MOCK_REPLY_FILE`) so the
+  HTTP smoke is deterministic, and the same smoke runs against a live model when
+  `TELEMACHUS_MODEL_URL` is set. Without a model the default **refuses** ("no
+  model configured") rather than letting the uppercase-echo fallback fail every
+  schema with a misleading message.
+- **The validator is a subset of JSON Schema with one deliberate difference**: an
+  object that says nothing about `additionalProperties` is *closed* — an invented
+  key is refused — because the point of an extraction schema is to say what the
+  data is. `"additionalProperties": true` opens it. Supported: `type` (incl. a
+  list), `properties`, `required`, `items`, `enum`, min/max, minLength/maxLength,
+  minItems/maxItems, `pattern`. Unsupported keywords are ignored, but `type` is
+  always enforced, so nothing is ever accepted on the strength of a keyword the
+  validator does not know.
+- **The renderer is strict too.** `{{field}}`, `{{a.b}}`, `{{#each items}}…{{/each}}`
+  with `{{this}}` / `{{@index}}` and the outer scope visible inside a block; HTML
+  templates escape values. A placeholder the data cannot satisfy is an **error**,
+  never a blank — a form with an empty Total that looks finished is the failure
+  DWF‑5 exists to prevent.
+- **Keys read as a family**: `inbox/acme.pdf` → `inbox/acme.pdf.extracted.json`,
+  `inbox/acme.pdf.form.md` (extension = the template's), `inbox/acme.pdf.form.ja.md`
+  (locale before the extension); a translation of the *source* is
+  `inbox/acme.ja.txt`. A re-run writes the next version of the same key.
+- **A derived document is private from its first byte**: `repo-put!` is called
+  with the source's visibility and *then* `repo-inherit!` copies the grants and
+  writes the derivation row — never a window where a private invoice's fields are
+  team-visible.
+- **All four inputs are declared** (`object_id`, `schema`, `template`, `locales`)
+  and therefore required by the engine; `""` and `[]` are the "skip" values (no
+  template → the source is translated; no locales → stop after the form). The
+  console's run form sends prefilled empties rather than dropping them.
+- **The fields step retries once**: a schema mismatch is the model's mistake and a
+  second reading at temperature 0 often conforms; a third would not. The refusal
+  message names the path and the mismatch (`$.total: expected number, got string`).
+- **The AI tools meter themselves** (`ai.requests`, `ai.tokens.total`, both tiers):
+  the scheduler bills a *job's* `tokens_used`, and a workflow step's tool result
+  is nested where it does not look. Raise the team's daily token budget before a
+  batch, exactly as for the Localization Manager, or the queue stalls.
+- **A viewer can run the pipeline on a shared document, and the outputs are
+  theirs** (owned by the run's principal, DWF‑2) — but if the owner already ran it,
+  the derived keys exist as the owner's private objects and the viewer's write is
+  refused: the run fails cleanly instead of overwriting someone else's document.
+
+## Decisions (confirmed 12 Sep 2026)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|

@@ -13,11 +13,40 @@
 ;; server serves every scenario (the test rewrites the file between runs).
 ;;
 ;;   MOCK_PORT=8900 MOCK_CALL_FILE=/tmp/call.json racket test/mock-llm.rkt
+;;
+;; CHAT mode (slice 57): with MOCK_REPLY_FILE set, a request that offers NO tools
+;; (a plain run-chat — extraction, translation) is answered from that file, a JSON
+;; object of {"<needle>": "<reply>"}: the first needle found in the request's
+;; message text wins, "*" is the default. Re-read per request, like the call file,
+;; so one server scripts a whole pipeline: the extraction prompt carries the word
+;; "schema", the translation prompt carries "translator".
 
 (require racket/tcp racket/string racket/file json)
 
 (define port (string->number (or (getenv "MOCK_PORT") "8900")))
 (define call-file (or (getenv "MOCK_CALL_FILE") "/tmp/mock-call.json"))
+(define reply-file (getenv "MOCK_REPLY_FILE"))
+
+(define (chat-response parsed)
+  (define table
+    (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+      (string->jsexpr (strip-bom (file->string reply-file)))))
+  (define text
+    (apply string-append
+           (for/list ([m (in-list (let ([m (hash-ref parsed 'messages '())]) (if (list? m) m '())))])
+             (define c (and (hash? m) (hash-ref m 'content "")))
+             (if (string? c) (string-append c "\n") ""))))
+  (define reply
+    (or (for/first ([(k v) (in-hash table)]
+                    #:when (and (not (eq? k '*)) (string? v)
+                                (string-contains? text (symbol->string k))))
+          v)
+        (let ([d (hash-ref table '* #f)]) (and (string? d) d))
+        "MOCK"))
+  (hasheq 'id "chatcmpl-mock" 'object "chat.completion" 'model "mock"
+          'usage (hasheq 'prompt_tokens 10 'completion_tokens 5 'total_tokens 15)
+          'choices (list (hasheq 'index 0 'finish_reason "stop"
+                                 'message (hasheq 'role "assistant" 'content reply)))))
 
 (define BOM (integer->char #xFEFF))
 (define (strip-bom s)                                  ; tolerate a UTF-8 BOM (Windows editors)
@@ -66,7 +95,11 @@
     (define msgs (let ([m (hash-ref parsed 'messages '())]) (if (list? m) m '())))
     (define has-tool? (for/or ([m (in-list msgs)] #:when (hash? m))
                         (equal? (hash-ref m 'role #f) "tool")))
-    (define payload (jsexpr->bytes (if has-tool? (final-response) (tool-call-response))))
+    (define offers-tools? (let ([t (hash-ref parsed 'tools '())]) (and (list? t) (pair? t))))
+    (define payload
+      (jsexpr->bytes (cond [(and reply-file (not offers-tools?)) (chat-response parsed)]
+                           [has-tool? (final-response)]
+                           [else (tool-call-response)])))
     (write-string (string-append
                    "HTTP/1.1 200 OK\r\n"
                    "Content-Type: application/json\r\n"

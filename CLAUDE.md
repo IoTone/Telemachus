@@ -511,6 +511,61 @@ raco test test/repo-tests.rkt          # case 7 + expiry parsing (151 cases in t
 bash test/server-smoke.sh              # the "share:" block, 20 assertions
 ```
 
+## Document pipeline (slice 57) — the first-user path
+
+Upload a file, run `process-upload`, get fields + a filled form + translations
+back as documents beside the source. Design: `docs/design/document-workflows.md`
+(DWF‑1…8, decided; built through step 2 — triggers are step 3). Four core tools in
+`domain/repo/doc-tools.rkt` (`doc_text`, `doc_extract_fields`, `doc_render`,
+`doc_translate`), composed by `plugins/doc-pipeline/`.
+
+- **The model is a parameter**: `current-doc-chat`. Tests script it; the HTTP
+  smoke uses `test/mock-llm.rkt`'s CHAT mode (`MOCK_REPLY_FILE`, a `{"needle":
+  "reply"}` map matched against the request text — needles are `"extract
+  structured data"` and `"professional translator"`); set `TELEMACHUS_MODEL_URL`
+  and the same smoke runs live. **With no model the tools refuse** ("no model
+  configured") — the uppercase-echo fallback would otherwise fail every schema
+  with "did not return a JSON object", which is true and useless.
+- **Extraction is refused on mismatch, never flagged** (DWF‑5).
+  `domain/tools/jsonschema.rkt` is a JSON Schema subset with one deliberate
+  difference: an object with no `additionalProperties` is CLOSED. The refusal
+  names the path (`$.total: expected number, got string`). The `fields` step
+  retries once. The reply's outermost `{…}` is what gets parsed, so a fence or a
+  sentence around the JSON is fine; no object at all is refused.
+- **The renderer is strict**: a `{{placeholder}}` the data lacks is an error, not
+  a blank. `{{#each}}` blocks nest; the outer scope is visible inside one; HTML
+  templates escape. The template is a repository document, by id or by key.
+- **Keys**: `<key>.extracted.json`, `<key>.form.<template ext>`,
+  `<key>.form.<locale>.<ext>`; a translation of the SOURCE is
+  `<key minus ext>.<locale>.<ext-or-txt>`. Re-runs version the same key.
+- **A derived document is private from its first byte**: `derive!` passes the
+  source's visibility to `repo-put!` and THEN `repo-inherit!` copies grants and
+  writes the derivation row. Do not reorder that.
+- **All four workflow inputs are required** by the engine (`check-input!`); `""`
+  and `[]` mean "skip". The console's run form sends a PREFILLED empty (from
+  "Run workflow…" on a document) instead of dropping it; an untouched blank on
+  any other workflow is still omitted, as before.
+- **The AI tools meter themselves** (`tenant-quota-record!`, both tiers): the
+  scheduler bills a job's top-level `tokens_used`, and a tool step's result sits
+  under `result`. `quota-check` reports `used: 0` when no limit is set — read the
+  ledger with `quota-used … "total"` in a test. Raise `ai.tokens.total` before a
+  batch (the smoke sets 1,000,000/day) or the queue stalls silently.
+- **`doc_text` fails on an unreadable document** (unlike indexing, which records
+  nothing): someone is waiting for fields, and silence would look like success.
+- **`render-template` clashes with the beta template renderer's name** — main.rkt
+  requires `doc-tools.rkt` with `(only-in …)` for registration only.
+- **`translate!` takes `#:chat` as `(chat text sys)`**, positional; the doc tools
+  adapt the keyword seam to it. `translate!` does not meter — the caller does.
+- A viewer of a shared document may run the pipeline; the outputs are THEIRS. If
+  the owner already ran it, the derived keys are the owner's private objects and
+  the viewer's run fails with `forbidden: files:write` rather than clobbering.
+
+```sh
+raco test test/doc-pipeline-tests.rkt      # validator, renderer, refusals, the whole pipeline via the scheduler
+bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model; 43 assertions
+TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
+```
+
 ## Workflow engine (plugins that process in steps)
 
 Slice 46. A workflow is a **validated data spec** — that spec is the public

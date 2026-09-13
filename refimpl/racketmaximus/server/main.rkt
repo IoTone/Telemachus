@@ -61,6 +61,7 @@
          "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
+         (only-in "../domain/repo/doc-tools.rkt")  ; registers the document-pipeline tools (slice 57)
          "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind

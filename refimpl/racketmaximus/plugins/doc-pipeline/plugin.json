@@ -1,0 +1,7 @@
+{
+  "id": "doc-pipeline",
+  "name": "Document Pipeline",
+  "version": "0.1.0",
+  "description": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
+  "entry": "main.rkt"
+}

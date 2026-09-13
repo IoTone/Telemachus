@@ -193,7 +193,7 @@ instance holds exactly one user (the owner); provider actions
 | **DSH‑5** | Derived documents | **Inherit visibility + grants at creation, then independent** · vs live-linked · vs private-by-default | The only rule explainable in a sentence. |
 | **DSH‑6** | Cross-team sharing | **Inside an org only; the org gate already guarantees it** | Cross-team without a tenancy hole. |
 
-## Document workflows (DWF) — proposed, see [document-workflows.md](document-workflows.md)
+## Document workflows (DWF) — decided 12 Sep 2026, see [document-workflows.md](document-workflows.md)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|

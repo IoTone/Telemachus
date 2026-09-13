@@ -163,6 +163,14 @@
       "text": "Started",
       "hash": "faa9e7e7ef5a264c58c68a4a0b9c8bd54241450a"
     },
+    "ui.apitokens": {
+      "text": "API tokens",
+      "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
+    },
+    "ui.runwf_doc": {
+      "text": "Run workflow…",
+      "hash": "48e95b8cd7e8597a1a0079c7013822562a36f1b7"
+    },
     "greeting.hello": {
       "text": "Hello, {name}!",
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
@@ -186,10 +194,6 @@
     "ui.key": {
       "text": "Path",
       "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
-    },
-    "ui.apitokens": {
-      "text": "API tokens",
-      "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
     },
     "ui.noshares": {
       "text": "Not shared with anyone.",

@@ -90,6 +90,16 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       creation. Design: [`design/document-sharing.md`](design/document-sharing.md).
       *Open:* the dialog's capability/principal/expiry pickers and a "Shared with
       me" filter (DSH step 3).
+- [x] **Document workflows (the first-user path)** — a team uploads a file and a
+      workflow processes it: text → fields validated against a JSON schema (refused
+      on mismatch) → a filled form template → translations, every output a
+      repository document beside the source with provenance and the source's
+      grants. Shipped as the `doc-pipeline` plugin over four core tools, run by
+      hand from any document. Design:
+      [`design/document-workflows.md`](design/document-workflows.md).
+      *Open:* upload triggers firing the same run from the seam in `repo-put!`
+      (DWF step 3), the Automations card and "Processed by" panel (step 4), DOCX
+      rendering (step 5).
 - [x] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that
       proves the platform can build tools.

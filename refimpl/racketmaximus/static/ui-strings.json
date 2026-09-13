@@ -108,6 +108,7 @@
   "ui.role": "Role",
   "ui.runs": "Runs",
   "ui.runwf": "Run",
+  "ui.runwf_doc": "Run workflow…",
   "ui.s3created": "Key created",
   "ui.s3hint": "Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.",
   "ui.s3keys": "S3 access keys",

@@ -478,6 +478,27 @@ done
 assert "index-documents run completed" "$idxs" "done"
 assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
+
+# ---- slice 57: the document pipeline plugin is present, and refuses to run on the
+# fallback model. Without this the uppercase-echo fallback would fail every schema
+# with "the model did not return a JSON object" — true, and useless to an operator.
+# The pipeline itself runs in test/doc-pipeline-smoke.sh against a scripted model.
+assert "process-upload arrived from the plugin" "$(curl -s $B/api/workflows -H "Authorization: Bearer $OP")" '"slug":"process-upload"'
+PIPEOBJ=$(curl -s "$B/api/repo?prefix=plans/" -H "Authorization: Bearer $OP" | grep -oP '"id":"\K[^"]+' | head -1)
+PIPERUN=$(curl -s -X POST $B/api/workflows/process-upload/run -H "Authorization: Bearer $OP" \
+  -d "{\"input\":{\"object_id\":\"$PIPEOBJ\",\"schema\":{\"type\":\"object\"},\"template\":\"\",\"locales\":[]}}")
+PIPEID=$(printf '%s' "$PIPERUN" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "process-upload run accepted" "$PIPERUN" '"status":"running"'
+pipes=""; pipejson=""
+for i in $(seq 1 40); do
+  pipejson=$(curl -s "$B/api/runs/$PIPEID" -H "Authorization: Bearer $OP")
+  pipes=$(printf '%s' "$pipejson" | grep -oP '"status":"\K[^"]+' | head -1)
+  case "$pipes" in done|error|canceled) break;; esac
+  sleep 0.5
+done
+assert "process-upload fails without a model" "$pipes" "error"
+assert "…and says so"                          "$pipejson" 'no model configured'
+assert "a declared input is required"          "$(curl -s -X POST $B/api/workflows/process-upload/run -H "Authorization: Bearer $OP" -d "{\"input\":{\"object_id\":\"$PIPEOBJ\"}}")" "is required"
 rm -f /tmp/tmx-smoke-idx.md
 
 # ---- Localization Manager (the flagship) --------------------------------------

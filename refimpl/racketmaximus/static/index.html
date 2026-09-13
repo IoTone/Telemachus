@@ -1131,6 +1131,7 @@ async function repoOpenDetail(id){
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0" class="mono">${esc(o.key)}</h3>
       <div style="flex:none">
+        <button class="btn sm" onclick="repoRunWorkflow('${esc(id)}')">${t('runwf_doc')}</button>
         <button class="btn sm bad" onclick="repoDelete('${esc(id)}')">${t('del')}</button>
         <button class="btn sm ghost" onclick="document.getElementById('rdetail').innerHTML=''">${t('close')}</button>
       </div></div>
@@ -1150,6 +1151,22 @@ async function repoOpenDetail(id){
       <div><h4 style="margin:0 0 6px">${t('versions')}</h4>
         <table><tbody>${vrows}</tbody></table></div>
     </div></div>`;
+}
+
+// "Run workflow…" on a document (DWF-7): the SAME run endpoint a trigger will use,
+// so what works by hand works on upload. Lands on the Workflows tab with the
+// shipped pipeline selected and this document prefilled; template and locales
+// are prefilled EMPTY, which the pipeline reads as "skip the form" / "no
+// translations" — the form sends them as-is rather than dropping them.
+const PIPELINE_EXAMPLE_SCHEMA={type:'object',required:['title','summary'],
+  properties:{title:{type:'string'},summary:{type:'string'},date:{type:['string','null']}}};
+async function repoRunWorkflow(id){
+  S.wfPrefill={object_id:id, schema:JSON.stringify(PIPELINE_EXAMPLE_SCHEMA,null,2), template:'', locales:'[]'};
+  go('workflows');
+  const r=await api('/api/workflows/process-upload');
+  if(r.ok){ S.wfSel='process-upload'; S.wfSpec=r.json; S.wfKeys=Object.keys((r.json.spec||{}).input||{}); }
+  else toast(r.json.error||'error');
+  renderTab();
 }
 
 async function repoDownloadVersion(id, versionId, key){
@@ -1245,13 +1262,13 @@ async function workflowsView(){
 // `check-input!` enforces server-side, so the form can't drift from what is accepted.
 function wfRunForm(){
   const d=S.wfSpec; if(!d) return '';
-  const spec=d.spec||{}, inputs=spec.input||{}, keys=S.wfKeys||[];
+  const spec=d.spec||{}, inputs=spec.input||{}, keys=S.wfKeys||[], pre=S.wfPrefill||{};
   const fields=keys.length?keys.map((k,i)=>{
-    const ty=inputs[k];
+    const ty=inputs[k], pv=(k in pre)?String(pre[k]):'';
     const lab=`<label>${esc(k)}<span class="muted" style="text-transform:none;letter-spacing:0"> · ${esc(ty)}</span></label>`;
-    if(ty==='object'||ty==='array') return `${lab}<textarea id="wfi_${i}" rows="3" placeholder="${ty==='array'?'[]':'{}'}"></textarea>`;
-    if(ty==='boolean')              return `${lab}<select id="wfi_${i}"><option value="false">false</option><option value="true">true</option></select>`;
-    return `${lab}<input id="wfi_${i}"${ty==='number'?' type="number"':''}>`;
+    if(ty==='object'||ty==='array') return `${lab}<textarea id="wfi_${i}" rows="${pv.split('\n').length>3?8:3}" placeholder="${ty==='array'?'[]':'{}'}">${esc(pv)}</textarea>`;
+    if(ty==='boolean')              return `${lab}<select id="wfi_${i}"><option value="false">false</option><option value="true"${pv==='true'?' selected':''}>true</option></select>`;
+    return `${lab}<input id="wfi_${i}"${ty==='number'?' type="number"':''} value="${esc(pv)}">`;
   }).join(''):'<p class="muted">This workflow takes no input.</p>';
   const desc=(d.description&&d.description!=='null')?`<p class="muted" style="margin:0 0 10px">${esc(d.description)}</p>`:'';
   const chain=(spec.steps||[]).map(x=>esc(x.id)).join(' → ');
@@ -1264,6 +1281,7 @@ function wfRunForm(){
 }
 
 async function wfSelect(slug){
+  S.wfPrefill=null;
   if(!slug){ S.wfSel=null; S.wfSpec=null; S.wfKeys=[]; return renderTab(); }
   const r=await api('/api/workflows/'+encodeURIComponent(slug));
   if(!r.ok) return toast(r.json.error||'error');
@@ -1275,14 +1293,18 @@ async function wfStart(){
   const inputs=(d.spec||{}).input||{}, keys=S.wfKeys||[], body={};
   for(let i=0;i<keys.length;i++){
     const k=keys[i], ty=inputs[k], el=document.getElementById('wfi_'+i); if(!el) continue;
-    const raw=el.value.trim(); if(raw==='') continue;
+    const raw=el.value.trim();
+    // a prefilled input is sent even when empty — "" and [] are meaningful to the
+    // document pipeline (skip the form / no translations); an untouched blank on
+    // any other workflow is still omitted
+    if(raw===''){ if(S.wfPrefill&&(k in S.wfPrefill)) body[k]=(ty==='array')?[]:(ty==='object')?{}:''; continue; }
     if(ty==='number'){ const n=Number(raw); if(Number.isNaN(n)) return toast(k+': not a number'); body[k]=n; }
     else if(ty==='boolean'){ body[k]=(raw==='true'); }
     else if(ty==='object'||ty==='array'){ try{ body[k]=JSON.parse(raw); }catch(e){ return toast(k+': invalid JSON'); } }
     else body[k]=raw;
   }
   const r=await api('/api/workflows/'+encodeURIComponent(d.slug)+'/run',{method:'POST',body:{input:body}});
-  if(r.ok){ S.wfSel=null; S.wfSpec=null; S.wfRun=r.json.id; toast('started',true); renderTab(); }
+  if(r.ok){ S.wfSel=null; S.wfSpec=null; S.wfPrefill=null; S.wfRun=r.json.id; toast('started',true); renderTab(); }
   else toast(r.json.error||'error');
 }
 function wfOpen(id){ S.wfRun=id; S.wfPoll++; renderTab(); }
