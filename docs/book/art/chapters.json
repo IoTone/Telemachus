@@ -1,0 +1,66 @@
+[
+ {
+  "file": "ch-00-read",
+  "title": "How to read this"
+ },
+ {
+  "file": "ch-01-what",
+  "title": "What Telemachus is"
+ },
+ {
+  "file": "ch-02-running",
+  "title": "Getting it running"
+ },
+ {
+  "file": "ch-03-map",
+  "title": "A map of the code"
+ },
+ {
+  "file": "ch-04-authz",
+  "title": "The authorization model"
+ },
+ {
+  "file": "ch-05-data",
+  "title": "Data and migrations"
+ },
+ {
+  "file": "ch-06-repo",
+  "title": "The document repository"
+ },
+ {
+  "file": "ch-07-tools",
+  "title": "Tools and the agent"
+ },
+ {
+  "file": "ch-08-workflows",
+  "title": "Workflows"
+ },
+ {
+  "file": "ch-09-pipeline",
+  "title": "The document pipeline"
+ },
+ {
+  "file": "ch-10-l10n",
+  "title": "Localization"
+ },
+ {
+  "file": "ch-11-kg",
+  "title": "The knowledge graph"
+ },
+ {
+  "file": "ch-12-routes",
+  "title": "The route table and the generated reference"
+ },
+ {
+  "file": "ch-13-tests",
+  "title": "How the project tests"
+ },
+ {
+  "file": "ch-14-operating",
+  "title": "Operating notes"
+ },
+ {
+  "file": "ch-15-contributing",
+  "title": "Contributing"
+ }
+]

@@ -7,7 +7,11 @@ const { chromium } = createRequire(e2e)('@playwright/test');
 import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox','--disable-dev-shm-usage'] });
-for (const [name, w, h] of [['telemachus-sketch', 600, 820], ['telemachus-head', 264, 240]]) {
+// every SVG in this directory: the master sketch, the head vignette, one scene per chapter
+const sizes = { 'telemachus-sketch': [600, 820], 'telemachus-head': [264, 240] };
+const names = fs.readdirSync(HERE).filter(f => f.endsWith('.svg')).map(f => f.slice(0, -4));
+for (const name of names) {
+  const [w, h] = sizes[name] || [360, 300];
   const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 3 });
   const svg = fs.readFileSync(path.join(HERE, name + '.svg'), 'utf8');
   await page.setContent(`<style>html,body{margin:0;background:transparent}</style>${svg}`);

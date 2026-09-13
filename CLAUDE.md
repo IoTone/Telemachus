@@ -706,12 +706,18 @@ Tectonic fetches TeX packages on first run (a 429 from the bundle mirror is a
 retry, not a failure) and caches them under `~/.cache/Tectonic`. The built PDF
 and HTML are committed beside the source; rebuild and commit them together.
 
-- **The character art is `docs/book/art/telemachus-sketch.svg`** (hand-authored
-  SVG: ink paths, a `feTurbulence` wobble, construction marks) and
-  `telemachus-head.svg`, the same drawing cropped to the head for chapter heads.
-  `art/render.mjs` renders both to PNG at 3× with the e2e directory's Playwright
-  (`node docs/book/art/render.mjs` from the repo root) — the PDF needs the PNGs,
-  the HTML gets the SVG inlined by `book.css` and the artifact page.
+- **The character art**: `docs/book/art/telemachus-sketch.svg` is the master
+  (hand-authored SVG: ink paths, a `feTurbulence` wobble, construction marks).
+  **`art/vignettes.py` generates one scene per chapter** (`ch-NN-*.svg`) from a
+  parts library in the master's coordinate space — head, five expressions, bust
+  or full figure, arm poses, walking legs, the owl in three poses — plus a
+  per-chapter prop; it also writes `chapter-art.css` (one `h1#<pandoc-id>::before`
+  rule per chapter, SVG data URIs) and `chapters.json`. `art/render.mjs` renders
+  every SVG in the directory to PNG at 3× with the e2e directory's Playwright
+  (`node docs/book/art/render.mjs` from the repo root). The PDF picks each
+  chapter's PNG via `\chapterart{…}` before the `\chapter`; the HTML gets the
+  SVGs through `book.css` + `chapter-art.css`. Change a scene in the generator,
+  never in a generated SVG; then regenerate, render, rebuild.
 - **`\ifpdfonly`** guards the title page and the `titlesec` chapter format; pandoc
   honours TeX conditionals, and `build.sh` flips the switch to false on the copy
   it hands to pandoc, so the HTML gets `\maketitle` plus the sketch instead.

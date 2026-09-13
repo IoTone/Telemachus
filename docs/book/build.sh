@@ -10,7 +10,7 @@ tectonic --keep-logs -o . "$SRC" >/dev/null
 # no titlesec); the sketches are embedded as data URIs by --embed-resources
 sed 's/\\pdfonlytrue/\\pdfonlyfalse/' "$SRC" > .html-source.tex
 pandoc .html-source.tex --from latex --to html5 --standalone --toc --toc-depth=2 \
-  --number-sections --css book.css --embed-resources --resource-path=. \
+  --number-sections --css book.css --css art/chapter-art.css --embed-resources --resource-path=. \
   --metadata title="Telemachus for Developers" \
   -o telemachus-for-developers.html
 rm -f telemachus-for-developers.log .html-source.tex
