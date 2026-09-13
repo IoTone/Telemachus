@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="IoTone, Inc." />
+  <title>Telemachus for Developers</title>
+  <style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">
+:root { --ink:#1f2933; --muted:#5b6b7b; --line:#dfe5ec; --code:#f3f6f9; --brand:#132c46; --gold:#c9a227; }
+html { color-scheme: light; }
+body { margin:0; padding:2rem 1rem 4rem; background:#fbfbf9; color:var(--ink);
+font:17px/1.6 Georgia,"Times New Roman",serif; max-width:46rem; margin-left:auto; margin-right:auto; }
+header#title-block-header { border-bottom:3px solid var(--gold); margin-bottom:2rem; padding-bottom:1rem; }
+h1.title { font-size:2.2rem; color:var(--brand); margin:0 0 .3rem; line-height:1.15; }
+p.author, p.date { color:var(--muted); margin:0; }
+nav#TOC { background:#fff; border:1px solid var(--line); border-radius:8px; padding:1rem 1.4rem; margin:1.5rem 0 2.5rem; }
+nav#TOC ul { list-style:none; padding-left:0; margin:0; }
+nav#TOC > ul > li { margin:.35rem 0; }
+nav#TOC ul ul { padding-left:1.2rem; color:var(--muted); font-size:.95em; }
+h1 { font-size:1.9rem; color:var(--brand); margin-top:3rem; border-top:1px solid var(--line); padding-top:1.4rem; }
+h2 { font-size:1.3rem; color:var(--brand); margin-top:2rem; }
+a { color:#2b5f8f; }
+code { font:.88em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--code); padding:.1em .3em; border-radius:4px; }
+pre { background:var(--code); border:1px solid var(--line); border-radius:8px; padding:.9rem 1rem; overflow-x:auto; font-size:.86em; line-height:1.45; }
+pre code { background:none; padding:0; }
+table { border-collapse:collapse; width:100%; margin:1rem 0; font-size:.95em; }
+th, td { text-align:left; vertical-align:top; padding:.45rem .6rem; border-bottom:1px solid var(--line); }
+th { color:var(--muted); font-weight:600; font-size:.85em; letter-spacing:.04em; text-transform:uppercase; }
+li { margin:.3rem 0; }
+@media (max-width:600px){ body{ font-size:16px; padding:1rem 1rem 3rem; } h1.title{ font-size:1.7rem; } }
+</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Telemachus for Developers</h1>
+<p class="author">IoTone, Inc.</p>
+<p class="date">September 2026 — version 0.1.0</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#how-to-read-this" id="toc-how-to-read-this">How to read
+this</a></li>
+<li><a href="#what-telemachus-is" id="toc-what-telemachus-is"><span class="toc-section-number">1</span> What Telemachus is</a>
+<ul>
+<li><a href="#the-one-paragraph-version" id="toc-the-one-paragraph-version"><span class="toc-section-number">1.1</span> The one-paragraph version</a></li>
+<li><a href="#tenets" id="toc-tenets"><span class="toc-section-number">1.2</span> Tenets</a></li>
+<li><a href="#what-is-where" id="toc-what-is-where"><span class="toc-section-number">1.3</span> What is where</a></li>
+</ul></li>
+<li><a href="#getting-it-running" id="toc-getting-it-running"><span class="toc-section-number">2</span> Getting it running</a>
+<ul>
+<li><a href="#the-toolchain" id="toc-the-toolchain"><span class="toc-section-number">2.1</span> The toolchain</a></li>
+<li><a href="#environment" id="toc-environment"><span class="toc-section-number">2.2</span> Environment</a></li>
+<li><a href="#first-run" id="toc-first-run"><span class="toc-section-number">2.3</span> First run</a></li>
+<li><a href="#files-to-open" id="toc-files-to-open"><span class="toc-section-number">2.4</span> Files to open</a></li>
+</ul></li>
+<li><a href="#a-map-of-the-code" id="toc-a-map-of-the-code"><span class="toc-section-number">3</span> A map of the code</a>
+<ul>
+<li><a href="#layers" id="toc-layers"><span class="toc-section-number">3.1</span> Layers</a></li>
+<li><a href="#the-three-small-libraries" id="toc-the-three-small-libraries"><span class="toc-section-number">3.2</span> The three small libraries</a></li>
+<li><a href="#one-principal-one-check" id="toc-one-principal-one-check"><span class="toc-section-number">3.3</span> One principal, one check</a></li>
+<li><a href="#files-to-open-1" id="toc-files-to-open-1"><span class="toc-section-number">3.4</span> Files to open</a></li>
+</ul></li>
+<li><a href="#the-authorization-model" id="toc-the-authorization-model"><span class="toc-section-number">4</span> The authorization model</a>
+<ul>
+<li><a href="#permissions-and-roles" id="toc-permissions-and-roles"><span class="toc-section-number">4.1</span> Permissions and roles</a></li>
+<li><a href="#can-in-order" id="toc-can-in-order"><span class="toc-section-number">4.2</span> <code>can?</code>, in
+order</a></li>
+<li><a href="#capabilities" id="toc-capabilities"><span class="toc-section-number">4.3</span> Capabilities</a></li>
+<li><a href="#multi-tenancy" id="toc-multi-tenancy"><span class="toc-section-number">4.4</span> Multi-tenancy</a></li>
+<li><a href="#files-to-open-2" id="toc-files-to-open-2"><span class="toc-section-number">4.5</span> Files to open</a></li>
+</ul></li>
+<li><a href="#data-and-migrations" id="toc-data-and-migrations"><span class="toc-section-number">5</span> Data and migrations</a>
+<ul>
+<li><a href="#files-to-open-3" id="toc-files-to-open-3"><span class="toc-section-number">5.1</span> Files to open</a></li>
+</ul></li>
+<li><a href="#the-document-repository" id="toc-the-document-repository"><span class="toc-section-number">6</span> The document repository</a>
+<ul>
+<li><a href="#objects-versions-blobs" id="toc-objects-versions-blobs"><span class="toc-section-number">6.1</span> Objects, versions, blobs</a></li>
+<li><a href="#the-s3-endpoint" id="toc-the-s3-endpoint"><span class="toc-section-number">6.2</span> The S3 endpoint</a></li>
+<li><a href="#sharing-and-provenance" id="toc-sharing-and-provenance"><span class="toc-section-number">6.3</span> Sharing and provenance</a></li>
+<li><a href="#files-to-open-4" id="toc-files-to-open-4"><span class="toc-section-number">6.4</span> Files to open</a></li>
+</ul></li>
+<li><a href="#tools-and-the-agent" id="toc-tools-and-the-agent"><span class="toc-section-number">7</span> Tools and the agent</a>
+<ul>
+<li><a href="#declaring-a-tool" id="toc-declaring-a-tool"><span class="toc-section-number">7.1</span> Declaring a tool</a></li>
+<li><a href="#the-registry" id="toc-the-registry"><span class="toc-section-number">7.2</span> The registry</a></li>
+<li><a href="#the-model-seam" id="toc-the-model-seam"><span class="toc-section-number">7.3</span> The model seam</a></li>
+<li><a href="#files-to-open-5" id="toc-files-to-open-5"><span class="toc-section-number">7.4</span> Files to open</a></li>
+</ul></li>
+<li><a href="#workflows" id="toc-workflows"><span class="toc-section-number">8</span> Workflows</a>
+<ul>
+<li><a href="#the-spec-is-the-contract" id="toc-the-spec-is-the-contract"><span class="toc-section-number">8.1</span> The spec is the contract</a></li>
+<li><a href="#execution-is-a-reducer" id="toc-execution-is-a-reducer"><span class="toc-section-number">8.2</span> Execution is a reducer</a></li>
+<li><a href="#files-to-open-6" id="toc-files-to-open-6"><span class="toc-section-number">8.3</span> Files to open</a></li>
+</ul></li>
+<li><a href="#the-document-pipeline" id="toc-the-document-pipeline"><span class="toc-section-number">9</span>
+The document pipeline</a>
+<ul>
+<li><a href="#the-first-user-path" id="toc-the-first-user-path"><span class="toc-section-number">9.1</span> The first-user path</a></li>
+<li><a href="#refuse-do-not-flag" id="toc-refuse-do-not-flag"><span class="toc-section-number">9.2</span> Refuse, do not flag</a></li>
+<li><a href="#templates" id="toc-templates"><span class="toc-section-number">9.3</span> Templates</a></li>
+<li><a href="#triggers" id="toc-triggers"><span class="toc-section-number">9.4</span> Triggers</a></li>
+<li><a href="#files-to-open-7" id="toc-files-to-open-7"><span class="toc-section-number">9.5</span> Files to open</a></li>
+</ul></li>
+<li><a href="#localization" id="toc-localization"><span class="toc-section-number">10</span> Localization</a>
+<ul>
+<li><a href="#three-homes" id="toc-three-homes"><span class="toc-section-number">10.1</span> Three homes</a></li>
+<li><a href="#the-localization-manager" id="toc-the-localization-manager"><span class="toc-section-number">10.2</span> The Localization Manager</a></li>
+<li><a href="#files-to-open-8" id="toc-files-to-open-8"><span class="toc-section-number">10.3</span> Files to open</a></li>
+</ul></li>
+<li><a href="#the-knowledge-graph" id="toc-the-knowledge-graph"><span class="toc-section-number">11</span> The knowledge graph</a>
+<ul>
+<li><a href="#files-to-open-9" id="toc-files-to-open-9"><span class="toc-section-number">11.1</span> Files to open</a></li>
+</ul></li>
+<li><a href="#the-route-table-and-the-generated-reference" id="toc-the-route-table-and-the-generated-reference"><span class="toc-section-number">12</span> The route table and the generated
+reference</a>
+<ul>
+<li><a href="#declared-not-enacted" id="toc-declared-not-enacted"><span class="toc-section-number">12.1</span> Declared, not enacted</a></li>
+<li><a href="#generated-and-gated" id="toc-generated-and-gated"><span class="toc-section-number">12.2</span> Generated and gated</a></li>
+</ul></li>
+<li><a href="#how-the-project-tests" id="toc-how-the-project-tests"><span class="toc-section-number">13</span> How the project tests</a></li>
+<li><a href="#operating-notes" id="toc-operating-notes"><span class="toc-section-number">14</span> Operating notes</a></li>
+<li><a href="#contributing" id="toc-contributing"><span class="toc-section-number">15</span> Contributing</a></li>
+</ul>
+</nav>
+<h1 class="unnumbered" id="how-to-read-this">How to read this</h1>
+<p>Telemachus is a self-hosted platform for a team’s AI tools and
+applications. This book is for a developer who has cloned the repository
+and wants to understand how it is built before changing it. It is short
+on purpose: the generated reference under <code>docs/reference/</code>
+documents every tool, workflow, permission and HTTP route from the
+source of truth, and the design documents under
+<code>docs/design/</code> record why each subsystem is shaped as it is.
+This book is the connective tissue between them — the ideas that recur,
+the decisions that were expensive to learn, and the map you need before
+the code makes sense.</p>
+<p>Each chapter ends with a short list of the files to open. Read the
+first four chapters in order; after that, go where your task takes
+you.</p>
+<h1 data-number="1" id="what-telemachus-is"><span class="header-section-number">1</span> What Telemachus is</h1>
+<h2 data-number="1.1" id="the-one-paragraph-version"><span class="header-section-number">1.1</span> The one-paragraph version</h2>
+<p>A team uploads its documents, talks to a model about them, runs
+workflows over them, shares the results with exactly the people who
+should see them, and does all of it on a machine the team controls. The
+platform is a single Racket program with an HTTP API, a browser console,
+an S3-compatible endpoint, a workflow engine, a scheduler, a quota
+ledger, and a plugin system. Every feature above the substrate —
+localization, the document pipeline, the knowledge graph — is built out
+of the substrate’s own primitives, which is both the architecture and
+the proof that the architecture works.</p>
+<h2 data-number="1.2" id="tenets"><span class="header-section-number">1.2</span> Tenets</h2>
+<p>These are not slogans; each one has changed a design at least
+once.</p>
+<ul>
+<li><p><strong>Clean MIT, pure open source.</strong> No open core, no
+held-back tier. Concepts may be reused from the earlier Python system,
+but only owner-authored Racket and owner-authored documents were carried
+over.</p></li>
+<li><p><strong>Racket first.</strong> The reference implementation is
+Racket 9.2 CS. Non-Racket plugin authoring is explicitly not a
+requirement; where a data format is the contract (workflow specs, tool
+schemas), it is because the format earns its place, not because Racket
+is a barrier.</p></li>
+<li><p><strong>Deterministic dependencies.</strong> Nix is the
+toolchain, and there is no second one. No Homebrew, no conda, no “python
+spice kitchen” on the deploy host. A PDF renderer is a dependency; so is
+a graph-visualization library; both were declined until someone needs
+them.</p></li>
+<li><p><strong>Contract first, backends swappable.</strong> The durable
+product is the SDK contract, the HTTP API, the security model and the
+protocols. A second implementation would target those, not the Racket
+code. The generated reference exists so that the contract is written
+down by the code itself.</p></li>
+<li><p><strong>Self-hosted and privacy-first.</strong> Bytes never leave
+the instance unless the operator points the model URL at something
+external. The blob store is content-addressed inside an org’s namespace
+precisely so that two tenants can never learn about each other’s
+files.</p></li>
+<li><p><strong>Refuse rather than flag.</strong> A wrong result that
+looks finished is worse than a failed step. The localization drafter,
+the field extractor and the knowledge-graph extractor all refuse a model
+reply that does not validate. This shows up so often that it has its own
+chapter section.</p></li>
+</ul>
+<h2 data-number="1.3" id="what-is-where"><span class="header-section-number">1.3</span> What is where</h2>
+<pre><code>docs/design/        design documents and the decision log
+docs/reference/     GENERATED: tools, workflows, permissions, API, plugins, SDK
+docs/ops/           operator runbooks
+docs/book/          this book
+refimpl/racketmaximus/
+  server/main.rkt   the HTTP server: handlers, boot, plugin loading
+  server/routes.rkt the declared route table
+  domain/           the model: authz, repo, flow, sched, quota, i18n, kg, ...
+  pkgs/             db-kit, web-kit, cli-kit: small libraries with no platform knowledge
+  plugins/          shipped plugins: doc-indexer, doc-pipeline, knowledge-graph, rs3, ...
+  cli/              telemachus-localize, telemachus-docs
+  static/           the console (one HTML file) and its English strings
+  locales/          the catalogs: en, ja, nl, es-419
+  test/             unit suites, smoke scripts, the e2e gate, mock servers</code></pre>
+<h1 data-number="2" id="getting-it-running"><span class="header-section-number">2</span> Getting it running</h1>
+<h2 data-number="2.1" id="the-toolchain"><span class="header-section-number">2.1</span> The toolchain</h2>
+<pre><code>nix develop                         # from the repo root; pins Racket 9.2, exports PLTCOLLECTS
+cd refimpl/racketmaximus
+raco make server/main.rkt           # precompile; startup is slow otherwise
+raco test test/*-tests.rkt          # the unit suite
+racket server/main.rkt              # http://127.0.0.1:8835</code></pre>
+<p>Enter the shell from the repository root, not from inside
+<code>refimpl/racketmaximus</code>: the shell hook builds
+<code>PLTCOLLECTS</code> from the current directory, and entering it one
+level down doubles the path and breaks every <code>db-kit</code> import
+with “collection not found”.</p>
+<p>Never run <code>raco test test/*.rkt</code>. The glob includes
+<code>test/mock-*.rkt</code>, which are mock servers that block forever.
+The unit suite is <code>test/*-tests.rkt</code>.</p>
+<h2 data-number="2.2" id="environment"><span class="header-section-number">2.2</span> Environment</h2>
+<pre><code>DATABASE_URL=sqlite:///$PWD/data/telemachus.db   # or postgres://user:pass@host:port/db
+TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # any OpenAI-compatible endpoint
+TELEMACHUS_MODEL=qwen2.5:7b
+TELEMACHUS_HOME=login          # or `beta` to serve the onboarding funnel at /
+TELEMACHUS_S3_PORT=8836        # turns on the S3 endpoint, a second listener
+TELEMACHUS_MULTITENANT=1       # several companies on one instance
+PORT=8835</code></pre>
+<p>Without <code>TELEMACHUS_MODEL_URL</code> the platform runs a
+simulated model that echoes its input in upper case. Chat works, the
+smoke suites work, and nothing that needs real inference does. The tools
+that need a model — the localization drafter, the document pipeline, the
+knowledge-graph extractor — refuse to run rather than fail every
+validation with a misleading message. This is deliberate: an operator
+needs to read “no model configured”, not “the reply was not JSON”.</p>
+<h2 data-number="2.3" id="first-run"><span class="header-section-number">2.3</span> First run</h2>
+<p><code>POST /api/bootstrap</code> with a username and password creates
+the operator, the first organization and the first team, and returns the
+operator’s token. It works exactly once. After that, sign in at
+<code>/</code> or with <code>POST /api/login</code>.</p>
+<h2 data-number="2.4" id="files-to-open"><span class="header-section-number">2.4</span> Files to open</h2>
+<p><code>CLAUDE.md</code> at the repository root is the working
+notebook: every gotcha that cost an afternoon is written there, by
+subsystem. <code>flake.nix</code> is the toolchain.
+<code>refimpl/racketmaximus/config.rkt</code> is the environment.</p>
+<h1 data-number="3" id="a-map-of-the-code"><span class="header-section-number">3</span> A map of the code</h1>
+<h2 data-number="3.1" id="layers"><span class="header-section-number">3.1</span> Layers</h2>
+<p>The server is one module, <code>server/main.rkt</code>, and it is
+deliberately thin: it parses requests, resolves the principal, calls
+into <code>domain/</code>, and encodes the response. Everything that
+could be wrong about the product lives in <code>domain/</code>, which
+knows nothing about HTTP and is what the unit suites exercise
+directly.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Module</th>
+<th style="text-align: left;">Owns</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>domain/authz</code></td>
+<td style="text-align: left;">principals, roles, the permission catalog,
+<code>can?</code>, grants, tokens, audit</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/db</code></td>
+<td style="text-align: left;">migrations, applied at startup,
+dialect-neutral</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/repo</code></td>
+<td style="text-align: left;">the document repository: objects,
+versions, blobs, sharing, provenance, triggers, the pipeline tools</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/flow</code></td>
+<td style="text-align: left;">the workflow engine: spec validation,
+bindings, the run reducer</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/sched</code></td>
+<td style="text-align: left;">the job scheduler and the concurrency
+governor</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/quota</code></td>
+<td style="text-align: left;">the usage ledger and limits</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/agent</code></td>
+<td style="text-align: left;">the tool registry, the agent loop, the
+plugin loader</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/ai</code></td>
+<td style="text-align: left;">the model executor: one call, or a stream,
+or the simulated fallback</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/i18n</code></td>
+<td style="text-align: left;">catalogs, ICU formatting, the lint, the
+Localization Manager</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/kg</code></td>
+<td style="text-align: left;">the knowledge graph</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/apps</code></td>
+<td style="text-align: left;">search, translation — applications
+composed from the rest</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/orgs</code></td>
+<td style="text-align: left;">multi-tenancy: organizations above
+teams</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>domain/beta</code></td>
+<td style="text-align: left;">the onboarding funnel</td>
+</tr>
+</tbody>
+</table>
+<h2 data-number="3.2" id="the-three-small-libraries"><span class="header-section-number">3.2</span> The three small libraries</h2>
+<p><code>pkgs/</code> holds code that knows nothing about Telemachus and
+could be lifted out.</p>
+<p><code>db-kit/portable</code> is a drop-in for Racket’s
+<code>db</code> that rewrites <code>?</code> placeholders to
+<code>$n</code> on PostgreSQL. Always require it instead of
+<code>db</code>. Forgetting is invisible on SQLite and fails on
+PostgreSQL with <code>syntax error at or near &quot;AND&quot;</code> — and test
+files issue raw SQL too, so the rule applies to them.</p>
+<p><code>web-kit</code> wraps Racket’s <code>web-server</code> for the
+JSON control plane and adds <code>web-kit/http1</code>, an HTTP/1.1
+listener that treats request bodies as ports. The second exists because
+the S3 endpoint moves multi-gigabyte files and because
+<code>Expect: 100-continue</code> has to be answered lazily, on the
+first read of the body, so that a handler refusing before it reads never
+receives the bytes at all.</p>
+<p><code>cli-kit</code> is argument parsing for the two command-line
+tools.</p>
+<h2 data-number="3.3" id="one-principal-one-check"><span class="header-section-number">3.3</span> One principal, one check</h2>
+<p>Every request resolves to a <em>principal</em>: a user id, a team id,
+an operator flag, an optional org role, and — for API tokens and S3 keys
+— a scope list that caps what the issuer could do. Every authorization
+decision in the platform is one function, <code>can?</code>, described
+in the next chapter. Handlers call <code>require-perm</code>; a refusal
+raises, and the server turns it into a localized 403.</p>
+<h2 data-number="3.4" id="files-to-open-1"><span class="header-section-number">3.4</span> Files to open</h2>
+<p><code>server/main.rkt</code> (skim the requires and the
+<code>HANDLERS</code> table), <code>domain/authz/authz.rkt</code>,
+<code>pkgs/db-kit/portable.rkt</code>.</p>
+<h1 data-number="4" id="the-authorization-model"><span class="header-section-number">4</span> The authorization model</h1>
+<h2 data-number="4.1" id="permissions-and-roles"><span class="header-section-number">4.1</span> Permissions and roles</h2>
+<p>A permission is a string <code>resource:action</code>. A role is a
+named set of them; the built-in team roles are owner, admin, member and
+viewer, and two org roles sit above them. Wildcards exist
+(<code>files:*</code>, <code>*:read</code>, <code>*:*</code>) but two
+tiers are unreachable from any team role whatever it grants:
+<code>instance:*</code> belongs to the operator alone, and
+<code>org:*</code> to a company’s org role alone. Every permission
+carries a one-line description beside its declaration; a built-in role
+that grants an undescribed permission fails at load. The generated
+<code>permissions.md</code> shows the catalog and the role matrix.</p>
+<h2 data-number="4.2" id="can-in-order"><span class="header-section-number">4.2</span> <code>can?</code>, in
+order</h2>
+<ol>
+<li><p><strong>The org gate.</strong> If the resource belongs to another
+organization, deny, unconditionally, before anything else is consulted.
+This is what makes multi-tenancy sound: no share, no grant, no scope can
+tunnel across companies, because the check that would honour them never
+runs.</p></li>
+<li><p><strong>The tier.</strong> An <code>instance:</code> permission
+needs the operator flag; an <code>org:</code> permission needs the org
+role.</p></li>
+<li><p><strong>The role, or a grant.</strong> The principal’s team role
+must cover the permission — <em>or</em> the principal must hold a
+resource grant naming it on this resource. A grant is a delegation:
+sharing an editable document with a viewer means the viewer can edit
+that one document, and handing a member the <code>manage</code>
+capability means they can share it onward. Before the sharing work, a
+grant only widened reachability and could not confer a permission the
+role lacked, which made “share for editing” a lie.</p></li>
+<li><p><strong>Owner-ok.</strong> The owner of a resource holds every
+team-tier permission on it. A member who could not delete a colleague’s
+document can delete their own.</p></li>
+<li><p><strong>Scopes.</strong> An API token or S3 key caps its issuer:
+the scope list must also cover the permission. Scopes narrow; they never
+widen.</p></li>
+<li><p><strong>Reachability.</strong> A private resource is reachable by
+its owner, the operator, or a grantee; a team-visible one by anyone in
+the team; a shared one by owner and grantees.</p></li>
+</ol>
+<h2 data-number="4.3" id="capabilities"><span class="header-section-number">4.3</span> Capabilities</h2>
+<p>A person sharing a document does not pick permission strings. They
+pick a capability — view, edit or manage — and the platform writes the
+corresponding set of grant rows: <code>files:read</code>; plus
+<code>files:write</code>; plus <code>files:delete</code> and
+<code>files:manage</code>. Never a wildcard; a grant row says exactly
+what it says. Only manage can share onward. A grant may name a user or a
+team in the same organization, may carry an expiry (epoch seconds —
+<code>BIGINT</code>, because a 32-bit column overflowed on a year-2099
+expiry in the PostgreSQL smoke), and an expired row is ignored, not
+deleted, because it is the audit trail of who was given what.</p>
+<h2 data-number="4.4" id="multi-tenancy"><span class="header-section-number">4.4</span> Multi-tenancy</h2>
+<p>Off by default. With the flag on, an <em>org</em> sits above teams, a
+superadmin runs the instance and an org admin runs one company. The org
+admin manages but does not read: no <code>documents:read</code>, no
+<code>chat:use</code>. A company admin who needs a team’s data joins
+that team as a member, and the join is audited. The gate at step 0 never
+reads the feature flag, so turning the flag off on a populated instance
+hides the management planes and keeps enforcing.</p>
+<h2 data-number="4.5" id="files-to-open-2"><span class="header-section-number">4.5</span> Files to open</h2>
+<p><code>domain/authz/permissions.rkt</code>,
+<code>domain/authz/authz.rkt</code> (read <code>can?</code> and
+<code>has-grant?</code>), <code>docs/design/rbac-and-teams.md</code>,
+<code>docs/design/document-sharing.md</code>,
+<code>test/authz-tests.rkt</code>,
+<code>test/tenancy-tests.rkt</code>.</p>
+<h1 data-number="5" id="data-and-migrations"><span class="header-section-number">5</span> Data and migrations</h1>
+<p>Migrations live in <code>domain/db/migrations.rkt</code> as a list
+applied at startup. Every statement must be dialect-neutral: SQLite now,
+PostgreSQL as the second target, and the unit suite and both smoke
+suites honour a pre-set <code>DATABASE_URL</code> so that everything
+runs against either. Verify on PostgreSQL before calling anything done;
+this book’s authors did, and it caught an int4 overflow, a missing
+placeholder rewrite and a timestamp format that broke every S3
+listing.</p>
+<p>Some rules that came from those runs:</p>
+<ul>
+<li><p>Quote reserved words (<code>&quot;window&quot;</code>).</p></li>
+<li><p>Time windows are epoch integer columns, not timestamp arithmetic.
+<code>CURRENT_TIMESTAMP</code> has second resolution and its text form
+differs by dialect; anything that must order “newest first” within a
+second carries an epoch-millisecond column.</p></li>
+<li><p>Use <code>ON CONFLICT ... DO NOTHING</code> or
+<code>DO UPDATE</code> for upserts; both dialects support the syntax
+with a named conflict target.</p></li>
+<li><p>A <code>hasheq</code>’s iteration order is not stable across
+Racket processes. Never depend on it for anything that must be
+reproducible — JSON written to disk, the order of columns in a generated
+table.</p></li>
+</ul>
+<p>Unit fixtures come from <code>test/db-fixture.rkt</code>:
+<code>(fresh-db)</code> gives a migrated, isolated database — in memory
+on SQLite, a private schema per fixture on PostgreSQL, because test
+files run concurrently.</p>
+<h2 data-number="5.1" id="files-to-open-3"><span class="header-section-number">5.1</span> Files to open</h2>
+<p><code>domain/db/migrations.rkt</code>,
+<code>test/db-fixture.rkt</code>.</p>
+<h1 data-number="6" id="the-document-repository"><span class="header-section-number">6</span> The document repository</h1>
+<h2 data-number="6.1" id="objects-versions-blobs"><span class="header-section-number">6.1</span> Objects, versions, blobs</h2>
+<p>A repository object is an ownable resource with the same three fields
+notes carry — team, owner, visibility — so <code>can?</code> governs it
+with no new authorization code. Writing the same key twice appends a
+version rather than replacing one; the object id is the stable thing a
+grant or a URL points at. Bytes live in a content-addressed store keyed
+by SHA-256, namespaced by <em>organization</em>: global deduplication
+across tenants would be an existence oracle. The store is never handed a
+principal — only a namespace and a digest — so a storage backend has no
+authorization to get wrong.</p>
+<p>Uploads are a raw <code>PUT</code> body, never base64 in JSON. Every
+download is served as an attachment with <code>nosniff</code> and a
+denying CSP unless the type is on a short inline allowlist; SVG and HTML
+are never inline, because they share an origin with the console.</p>
+<h2 data-number="6.2" id="the-s3-endpoint"><span class="header-section-number">6.2</span> The S3 endpoint</h2>
+<p>A second listener speaks enough S3 that <code>aws</code>,
+<code>rclone</code>, <code>boto3</code> and Cyberduck work: SigV4
+verified from the specification and pinned to AWS’s published vectors,
+path-style buckets named by team slug, ranged GETs (mandatory — the CLI
+downloads large objects in parallel ranges), multipart uploads. Access
+keys are ordinary credentials with scopes; the secret is stored in the
+clear because SigV4 needs it to verify. Unimplemented sub-resources
+answer 501, never a silent success. Presigned links are signed with the
+caller’s own newest key, so revoking the key kills the link.</p>
+<h2 data-number="6.3" id="sharing-and-provenance"><span class="header-section-number">6.3</span> Sharing and provenance</h2>
+<p>Sharing is the capability model of the previous chapter, over the
+grants table that already existed. Provenance is
+<code>repo_derivations</code>: when a workflow writes a document
+<em>from</em> another, the output takes the source’s visibility and live
+grants at the moment of creation — private from its first byte if the
+source is — and a derivation row names the source version, the run and
+the step. After that the two documents are independent. “Where did this
+form come from” is a click.</p>
+<h2 data-number="6.4" id="files-to-open-4"><span class="header-section-number">6.4</span> Files to open</h2>
+<p><code>domain/repo/repo.rkt</code>,
+<code>domain/repo/blobs.rkt</code>, <code>plugins/rs3/</code>,
+<code>domain/s3/sigv4.rkt</code>,
+<code>docs/design/document-repository.md</code>,
+<code>test/repo-tests.rkt</code>, <code>test/s3-smoke.sh</code>.</p>
+<h1 data-number="7" id="tools-and-the-agent"><span class="header-section-number">7</span> Tools and the agent</h1>
+<h2 data-number="7.1" id="declaring-a-tool"><span class="header-section-number">7.1</span> Declaring a tool</h2>
+<pre><code>(define-tool doc_text
+  #:description &quot;Return the text of a repository document.&quot;
+  (object string #:description &quot;The repository object id&quot;)
+  (version string #:optional #:description &quot;A specific version id&quot;))
+
+(register-tool! &quot;doc_text&quot; doc_text &quot;files:read&quot;
+                (lambda (conn principal args) ...))</code></pre>
+<p><code>define-tool</code> expands to the OpenAI-compatible function
+schema the model sees, so the declaration and the contract are one
+thing. The handler gets the database connection, the calling principal
+and the parsed arguments; it checks its own permission and meters its
+own AI spend. A result that is not a string is JSON-encoded at the agent
+boundary and kept as a value inside a workflow — a list-returning tool
+feeds a <code>map</code> step directly.</p>
+<h2 data-number="7.2" id="the-registry"><span class="header-section-number">7.2</span> The registry</h2>
+<p>Built-in tools, plugin tools and workflow tools all land in one
+registry, tagged with their source. A team may disable any tool; the
+agent offers only enabled tools to the model and dispatch refuses
+disabled ones. Plugins run in-process with platform privileges — placing
+one in <code>plugins/</code> is the consent — and sandboxed
+out-of-process plugins exist as a separate, capability-scoped
+mechanism.</p>
+<h2 data-number="7.3" id="the-model-seam"><span class="header-section-number">7.3</span> The model seam</h2>
+<p>Everything that calls a model goes through <code>run-chat</code> in
+<code>domain/ai/executor.rkt</code>, and the tools that need structured
+output take the model as a parameter (<code>current-doc-chat</code>).
+Unit tests script it; the HTTP smokes run
+<code>test/mock-llm.rkt</code>, a deterministic OpenAI-compatible server
+whose chat mode answers from a file of <code>needle: reply</code> pairs,
+longest needle winning. The same smoke runs against a live model when
+the model URL is set. This is how a pipeline that needs a model is
+tested in CI in seconds and verified against qwen2.5:7b on a developer’s
+machine.</p>
+<h2 data-number="7.4" id="files-to-open-5"><span class="header-section-number">7.4</span> Files to open</h2>
+<p><code>domain/tools/dsl.rkt</code>,
+<code>domain/agent/registry.rkt</code>,
+<code>domain/agent/plugins.rkt</code>,
+<code>domain/ai/executor.rkt</code>,
+<code>docs/reference/tools.md</code>.</p>
+<h1 data-number="8" id="workflows"><span class="header-section-number">8</span> Workflows</h1>
+<h2 data-number="8.1" id="the-spec-is-the-contract"><span class="header-section-number">8.1</span> The spec is the contract</h2>
+<p>A workflow is a validated data document: a slug, typed inputs, and
+steps that use a tool, branch on a predicate, or fan out over a list.
+<code>define-workflow</code> is a macro that emits that document; a JSON
+document posted to the API goes through the same validator, and there is
+no second path. Unknown fields are rejected, including a newer spec
+version and a step kind this build lacks. The binding sublanguage is
+frozen — references and seven predicates, no arithmetic, no evaluation —
+and the escape hatch is “write a tool”.</p>
+<pre><code>(define-workflow process-upload
+  #:input ([object_id string] [schema object] [template string] [locales array])
+  (step text     (tool doc_text #:object (in object_id)))
+  (step fields   (tool doc_extract_fields #:text (out text result) #:schema (in schema)
+                                          #:object (in object_id) #:run (run-id) #:step &quot;fields&quot;)
+                 #:retry 1)
+  (step has_form (choice (empty (in template)) #:then translate_source #:else form))
+  (step form     (tool doc_render #:template (in template)
+                                  #:data (out fields result fields) ...))
+  (step translate_form (map #:over (in locales)
+                            (tool doc_translate #:object (out form result object_id)
+                                                #:locale (item) ...))
+        #:end)
+  ...)</code></pre>
+<h2 data-number="8.2" id="execution-is-a-reducer"><span class="header-section-number">8.2</span> Execution is a reducer</h2>
+<p>The engine keeps nothing in memory. <code>flow-advance!</code> reads
+a run from the database and enqueues its next step as a scheduler job;
+when the job finishes, the step’s output is written and the cursor
+moves. Durability, cancellation, quota admission, per-team concurrency
+caps and the org gate are therefore inherited from the scheduler rather
+than reimplemented. A fan-out is one parent row and N child jobs; the
+last child to finish advances the cursor under a lock, or two children
+would each enqueue the next step.</p>
+<p>Declared inputs are required and typed; a run that omits one is
+refused at start rather than resolving a binding to null three steps in.
+Plugin-contributed workflows are materialized into a team’s definitions
+on first lookup; that insert is idempotent because the console fires two
+lookups in parallel and the second once produced a 500 — found by the
+end-to-end gate, not by any smoke that looked things up one at a
+time.</p>
+<h2 data-number="8.3" id="files-to-open-6"><span class="header-section-number">8.3</span> Files to open</h2>
+<p><code>domain/flow/spec.rkt</code> (normative),
+<code>domain/flow/dsl.rkt</code>, <code>domain/flow/bind.rkt</code>,
+<code>domain/flow/run.rkt</code>,
+<code>docs/design/workflow-engine.md</code>,
+<code>docs/reference/workflows.md</code>.</p>
+<h1 data-number="9" id="the-document-pipeline"><span class="header-section-number">9</span> The document pipeline</h1>
+<h2 data-number="9.1" id="the-first-user-path"><span class="header-section-number">9.1</span> The first-user path</h2>
+<p>A team uploads a file and a workflow processes it: extract its text,
+pull structured fields against a JSON schema, fill a form template,
+translate the result. Four core tools compose into the shipped
+<code>process-upload</code> workflow; schema, template and locales are
+inputs, so one workflow serves invoices and intake forms with no new
+code. Every output is a repository document beside its source, with the
+source’s grants and a provenance row.</p>
+<h2 data-number="9.2" id="refuse-do-not-flag"><span class="header-section-number">9.2</span> Refuse, do not flag</h2>
+<p>The field extractor validates the model’s reply against the schema
+and refuses a missing required field, a string where a number was asked
+for, and an invented key — an object schema with no
+<code>additionalProperties</code> is <em>closed</em>, a deliberate
+departure from JSON Schema’s default. The template renderer refuses a
+placeholder the data cannot satisfy rather than rendering a blank: a
+form with an empty Total that looks finished is the failure the whole
+design exists to prevent. The step retries once, because a schema
+mismatch is the model’s mistake and a second reading at temperature zero
+often conforms.</p>
+<h2 data-number="9.3" id="templates"><span class="header-section-number">9.3</span> Templates</h2>
+<p>Markdown and HTML templates use <code>{{field}}</code>, dotted paths
+and <code>{{#each items}}</code> blocks. A DOCX template is a zip whose
+<code>word/document.xml</code> carries the same placeholders, and two
+things make that harder than it sounds: Word splits a placeholder across
+runs the moment the author pauses or the spell-checker looks at it, so
+every tag between a <code>{{</code> and its <code>}}</code> is dropped
+before rendering; and line items want a table row per item, so a row
+whose only text is <code>{{#each items}}</code> opens a block and a row
+that is only <code>{{/each}}</code> closes it. PDF rendering is
+deferred: every PDF renderer is a dependency, and a DOCX or HTML form is
+what a person edits anyway.</p>
+<h2 data-number="9.4" id="triggers"><span class="header-section-number">9.4</span> Triggers</h2>
+<p>A trigger is a team-scoped subscription: when a document matching
+this prefix and these content types lands, run that workflow with it.
+Triggers are evaluated in exactly one place — a hook at the end of
+<code>repo-put!</code>, after the version commits — which covers the
+console upload, the text-document shim and an S3 <code>PUT</code> by
+construction. A match enqueues a run as the <em>uploader</em>, scopes
+and all; a run can only read what its uploader could read, and its
+outputs are owned by someone real. Fires are exactly once per version. A
+pipeline’s own outputs never re-fire the trigger that produced them, and
+an opted-in trigger never fires on the output of a run it started
+itself; without that rule an opted-in trigger ran itself fifty times in
+a test before the drain limit stopped it. An S3 key issued with the
+default <code>files:*</code> scopes cannot start a workflow — the
+trigger’s history says so plainly — and needs <code>workflows:run</code>
+for a prefix meant to fire.</p>
+<h2 data-number="9.5" id="files-to-open-7"><span class="header-section-number">9.5</span> Files to open</h2>
+<p><code>domain/repo/doc-tools.rkt</code>,
+<code>domain/tools/jsonschema.rkt</code>,
+<code>domain/repo/triggers.rkt</code>,
+<code>plugins/doc-pipeline/main.rkt</code>,
+<code>docs/design/document-workflows.md</code>,
+<code>test/doc-pipeline-tests.rkt</code>,
+<code>test/doc-triggers-tests.rkt</code>,
+<code>test/doc-pipeline-smoke.sh</code>.</p>
+<h1 data-number="10" id="localization"><span class="header-section-number">10</span> Localization</h1>
+<h2 data-number="10.1" id="three-homes"><span class="header-section-number">10.1</span> Three homes</h2>
+<p>Server refusals live in <code>surface/messages.rkt</code>; the
+console’s chrome in <code>static/ui-strings.json</code>; the generated
+documentation’s prose in <code>docs/reference/strings.json</code>. All
+three are <em>surfaces</em> for one extractor, which folds them into
+<code>locales/en.json</code>, the base catalog. Translations live beside
+it, each string pinned to the hash of the English it was made against:
+editing the English makes the translation stale automatically, in every
+language, with nothing rewriting a status. The funnel’s
+operator-authored copy is the exception — an overlay on the experience
+document, not a catalog — because it is content, not code.</p>
+<p>Resolution is the request’s locale header, then the instance default.
+An unknown locale falls back to the instance default, not to English; a
+Japanese-default instance is possible.</p>
+<h2 data-number="10.2" id="the-localization-manager"><span class="header-section-number">10.2</span> The Localization Manager</h2>
+<p>The flagship: the platform building a real tool out of its own
+primitives. Catalogs on disk stay the shipping artifact; two tables are
+the workflow around them. <em>Missing</em> and <em>stale</em> are
+derived, never stored. A translator cannot approve their own string. AI
+drafting is a queue of scheduler jobs, twenty strings each,
+quota-metered — and a bulk draft stops when the team is over budget,
+which looks like a hang and is the platform working. A draft that loses,
+invents or mangles a placeholder is refused; the check counts braces,
+because the formatter is lenient by design and accepts exactly the
+drafts that need refusing. Dutch and Latin American Spanish were
+produced with this tool, every string reviewed, and pass the tool’s own
+gate.</p>
+<h2 data-number="10.3" id="files-to-open-8"><span class="header-section-number">10.3</span> Files to open</h2>
+<p><code>domain/i18n/</code>, <code>cli/telemachus-localize.rkt</code>,
+<code>locales/</code>, <code>docs/design/localization.md</code>.</p>
+<h1 data-number="11" id="the-knowledge-graph"><span class="header-section-number">11</span> The knowledge graph</h1>
+<p>Entities and the relations between them, extracted from the team’s
+documents, every fact traceable to the document and version that
+asserted it. Nothing enters the graph without a source, and that one
+rule makes the rest fall out.</p>
+<p><strong>Visibility is inherited, never assigned.</strong> A fact is
+visible to a principal if at least one of its mentions is on a document
+they can read; mentions are filtered per row, so a private memo’s
+snippet stays private even when the team can see the fact through a
+report. An entity a caller can see no mention of does not exist for
+them, and the API does not distinguish that from a missing id.</p>
+<p><strong>Validation is the provenance.</strong> The extractor asks the
+model for a strict shape and refuses a snippet that is not a verbatim
+substring of the text, a relation to an entity not in the same reply, or
+a nameless entity. A new version of a document supersedes its old
+mentions; deleting a document forgets its facts; an entity or relation
+with no mention left is pruned.</p>
+<p><strong>Deliberately narrow.</strong> Deduplication is by type and
+normalized name; cross-type merging is where knowledge graphs go to die.
+There is no graph query language — two hops from a named entity covers
+the questions people have — and no visualization library: the tab is
+lists with citations, and the agent’s <code>kg_query</code> tool answers
+in text with the documents that said so.</p>
+<h2 data-number="11.1" id="files-to-open-9"><span class="header-section-number">11.1</span> Files to open</h2>
+<p><code>domain/kg/kg.rkt</code>, <code>domain/kg/kg-tools.rkt</code>,
+<code>plugins/knowledge-graph/main.rkt</code>,
+<code>docs/design/knowledge-graph.md</code>,
+<code>test/kg-tests.rkt</code>.</p>
+<h1 data-number="12" id="the-route-table-and-the-generated-reference"><span class="header-section-number">12</span> The route table and the
+generated reference</h1>
+<h2 data-number="12.1" id="declared-not-enacted"><span class="header-section-number">12.1</span> Declared, not enacted</h2>
+<p>Every HTTP route is one entry in <code>server/routes.rkt</code>:
+method, path pattern, handler key, how it authenticates, the permission
+it enforces, the feature flag it sits behind, and one line of
+documentation. The server binds keys to handlers in one table and
+refuses to boot if either side names something the other lacks. An
+endpoint cannot exist undocumented, and a documented endpoint cannot
+fail to exist. Public-ness is declared rather than a comment beside a
+<code>cond</code> clause, which is what lets a test assert it.</p>
+<h2 data-number="12.2" id="generated-and-gated"><span class="header-section-number">12.2</span> Generated and gated</h2>
+<p><code>telemachus-docs describe</code> evaluates the tool registry,
+the plugin loader, the workflow specs, the permission catalog and the
+route table into one JSON model; <code>render</code> writes
+<code>docs/reference/</code>; <code>check</code> regenerates and fails
+on a byte of difference. The output is committed, so a pull request that
+changes a tool’s parameters shows the documentation change in the same
+diff. Every description is also a <code>doc.*</code> message in the
+catalogs, translated by the same Manager as everything else.</p>
+<pre><code>racket cli/telemachus-docs.rkt render      # regenerate docs/reference/
+racket cli/telemachus-docs.rkt check       # the CI gate
+racket cli/telemachus-docs.rkt render --locale ja</code></pre>
+<p>Adding an endpoint is therefore: one entry in the table, one handler
+in the map, one render, one commit. Forgetting the render fails CI;
+forgetting either half refuses to boot.</p>
+<h1 data-number="13" id="how-the-project-tests"><span class="header-section-number">13</span> How the project tests</h1>
+<ul>
+<li><p><strong>Unit suites</strong> (<code>test/*-tests.rkt</code>)
+exercise <code>domain/</code> directly against a fresh database, on both
+dialects. Whole pipelines run through the real scheduler by draining its
+queue in the test process.</p></li>
+<li><p><strong>Smoke scripts</strong> (<code>test/server-smoke.sh</code>
+and friends) boot a real server and assert over HTTP with
+<code>curl</code>. <em>Test the endpoints, not just the model</em>: the
+bug that actually bit the Localization Manager lived in the HTTP layer,
+where a query filter compared a string against symbol keys and silently
+fell back to its default.</p></li>
+<li><p><strong>The end-to-end gate</strong>
+(<code>test/e2e/validate.sh</code>) drives the console in a headless
+browser, fails on any uncaught page error and any 5xx, and runs the
+whole document pipeline against the scripted mock model. It is the
+deploy gate; the screenshot tours do not assert and will photograph a
+broken page.</p></li>
+<li><p><strong>Mocks are servers.</strong>
+<code>test/mock-llm.rkt</code> is a deterministic OpenAI-compatible
+model with a tool-call mode for the agent loop and a chat mode for the
+pipeline.</p></li>
+<li><p><strong>Verify on PostgreSQL</strong> before calling anything
+done. Everything honours <code>DATABASE_URL</code>.</p></li>
+<li><p><strong>The gates in CI</strong>: unit, smoke, multi-tenancy, the
+localization gate (English required, other locales advisory), the
+documentation drift gate, the e2e gate.</p></li>
+</ul>
+<p>Some habits the tests taught: never assert “newest first” on two rows
+created in the same second; kill a background server by PID, never by
+pattern (<code>pkill -f</code> matches its own command line); a test
+that creates documents must point the blob root at a temporary directory
+or it writes into the checkout.</p>
+<h1 data-number="14" id="operating-notes"><span class="header-section-number">14</span> Operating notes</h1>
+<ul>
+<li><p><strong>Paths are anchored at definition.</strong> The web server
+repoints the current directory at its own web root while it handles a
+request — inside the read-only Nix store on a packaged install. A
+relative path resolved lazily aims at the store. The blob root is
+absolute by construction, a unit test asserts it, and the server refuses
+to boot with a relative one. This shipped once: startup was healthy,
+every unit test passed, and the first document save failed with
+“Permission denied”.</p></li>
+<li><p><strong>Quotas stall queues.</strong> A workflow step is a
+scheduler job admitted only when the team is under its AI budget. With
+the default two thousand tokens a day, a bulk draft or a batch
+extraction stops after the first jobs and looks like a hang. Raise
+<code>ai.tokens.total</code> first; the Automations card shows the
+remaining budget for this reason.</p></li>
+<li><p><strong>Uploads above one megabyte need the listener’s limit
+raised</strong>, or the underlying web server drops the connection with
+no response at all.</p></li>
+<li><p><strong>The console caches its HTML at startup</strong>; restart
+to pick up edits.</p></li>
+<li><p><strong>Multi-tenancy needs one restart</strong> to set the flag;
+onboarding a company after that needs none.</p></li>
+<li><p><strong>PDF text extraction needs poppler-utils</strong>; a
+missing extractor fails the indexing run deliberately, so that no PDF is
+silently unsearchable for months.</p></li>
+</ul>
+<p>The runbooks under <code>docs/ops/</code> cover the document
+repository, the workflow engine and multi-tenancy in operator terms.</p>
+<h1 data-number="15" id="contributing"><span class="header-section-number">15</span> Contributing</h1>
+<ul>
+<li><p>Read <code>CLAUDE.md</code> before starting; add to it when you
+learn something that cost you time. It is the project’s memory.</p></li>
+<li><p>Keep SQL dialect-neutral and run the suites on both
+dialects.</p></li>
+<li><p>Every model-facing feature validates and refuses; every AI call
+is metered; every resource is checked through
+<code>can?</code>.</p></li>
+<li><p>Adding a route, a tool, a workflow or a permission changes the
+generated reference: regenerate and commit it in the same
+change.</p></li>
+<li><p>New user-facing strings go into the right home of the three, then
+through the extractor. English is required by the gate; other locales
+are coverage.</p></li>
+<li><p>Design first for anything with a policy fork: a short document
+under <code>docs/design/</code> with data shapes, a contract any backend
+could implement, and the decisions to confirm. The decision log is
+<code>docs/design/decisions.md</code>.</p></li>
+<li><p>Commit messages say what was verified and how. A slice is done
+when the unit suites, the smokes, the gate and <code>nix build</code>
+agree, on both databases.</p></li>
+</ul>
+</body>
+</html>

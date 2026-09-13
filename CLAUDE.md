@@ -695,6 +695,17 @@ document and version that said it. Design: `docs/design/knowledge-graph.md`
 raco test test/kg-tests.rkt        # the mention rule, validation, supersession, the pipeline
 ```
 
+## The developer e-book (`docs/book/`)
+
+`telemachus-for-developers.tex` is one LaTeX source built two ways by
+`docs/book/build.sh` inside `nix develop`: `tectonic` → the PDF, `pandoc` → a
+single self-contained HTML page (`book.css` inlined). Keep the LaTeX plain —
+sections, lists, `tabular`/`longtable`, `lstlisting` — so pandoc renders the
+same book the PDF is; a custom macro would silently vanish from the HTML.
+Tectonic fetches TeX packages on first run (a 429 from the bundle mirror is a
+retry, not a failure) and caches them under `~/.cache/Tectonic`. The built PDF
+and HTML are committed beside the source; rebuild and commit them together.
+
 ## Workflow engine (plugins that process in steps)
 
 Slice 46. A workflow is a **validated data spec** — that spec is the public
