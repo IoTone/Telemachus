@@ -40,6 +40,12 @@ tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do tries=$((tries
 
 B="localhost:$PORT"
 assert "health"          "$(curl -s $B/health)" '"ok":true'
+# the Tier-B bundle root: a trailing slash means index.html. The route table's `*path`
+# once required a segment here and every bundle 404ed — caught by the beta tour, not
+# by any smoke, so this pins it (the file is served with nosniff).
+assert "bundle root serves index.html" "$(curl -s -o /dev/null -w '%{http_code} %{content_type}' $B/beta/bundle/beta-onboarding/)" '200 text/html'
+assert "bundle file by path"           "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/beta-onboarding/index.html)" '200'
+assert "bundle traversal refused"      "$(curl -s -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
 BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
 assert "bootstrap token" "$BS" '"token":"tk_'
 assert "bootstrap msg"   "$BS" 'Created operator alice'

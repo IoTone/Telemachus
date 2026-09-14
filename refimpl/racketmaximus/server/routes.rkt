@@ -14,7 +14,8 @@
 ;; can require it without booting anything.
 ;;
 ;; Path patterns: literal segments, `:name` for one segment, `*name` for the rest
-;; of the path (joined with "/"). First match wins, in list order — keep a
+;; of the path (joined with "/", and "" when there is none). First match wins, in
+;; list order — keep a
 ;; specific pattern (/api/workflows/schema) above the parameterized one it would
 ;; otherwise fall into (/api/workflows/:slug).
 ;;
@@ -225,8 +226,10 @@
     (cond
       [(null? pat) (and (null? segs) (reverse acc))]
       [(string-prefix? (car pat) "*")
-       ;; the rest of the path, at least one segment
-       (and (pair? segs) (reverse (cons (string-join segs "/") acc)))]
+       ;; the rest of the path — possibly EMPTY: /beta/bundle/<plugin>/ (a trailing
+       ;; slash, meaning the bundle's index.html) has no rest segment, and the beta
+       ;; tour lands exactly there. Requiring one 404ed every Tier-B bundle root.
+       (reverse (cons (string-join segs "/") acc))]
       [(null? segs) #f]
       [(string-prefix? (car pat) ":") (loop (cdr pat) (cdr segs) (cons (car segs) acc))]
       [(string=? (car pat) (car segs)) (loop (cdr pat) (cdr segs) acc)]
