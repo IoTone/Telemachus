@@ -35,6 +35,7 @@
          "../tools/dsl.rkt"
          "../tools/jsonschema.rkt"
          "../agent/registry.rkt"
+         "../agent/artifact.rkt"
          "../authz/authz.rkt"
          "../orgs/orgs.rkt"           ; tenant-quota-record!
          "../ai/executor.rkt"         ; run-chat, model-configured?
@@ -111,9 +112,13 @@
   (repo-inherit! conn p #:source (hash-ref src 'id) #:target (hash-ref o 'id)
                  #:run-id run-id #:step-id step-id))
 
-(define (obj-summary o)
-  (hasheq 'object_id (hash-ref o 'id) 'version_id (hash-ref o 'version_id)
-          'key (hash-ref o 'key) 'version (hash-ref o 'version)))
+;; every pipeline output is an ARTIFACT (slice 64): the model sees one line, the
+;; console a card, and a workflow step still binds (out step result object_id)
+(define (obj-summary o #:summary [summary ""])
+  (artifact #:kind "document" #:title (hash-ref o 'key) #:summary summary
+            #:content-type (hash-ref o 'content_type) #:object-id (hash-ref o 'id) #:version-id (hash-ref o 'version_id)
+            #:extra (hasheq 'object_id (hash-ref o 'id) 'version_id (hash-ref o 'version_id)
+                            'key (hash-ref o 'key) 'version (hash-ref o 'version))))
 
 ;; ---- doc_text --------------------------------------------------------------------
 (define-tool doc_text
@@ -195,7 +200,7 @@
                         #:key (string-append (hash-ref src 'key) ".extracted.json")
                         #:bytes (jsexpr->bytes fields) #:content-type "application/json"
                         #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
-     (hash-set* (obj-summary o) 'fields fields 'tokens_used tokens)]
+     (hash-set* (obj-summary o #:summary (format "~a extracted field(s)" (hash-count fields))) 'fields fields 'tokens_used tokens)]
     [else (hasheq 'fields fields 'tokens_used tokens)]))
 
 ;; ---- doc_render ------------------------------------------------------------------
@@ -383,7 +388,7 @@
                      #:key (string-append (hash-ref src 'key) ".form." ext)
                      #:bytes out-bytes #:content-type (if docx? DOCX-TYPE ct)
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
-  (obj-summary o))
+  (obj-summary o #:summary (string-append "filled from " (hash-ref tmpl-obj 'key))))
 
 ;; ---- doc_translate ---------------------------------------------------------------
 (define-tool doc_translate
@@ -431,7 +436,7 @@
   (define o (derive! conn p src #:key out-key
                      #:bytes (string->bytes/utf-8 (hash-ref tr 'result)) #:content-type out-ct
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
-  (hash-set* (obj-summary o) 'locale locale 'tokens_used tokens))
+  (hash-set* (obj-summary o #:summary (string-append "translated into " locale)) 'locale locale 'tokens_used tokens))
 
 ;; ---- registration ----------------------------------------------------------------
 ;; files:write on every one that writes; the two AI tools ALSO require chat:use in

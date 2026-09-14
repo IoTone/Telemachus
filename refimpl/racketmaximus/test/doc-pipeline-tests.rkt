@@ -281,6 +281,12 @@
                              (bytes->string/utf-8 (read-back conn alice (hash-ref ja-doc 'id))))
               "the translation is of the FORM, into the item's locale")
   (check-equal? (hash-ref fields-doc 'content_type) "application/json")
+  ;; every output is an artifact (slice 64): the step's stored result names the document
+  (let* ([form-step (for/first ([s (in-list (hash-ref done 'steps))] #:when (equal? (hash-ref s 'step_id) "form")) s)]
+         [res (hash-ref (hash-ref form-step 'output) 'result)])
+    (check-equal? (hash-ref (hash-ref res 'artifact) 'kind) "document")
+    (check-equal? (hash-ref (hash-ref res 'artifact) 'object_id) (hash-ref form-doc 'id))
+    (check-equal? (hash-ref res 'object_id) (hash-ref form-doc 'id) "…and the plain key the next step binds is still there"))
   (check-equal? (hash-ref ja-doc 'content_type) "text/markdown")
 
   ;; grants came along: bob (view on the invoice) reads every output; carol none

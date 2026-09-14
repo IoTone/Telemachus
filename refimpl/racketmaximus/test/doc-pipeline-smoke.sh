@@ -102,6 +102,7 @@ assert "run accepted" "$RUN" '"status":"running"'
 wait_run "$RID"; ST="$RUNST"
 [ "$ST" = done ] || ST="$ST — $(printf '%s' "$RUNJSON" | grep -oP '"error":"\K[^"]*' | head -1)"
 assert "run finished" "$ST" "done"
+RUNJSON_FORM="$RUNJSON"
 assert "the form step ran"        "$RUNJSON" '"step_id":"form"'
 refute "the source branch did not" "$RUNJSON" '"step_id":"translate_source"'
 
@@ -143,6 +144,8 @@ assert "processing lists the fields document" "$PROC" '"key":"inbox/acme.txt.ext
 assert "processing lists the form"            "$PROC" '"key":"inbox/acme.txt.form.md"'
 assert "processing names the run"             "$PROC" "\"id\":\"$RID\""
 assert "the form's panel says where it came from" "$(G "/api/repo-obj/$FORMID/processing")" '"derived_from":[{'
+# artifact-shaped results (slice 64): the run's form step names the document it made
+assert "the form step's result is an artifact" "$RUNJSON_FORM" '"artifact":{'
 # "Shared with me" (DSH step 3): bob was handed the invoice; the outputs inherited it
 assert "shared with me: the invoice"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt"'
 assert "shared with me: its outputs"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt.form.md"'

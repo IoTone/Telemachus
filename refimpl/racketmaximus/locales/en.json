@@ -1035,6 +1035,14 @@
       "text": "Workflow",
       "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
     },
+    "ui.open": {
+      "text": "Open",
+      "hash": "cf9b77061f7b3126b49d50a6fa68f7ca8c26b7a3"
+    },
+    "ui.cap_view": {
+      "text": "view",
+      "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
+    },
     "ui.confirmpw": {
       "text": "Confirm password",
       "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
@@ -1046,10 +1054,6 @@
     "ui.kg_unextracted": {
       "text": "waiting",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
-    },
-    "ui.cap_view": {
-      "text": "view",
-      "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
     },
     "ui.brandtitle": {
       "text": "Title",
@@ -1238,6 +1242,10 @@
     "doc.route.get.api.features": {
       "text": "The team's feature flags.",
       "hash": "bd1955d40c93a9919c316f5efb74b2c6b18f0ad0"
+    },
+    "doc.route.post.api.x.example-tools.word-count": {
+      "text": "Count the words in {text}.",
+      "hash": "016eefc223bf8431662f415eb5b6addd72e2a957"
     },
     "doc.route.get.api.glossary": {
       "text": "The team glossary.",
@@ -1500,8 +1508,8 @@
       "hash": "5b7f95b61ad9613c47931f31046e2e5c7152fb46"
     },
     "doc.route.get.health": {
-      "text": "Liveness: {ok: true} and nothing else — version, KDF and TLS state are on GET /api/admin/status.",
-      "hash": "8c018b8cbee5a7382242527b4005fd81cb011bdd"
+      "text": "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.",
+      "hash": "c614ac05e5f95db5aef973fb0d9099bcae50d0ef"
     },
     "doc.tool.word_count": {
       "text": "Count the number of words in a piece of text.",
@@ -1871,6 +1879,14 @@
       "text": "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.",
       "hash": "051981c89ce1559f3c98f74b291a5c3a79f2e36b"
     },
+    "doc.route.get.api.x.example-tools.word-count": {
+      "text": "Count the words in ?text=.",
+      "hash": "70e0c02a5ce3763782554545ed4b01198d4f1de0"
+    },
+    "doc.route.get.api.beta.config": {
+      "text": "The published onboarding experience's public slice (fields, copy, theme) in one language.",
+      "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
+    },
     "ui.uploadhint": {
       "text": "Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.",
       "hash": "f5f77acd95ec7cf3b7c708ab20228dace868bc92"
@@ -1946,10 +1962,6 @@
     "doc.route.post.api.ai.chat": {
       "text": "One model turn. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.",
       "hash": "1bfac0736a442eddb532bcbfc50846b3d0b8feb9"
-    },
-    "doc.route.get.api.beta.config": {
-      "text": "The published onboarding experience's public slice (fields, copy, theme) in one language.",
-      "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
     },
     "doc.route.get.api.org": {
       "text": "The caller's own company.",

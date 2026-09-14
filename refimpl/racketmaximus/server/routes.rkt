@@ -27,7 +27,15 @@
 
 (require racket/string racket/list)
 
-(provide (struct-out rt) ROUTES match-route route-params)
+(provide (struct-out rt) ROUTES match-route match-routes route-params
+         PLUGIN-ROUTE-PREFIX plugin-route-path)
+
+;; Plugin-contributed routes (slice 63) live under ONE platform-fixed prefix that
+;; carries the plugin id — /api/x/<plugin-id>/… — so a plugin cannot shadow a core
+;; route or another plugin's, by construction rather than by a check.
+(define PLUGIN-ROUTE-PREFIX "/api/x/")
+(define (plugin-route-path plugin-id path)
+  (string-append PLUGIN-ROUTE-PREFIX plugin-id "/" (regexp-replace #rx"^/+" path "")))
 
 (struct rt (method path handler auth perm feature doc) #:transparent)
 
@@ -210,9 +218,10 @@
     (substring seg 1)))
 
 ;; -> (values entry param-values) or (values #f #f)
-(define (match-route method segs)
+(define (match-route method segs) (match-routes ROUTES method segs))
+(define (match-routes routes method segs)
   (define ss (filter (lambda (s) (not (string=? s ""))) segs))
-  (let loop ([rs ROUTES])
+  (let loop ([rs routes])
     (cond
       [(null? rs) (values #f #f)]
       [(not (string=? (rt-method (car rs)) method)) (loop (cdr rs))]

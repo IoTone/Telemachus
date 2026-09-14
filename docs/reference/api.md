@@ -145,3 +145,12 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/oop` | bearer | — | — | Connected sandboxed (out-of-process) plugins and the capabilities they may ask for. |
 | POST | `/api/tools/:name` | bearer | `settings:manage` | — | Enable or disable a tool for the team. |
 
+## Plugin routes
+
+Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every one requires a bearer token; the permission, when named, is checked before the plugin's handler runs. Matched after the core routes above.
+
+| Method | Path | Plugin | Permission | Description |
+|---|---|---|---|---|
+| GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in ?text=. |
+| POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in {text}. |
+

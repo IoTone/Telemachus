@@ -526,6 +526,14 @@ done
 assert "kg: extraction fails without a model" "$kgs" "error"
 assert "…and says so"                          "$kgjson" 'no model configured'
 
+# ---- slice 63: a plugin's authenticated HTTP route, mounted under /api/x/<plugin>/
+assert "plugin route (GET, query)"  "$(curl -s "$B/api/x/example-tools/word-count?text=one+two+three" -H "Authorization: Bearer $OP")" '"words":3'
+assert "plugin route (POST, body)"  "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{"text":"a b"}')" '"words":2'
+assert "plugin route needs a token" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/word-count?text=x")" '401'
+assert "plugin route: a user error is a 400" "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{}')" 'text is required'
+assert "plugin route in the plugin listing" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"GET /word-count"'
+assert "no plugin route outside its prefix"  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/word-count?text=x" -H "Authorization: Bearer $OP")" '404'
+
 # ---- slice 57: the document pipeline plugin is present, and refuses to run on the
 # fallback model. Without this the uppercase-echo fallback would fail every schema
 # with "the model did not return a JSON object" — true, and useless to an operator.

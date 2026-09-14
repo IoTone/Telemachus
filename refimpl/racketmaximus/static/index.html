@@ -323,10 +323,21 @@ async function doAgent(){
       if(!line.startsWith('data:')) continue; let ev={}; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
       if(ev.type==='assistant' && ev.text) steps.insertAdjacentHTML('beforeend', `<div class="muted" style="margin:3px 0">💭 ${esc(ev.text)}</div>`);
       if(ev.type==='tool') steps.insertAdjacentHTML('beforeend', `<div style="margin:3px 0">🔧 <b>${esc(ev.name)}</b> <span class="mono muted">${esc(JSON.stringify(ev.args))}</span></div>`);
-      if(ev.type==='tool_result') steps.insertAdjacentHTML('beforeend', `<div class="mono" style="margin:0 0 6px 20px;color:var(--ok);white-space:pre-wrap">${esc(ev.result)}</div>`);
+      if(ev.type==='tool_result') steps.insertAdjacentHTML('beforeend', ev.artifact ? artifactCard(ev.artifact) : `<div class="mono" style="margin:0 0 6px 20px;color:var(--ok);white-space:pre-wrap">${esc(ev.result)}</div>`);
       if(ev.type==='done') rep.innerHTML = `<div>${esc(ev.reply)}</div><div class="muted" style="font-size:12px;margin-top:4px">${ev.rounds} rounds</div>`;
       if(ev.error) toast(ev.error);
     } }
+}
+// an artifact-shaped tool result (slice 64): the thing a tool produced, as a card
+// that opens it, rather than its payload as text
+function artifactCard(a){
+  const open = a.object_id ? `<button class="btn sm ghost" onclick="kgOpenDoc('${esc(a.object_id)}')">${t('details')}</button>`
+             : (a.url ? `<a class="btn sm ghost" href="${esc(a.url)}" target="_blank" rel="noopener">${t('open')}</a>` : '');
+  return `<div class="card" style="margin:4px 0 8px 20px;padding:8px 10px;display:flex;gap:10px;align-items:center">
+    <span class="badge">${esc(a.kind)}</span>
+    <div style="flex:1;min-width:0"><b class="mono" style="font-size:13px">${esc(a.title)}</b>
+      ${a.summary?`<div class="muted" style="font-size:12px">${esc(a.summary)}</div>`:''}</div>
+    <div style="flex:none">${open}</div></div>`;
 }
 async function notesView(){
   const r=await api('/api/notes'); const notes=r.ok?r.json.notes:[];
@@ -1252,6 +1263,8 @@ function wfJson(v,label){
 // a step's output is {result: …} — show the result inline, full object one click away
 function wfOut(st){
   if(st.status==='error') return `<span style="color:var(--bad)">${esc((st.error||'failed').slice(0,140))}</span>`;
+  const art = st.output && st.output.result && st.output.result.artifact;
+  if(art && art.kind && art.title) return artifactCard(art) + wfJson(st.output,'json');
   const o=st.output; if(!o||o==='null'||typeof o!=='object') return '<span class="muted">—</span>';
   if(Array.isArray(o.results))                       // a map parent — its children carry the detail
     return `<span class="muted">${o.results.length} ${t('results').toLowerCase()}</span>${wfJson(o,'json')}`;

@@ -109,6 +109,7 @@
   "ui.runs": "Runs",
   "ui.runwf": "Run",
   "ui.runwf_doc": "Run workflow…",
+  "ui.open": "Open",
   "ui.knowledge": "Knowledge",
   "ui.kg_hint": "Entities and relations extracted from the team's documents. Every fact links to the document and version that said it; you only see facts from documents you can read.",
   "ui.kg_search": "Find an entity",

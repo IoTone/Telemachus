@@ -2016,6 +2016,35 @@
     (unless (memq k declared)
       (error 'routes "server/main.rkt has handler '~a' which server/routes.rkt does not declare" k))))
 
+;; ---- plugin routes (slice 63) -----------------------------------------------------
+;; Built once from the loader's registry, AFTER plugins load (see main). Every one
+;; is authenticated — with-auth, then the route's permission — and its handler is
+;; the plugin's (conn principal args) -> jsexpr, where args carries the path
+;; params, the query and the JSON body. A user error is the caller's 400.
+(define PLUGIN-ROUTES (box '()))          ; (listof (cons rt handler-proc))
+(define (install-plugin-routes!)
+  (set-box! PLUGIN-ROUTES
+    (for/list ([r (in-list (plugin-routes))])
+      (define entry (rt (hash-ref r 'method) (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
+                        (string->symbol (string-append "plugin:" (hash-ref r 'plugin)))
+                        'bearer (hash-ref r 'perm) #f (hash-ref r 'doc)))
+      (define perm (hash-ref r 'perm))
+      (define handler (hash-ref r 'handler))
+      (define names (route-params entry))
+      (cons entry
+            (lambda (req . vals)
+              (with-auth req (lambda (p)
+                (when perm (require-perm db-conn p perm))
+                (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+                  (define args
+                    (hasheq 'params (for/hasheq ([n (in-list names)] [v (in-list vals)]) (values (string->symbol n) v))
+                            'query (for/hasheq ([kv (in-list (url-query (request-uri req)))] #:when (cdr kv))
+                                     (values (car kv) (cdr kv)))
+                            'body (read-json-body req)))
+                  (define result (handler db-conn p args))
+                  (json-response (if (or (hash? result) (list? result) (string? result) (number? result) (boolean? result))
+                                     result (hasheq 'result (format "~a" result))))))))))))
+
 (define (route req)
   ;; HEAD must reach every GET route: monitors, link unfurlers and health
   ;; checkers probe with HEAD, and before 2026-09-04 every one of them got a
@@ -2029,7 +2058,13 @@
   (define-values (entry params) (match-route m (request-path req)))
   (cond
     [entry (apply (hash-ref HANDLERS (rt-handler entry)) req params)]
-    [else (err "not found" 404)]))
+    [else
+     ;; then the plugins' — under /api/x/<id>/ only, so nothing here can have
+     ;; shadowed a core route above
+     (define-values (pentry pparams) (match-routes (map car (unbox PLUGIN-ROUTES)) m (request-path req)))
+     (cond
+       [pentry (apply (cdr (assq pentry (unbox PLUGIN-ROUTES))) req pparams)]
+       [else (err "not found" 404)])]))
 
 ;; issue #11: baseline security headers on EVERY response, added at the one seam
 ;; every response passes through. Zero-risk set: nosniff (a JSON body is never
@@ -2081,6 +2116,7 @@
     (flush-output))
   (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
   (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
+  (install-plugin-routes!)
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
   ;; request, so a relative root aims writes at whatever that is — for a Nix

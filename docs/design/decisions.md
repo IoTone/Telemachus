@@ -206,6 +206,20 @@ instance holds exactly one user (the owner); provider actions
 | **DWF‑7** | Manual vs automatic | **Same `run` path; "Run workflow…" ships first** · vs triggers only | Test by hand, automate the same code. |
 | **DWF‑8** | The first-user path | **A shipped `doc-pipeline` plugin, configured per trigger** · vs bespoke per customer | One workflow, many configurations. |
 
+
+## Pull-model executors (PULL) — proposed, see [pull-executors.md](pull-executors.md)
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **PULL‑1** | Where pull work lives | **The existing `jobs` table, claimed over HTTP** · vs a separate queue | One queue: one cap, one quota, one cancel, one audit. |
+| **PULL‑2** | Worker identity | **An API token scoped `jobs:execute`, bound to an executor row** · vs a new credential type · vs mTLS | Scopes, expiry and revocation already exist. |
+| **PULL‑3** | Lost workers | **Leases + heartbeats; expiry re-queues with a bounded attempt count** · vs run-once-and-fail | A vanished host must neither lose nor double-run a job. |
+| **PULL‑4** | Placement | **Capability match (`kinds`, `models`) at claim** · vs named routing only | SCHED‑2 gets a consumer. |
+| **PULL‑5** | Synchronous model calls | **Enqueue `infer.chat` and wait, bounded by the caller's lease** · vs make tools asynchronous | Every existing tool keeps working. |
+| **PULL‑6** | Per-org executors (TEN‑2e) | **`executors.org_id`; null = instance-wide** · vs instance-wide only | The org gate, again. |
+| **PULL‑7** | Transport | **HTTPS long-poll, JSON** · vs WebSocket · vs a bus | Works through NAT and a tailnet; nothing to deploy beside the server. |
+| **PULL‑8** | Token formats | **Opaque now; PASETO only if a host must verify without the database** · vs signed now | The server checks the database on every call anyway. |
+
 [^1]: **TEN.** A deployment serves one organization/legal entity that may contain
 one or many **teams**. Isolating *different legal entities* on a shared instance is
 explicitly **out of scope** — hosted multitenant offerings serve that need. No

@@ -7,7 +7,7 @@
 ;; Tools come from the registry (registry.rkt); the model is only offered the
 ;; team's ENABLED tools, and dispatch re-checks enablement + per-tool RBAC.
 
-(require racket/string
+(require "artifact.rkt" racket/string
          json
          "loop.rkt"                     ; run-agent, assistant-msg, agent-result (+accessors)
          "../tools/convert.rkt"         ; tool-block struct
@@ -83,15 +83,35 @@
        ;; see repo_list_unindexed). Stringify at this boundary, not in the handler,
        ;; so one handler serves both surfaces.
        (define r ((tool-handler t) conn p args))
-       (if (string? r) r (jsexpr->string r))])))
+       (cond [(string? r) r]
+             ;; an artifact names a thing; the model gets the name, not the payload
+             [(artifact? r) (artifact->text r)]
+             [else (jsexpr->string r)])])))
+
+;; the raw handler result, for the console's event — text for the model, the
+;; artifact (if any) beside it for a card
+(define (dispatch-tool/artifact conn p name args)
+  (define t (tool-by-name name))
+  (define ok? (and t (tool-enabled? conn (principal-team-id p) name)
+                   (can? conn p "tools:invoke") (or (not (tool-perm t)) (can? conn p (tool-perm t)))))
+  (cond
+    [(not ok?) (values (dispatch-tool conn p name args) #f)]
+    [else
+     (define r (with-handlers ([exn:fail? (lambda (e) (format "Error: ~a" (exn-message e)))])
+                 ((tool-handler t) conn p args)))
+     (cond [(string? r) (values r #f)]
+           [(artifact? r) (values (artifact->text r) (artifact-of r))]
+           [else (values (jsexpr->string r) #f)])]))
 
 (define (make-exec conn p on-event)
   (lambda (tb)
     (define name (tool-block-type tb))
     (define args (parse-args (tool-block-content tb)))
     (on-event (hasheq 'type "tool" 'name name 'args args))
-    (define result (dispatch-tool conn p name args))
-    (on-event (hasheq 'type "tool_result" 'name name 'result result))
+    (define-values (result art) (dispatch-tool/artifact conn p name args))
+    (on-event (if art
+                  (hasheq 'type "tool_result" 'name name 'result result 'artifact art)
+                  (hasheq 'type "tool_result" 'name name 'result result)))
     result))
 
 ;; ---- the flow ---------------------------------------------------------------

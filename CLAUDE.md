@@ -757,6 +757,33 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## Plugin routes and artifact results (slices 63–64, issue #15)
+
+- **A plugin may `(provide routes)`**: `(list method path perm handler doc)` per
+  entry, handler `(conn principal args) -> jsexpr` with `args` =
+  `(hasheq 'params … 'query … 'body …)`. The loader validates each entry at load
+  (a bad one fails THAT plugin, not a request later) and the server mounts them
+  at **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so a plugin
+  can never shadow a core route or another plugin's. Always `with-auth`, then the
+  named permission through `require-perm`; a `raise-user-error` is the caller's
+  400. Matched AFTER the core table (`match-routes` over `PLUGIN-ROUTES`, built by
+  `install-plugin-routes!` after `load-plugins!` in main). They appear in
+  `docs/reference/api.md` under "Plugin routes" and in `GET /api/plugins`.
+  `plugins/example-tools` ships `word-count` as the worked example; the smoke
+  pins GET/POST, 401, 400 and the prefix.
+- **A tool may return an artifact** (`domain/agent/artifact.rkt`): a hash with an
+  `artifact` key `{kind, title, summary, content_type?, object_id?, version_id?,
+  url?}` plus any keys a workflow step should bind. The three surfaces agree by
+  construction: the model gets ONE line (`artifact->text`), the console gets the
+  hash on the `tool_result` event and renders `artifactCard` (opens the document
+  or follows the link), a workflow step keeps the whole value. Every
+  document-pipeline output is one now (`obj-summary` in doc-tools.rkt), and
+  `(out form result object_id)` still binds because the plain keys ride beside
+  the artifact. `dispatch-tool` (string for the transcript) and
+  `dispatch-tool/artifact` (text + the artifact for the event) share the checks.
+- Kinds: document, table, text, link, image. An unknown kind is an error at
+  construction — the console switches on it.
+
 ## Tokens, `/health`, security headers, meta tags (issues #11–#13)
 
 - **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for a year;
