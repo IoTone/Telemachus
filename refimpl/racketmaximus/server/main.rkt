@@ -439,6 +439,11 @@
 
 ;; anti-abuse state (in-memory, per-process)
 (define beta-secret (or (env* "TELEMACHUS_SECRET") "telemachus-dev-secret"))     ; set in prod
+;; the token pepper shares the fallback chain (TELEMACHUS_TOKEN_PEPPER → TELEMACHUS_SECRET);
+;; running on the dev default is loud at boot, not silent
+(define (warn-dev-pepper!)
+  (when (token-pepper-is-default?)
+    (printf "WARNING: TELEMACHUS_SECRET / TELEMACHUS_TOKEN_PEPPER not set — tokens are hashed with the dev pepper; set one in production\n")))
 (define pow-bits    (or (string->number (or (env* "TELEMACHUS_POW_BITS") "")) 16))
 (define beta-limiter (make-limiter))
 (define beta-used    (new-used-set))
@@ -2061,6 +2066,7 @@
 
 (module+ main
   (init-db!)
+  (warn-dev-pepper!)
   ;; hosted VM launch: self-seed the owner from env on first boot, emit the
   ;; activation token to stdout (the provisioning sink) for the control plane.
   (when (and (saas-mode?) (env* "TELEMACHUS_SEED_OWNER_EMAIL")

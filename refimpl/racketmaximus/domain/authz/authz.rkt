@@ -19,7 +19,9 @@
          file/sha1
          "../db/id.rkt"
          "permissions.rkt"
-         "passwords.rkt")
+         "passwords.rkt"
+         "sha2.rkt"                 ; hmac-sha256 (libcrypto) — the token hash
+         (only-in "crypto.rkt" constant-time=?))
 
 (provide (struct-out principal)
          (struct-out exn:fail:forbidden)
@@ -30,6 +32,7 @@
          user-role-key user-permissions
          can? require-perm
          issue-token! resolve-token list-tokens revoke-token! SESSION-TTL API-TOKEN-TTL
+         hash-token legacy-hash-token token-pepper-is-default?
          grant! revoke!
          audit! audit-list
          set-password! change-password! authenticate enable-2fa! first-team-for
@@ -329,8 +332,36 @@
      (for/or ([g (in-list rows)]) (perm-matches? g required))]))
 
 ;; ---- API tokens (issuer-perms ∩ scopes) ------------------------------------
-(define token-salt "telemachus-token-v0")   ; prototype pepper; swap with the KDF seam
-(define (hash-token tok) (sha1 (open-input-string (string-append token-salt tok))))
+;; ---- the token hash ---------------------------------------------------------
+;; A bearer is 24 random bytes, so the hash exists to make a database dump
+;; worthless, not to slow a brute force. It is HMAC-SHA-256 keyed by a PEPPER
+;; from the environment (TELEMACHUS_TOKEN_PEPPER, else TELEMACHUS_SECRET, else a
+;; dev default the server warns about at boot): a dump without the process's
+;; environment cannot be replayed. Stored as "v1:<hex>" so the rows written by
+;; the prototype scheme — bare SHA-1 with a compiled-in salt, 40 hex chars — are
+;; recognized, still resolve, and are REHASHED ON FIRST USE; nobody signs in
+;; again because of the upgrade. Rotating the pepper invalidates every v1 token
+;; at once, which is the point of having one.
+(define LEGACY-TOKEN-SALT "telemachus-token-v0")
+(define (legacy-hash-token tok) (sha1 (open-input-string (string-append LEGACY-TOKEN-SALT tok))))
+(define DEV-PEPPER "telemachus-dev-secret")
+(define (token-pepper)
+  (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
+  (or (env "TELEMACHUS_TOKEN_PEPPER") (env "TELEMACHUS_SECRET") DEV-PEPPER))
+(define (token-pepper-is-default?) (string=? (token-pepper) DEV-PEPPER))
+(define (hash-token tok)
+  (string-append "v1:" (bytes->hex-lower (hmac-sha256 (string->bytes/utf-8 (token-pepper)) (string->bytes/utf-8 tok)))))
+(define TOKEN-SELECT "SELECT user_id, team_id, scopes, status, expires_at, token_hash FROM api_tokens WHERE token_hash = ?")
+;; the row for a bearer: the current hash first, then the legacy one — and a legacy
+;; hit is rewritten to the current scheme before it is used
+(define (token-row conn bearer)
+  (define h (hash-token bearer))
+  (or (query-maybe-row conn TOKEN-SELECT h)
+      (let ([r (query-maybe-row conn TOKEN-SELECT (legacy-hash-token bearer))])
+        (and r
+             (begin (query-exec conn "UPDATE api_tokens SET token_hash = ? WHERE token_hash = ?" h (legacy-hash-token bearer))
+                    (vector-set! r 5 h)
+                    r)))))
 
 ;; returns (values raw-token token-id); raw-token is shown once and never stored.
 ;; Expiry (issue #13): `expires_at` existed from migration 0001 and nothing ever
@@ -398,11 +429,12 @@
 
 ;; bearer token -> principal (capped by scopes), or #f if unknown/inactive.
 (define (resolve-token conn bearer)
-  (define row (query-maybe-row conn
-    "SELECT user_id, team_id, scopes, status, expires_at FROM api_tokens WHERE token_hash = ?"
-    (hash-token bearer)))
+  (define row (token-row conn bearer))
   (cond
     [(not row) #f]
+    ;; the database matched by equality; recheck in constant time so nothing in
+    ;; THIS process compares a secret byte by byte with an early exit
+    [(not (constant-time=? (vector-ref row 5) (hash-token bearer))) #f]
     [(not (equal? (vector-ref row 3) "active")) #f]
     ;; issue #13: enforced here, at the one place a bearer becomes a principal
     [(token-expired? (vector-ref row 4)) #f]
@@ -415,7 +447,7 @@
        "SELECT is_operator, org_id, org_role_key FROM users WHERE id = ?" user-id))
      (define op (and urow (vector-ref urow 0)))
      (query-exec conn "UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = ?"
-                 (hash-token bearer))
+                 (vector-ref row 5))
      (principal user-id (and (number? op) (not (zero? op))) team-id
                 (if (list? scopes) scopes '())
                 (and urow (nz (vector-ref urow 1)))

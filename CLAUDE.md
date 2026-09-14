@@ -768,6 +768,13 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   keep working — nobody is locked out by the upgrade. The listing reports
   `expires_at` and shows `status: "expired"` for a lapsed row that still says
   `active` in the table.
+- **The token hash is peppered HMAC-SHA-256, stored `v1:<hex>`** (the prototype
+  was bare SHA-1 with a compiled-in salt). The pepper is `TELEMACHUS_TOKEN_PEPPER`
+  → `TELEMACHUS_SECRET` → a dev default the server WARNS about at boot. A legacy
+  40-hex row still resolves and is rehashed on first use (`token-row`), so an
+  upgrade signs nobody out; rotating the pepper signs everyone out at once, on
+  purpose. `resolve-token` rechecks the stored hash in constant time after the
+  indexed lookup — `constant-time=?` lives in `crypto.rkt` and SigV4 shares it.
 - **`/health` is `{ok, multitenant}` and nothing else** (#11). Version, KDF, TLS and the
   codename moved to `GET /api/admin/status` (instance:manage). Do not put them
   back: the beta instance is a public front door.
