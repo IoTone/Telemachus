@@ -258,15 +258,34 @@
 ;; read once, but branding is instance state an operator can change while the
 ;; server is running. Missing-file fallback UI-HTML has no <title> element;
 ;; regexp-replace# simply leaves it alone.
-(define (ui-html-branded)
-  (define title (hash-ref (branding-get db-conn) 'title ""))
-  (if (string=? title "")
-      UI-HTML
-      ;; Procedural replacement, not a string: regexp-replace* expands `&` and
-      ;; `\<n>` in a STRING replacement, so a branded title like "A & B" would
-      ;; corrupt the markup (caught by the smoke test's escape assertion).
-      (regexp-replace* #px"<title>.*?</title>" UI-HTML
-                       (lambda _ (string-append "<title>" (html-escape title) "</title>")))))
+;; The shell's <title>, meta description and Open Graph tags come from instance
+;; branding (issues #10 and #12): crawlers, unfurlers and link previews never run
+;; the SPA, so the raw HTML has to carry them. The description is the tagline when
+;; the operator set one, else the product's own default line — the copy is the
+;; operator's, which is why the tagline field is where it comes from. Procedural
+;; replacement throughout: regexp-replace* expands `&` and `\<n>` in a STRING
+;; replacement, so a branded title like "A & B" would corrupt the markup.
+(define DEFAULT-DESCRIPTION "A self-hosted, privacy-first platform for a team's AI tools and documents.")
+(define (ui-html-branded [req #f])
+  (define b (branding-get db-conn))
+  (define title (let ([t (hash-ref b 'title "")]) (if (string=? t "") "Telemachus" t)))
+  (define tagline (string-normalize-spaces (hash-ref b 'tagline "")))
+  (define description (if (string=? tagline "") DEFAULT-DESCRIPTION tagline))
+  ;; og:image must be an absolute URL — unfurlers do not resolve relative ones
+  (define logo (let ([l (hash-ref b 'logo 'null)])
+                 (and req (string? l) (not (string=? l ""))
+                      (string-append (public-base req) "/api/beta/asset/" l))))
+  (define meta
+    (string-append
+     "<meta name=\"description\" content=\"" (html-escape description) "\">"
+     "<meta property=\"og:type\" content=\"website\">"
+     "<meta property=\"og:site_name\" content=\"" (html-escape title) "\">"
+     "<meta property=\"og:title\" content=\"" (html-escape title) "\">"
+     "<meta property=\"og:description\" content=\"" (html-escape description) "\">"
+     (if logo (string-append "<meta property=\"og:image\" content=\"" (html-escape logo) "\">") "")
+     "<meta name=\"twitter:card\" content=\"summary\">"))
+  (regexp-replace* #px"<title>.*?</title>" UI-HTML
+                   (lambda _ (string-append "<title>" (html-escape title) "</title>" meta))))
 (define (html-response s)
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
@@ -309,9 +328,13 @@
        (proc emit)))))
 
 ;; ---- endpoints --------------------------------------------------------------
+;; issue #11: the public liveness probe says the instance is up and nothing else.
+;; The KDF, the version, the TLS flag and the codename used to ride here; they are
+;; an operator's business and live on GET /api/admin/status now (instance:manage).
+;; `multitenant` stays: it is a public product fact the console and the tenancy
+;; demo read before signing in, and it says nothing about this instance's build.
 (define (ep-health)
-  (json-response (hasheq 'ok #t 'service "telemachus" 'version app-version
-                         'tls (tls-on?) 'kdf (kdf-name) 'multitenant (multitenant?))))
+  (json-response (hasheq 'ok #t 'multitenant (multitenant?))))
 
 (define (ep-bootstrap req)
   (define body (read-json-body req))
@@ -887,6 +910,8 @@
     [else
      (require-perm db-conn p "instance:manage")          ; operator-only → localized 403
      (json-response (hasheq 'ok #t
+      ;; issue #11: what /health used to say, now behind instance:manage
+      'service "telemachus" 'version app-version 'tls (tls-on?) 'kdf (kdf-name)
                             'multitenant (multitenant?)
                             'users (query-value db-conn "SELECT COUNT(*) FROM users")
                             'teams (query-value db-conn "SELECT COUNT(*) FROM teams")
@@ -1409,10 +1434,26 @@
     (define b (read-json-body req))
     (define scopes (let ([s (hash-ref b 'scopes #f)]) (if (list? s) s '("*:read"))))
     (define name (let ([n (hash-ref b 'name #f)]) (if n (format "~a" n) "api")))
-    (define-values (raw tokid)
-      (issue-token! db-conn #:user (principal-user-id p) #:team (principal-team-id p) #:name name #:scopes scopes))
-    (audit! db-conn #:action "token.issue" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
-    (json-response (hasheq 'id tokid 'token raw 'name name 'scopes scopes) #:code 201))))    ; raw shown once
+    ;; issue #13: `ttl` in seconds, "never" for a deliberately long-lived machine
+    ;; token, or absent for the 90-day default. Anything else is a 400.
+    (define ttl
+      (let ([v (hash-ref b 'ttl #f)])
+        (cond [(or (not v) (eq? v 'null)) API-TOKEN-TTL]
+              [(equal? v "never") 'never]
+              [(and (real? v) (positive? v)) v]
+              [(and (string? v) (string->number v) (positive? (string->number v))) (string->number v)]
+              [else 'bad])))
+    (cond
+      [(eq? ttl 'bad) (err "ttl must be a positive number of seconds, or \"never\"" 400)]
+      [else
+       (define-values (raw tokid)
+         (issue-token! db-conn #:user (principal-user-id p) #:team (principal-team-id p) #:name name #:scopes scopes #:ttl ttl))
+       (audit! db-conn #:action "token.issue" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+               #:meta (jsexpr->string (hasheq 'ttl (if (eq? ttl 'never) "never" ttl))))
+       (define listed (for/first ([t (in-list (list-tokens db-conn (principal-team-id p)))] #:when (equal? (hash-ref t 'id) tokid)) t))
+       (json-response (hasheq 'id tokid 'token raw 'name name 'scopes scopes
+                              'expires_at (if listed (hash-ref listed 'expires_at) 'null))
+                      #:code 201)]))))    ; raw shown once
 
 (define (ep-tokens-list req)
   (with-auth req (lambda (p)
@@ -1901,7 +1942,7 @@
 ;; an endpoint cannot exist without a documented entry, or an entry without code.
 (define HANDLERS
   (hasheq
-   'ui (lambda (req) (html-response (ui-html-branded)))
+   'ui (lambda (req) (html-response (ui-html-branded req)))
    'health (lambda (req) (ep-health))
    'beta-sdk (lambda (req) (serve-file (build-path impl-root "static" "beta-sdk.js")))
    'bundle-file (lambda (req plugin path)
@@ -1985,15 +2026,38 @@
     [entry (apply (hash-ref HANDLERS (rt-handler entry)) req params)]
     [else (err "not found" 404)]))
 
+;; issue #11: baseline security headers on EVERY response, added at the one seam
+;; every response passes through. Zero-risk set: nosniff (a JSON body is never
+;; sniffed into a script), a referrer policy (the console's URLs carry object ids
+;; and tokens never, but the origin is enough for anyone), frame denial (the
+;; console is not meant to be framed — the Tier-C funnel template is served
+;; INTO an iframe by the console itself, same origin, which SAMEORIGIN allows),
+;; and HSTS only when the instance says it is behind TLS. A Content-Security-Policy
+;; for the console is a separate audit (it has inline scripts); the download path
+;; already sends a denying one per object. A route that sets one of these itself
+;; wins — headers already present are left alone.
+(define BASE-SECURITY-HEADERS
+  (list (make-header #"X-Content-Type-Options" #"nosniff")
+        (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")
+        (make-header #"X-Frame-Options" #"SAMEORIGIN")))
+(define HSTS-HEADER (make-header #"Strict-Transport-Security" #"max-age=31536000; includeSubDomains"))
+(define (with-security-headers resp)
+  (define have (map header-field (response-headers resp)))
+  (define (missing h) (not (member (header-field h) have)))
+  (define add (append (filter missing BASE-SECURITY-HEADERS)
+                      (if (and (tls-on?) (missing HSTS-HEADER)) (list HSTS-HEADER) '())))
+  (if (null? add) resp (struct-copy response resp [headers (append (response-headers resp) add)])))
+
 (define (handle req)
   (parameterize ([current-localizer (localizer-for (request-locale req))])
-    (with-handlers ([exn:fail:forbidden?
-                     (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
-                    ;; a refused workflow spec is the caller's mistake — and the
-                    ;; detail is the whole point of rejecting rather than ignoring
-                    [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
-                    [exn:fail? (lambda (e) (err (exn-message e) 500))])
-      (route req))))
+    (with-security-headers
+     (with-handlers ([exn:fail:forbidden?
+                      (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
+                     ;; a refused workflow spec is the caller's mistake — and the
+                     ;; detail is the whole point of rejecting rather than ignoring
+                     [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
+                     [exn:fail? (lambda (e) (err (exn-message e) 500))])
+       (route req)))))
 
 (module+ main
   (init-db!)

@@ -40,6 +40,18 @@ tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do tries=$((tries
 
 B="localhost:$PORT"
 assert "health"          "$(curl -s $B/health)" '"ok":true'
+# issue #11: the public probe says up and nothing else; the details moved behind instance:manage
+if curl -s $B/health | grep -qE '"kdf"|"version"|"service"|"tls"'; then echo "  FAIL health discloses internals — $(curl -s $B/health)"; fail=1; else echo "  ok   health discloses nothing"; fi
+HDRS=$(curl -s -D - -o /dev/null $B/)
+assert "nosniff on the console"  "$HDRS" 'X-Content-Type-Options: nosniff'
+assert "referrer policy"         "$HDRS" 'Referrer-Policy: strict-origin-when-cross-origin'
+assert "frame options"           "$HDRS" 'X-Frame-Options: SAMEORIGIN'
+if printf '%s' "$HDRS" | grep -qi 'Strict-Transport-Security'; then echo "  FAIL HSTS sent on a plain-http instance"; fail=1; else echo "  ok   no HSTS without TLS"; fi
+assert "headers on JSON too"     "$(curl -s -D - -o /dev/null $B/health)" 'X-Content-Type-Options: nosniff'
+# issue #12: the raw shell carries a description and Open Graph tags for unfurlers
+SHELL_HTML=$(curl -s $B/)
+assert "meta description (default)" "$SHELL_HTML" '<meta name="description" content="A self-hosted, privacy-first platform'
+assert "og:title (default)"         "$SHELL_HTML" '<meta property="og:title" content="Telemachus">'
 # the Tier-B bundle root: a trailing slash means index.html. The route table's `*path`
 # once required a segment here and every bundle 404ed — caught by the beta tour, not
 # by any smoke, so this pins it (the file is served with nosniff).
@@ -57,6 +69,7 @@ assert "login new pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice"
 assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" 'Authentication required'
 assert "whoami operator" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"is_operator":true'
 assert "admin operator"  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
+assert "admin status carries the version now" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"kdf":"'
 MB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')
 assert "member token"    "$MB" '"token":"tk_'
 BOB=$(printf '%s' "$MB" | grep -oP '"token":\s*"\K[^"]+')
@@ -244,6 +257,8 @@ assert "HEAD /api/branding is not a 404" "$(curl -s -o /dev/null -w '%{http_code
 assert "unbranded instance serves the default title" "$(curl -s $B/)" '<title>Telemachus</title>'
 assert "branding title set" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"RCNT","tagline":"Import Compliance AI Platform"}')" '"title":"RCNT"'
 assert "branded instance serves the configured title" "$(curl -s $B/)" '<title>RCNT</title>'
+assert "…and og:title"                                "$(curl -s $B/)" '<meta property="og:title" content="RCNT">'
+assert "…and the tagline as the description"         "$(curl -s $B/)" '<meta name="description" content="Import Compliance AI Platform">'
 assert "a markup-bearing title is escaped, not injected" \
   "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"<script>x</script>"}' >/dev/null; curl -s $B/)" \
   '<title>&lt;script&gt;x&lt;/script&gt;</title>'

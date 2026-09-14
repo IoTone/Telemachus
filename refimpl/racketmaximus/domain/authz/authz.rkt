@@ -14,7 +14,7 @@
 ;; high-entropy random token lookup, but the hashing seam (`hash-token`) is where
 ;; a production KDF drops in. Password auth (login/2FA) is a later slice.
 
-(require db-kit/portable
+(require racket/date db-kit/portable
          json
          file/sha1
          "../db/id.rkt"
@@ -29,7 +29,7 @@
          seed-builtin-roles! bootstrap!
          user-role-key user-permissions
          can? require-perm
-         issue-token! resolve-token list-tokens revoke-token!
+         issue-token! resolve-token list-tokens revoke-token! SESSION-TTL API-TOKEN-TTL
          grant! revoke!
          audit! audit-list
          set-password! change-password! authenticate enable-2fa! first-team-for
@@ -333,29 +333,63 @@
 (define (hash-token tok) (sha1 (open-input-string (string-append token-salt tok))))
 
 ;; returns (values raw-token token-id); raw-token is shown once and never stored.
-(define (issue-token! conn #:user user-id #:team team-id #:name [name sql-null] #:scopes [scopes '()])
+;; Expiry (issue #13): `expires_at` existed from migration 0001 and nothing ever
+;; read it, so every token — the console's own session included — lived forever.
+;; Stored as EPOCH SECONDS in the TEXT column (the column predates the epoch
+;; convention; a text integer sorts and compares fine, and stays dialect-neutral).
+;; `#:ttl` is seconds from now; #f means "the default for this kind of token";
+;; 'never means no expiry — for a machine token an operator explicitly wants
+;; long-lived. The defaults are deliberately different: a session (login,
+;; bootstrap, member-add) is 30 days, an API token issued from the console 90 days.
+(define SESSION-TTL (* 30 24 3600))
+(define API-TOKEN-TTL (* 90 24 3600))
+(define (issue-token! conn #:user user-id #:team team-id #:name [name sql-null] #:scopes [scopes '()]
+                      #:ttl [ttl #f])
   (define raw (random-token))
   (define tid (new-id))
+  (define expires
+    (cond [(eq? ttl 'never) sql-null]
+          [(and (real? ttl) (positive? ttl)) (number->string (+ (current-seconds) (inexact->exact (floor ttl))))]
+          [else (number->string (+ (current-seconds) SESSION-TTL))]))
   (query-exec conn
-    (string-append "INSERT INTO api_tokens (id, user_id, team_id, name, token_hash, prefix, scopes) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?)")
+    (string-append "INSERT INTO api_tokens (id, user_id, team_id, name, token_hash, prefix, scopes, expires_at) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     tid user-id team-id name (hash-token raw)
     (substring raw 0 (min 11 (string-length raw)))
-    (jsexpr->string scopes))
+    (jsexpr->string scopes) expires)
   (values raw tid))
+
+;; the row's expires_at as epoch seconds, or #f for never. Tolerates the empty
+;; string and garbage (treated as never) so a hand-edited row cannot lock anyone out.
+(define (token-expiry row-value)
+  (and (not (sql-null? row-value))
+       (let ([n (string->number (format "~a" row-value))]) (and (exact-integer? n) n))))
+(define (token-expired? row-value)
+  (let ([e (token-expiry row-value)]) (and e (<= e (current-seconds)))))
 
 ;; list a team's tokens for management — prefixes only, never the raw token.
 (define (list-tokens conn team-id)
   (for/list ([r (in-list (query-rows conn
-     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at "
+     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at, expires_at "
                     "FROM api_tokens WHERE team_id = ? ORDER BY created_at DESC") team-id))])
+    (define exp (token-expiry (vector-ref r 7)))
     (hasheq 'id (vector-ref r 0)
             'name (let ([n (vector-ref r 1)]) (if (sql-null? n) 'null n))
             'prefix (vector-ref r 2)
             'scopes (with-handlers ([exn:fail? (lambda (_) '())]) (string->jsexpr (vector-ref r 3)))
-            'status (vector-ref r 4)
+            ;; an expired token reads as `expired` here even though the row says
+            ;; `active` — the list is for a person deciding what to revoke
+            'status (if (and (equal? (vector-ref r 4) "active") (token-expired? (vector-ref r 7)))
+                        "expired" (vector-ref r 4))
             'last_used_at (let ([x (vector-ref r 5)]) (if (sql-null? x) 'null x))
-            'created_at (vector-ref r 6))))
+            'created_at (vector-ref r 6)
+            'expires_at (if exp (epoch->iso8601 exp) 'null))))
+
+(define (epoch->iso8601 secs)
+  (define d (seconds->date secs #f))
+  (define (two n) (if (< n 10) (format "0~a" n) (number->string n)))
+  (format "~a-~a-~aT~a:~a:~aZ" (date-year d) (two (date-month d)) (two (date-day d))
+          (two (date-hour d)) (two (date-minute d)) (two (date-second d))))
 
 ;; revoke a token by id within a team. Returns #t if it existed.
 (define (revoke-token! conn token-id team-id)
@@ -365,11 +399,13 @@
 ;; bearer token -> principal (capped by scopes), or #f if unknown/inactive.
 (define (resolve-token conn bearer)
   (define row (query-maybe-row conn
-    "SELECT user_id, team_id, scopes, status FROM api_tokens WHERE token_hash = ?"
+    "SELECT user_id, team_id, scopes, status, expires_at FROM api_tokens WHERE token_hash = ?"
     (hash-token bearer)))
   (cond
     [(not row) #f]
     [(not (equal? (vector-ref row 3) "active")) #f]
+    ;; issue #13: enforced here, at the one place a bearer becomes a principal
+    [(token-expired? (vector-ref row 4)) #f]
     [else
      (define user-id (vector-ref row 0))
      (define team-id (vector-ref row 1))

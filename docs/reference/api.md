@@ -10,7 +10,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/index.html` | public | — | — | The console. |
 | GET | `/login` | public | — | — | The console, sign-in first — a URL that never depends on the beta landing. |
 | GET | `/activate` | public | — | — | The console, on the magic-link activation screen (hosted mode). |
-| GET | `/health` | public | — | — | Liveness: {ok, service, version}. |
+| GET | `/health` | public | — | — | Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status. |
 | GET | `/beta-sdk.js` | public | — | — | The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta). |
 | GET | `/beta/bundle/:plugin/*path` | public | — | — | A file from a Tier-B onboarding plugin's bundle directory. |
 | GET | `/beta/template` | public | — | — | The Tier-C sandboxed HTML template, localized by the experience overlay. |
@@ -56,7 +56,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/profile` | bearer | — | — | Update the caller's profile (display name, locale). |
 | POST | `/api/members` | bearer | `members:manage` | — | Add a member to the caller's team with a role; returns the new member's first token. |
 | GET | `/api/members` | bearer | — | — | The team's members and roles. |
-| GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance counts: users, teams, orgs, notes, tokens, audit events, tenants. |
+| GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
 | POST | `/api/orgs` | superadmin | `instance:manage` | — | Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run). |
 | GET | `/api/orgs` | superadmin | `instance:manage` | — | List every org on the instance. |
 | POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | — | Suspend a company (id or slug); every team in it becomes read-only. |
@@ -95,7 +95,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/usage` | bearer | — | — | The team's quota dimensions with used, limit and remaining. |
 | POST | `/api/quota` | bearer | `instance:manage` | — | Set a quota limit for the caller's team (dimension, limit, window). |
 | GET | `/api/tools` | bearer | — | — | Every registered tool with its permission, source and per-team enabled state. |
-| POST | `/api/tokens` | bearer | `settings:manage` | — | Issue an API token, optionally scoped; the raw token is shown once. |
+| POST | `/api/tokens` | bearer | `settings:manage` | — | Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; "never" for a long-lived machine token); the raw token is shown once. |
 | GET | `/api/tokens` | bearer | `settings:manage` | — | The team's API tokens. |
 | DELETE | `/api/tokens/:id` | bearer | `settings:manage` | — | Revoke an API token. |
 | GET | `/api/search` | bearer | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?. |

@@ -757,6 +757,32 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## Tokens, `/health`, security headers, meta tags (issues #11–#13)
+
+- **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for a year;
+  `issue-token!` now sets it (epoch seconds as text in the pre-existing TEXT
+  column) and `resolve-token` refuses an expired row — the ONE place a bearer
+  becomes a principal. Defaults: a session (login, bootstrap, member-add) 30
+  days, a console-issued API token 90 days; `POST /api/tokens {"ttl": seconds |
+  "never"}` overrides. A NULL expiry is "never", so tokens issued before the fix
+  keep working — nobody is locked out by the upgrade. The listing reports
+  `expires_at` and shows `status: "expired"` for a lapsed row that still says
+  `active` in the table.
+- **`/health` is `{ok, multitenant}` and nothing else** (#11). Version, KDF, TLS and the
+  codename moved to `GET /api/admin/status` (instance:manage). Do not put them
+  back: the beta instance is a public front door.
+- **Baseline security headers on every response** (#11), added in `handle` via
+  `with-security-headers`: nosniff, `Referrer-Policy: strict-origin-when-cross-origin`,
+  `X-Frame-Options: SAMEORIGIN` (the Tier-C funnel iframe is same-origin), and
+  HSTS ONLY when `TELEMACHUS_TLS` is on — behind a TLS-terminating proxy, set it.
+  A route that sets one of these itself wins. A console CSP is a separate audit
+  (inline scripts); the download path already sends its own denying one.
+- **The shell carries a meta description and Open Graph tags** (#12), rewritten
+  per request from branding like the `<title>`: description = the tagline when
+  set (whitespace-normalized), else a product default; `og:image` = the logo
+  asset id when set. Same procedural `regexp-replace*` rule as the title — a
+  string replacement would expand `&`.
+
 ## Branding (Admin > Branding)
 
 Instance title, tagline and logo, editable by an operator. `domain/branding/branding.rkt`

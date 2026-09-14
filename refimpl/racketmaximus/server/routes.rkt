@@ -42,7 +42,7 @@
    (R "GET" "/index.html"  'ui #:auth 'public #:doc "The console.")
    (R "GET" "/login"       'ui #:auth 'public #:doc "The console, sign-in first — a URL that never depends on the beta landing.")
    (R "GET" "/activate"    'ui #:auth 'public #:doc "The console, on the magic-link activation screen (hosted mode).")
-   (R "GET" "/health"      'health #:auth 'public #:doc "Liveness: {ok, service, version}.")
+   (R "GET" "/health"      'health #:auth 'public #:doc "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.")
    (R "GET" "/beta-sdk.js" 'beta-sdk #:auth 'public #:doc "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).")
    (R "GET" "/beta/bundle/:plugin/*path" 'bundle-file #:auth 'public #:doc "A file from a Tier-B onboarding plugin's bundle directory.")
    (R "GET" "/beta/template" 'beta-template #:auth 'public #:doc "The Tier-C sandboxed HTML template, localized by the experience overlay.")
@@ -94,7 +94,7 @@
    (R "POST" "/api/profile" 'profile #:doc "Update the caller's profile (display name, locale).")
    (R "POST" "/api/members" 'add-member #:perm "members:manage" #:doc "Add a member to the caller's team with a role; returns the new member's first token.")
    (R "GET" "/api/members" 'members-list #:doc "The team's members and roles.")
-   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance counts: users, teams, orgs, notes, tokens, audit events, tenants.")
+   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
 
    ;; ---- multi-tenancy: superadmin plane, then org-admin plane ----------------------
    (R "POST" "/api/orgs" 'orgs-create #:auth 'superadmin #:perm "instance:manage" #:doc "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).")
@@ -141,7 +141,7 @@
    (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit and remaining.")
    (R "POST" "/api/quota" 'quota-set #:perm "instance:manage" #:doc "Set a quota limit for the caller's team (dimension, limit, window).")
    (R "GET" "/api/tools" 'tools-list #:doc "Every registered tool with its permission, source and per-team enabled state.")
-   (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped; the raw token is shown once.")
+   (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
    (R "GET" "/api/tokens" 'tokens-list #:perm "settings:manage" #:doc "The team's API tokens.")
    (R "DELETE" "/api/tokens/:id" 'tokens-revoke #:perm "settings:manage" #:doc "Revoke an API token.")
    (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?.")

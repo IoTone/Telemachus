@@ -40,8 +40,8 @@
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
     },
     "doc.route.get.api.admin.status": {
-      "text": "Instance counts: users, teams, orgs, notes, tokens, audit events, tenants.",
-      "hash": "51cd4f7ee855df27b9e65a6ffa5816fd3d394fa3"
+      "text": "Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants.",
+      "hash": "1527b973024d3cb3d10acdc2d61beb3d95437d24"
     },
     "doc.route.get.api.doc-triggers": {
       "text": "The team's upload triggers, with the team's remaining AI budget.",
@@ -164,8 +164,8 @@
       "hash": "22cb4f6d16ab9cc8a7366d340c2ca62ddd020421"
     },
     "doc.route.post.api.tokens": {
-      "text": "Issue an API token, optionally scoped; the raw token is shown once.",
-      "hash": "acba7a9e44fae4477cd5678b3d0447a3995b5354"
+      "text": "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.",
+      "hash": "cebac657ad797c2405bee6e8bd1ac779ba5f6409"
     },
     "doc.route.post.api.2fa.enable": {
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret once.",
@@ -1500,8 +1500,8 @@
       "hash": "5b7f95b61ad9613c47931f31046e2e5c7152fb46"
     },
     "doc.route.get.health": {
-      "text": "Liveness: {ok, service, version}.",
-      "hash": "b57b58c0a4d2bf987d16ebbe2dde703aa8699b59"
+      "text": "Liveness: {ok: true} and nothing else — version, KDF and TLS state are on GET /api/admin/status.",
+      "hash": "8c018b8cbee5a7382242527b4005fd81cb011bdd"
     },
     "doc.tool.word_count": {
       "text": "Count the number of words in a piece of text.",
