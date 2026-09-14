@@ -37,6 +37,8 @@
             poppler-utils   # pdftotext — PDF text extraction for the search index (slice 54)
             curl python3    # every demo script uses both
             nodejs_24       # the Playwright e2e tours (browser NOT included — see below)
+            tectonic        # the developer e-book: docs/book/*.tex -> PDF (fetches TeX packages on first run)
+            pandoc          # …and the same source -> a single-page HTML e-book
             jq
           ];
           shellHook = ''

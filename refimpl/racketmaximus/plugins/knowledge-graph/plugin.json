@@ -1,0 +1,7 @@
+{
+  "id": "knowledge-graph",
+  "name": "Knowledge Graph",
+  "version": "0.1.0",
+  "description": "A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed.",
+  "entry": "main.rkt"
+}

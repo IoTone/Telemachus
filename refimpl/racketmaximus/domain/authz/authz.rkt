@@ -259,7 +259,14 @@
        ;; there — its grants are unioned with whatever team role it may hold.
        (define granted (append (user-permissions conn (principal-user-id p) (principal-team-id p))
                                (user-org-permissions conn p)))
-       (for/or ([g (in-list granted)]) (perm-matches? g required))]))
+       (or (for/or ([g (in-list granted)]) (perm-matches? g required))
+           ;; A resource grant is a DELEGATION (slice 56, DSH-1): a steward handed
+           ;; this principal a permission on ONE resource, and it holds even when
+           ;; the team role lacks it — that is what sharing an editable document
+           ;; with a viewer, or delegating `manage` to a member, means. It reaches
+           ;; only the team tier (never instance:* / org:*), only that resource,
+           ;; and it is still capped by token scopes below.
+           (and resource (has-grant? conn resource p required)))]))
   ;; a resource owner has full rights on their own resource (non-instance)
   (define owner-ok
     (and resource (not (instance-perm? required))
@@ -314,8 +321,11 @@
         "SELECT permission FROM resource_grants "
         "WHERE resource_type = ? AND resource_id = ? "
         "  AND ((principal_type = 'user' AND principal_id = ?) "
-        "    OR (principal_type = 'team' AND principal_id = ?))")
-       rtype rid (principal-user-id p) (or (principal-team-id p) "")))
+        "    OR (principal_type = 'team' AND principal_id = ?)) "
+        ;; DSH-3: an expired grant is ignored, not deleted — the row stays as the
+        ;; record of who was given what; it just no longer opens anything.
+        "  AND (expires_at IS NULL OR expires_at > ?)")
+       rtype rid (principal-user-id p) (or (principal-team-id p) "") (current-seconds)))
      (for/or ([g (in-list rows)]) (perm-matches? g required))]))
 
 ;; ---- API tokens (issuer-perms ∩ scopes) ------------------------------------
@@ -377,14 +387,19 @@
 
 ;; ---- resource grants (sharing) ---------------------------------------------
 (define (grant! conn #:resource-type rtype #:resource-id rid
-                #:principal-type ptype #:principal-id pid #:permission perm #:by [by sql-null])
+                #:principal-type ptype #:principal-id pid #:permission perm #:by [by sql-null]
+                ;; epoch seconds, or #f for a grant that never lapses (DSH-3)
+                #:expires-at [expires-at #f])
   (query-exec conn
     (string-append "INSERT INTO resource_grants "
-                   "(id, resource_type, resource_id, principal_type, principal_id, permission, granted_by) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                   ;; portable upsert-ignore (sqlite 3.24+ and postgres both support this)
-                   "ON CONFLICT (resource_type, resource_id, principal_type, principal_id, permission) DO NOTHING")
-    (new-id) rtype rid ptype pid perm by))
+                   "(id, resource_type, resource_id, principal_type, principal_id, permission, granted_by, expires_at) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                   ;; portable upsert (sqlite 3.24+ and postgres both support this):
+                   ;; granting again RENEWS — a new expiry and a new grantor replace
+                   ;; the old, so re-sharing a lapsed contractor works without a revoke.
+                   "ON CONFLICT (resource_type, resource_id, principal_type, principal_id, permission) "
+                   "DO UPDATE SET expires_at = excluded.expires_at, granted_by = excluded.granted_by")
+    (new-id) rtype rid ptype pid perm by (or expires-at sql-null)))
 
 (define (revoke! conn #:resource-type rtype #:resource-id rid
                  #:principal-type ptype #:principal-id pid #:permission perm)

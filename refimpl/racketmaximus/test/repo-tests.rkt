@@ -10,9 +10,10 @@
 ;;   4. identical bytes are stored once, and deleting one copy does not break the other
 ;;   5. none of it leaks across an org boundary
 ;;   6. storage is metered as a gauge that goes back down
+;;   7. sharing with permissions: capabilities, teams, expiry, inheritance (slice 56)
 
 (require rackunit db-kit/portable
-         racket/file racket/port racket/list
+         racket/file racket/port racket/list racket/date
          db-kit/migrate
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
@@ -190,6 +191,11 @@
              "the org gate refuses a cross-org read before permissions are consulted")
   (check-equal? (repo-list conn globex) '() "and it is not listed")
 
+  ;; the share API refuses a principal from another company outright (DSH-6)
+  (check-exn exn:fail:user? (lambda () (repo-share! conn acme (hash-ref secret 'id) #:user gu))
+             "sharing with a user of another org is refused, not silently inert")
+  (check-exn exn:fail:user?
+             (lambda () (repo-share! conn acme (hash-ref secret 'id) #:principal-type "team" #:principal-id globex-team)))
   ;; even an explicit grant cannot tunnel out of an org — the gate is step 0
   (grant! conn #:resource-type "repo" #:resource-id (hash-ref secret 'id)
           #:principal-type "user" #:principal-id gu #:permission "files:read")
@@ -232,6 +238,163 @@
   (check-equal? (hash-ref (repo-usage conn p) 'used) 2500 "…and nothing was charged for it")
   (check-equal? (length (repo-list conn p)) 1 "…and no row was left behind")
   (disconnect conn))
+
+;; ---- 7. sharing with permissions (slice 56, DSH-1…6) --------------------------------
+;; Three capabilities that are permission SETS, granted row by row; only `manage`
+;; re-shares; a team is a principal; grants expire; a derived document inherits at
+;; creation and is independent afterwards.
+(let-values ([(conn) (fresh)])
+  (define-values (owner team) (owner-of conn))
+  (define-values (alice _a) (member-of conn team "alice"))
+  (define-values (bob _b) (member-of conn team "bob"))
+  (define-values (carol _c) (member-of conn team "carol"))
+  (define priv (put! conn alice "plan.txt" #"v1" #:vis "private"))
+  (define pid (hash-ref priv 'id))
+  (define (bob-writes!) (put! conn bob "plan.txt" #"v2 by bob"))
+  ;; the grant a principal holds on an object, as the steward sees it
+  (define (grant-of p* oid who)
+    (for/first ([g (in-list (repo-grants conn p* oid))] #:when (equal? (hash-ref g 'principal_id) who)) g))
+
+  ;; the sets nest, and each row says exactly what it says
+  (check-equal? (capability-permissions "view") '("files:read"))
+  (check-equal? (capability-permissions "edit") '("files:read" "files:write"))
+  (check-true (and (member "files:manage" (capability-permissions "manage")) #t))
+  (check-false (capability-permissions "owner") "an unknown capability is not a set")
+  (check-equal? (permissions->capability '("files:read" "files:write")) "edit")
+  (check-false (permissions->capability '("files:write")) "a lone write row is not a capability")
+
+  ;; view: read yes, write no, re-share no (DSH-2)
+  (repo-share! conn alice pid #:user _b)                      ; the original spelling = view
+  (check-equal? (read-back conn bob pid) #"v1")
+  (check-exn exn:fail:forbidden? bob-writes! "a viewer cannot upload a version")
+  (check-exn exn:fail:forbidden? (lambda () (repo-share! conn bob pid #:user _c))
+             "a viewer cannot forward what they were shown")
+  (check-exn exn:fail:forbidden? (lambda () (repo-set-visibility! conn bob pid "team"))
+             "…nor widen it")
+  (check-exn exn:fail:forbidden? (lambda () (repo-grants conn bob pid))
+             "…nor list who else has it")
+  (let ([g (grant-of alice pid _b)])
+    (check-equal? (hash-ref g 'capability) "view")
+    (check-equal? (hash-ref g 'principal_id) _b)
+    (check-equal? (hash-ref g 'expires_at) 'null)
+    (check-false (hash-ref g 'expired)))
+
+  ;; edit: write yes, re-share still no
+  (repo-share! conn alice pid #:principal-type "user" #:principal-id _b #:capability "edit")
+  (check-equal? (hash-ref (bob-writes!) 'version) 2 "an editor uploads a new version")
+  (check-exn exn:fail:forbidden? (lambda () (repo-share! conn bob pid #:user _c))
+             "an editor cannot re-share either")
+  (check-equal? (hash-ref (grant-of alice pid _b) 'capability) "edit")
+
+  ;; manage: re-share yes — and the grantee's grant is exact, not a wildcard
+  (repo-share! conn alice pid #:principal-type "user" #:principal-id _b #:capability "manage")
+  (check-equal? (hash-ref (grant-of alice pid _b) 'capability) "manage")
+  (repo-share! conn bob pid #:user _c)
+  (check-equal? (read-back conn carol pid) #"v2 by bob" "a manage grantee shared it onward")
+  (check-equal? (length (repo-grants conn bob pid)) 2 "…and can see the grant list")
+
+  ;; sharing again NARROWS: bob back to view drops the write and manage rows
+  (repo-share! conn alice pid #:principal-type "user" #:principal-id _b #:capability "view")
+  (check-equal? (hash-ref (grant-of alice pid _b) 'capability) "view")
+  (check-equal? (hash-ref (grant-of alice pid _b) 'permissions) '("files:read"))
+  (check-exn exn:fail:forbidden? bob-writes! "narrowed to view, bob cannot write again")
+
+  ;; revoke removes every row the principal held
+  (repo-unshare! conn alice pid #:principal-type "user" #:principal-id _c)
+  (check-exn exn:fail:forbidden? (lambda () (repo-get conn carol pid)))
+  (check-equal? (length (repo-grants conn alice pid)) 1)
+
+  ;; bad input is refused, not stored
+  (check-exn exn:fail:user? (lambda () (repo-share! conn alice pid #:user _c #:capability "owner")))
+  (check-exn exn:fail:user? (lambda () (repo-share! conn alice pid #:principal-type "group" #:principal-id "g1")))
+  (check-exn exn:fail:user? (lambda () (repo-share! conn alice pid #:user "")))
+  (check-exn exn:fail:user? (lambda () (repo-share! conn alice pid #:user _c
+                                                    #:expires-at (- (current-seconds) 60)))
+             "an expiry in the past is refused")
+  (check-exn exn:fail:user? (lambda () (repo-share! conn alice pid #:user "no-such-user"))
+             "an unknown principal is refused rather than granted an inert row")
+  (check-equal? (length (repo-grants conn alice pid)) 1 "nothing above left a row")
+
+  ;; expiry (DSH-3): a live one opens, a lapsed one is ignored but still listed
+  ;; past 2038 on purpose: an int4 column would refuse this on Postgres
+  (repo-share! conn alice pid #:user _c #:expires-at (expiry->seconds "2099-01-01T00:00:00Z"))
+  (check-equal? (read-back conn carol pid) #"v2 by bob" "a grant with a future expiry opens")
+  (check-equal? (hash-ref (grant-of alice pid _c) 'expires_at) "2099-01-01T00:00:00Z"
+                "listed as ISO-8601 UTC, and a far-future expiry round-trips")
+  (grant! conn #:resource-type "repo" #:resource-id pid #:principal-type "user" #:principal-id _c
+          #:permission "files:read" #:expires-at (- (current-seconds) 5))   ; lapse it directly
+  (check-exn exn:fail:forbidden? (lambda () (repo-get conn carol pid)) "an expired grant opens nothing")
+  (let ([g (grant-of alice pid _c)])
+    (check-true (hash-ref g 'expired) "…but it is still listed, flagged")
+    (check-equal? (hash-ref g 'capability) "view"))
+  (repo-share! conn alice pid #:user _c)
+  (check-equal? (read-back conn carol pid) #"v2 by bob" "sharing again renews a lapsed grant")
+  (check-equal? (hash-ref (grant-of alice pid _c) 'expires_at) 'null)
+  (repo-unshare! conn alice pid #:user _c)
+
+  ;; a TEAM principal (DSH-6): everyone acting as the team reads it
+  (repo-unshare! conn alice pid #:user _b)
+  (check-exn exn:fail:forbidden? (lambda () (repo-get conn carol pid)))
+  (repo-share! conn alice pid #:principal-type "team" #:principal-id team #:capability "view")
+  (check-equal? (read-back conn carol pid) #"v2 by bob" "a team grant reaches a member with no row of their own")
+  (check-equal? (read-back conn bob pid) #"v2 by bob")
+  (let ([g (grant-of alice pid team)])
+    (check-equal? (hash-ref g 'principal_type) "team")
+    (check-equal? (hash-ref g 'name) "Engineering" "a team grant is listed by team name"))
+  (check-exn exn:fail:user? (lambda () (repo-share! conn alice pid #:principal-type "team" #:principal-id "nope")))
+
+  ;; the owner needs no row, and a team ADMIN holds manage by role — for what the
+  ;; role reaches. A colleague's team-visible document, yes; their private one, no:
+  ;; private is private from admins too, and only a grant or the owner opens it.
+  (define-values (adm _adm) (member-of conn team "adm" #:role "admin"))
+  (check-exn exn:fail:forbidden? (lambda () (repo-share! conn adm pid #:user _c))
+             "an admin cannot share a colleague's PRIVATE document")
+  (define pub (put! conn alice "memo.txt" #"for all" #:vis "team"))
+  (check-exn exn:fail:forbidden? (lambda () (repo-share! conn bob (hash-ref pub 'id) #:user _c))
+             "a member cannot share a colleague's team document")
+  (repo-share! conn adm (hash-ref pub 'id) #:user _c #:capability "edit")
+  (check-equal? (hash-ref (grant-of alice (hash-ref pub 'id) _c) 'capability) "edit")
+  (check-equal? (hash-ref (repo-get conn alice (hash-ref pub 'id)) 'visibility) "shared"
+                "sharing a team document narrows it")
+  ;; carol needs an edit grant on the SOURCE for the inheritance check below
+  (repo-share! conn alice pid #:user _c #:capability "edit")
+
+  ;; derived documents inherit at creation, then go their own way (DSH-5)
+  (define out (put! conn alice "plan.nl.txt" #"vertaling"))          ; created team-visible
+  (define oid (hash-ref out 'id))
+  (define inherited (repo-inherit! conn alice #:source pid #:target oid #:run-id "run-1" #:step-id "translate"))
+  (check-equal? (hash-ref inherited 'visibility) "private" "the output took the source's visibility")
+  (check-equal? (read-back conn carol oid) #"vertaling" "…and its live grants: carol (edit) reads it")
+  (check-equal? (read-back conn bob oid) #"vertaling" "…and the team grant came along")
+  (check-equal? (hash-ref (grant-of alice oid team) 'capability) "view")
+  (check-equal? (hash-ref (grant-of alice oid _c) 'capability) "edit")
+  (check-equal? (length (repo-grants conn alice oid)) 2)
+  (let ([d (car (repo-derivations conn carol oid))])
+    (check-equal? (hash-ref d 'source_object_id) pid)
+    (check-equal? (hash-ref d 'source_version_id) (hash-ref (repo-get conn alice pid) 'version_id))
+    (check-equal? (hash-ref d 'run_id) "run-1")
+    (check-equal? (hash-ref d 'step_id) "translate"))
+  (check-equal? (repo-derivations conn alice pid) '() "the source derives from nothing")
+  (repo-unshare! conn alice pid #:user _c)      ; carol keeps team-wide view, loses edit
+  (check-exn exn:fail:forbidden? (lambda () (put! conn carol "plan.txt" #"x")) "carol can no longer edit the source")
+  (check-equal? (hash-ref (put! conn carol "plan.nl.txt" #"herzien") 'version) 2
+                "narrowing the source does not narrow the translation: carol still edits it")
+  (check-exn exn:fail:user? (lambda () (repo-inherit! conn alice #:source oid #:target oid)))
+  (check-exn exn:fail:forbidden? (lambda () (repo-inherit! conn bob #:source pid #:target oid))
+             "inheriting onto a document you do not steward is refused")
+  (disconnect conn))
+
+;; expiry parsing: what the API accepts, and what it refuses
+(check-equal? (expiry->seconds "2030-01-02T03:04:05Z") (find-seconds 5 4 3 2 1 2030 #f))
+(check-equal? (expiry->seconds "2030-01-02T03:04:05+02:00") (- (find-seconds 5 4 3 2 1 2030 #f) 7200))
+(check-equal? (expiry->seconds "2030-01-02") (find-seconds 0 0 0 2 1 2030 #f))
+(check-equal? (expiry->seconds "1893466800") 1893466800)
+(check-equal? (expiry->seconds 1893466800) 1893466800)
+(check-equal? (expiry->seconds 'null) #f)
+(check-equal? (expiry->seconds "") #f)
+(check-exn exn:fail:user? (lambda () (expiry->seconds "next tuesday")))
+(check-exn exn:fail:user? (lambda () (expiry->seconds "2030-13-40")))
+(check-equal? (seconds->iso8601 (find-seconds 5 4 3 2 1 2030 #f)) "2030-01-02T03:04:05Z")
 
 ;; ---- keys ------------------------------------------------------------------------
 (check-true  (valid-key? "a.txt"))

@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 820" width="600" height="820">
+  <!-- Telemachus, a concept sketch for the developer e-book. Ink lines in the brand
+       navy over paper, one gold accent (the fillet, the fibula), Mentor's owl on the
+       shoulder. The wobble filter and the faint construction marks are what make it
+       a hand sketch rather than a clip-art figure. -->
+  <defs>
+    <filter id="wobble" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.6" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="wobble2" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="3" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="1.8" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+
+  <!-- construction marks: a pencil circle for the skull, a spine line, a hem line -->
+  <g fill="none" stroke="#132c46" stroke-opacity="0.18" stroke-width="1.2" stroke-dasharray="4 5" filter="url(#wobble2)">
+    <circle cx="300" cy="188" r="82"/>
+    <line x1="300" y1="100" x2="300" y2="720"/>
+    <line x1="200" y1="562" x2="400" y2="562"/>
+    <line x1="215" y1="302" x2="390" y2="302"/>
+  </g>
+
+  <!-- washes: a little colour under the ink -->
+  <g filter="url(#wobble)">
+    <path d="M222 318 Q300 300 378 318 L392 555 Q300 585 208 555 Z" fill="#c7d3e6" fill-opacity="0.45"/>
+    <path d="M330 320 L378 318 L392 555 Q360 570 335 566 Z" fill="#132c46" fill-opacity="0.10"/>
+    <path d="M236 168 Q300 150 364 168 L360 182 Q300 166 240 182 Z" fill="#c9a227" fill-opacity="0.75"/>
+    <circle cx="372" cy="308" r="9" fill="#c9a227" fill-opacity="0.85"/>
+    <path d="M244 352 h84 v22 h-84 z" fill="#f2ecd8"/>
+  </g>
+
+  <!-- ink -->
+  <g fill="none" stroke="#132c46" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)">
+    <!-- head and face -->
+    <path d="M236 175 Q222 235 258 262 Q300 292 342 262 Q378 235 364 175"/>
+    <path d="M236 175 Q236 140 262 122 Q300 104 338 122 Q364 140 364 175" stroke-width="2.4"/>
+    <!-- curls: a crown of loops -->
+    <path d="M238 172 a10 10 0 1 1 14 -12 a11 11 0 1 1 16 -10 a12 12 0 1 1 18 -6 a12 12 0 1 1 18 0 a12 12 0 1 1 16 6 a11 11 0 1 1 14 10 a10 10 0 1 1 12 12" stroke-width="2.6"/>
+    <path d="M232 190 a9 9 0 1 1 -6 14 M368 190 a9 9 0 1 1 6 14 M226 212 a8 8 0 1 0 -2 12 M374 212 a8 8 0 1 0 2 12" stroke-width="2.2"/>
+    <path d="M270 128 a9 9 0 1 0 10 -10 M296 118 a9 9 0 1 0 10 -6 M322 124 a9 9 0 1 0 10 -2" stroke-width="2.2"/>
+    <!-- the fillet, knotted at the side -->
+    <path d="M238 170 Q300 150 362 170" stroke-width="2.6"/>
+    <path d="M238 182 Q300 164 362 182" stroke-width="2.6"/>
+    <path d="M362 176 q14 -6 22 4 q-10 4 -14 12" stroke-width="2.2"/>
+    <!-- brows, eyes, nose, mouth -->
+    <path d="M262 190 q14 -10 30 -2 M310 188 q16 -8 30 2" stroke-width="2.6"/>
+    <ellipse cx="278" cy="203" rx="8" ry="6" stroke-width="2.2"/>
+    <ellipse cx="324" cy="203" rx="8" ry="6" stroke-width="2.2"/>
+    <circle cx="280" cy="204" r="2.6" fill="#132c46"/>
+    <circle cx="326" cy="204" r="2.6" fill="#132c46"/>
+    <path d="M300 208 q-8 14 2 20 q6 2 8 -2" stroke-width="2.2"/>
+    <path d="M282 240 q18 12 38 -2" stroke-width="2.6"/>
+    <path d="M284 244 q4 6 10 6" stroke-width="1.6"/>
+    <!-- ears -->
+    <path d="M236 200 q-10 -4 -10 8 q0 12 10 10 M364 200 q10 -4 10 8 q0 12 -10 10" stroke-width="2.2"/>
+    <!-- neck -->
+    <path d="M282 266 q-2 20 -10 36 M318 266 q2 20 10 36" stroke-width="2.4"/>
+    <!-- shoulders and chiton: the left shoulder bare, the right pinned with a fibula -->
+    <path d="M272 302 q-40 6 -56 24 M328 302 q40 4 58 20" stroke-width="2.6"/>
+    <path d="M222 318 q40 -10 78 -4 q42 -4 78 4" stroke-width="2.4"/>
+    <path d="M222 318 l-14 240 M378 318 l14 240" stroke-width="2.8"/>
+    <path d="M208 558 q46 22 92 8 q46 -14 92 -10" stroke-width="2.8"/>
+    <circle cx="372" cy="308" r="9" stroke-width="2.4"/>
+    <path d="M366 302 l12 12 M378 302 l-12 12" stroke-width="1.6"/>
+    <!-- belt -->
+    <path d="M216 404 q84 18 168 0 M218 412 q82 18 164 0" stroke-width="2.2"/>
+    <path d="M300 404 q-8 12 -2 20 M312 402 q2 14 12 18" stroke-width="1.8"/>
+    <!-- folds -->
+    <path d="M248 420 q-6 60 -14 130 M282 424 q-4 60 -6 132 M322 424 q6 56 10 130 M352 418 q10 52 20 128" stroke-width="1.7" stroke-opacity="0.8"/>
+    <path d="M232 340 q0 24 -4 48 M256 330 q-2 30 -6 66" stroke-width="1.5" stroke-opacity="0.7"/>
+    <!-- hatching in the shadow side of the tunic -->
+    <path d="M344 440 l24 -12 M348 466 l26 -12 M352 492 l26 -12 M356 518 l26 -12 M360 544 l24 -12" stroke-width="1.4" stroke-opacity="0.6"/>
+    <!-- right arm (viewer's left), bent, holding a scroll -->
+    <path d="M218 324 q-30 40 -26 84 q2 14 16 12 q14 -4 26 -30 q10 -22 24 -26" stroke-width="2.8"/>
+    <path d="M212 330 q-16 34 -14 70" stroke-width="1.7" stroke-opacity="0.7"/>
+    <!-- the scroll -->
+    <path d="M244 352 h84 M244 374 h84" stroke-width="2.6"/>
+    <ellipse cx="244" cy="363" rx="7" ry="12" stroke-width="2.4"/>
+    <ellipse cx="328" cy="363" rx="7" ry="12" stroke-width="2.4"/>
+    <path d="M258 359 h44 M258 366 h30" stroke-width="1.4" stroke-opacity="0.7"/>
+    <!-- the hand around the scroll -->
+    <path d="M250 372 q8 10 20 6 q8 -2 10 -10 M256 380 q10 6 20 0" stroke-width="2"/>
+    <!-- left arm (viewer's right), hanging, with the owl above it -->
+    <path d="M386 326 q26 44 24 96 q-2 20 -14 24 q-12 2 -14 -14 q-4 -30 -22 -60" stroke-width="2.8"/>
+    <path d="M394 446 q8 14 4 24 M402 444 q10 12 6 26 M410 440 q10 10 8 24" stroke-width="1.9"/>
+    <!-- legs and sandals -->
+    <path d="M262 570 q-2 60 0 122 M330 570 q4 60 2 122" stroke-width="2.8"/>
+    <path d="M288 574 q-6 58 -6 116 M306 574 q4 58 4 116" stroke-width="2.4"/>
+    <path d="M250 692 q10 10 46 6 q4 -2 -4 -12 M286 690 q10 10 50 6 q4 -2 -6 -12" stroke-width="2.6"/>
+    <path d="M258 672 l28 8 M262 660 l24 8 M300 670 l30 8 M304 658 l28 8" stroke-width="1.6"/>
+    <path d="M266 702 q14 10 30 4 M312 700 q14 10 30 4" stroke-width="2.2"/>
+    <!-- Mentor's owl on the shoulder -->
+    <ellipse cx="416" cy="286" rx="24" ry="30" stroke-width="2.6"/>
+    <circle cx="416" cy="250" r="18" stroke-width="2.6"/>
+    <path d="M402 236 l-8 -16 l16 8 M430 236 l8 -16 l-16 8" stroke-width="2.2"/>
+    <circle cx="409" cy="250" r="5.5" stroke-width="2"/>
+    <circle cx="423" cy="250" r="5.5" stroke-width="2"/>
+    <circle cx="410" cy="251" r="1.8" fill="#132c46"/>
+    <circle cx="424" cy="251" r="1.8" fill="#132c46"/>
+    <path d="M416 256 l-4 6 l8 0 z" stroke-width="1.6" fill="#c9a227"/>
+    <path d="M400 276 q16 10 32 0 M400 290 q16 10 32 0 M402 304 q14 10 28 0" stroke-width="1.5" stroke-opacity="0.75"/>
+    <path d="M404 316 l-4 8 M412 318 l0 8 M424 318 l4 8" stroke-width="1.8"/>
+    <path d="M394 268 q-8 20 2 38" stroke-width="1.8" stroke-opacity="0.8"/>
+  </g>
+
+  <!-- a stray pencil note: the way a sketchbook page has one -->
+  <g fill="none" stroke="#132c46" stroke-opacity="0.35" stroke-width="1.3" filter="url(#wobble2)">
+    <path d="M60 640 q40 -30 90 -6" />
+    <path d="M78 664 h60 M78 676 h44"/>
+    <path d="M150 632 l-6 8 M144 640 l10 -2"/>
+  </g>
+</svg>

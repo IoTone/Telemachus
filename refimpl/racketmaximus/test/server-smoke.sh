@@ -40,6 +40,12 @@ tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do tries=$((tries
 
 B="localhost:$PORT"
 assert "health"          "$(curl -s $B/health)" '"ok":true'
+# the Tier-B bundle root: a trailing slash means index.html. The route table's `*path`
+# once required a segment here and every bundle 404ed — caught by the beta tour, not
+# by any smoke, so this pins it (the file is served with nosniff).
+assert "bundle root serves index.html" "$(curl -s -o /dev/null -w '%{http_code} %{content_type}' $B/beta/bundle/beta-onboarding/)" '200 text/html'
+assert "bundle file by path"           "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/beta-onboarding/index.html)" '200'
+assert "bundle traversal refused"      "$(curl -s -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
 BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
 assert "bootstrap token" "$BS" '"token":"tk_'
 assert "bootstrap msg"   "$BS" 'Created operator alice'
@@ -305,6 +311,50 @@ BOBID=$(printf '%s' "$MB" | grep -oP '"user_id":\s*"\K[^"]+')
 curl -s -X POST "$B/api/repo-obj/$RID/share" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\"}" >/dev/null
 assert "repo shared read"   "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $BOB")" '"key":"reports/q3.pdf"'
 
+# ---- sharing with permissions (slice 56, DSH-1…6) ---------------------------------
+SHARE="$B/api/repo-obj/$RID/share"; UNSHARE="$B/api/repo-obj/$RID/unshare"
+# a VIEWER cannot forward what they were shown (DSH-2)
+assert "share: viewer no re-share" "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $BOB" -d "{\"user_id\":\"$CAROL_ID\"}")" 'Forbidden: files:manage'
+assert "share: carol still out"   "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" 'Forbidden: files:read'
+# the grant list names a CAPABILITY, not a permission string
+assert "share: grants list"       "$(curl -s "$B/api/repo-obj/$RID/grants" -H "Authorization: Bearer $OP")" '"capability":"view"'
+# expiry (DSH-3): the past is refused, garbage is refused, the future opens and is listed
+assert "share: past expiry 400"   "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$CAROL_ID\",\"expires_at\":\"2020-01-01T00:00:00Z\"}")" 'in the past'
+assert "share: bad expiry 400"    "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$CAROL_ID\",\"expires_at\":\"soon\"}")" 'ISO-8601'
+SH=$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"user\",\"principal_id\":\"$CAROL_ID\",\"capability\":\"edit\",\"expires_at\":\"2099-01-01T00:00:00Z\"}")
+assert "share: edit capability"   "$SH" '"capability":"edit"'
+assert "share: expiry listed"     "$SH" '"expires_at":"2099-01-01T00:00:00Z"'
+assert "share: editor reads"      "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+assert "share: editor no re-share" "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $CAROL" -d "{\"user_id\":\"$BOBID\"}")" 'Forbidden: files:manage'
+# revoke removes every row the principal held
+curl -s -X POST "$UNSHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"user\",\"principal_id\":\"$CAROL_ID\"}" >/dev/null
+assert "share: revoked"           "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" 'Forbidden: files:read'
+# a TEAM is a principal (DSH-6): every member reads it, nobody needed a row
+TEAMID=$(curl -s $B/api/whoami -H "Authorization: Bearer $OP" | grep -oP '"team_id":\s*"\K[^"]+')
+assert "share: team grant"        "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"team\",\"principal_id\":\"$TEAMID\"}")" '"principal_type":"team"'
+assert "share: team member reads" "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+curl -s -X POST "$UNSHARE" -H "Authorization: Bearer $OP" -d "{\"principal_type\":\"team\",\"principal_id\":\"$TEAMID\"}" >/dev/null
+assert "share: team revoked"      "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" 'Forbidden: files:read'
+# `manage` delegates stewardship of ONE document: bob, a plain member, may now share it onward
+curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\",\"capability\":\"manage\"}" >/dev/null
+assert "share: manage re-shares"  "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $BOB" -d "{\"user_id\":\"$CAROL_ID\"}")" '"ok":true'
+assert "share: carol reads again" "$(curl -s "$B/api/repo-obj/$RID" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+# bad input is a 400, never a row
+assert "share: bad capability"    "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$CAROL_ID\",\"capability\":\"owner\"}")" 'capability must be one of'
+assert "share: unknown user"      "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d '{"user_id":"nobody"}')" 'no such user'
+assert "share: no principal"      "$(curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d '{}')" 'is required'
+# provenance: an upload derives from nothing
+assert "share: derivations"       "$(curl -s "$B/api/repo-obj/$RID/derivations" -H "Authorization: Bearer $OP")" '"derivations":[]'
+# DSH step 3 / DWF step 4 reads: who can be shared with, what was shared with me, what processed it
+assert "share targets: people"  "$(curl -s "$B/api/share-targets" -H "Authorization: Bearer $OP")" '"username":"bob"'
+assert "share targets: teams"   "$(curl -s "$B/api/share-targets" -H "Authorization: Bearer $OP")" '"own":true'
+assert "shared with me (carol)" "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $CAROL")" '"key":"reports/q3.pdf"'
+if curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $OP" | grep -qF 'reports/q3.pdf'; then echo "  FAIL shared with me (owner) — the owner's own document is not 'shared with me'"; fail=1; else echo "  ok   shared with me (owner)"; fi
+assert "processing: nothing yet" "$(curl -s "$B/api/repo-obj/$RID/processing" -H "Authorization: Bearer $OP")" '"runs":[]'
+# leave bob as a viewer, which is what the checks below assume
+curl -s -X POST "$SHARE" -H "Authorization: Bearer $OP" -d "{\"user_id\":\"$BOBID\"}" >/dev/null
+assert "share: narrowed to view"  "$(curl -s "$B/api/repo-obj/$RID/grants" -H "Authorization: Bearer $OP")" '"permissions":["files:read"]'
+
 # an overwrite versions rather than destroys, and keeps the visibility it had
 printf 'second draft' > /tmp/tmx-smoke-doc2.pdf
 RPUT2=$(curl -s -X PUT "$B/api/repo/reports/q3.pdf" -H "Authorization: Bearer $OP" \
@@ -440,6 +490,47 @@ done
 assert "index-documents run completed" "$idxs" "done"
 assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
+
+# ---- slice 61: the knowledge graph — the surface exists, and extraction refuses to
+# run on the fallback model (the mention rule and the pipeline are unit-tested;
+# the whole flow over HTTP is in test/doc-pipeline-smoke.sh against a scripted model)
+KGE=$(curl -s "$B/api/kg/entities?q=" -H "Authorization: Bearer $OP")
+assert "kg: empty graph"          "$KGE" '"entities":[]'
+assert "kg: stats count the indexed document as waiting" "$KGE" '"unextracted":'
+assert "kg: unknown entity is 404" "$(curl -s "$B/api/kg/entities/nope" -H "Authorization: Bearer $OP")" 'not found'
+KGRUN=$(curl -s -X POST $B/api/kg/extract -H "Authorization: Bearer $OP")
+KGID=$(printf '%s' "$KGRUN" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "kg: extract queues index-knowledge" "$KGRUN" '"status":"running"'
+kgs=""; kgjson=""
+for i in $(seq 1 40); do
+  kgjson=$(curl -s "$B/api/runs/$KGID" -H "Authorization: Bearer $OP")
+  kgs=$(printf '%s' "$kgjson" | grep -oP '"status":"\K[^"]+' | head -1)
+  case "$kgs" in done|error|canceled) break;; esac
+  sleep 0.5
+done
+assert "kg: extraction fails without a model" "$kgs" "error"
+assert "…and says so"                          "$kgjson" 'no model configured'
+
+# ---- slice 57: the document pipeline plugin is present, and refuses to run on the
+# fallback model. Without this the uppercase-echo fallback would fail every schema
+# with "the model did not return a JSON object" — true, and useless to an operator.
+# The pipeline itself runs in test/doc-pipeline-smoke.sh against a scripted model.
+assert "process-upload arrived from the plugin" "$(curl -s $B/api/workflows -H "Authorization: Bearer $OP")" '"slug":"process-upload"'
+PIPEOBJ=$(curl -s "$B/api/repo?prefix=plans/" -H "Authorization: Bearer $OP" | grep -oP '"id":"\K[^"]+' | head -1)
+PIPERUN=$(curl -s -X POST $B/api/workflows/process-upload/run -H "Authorization: Bearer $OP" \
+  -d "{\"input\":{\"object_id\":\"$PIPEOBJ\",\"schema\":{\"type\":\"object\"},\"template\":\"\",\"locales\":[]}}")
+PIPEID=$(printf '%s' "$PIPERUN" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "process-upload run accepted" "$PIPERUN" '"status":"running"'
+pipes=""; pipejson=""
+for i in $(seq 1 40); do
+  pipejson=$(curl -s "$B/api/runs/$PIPEID" -H "Authorization: Bearer $OP")
+  pipes=$(printf '%s' "$pipejson" | grep -oP '"status":"\K[^"]+' | head -1)
+  case "$pipes" in done|error|canceled) break;; esac
+  sleep 0.5
+done
+assert "process-upload fails without a model" "$pipes" "error"
+assert "…and says so"                          "$pipejson" 'no model configured'
+assert "a declared input is required"          "$(curl -s -X POST $B/api/workflows/process-upload/run -H "Authorization: Bearer $OP" -d "{\"input\":{\"object_id\":\"$PIPEOBJ\"}}")" "is required"
 rm -f /tmp/tmx-smoke-idx.md
 
 # ---- Localization Manager (the flagship) --------------------------------------

@@ -223,6 +223,101 @@ try {
       return !!el && /Validator (doc|note)/.test(el.innerText);
     }, { timeout: 15000 }));
 
+  // ── 6b. the document pipeline: upload → "Run workflow…" → four derived documents
+  //        → "Processed by" → an Automation (DWF steps 2 and 4, DSH step 3) ─────
+  if (process.env.VALIDATE_PIPELINE === '1') {
+    step('document pipeline: run by hand, processed-by panel, automations card');
+    await page.evaluate(() => window.go('repository'));
+    await page.waitForSelector('#rfile', { timeout: 10000 });
+    // a template first, then the invoice
+    await page.setInputFiles('#rfile', { name: 'approval.md', mimeType: 'text/markdown',
+      buffer: Buffer.from('# Approval\n\nTitle: {{title}}\nSummary: {{summary}}\n') });
+    await page.fill('#rkey', 'templates/approval.md');
+    await page.evaluate(() => window.repoUpload());
+    ok('template uploaded', await until(page, () => document.body.innerText.includes('templates/approval.md'), { timeout: 20000 }));
+    await page.setInputFiles('#rfile', { name: 'acme-invoice.txt', mimeType: 'text/plain',
+      buffer: Buffer.from('INVOICE\nAcme Corp\nWidgets 1000\nShipping 250.50\nTotal 1250.50\n') });
+    await page.fill('#rkey', 'inbox/acme-invoice.txt');
+    await page.evaluate(() => window.repoUpload());
+    ok('invoice uploaded', await until(page, () => document.body.innerText.includes('inbox/acme-invoice.txt'), { timeout: 20000 }));
+    // a budget, or the run sits queued (the default is 2,000 tokens/day)
+    await apiCall(page, '/api/quota', { method: 'POST', body: { dimension: 'ai.tokens.total', limit: 1000000, window: 'day' } });
+    const inv = await apiCall(page, '/api/repo?prefix=inbox/acme-invoice.txt');
+    const invId = ((inv.json && inv.json.objects) || []).map(o => o.id)[0];
+    ok('invoice id resolved', !!invId);
+
+    // "Run workflow…" from the document lands on the run form with it prefilled
+    await page.evaluate(id => window.repoRunWorkflow(id), invId);
+    ok('run form opened on process-upload',
+      await until(page, () => typeof S !== 'undefined' && S.wfSel === 'process-upload' && !!document.querySelector('#wfi_0'), { timeout: 15000 }));   // S is a top-level const, not window.S
+    const idx = await page.evaluate(() => ({ object_id: S.wfKeys.indexOf('object_id'), schema: S.wfKeys.indexOf('schema'),
+                                              template: S.wfKeys.indexOf('template'), locales: S.wfKeys.indexOf('locales') }));
+    eq('object_id is prefilled', await page.evaluate(i => document.getElementById('wfi_' + i).value, idx.object_id), invId);
+    await page.fill('#wfi_' + idx.template, 'templates/approval.md');
+    await page.fill('#wfi_' + idx.locales, '["nl"]');
+    await page.fill('#wfi_' + idx.schema, JSON.stringify({ type: 'object', required: ['title', 'summary'],
+      properties: { title: { type: 'string' }, summary: { type: 'string' }, date: { type: ['string', 'null'] } } }));
+    await page.evaluate(() => window.wfStart());
+    ok('run started and the run view opened',
+      await until(page, () => !!S.wfRun && document.body.innerText.includes('process-upload'), { timeout: 15000 }));
+    const runId = await page.evaluate(() => S.wfRun);
+    let runStatus = '';
+    for (let i = 0; i < 400 && !['done', 'error', 'canceled'].includes(runStatus); i++) {
+      const r = await apiCall(page, '/api/runs/' + runId);
+      runStatus = (r.json && r.json.status) || '';
+      if (!['done', 'error', 'canceled'].includes(runStatus)) await page.waitForTimeout(500);
+    }
+    const runJson = (await apiCall(page, '/api/runs/' + runId)).json || {};
+    eq('the run finished', runStatus, 'done');
+    if (runStatus !== 'done') console.log('      run error: ' + runJson.error);
+
+    // the derived documents sit beside the invoice, and its panel lists them
+    await page.evaluate(() => window.go('repository'));
+    await page.waitForSelector('#rfile', { timeout: 10000 });
+    // `until` serializes its predicate, so a closure over `k` would not survive; pass it as an argument
+    for (const k of ['inbox/acme-invoice.txt.extracted.json', 'inbox/acme-invoice.txt.form.md', 'inbox/acme-invoice.txt.form.nl.md'])
+      ok('derived document listed: ' + k,
+         await page.waitForFunction(key => document.body.innerText.includes(key), k, { timeout: 15000 }).then(() => true, () => false));
+    await page.evaluate(id => window.repoOpenDetail(id), invId);
+    ok('"Processed by" lists the derived documents and the run',
+      await until(page, () => { const el = document.getElementById('rprocessed');
+        return !!el && el.innerText.includes('extracted.json') && el.innerText.includes('process-upload'); }, { timeout: 15000 }));
+    ok('the share dialog offers capabilities', await page.evaluate(() => !!document.querySelector('#rdcap') && !!document.querySelector('#rdexp')));
+    // "Shared with me" renders (empty for the operator, who owns everything here)
+    await page.evaluate(() => window.repoFilter(true));
+    ok('"Shared with me" filter renders', await until(page, () => !!document.getElementById('rf_shared') && document.body.innerText.includes('Shared with me')));
+    await page.evaluate(() => window.repoFilter(false));
+
+    // an Automation: create a trigger from the card, upload into its prefix, watch it fire
+    await page.evaluate(() => window.go('workflows'));
+    ok('Automations card renders', await until(page, () => !!document.querySelector('#tg_prefix'), { timeout: 15000 }));
+    await page.fill('#tg_prefix', 'inbox/auto/');
+    await page.fill('#tg_input', JSON.stringify({ schema: { type: 'object', required: ['title', 'summary'],
+      properties: { title: { type: 'string' }, summary: { type: 'string' }, date: { type: ['string', 'null'] } } }, template: '', locales: [] }));
+    await page.evaluate(() => window.trgCreate());
+    ok('trigger listed', await until(page, () => document.body.innerText.includes('inbox/auto/'), { timeout: 15000 }));
+    const put = await page.evaluate(async () => {
+      const tok = localStorage.getItem('tmx_token');
+      const res = await fetch('/api/repo/inbox/auto/scan-001.txt', { method: 'PUT',
+        headers: { Authorization: 'Bearer ' + tok, 'Content-Type': 'text/plain' }, body: 'INVOICE Acme, again' });
+      return res.status;
+    });
+    ok('upload into the triggered prefix accepted', put === 200 || put === 201, `status ${put}`);   // 201 for a new key
+    const trg = await apiCall(page, '/api/doc-triggers');
+    const tid = (((trg.json || {}).triggers) || []).map(x => x.id)[0];
+    let fired = null;
+    for (let i = 0; i < 200 && !fired; i++) {
+      const h = await apiCall(page, '/api/doc-triggers/' + tid);
+      const f = (((h.json || {}).fires) || []).find(x => x.key === 'inbox/auto/scan-001.txt');
+      if (f && f.run_id) { const r = await apiCall(page, '/api/runs/' + f.run_id); if (r.json && ['done', 'error'].includes(r.json.status)) fired = r.json; }
+      if (!fired) await page.waitForTimeout(500);
+    }
+    ok('the trigger fired and its run finished', !!fired && fired.status === 'done', fired ? fired.error : 'no fire');
+    await page.evaluate(id => window.trgHistory(id), tid);
+    ok('trigger history shows the fire', await until(page, () => { const el = document.getElementById('tg_history');
+      return !!el && el.innerText.includes('inbox/auto/scan-001.txt'); }, { timeout: 10000 }));
+  }
+
   // ── 7. the remaining tabs render at all ─────────────────────────────────────
   step('workflows, jobs, usage render');
   for (const tab of ['workflows', 'jobs', 'usage']) {

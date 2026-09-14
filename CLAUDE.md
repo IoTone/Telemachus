@@ -462,6 +462,266 @@ raco test test/repo-tests.rkt test/sha2-tests.rkt   # 99 cases, no server
 bash test/server-smoke.sh                            # includes the repository block
 ```
 
+## Document sharing (slice 56)
+
+Three capabilities over the grants table that already existed. Design:
+`docs/design/document-sharing.md` (DSH‑1…6, decided; all built — slice 59 added
+the dialog's pickers and "Shared with me").
+
+- **The share dialog's principal picker is `GET /api/share-targets`**: the team's
+  active members plus the org's teams (`own: true` marks the caller's). Nothing
+  outside the org is ever offered — DSH‑6 by construction, not by validation.
+- **`GET /api/repo?shared=1`** is "handed to me": objects with a LIVE grant for
+  the caller (user or acting team) that the caller does not own. A team-visible
+  document is not "shared with me", and neither is your own.
+- The dialog sends `expires_at` as `<date>T23:59:59Z` — "until this day",
+  inclusive. Revoke is per principal (`principal_type` + `principal_id`).
+
+- **A grant DELEGATES now.** `can?` used to take the permission from the caller's
+  role and use a grant only to *reach* a private resource, so a member handed
+  `manage` still could not share and a viewer given `edit` could not edit. A
+  matching grant now confers the permission on that one resource, team tier only,
+  still capped by token scopes. This is the single contract change of the slice —
+  if a test that grants `documents:write` to a viewer starts passing, that is why.
+- Capabilities are permission SETS granted row by row (`CAPABILITIES` in
+  `repo.rkt`): view = `files:read`; edit = + `files:write`; manage = +
+  `files:delete` + `files:manage`. Never a wildcard. Sharing again with the same
+  principal REPLACES the set (narrowing drops rows) and renews the expiry.
+- **Only `manage` re-shares** (DSH‑2): `repo-share!`, `repo-unshare!`,
+  `repo-grants` AND `repo-set-visibility!` require `files:manage` on the object.
+  Owner-ok covers the owner; a team admin has it by role for what the role reaches
+  — a colleague's team-visible document, **never their private one** (private is
+  private from admins too; only a grant or the owner opens it).
+- `expires_at` is **epoch seconds** in the row, `NULL` = never; `has-grant?` adds
+  `expires_at IS NULL OR expires_at > now`. Expired rows stay (audit trail) and are
+  listed with `expired: true`. The API takes ISO‑8601 or epoch seconds
+  (`expiry->seconds`), returns ISO‑8601 UTC. A past expiry is a 400, never a row.
+- A principal must be **in the object's org**: a user by `users.org_id` OR an active
+  membership in one of its teams (an operator's `org_id` is NULL — the membership
+  clause is what lets you share with the operator); a team by `teams.org_id`. Else
+  400 — the org gate would leave the row inert, and nobody should be told "shared".
+- `{user_id}` on `POST /api/repo-obj/<id>/share` still means "this person, view".
+  The full body is `{principal_type, principal_id, capability, expires_at}`.
+- `repo-inherit!` (DSH‑5) copies the source's visibility + LIVE grants onto a
+  derived document and writes a `repo_derivations` row; afterwards the two are
+  independent. It needs `files:read` on the source and `files:manage` on the
+  target (owner-ok for the run's principal). `GET /api/repo-obj/<id>/derivations`
+  is the provenance read.
+- `grant!` is now an **upsert** (`ON CONFLICT … DO UPDATE SET expires_at,
+  granted_by`) — granting again renews. `test/fold-tests.rkt` seeds its pre-0025
+  grant with raw SQL because the column does not exist yet in that database.
+- The grants listing is ordered by `created_at`, which has second resolution — a
+  test must find a principal's entry by id, never by position.
+- Notes sharing took a free-form permission string; it is pinned to `notes:*` now,
+  because a grant delegates.
+
+```sh
+raco test test/repo-tests.rkt          # case 7 + expiry parsing (151 cases in the file)
+bash test/server-smoke.sh              # the "share:" block, 20 assertions
+```
+
+## Document pipeline (slices 57–58) — the first-user path
+
+Upload a file, run `process-upload` (by hand, or let a **trigger** run it on
+arrival), get fields + a filled form + translations back as documents beside the
+source. Design: `docs/design/document-workflows.md` (DWF‑1…8, decided; all
+five steps built, slices 57–59). Four core tools in
+`domain/repo/doc-tools.rkt` (`doc_text`, `doc_extract_fields`, `doc_render`,
+`doc_translate`), composed by `plugins/doc-pipeline/`; triggers in
+`domain/repo/triggers.rkt` on the seam at the end of `repo-put!`.
+
+### Triggers (slice 58)
+
+- **One seam.** `repo-put!` ends by calling the hook in a box (`set-put-hook!`);
+  requiring `triggers.rkt` installs `fire-triggers!`. Console upload, the
+  documents shim and an S3 PUT all pass through it. The hook never raises into
+  the upload — a fire that cannot start leaves `error` on its `doc_trigger_fires`
+  row and a `doc.trigger.error` audit event.
+- **The run is the uploader's** (DWF‑2), scopes and all. An S3 key issued with the
+  default `files:*` scopes CANNOT start a workflow — the fire row says
+  `workflows:run`. Issue the key with `workflows:read` + `workflows:run`. The
+  smoke's section 7 pins both halves with the real `aws` CLI.
+- **`#:derived?` on `repo-put!` is `#t` or the run id.** The tools pass the run id
+  (`derive!`), because the derivation row is written AFTER `repo-put!` returns and
+  the seam needs to know, right then, that this output came from a run this
+  trigger started. Without it an opted-in trigger on `application/json` fired on
+  its own extracted JSON 50 times in the unit test.
+- **`fire_on_derived` = other pipelines' outputs, never its own** (`own-descendant?`).
+  Off by default (DWF‑3).
+- **Exactly once per version**: the `(trigger_id, version_id)` row is claimed
+  before the run starts; a re-upload is a new version and fires again. Fires are
+  ordered by `fired_ms` (epoch ms) — `CURRENT_TIMESTAMP` is seconds, and a test
+  that asserts "newest first" on two fires in one second will flap.
+- The arrival (`object_id`, `version_id`, `key`, `content_type`) WINS over the
+  trigger's `input` on a clash.
+- `GET /api/doc-triggers` carries `budget` (the team's `ai.tokens.total`): queued
+  runs under a trigger are a team out of tokens, not a broken trigger.
+
+```sh
+raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, derived guard, scoped keys
+```
+
+### "Processed by", Automations, DOCX (slice 59)
+
+- `GET /api/repo-obj/<id>/processing` (`object-processing` in `triggers.rkt`):
+  derived documents, sources, and every run that touched the document — found
+  through derivation rows, trigger fires, and a `LIKE '%"object_id":"<id>"%'`
+  over `workflow_runs.input` (the JSON is written without spaces, so the pair is
+  one substring). Each row is authorized on its own. Runs are ordered by
+  `created_at`, which is second-resolution — do not assert "newest first" on
+  runs started in the same second.
+- The Automations card lives on the **Workflows** tab (`automationsCard`), with
+  `trgCreate/trgToggle/trgDelete/trgHistory`; the create form's input textarea
+  is prefilled with `PIPELINE_EXAMPLE_SCHEMA`.
+- **DOCX**: `render-docx` unzips to a temp dir, runs `docx-prepare` on
+  `word/document.xml` (re-joins placeholders Word split across runs; turns a
+  marker-only table row into the `{{#each}}` marker so the rows between repeat),
+  renders with XML escaping, and zips back with `file/zip` from inside the temp
+  dir. A template that is not a zip, or a zip with no `word/document.xml`, is a
+  named error. Tests build real .docx files with `file/zip`; the smoke with
+  Python's `zipfile`.
+- **The e2e gate boots the scripted mock model** (`test/mock-llm.rkt`, chat
+  mode) when it boots its own server, so the pipeline scenario is deterministic
+  and takes seconds; `VALIDATE_PIPELINE=1` opts a live box in. The scenario
+  drives the console only: `repoRunWorkflow`, the run form by `S.wfKeys` index
+  (input order is a hash's — never assume `#wfi_0` is `object_id`), `wfStart`,
+  `repoOpenDetail` → `#rprocessed`, `repoFilter(true)` → `#rf_shared`,
+  `trgCreate` → `trgHistory` → `#tg_history`.
+
+- **The model is a parameter**: `current-doc-chat`. Tests script it; the HTTP
+  smoke uses `test/mock-llm.rkt`'s CHAT mode (`MOCK_REPLY_FILE`, a `{"needle":
+  "reply"}` map matched against the request text — needles are `"extract
+  structured data"` and `"professional translator"`); set `TELEMACHUS_MODEL_URL`
+  and the same smoke runs live. **With no model the tools refuse** ("no model
+  configured") — the uppercase-echo fallback would otherwise fail every schema
+  with "did not return a JSON object", which is true and useless.
+- **Extraction is refused on mismatch, never flagged** (DWF‑5).
+  `domain/tools/jsonschema.rkt` is a JSON Schema subset with one deliberate
+  difference: an object with no `additionalProperties` is CLOSED. The refusal
+  names the path (`$.total: expected number, got string`). The `fields` step
+  retries once. The reply's outermost `{…}` is what gets parsed, so a fence or a
+  sentence around the JSON is fine; no object at all is refused.
+- **The renderer is strict**: a `{{placeholder}}` the data lacks is an error, not
+  a blank. `{{#each}}` blocks nest; the outer scope is visible inside one; HTML
+  templates escape. The template is a repository document, by id or by key.
+- **Keys**: `<key>.extracted.json`, `<key>.form.<template ext>`,
+  `<key>.form.<locale>.<ext>`; a translation of the SOURCE is
+  `<key minus ext>.<locale>.<ext-or-txt>`. Re-runs version the same key.
+- **A derived document is private from its first byte**: `derive!` passes the
+  source's visibility to `repo-put!` and THEN `repo-inherit!` copies grants and
+  writes the derivation row. Do not reorder that.
+- **All four workflow inputs are required** by the engine (`check-input!`); `""`
+  and `[]` mean "skip". The console's run form sends a PREFILLED empty (from
+  "Run workflow…" on a document) instead of dropping it; an untouched blank on
+  any other workflow is still omitted, as before.
+- **The AI tools meter themselves** (`tenant-quota-record!`, both tiers): the
+  scheduler bills a job's top-level `tokens_used`, and a tool step's result sits
+  under `result`. `quota-check` reports `used: 0` when no limit is set — read the
+  ledger with `quota-used … "total"` in a test. Raise `ai.tokens.total` before a
+  batch (the smoke sets 1,000,000/day) or the queue stalls silently.
+- **`doc_text` fails on an unreadable document** (unlike indexing, which records
+  nothing): someone is waiting for fields, and silence would look like success.
+- **`render-template` clashes with the beta template renderer's name** — main.rkt
+  requires `doc-tools.rkt` with `(only-in …)` for registration only.
+- **`translate!` takes `#:chat` as `(chat text sys)`**, positional; the doc tools
+  adapt the keyword seam to it. `translate!` does not meter — the caller does.
+- A viewer of a shared document may run the pipeline; the outputs are THEIRS. If
+  the owner already ran it, the derived keys are the owner's private objects and
+  the viewer's run fails with `forbidden: files:write` rather than clobbering.
+
+```sh
+raco test test/doc-pipeline-tests.rkt      # validator, renderer, refusals, the whole pipeline via the scheduler
+bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model; ends with an S3 PUT firing a trigger
+TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
+```
+
+## The route table and the generated reference (slice 60)
+
+`server/routes.rkt` DECLARES every HTTP route: method, path pattern, handler key,
+auth, permission, feature, one line of doc. `main.rkt`'s `HANDLERS` binds keys to
+procedures of `(req . path-params)` and **refuses to boot** if the two disagree.
+`docs/reference/` is generated from that table, the tool registry, the plugin
+loader, the workflow specs and the permission catalog by `cli/telemachus-docs.rkt`
+and is COMMITTED; CI runs `telemachus-docs check` and fails on drift.
+
+- **Adding an endpoint = one entry in `routes.rkt` + one handler in `HANDLERS`**,
+  then `racket cli/telemachus-docs.rkt render` and commit `docs/reference/`.
+  Forgetting the render fails CI; forgetting either half refuses to boot.
+- Patterns: literal segments, `:name`, `*name` (rest of path). First match wins in
+  list order — keep `/api/workflows/schema` above `/api/workflows/:slug`.
+- **Every permission needs a description** in `PERMISSION-DOCS`
+  (`domain/authz/permissions.rkt`); a built-in role granting an undescribed one
+  is a LOAD error, and the docs CLI checks every route's permission too.
+- **Never `write-json` a hash in the generator**: `hasheq` iteration order is not
+  stable across processes and the drift gate would cry wolf. `json-out` sorts.
+- `docs/reference/strings.json` is a JSON surface for `telemachus-localize`:
+  every description is a `doc.*` message (249). The CI localize gate includes it.
+  `render --locale ja` writes `docs/reference/ja/` from the catalogs, English
+  where a string is not yet translated. Nobody has drafted `doc.*` yet.
+- The CLI evaluates the plugins (`load-plugins!`), so run it inside `nix develop`.
+
+```sh
+racket cli/telemachus-docs.rkt render      # regenerate docs/reference/
+racket cli/telemachus-docs.rkt check       # the CI gate
+```
+
+## Knowledge graph (slice 61)
+
+Entities and relations from the team's documents, every fact bound to the
+document and version that said it. Design: `docs/design/knowledge-graph.md`
+(KG‑1…7, all built). `domain/kg/kg.rkt` + `kg-tools.rkt`; plugin
+`knowledge-graph` (workflow `index-knowledge`); `/api/kg/*`; the Knowledge tab.
+
+- **Nothing enters without a source, and visibility is the source's** (KG‑3):
+  `kg-entity`/`kg-find` return only what has a mention on an object the caller
+  `can?` read, and each relation carries only ITS readable mentions. `#f` means
+  "does not exist or you cannot see it" — indistinguishable on purpose.
+- **The extractor refuses** a reply whose snippet is not a verbatim substring of
+  the text, a relation to an entity not in the reply, or a nameless entity
+  (`validate-extraction`). The step retries once. Same model seam as the pipeline
+  (`current-doc-chat`); with no model it refuses loudly.
+- **`kg_extract` reads `repo_text`** — run `index-documents` first. A document
+  with no text is marked extracted-with-nothing (`kg_extractions`) so it is not
+  listed forever; that fourth table is the one deviation from the design.
+- A new version supersedes (old mentions go, orphans pruned); `repo-delete!`
+  calls the delete hook (`set-delete-hook!` in repo.rkt) → `kg-forget!`.
+- Dedup: `(team, type, normalize-name)` — lower-case, collapsed whitespace, a
+  short suffix list. No cross-type merging (KG‑4).
+- Search returns `type: "entity"` rows under the same rule; the agent's
+  `kg_query` answers in text with `[key]` citations.
+- KG‑7 (a `utility` model role) is not distinct yet — one configured model.
+
+```sh
+raco test test/kg-tests.rkt        # the mention rule, validation, supersession, the pipeline
+```
+
+## The developer e-book (`docs/book/`)
+
+`telemachus-for-developers.tex` is one LaTeX source built two ways by
+`docs/book/build.sh` inside `nix develop`: `tectonic` → the PDF, `pandoc` → a
+single self-contained HTML page (`book.css` inlined). Keep the LaTeX plain —
+sections, lists, `tabular`/`longtable`, `lstlisting` — so pandoc renders the
+same book the PDF is; a custom macro would silently vanish from the HTML.
+Tectonic fetches TeX packages on first run (a 429 from the bundle mirror is a
+retry, not a failure) and caches them under `~/.cache/Tectonic`. The built PDF
+and HTML are committed beside the source; rebuild and commit them together.
+
+- **The character art**: `docs/book/art/telemachus-sketch.svg` is the master
+  (hand-authored SVG: ink paths, a `feTurbulence` wobble, construction marks).
+  **`art/vignettes.py` generates one scene per chapter** (`ch-NN-*.svg`) from a
+  parts library in the master's coordinate space — head, five expressions, bust
+  or full figure, arm poses, walking legs, the owl in three poses — plus a
+  per-chapter prop; it also writes `chapter-art.css` (one `h1#<pandoc-id>::before`
+  rule per chapter, SVG data URIs) and `chapters.json`. `art/render.mjs` renders
+  every SVG in the directory to PNG at 3× with the e2e directory's Playwright
+  (`node docs/book/art/render.mjs` from the repo root). The PDF picks each
+  chapter's PNG via `\chapterart{…}` before the `\chapter`; the HTML gets the
+  SVGs through `book.css` + `chapter-art.css`. Change a scene in the generator,
+  never in a generated SVG; then regenerate, render, rebuild.
+- **`\ifpdfonly`** guards the title page and the `titlesec` chapter format; pandoc
+  honours TeX conditionals, and `build.sh` flips the switch to false on the copy
+  it hands to pandoc, so the HTML gets `\maketitle` plus the sketch instead.
+
 ## Workflow engine (plugins that process in steps)
 
 Slice 46. A workflow is a **validated data spec** — that spec is the public
@@ -481,7 +741,11 @@ contract (WF‑9), and `define-workflow` is a macro that emits it, the same move
 - Ships `tool:<name>`, `choice` and `map` (fan-out). `agent`/`job:`/`flow:` deferred.
 - A plugin may `(provide workflows)` or drop `workflows/*.json`; those specs are
   **materialized** into a team's `workflow_defs` on first lookup (`source:
-  'plugin:<id>'`) — a plugin has no team at load time.
+  'plugin:<id>'`) — a plugin has no team at load time. The insert is `ON
+  CONFLICT DO NOTHING`: the console fires the Workflows list and a "Run
+  workflow…" lookup in parallel, and on a team that had never looked, both saw
+  no row and the second insert 500ed on `UNIQUE(team_id, slug, version)`. The
+  e2e gate caught it; the smokes, which look things up one at a time, never did.
 - `${principal.locale}` is `users.locale` (migration 0018), NOT `Accept-Language`.
 
 Operator runbook: `docs/ops/workflow-engine-runbook.md`.
@@ -531,9 +795,11 @@ BASE_URL=http://<host>:8835 bash test/e2e/validate.sh --no-server   # a live box
 DATABASE_URL="postgres://…" bash test/e2e/validate.sh            # honours a pre-set URL
 ```
 
-31 assertions, no screenshots: sign-in + branding → bootstrap → notes → documents
-create **and edit** → repository upload with byte-identical download → search →
-workflows/jobs/usage → Admin > Branding round-trip → sign out/in. It also fails on
+No screenshots: sign-in + branding → bootstrap → notes → documents create **and
+edit** → repository upload with byte-identical download → search → **the document
+pipeline** (upload → "Run workflow…" → derived documents → "Processed by" → an
+Automation firing on an upload; against the scripted mock model, see slice 59)
+→ workflows/jobs/usage → Admin > Branding round-trip → sign out/in. It also fails on
 **any uncaught page/console error** and **any 5xx**, which is how a broken write path
 gets caught even when no assertion names it. The screenshot *tours* do not assert and
 will photograph a broken page — use this to gate a deploy.

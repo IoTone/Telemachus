@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 300" width="360" height="300">
+  <defs>
+    <filter id="wobble" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+  <g fill="none" stroke="#132c46" stroke-opacity="0.18" stroke-width="1.2" stroke-dasharray="4 5" filter="url(#wobble)"><path d="M260 60 h60"/></g>
+  <g transform="translate(-30 -40) scale(0.55)">
+    <g filter="url(#wobble)"><path d="M236 168 Q300 150 364 168 L360 182 Q300 166 240 182 Z" fill="#c9a227" fill-opacity="0.75"/><path d="M222 318 Q300 300 378 318 L384 420 Q300 440 216 420 Z" fill="#c7d3e6" fill-opacity="0.45"/><circle cx="372" cy="308" r="9" fill="#c9a227" fill-opacity="0.85"/><path d="M120 150 h70 v40 h-70 z" fill="#c7d3e6" fill-opacity="0.6"/></g>
+    <g fill="none" stroke="#132c46" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)">
+<path d="M236 175 Q222 235 258 262 Q300 292 342 262 Q378 235 364 175"/>
+<path d="M236 175 Q236 140 262 122 Q300 104 338 122 Q364 140 364 175" stroke-width="2.4"/>
+<path d="M238 172 a10 10 0 1 1 14 -12 a11 11 0 1 1 16 -10 a12 12 0 1 1 18 -6 a12 12 0 1 1 18 0 a12 12 0 1 1 16 6 a11 11 0 1 1 14 10 a10 10 0 1 1 12 12" stroke-width="2.6"/>
+<path d="M232 190 a9 9 0 1 1 -6 14 M368 190 a9 9 0 1 1 6 14 M226 212 a8 8 0 1 0 -2 12 M374 212 a8 8 0 1 0 2 12" stroke-width="2.2"/>
+<path d="M270 128 a9 9 0 1 0 10 -10 M296 118 a9 9 0 1 0 10 -6 M322 124 a9 9 0 1 0 10 -2" stroke-width="2.2"/>
+<path d="M238 170 Q300 150 362 170" stroke-width="2.6"/>
+<path d="M238 182 Q300 164 362 182" stroke-width="2.6"/>
+<path d="M362 176 q14 -6 22 4 q-10 4 -14 12" stroke-width="2.2"/>
+<path d="M236 200 q-10 -4 -10 8 q0 12 10 10 M364 200 q10 -4 10 8 q0 12 -10 10" stroke-width="2.2"/>
+<path d="M300 208 q-8 14 2 20 q6 2 8 -2" stroke-width="2.2"/>
+
+<path d="M262 188 q14 -12 30 -4 M310 186 q16 -10 30 0" stroke-width="2.6"/>
+<path d="M270 204 q8 -9 16 0 M316 204 q8 -9 16 0" stroke-width="2.4"/>
+<path d="M278 238 q22 20 44 -2 q-22 8 -44 2 z" stroke-width="2.4" fill="#132c46" fill-opacity="0.15"/><path d="M282 266 q-2 20 -10 36 M318 266 q2 20 10 36" stroke-width="2.4"/>
+<path d="M272 302 q-40 6 -56 24 M328 302 q40 4 58 20" stroke-width="2.6"/>
+<path d="M222 318 q40 -10 78 -4 q42 -4 78 4" stroke-width="2.4"/>
+<path d="M222 318 l-6 104 M378 318 l6 104" stroke-width="2.8"/>
+<circle cx="372" cy="308" r="9" stroke-width="2.4"/><path d="M366 302 l12 12 M378 302 l-12 12" stroke-width="1.6"/>
+<path d="M256 330 q-2 30 -6 66 M340 334 q4 30 8 60" stroke-width="1.5" stroke-opacity="0.7"/>
+<path d="M218 324 q-46 -10 -62 -60 q-6 -18 4 -26 q10 -6 18 6 q12 20 34 40" stroke-width="2.8"/>
+<path d="M160 244 q-4 -16 4 -24 M170 240 q-4 -14 6 -22" stroke-width="1.9"/>
+<path d="M386 326 q30 36 22 80 q-4 16 -18 14 q-12 -2 -14 -18 q-2 -26 -20 -50" stroke-width="2.8"/>
+<path d="M370 410 q8 10 18 6 M374 420 q8 6 16 2" stroke-width="2"/><path d="M120 150 h70 v40 h-70 z M155 190 l10 52" stroke-width="2.6"/>
+<path d="M360 420 l60 -20 M420 400 l10 -4 l4 10 l-10 4 z" stroke-width="2.4"/>
+<path d="M470 240 l40 -10 l4 12 l-40 10 z" stroke-width="2.2" fill="#f2ecd8"/>
+<g transform="translate(440 200) scale(0.9) translate(-416 -286)">
+<ellipse cx="416" cy="286" rx="24" ry="30" stroke-width="2.6"/>
+<circle cx="416" cy="250" r="18" stroke-width="2.6"/>
+<path d="M402 236 l-8 -16 l16 8 M430 236 l8 -16 l-16 8" stroke-width="2.2"/>
+<circle cx="409" cy="250" r="5.5" stroke-width="2"/><circle cx="423" cy="250" r="5.5" stroke-width="2"/>
+<circle cx="410" cy="251" r="1.8" fill="#132c46"/><circle cx="424" cy="251" r="1.8" fill="#132c46"/>
+<path d="M416 256 l-4 6 l8 0 z" stroke-width="1.6" fill="#c9a227"/>
+<path d="M400 276 q16 10 32 0 M400 290 q16 10 32 0 M402 304 q14 10 28 0" stroke-width="1.5" stroke-opacity="0.75"/>
+<path d="M404 316 l-4 8 M412 318 l0 8 M424 318 l4 8" stroke-width="1.8"/>
+
+<path d="M392 270 q-40 -20 -60 8 M440 270 q40 -20 60 8" stroke-width="2.4"/><path d="M372 274 q-14 6 -22 16 M460 274 q14 6 22 16" stroke-width="1.6"/>
+
+</g></g>
+  </g>
+</svg>

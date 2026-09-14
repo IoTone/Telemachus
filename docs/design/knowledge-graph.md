@@ -1,6 +1,6 @@
 # Knowledge Graph
 
-*Decided 11 Sep 2026 — the recommendations under **Decisions to confirm** are adopted (KG‑1…7). Deliberately the narrowest thing that is still a knowledge graph: a v1 to build, ship, and then find out what people actually ask of it.*
+*Decided 11 Sep 2026 (KG‑1…7). **Built** 13 Sep 2026 (slice 61): `domain/kg/`, migration `0027-kg`, the `knowledge-graph` plugin, search, the `kg_query` agent tool, `/api/kg/*`, the Knowledge tab. See **As built** at the end. Deliberately the narrowest thing that is still a knowledge graph: a v1 to build, ship, and then find out what people actually ask of it.*
 
 ## What it is, and what it is not
 
@@ -159,15 +159,44 @@ KnowledgeGraph:
 
 ## Bootstrapping plan
 
-1. Migration + `domain/kg/kg.rkt` with `upsert`/`forget`/`entity`/`find` and the
+1. ✅ Migration + `domain/kg/kg.rkt` with `upsert`/`forget`/`entity`/`find` and the
    mention-rule filter; unit tests that prove the rule (private-vs-team mentions).
-2. `kg_extract` tool with strict validation; test it against the deterministic
-   fallback model AND a live one, as the Manager's drafting was.
-3. The `index-knowledge` workflow; run it over the seeded sample documents.
-4. Search integration (the fourth result kind) — smoke-tested.
-5. The agent tool; then the tab.
+2. ✅ `kg_extract` tool with strict validation; tested against a scripted model
+   and the deterministic seam.
+3. ✅ The `index-knowledge` workflow (plugin `knowledge-graph`).
+4. ✅ Search integration (the fourth result kind) — smoke-tested.
+5. ✅ The agent tool; then the tab.
 
-## Decisions to confirm
+## As built
+
+- **A fourth table**: `kg_extractions(object_id, version_id, entities, relations)`.
+  "Three tables plus nothing" did not account for the document with no entities
+  in it, which would otherwise be listed as unextracted forever. It is the same
+  role `repo_text` plays for indexing: a per-version marker.
+- **The mention rule is applied per row, twice**: an entity is returned only with
+  the mentions the caller can read, and each of its relations only with *its*
+  readable mentions — so a relation asserted only in a private memo is absent
+  from a colleague's view of an entity the team can otherwise see. `kg-entity`
+  returns `#f` both when an entity does not exist and when the caller can see no
+  mention of it; the two are indistinguishable on purpose.
+- **Validation is the provenance**: a snippet must be a verbatim substring of
+  the text given to the model, a relation may only join entities in the same
+  reply, a nameless entity is refused — the whole reply is refused, and the
+  workflow step retries once. The model seam is the document pipeline's
+  (`current-doc-chat`), so one scripted reply drives every test.
+- **Dedup is `(team, type, normalized name)`** with a small suffix list (inc,
+  ltd, gmbh, …); the first spelling seen is the display name; the longest
+  description seen is kept.
+- **Extraction text is capped at 12k characters** — a 7B model's window, and
+  where a document's named things live.
+- **KG‑7 (a `utility` model role) is not distinct yet**: extraction uses the
+  configured model through the same seam as everything else. Wiring a cheaper
+  model per role is a small follow-up once one is configured.
+- The tab is lists with citations (KG‑6): an entity browser with a type filter,
+  and for one entity its relations and every mention linking to the document.
+  "Extract now" queues the workflow and lands on its run.
+
+## Decisions (confirmed 11 Sep 2026)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|
