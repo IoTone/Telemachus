@@ -36,7 +36,11 @@
          grant! revoke!
          audit! audit-list
          set-password! change-password! authenticate enable-2fa! first-team-for
-         user-locale set-user-locale!)
+         user-locale set-user-locale! org-data-reader? org-teams-of)
+
+;; every team id in an org, for an org-scoped listing (TEN-2h)
+(define (org-teams-of conn org-id)
+  (query-list conn "SELECT id FROM teams WHERE org_id = ? ORDER BY created_at, slug" org-id))
 
 ;; ---- principal --------------------------------------------------------------
 ;; token-scopes: #f = direct user (uncapped by scopes); (listof string) = token.
@@ -232,6 +236,13 @@
 (define (org-tier-covers? conn p required)
   (for/or ([g (in-list (user-org-permissions conn p))]) (perm-matches? g required)))
 
+;; TEN-2h: an org role holding `org:read-data` covers the team-tier data READS
+;; (and only those) across the company
+(define (org-data-reader? conn p required)
+  (and (member required DATA-READ-PERMS)
+       (org-tier-covers? conn p "org:read-data")
+       #t))
+
 (define (target-org conn p resource)
   (define rteam (and resource (hash-ref resource 'team_id #f)))
   (or (and rteam (team-org conn rteam))
@@ -263,6 +274,10 @@
        (define granted (append (user-permissions conn (principal-user-id p) (principal-team-id p))
                                (user-org-permissions conn p)))
        (or (for/or ([g (in-list granted)]) (perm-matches? g required))
+           ;; TEN-2h: an org reader holds the team-tier READ permissions on data in
+           ;; every team of its company — reachability below still keeps private
+           ;; resources private and the org gate keeps it inside the company
+           (org-data-reader? conn p required)
            ;; A resource grant is a DELEGATION (slice 56, DSH-1): a steward handed
            ;; this principal a permission on ONE resource, and it holds even when
            ;; the team role lacks it — that is what sharing an editable document
@@ -302,7 +317,8 @@
             ;; permissions its ORG role grants — that is what "administers the
             ;; company" means. Team-tier permissions never cross a team boundary,
             ;; and nothing at this tier reaches a `private` resource (TEN-2a).
-            (and (org-tier-covers? conn p required)
+            (and (or (org-tier-covers? conn p required)
+                     (org-data-reader? conn p required))              ; TEN-2h
                  (not (equal? (hash-ref res 'visibility "team") "private")))
             (has-grant? conn res p required))]
        [(or (equal? vis "private") (equal? vis "shared"))

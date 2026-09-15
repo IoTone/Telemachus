@@ -345,6 +345,17 @@ Operator runbook: `docs/ops/multi-tenancy-runbook.md`.
   owner token the create call returned.
 - There is deliberately **no `DELETE /api/orgs`** (TEN‑2g) and **no console UI** —
   the whole surface is HTTP.
+- **TEN‑2h (slice 65): the `org_reader` role reads across the company.** It holds
+  `org:read-data`, which `can?` maps onto the team-tier DATA reads only
+  (`DATA-READ-PERMS` = notes/documents/files `:read`) in every team of its org —
+  `org-data-reader?` in `can?`'s base check and in the cross-team reachability
+  branch, which still refuses `private`. **`org:*` does NOT imply `org:read-data`**
+  (`perm-matches?` special-cases it): org_admin and org_owner still do not read,
+  so TEN‑2a stays the default. `?scope=org` on `GET /api/notes`, `/api/repo` and
+  `/api/search` lists every team in the caller's org through the same per-row
+  `can?` — a plain member asking for it sees nothing new. `PATCH
+  /api/org/members/<id> {org_role}` grants/revokes any org role (never your own).
+  `org-teams-of` in authz.rkt is the org's team list for such listings.
 
 ```sh
 TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # 2 seeded companies + 1 provisioned, 84 assertions

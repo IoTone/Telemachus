@@ -784,8 +784,8 @@
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
     },
     "doc.route.get.api.repo": {
-      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own.",
-      "hash": "a9d3b3f240f08189876fa2e118ce40e9d44f8526"
+      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).",
+      "hash": "de55ec495c07f563596878a403924a739ed59b2f"
     },
     "doc.route.get.activate": {
       "text": "The console, on the magic-link activation screen (hosted mode).",
@@ -824,8 +824,8 @@
       "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
     },
     "doc.route.get.api.search": {
-      "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?.",
-      "hash": "14d55a26ffc0a283955af67b2f27c140bea36dcd"
+      "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.",
+      "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
     },
     "ui.nofires": {
       "text": "This trigger has not fired yet.",
@@ -1114,6 +1114,10 @@
     "ui.kg_none": {
       "text": "No entities match. Index documents first, then extract.",
       "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
+    },
+    "doc.route.patch.api.org.members.id": {
+      "text": "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.",
+      "hash": "c12db2a62d70522a8cae022cf536347c52499014"
     },
     "ui.runwf": {
       "text": "Run",
@@ -1524,8 +1528,8 @@
       "hash": "3629795f10a247e233253f04af4fef7439e9a459"
     },
     "doc.route.get.api.notes": {
-      "text": "List the notes the caller can read.",
-      "hash": "bfc837b16414b5a34e848ca6ddab45a72b63a82d"
+      "text": "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).",
+      "hash": "9656ce2e5bd9ee7b9604b8c87abfa6860ccf1361"
     },
     "doc.tool.create_note.title": {
       "text": "Short note title",
@@ -1795,6 +1799,14 @@
       "text": "notes, documents, files, translations…",
       "hash": "bc6e4dbaec36a991517cc9f23c22f1f6fa25572d"
     },
+    "ui.name": {
+      "text": "Name",
+      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
+    },
+    "doc.perm.org:read-data": {
+      "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
+      "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
+    },
     "ui.derivedfrom": {
       "text": "Derived from",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
@@ -1820,8 +1832,8 @@
       "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
     "doc.route.post.api.org.members": {
-      "text": "Add a person to a team in the caller's company.",
-      "hash": "c3fef23375f6c6addc50ba9705103eae80b14ce8"
+      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
+      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
     },
     "ui.target": {
       "text": "Target language",
@@ -1854,10 +1866,6 @@
     "ui.details": {
       "text": "Details",
       "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
-    },
-    "ui.name": {
-      "text": "Name",
-      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
     },
     "doc.route.post.api.runs.id.cancel": {
       "text": "Cancel a run; a step already executing finishes, the next never starts.",

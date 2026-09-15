@@ -6,7 +6,7 @@
 ;; `require-perm`. Functions raise exn:fail:forbidden on deny (→ 403) and return
 ;; #f on not-found (→ 404).
 
-(require db-kit/portable
+(require db-kit/portable racket/list
          "../db/id.rkt"
          "../authz/authz.rkt")
 
@@ -35,9 +35,19 @@
     id (principal-team-id p) (principal-user-id p) vis title body)
   (row->note (get-row conn id)))
 
-(define (notes-list conn p)
-  (define rows (query-rows conn (string-append SELECT " WHERE team_id = ? ORDER BY created_at DESC")
-                           (principal-team-id p)))
+;; #:scope 'org lists across every team in the caller's company (TEN-2h); each row
+;; still passes can?, so an org reader sees team-visible notes and nobody's
+;; private ones, and a plain member sees exactly what they saw before
+(define (notes-list conn p #:scope [scope 'team])
+  (define teams
+    (if (eq? scope 'org)
+        (let ([org (or (principal-org-id p) (team-org conn (principal-team-id p)))])
+          (if org (org-teams-of conn org) (list (principal-team-id p))))
+        (list (principal-team-id p))))
+  (define rows
+    (append*
+     (for/list ([t (in-list teams)])
+       (query-rows conn (string-append SELECT " WHERE team_id = ? ORDER BY created_at DESC") t))))
   (for/list ([r (in-list rows)]
              #:when (can? conn p "notes:read" #:resource (note->resource (row->note r))))
     (row->note r)))

@@ -231,10 +231,24 @@
                    ;; DSH step 3: only objects the caller holds a LIVE grant on and does
                    ;; not own — what someone handed them, as distinct from what the team
                    ;; can see anyway. The per-row can? below still runs on each.
-                   #:shared-with-me? [shared? #f])
+                   #:shared-with-me? [shared? #f]
+                   ;; TEN-2h: 'org lists every team in the caller's company; per-row can?
+                   ;; still decides, so an org reader gets team-visible objects only
+                   #:scope [scope 'team])
   (require-perm conn p "files:read")
+  (define teams
+    (if (eq? scope 'org)
+        (let ([org (or (principal-org-id p) (team-org conn (principal-team-id p)))])
+          (if org (org-teams-of conn org) (list (principal-team-id p))))
+        (list (principal-team-id p))))
   (define rows
-    (if shared?
+    (cond
+      [(and (eq? scope 'org) (not shared?))
+       (apply query-rows conn
+         (string-append OSELECT " WHERE o.team_id IN (" (string-join (for/list ([_ teams]) "?") ",") ") "
+                        "AND o.deleted_at IS NULL AND o.key LIKE ? ORDER BY o.team_id, o.key ASC LIMIT ? OFFSET ?")
+         (append teams (list (string-append (escape-like prefix) "%") limit offset)))]
+      [shared?
         (query-rows conn
           (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key LIKE ? "
                          "AND o.owner_user_id <> ? "
@@ -245,13 +259,14 @@
                          "ORDER BY o.updated_at DESC LIMIT ? OFFSET ?")
           (principal-team-id p) (string-append (escape-like prefix) "%")
           (principal-user-id p) (current-seconds) (principal-user-id p) (or (principal-team-id p) "")
-          limit offset)
+          limit offset)]
+      [else
         (query-rows conn
           (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key LIKE ? "
                          "ORDER BY o.key ASC LIMIT ? OFFSET ?")
           (principal-team-id p)
           (string-append (escape-like prefix) "%")
-          limit offset)))
+          limit offset)]))
   (for/list ([r (in-list rows)]
              #:when (can? conn p "files:read" #:resource (obj->resource (row->obj r))))
     (row->obj r)))

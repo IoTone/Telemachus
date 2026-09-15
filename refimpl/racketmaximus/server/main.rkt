@@ -1065,6 +1065,27 @@
          (if t (json-response t #:code 201)
              (err "a team with that slug already exists in this organization" 409))]))))))
 
+;; TEN-2h: promote or demote a person within the company — the only way to make an
+;; existing user an org_reader (or take it away), since the org role is set on
+;; creation otherwise. Only users of the caller's own org; never the caller.
+(define (ep-my-org-member-role req uid)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (define b (read-json-body req))
+      (define role (let ([r (hash-ref b 'org_role 'null)]) (if (eq? r 'null) #f (format "~a" r))))
+      (define target-org (user-org db-conn uid))
+      (cond
+        [(and role (not (org-role-key? role))) (err "unknown org_role" 400)]
+        [(not (equal? target-org (caller-org p))) (err "not found" 404)]
+        [(equal? uid (principal-user-id p)) (err "you cannot change your own org role" 400)]
+        [else
+         (set-user-org-role! db-conn uid role)
+         (audit! db-conn #:action "org.member.role" #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:resource-type "user" #:resource-id uid
+                 #:meta (jsexpr->string (hasheq 'org_role (or role 'null))))
+         (json-response (hasheq 'ok #t 'user_id uid 'org_role (or role 'null)))]))))))
+
 (define (ep-my-org-member-add req)
   (with-mt req (lambda ()
     (with-auth req (lambda (p)
@@ -1155,8 +1176,9 @@
                                  #:body (hash-ref b 'body "") #:visibility (hash-ref b 'visibility "team"))
                    #:code 201))))
 
+(define (scope-of req) (if (equal? (query-param req 'scope "") "org") 'org 'team))
 (define (ep-notes-list req)
-  (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p))))))
+  (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p #:scope (scope-of req)))))))
 
 ;; ---- documents (offset-paginated) -------------------------------------------
 (define (ep-documents-create req)
@@ -1479,7 +1501,7 @@
     (define q (string-trim (query-param req 'q)))
     (if (< (string-length q) 2)
         (json-response (hasheq 'query q 'results '()))
-        (json-response (hasheq 'query q 'results (search-all db-conn p q)))))))
+        (json-response (hasheq 'query q 'results (search-all db-conn p q #:scope (scope-of req))))))))
 
 (define (ep-audit req)
   (with-auth req (lambda (p)
@@ -1558,7 +1580,8 @@
                             #:prefix (query-param req 'prefix "")
                             #:limit (or (string->number (query-param req 'limit "100")) 100)
                             #:offset (or (string->number (query-param req 'offset "0")) 0)
-                            #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))))
+                            #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))
+                            #:scope (scope-of req)))
     (json-response (hasheq 'objects (map obj-json objs)
                            'usage (repo-usage db-conn p))))))
 
@@ -1980,7 +2003,7 @@
    'org-quota ep-org-quota 'org-get ep-org-get 'org-update ep-org-update
    'seed-tenants ep-seed-tenants
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
-   'my-org-member-add ep-my-org-member-add 'my-org-audit ep-my-org-audit
+   'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
    'notes-create ep-notes-create 'notes-list ep-notes-list
    'documents-create ep-documents-create 'documents-list ep-documents-list
    'documents-get ep-documents-get 'documents-update ep-documents-update 'documents-delete ep-documents-delete

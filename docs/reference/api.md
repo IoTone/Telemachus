@@ -68,10 +68,11 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/org` | org-admin | `org:read` | — | The caller's own company. |
 | GET | `/api/org/teams` | org-admin | `org:read` | — | The teams in the caller's company. |
 | POST | `/api/org/teams` | org-admin | `org:manage` | — | Create a team in the caller's company. |
-| POST | `/api/org/members` | org-admin | `org:manage` | — | Add a person to a team in the caller's company. |
+| POST | `/api/org/members` | org-admin | `org:manage` | — | Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader). |
+| PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own. |
 | GET | `/api/org/audit` | org-admin | `org:read` | — | The company's audit trail. |
 | POST | `/api/notes` | bearer | `notes:write` | — | Create a note with a visibility. |
-| GET | `/api/notes` | bearer | `notes:read` | — | List the notes the caller can read. |
+| GET | `/api/notes` | bearer | `notes:read` | — | List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones). |
 | POST | `/api/documents` | bearer | `files:write` | — | Create a text document (a repository object with content_type text/markdown). |
 | GET | `/api/documents` | bearer | `files:read` | — | List text documents. |
 | GET | `/api/documents/:id` | bearer | `files:read` | — | One text document with its body. |
@@ -98,13 +99,13 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/tokens` | bearer | `settings:manage` | — | Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; "never" for a long-lived machine token); the raw token is shown once. |
 | GET | `/api/tokens` | bearer | `settings:manage` | — | The team's API tokens. |
 | DELETE | `/api/tokens/:id` | bearer | `settings:manage` | — | Revoke an API token. |
-| GET | `/api/search` | bearer | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?. |
+| GET | `/api/search` | bearer | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader. |
 | GET | `/api/audit` | bearer | `settings:manage` | — | The team's recent audit events. |
 | POST | `/api/jobs` | bearer | `chat:use` | — | Enqueue a scheduler job of a registered kind. |
 | GET | `/api/jobs` | bearer | — | — | The team's jobs, newest first. |
 | POST | `/api/jobs/:id/cancel` | bearer | — | — | Cancel a queued job (a running one finishes). |
 | GET | `/api/jobs/:id` | bearer | — | — | One job with its result or error. |
-| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own. |
+| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h). |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | Share with a user or a team in the org: {principal_type, principal_id, capability: view\|edit\|manage, expires_at?}. {user_id} still means view. |
 | POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | Revoke every grant a principal holds on the object. |
 | GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | One entry per principal: capability, permissions, granted_by, expiry, expired. |

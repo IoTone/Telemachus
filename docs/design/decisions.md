@@ -106,6 +106,7 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | TEN‑2e | per-org model endpoints (BYO inference) | ⬜ open — executors are instance-scoped |
 | TEN‑2f | provisioning is an **API** operation; explicit slug = natural key (`409` on re-run), derived slug suffixes | ✅ built — a pipeline must converge; a silent duplicate company is worse than a refused call |
 | TEN‑2g | **no `DELETE /api/orgs`** — suspend is the terminal API state, erasure is a SQL maintenance procedure | ✅ decided — the cascade spans teams, users, tokens, blobs and audit |
+| TEN‑2h | cross-team reading is the `org_reader` role holding `org:read-data` (team-visible only; `org:*` does not imply it) | ✅ decided 15 Sep 2026 — the downstream's "org scoped data routes" without reversing TEN‑2a: reading a company's data is a deliberate, auditable assignment |
 | RBAC‑1 | owner/admin/member/viewer | ✅ default |
 | RBAC‑2 | allow custom per-team roles | ✅ default |
 | RBAC‑3 | within-team shares only (v1) | ✅ default |

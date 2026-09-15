@@ -146,7 +146,9 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
   true.** Decision **TEN‑2** supersedes it: an **org** layer sits above teams and
   `TELEMACHUS_MULTITENANT=1` lets several companies share one instance, isolated by
   an org gate that runs *before* every permission, grant and token-scope check, with
-  a superadmin plane and a per-company org-admin plane.
+  a superadmin plane and a per-company org-admin plane. An org admin manages but
+  does not read (TEN‑2a); reading across a company's teams is the deliberately
+  granted `org_reader` role (TEN‑2h), team-visible data only, via `?scope=org`.
   Design: [`design/multi-tenancy.md`](design/multi-tenancy.md) ·
   operators: [`ops/multi-tenancy-runbook.md`](ops/multi-tenancy-runbook.md).
   The hosted offering can now serve separate legal entities either way — one

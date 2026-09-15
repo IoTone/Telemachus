@@ -116,12 +116,13 @@
    (R "GET" "/api/org" 'my-org #:auth 'org-admin #:perm "org:read" #:doc "The caller's own company.")
    (R "GET" "/api/org/teams" 'my-org-teams #:auth 'org-admin #:perm "org:read" #:doc "The teams in the caller's company.")
    (R "POST" "/api/org/teams" 'my-org-team-create #:auth 'org-admin #:perm "org:manage" #:doc "Create a team in the caller's company.")
-   (R "POST" "/api/org/members" 'my-org-member-add #:auth 'org-admin #:perm "org:manage" #:doc "Add a person to a team in the caller's company.")
+   (R "POST" "/api/org/members" 'my-org-member-add #:auth 'org-admin #:perm "org:manage" #:doc "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).")
+   (R "PATCH" "/api/org/members/:id" 'my-org-member-role #:auth 'org-admin #:perm "org:manage" #:doc "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.")
    (R "GET" "/api/org/audit" 'my-org-audit #:auth 'org-admin #:perm "org:read" #:doc "The company's audit trail.")
 
    ;; ---- notes and text documents ----------------------------------------------------
    (R "POST" "/api/notes" 'notes-create #:perm "notes:write" #:doc "Create a note with a visibility.")
-   (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List the notes the caller can read.")
+   (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).")
    (R "POST" "/api/documents" 'documents-create #:perm "files:write" #:doc "Create a text document (a repository object with content_type text/markdown).")
    (R "GET" "/api/documents" 'documents-list #:perm "files:read" #:doc "List text documents.")
    (R "GET" "/api/documents/:id" 'documents-get #:perm "files:read" #:doc "One text document with its body.")
@@ -152,7 +153,7 @@
    (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
    (R "GET" "/api/tokens" 'tokens-list #:perm "settings:manage" #:doc "The team's API tokens.")
    (R "DELETE" "/api/tokens/:id" 'tokens-revoke #:perm "settings:manage" #:doc "Revoke an API token.")
-   (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?.")
+   (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.")
    (R "GET" "/api/audit" 'audit #:perm "settings:manage" #:doc "The team's recent audit events.")
    (R "POST" "/api/jobs" 'jobs-create #:perm "chat:use" #:doc "Enqueue a scheduler job of a registered kind.")
    (R "GET" "/api/jobs" 'jobs-list #:doc "The team's jobs, newest first.")
@@ -160,7 +161,7 @@
    (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error.")
 
    ;; ---- document repository -------------------------------------------------------------
-   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own.")
+   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).")
    (R "POST" "/api/repo-obj/:id/share" 'repo-share #:perm "files:manage" #:doc "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.")
    (R "POST" "/api/repo-obj/:id/unshare" 'repo-unshare #:perm "files:manage" #:doc "Revoke every grant a principal holds on the object.")
    (R "GET" "/api/repo-obj/:id/grants" 'repo-grants #:perm "files:manage" #:doc "One entry per principal: capability, permissions, granted_by, expiry, expired.")

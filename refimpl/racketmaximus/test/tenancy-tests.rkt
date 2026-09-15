@@ -13,7 +13,8 @@
          "../domain/authz/authz.rkt"
          "../domain/authz/permissions.rkt"
          "../domain/orgs/orgs.rkt"
-         "../domain/notes/notes.rkt")
+         "../domain/notes/notes.rkt"
+         "../domain/apps/search.rkt")
 
 (define (fresh)
   (define conn (fresh-db #:migrate? #f))
@@ -119,6 +120,50 @@
   ;; the org role itself carries no AI spend; whatever the admin can do in its OWN
   ;; team comes from its team role there, not from being a company administrator
   (check-false (can? conn admin "chat:use" #:resource (hasheq 'team_id (hash-ref acme 'eng)))))
+
+;; ---- TEN-2h: the org READER ---------------------------------------------------
+(test-case "an org_reader reads team-visible data across its company's teams — never private, never elsewhere"
+  (define-values (conn root acme globex) (instance))
+  (define owner (hash-ref acme 'owner-p))
+  ;; a reader who is a member of OPS only, with the org_reader role
+  (define reader-id (hash-ref (org-attach-member! conn owner (hash-ref acme 'org)
+                                                  #:username "auditor@acme" #:team (hash-ref acme 'ops)
+                                                  #:role "viewer" #:org-role "org_reader")
+                              'user_id))
+  (define reader (user-principal conn reader-id (hash-ref acme 'ops)))
+  ;; engineering's team-visible note: readable; its private one: not
+  (check-true  (can? conn reader "notes:read" #:resource (note-res conn (hash-ref acme 'tv-id))))
+  (check-false (can? conn reader "notes:read" #:resource (note-res conn (hash-ref acme 'note-id))))
+  ;; read only: no write, no management, no AI spend at the org tier
+  (check-false (can? conn reader "notes:write" #:resource (note-res conn (hash-ref acme 'tv-id))))
+  (check-false (can? conn reader "members:manage" #:resource (hasheq 'team_id (hash-ref acme 'eng))))
+  (check-false (can? conn reader "chat:use" #:resource (hasheq 'team_id (hash-ref acme 'eng))))
+  ;; the admin and the owner still do NOT read (TEN-2a is the default; org:* does not imply org:read-data)
+  (check-false (can? conn (hash-ref acme 'admin-p) "notes:read" #:resource (note-res conn (hash-ref acme 'tv-id))))
+  ;; the owner is a MEMBER of engineering, so it reads that note through its team
+  ;; role; the org tier itself gives it nothing — org:* does not imply org:read-data
+  (check-false (org-data-reader? conn owner "notes:read") "org_owner's org:* is administration, not reading")
+  (check-false (org-data-reader? conn (hash-ref acme 'admin-p) "notes:read"))
+  (check-true  (org-data-reader? conn reader "notes:read"))
+  (check-false (org-data-reader? conn reader "notes:write") "…and only the READ permissions")
+  ;; and never another company
+  (check-false (can? conn reader "notes:read" #:resource (note-res conn (hash-ref globex 'tv-id))))
+  ;; the org-scoped listing: both teams' team-visible notes, nobody's private ones
+  (define listed (map (lambda (n) (hash-ref n 'title)) (notes-list conn reader #:scope 'org)))
+  (check-true (and (member "sprint" listed) #t) "engineering's team-visible note is listed")
+  (check-false (member "secret" listed) "…the private one is not")
+  (check-equal? (notes-list conn reader) '() "the team-scoped listing is still the reader's own (empty) team")
+  ;; a plain member asking for the org scope sees only what they could anyway
+  (define dev (hash-ref acme 'dev-p))
+  (check-equal? (length (notes-list conn dev #:scope 'org)) 2 "the dev sees their own team's two notes and nothing new")
+  ;; search follows the same rule
+  (check-true (for/or ([h (in-list (search-all conn reader "sprint" #:scope 'org))]) (equal? (hash-ref h 'type) "note")))
+  (check-false (for/or ([h (in-list (search-all conn reader "secret" #:scope 'org))]) (equal? (hash-ref h 'type) "note")))
+  (check-equal? (search-all conn reader "sprint") '() "without the org scope, nothing — the reader's own team has no notes")
+  ;; the role can be given to and taken from an existing user
+  (set-user-org-role! conn reader-id #f)
+  (check-false (can? conn (user-principal conn reader-id (hash-ref acme 'ops)) "notes:read"
+                     #:resource (note-res conn (hash-ref acme 'tv-id))) "without the role, the read is gone"))
 
 ;; ---- structural invariants --------------------------------------------------
 (test-case "team slugs are unique per org, not globally"
