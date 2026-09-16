@@ -72,6 +72,7 @@
          "../domain/ai/executor.rkt"
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
+         "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
          "../domain/agent/run.rkt"
          "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
          "../domain/agent/plugins.rkt"            ; load-plugins!, loaded-plugins
@@ -1322,6 +1323,25 @@
       (require-perm db-conn p "instance:manage"))
     (if (executor-retire! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
 
+;; ---- model roles (slice 67) ----------------------------------------------------------
+(define (ep-model-roles-get req)
+  (with-auth req (lambda (p) (json-response (model-roles-get db-conn (principal-team-id p))))))
+(define (ep-model-roles-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define roles (let ([r (hash-ref b 'roles b)]) (if (hash? r) r (hasheq))))
+      ;; an executor must exist to be named — a typo here would silently send
+      ;; every extraction to the local model
+      (for ([(k v) (in-hash roles)])
+        (when (and (string? v) (not (string=? v "")) (not (executor-known? v)))
+          (raise-user-error 'model-roles "unknown executor ~a" v)))
+      (define out (model-roles-set! db-conn (principal-team-id p) roles))
+      (audit! db-conn #:action "model-roles.set" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:team-id (principal-team-id p) #:meta (jsexpr->string (hash-ref out 'roles)))
+      (json-response out)))))
+
 ;; the worker protocol — the bearer is a worker token; the executor it is bound
 ;; to is found through the token's id, so a token can never speak for another host
 (define (with-worker req proc)
@@ -2097,6 +2117,7 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
    'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
@@ -2185,10 +2206,27 @@
 ;; for the console is a separate audit (it has inline scripts); the download path
 ;; already sends a denying one per object. A route that sets one of these itself
 ;; wins — headers already present are left alone.
+;; The console's Content-Security-Policy (issue #11, part 2). What it buys: no
+;; script, style, image, font, frame or connection from any origin but our own,
+;; no plugins, no <base> hijack, no form posting elsewhere, no framing by other
+;; origins — so an injected payload cannot load remote code or beacon data out.
+;; What it does NOT buy yet: `'unsafe-inline'` for scripts and styles, because
+;; the console is one HTML file with ~136 inline event handlers and ~245 style
+;; attributes; a nonce would disable 'unsafe-inline' and break every one of
+;; them. Moving the handlers to delegated listeners is the follow-up that lets
+;; this become a nonce policy. The e2e gate fails on console errors, and a CSP
+;; violation is one, so the gate proves the console runs under this policy.
+;; Downloads keep their own, stricter, per-object CSP (present headers win).
+(define CONSOLE-CSP
+  (string-append "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                 "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+                 "frame-src 'self' blob: data:; frame-ancestors 'self'; form-action 'self'; "
+                 "base-uri 'self'; object-src 'none'"))
 (define BASE-SECURITY-HEADERS
   (list (make-header #"X-Content-Type-Options" #"nosniff")
         (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")
-        (make-header #"X-Frame-Options" #"SAMEORIGIN")))
+        (make-header #"X-Frame-Options" #"SAMEORIGIN")
+        (make-header #"Content-Security-Policy" (string->bytes/utf-8 CONSOLE-CSP))))
 (define HSTS-HEADER (make-header #"Strict-Transport-Security" #"max-age=31536000; includeSubDomains"))
 (define (with-security-headers resp)
   (define have (map header-field (response-headers resp)))
@@ -2332,7 +2370,8 @@
              "Keep every placeholder in curly braces exactly as written. Keep it as short as the\n"
              "original; this is UI text. Do not add quotes, notes, or alternatives.\n"
              (jsexpr->string (hasheq 'text src 'locale loc))))
-          (define-values (reply tokens) (run-chat prompt))
+          (define-values (reply tokens)
+            (run-chat prompt #:executor (model-role-executor conn (principal-team-id p) "utility")))   ; KG-7 / LOC-5
           (set-box! total-tokens (+ (unbox total-tokens) tokens))
           (define raw (format "~a" reply))
           ;; The outermost {…} is the object even when the string itself has {user}

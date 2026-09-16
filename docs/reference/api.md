@@ -92,6 +92,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/glossary` | bearer | `settings:manage` | — | Add or update a glossary term for a target language. |
 | GET | `/api/glossary` | bearer | `chat:use` | — | The team glossary. |
 | GET | `/api/ai/model` | bearer | — | — | Which model is configured (or that the simulated fallback is in use). |
+| GET | `/api/model-roles` | bearer | — | — | Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default. |
+| PUT | `/api/model-roles` | bearer | `settings:manage` | — | Set a team's model roles: {roles: {utility: <executor name> \| null}}. The executor must exist; null returns to the instance default, then the local model. |
 | GET | `/api/executors` | bearer | — | — | The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health. |
 | POST | `/api/executors` | bearer | `instance:manage` | — | Create an executor: {name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again. |
 | DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | Retire an executor: its worker token is revoked and any job it holds returns to the queue. |

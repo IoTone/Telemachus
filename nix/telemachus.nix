@@ -6,7 +6,8 @@
 # and OOP hosts are loaded. Wrapping the interpreter keeps the plugin SDK working
 # exactly as it does in a checkout.
 { lib, stdenv, makeWrapper, racket, openssl
-, poppler-utils }:
+, poppler-utils
+, pandoc, tectonic }:   # PDF forms (DWF-6, slice 68): doc_render md/html -> pandoc -> tectonic
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "telemachus";
@@ -52,7 +53,7 @@ stdenv.mkDerivation (finalAttrs: {
       makeWrapper ${racket}/bin/racket $out/bin/telemachus-$name \
         --add-flags "$out/share/telemachus/$path" \
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
-        --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils ]} \
+        --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic ]} \
         --run 'export TELEMACHUS_DATA_DIR="''${TELEMACHUS_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
     done
     runHook postInstall

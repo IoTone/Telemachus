@@ -144,6 +144,8 @@
    (R "POST" "/api/glossary" 'glossary-add #:perm "settings:manage" #:doc "Add or update a glossary term for a target language.")
    (R "GET" "/api/glossary" 'glossary-list #:perm "chat:use" #:doc "The team glossary.")
    (R "GET" "/api/ai/model" 'ai-model #:doc "Which model is configured (or that the simulated fallback is in use).")
+   (R "GET" "/api/model-roles" 'model-roles-get #:doc "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.")
+   (R "PUT" "/api/model-roles" 'model-roles-put #:perm "settings:manage" #:doc "Set a team's model roles: {roles: {utility: <executor name> | null}}. The executor must exist; null returns to the instance default, then the local model.")
    (R "GET" "/api/executors" 'executors #:doc "The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health.")
    (R "POST" "/api/executors" 'executor-create #:perm "instance:manage" #:doc "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.")
    (R "DELETE" "/api/executors/:id" 'executor-retire #:perm "instance:manage" #:doc "Retire an executor: its worker token is revoked and any job it holds returns to the queue.")

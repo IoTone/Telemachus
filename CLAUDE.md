@@ -261,8 +261,8 @@ approved strings back. Neither is on the request path.
   `running`. That is the platform working. Before drafting a whole namespace,
   raise the team's budget (`POST /api/quota {"dimension":"ai.tokens.total",
   "limit":200000,"window":"day"}`, operator) — 170 UI strings cost roughly 20k
-  tokens on qwen2.5:7b. The Localize tab should say this when it queues a draft;
-  it does not yet.
+  tokens on qwen2.5:7b. The Localize tab says this when it queues a draft (the
+  draft endpoint returns `budget` with an estimate; `l10nDraft` toasts it).
 - **A draft that loses, invents, or mangles a placeholder is refused, not stored**
   (`draft-acceptable?` in `manager.rkt`). Two checks: the simple-placeholder set
   must match, AND the **brace count** must match. The second is what catches the
@@ -832,6 +832,24 @@ raco test test/pull-tests.rkt        # claims, the org gate, atomicity, leases, 
 bash test/pull-smoke.sh              # a chat routed through the reference worker against the mock model
 ```
 
+## Model roles (slice 67, KG‑7 / LOC‑5)
+
+`domain/ai/roles.rkt`: a role resolves to an executor NAME — the team's setting
+(`instance_settings` key `model-roles:<team>`, `PUT /api/model-roles`,
+settings:manage) → `TELEMACHUS_MODEL_<ROLE>` from the environment → `#f`, the
+local model. One role ships, **`utility`**: knowledge-graph extraction, the
+pipeline's field extraction and translation, and the Localization Manager's
+drafts go there when it is set; a person's chat never does. The tools set
+`current-utility-executor` around their model call and `default-chat` in
+doc-tools.rkt reads it (`run-chat #:executor`), so a pull executor on a GPU box
+takes the bulk work without any tool knowing. `PUT` refuses an executor that
+does not exist — a typo would silently send every extraction to the local
+model. With a role set and no local model, the seam no longer refuses.
+
+```sh
+raco test test/roles-tests.rkt
+```
+
 ## Tokens, `/health`, security headers, meta tags (issues #11–#13)
 
 - **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for a year;
@@ -853,6 +871,16 @@ bash test/pull-smoke.sh              # a chat routed through the reference worke
 - **`/health` is `{ok, multitenant}` and nothing else** (#11). Version, KDF, TLS and the
   codename moved to `GET /api/admin/status` (instance:manage). Do not put them
   back: the beta instance is a public front door.
+- **The console has a Content-Security-Policy** (#11, part 2; `CONSOLE-CSP`):
+  same-origin everything, `object-src 'none'`, `base-uri 'self'`,
+  `frame-ancestors 'self'`, `form-action 'self'`, `img-src` also `data: blob:`.
+  Scripts and styles are still `'unsafe-inline'` — the console is one file with
+  ~136 inline handlers and ~245 style attributes, and a nonce would disable
+  `'unsafe-inline'` and break all of them. The follow-up that earns a nonce
+  policy is moving the handlers to delegated listeners. **The e2e gate proves the
+  console runs under the policy**: a CSP violation is a console error and the
+  gate fails on those. A Tier-B bundle that loads a CDN font or script is blocked
+  by this policy — bundle assets must be served from the bundle.
 - **Baseline security headers on every response** (#11), added in `handle` via
   `with-security-headers`: nosniff, `Referrer-Policy: strict-origin-when-cross-origin`,
   `X-Frame-Options: SAMEORIGIN` (the Tier-C funnel iframe is same-origin), and

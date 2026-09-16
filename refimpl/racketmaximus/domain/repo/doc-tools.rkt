@@ -39,6 +39,7 @@
          "../authz/authz.rkt"
          "../orgs/orgs.rkt"           ; tenant-quota-record!
          "../ai/executor.rkt"         ; run-chat, model-configured?
+         "../ai/roles.rkt"            ; the team's utility executor (KG-7)
          "../apps/translate.rkt"      ; translate!
          "repo.rkt"
          "extract.rkt")
@@ -51,9 +52,11 @@
 ;; (chat prompt #:system sys) -> (values reply tokens). Temperature 0: extraction and
 ;; translation want the likeliest reading, not a creative one.
 (define (default-chat prompt #:system [sys #f])
-  (unless (model-configured?)
-    (error 'doc-tools "no model configured — set TELEMACHUS_MODEL_URL"))
-  (run-chat prompt #:system sys #:temperature 0))
+  ;; KG-7: bulk work goes to the team's `utility` executor when one is set
+  (define ex (current-utility-executor))
+  (unless (or ex (model-configured?))
+    (error 'doc-tools "no model configured — set TELEMACHUS_MODEL_URL, or a utility executor in Model roles"))
+  (run-chat prompt #:system sys #:temperature 0 #:executor ex))
 
 (define current-doc-chat (make-parameter default-chat))
 
@@ -191,7 +194,9 @@
 (define (doc-extract-fields conn p args)
   (require-perm conn p "chat:use")
   (define schema (hash-ref args 'schema #f))
-  (define-values (fields tokens) (extract-fields (arg args 'text) schema))
+  (define-values (fields tokens)
+    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+      (extract-fields (arg args 'text) schema)))
   (meter! conn p tokens)
   (define src (let ([id (opt-arg args 'object)]) (and id (doc-ref conn p id))))
   (cond
@@ -424,8 +429,9 @@
            (hash-ref src 'key) (string-length text) TRANSLATE-CAP))
   (define chat (current-doc-chat))
   (define-values (tr tokens)
-    (translate! conn p #:text text #:target-lang locale
-                #:chat (lambda (t sys) (chat t #:system sys))))
+    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+      (translate! conn p #:text text #:target-lang locale
+                  #:chat (lambda (t sys) (chat t #:system sys)))))
   (meter! conn p tokens)
   (define key (hash-ref src 'key))
   (define-values (out-key out-ct)

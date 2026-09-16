@@ -48,6 +48,10 @@ assert "referrer policy"         "$HDRS" 'Referrer-Policy: strict-origin-when-cr
 assert "frame options"           "$HDRS" 'X-Frame-Options: SAMEORIGIN'
 if printf '%s' "$HDRS" | grep -qi 'Strict-Transport-Security'; then echo "  FAIL HSTS sent on a plain-http instance"; fail=1; else echo "  ok   no HSTS without TLS"; fi
 assert "headers on JSON too"     "$(curl -s -D - -o /dev/null $B/health)" 'X-Content-Type-Options: nosniff'
+# issue #11 part 2: the console's CSP — same-origin everything, no plugins, no base hijack
+assert "CSP on the console"      "$HDRS" "Content-Security-Policy: default-src 'self'"
+assert "CSP: no object-src"      "$HDRS" "object-src 'none'"
+assert "CSP: frame-ancestors"    "$HDRS" "frame-ancestors 'self'"
 # issue #12: the raw shell carries a description and Open Graph tags for unfurlers
 SHELL_HTML=$(curl -s $B/)
 assert "meta description (default)" "$SHELL_HTML" '<meta name="description" content="A self-hosted, privacy-first platform'
@@ -525,6 +529,15 @@ for i in $(seq 1 40); do
 done
 assert "kg: extraction fails without a model" "$kgs" "error"
 assert "…and says so"                          "$kgjson" 'no model configured'
+
+# ---- slice 67: model roles — where a team's bulk AI work goes
+assert "model roles: default is local" "$(curl -s $B/api/model-roles -H "Authorization: Bearer $OP")" '"utility":null'
+assert "model roles: unknown executor refused" "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":"nope"}}')" 'unknown executor'
+assert "model roles: unknown role refused"     "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"fancy":null}}')" 'unknown role'
+ROLE_EX=$(curl -s -X POST $B/api/executors -H "Authorization: Bearer $OP" -d '{"name":"cheap-box","mode":"pull","model":"small"}' | grep -oP '"name":"\K[^"]+' | head -1)
+assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":"cheap-box"}}')" '"utility":"cheap-box"'
+assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
+assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
 
 # ---- slice 63: a plugin's authenticated HTTP route, mounted under /api/x/<plugin>/
 assert "plugin route (GET, query)"  "$(curl -s "$B/api/x/example-tools/word-count?text=one+two+three" -H "Authorization: Bearer $OP")" '"words":3'

@@ -571,9 +571,9 @@ async function l10nDraft(){
   if(r.ok){
     const b=r.json.budget||{};
     const short = typeof b.remaining==='number' && typeof b.estimate==='number' && b.estimate>b.remaining;
-    toast(`queued ${r.json.queued} in ${r.json.batches} batch(es) — they land as "machine" for review`,true);
+    toast(t('draftqueued').replace('{n}',r.json.queued).replace('{b}',r.json.batches),true);
     // Over budget, the queue just stops and looks like a hang. Say so now.
-    if(short) toast(`AI budget: ~${b.estimate} tokens needed, ${b.remaining} remaining today — raise ai.tokens.total in Usage or the drafts will wait`);
+    if(short) toast(t('draftbudget').replace('{need}',b.estimate).replace('{left}',b.remaining));
   } else toast(r.json.error||'error');
 }
 async function l10nExport(){

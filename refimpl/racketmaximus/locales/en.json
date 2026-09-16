@@ -71,6 +71,14 @@
       "text": "Upload the instance logo (replaces the mark and the wordmark).",
       "hash": "1d6aae8e5cb67d9c8b9623ac227d9a18295f46db"
     },
+    "ui.draftbudget": {
+      "text": "AI budget: about {need} tokens needed, {left} remaining today — raise ai.tokens.total in Usage or the drafts will wait",
+      "hash": "5ef886737103f5053cb37b9f30169eac5a50cfa8"
+    },
+    "doc.perm.team:delete": {
+      "text": "Delete a team.",
+      "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
+    },
     "ui.updpw": {
       "text": "Update password",
       "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
@@ -98,10 +106,6 @@
     "doc.route.post.api.members": {
       "text": "Add a member to the caller's team with a role; returns the new member's first token.",
       "hash": "c2e81fdfdb83e0915518a9c74ae921bf9375e74f"
-    },
-    "doc.perm.team:delete": {
-      "text": "Delete a team.",
-      "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
     },
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
@@ -194,6 +198,10 @@
     "doc.route.post.api.workflows": {
       "text": "Publish a workflow spec (validated; unknown fields refused); re-publishing a slug bumps its version.",
       "hash": "57f5717f784659e41b73f398f34d8c757d99d3ff"
+    },
+    "doc.route.get.api.model-roles": {
+      "text": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
+      "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
     },
     "ui.version": {
       "text": "Version",
@@ -1291,6 +1299,14 @@
       "text": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
       "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
     },
+    "ui.draftqueued": {
+      "text": "Queued {n} strings in {b} batch(es) — they land as “machine” for review",
+      "hash": "7f2bcb13edb0fc717e74a87c3261d4f645569362"
+    },
+    "doc.route.post.api.doc-triggers": {
+      "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
+      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
+    },
     "doc.route.get.api.workflows": {
       "text": "The team's workflow definitions, plugin-contributed ones materialized on first look.",
       "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
@@ -1310,10 +1326,6 @@
     "doc.route.get.api.members": {
       "text": "The team's members and roles.",
       "hash": "32197624e684dac944e94da479c4c79400a6ba47"
-    },
-    "doc.route.post.api.doc-triggers": {
-      "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
-      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
     },
     "doc.route.get.api.beta.experience": {
       "text": "The team's draft onboarding experience, including the judge prompt.",
@@ -1606,6 +1618,10 @@
     "ui.reply": {
       "text": "Reply",
       "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
+    },
+    "doc.route.put.api.model-roles": {
+      "text": "Set a team's model roles: {roles: {utility: <executor name> | null}}. The executor must exist; null returns to the instance default, then the local model.",
+      "hash": "bebca9dad4acba56a3bb609e0b2e098c0bcf8fc1"
     },
     "doc.tool.kg_query.hops": {
       "text": "1 (default) or 2",
