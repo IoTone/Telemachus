@@ -638,6 +638,13 @@ raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, d
   (input order is a hash's — never assume `#wfi_0` is `object_id`), `wfStart`,
   `repoOpenDetail` → `#rprocessed`, `repoFilter(true)` → `#rf_shared`,
   `trgCreate` → `trgHistory` → `#tg_history`.
+- **Switching tabs in the gate is `goTab(page, tab, sel)`, never `go()` +
+  `waitForSelector`.** `go()` re-renders asynchronously and `renderTab` paints a
+  `…` placeholder first; on a tab the page is ALREADY showing, `waitForSelector`
+  matches the old DOM and the next assertion can run against the placeholder.
+  That is exactly how "localization card present in Admin" failed once in CI
+  (slower runner) and never locally. `goTab` waits for a LATER `renderSeq`, no
+  placeholder, and the selector.
 
 - **The model is a parameter**: `current-doc-chat`. Tests script it; the HTTP
   smoke uses `test/mock-llm.rkt`'s CHAT mode (`MOCK_REPLY_FILE`, a `{"needle":

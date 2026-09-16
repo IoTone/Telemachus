@@ -70,11 +70,30 @@ async function shot(page, id) {
 }
 
 // Wait until a predicate evaluated in the page becomes true.
-async function until(page, fn, { timeout = 15000, label = 'condition' } = {}) {
+// Switch tabs and wait for the NEW render pass to land. `go()` re-renders
+// asynchronously: `render()` awaits the i18n policy, `renderTab()` paints a
+// "…" placeholder, then the view's own fetches resolve and the real markup
+// replaces it. A `waitForSelector` right after `go()` on a tab the page is
+// ALREADY showing matches the old DOM, and the next assertion can then run
+// against the placeholder — which is how "localization card present in Admin"
+// failed once in CI (a slower runner) and never locally. So: remember the
+// render sequence number, ask for the tab, and wait until a later pass has
+// painted, the placeholder is gone, and the selector is there.
+async function goTab(page, tab, sel, { timeout = 15000 } = {}) {
+  const before = await page.evaluate(() => renderSeq);
+  await page.evaluate(t => window.go(t), tab);
+  return until(page, ([b, s]) => {
+    const main = document.getElementById('main');
+    const placeholder = main && main.children.length === 1 && main.firstElementChild.tagName === 'P' && main.firstElementChild.textContent === '…';
+    return renderSeq > b && !placeholder && !!document.querySelector(s);
+  }, { timeout, arg: [before, sel] });
+}
+
+async function until(page, fn, { timeout = 15000, label = 'condition', arg = undefined } = {}) {
   const t0 = Date.now();
   for (;;) {
     let v = false;
-    try { v = await page.evaluate(fn); } catch {}
+    try { v = await page.evaluate(fn, arg); } catch {}
     if (v) return true;
     if (Date.now() - t0 > timeout) return false;
     await page.waitForTimeout(150);
@@ -330,9 +349,7 @@ try {
 
   // ── 8. Admin › Branding — the new tool, round-tripped through the UI ────────
   step('admin: branding');
-  await page.evaluate(() => window.go('admin'));
-  await page.waitForSelector('#brt', { timeout: 15000 });
-  ok('branding card present in Admin', await page.locator('#brt').count() === 1);
+  ok('branding card present in Admin', await goTab(page, 'admin', '#brt'));
   restoreBrand = (await apiCall(page, '/api/branding')).json;
 
   await page.fill('#brt', 'Ithaca Labs');
@@ -354,8 +371,7 @@ try {
     await until(page, () => !!document.querySelector('header.top .brand img.tmx-logo'), { timeout: 15000 }));
 
   // put back whatever this instance had before the run
-  await page.evaluate(() => window.go('admin'));
-  await page.waitForSelector('#brt', { timeout: 10000 });
+  await goTab(page, 'admin', '#brt');
   const back = await apiCall(page, '/api/branding', { method: 'PUT', body: restoreBrand || {} });
   ok('branding restored to its pre-run value', back.ok, `status ${back.status}`);
   await page.evaluate(b => window.applyBrand(b), restoreBrand || {});
@@ -379,9 +395,7 @@ try {
   // turns negotiation off, and that the console comes back up in the instance's
   // language rather than a hardcoded 'en'.
   step('admin: localization');
-  await page.evaluate(() => window.go('admin'));
-  await page.waitForSelector('#locdef', { timeout: 15000 });
-  ok('localization card present in Admin', await page.locator('#locdef').count() === 1);
+  ok('localization card present in Admin', await goTab(page, 'admin', '#locdef'));
   const restoreI18n = (await apiCall(page, '/api/config')).json.localization;
   ok('switcher offered while negotiation is on',
     await page.locator('header.top .langtog button').count() >= 2);
@@ -394,8 +408,7 @@ try {
                 { timeout: 15000 }));
 
   // negotiation off: the switcher has to disappear, not merely stop working
-  await page.evaluate(() => window.go('admin'));
-  await page.waitForSelector('#locsw', { timeout: 15000 });
+  await goTab(page, 'admin', '#locsw');
   await page.uncheck('#locsw');
   await page.evaluate(() => window.doI18nSave());
   ok('language switcher removed when negotiation is off',
