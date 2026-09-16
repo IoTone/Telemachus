@@ -18,7 +18,13 @@
          "../exec/federation.rkt")      ; executor-config — route to a named backend
 
 (provide model-configured? model-info run-chat run-chat-stream parse-chat-response estimate-tokens
-         model-url model-name model-key)
+         model-url model-name model-key pull-router)
+
+;; PULL-5: a named executor that is not a push backend may be a PULL executor. The
+;; server installs a router (name messages temperature) -> (values reply tokens)
+;; that enqueues an infer.chat sub-job and waits; executor.rkt knows nothing of
+;; the database. #f for a name the router does not own.
+(define pull-router (box (lambda (name msgs temp) #f)))
 
 (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 (define (model-url)  (env "TELEMACHUS_MODEL_URL"))
@@ -60,13 +66,15 @@
 ;; named federated backend; #f uses the local node.
 (define (run-chat prompt #:system [system #f] #:temperature [temp 0.7] #:executor [executor #f])
   (define-values (url mdl key conf?) (backend executor))
+  (define msgs
+    (append (if system (list (hasheq 'role "system" 'content system)) '())
+            (list (hasheq 'role "user" 'content prompt))))
+  (define routed (and executor (not (executor-config executor)) ((unbox pull-router) executor msgs temp)))
   (cond
+    [routed (values (car routed) (cdr routed))]                     ; a pull executor answered
     [(not conf?)
      (values (string-upcase prompt) (estimate-tokens prompt))]     ; simulated fallback
     [else
-     (define msgs
-       (append (if system (list (hasheq 'role "system" 'content system)) '())
-               (list (hasheq 'role "user" 'content prompt))))
      (define-values (code resp)
        (http-post-json url (hasheq 'model mdl 'messages msgs 'temperature temp 'stream #f) (headers* key)))
      (unless (= code 200) (error 'run-chat "model endpoint returned HTTP ~a" code))

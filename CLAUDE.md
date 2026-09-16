@@ -795,6 +795,43 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 - Kinds: document, table, text, link, image. An unknown kind is an error at
   construction — the console switches on it.
 
+## Pull-model executors (slice 66)
+
+Inference hosts that claim work instead of being called. Design:
+`docs/design/pull-executors.md` (PULL‑1…8, built). `domain/exec/pull.rkt`;
+migration `0028-executors`; `/api/executors`, `/api/org/executors`,
+`/api/workers/{claim,jobs/:id/heartbeat|complete|fail}`;
+`cli/telemachus-worker.rkt`.
+
+- **A remote kind has no in-process handler**: `register-job-kind! kind #f
+  #:remote? #t #:validate f`. The pool's `claim-next!` skips remote kinds; only
+  `worker-claim!` takes them. `infer.chat` is the shipped one — the wire
+  `run-chat` speaks — validated to `{reply: string, tokens_used: number}`.
+- **The worker token is an API token scoped `jobs:execute`, `ttl 'never`**,
+  shown once on create. `with-worker` resolves the executor through the token's
+  id (`executors.token_id`) — never through a request field. The operator's
+  token passes `jobs:execute` (operators pass everything team-tier) and is still
+  refused as "not bound to an executor"; the smoke pins that.
+- **`run-chat #:executor <pull>` blocks on a sub-job** (`pull-dispatch!`, via
+  the `pull-router` box executor.rkt exposes). The sub-job carries
+  `parent_job_id` and is EXEMPT from the team cap at claim — two parents at cap
+  2 would otherwise each wait for a sub-job nothing could claim. The team/user
+  come from `current-job` (inside a scheduler job) or
+  `current-request-principal` (on the request path, set by `with-auth`).
+- **Leases**: `LEASE-SECONDS` 120, heartbeat at a third; `reap-leases!` runs on
+  the pool's idle tick and re-queues with `attempt+1`, failing past
+  `MAX-ATTEMPTS` 3. Complete/fail are accepted only from the current holder
+  (`'not-holder` → 409). Tests expire leases by UPDATE, never by sleeping.
+- Executor health is derived: never-seen / active / stale (3× lease) / retired.
+  Retire revokes the token and requeues a held job.
+- **`notes-list` now requires `notes:read` up front** (found by this slice's
+  smoke): a token scoped without it got `{"notes":[]}` instead of a 403.
+
+```sh
+raco test test/pull-tests.rkt        # claims, the org gate, atomicity, leases, dispatch
+bash test/pull-smoke.sh              # a chat routed through the reference worker against the mock model
+```
+
 ## Tokens, `/health`, security headers, meta tags (issues #11–#13)
 
 - **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for a year;

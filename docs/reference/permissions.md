@@ -20,6 +20,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:write` | team | Upload documents and new versions. |
 | `instance:*` | instance | Everything at the instance tier; the operator (superadmin). |
 | `instance:manage` | instance | Instance administration: branding, localization policy, quotas, orgs, metrics. |
+| `jobs:execute` | team | Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run. |
 | `localization:manage` | team | Import and export catalogs, queue AI drafts, discard machine drafts. |
 | `localization:read` | team | See the Localization Manager's coverage and messages. |
 | `localization:review` | team | Approve or send back a colleague's translation (never one's own). |
@@ -85,6 +86,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `files:write` | ✓ | ✓ | ✓ |  |  |  |  |
 | `instance:manage` |  |  |  |  |  |  |  |
+| `jobs:execute` | ✓ |  |  |  |  |  |  |
 | `localization:manage` | ✓ | ✓ |  |  |  |  |  |
 | `localization:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `localization:review` | ✓ | ✓ |  |  |  |  |  |

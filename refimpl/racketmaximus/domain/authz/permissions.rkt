@@ -163,6 +163,7 @@
    "workflows:read"  "See workflow definitions, runs and triggers."
    "workflows:write" "Publish workflows and manage triggers."
    "workflows:run"   "Start and cancel runs. An S3 key needs this scope for its uploads to fire triggers."
+   "jobs:execute"    "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run."
    "team:read"    "See a team in the company."
    "team:write"   "Rename a team in the company."
    "team:create"  "Create a team in the company."

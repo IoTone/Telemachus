@@ -92,7 +92,14 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/glossary` | bearer | `settings:manage` | — | Add or update a glossary term for a target language. |
 | GET | `/api/glossary` | bearer | `chat:use` | — | The team glossary. |
 | GET | `/api/ai/model` | bearer | — | — | Which model is configured (or that the simulated fallback is in use). |
-| GET | `/api/executors` | bearer | — | — | The local executor and any federated ones. |
+| GET | `/api/executors` | bearer | — | — | The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health. |
+| POST | `/api/executors` | bearer | `instance:manage` | — | Create an executor: {name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again. |
+| DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | Retire an executor: its worker token is revoked and any job it holds returns to the queue. |
+| POST | `/api/org/executors` | org-admin | `org:manage` | — | Create an executor bound to the caller's company (TEN-2e): offered only to its teams. |
+| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease. |
+| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | Extend the lease on a job this worker holds. |
+| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | Post a result: {result}. Accepted only from the current lease holder; validated by the kind. |
+| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | Report a failure: {error}. Accepted only from the current lease holder. |
 | GET | `/api/usage` | bearer | — | — | The team's quota dimensions with used, limit and remaining. |
 | POST | `/api/quota` | bearer | `instance:manage` | — | Set a quota limit for the caller's team (dimension, limit, window). |
 | GET | `/api/tools` | bearer | — | — | Every registered tool with its permission, source and per-team enabled state. |

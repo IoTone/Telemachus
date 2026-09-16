@@ -1,9 +1,11 @@
 # Pull-model executors: inference hosts that come to the work
 
-*Proposal for review. Requested by a downstream project (issue #15, "an executor
-seam that admits pull model inference hosts") and the shape TEN‑2e (per-org
-model endpoints) has been waiting for. Data shapes and contracts are concrete
-enough to build from; the policy forks are under **Decisions to confirm**.*
+*Decided 15 Sep 2026 (PULL‑1…8 confirmed). **Built** as slice 66:
+`domain/exec/pull.rkt`, migration `0028-executors`, the worker protocol under
+`/api/workers/*`, `cli/telemachus-worker.rkt`, `test/pull-tests.rkt` and
+`test/pull-smoke.sh` (a chat routed through a real worker against the scripted
+model). Requested by a downstream project (issue #15) and the shape TEN‑2e has
+been waiting for. See **As built** at the end.*
 
 ## What exists, and where it stops
 
@@ -156,7 +158,35 @@ Model routing:
 5. Admin › Compute lists pull executors with health; a worker that stops
    heartbeating goes `stale`.
 
-## Decisions to confirm
+## As built
+
+- **Remote kinds** are registered with `#:remote? #t #:validate` and have no
+  in-process handler; the pool's `claim-next!` skips them, and a worker's
+  `worker-claim!` takes only them. `infer.chat` is the one shipped kind; its
+  validator requires a string `reply` and a numeric `tokens_used`, and a bad
+  shape FAILS the job as the worker's mistake.
+- **The worker token** is an ordinary API token, scope `jobs:execute`, `ttl
+  'never`, returned once by `POST /api/executors`. A worker endpoint finds its
+  executor through the token's own id (`executors.token_id`), so a token can
+  never speak for another host; the operator's token, which passes every
+  team-tier permission, is still refused with "not bound to an executor".
+- **Sub-jobs are exempt from the team cap.** `run-chat #:executor <pull>`
+  enqueues `infer.chat` with `parent_job_id` set (or a top-level job on the
+  request path) and waits, polling every 250 ms up to 300 s. Without the
+  exemption two parents at a cap of 2 would each wait for a sub-job nothing
+  could claim — a deadlock until the leases expired.
+- **The reaper runs on the pool's idle tick** (`set-reaper!`), so an expired
+  lease is noticed within a worker's idle interval; tests call it directly.
+- **Health is derived**, not stored: `never-seen`, `active`, `stale` (no claim or
+  heartbeat for 3 × the lease), `retired`.
+- The `executors` table holds API-created executors (push or pull); the
+  `TELEMACHUS_EXECUTORS` push entries stay in memory as before, and the two are
+  merged in `GET /api/executors`. Retiring a pull executor revokes its token and
+  returns any job it holds to the queue.
+- The reference worker's only job kind is `infer.chat`; a worker written in
+  another language needs the four calls and nothing else.
+
+## Decisions (confirmed 15 Sep 2026)
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|

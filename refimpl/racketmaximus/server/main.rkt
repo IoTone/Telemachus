@@ -71,6 +71,7 @@
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
+         "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
          "../domain/agent/run.rkt"
          "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
          "../domain/agent/plugins.rkt"            ; load-plugins!, loaded-plugins
@@ -1160,6 +1161,7 @@
   (unless (feature-enabled? db-conn (principal-team-id p) name)
     (raise (exn:fail:forbidden (format "feature ~a is disabled" name) (current-continuation-marks) name))))
 
+(define current-request-principal (make-parameter #f))
 (define (with-auth req proc)
   (define p (current-principal req))
   (cond
@@ -1167,7 +1169,7 @@
     ;; ONB-7 read-only, now org-aware: a suspended COMPANY freezes every team in it
     [(and (tenant-read-only? db-conn (principal-team-id p)) (not (GET? (request-method req))))
      (err "tenant suspended — writes are disabled; contact your administrator" 402)]
-    [else (proc p)]))
+    [else (parameterize ([current-request-principal p]) (proc p))]))
 
 (define (ep-notes-create req)
   (with-auth req (lambda (p)
@@ -1272,13 +1274,95 @@
   (define e (hash-ref b 'executor #f))
   (and e (let ([n (format "~a" e)]) (and (not (member n '("" "local"))) n))))
 (define (executor-model ex)
-  (if ex (let ([c (executor-config ex)]) (if c (cadr c) ex)) (hash-ref (model-info) 'model)))
+  (if ex
+      (let ([c (executor-config ex)])
+        (cond [c (cadr c)]
+              [(executor-by-name db-conn ex) => (lambda (e) (let ([m (hash-ref e 'model)]) (if (string? m) m ex)))]
+              [else ex]))
+      (hash-ref (model-info) 'model)))
+(define (executor-known? name) (or (executor-exists? name) (and (executor-by-name db-conn name) #t)))
 
+;; ---- executors (slice 66) -----------------------------------------------------------
+;; The env-configured push backends (federation.rkt) and the API-created ones
+;; (the executors table: push, and PULL with a worker token) in one listing.
 (define (ep-executors req)
   (with-auth req (lambda (p)
     (json-response (hasheq 'local (hasheq 'name "local" 'model (hash-ref (model-info) 'model)
                                           'configured (model-configured?) 'remote #f)
-                           'executors (list-executors))))))
+                           'executors (append (list-executors) (executor-list db-conn p)))))))
+
+;; create: the operator anywhere (org_id optional), an org admin for its own
+;; company (TEN-2e). A pull executor's worker token is in THIS response and never again.
+(define (create-executor! req p #:org [org #f])
+  (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+    (define b (read-json-body req))
+    (define caps (let ([c (hash-ref b 'capabilities #f)]) (if (hash? c) c (hasheq))))
+    (define-values (ex raw)
+      (executor-create! db-conn p #:name (fmt b 'name) #:mode (let ([m (fmt b 'mode)]) (if (string=? m "") "pull" m))
+                        #:org org
+                        #:url (let ([u (fmt b 'url)]) (and (not (string=? u "")) u))
+                        #:model (let ([m (fmt b 'model)]) (and (not (string=? m "")) m))
+                        #:key (let ([k (fmt b 'key)]) (and (not (string=? k "")) k))
+                        #:capabilities caps))
+    (json-response (if raw (hash-set ex 'worker_token raw) ex) #:code 201)))
+(define (ep-executor-create req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (define org (let ([o (hash-ref b 'org_id #f)]) (and (string? o) (not (string=? o "")) o)))
+    (create-executor! req p #:org org))))
+(define (ep-org-executor-create req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (create-executor! req p #:org (caller-org p)))))))
+(define (ep-executor-retire req id)
+  (with-auth req (lambda (p)
+    (unless (or (principal-is-operator p) (can? db-conn p "org:manage"))
+      (require-perm db-conn p "instance:manage"))
+    (if (executor-retire! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
+
+;; the worker protocol — the bearer is a worker token; the executor it is bound
+;; to is found through the token's id, so a token can never speak for another host
+(define (with-worker req proc)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:execute")
+    (define bearer (let ([h (req-header req #"authorization")])
+                     (and h (regexp-match? #rx"^Bearer " h) (substring h 7))))
+    (define tid (and bearer (query-maybe-value db-conn "SELECT id FROM api_tokens WHERE token_hash = ?" (hash-token bearer))))
+    (define ex (and tid (executor-by-token db-conn tid)))
+    (if ex (proc p ex) (err "this token is not bound to an executor" 403)))))
+
+(define (ep-worker-claim req)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (define (strs k) (let ([v (hash-ref b k '())]) (if (and (list? v) (andmap string? v)) v '())))
+    (define max-wait (let ([w (hash-ref b 'max_wait 0)]) (if (real? w) (min 25 (max 0 w)) 0)))
+    ;; long-poll: try, then wait a little and try again until max_wait is spent
+    (let loop ([waited 0])
+      (define job (worker-claim! db-conn ex #:kinds (strs 'kinds) #:models (strs 'models)))
+      (cond
+        [job (json-response job)]
+        [(>= waited max-wait) (json-response (hasheq 'job 'null) #:code 204)]
+        [else (sleep 1) (loop (+ waited 1))])))))
+(define (worker-verdict v job-id)
+  (case v
+    [(ok) (json-response (hasheq 'ok #t 'id job-id))]
+    [(not-holder) (err "not the lease holder of this job" 409)]
+    [(not-running) (err "the job is not running" 409)]
+    [else (err "not found" 404)]))
+(define (ep-worker-heartbeat req id)
+  (with-worker req (lambda (p ex)
+    (define v (worker-heartbeat! db-conn ex id))
+    (if (number? v) (json-response (hasheq 'ok #t 'id id 'lease_until v)) (worker-verdict v id)))))
+(define (ep-worker-complete req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))) id))))
+(define (ep-worker-fail req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (worker-verdict (worker-fail! db-conn ex id (fmt b 'error)) id))))
 
 ;; real model call (falls back to simulated when no model is configured)
 (define (ep-ai-chat req)
@@ -1294,7 +1378,7 @@
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
-      [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
+      [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
       [else
@@ -1328,7 +1412,7 @@
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
-      [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
+      [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
       [else
@@ -2012,6 +2096,8 @@
    'translate-catalog ep-translate-catalog 'translate ep-translate 'translate-list ep-translate-list
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors
+   'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit
@@ -2166,6 +2252,30 @@
   (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
   (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
+  ;; slice 66: the first REMOTE kind — the wire run-chat speaks, run by a pull
+  ;; worker; a result must carry a reply and a numeric token count
+  (register-job-kind! "infer.chat" #f #:remote? #t
+    #:validate (lambda (r)
+                 (cond [(not (hash? r)) "result must be an object"]
+                       [(not (string? (hash-ref r 'reply #f))) "result.reply must be a string"]
+                       [(not (number? (hash-ref r 'tokens_used #f))) "result.tokens_used must be a number"]
+                       [else #f])))
+  (set-reaper! reap-leases!)
+  ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
+  ;; current job (or a top-level one on the request path) and wait for a worker
+  (set-box! pull-router
+    (lambda (name msgs temp)
+      (define ex (executor-by-name db-conn name))
+      (and ex (equal? (hash-ref ex 'mode) "pull")
+           (let* ([job (current-job)]
+                  [p (current-request-principal)]
+                  [team (cond [job (hash-ref job 'team)] [p (principal-team-id p)] [else #f])]
+                  [user (cond [job (hash-ref job 'user)] [p (principal-user-id p)] [else #f])])
+             (unless team (error 'run-chat "no team context for executor ~a" name))
+             (define-values (reply tokens)
+               (pull-dispatch! db-conn #:team team #:user user #:executor name #:messages msgs
+                               #:temperature temp #:parent (and job (hash-ref job 'id))))
+             (cons reply tokens)))))
   ;; async job kinds + the worker pool
   (register-job-kind! "translate"
     (lambda (conn p payload)

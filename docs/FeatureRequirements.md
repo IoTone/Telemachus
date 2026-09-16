@@ -125,6 +125,13 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       run without touching human work, and a queued draft reports the team's AI
       budget so an over-budget queue does not look like a hang. **Used to produce
       `nl` and `es-419`, server and console** (see the localization line above).
+- [x] **Pull-model inference hosts** — an executor that comes to the work: a
+      worker holding a token scoped to one permission claims `infer.chat` jobs from
+      the same queue everything else uses, under a lease with heartbeats, and posts
+      the result; capability matching at claim; `run-chat` routes a named pull
+      executor through it so every model-using tool works unchanged; per-org
+      executors close TEN‑2e. Reference worker `cli/telemachus-worker.rkt`.
+      Design: [`design/pull-executors.md`](design/pull-executors.md).
 - [x] **Knowledge Graph** — entities and relations extracted from the team's
       documents, every fact traceable to the document and version that asserted
       it. Visibility is inherited from the sources through `can?` (a fact shows if

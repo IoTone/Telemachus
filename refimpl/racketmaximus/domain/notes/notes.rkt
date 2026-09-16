@@ -39,6 +39,9 @@
 ;; still passes can?, so an org reader sees team-visible notes and nobody's
 ;; private ones, and a plain member sees exactly what they saw before
 (define (notes-list conn p #:scope [scope 'team])
+  ;; the team-level read first, like repo-list: a token scoped without notes:read
+  ;; is refused here rather than handed an empty list that looks like "no notes"
+  (require-perm conn p "notes:read")
   (define teams
     (if (eq? scope 'org)
         (let ([org (or (principal-org-id p) (team-org conn (principal-team-id p)))])

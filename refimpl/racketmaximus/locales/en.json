@@ -407,6 +407,10 @@
       "text": "Approve",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
+    "doc.route.post.api.executors": {
+      "text": "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.",
+      "hash": "2a7d5e2e6be081e7dd5bacc04f5e3abb46f09498"
+    },
     "ui.admin": {
       "text": "Admin",
       "hash": "4e7afebcfbae000b22c7c85e5560f89a2a0280b4"
@@ -426,6 +430,14 @@
     "doc.route.post.api.translate.catalog": {
       "text": "Translate a whole locale catalog, placeholders preserved.",
       "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
+    "ui.key": {
+      "text": "Path",
+      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
+    },
+    "doc.perm.jobs:execute": {
+      "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
+      "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
     },
     "ui.apitokens": {
       "text": "API tokens",
@@ -498,10 +510,6 @@
     "beta.field_required": {
       "text": "{field} is required",
       "hash": "dda50f3ba4eb211a894985a368919f4833011910"
-    },
-    "ui.key": {
-      "text": "Path",
-      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
     },
     "doc.tool.update_note": {
       "text": "Update a note's title and/or body by id.",
@@ -611,6 +619,10 @@
       "text": "Change the caller's password.",
       "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
     },
+    "doc.route.post.api.org.executors": {
+      "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
+      "hash": "218f372f207fb10f594e39772c8cd33624edf803"
+    },
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
@@ -666,6 +678,10 @@
     "doc.route.post.api.orgs.ref.suspend": {
       "text": "Suspend a company (id or slug); every team in it becomes read-only.",
       "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
+    },
+    "doc.route.post.api.workers.jobs.id.complete": {
+      "text": "Post a result: {result}. Accepted only from the current lease holder; validated by the kind.",
+      "hash": "b839ca3b12c2cb37972e9244d7d7ee37a3708429"
     },
     "ui.tokensleft": {
       "text": "tokens left today",
@@ -807,6 +823,10 @@
       "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
       "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
     },
+    "doc.route.post.api.workers.jobs.id.fail": {
+      "text": "Report a failure: {error}. Accepted only from the current lease holder.",
+      "hash": "f9ac120db5b83cd4cbe316cc454cabd871b2a859"
+    },
     "ui.upload": {
       "text": "Upload",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
@@ -895,6 +915,14 @@
       "text": "Tools",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
     },
+    "doc.route.delete.api.executors.id": {
+      "text": "Retire an executor: its worker token is revoked and any job it holds returns to the queue.",
+      "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
+    },
+    "doc.tool.kg_extract": {
+      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
+      "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
+    },
     "beta.field_too_long": {
       "text": "{field} must be at most {n} characters",
       "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
@@ -923,13 +951,13 @@
       "text": "Shared with me",
       "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
     },
+    "doc.route.post.api.workers.claim": {
+      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease.",
+      "hash": "c28fe0e178aefb13910478d3e9898788db665982"
+    },
     "ui.disable": {
       "text": "Disable",
       "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
-    },
-    "doc.tool.kg_extract": {
-      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
-      "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
     },
     "doc.route.get.api.ai.model": {
       "text": "Which model is configured (or that the simulated fallback is in use).",
@@ -1132,8 +1160,8 @@
       "hash": "147646a5ac123e8be377a93c65a8a202faa5598c"
     },
     "doc.route.get.api.executors": {
-      "text": "The local executor and any federated ones.",
-      "hash": "e54804d6a14a8223610680c6e8a335762498cbd8"
+      "text": "The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health.",
+      "hash": "0f04e37ff8172fa65a013f7e48e9af6fa319c0f8"
     },
     "ui.bytrigger": {
       "text": "trigger",
@@ -1666,6 +1694,10 @@
     "doc.tool.doc_render.object": {
       "text": "The source document's object id — the form is written beside it (default: beside the template)",
       "hash": "1b66f9c975259453418803c8fd1c4b6afd18ffa0"
+    },
+    "doc.route.post.api.workers.jobs.id.heartbeat": {
+      "text": "Extend the lease on a job this worker holds.",
+      "hash": "e4e14c847eddc46cd5f851c2bf4a9f782f7ab7b3"
     },
     "ui.download": {
       "text": "Download",

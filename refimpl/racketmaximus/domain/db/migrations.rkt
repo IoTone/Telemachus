@@ -898,6 +898,38 @@
         "  relations INTEGER NOT NULL DEFAULT 0,"
         "  extracted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")))))
 
+;; 0028 — pull-model executors (slice 66, PULL-1…6): the executor registry
+;; becomes a table (API-created; the env-configured push ones stay in memory), a
+;; job may be held by a remote executor under a lease, and a job may be a
+;; sub-job of the job that spawned it.
+(define m-0028-executors
+  (migration "0028-executors"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE executors ("
+        "  id TEXT PRIMARY KEY,"
+        "  org_id TEXT,"                          ; TEN-2e: NULL = instance-wide
+        "  name TEXT NOT NULL,"
+        "  mode TEXT NOT NULL DEFAULT 'pull',"     ; pull | push
+        "  url TEXT,"                             ; push only
+        "  model TEXT,"
+        "  secret_key TEXT,"                      ; push only; SigV4-style trust boundary as repo_credentials
+        "  capabilities TEXT NOT NULL DEFAULT '{}',"   ; {kinds:[…], models:[…]}
+        "  token_id TEXT,"                        ; the worker token (pull only)
+        "  status TEXT NOT NULL DEFAULT 'active',"    ; active | retired
+        "  last_seen_at BIGINT,"                  ; epoch seconds, from claims and heartbeats
+        "  created_by TEXT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_executors_name ON executors(name)"
+       "CREATE INDEX idx_executors_token ON executors(token_id)"
+       "ALTER TABLE jobs ADD COLUMN executor_id TEXT"
+       "ALTER TABLE jobs ADD COLUMN lease_until BIGINT"
+       "ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1"
+       "ALTER TABLE jobs ADD COLUMN requirements TEXT NOT NULL DEFAULT '{}'"
+       "ALTER TABLE jobs ADD COLUMN parent_job_id TEXT"
+       "CREATE INDEX idx_jobs_lease ON jobs(status, lease_until)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors))

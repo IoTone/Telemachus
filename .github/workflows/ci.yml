@@ -52,6 +52,10 @@ jobs:
       # Its own ports (8836/8837) so it never races the smoke run's 8835.
       - name: Multi-tenancy demo
         run: bash test/multitenant-demo.sh
+      # A pull-model executor end to end: create it, run the reference worker
+      # against the scripted mock model, route a chat through it (slice 66).
+      - name: Pull executor smoke
+        run: bash test/pull-smoke.sh
       # The reference under docs/reference/ is generated from the source of truth
       # (tools, workflows, permissions, the route table, plugins) and COMMITTED;
       # this fails the build when a PR changes the code without regenerating.
