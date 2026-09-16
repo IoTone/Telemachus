@@ -668,7 +668,7 @@ and is COMMITTED; CI runs `telemachus-docs check` and fails on drift.
 - `docs/reference/strings.json` is a JSON surface for `telemachus-localize`:
   every description is a `doc.*` message (249). The CI localize gate includes it.
   `render --locale ja` writes `docs/reference/ja/` from the catalogs, English
-  where a string is not yet translated. Nobody has drafted `doc.*` yet.
+  where a string is not yet translated. `doc.*` was drafted into Japanese with the Manager on 15 Sep 2026 (257 machine drafts, 142 corrected by hand — the 7B model mixes in French/Spanish/Chinese fragments and leaves English words; review every draft) and `docs/reference/ja/` is committed; re-render it after drafting more.
 - The CLI evaluates the plugins (`load-plugins!`), so run it inside `nix develop`.
 
 ```sh
