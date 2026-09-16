@@ -147,7 +147,7 @@ S.cat = {};
 const t = k => S.cat['ui.'+k] || k;
 async function loadCatalog(){
   const r = await api('/api/i18n/catalog?locale='+encodeURIComponent(S.lang));
-  if (r.ok && r.json && r.json.messages) S.cat = r.json.messages;
+  if (r.ok && r.json && r.json.messages) { S.cat = r.json.messages; S.catLocale = S.lang; document.documentElement.lang = S.lang; }
 }
 
 // Instance branding (Admin > Branding). Loaded before auth, because the sign-in
@@ -833,8 +833,12 @@ async function betaLandingView(){
   const r=await api('/api/beta/config?lang='+encodeURIComponent(lang));
   const cfg=r.ok?r.json:{title:'Beta',subtitle:'',fields:[],locales:[]};
   // The server decides which locale the funnel is actually answered in; follow it
-  // so the chrome cannot end up in a different language from the copy.
+  // so the chrome cannot end up in a different language from the copy — and
+  // re-fetch the chrome's own catalog when that moves it (the shell loaded the
+  // catalog for the instance default before it knew about ?lang=; without this
+  // the copy was Japanese and the sign-in link and "verifying…" stayed English).
   if(cfg.locale) S.lang=cfg.locale;
+  if(S.catLocale!==S.lang) await loadCatalog();
   const ch=await api('/api/beta/challenge'); S.betaChallenge = ch.ok?ch.json:null;   // issued at load → human fill time passes the min-age gate
   return renderLandingShell(cfg,'live');
 }

@@ -1209,8 +1209,8 @@
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
     },
     "doc.tool.doc_render": {
-      "text": "フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として書き出します。",
-      "hash": "9ffaed59a958dcdfc1f4899bc4a93dd238315d32"
+      "text": "フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が \"pdf\" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。",
+      "hash": "60f537d9839bec95196ab4285cbd1b0967c15d46"
     },
     "doc.perm.audit:read": {
       "text": "監査ログを読む。",
@@ -1597,8 +1597,8 @@
       "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
     },
     "doc.route.patch.api.orgs.ref": {
-      "text": "会社の名前を変更する、および／またはプランを変更する（プラン変更はそのプランの上限を再適用します）。",
-      "hash": "093b33177881ac65e6c35826a611a06df0f1182b"
+      "text": "会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。",
+      "hash": "354b1a6e317ec7aa48339cc2917f15b416b7f18b"
     },
     "doc.route.post.api.repo-obj.id.share": {
       "text": "組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view|edit|manage, expires_at?}。{user_id} は従来どおり view を意味します。",
@@ -1725,8 +1725,8 @@
       "hash": "3e65d083f7d44c17c1b1f6f409bf2db8f3bd7594"
     },
     "doc.route.get.api.branding": {
-      "text": "インスタンスタイトル、キャッチコピー、ロゴ。公開：ログイン画面で表示",
-      "hash": "4125e05ed8a7237592159ed5041f68200890f4bd"
+      "text": "タイトル、タグライン、ロゴ。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。",
+      "hash": "f03c65a01cba613385734af46fde79946ef70dc6"
     },
     "doc.perm.documents:write": {
       "text": "文書を作成し、編集します。",
@@ -2023,6 +2023,26 @@
     "doc.route.get.api.org": {
       "text": "呼び出し元の会社",
       "hash": "64fe44cbb3af833179d4b608cf69ed65492b7216"
+    },
+    "doc.route.delete.api.org.branding": {
+      "text": "会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。",
+      "hash": "857a3894f34105cb810552ada887faaead2e3fef"
+    },
+    "doc.route.get.api.org.branding": {
+      "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",
+      "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "doc.route.post.api.org.branding.logo": {
+      "text": "会社のロゴをアップロードし（base64）、会社のマークにする。",
+      "hash": "f7ae45c751f0b06e33155c77b4fe2135a843fed0"
+    },
+    "doc.route.put.api.org.branding": {
+      "text": "会社のタイトル・タグライン・ロゴを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。",
+      "hash": "4e58c08f2d8d7a4eb3da90665d7f7fd4a695e59e"
+    },
+    "doc.tool.doc_render.format": {
+      "text": "出力形式：テンプレート自身の形式（既定）または \"pdf\" — Markdown と HTML のテンプレートのみ",
+      "hash": "1b790d813f9ab8fbf2f32e9abd208f4c76f44e05"
     }
   }
 }

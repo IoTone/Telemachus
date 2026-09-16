@@ -111,7 +111,7 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       carries a **"Processed by"** panel; form templates may be Markdown, HTML or
       **DOCX**; the e2e gate runs the invoice scenario end to end.
       Design: [`design/document-workflows.md`](design/document-workflows.md).
-      *Deferred:* PDF rendering (DWF‑6).
+      PDF output: `doc_render {format: "pdf"}` through pandoc + tectonic (DWF‑6, slice 68).
 - [x] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that
       proves the platform can build tools.

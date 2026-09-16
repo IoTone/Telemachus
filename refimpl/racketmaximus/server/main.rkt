@@ -269,7 +269,7 @@
 ;; replacement, so a branded title like "A & B" would corrupt the markup.
 (define DEFAULT-DESCRIPTION "A self-hosted, privacy-first platform for a team's AI tools and documents.")
 (define (ui-html-branded [req #f])
-  (define b (branding-get db-conn))
+  (define b (branding-for db-conn (request-org req)))
   (define title (let ([t (hash-ref b 'title "")]) (if (string=? t "") "Telemachus" t)))
   (define tagline (string-normalize-spaces (hash-ref b 'tagline "")))
   (define description (if (string=? tagline "") DEFAULT-DESCRIPTION tagline))
@@ -369,6 +369,15 @@
   (define got (req-header req #"x-provision-token"))
   (and want got (string=? want got)))
 
+;; TEN-2d: the company a request is FOR — the Host header first (a company's own
+;; hostname wears its branding before anyone has signed in), else the caller's own
+;; company when the request carries a valid token. Only with multi-tenancy on: a
+;; single-tenant instance has one implicit org and exactly one branding.
+(define (request-org req)
+  (and req (multitenant?)
+       (or (org-by-domain db-conn (req-header req #"host"))
+           (let ([p (current-principal req)]) (and p (caller-org p))))))
+
 (define (public-base req)
   (or (env* "TELEMACHUS_PUBLIC_URL")
       (let ([h (req-header req #"host")])
@@ -467,11 +476,17 @@
 ;; ---- instance branding (Admin > Branding) --------------------------------------
 ;; READ IS PUBLIC, and has to be: the sign-in screen renders the title, tagline and
 ;; logo for someone who has no token yet. It is the text on the front door.
+(define (with-logo-url b)
+  (hash-set b 'logoUrl (let ([id (hash-ref b 'logo "")])
+                         (if (string=? id "") "" (string-append "/api/beta/asset/" id)))))
+
 (define (ep-branding-get req)
-  (define b (branding-get db-conn))
-  (json-response
-   (hash-set b 'logoUrl (let ([id (hash-ref b 'logo "")])
-                          (if (string=? id "") "" (string-append "/api/beta/asset/" id))))))
+  ;; TEN-2d: on a company's hostname, or for a company's signed-in user, the
+  ;; company's own branding when it has one; the instance's otherwise
+  (define org (request-org req))
+  (define own (and org (org-branding-get db-conn org)))
+  (json-response (hash-set (with-logo-url (or own (branding-get db-conn)))
+                           'scope (if own "org" "instance"))))
 
 (define (ep-branding-put req)
   (with-auth req (lambda (p)
@@ -1003,12 +1018,17 @@
     (define b (read-json-body req))
     (define name (let ([n (hash-ref b 'name #f)]) (and n (format "~a" n))))
     (define plan (let ([pl (hash-ref b 'plan #f)]) (and pl (format "~a" pl))))
+    (define domain? (hash-has-key? b 'domain))          ; TEN-2d: a string, or null to clear
     (cond
-      [(and (not name) (not plan)) (err "name and/or plan required" 400)]
+      [(and (not name) (not plan) (not domain?)) (err "name, plan and/or domain required" 400)]
       [(and plan (not (org-plan? plan)))
        (err (format "unknown plan; expected one of ~a"
                     (string-join (sort (hash-keys org-plan-quotas) string<?) ", ")) 400)]
-      [else (json-response (org-update! db-conn p id #:name name #:plan plan))]))))
+      [else
+       (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+         (define d (and domain? (org-set-domain! db-conn p id (hash-ref b 'domain))))
+         (define u (if (or name plan) (org-update! db-conn p id #:name name #:plan plan) (hasheq 'ok #t 'org_id id)))
+         (json-response (if d (hash-set u 'domain (hash-ref d 'domain)) u)))]))))
 
 (define (ep-org-quota req ref)
   (with-org req ref (lambda (p id)
@@ -1044,6 +1064,47 @@
       (require-perm db-conn p "org:read")
       (define o (and (caller-org p) (org-get db-conn (caller-org p))))
       (if o (json-response o) (err "no organization for this principal" 404)))))))
+
+;; ---- TEN-2d: a company's own branding -------------------------------------------
+;; What the console wears on the company's hostname and for its signed-in users.
+;; `own: false` says the company has set nothing and is wearing the instance's.
+(define (ep-my-org-branding-get req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (define own (org-branding-get db-conn (caller-org p)))
+      (json-response (hash-set (with-logo-url (or own (branding-get db-conn))) 'own (and own #t))))))))
+
+(define (ep-my-org-branding-put req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (define b (read-json-body req))
+      (audit! db-conn #:action "org.branding" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "org" #:resource-id (caller-org p))
+      (json-response (hash-set (with-logo-url (org-branding-set! db-conn (caller-org p) (if (hash? b) b (hasheq)))) 'own #t)))))))
+
+(define (ep-my-org-branding-clear req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (org-branding-clear! db-conn (caller-org p))
+      (audit! db-conn #:action "org.branding.clear" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "org" #:resource-id (caller-org p))
+      (json-response (hash-set (with-logo-url (branding-get db-conn)) 'own #f)))))))
+
+(define (ep-my-org-branding-logo req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+        (define b (read-json-body req))
+        (define id (asset-store! db-conn p #:mime (fmt b 'mime) #:filename (fmt b 'filename)
+                                 #:data-base64 (fmt b 'data)))
+        (define cur (or (org-branding-get db-conn (caller-org p)) (branding-get db-conn)))
+        (json-response (hasheq 'ok #t 'id id 'url (string-append "/api/beta/asset/" id)
+                               'branding (hash-set (org-branding-set! db-conn (caller-org p) (hash-set cur 'logo id)) 'own #t))
+                       #:code 201)))))))
 
 (define (ep-my-org-teams req)
   (with-mt req (lambda ()
@@ -2108,6 +2169,8 @@
    'seed-tenants ep-seed-tenants
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
+   'my-org-branding-get ep-my-org-branding-get 'my-org-branding-put ep-my-org-branding-put
+   'my-org-branding-clear ep-my-org-branding-clear 'my-org-branding-logo ep-my-org-branding-logo
    'notes-create ep-notes-create 'notes-list ep-notes-list
    'documents-create ep-documents-create 'documents-list ep-documents-list
    'documents-get ep-documents-get 'documents-update ep-documents-update 'documents-delete ep-documents-delete

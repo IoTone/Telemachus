@@ -15,7 +15,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/beta/bundle/:plugin/*path` | public | — | — | A file from a Tier-B onboarding plugin's bundle directory. |
 | GET | `/beta/template` | public | — | — | The Tier-C sandboxed HTML template, localized by the experience overlay. |
 | GET | `/api/config` | public | — | — | Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token. |
-| GET | `/api/branding` | public | — | — | Instance title, tagline and logo. Public: the sign-in screen renders them. |
+| GET | `/api/branding` | public | — | — | Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |
 | PUT | `/api/branding` | bearer | `instance:manage` | — | Set the instance title and tagline. |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | — | Upload the instance logo (replaces the mark and the wordmark). |
 | GET | `/api/i18n/catalog` | public | — | — | The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them. |
@@ -63,7 +63,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/orgs/:ref/resume` | superadmin | `instance:manage` | — | Resume a suspended company. |
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | Set an org-level quota; teams nest beneath it. |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | One company, its teams and quotas. |
-| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | Rename a company and/or change its plan (a plan change re-applies the plan's caps). |
+| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d). |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | Seed Acme and Globex with known dev passwords — demo fixture only. |
 | GET | `/api/org` | org-admin | `org:read` | — | The caller's own company. |
 | GET | `/api/org/teams` | org-admin | `org:read` | — | The teams in the caller's company. |
@@ -71,6 +71,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/org/members` | org-admin | `org:manage` | — | Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader). |
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own. |
 | GET | `/api/org/audit` | org-admin | `org:read` | — | The company's audit trail. |
+| GET | `/api/org/branding` | org-admin | `org:read` | — | The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none. |
+| PUT | `/api/org/branding` | org-admin | `org:manage` | — | Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users. |
+| DELETE | `/api/org/branding` | org-admin | `org:manage` | — | Drop the company's branding; its users see the instance's again. |
+| POST | `/api/org/branding/logo` | org-admin | `org:manage` | — | Upload the company's logo (base64) and make it the company's mark. |
 | POST | `/api/notes` | bearer | `notes:write` | — | Create a note with a visibility. |
 | GET | `/api/notes` | bearer | `notes:read` | — | List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones). |
 | POST | `/api/documents` | bearer | `files:write` | — | Create a text document (a repository object with content_type text/markdown). |

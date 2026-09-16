@@ -15,7 +15,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/beta/bundle/:plugin/*path` | public | — | — | Tier-Bオンボーディングプラグインのバンドルディレクトリからのファイル |
 | GET | `/beta/template` | public | — | — | Tier-C のサンドボックス化 HTML テンプレート。体験オーバーレイでローカライズされます。 |
 | GET | `/api/config` | public | — | — | 公開インスタンス設定：ホームモード、マルチテナントフラグ、ローカライゼーションポリシー（既定ロケール、利用可能なロケール、切り替えの可否）。サインイン画面はトークンを持つ前に読み込みます。 |
-| GET | `/api/branding` | public | — | — | インスタンスタイトル、キャッチコピー、ロゴ。公開：ログイン画面で表示 |
+| GET | `/api/branding` | public | — | — | タイトル、タグライン、ロゴ。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。 |
 | PUT | `/api/branding` | bearer | `instance:manage` | — | インスタンスのタイトルとキャッチコピーを設定してください。 |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | — | インスタンスロゴをアップロード（マークとワードマークを置き換えます） |
 | GET | `/api/i18n/catalog` | public | — | — | ?locale= に対するコンソールの文字列。サーバー側でフォールバックチェーンを通して解決済み。公開：サインイン画面が必要とします。 |
@@ -63,7 +63,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/orgs/:ref/resume` | superadmin | `instance:manage` | — | 一時停止中の企業を再開します。 |
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | 組織レベルのクォータを設定；チームはその下に配置されます |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 1つの会社、そのチームとクォータ。 |
-| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 会社の名前を変更する、および／またはプランを変更する（プラン変更はそのプランの上限を再適用します）。 |
+| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
 | GET | `/api/org` | org-admin | `org:read` | — | 呼び出し元の会社 |
 | GET | `/api/org/teams` | org-admin | `org:read` | — | 呼び出し元の会社のチーム。 |
@@ -71,6 +71,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/org/members` | org-admin | `org:manage` | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。 |
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | 人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。 |
 | GET | `/api/org/audit` | org-admin | `org:read` | — | 会社の監査ログ。 |
+| GET | `/api/org/branding` | org-admin | `org:read` | — | 会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。 |
+| PUT | `/api/org/branding` | org-admin | `org:manage` | — | 会社のタイトル・タグライン・ロゴを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。 |
+| DELETE | `/api/org/branding` | org-admin | `org:manage` | — | 会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。 |
+| POST | `/api/org/branding/logo` | org-admin | `org:manage` | — | 会社のロゴをアップロードし（base64）、会社のマークにする。 |
 | POST | `/api/notes` | bearer | `notes:write` | — | 公開範囲を指定してノートを作成する。 |
 | GET | `/api/notes` | bearer | `notes:read` | — | 呼び出し元が読めるノートを一覧する；?scope=org は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。 |
 | POST | `/api/documents` | bearer | `files:write` | — | テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。 |

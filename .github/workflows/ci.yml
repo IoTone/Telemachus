@@ -92,6 +92,12 @@ jobs:
       # broken app should fail fast, and the tours would only photograph it.
       - name: Validate the demo (the e2e gate)
         run: bash test/e2e/validate.sh
+      # The funnel in the browser, in Japanese: the switcher, a shared ?lang= link,
+      # and the submit path's localized refusal — under the console's CSP. It was
+      # not in CI when the console's strings moved into the catalogs, and the
+      # funnel's chrome silently stayed English for a while (slice 68).
+      - name: Beta funnel localization (browser)
+        run: bash test/e2e/funnel-l10n.sh
       - name: Run tours (deterministic fallback model) + build catalogs
         run: bash test/e2e/run.sh
       - name: Upload catalogs

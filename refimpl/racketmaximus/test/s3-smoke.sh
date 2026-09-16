@@ -21,6 +21,10 @@ command -v aws >/dev/null 2>&1 || { echo "s3-smoke: SKIP (no aws CLI)"; exit 0; 
 
 : "${PORT:=8890}"
 : "${S3_PORT:=8891}"
+# the server reads PORT from its ENVIRONMENT — a defaulted shell variable is not
+# exported, so without this the server boots on 8835 and the readiness loop below
+# waits on 8890 for ten minutes before saying "server never came up"
+export PORT
 for p in "$PORT" "$S3_PORT"; do
   if (exec 3<>/dev/tcp/127.0.0.1/$p) 2>/dev/null; then exec 3>&- ; echo "port $p is already in use — set PORT / S3_PORT"; exit 1; fi
 done

@@ -12,7 +12,7 @@
 ;;      each with the source's visibility and grants, each with provenance
 
 (require rackunit db-kit/portable
-         racket/port racket/string racket/file racket/list
+         racket/port racket/string racket/file racket/list racket/system
          file/zip file/unzip
          json
          db-kit/migrate
@@ -194,6 +194,29 @@
   (check-exn #rx"not a .docx" (lambda () (render-docx #"PK\3\4not really" (hasheq))))
   (check-exn #rx"no word/document.xml" (lambda () (render-docx (make-docx-without-body) (hasheq))))
   (check-exn #rx"data has no total" (lambda () (render-docx (make-docx SPLIT-DOCX-XML) (hasheq 'vendor "x" 'items '())))))
+
+;; ---- 1c. PDF output (DWF-6, slice 68) --------------------------------------------
+;; The toolchain (pandoc + tectonic) is looked up at call time; on a box without
+;; it the error is named and nothing else in the tool changes. With it, a filled
+;; Markdown form comes back as a PDF whose text is the filled text.
+(test-case "render-pdf: a named error without the toolchain, a real PDF with it"
+  (check-exn #rx"needs pandoc and tectonic"
+             (lambda () (render-pdf "# x" #:toolchain #f)))
+  (cond
+    [(pdf-toolchain)
+     (define pdf (render-pdf "# Approval\n\nVendor: Acme Corp\n\nTotal: 1250.5\n"))
+     (check-true (and (> (bytes-length pdf) 500) (equal? (subbytes pdf 0 4) #"%PDF")) "starts with the PDF magic")
+     (define pdftotext (find-executable-path "pdftotext"))
+     (when pdftotext
+       (define tmp (make-temporary-file "form-~a.pdf"))
+       (call-with-output-file tmp (lambda (o) (write-bytes pdf o)) #:exists 'truncate)
+       (define text (with-output-to-string (lambda () (system* pdftotext (path->string tmp) "-"))))
+       (delete-file tmp)
+       (check-true (regexp-match? #rx"Vendor: Acme Corp" text) "the PDF's text is the filled form"))
+     ;; an HTML template goes through pandoc's html reader
+     (define pdf2 (render-pdf "<h1>Approval</h1><p>Vendor: Acme &amp; Sons</p>" #:html? #t))
+     (check-equal? (subbytes pdf2 0 4) #"%PDF")]
+    [else (printf "  (pandoc/tectonic not on PATH — PDF rendering not exercised)\n")]))
 
 ;; ---- 2. extraction refuses what does not conform ----------------------------------
 (test-case "extract-fields: conforming JSON is accepted, everything else is refused"

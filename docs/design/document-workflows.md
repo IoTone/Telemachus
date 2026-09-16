@@ -104,10 +104,14 @@ data: an extraction that looks finished and is wrong is worse than a failed step
 document. v1 renders **Markdown and HTML** templates with `{{field}}`
 substitution and a `{{#each}}` for line items; **DOCX** via a template whose
 paragraphs carry the same placeholders (the repository already unzips DOCX to
-extract text; writing one back is the same `file/unzip` in reverse). **PDF is
-deferred**: every PDF renderer is a dependency the deterministic-deps tenet would
-have to be argued past, and a DOCX or HTML form is what a person edits anyway
-(DWF‑6).
+extract text; writing one back is the same `file/unzip` in reverse). **PDF** came
+in slice 68 as `format: "pdf"` on `doc_render`: the Markdown or HTML template is
+filled exactly as before and the finished text goes through **pandoc → tectonic**,
+the two tools the developer e-book had already pinned in `flake.nix` and that the
+packaged server carries on its PATH. The toolchain is looked up at call time, so
+a box without it boots and renders every other format; the one PDF call fails by
+name. A DOCX template is refused rather than converted — LibreOffice is not a
+dependency this platform takes on (DWF‑6).
 
 **`doc_translate`** — wraps `translate!`: a document's text (or a rendered form)
 into a target locale, glossary applied, written as `<key>.<locale>.<ext>`. Fanned
@@ -206,8 +210,10 @@ Tools:
    guard. Smoke: an S3 `PUT` fires the run — the path a team will actually use.
 4. ✅ The Automations card and the "Processed by" panel; the e2e gate gains the
    invoice scenario end to end.
-5. ✅ DOCX rendering. PDF stays deferred until someone needs a PDF that is not a
-   printed DOCX.
+5. ✅ DOCX rendering. ✅ PDF (slice 68): `doc_render {format: "pdf"}` → `<key>.form.pdf`
+   via pandoc + tectonic; `format` is a tool argument, so a workflow binds it as a
+   literal (`"with": {"format": "pdf", …}`) — the four `process-upload` inputs are
+   unchanged.
 
 ### As built (steps 1–2)
 
@@ -319,6 +325,6 @@ Tools:
 | **DWF‑3** | Re-firing | **Exactly once per version; derived documents do not re-trigger unless opted in** · vs fire on every write | Without both, a pipeline runs itself forever. |
 | **DWF‑4** | Where outputs live | **Repository documents with a provenance row** · vs blobs in run state | Shareable, versioned, searchable, and "where did this come from" is a click. |
 | **DWF‑5** | Extraction output | **Validated against a caller-supplied JSON schema; refused on mismatch** · vs accept and flag | A wrong extraction that looks finished is worse than a failed step. |
-| **DWF‑6** | Form rendering | **Markdown/HTML in v1, DOCX via template; PDF deferred** · vs a PDF renderer now | Every PDF renderer is a dependency; a DOCX form is what people edit anyway. |
+| **DWF‑6** | Form rendering | **Markdown/HTML in v1, DOCX via template; PDF as `format: "pdf"` through pandoc → tectonic (slice 68)** · vs a PDF renderer in-process · vs never | The two tools were already pinned for the e-book; looked up at call time so their absence costs exactly one named refusal. |
 | **DWF‑7** | Manual vs automatic | **The same `run` path for both; "Run workflow…" ships first** · vs triggers only | A pipeline is tested by hand before it is automated, on the same code. |
 | **DWF‑8** | The first-user path | **A shipped `doc-pipeline` plugin: text → fields → form → translations, configured per trigger** · vs a bespoke pipeline per customer | One workflow, many configurations, no new code per team. |

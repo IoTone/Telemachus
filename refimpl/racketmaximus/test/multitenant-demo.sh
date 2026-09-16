@@ -206,6 +206,30 @@ assert "sibling team also refused" "$E3" 'quota exceeded'
 assert "globex unaffected" "$(pj /api/ai/echo $GLBX_DEV '{"prompt":"hello"}')" '"reply":"HELLO"'
 
 echo
+echo "== 8b. TEN-2d — a company's hostname wears the company's branding =============="
+assert "instance branding set" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $ROOT" -d '{"title":"Instance Co","tagline":"one box"}')" '"title":"Instance Co"'
+assert "acme has no branding of its own" "$(g /api/org/branding $ACME_OWNER)" '"own":false'
+assert "acme sets its branding" "$(curl -s -X PUT $B/api/org/branding -H "Authorization: Bearer $ACME_OWNER" -d '{"title":"Acme Portal","tagline":"Acme documents"}')" '"title":"Acme Portal"'
+assert "a dev may not" "$(curl -s -X PUT $B/api/org/branding -H "Authorization: Bearer $ACME_DEV" -d '{"title":"x"}')" 'Forbidden'
+assert "superadmin assigns acme a hostname" "$(curl -s -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ROOT" -d '{"domain":"Acme.Test"}')" '"domain":"acme.test"'
+assert "a hostname is a hostname" "$(curl -s -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ROOT" -d '{"domain":"https://acme.test/x"}')" 'not a hostname'
+assert "globex cannot take it" "$(curl -s -X PATCH $B/api/orgs/globex -H "Authorization: Bearer $ROOT" -d '{"domain":"acme.test"}')" 'already assigned'
+assert "an org admin cannot set a hostname" "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ACME_OWNER" -d '{"domain":"evil.test"}')" '403'
+# PUBLIC, before sign-in: the Host header picks the company
+assert "acme.test wears Acme"        "$(curl -s $B/api/branding -H 'Host: acme.test')" '"title":"Acme Portal"'
+assert "…as the company's own"       "$(curl -s $B/api/branding -H 'Host: acme.test')" '"scope":"org"'
+assert "the console HTML too"        "$(curl -s $B/ -H 'Host: acme.test:8835')" '<title>Acme Portal</title>'
+assert "og tags follow"              "$(curl -s $B/ -H 'Host: acme.test')" 'og:description" content="Acme documents"'
+assert "the bare host is the instance" "$(curl -s $B/api/branding)" '"title":"Instance Co"'
+assert "…scope instance"             "$(curl -s $B/api/branding)" '"scope":"instance"'
+# signed in, on any host: the caller's own company
+assert "an acme user sees Acme"      "$(g /api/branding $ACME_DEV)" '"title":"Acme Portal"'
+assert "a globex user sees the instance" "$(g /api/branding $GLBX_DEV)" '"title":"Instance Co"'
+assert "the superadmin sees the instance" "$(g /api/branding $ROOT)" '"title":"Instance Co"'
+assert "acme clears it" "$(curl -s -X DELETE $B/api/org/branding -H "Authorization: Bearer $ACME_OWNER")" '"own":false'
+assert "acme.test is the instance again" "$(curl -s $B/api/branding -H 'Host: acme.test')" '"title":"Instance Co"'
+assert "hostname cleared" "$(curl -s -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ROOT" -d '{"domain":null}')" '"domain":null'
+echo
 echo "== 9. suspending a company freezes only that company ==========================="
 assert "suspend acme" "$(pj /api/orgs/$ACME_ORG/suspend $ROOT)" '"status":"suspended"'
 assert "acme writes blocked"  "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $ACME_DEV" -d '{"title":"nope"}')" 'tenant suspended'

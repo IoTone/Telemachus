@@ -345,6 +345,25 @@ Operator runbook: `docs/ops/multi-tenancy-runbook.md`.
   owner token the create call returned.
 - There is deliberately **no `DELETE /api/orgs`** (TEN‑2g) and **no console UI** —
   the whole surface is HTTP.
+- **TEN‑2d (slice 68): a company's hostname and branding.** `orgs.domain`
+  (migration 0029, unique) is set by the SUPERADMIN only — `PATCH /api/orgs/<ref>
+  {"domain": "acme.example"}`, `null` clears — because a company must not be able
+  to claim another company's hostname, or the instance's. `request-org` in
+  main.rkt resolves the Host header first (`org-by-domain`: lower-cased, a
+  trailing `:port` dropped, a hostname and nothing else), then the caller's own
+  org when the request carries a valid token, and only when multi-tenancy is on.
+  Branding is one more `instance_settings` document, `branding:<org-id>`
+  (`branding-for` = the company's if set, else the instance's, WHOLE — no
+  per-field merge, so "unset" looks exactly like today). `PUT/GET/DELETE
+  /api/org/branding` + `POST /api/org/branding/logo` for the org admin; the
+  public `GET /api/branding` and the console's `<title>`/OG tags follow it, with
+  `scope: org|instance` saying which one answered. The console needs no change:
+  `loadBranding()` already sends the bearer, so a signed-in user gets their
+  company's branding on any host. Slug-derived subdomains were rejected: a real
+  customer has a real hostname with DNS and TLS in front of the box.
+  `test/multitenant-demo.sh` section 8b; `test/tenancy-tests.rkt` (the upgrade
+  test's "old world" is now every migration BEFORE 0016 — a later migration may
+  touch `orgs`, and 0029 does).
 - **TEN‑2h (slice 65): the `org_reader` role reads across the company.** It holds
   `org:read-data`, which `can?` maps onto the team-tier DATA reads only
   (`DATA-READ-PERMS` = notes/documents/files `:read`) in every team of its org —
@@ -396,6 +415,12 @@ path-style, region from `TELEMACHUS_S3_REGION` (default `us-east-1`).
 raco test test/sigv4-tests.rkt     # 64 cases, AWS's own vectors + presign rules
 bash test/s3-smoke.sh              # 33 checks with the real aws CLI (skips if absent)
 ```
+
+The smoke EXPORTS `PORT` (default 8890): the server reads it from the environment,
+and a merely-defaulted shell variable is not exported — the server then boots on
+8835 and the readiness loop waits on 8890 for ten minutes before "server never
+came up". Run the S3 and server smokes one at a time; both default to 8835-ish
+ports and the sweep runs them sequentially for that reason.
 
 ## HTTP/1.1 listener (`web-kit/http1`, slice 51)
 
@@ -584,6 +609,21 @@ raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, d
 - The Automations card lives on the **Workflows** tab (`automationsCard`), with
   `trgCreate/trgToggle/trgDelete/trgHistory`; the create form's input textarea
   is prefilled with `PIPELINE_EXAMPLE_SCHEMA`.
+- **PDF forms (DWF‑6, slice 68)**: `doc_render {format: "pdf"}` fills a
+  Markdown or HTML template as before and hands the finished text to
+  **pandoc → tectonic** (`render-pdf`), writing `<key>.form.pdf` as
+  `application/pdf`. The toolchain is `find-executable-path`'d at CALL time —
+  a box without it boots and every other format works; the one call fails with
+  "needs pandoc and tectonic". `nix/telemachus.nix` puts both on the packaged
+  wrapper's PATH; a bare `racket server/main.rkt` needs them installed. tectonic
+  fetches TeX packages on its first run into `~/.cache/Tectonic` (the SERVER's
+  home) — a fresh box needs the network once, or a pre-warmed cache; a 429
+  from the bundle mirror is a retry, not a failure. A DOCX template is refused
+  for PDF (no LibreOffice). `format` is a TOOL argument, not a pipeline input:
+  a workflow binds it as a literal (`"with": {"format": "pdf", …}`, see the
+  `pdf-form` spec `test/doc-pipeline-smoke.sh` publishes); the four
+  `process-upload` inputs did not change. The unit test and the smoke exercise
+  the real toolchain when it is on PATH and assert the named refusal otherwise.
 - **DOCX**: `render-docx` unzips to a temp dir, runs `docx-prepare` on
   `word/document.xml` (re-joins placeholders Word split across runs; turns a
   marker-only table row into the `{{#each}}` marker so the rows between repeat),
@@ -881,6 +921,17 @@ raco test test/roles-tests.rkt
   console runs under the policy**: a CSP violation is a console error and the
   gate fails on those. A Tier-B bundle that loads a CDN font or script is blocked
   by this policy — bundle assets must be served from the bundle.
+  **Playwright under the policy:** `page.evaluate` works (it goes through CDP),
+  but `page.waitForFunction` evaluates its predicate as a STRING and dies with
+  "Refused to evaluate a string as JavaScript" — use a locator wait
+  (`locator(sel, {hasText}).waitFor()`, `filter({hasNotText})`) instead. The
+  funnel e2e (`test/e2e/funnel-l10n.sh`, now in CI) was the one that had it.
+- **The funnel's chrome follows the funnel's locale.** The shell loads the
+  `ui.*` catalog for the instance default before it knows about `?lang=`;
+  `betaLandingView` re-fetches it (`loadCatalog`, `S.catLocale`) when the server
+  answers in another locale. Without that the copy was Japanese and the sign-in
+  link and "verifying…" stayed English — invisible to every server-side test,
+  which is why the funnel e2e is in CI now.
 - **Baseline security headers on every response** (#11), added in `handle` via
   `with-security-headers`: nosniff, `Referrer-Policy: strict-origin-when-cross-origin`,
   `X-Frame-Options: SAMEORIGIN` (the Tier-C funnel iframe is same-origin), and

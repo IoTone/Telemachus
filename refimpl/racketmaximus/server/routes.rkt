@@ -57,7 +57,7 @@
 
    ;; ---- instance: config, branding, localization ------------------------------------
    (R "GET" "/api/config"   'config #:auth 'public #:doc "Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token.")
-   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Instance title, tagline and logo. Public: the sign-in screen renders them.")
+   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).")
    (R "PUT" "/api/branding" 'branding-put #:perm "instance:manage" #:doc "Set the instance title and tagline.")
    (R "POST" "/api/branding/logo" 'branding-logo #:perm "instance:manage" #:doc "Upload the instance logo (replaces the mark and the wordmark).")
    (R "GET" "/api/i18n/catalog" 'i18n-catalog #:auth 'public #:doc "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.")
@@ -111,7 +111,7 @@
    (R "POST" "/api/orgs/:ref/resume" 'org-resume #:auth 'superadmin #:perm "instance:manage" #:doc "Resume a suspended company.")
    (R "POST" "/api/orgs/:ref/quota" 'org-quota #:auth 'superadmin #:perm "instance:manage" #:doc "Set an org-level quota; teams nest beneath it.")
    (R "GET" "/api/orgs/:ref" 'org-get #:auth 'superadmin #:perm "instance:manage" #:doc "One company, its teams and quotas.")
-   (R "PATCH" "/api/orgs/:ref" 'org-update #:auth 'superadmin #:perm "instance:manage" #:doc "Rename a company and/or change its plan (a plan change re-applies the plan's caps).")
+   (R "PATCH" "/api/orgs/:ref" 'org-update #:auth 'superadmin #:perm "instance:manage" #:doc "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).")
    (R "POST" "/api/admin/seed-tenants" 'seed-tenants #:auth 'superadmin #:perm "instance:manage" #:doc "Seed Acme and Globex with known dev passwords — demo fixture only.")
    (R "GET" "/api/org" 'my-org #:auth 'org-admin #:perm "org:read" #:doc "The caller's own company.")
    (R "GET" "/api/org/teams" 'my-org-teams #:auth 'org-admin #:perm "org:read" #:doc "The teams in the caller's company.")
@@ -119,6 +119,10 @@
    (R "POST" "/api/org/members" 'my-org-member-add #:auth 'org-admin #:perm "org:manage" #:doc "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).")
    (R "PATCH" "/api/org/members/:id" 'my-org-member-role #:auth 'org-admin #:perm "org:manage" #:doc "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.")
    (R "GET" "/api/org/audit" 'my-org-audit #:auth 'org-admin #:perm "org:read" #:doc "The company's audit trail.")
+   (R "GET" "/api/org/branding" 'my-org-branding-get #:auth 'org-admin #:perm "org:read" #:doc "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.")
+   (R "PUT" "/api/org/branding" 'my-org-branding-put #:auth 'org-admin #:perm "org:manage" #:doc "Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users.")
+   (R "DELETE" "/api/org/branding" 'my-org-branding-clear #:auth 'org-admin #:perm "org:manage" #:doc "Drop the company's branding; its users see the instance's again.")
+   (R "POST" "/api/org/branding/logo" 'my-org-branding-logo #:auth 'org-admin #:perm "org:manage" #:doc "Upload the company's logo (base64) and make it the company's mark.")
 
    ;; ---- notes and text documents ----------------------------------------------------
    (R "POST" "/api/notes" 'notes-create #:perm "notes:write" #:doc "Create a note with a visibility.")

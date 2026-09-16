@@ -102,7 +102,7 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | TEN‑2a | org admin **manages but does not read** team data | ✅ built — least privilege; a company admin who needs data joins the team, audibly |
 | TEN‑2b | `username` instance-global (email); `teams.slug` per-org | ✅ built — keeps `/api/login` unambiguous with no org selector |
 | TEN‑2c | a user belongs to **exactly one** org | ✅ built — enforced at the `add-member!` seam |
-| TEN‑2d | per-org branding / subdomain routing | ⬜ open — `orgs.slug` exists, routing does not |
+| TEN‑2d | per-org branding / hostname routing | ✅ built 15 Sep 2026 (slice 68) — `orgs.domain` (superadmin-assigned, unique) picks the company from the Host header; `branding:<org-id>` under `instance_settings`; unset = the instance's, whole |
 | TEN‑2e | per-org model endpoints (BYO inference) | ✅ built 15 Sep 2026 — `executors.org_id` (PULL‑6): `POST /api/org/executors` binds one to the caller's company, offered only to its teams |
 | TEN‑2f | provisioning is an **API** operation; explicit slug = natural key (`409` on re-run), derived slug suffixes | ✅ built — a pipeline must converge; a silent duplicate company is worse than a refused call |
 | TEN‑2g | **no `DELETE /api/orgs`** — suspend is the terminal API state, erasure is a SQL maintenance procedure | ✅ decided — the cascade spans teams, users, tokens, blobs and audit |
@@ -203,7 +203,7 @@ instance holds exactly one user (the owner); provider actions
 | **DWF‑3** | Re-firing | **Once per version; derived documents do not re-trigger unless opted in** · vs fire on every write | Otherwise a pipeline runs itself forever. |
 | **DWF‑4** | Where outputs live | **Repository documents with a provenance row** · vs blobs in run state | Shareable, versioned, searchable; provenance is a click. |
 | **DWF‑5** | Extraction output | **Validated against a caller-supplied JSON schema; refused on mismatch** · vs accept and flag | A wrong extraction that looks finished is worse than a failed step. |
-| **DWF‑6** | Form rendering | **Markdown/HTML v1, DOCX via template; PDF deferred** · vs a PDF renderer now | Every PDF renderer is a dependency. |
+| **DWF‑6** | Form rendering | **Markdown/HTML v1, DOCX via template; PDF via `format: "pdf"` (pandoc → tectonic, slice 68)** · vs a PDF renderer in-process | The renderer is the two tools the e-book already pinned; looked up at call time, so a box without them refuses that one call by name. |
 | **DWF‑7** | Manual vs automatic | **Same `run` path; "Run workflow…" ships first** · vs triggers only | Test by hand, automate the same code. |
 | **DWF‑8** | The first-user path | **A shipped `doc-pipeline` plugin, configured per trigger** · vs bespoke per customer | One workflow, many configurations. |
 

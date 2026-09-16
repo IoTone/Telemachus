@@ -929,7 +929,16 @@
        "ALTER TABLE jobs ADD COLUMN requirements TEXT NOT NULL DEFAULT '{}'"
        "ALTER TABLE jobs ADD COLUMN parent_job_id TEXT"
        "CREATE INDEX idx_jobs_lease ON jobs(status, lease_until)"))))
+;; TEN-2d (slice 68): a company may own a hostname. The console served on that
+;; host wears the company's branding before anyone signs in. NULL = no hostname;
+;; the unique index lets many NULLs coexist on both dialects.
+(define m-0029-org-domain
+  (migration "0029-org-domain"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE orgs ADD COLUMN domain TEXT"
+       "CREATE UNIQUE INDEX idx_orgs_domain ON orgs(domain)"))))
 
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain))

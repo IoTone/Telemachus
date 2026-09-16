@@ -29,7 +29,7 @@
 ;;   inbox/acme.ja.txt             a translation of the SOURCE (text out of a PDF)
 
 (require db-kit/portable
-         racket/string racket/list racket/port racket/file
+         racket/string racket/list racket/port racket/file racket/system
          file/unzip file/zip
          json
          "../tools/dsl.rkt"
@@ -46,7 +46,8 @@
 
 (provide current-doc-chat
          extract-fields render-template render-docx docx-prepare
-         DOCX-TYPE TRANSLATE-CAP)
+         render-pdf pdf-toolchain
+         DOCX-TYPE PDF-TYPE TRANSLATE-CAP)
 
 ;; ---- the model seam --------------------------------------------------------------
 ;; (chat prompt #:system sys) -> (values reply tokens). Temperature 0: extraction and
@@ -210,9 +211,10 @@
 
 ;; ---- doc_render ------------------------------------------------------------------
 (define-tool doc_render
-  #:description "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>."
+  #:description "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is \"pdf\" (a Markdown or HTML template, converted with pandoc and tectonic)."
   (template string #:description "The template document's object id or key")
   (data object #:description "The data to fill in, e.g. the extracted fields")
+  (format string #:optional #:description "Output format: the template's own (default) or \"pdf\" — Markdown and HTML templates only")
   (object string #:optional #:description "The source document's object id — the form is written beside it (default: beside the template)")
   (run string #:optional #:description "The workflow run id, for provenance")
   (step string #:optional #:description "The workflow step id, for provenance"))
@@ -372,28 +374,81 @@
       (file->bytes out-path))
     (lambda () (delete-directory/files dir #:must-exist? #f))))
 
+;; ---- PDF output (DWF-6, slice 68) ------------------------------------------------
+;; A filled Markdown or HTML form becomes a PDF through pandoc, with tectonic as
+;; the TeX engine — the same two tools the developer e-book is built with, and
+;; both on the packaged server's PATH (nix/telemachus.nix). Nothing is rendered
+;; in-process: the template is filled first, exactly as for the text formats, and
+;; only the finished text is handed to pandoc. A DOCX template is refused rather
+;; than converted — LibreOffice is not a dependency this platform takes on.
+;;
+;; The toolchain is looked up at call time, not at load, so a box without it
+;; still boots and every other format keeps working; the failure is a named
+;; error on the one call that asked for a PDF. tectonic fetches TeX packages on
+;; its first run and caches them under the server's HOME (~/.cache/Tectonic) —
+;; a fresh box needs the network once, or a pre-warmed cache.
+(define PDF-TYPE "application/pdf")
+
+;; -> (cons pandoc-path tectonic-path) or #f
+(define (pdf-toolchain)
+  (define pandoc (find-executable-path "pandoc"))
+  (define tectonic (find-executable-path "tectonic"))
+  (and pandoc tectonic (cons pandoc tectonic)))
+
+(define (render-pdf text #:html? [html? #f] #:toolchain [tc (pdf-toolchain)])
+  (unless tc
+    (error 'doc_render "PDF output needs pandoc and tectonic on the server's PATH — the packaged wrapper carries both; a bare `racket server/main.rkt` needs them installed"))
+  (define dir (make-temporary-file "form-pdf-~a" 'directory))
+  (dynamic-wind
+    void
+    (lambda ()
+      (define in (build-path dir (if html? "form.html" "form.md")))
+      (define out (build-path dir "form.pdf"))
+      (call-with-output-file in (lambda (o) (write-string text o)))
+      (define log (open-output-string))
+      (define code
+        (parameterize ([current-output-port log] [current-error-port log] [current-directory dir])
+          (system*/exit-code (car tc)
+                             (string-append "--pdf-engine=" (path->string (cdr tc)))
+                             "--from" (if html? "html" "markdown")
+                             "--variable" "geometry:margin=2.5cm"
+                             "-o" (path->string out) (path->string in))))
+      (unless (and (zero? code) (file-exists? out))
+        (error 'doc_render "PDF conversion failed (pandoc exit ~a): ~a" code
+               (string-trim (let ([s (get-output-string log)]) (if (> (string-length s) 800) (substring s (- (string-length s) 800)) s)))))
+      (file->bytes out))
+    (lambda () (delete-directory/files dir #:must-exist? #f))))
+
 (define (doc-render conn p args)
   (define tref (arg args 'template))
   (define data (hash-ref args 'data #f))
   (unless (hash? data) (error 'doc_render "data must be a JSON object"))
+  (define fmt (let ([f (opt-arg args 'format)]) (and f (string-downcase (string-trim f)))))
+  (unless (member fmt '(#f "pdf"))
+    (error 'doc_render "unknown format ~s — leave it out for the template's own format, or \"pdf\"" fmt))
+  (define pdf? (equal? fmt "pdf"))
   (define tmpl-obj (doc-ref conn p tref))
   (unless tmpl-obj (error 'doc_render "no such template: ~a" tref))
   (define-values (_t tbytes) (read-doc-bytes conn p (hash-ref tmpl-obj 'id)))
   (define ct (hash-ref tmpl-obj 'content_type))
   (define docx? (or (string=? ct DOCX-TYPE) (equal? (ext-of (hash-ref tmpl-obj 'key)) "docx")))
+  (when (and pdf? docx?)
+    (error 'doc_render "a DOCX template cannot be rendered to PDF — use a Markdown or HTML template for format \"pdf\""))
+  (define html? (string-prefix? ct "text/html"))
   (define out-bytes
-    (if docx?
-        (render-docx tbytes data)
-        (string->bytes/utf-8
-         (render-template (bytes->string/utf-8 tbytes #\?) data #:escape? (string-prefix? ct "text/html")))))
+    (cond
+      [docx? (render-docx tbytes data)]
+      [else
+       (define filled (render-template (bytes->string/utf-8 tbytes #\?) data #:escape? html?))
+       (if pdf? (render-pdf filled #:html? html?) (string->bytes/utf-8 filled))]))
   (define src (let ([id (opt-arg args 'object)]) (if id (doc-ref conn p id) tmpl-obj)))
   (unless src (error 'doc_render "no such document: ~a" (opt-arg args 'object)))
-  (define ext (or (ext-of (hash-ref tmpl-obj 'key)) (if docx? "docx" "md")))
+  (define ext (cond [pdf? "pdf"] [else (or (ext-of (hash-ref tmpl-obj 'key)) (if docx? "docx" "md"))]))
   (define o (derive! conn p src
                      #:key (string-append (hash-ref src 'key) ".form." ext)
-                     #:bytes out-bytes #:content-type (if docx? DOCX-TYPE ct)
+                     #:bytes out-bytes #:content-type (cond [pdf? PDF-TYPE] [docx? DOCX-TYPE] [else ct])
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
-  (obj-summary o #:summary (string-append "filled from " (hash-ref tmpl-obj 'key))))
+  (obj-summary o #:summary (string-append "filled from " (hash-ref tmpl-obj 'key) (if pdf? " as PDF" ""))))
 
 ;; ---- doc_translate ---------------------------------------------------------------
 (define-tool doc_translate
