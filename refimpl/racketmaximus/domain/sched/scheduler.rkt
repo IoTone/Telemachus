@@ -123,7 +123,7 @@
              (or (not (sql-null? (vector-ref r 3))) (< running (cap-for team)))
              ((unbox *admit?*) conn team)             ; quota gate — over-budget teams defer
              (begin
-               (query-exec conn "UPDATE jobs SET status='running', started_at=CURRENT_TIMESTAMP WHERE id = ?" id)
+               (query-exec conn "UPDATE jobs SET status='running', started_at=CURRENT_TIMESTAMP WHERE id = ? AND status='queued'" id)
                id))))))
 
 (define (run-claimed! conn id)
@@ -163,8 +163,8 @@
               (let loop ()
                 (when (unbox *run*)
                   (with-handlers ([exn:fail? (lambda (_) (sleep idle))])
-                    (unless (process-one! conn)
-                      ((unbox *reaper*) conn)          ; expired pull leases go back to the queue
-                      (sleep idle)))
+                    (define idle? (not (process-one! conn)))
+                    ((unbox *reaper*) conn)            ; expired pull leases go back to the queue
+                    (when idle? (sleep idle)))
                   (loop))))))
   (lambda () (set-box! *run* #f)))    ; stop thunk
