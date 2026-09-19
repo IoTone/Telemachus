@@ -25,10 +25,12 @@
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
          (only-in "../ai/content.rkt" content->text)
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
          "federation.rkt")
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
+         executor-secret executor-context
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER
          pull-dispatch!)
 
@@ -39,6 +41,13 @@
 (define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- executors --------------------------------------------------------------------
+;; a push executor's key is sealed at rest like the other replayable secrets
+;; (issue #19); it is read back only by the rewrap CLI and a future push caller
+(define (executor-context id) (string-append "executors.secret_key:" id))
+(define (executor-secret conn id)
+  (let ([v (query-maybe-value conn "SELECT secret_key FROM executors WHERE id = ?" id)])
+    (and v (not (sql-null? v)) (secret-unwrap (executor-context id) v))))
+
 (define ESELECT
   (string-append "SELECT id, org_id, name, mode, url, model, capabilities, token_id, status, last_seen_at, created_at, created_by "
                  "FROM executors"))
@@ -80,7 +89,8 @@
   (query-exec conn
     (string-append "INSERT INTO executors (id, org_id, name, mode, url, model, secret_key, capabilities, token_id, created_by) "
                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    id (or org-id sql-null) name mode (or url sql-null) (or model sql-null) (or key sql-null)
+    id (or org-id sql-null) name mode (or url sql-null) (or model sql-null)
+    (if key (secret-wrap (executor-context id) key) sql-null)
     (jsexpr->string caps) (or tid sql-null) (principal-user-id p))
   (when (equal? mode "push")
     (register-executor! name #:url url #:model (or model "local") #:key key))

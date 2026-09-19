@@ -71,6 +71,7 @@
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
          "../domain/ai/content.rkt"               ; content parts + response formats (issue #18)
+         (only-in "../domain/authz/secretbox.rkt" secrets-enabled? secret-key-id)   ; issue #19
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
          "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
@@ -954,6 +955,9 @@
      (json-response (hasheq 'ok #t
       ;; issue #11: what /health used to say, now behind instance:manage
       'service "telemachus" 'version app-version 'tls (tls-on?) 'kdf (kdf-name)
+                            ;; issue #19: is a dump of this database replayable?
+                            'secrets (if (secrets-enabled?) "sealed" "plaintext")
+                            'secret_key_id (or (secret-key-id) 'null)
                             'multitenant (multitenant?)
                             'users (query-value db-conn "SELECT COUNT(*) FROM users")
                             'teams (query-value db-conn "SELECT COUNT(*) FROM teams")
@@ -1227,6 +1231,31 @@
       [(< (string-length new) 6) (err "new password too short (min 6)" 400)]
       [(change-password! db-conn (principal-user-id p) cur new) (json-response (hasheq 'ok #t))]
       [else (err "current password incorrect" 403)]))))
+
+;; issue #19: a TOTP seed is the one credential its owner cannot rotate by using
+;; it. Clearing it is what makes a leaked seed — from a database dump taken before
+;; the instance had a secret key, say — a recoverable incident.
+(define (ep-2fa-reset req)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else
+     (define had (reset-2fa! db-conn (principal-user-id p)))
+     (audit! db-conn #:action "user.2fa.reset" #:actor-type "user" #:actor-id (principal-user-id p)
+             #:resource-type "user" #:resource-id (principal-user-id p))
+     (json-response (hasheq 'ok #t 'was_enabled had))]))
+
+;; the same, for someone else — an operator act, audited as one
+(define (ep-admin-2fa-reset req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (cond
+      [(not (query-maybe-value db-conn "SELECT id FROM users WHERE id = ?" id)) (err "not found" 404)]
+      [else
+       (define had (reset-2fa! db-conn id))
+       (audit! db-conn #:action "user.2fa.reset" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:resource-type "user" #:resource-id id)
+       (json-response (hasheq 'ok #t 'user_id id 'was_enabled had))]))))
 
 (define (ep-2fa-enable req)
   (define p (current-principal req))
@@ -2211,7 +2240,8 @@
    'tenant-suspend (lambda (req) (ep-tenant req suspend!))
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota
-   'login ep-login '2fa-enable ep-2fa-enable 'password ep-password
+   'login ep-login '2fa-enable ep-2fa-enable '2fa-reset ep-2fa-reset
+   'admin-2fa-reset ep-admin-2fa-reset 'password ep-password
    'whoami ep-whoami 'profile ep-profile 'add-member ep-add-member 'members-list ep-members-list
    'admin-status ep-admin-status
    'orgs-create ep-orgs-create 'orgs-list ep-orgs-list
@@ -2561,8 +2591,10 @@
   (define ip (bind-ip))
   (define port (listen-port))
   (when tls? (ensure-cert!))
-  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · max upload: ~a MiB)\n"
+  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · secrets: ~a · max upload: ~a MiB)\n"
           (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off")
+          ;; issue #19: say plainly whether a dump of this database is replayable
+          (if (secrets-enabled?) (format "sealed (key ~a)" (secret-key-id)) "plaintext")
           (quotient (max-upload-bytes) (* 1024 1024)))
   ;; The S3 front door is a SEPARATE listener on a separate port: it runs on
   ;; web-kit/http1 because it must answer `Expect: 100-continue` and stream bodies

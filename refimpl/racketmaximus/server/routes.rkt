@@ -101,12 +101,14 @@
    (R "POST" "/api/instance/quota" 'instance-quota #:auth 'provision #:doc "Hosted mode: set a quota limit for the tenant's team.")
    (R "POST" "/api/login" 'login #:auth 'public #:doc "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token.")
    (R "POST" "/api/2fa/enable" '2fa-enable #:doc "Enable TOTP two-factor authentication for the caller; returns the secret once.")
+   (R "DELETE" "/api/2fa" '2fa-reset #:doc "Turn the caller's own TOTP off, so the old seed stops working and they must enrol again.")
+   (R "DELETE" "/api/admin/users/:id/2fa" 'admin-2fa-reset #:perm "instance:manage" #:doc "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.")
    (R "POST" "/api/password" 'password #:doc "Change the caller's password.")
    (R "GET" "/api/whoami" 'whoami #:doc "The caller: user, team, operator flag, org, org role, locale, permissions.")
    (R "POST" "/api/profile" 'profile #:doc "Update the caller's profile (display name, locale).")
    (R "POST" "/api/members" 'add-member #:perm "members:manage" #:doc "Add a member to the caller's team with a role; returns the new member's first token.")
    (R "GET" "/api/members" 'members-list #:doc "The team's members and roles.")
-   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
+   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
 
    ;; ---- multi-tenancy: superadmin plane, then org-admin plane ----------------------
    (R "POST" "/api/orgs" 'orgs-create #:auth 'superadmin #:perm "instance:manage" #:doc "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).")

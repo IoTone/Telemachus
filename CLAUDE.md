@@ -1024,6 +1024,48 @@ raco test test/roles-tests.rkt
   asset id when set. Same procedural `regexp-replace*` rule as the title — a
   string replacement would expand `&`.
 
+## Secrets at rest (issue #19)
+
+`domain/authz/secretbox.rkt` — AES-256-GCM over libcrypto EVP, the same FFI seam
+`sha2.rkt` uses, pinned to NIST's GCM vectors. Operator runbook:
+`docs/ops/secrets-at-rest-runbook.md`.
+
+- **Three values cannot be hashed** and so are sealed instead:
+  `users.totp_secret`, `repo_credentials.secret_key`, `executors.secret_key`.
+  Everything else (passwords, API tokens) stays a hash.
+- **The claim is narrow and deliberate: it defends a DUMP, not a HOST.** The key
+  is in the environment, so anyone running as the server can read it; a backup,
+  a replica or a volume snapshot travels without it. The old note in `creds.rkt`
+  argued encryption "moves the secret from one file an attacker already has to
+  another" — true of a host, false of the dump, which is the case that happens.
+- **`TELEMACHUS_SECRET_KEY` is NOT `TELEMACHUS_SECRET`.** Rotating the pepper
+  signs everyone out (a fine emergency action); if it also sealed secrets, that
+  same action would destroy them. 64 hex = the key; anything else is a
+  passphrase, stretched with PBKDF2, never truncated.
+- **No key configured = plaintext, and that is supported** — it is the "trusted
+  database" position, now visible (`secrets:` in the boot line and in
+  `GET /api/admin/status`) rather than inherited.
+- **Storage is `enc:v1:<key-id>:<nonce>:<ct+tag>`; anything else is plaintext
+  and reads as-is**, so adopting a key needs no migration. `cli/telemachus-secrets.rkt`
+  (`status` / `keygen` / `rewrap`) seals existing rows and rotates
+  (`TELEMACHUS_SECRET_KEY_OLD` reads, the current key writes). Never do this at
+  boot: a mistyped key would seal every row with a key nobody has.
+- **The AAD is `<table>.<column>:<row-id>`**, so a ciphertext moved between rows
+  does not open. Adding a new stored secret means adding a row to `SECRETS` in
+  the CLI as well as wrapping at the seam.
+- **A sealed value that will not open RAISES.** Never make it fall back to "" —
+  an empty TOTP seed silently disables someone's second factor.
+- **A TOTP seed is the one credential its owner cannot rotate by using it**, so
+  it is revocable now: `DELETE /api/2fa` (self) and `DELETE
+  /api/admin/users/:id/2fa` (`instance:manage`), both audited `user.2fa.reset`.
+- The key is memoized by its **raw value**, not by the variable name — a cache
+  keyed on the name pins whatever was set first, which breaks any test that sets
+  a key and any process handed a rotated environment.
+
+```sh
+raco test test/secretbox-tests.rkt        # NIST vectors + the stored-form rules + the three seams
+```
+
 ## Branding (Admin > Branding)
 
 Instance title, tagline and logo, editable by an operator. `domain/branding/branding.rkt`

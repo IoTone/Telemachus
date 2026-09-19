@@ -554,6 +554,17 @@ assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-ro
 assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
 assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
 
+# ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
+assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'
+assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'
+TFA=$(curl -s -X POST $B/api/2fa/enable -H "Authorization: Bearer $OP")
+assert "2fa enable returns the seed once"     "$TFA" '"secret":'
+assert "…and resetting it says it was on"     "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":true'
+assert "…a second reset says it was not"      "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":false'
+assert "an operator may revoke another user's seed" "$(curl -s -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $OP")" '"ok":true'
+assert "…a member may not"                    "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $BOB")" '403'
+assert "…and an unknown user is a 404"        "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/admin/users/nobody/2fa -H "Authorization: Bearer $OP")" '404'
+
 # ---- slice 63: a plugin's authenticated HTTP route, mounted under /api/x/<plugin>/
 assert "plugin route (GET, query)"  "$(curl -s "$B/api/x/example-tools/word-count?text=one+two+three" -H "Authorization: Bearer $OP")" '"words":3'
 assert "plugin route (POST, body)"  "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{"text":"a b"}')" '"words":2'

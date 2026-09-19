@@ -52,12 +52,14 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/quota` | provision | — | — | Hosted mode: set a quota limit for the tenant's team. |
 | POST | `/api/login` | public | — | — | Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. |
 | POST | `/api/2fa/enable` | bearer | — | — | Enable TOTP two-factor authentication for the caller; returns the secret once. |
+| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed stops working and they must enrol again. |
+| DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
 | POST | `/api/password` | bearer | — | — | Change the caller's password. |
 | GET | `/api/whoami` | bearer | — | — | The caller: user, team, operator flag, org, org role, locale, permissions. |
 | POST | `/api/profile` | bearer | — | — | Update the caller's profile (display name, locale). |
 | POST | `/api/members` | bearer | `members:manage` | — | Add a member to the caller's team with a role; returns the new member's first token. |
 | GET | `/api/members` | bearer | — | — | The team's members and roles. |
-| GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
+| GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
 | POST | `/api/orgs` | superadmin | `instance:manage` | — | Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run). |
 | GET | `/api/orgs` | superadmin | `instance:manage` | — | List every org on the instance. |
 | POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | — | Suspend a company (id or slug); every team in it becomes read-only. |

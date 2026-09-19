@@ -6,20 +6,27 @@
 ;; keyed by the secret, so verifying a signature means holding the secret. There is
 ;; no way to check an HMAC against a hash, which is what api_tokens stores.
 ;;
-;; SECRETS ARE STORED IN THE CLEAR, and that is a deliberate, stated position rather
-;; than an oversight. The alternative on offer — encrypting with a key that lives in
-;; the environment of the same process, on the same host, reading the same database —
-;; moves the secret from one file an attacker already has to another. `users.totp_secret`
-;; is recoverable in this database for exactly the same reason. What actually bounds
-;; the damage is the scope list: a leaked access key can do what its scopes allow and
-;; no more, never what its issuer could do. Treat the database as the trust boundary
-;; it already is, and if that is not enough for a deployment, encrypt the volume.
+;; THE SECRET IS STORED, not hashed, and it has to be: there is no way to check an
+;; HMAC against a hash. It is now stored SEALED when the instance has a secret key
+;; (issue #19, domain/authz/secretbox.rkt), in the clear when it does not.
+;;
+;; The earlier note here argued that encryption "moves the secret from one file an
+;; attacker already has to another", and that is right about a HOST — an attacker
+;; running as the server reads the key out of its own environment. It is wrong
+;; about a DUMP, which is the case that actually happens: a backup, a replica, a
+;; pg_dump in a ticket, a stolen volume snapshot. Those travel without the
+;; process's environment, and that is the gap the key closes. The claim is no
+;; larger than that.
+;;
+;; What still bounds the damage either way is the scope list: a leaked access key
+;; can do what its scopes allow and no more, never what its issuer could do.
 ;;
 ;; A credential resolves to a principal, and from there every request is
 ;; indistinguishable from one that arrived with a bearer token (DOC-1).
 
 (require db-kit/portable racket/string racket/list racket/random json
          "../db/id.rkt"
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
          "../authz/authz.rkt")
 
 (provide s3-cred-issue! s3-cred-list s3-cred-revoke! s3-cred-resolve
@@ -36,6 +43,9 @@
 
 (define (access-key-id? s) (and (string? s) (regexp-match? #px"^[A-Z0-9]{8,64}$" s) #t))
 
+;; the sealing context: the column this secret lives in, and the row it belongs to
+(define (cred-context id) (string-append "repo_credentials.secret_key:" id))
+
 ;; Issuing a credential hands out rights, so it needs the same permission as issuing
 ;; an API token. Scopes cap it exactly as RBAC-4 caps a token.
 ;; The default covers what an S3 client actually does: `aws s3 sync --delete` and
@@ -51,7 +61,8 @@
   (query-exec conn
     (string-append "INSERT INTO repo_credentials (id, user_id, team_id, name, access_key_id, secret_key, scopes) "
                    "VALUES (?, ?, ?, ?, ?, ?, ?)")
-    id (principal-user-id p) (principal-team-id p) name ak secret (jsexpr->string scopes))
+    id (principal-user-id p) (principal-team-id p) name ak
+    (secret-wrap (cred-context id) secret) (jsexpr->string scopes))
   (audit! conn #:action "s3.credential.create" #:actor-type "user" #:actor-id (principal-user-id p)
           #:team-id (principal-team-id p) #:resource-type "repo_credentials" #:resource-id id
           #:meta (format "{\"access_key_id\":~s}" ak))
@@ -92,7 +103,7 @@
                       "FROM repo_credentials WHERE access_key_id = ?") access-key))
      (cond
        [(or (not r) (not (equal? (vector-ref r 5) "active"))) (values #f #f)]
-       [else (values (vector-ref r 3)
+       [else (values (secret-unwrap (cred-context (vector-ref r 0)) (vector-ref r 3))
                      (hasheq 'id (vector-ref r 0) 'user_id (vector-ref r 1)
                              'team_id (vector-ref r 2)
                              'scopes (with-handlers ([exn:fail? (lambda (_) '())])
@@ -122,10 +133,10 @@
 ;; can see or take away.
 (define (s3-cred-newest conn p)
   (define r (query-maybe-row conn
-    (string-append "SELECT access_key_id, secret_key FROM repo_credentials "
+    (string-append "SELECT access_key_id, secret_key, id FROM repo_credentials "
                    "WHERE user_id = ? AND team_id = ? AND status = 'active' "
                    "ORDER BY created_at DESC LIMIT 1")
     (principal-user-id p) (principal-team-id p)))
-  (and r (values->cons (vector-ref r 0) (vector-ref r 1))))
+  (and r (values->cons (vector-ref r 0) (secret-unwrap (cred-context (vector-ref r 2)) (vector-ref r 1)))))
 
 (define (values->cons a b) (cons a b))
