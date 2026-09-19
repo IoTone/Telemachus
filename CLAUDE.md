@@ -841,6 +841,34 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   `dispatch-tool/artifact` (text + the artifact for the event) share the checks.
 - Kinds: document, table, text, link, image. An unknown kind is an error at
   construction — the console switches on it.
+- **A plugin may register a JOB KIND** (issue #21), through `init!` — the
+  documented route, not a fourth `(provide …)`. The loader binds the plugin's id
+  while `init!` runs, and the kind must be named **`x.<plugin-id>.<name>`**, the
+  same platform-fixed prefix routes get; a violation fails THAT plugin's load.
+  Re-registering your own kind is fine (the loader may run twice in one process);
+  a name someone else owns is not. The registry records the owner, so
+  `GET /api/plugins` and `plugins.md` report kinds per plugin — do not go back to
+  a before/after diff in the loader, which makes a kind look like nobody's on a
+  reload. A **remote** kind now REQUIRES `#:validate`: there is no in-process
+  handler to be strict for it. A plugin kind inherits everything from the row
+  (team, user, cap, quota admission, org gate, cancel, lease) and nothing from
+  the plugin. Worked example: `x.example-tools.word-count`.
+- **Two bundle directories, and the difference is who may read them** (issue #20).
+  `plugins/<id>/landing/` is PUBLIC at `/beta/bundle/<id>/` (the funnel a prospect
+  is linked to, `public, max-age=300`). `plugins/<id>/bundle/` is the
+  AUTHENTICATED one at **`/api/x/<id>/bundle/*path`** — bearer required,
+  `private, no-store` + `Vary: Authorization`. `bundle/` is reserved by the
+  platform under every plugin's prefix and core routes match first, so a plugin
+  cannot claim it. The bundle is code, one copy for everyone; anything per-org
+  comes from the plugin's API routes. Assets ship IN the bundle — `CONSOLE-CSP`
+  is same-origin, so a CDN script or font is blocked.
+- **A `..` segment is a SYMBOL, not a string.** Racket's URL parser gives `'up`
+  (and `'same` for `.`), so joining or matching a path as strings raised — the
+  public bundle route answered **500** instead of its intended 404, invisible for
+  a year because curl collapses `../` unless you pass `--path-as-is`. `request-path`
+  in `pkgs/web-kit/main.rkt` normalizes both to `".."`/`"."`; keep traversal
+  assertions on `--path-as-is`, and add the percent-encoded (`%2e%2e`) and nested
+  (`a/../../`) forms — the plain one alone proves nothing.
 
 ## Pull-model executors (slice 66)
 
@@ -869,6 +897,19 @@ migration `0028-executors`; `/api/executors`, `/api/org/executors`,
   the pool's idle tick and re-queues with `attempt+1`, failing past
   `MAX-ATTEMPTS` 3. Complete/fail are accepted only from the current holder
   (`'not-holder` → 409). Tests expire leases by UPDATE, never by sleeping.
+- **Issue #17: the pool leases too, and a claim is believed only if it took the
+  row.** `claim-job!` in scheduler.rkt is the ONE claim — `UPDATE … WHERE id = ?
+  AND status='queued' RETURNING id`, believed only when a row comes back, used by
+  the pool and by `worker-claim!`. Never go back to `query-exec` here: it
+  discards the row count, and the count is Postgres-only anyway (`RETURNING`
+  works on both, SQLite ≥ 3.35). An in-process claim now carries the same 120s
+  lease, refreshed by a thread around the handler (`with-lease`) and cleared on
+  finish, so `reap-leases!` recovers a pool job whose process died — it used to
+  require `lease_until IS NOT NULL` and a dead pool job held its team's
+  concurrency slot forever. A terminal write is guarded on still being `running`
+  (`finish!`), so a reaped run cannot land its result — or its bill — on the new
+  attempt. `reap-orphans!` sweeps NULL-lease `running` rows at startup: that is
+  the upgrade path from a build that claimed without a lease.
 - Executor health is derived: never-seen / active / stale (3× lease) / retired.
   Retire revokes the token and requeues a held job.
 - **`notes-list` now requires `notes:read` up front** (found by this slice's
