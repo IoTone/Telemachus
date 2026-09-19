@@ -29,8 +29,18 @@
    (lambda (out) (write-json jsx out))))
 
 ;; Path segments of the request as a list of strings, e.g. '("api" "health").
+;;
+;; ALWAYS strings: Racket's URL parser hands back the SYMBOLS 'up and 'same for
+;; a ".." or "." segment, and a caller that joins or matches them as strings
+;; raises — which turned `GET /beta/bundle/<id>/../plugin.json` into a 500 rather
+;; than the 404 its traversal check intends (a client that normalizes the path
+;; itself, as curl does without --path-as-is, hides this). Normalizing here keeps
+;; every path-handling caller total, and ".." stays visible so a segment check can
+;; refuse it rather than a path join collapsing it.
 (define (request-path req)
-  (map path/param-path (url-path (request-uri req))))
+  (for/list ([p (in-list (url-path (request-uri req)))])
+    (define seg (path/param-path p))
+    (cond [(eq? seg 'up) ".."] [(eq? seg 'same) "."] [else seg])))
 
 ;; web-server's default max-request-body-length is 1 MiB, and exceeding it does not
 ;; produce a 413 — the connection is dropped with no HTTP response at all, nothing

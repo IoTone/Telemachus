@@ -62,6 +62,9 @@ assert "og:title (default)"         "$SHELL_HTML" '<meta property="og:title" con
 assert "bundle root serves index.html" "$(curl -s -o /dev/null -w '%{http_code} %{content_type}' $B/beta/bundle/beta-onboarding/)" '200 text/html'
 assert "bundle file by path"           "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/beta-onboarding/index.html)" '200'
 assert "bundle traversal refused"      "$(curl -s -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
+# …and when the client does NOT collapse it either: a ".." segment reaches the
+# server as Racket's 'up symbol, and used to raise a 500 instead of being refused
+assert "…even unnormalized"           "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
 BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
 assert "bootstrap token" "$BS" '"token":"tk_'
 assert "bootstrap msg"   "$BS" 'Created operator alice'
@@ -546,6 +549,22 @@ assert "plugin route needs a token" "$(curl -s -o /dev/null -w '%{http_code}' "$
 assert "plugin route: a user error is a 400" "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{}')" 'text is required'
 assert "plugin route in the plugin listing" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"GET /word-count"'
 assert "no plugin route outside its prefix"  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/word-count?text=x" -H "Authorization: Bearer $OP")" '404'
+assert "plugin job kind is listed for its plugin" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.example-tools.word-count"'
+
+# ---- issue #20: a plugin's AUTHENTICATED bundle. The funnel's landing bundle is
+# public and publicly cached; customer screens must not be, so they come from a
+# second directory behind a bearer token and a no-store response.
+assert "plugin bundle needs a token"  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/example-tools/bundle/)" '401'
+assert "plugin bundle serves index.html" "$(curl -s $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP")" 'Word count'
+assert "…the same file by name"       "$(curl -s $B/api/x/example-tools/bundle/index.html -H "Authorization: Bearer $OP")" 'Word count'
+assert "…is never publicly cached"    "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^cache-control:')" 'private, no-store'
+assert "…and varies by Authorization" "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^vary:')" 'Authorization'
+assert "the public landing path is NOT the authenticated one" "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/example-tools/index.html)" '404'
+# --path-as-is, or curl collapses the ../ itself and the server never sees it
+assert "plugin bundle: no traversal out of the directory" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/../main.rkt" -H "Authorization: Bearer $OP")" '404'
+assert "plugin bundle: no ENCODED traversal either" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/%2e%2e/main.rkt" -H "Authorization: Bearer $OP")" '404'
+assert "plugin bundle: a nested traversal is a 404 too" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/a/../../plugin.json" -H "Authorization: Bearer $OP")" '404'
+assert "plugin bundle: an unloaded plugin is a 404" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/nope/bundle/index.html -H "Authorization: Bearer $OP")" '404'
 
 # ---- slice 57: the document pipeline plugin is present, and refuses to run on the
 # fallback model. Without this the uppercase-echo fallback would fail every schema

@@ -23,6 +23,7 @@ A plugin is a directory under `plugins/` with a `plugin.json` manifest (`id`, `n
 | HTTP routes | `(provide routes)` — a list of `(method path permission handler doc)`; the handler is `(conn principal args) -> jsexpr` with `args` = `{params, query, body}` | mounted at `/api/x/<plugin>/<path>`, always authenticated, permission checked first; listed in [api.md](api.md) |
 | Job kinds | `(provide init!)` calling `register-job-kind!`; the kind must be named `x.<plugin-id>.<name>` | the same queue as core kinds: per-team cap, quota admission, the org gate, cancel and the lease |
 | Anything else | `(provide init!)` — runs with full SDK access at load | e.g. `register-blob-store!` (the `rs3` local store), `register-onboarding!` (a beta funnel experience) |
-| A beta funnel bundle | a `bundle/` directory served at `/beta/bundle/<id>/` | a Tier-B custom frontend over `window.Telemachus.beta` |
+| A beta funnel bundle | a `landing/` directory, served PUBLICLY at `/beta/bundle/<id>/` | a Tier-B custom frontend over `window.Telemachus.beta`, for prospects who have no token |
+| Authenticated screens | a `bundle/` directory, served at `/api/x/<id>/bundle/` | a bearer token is required and the response is `private, no-store`; assets must ship in the bundle (the CSP is same-origin) |
 
 See [sdk.md](sdk.md) for the authoring surfaces.

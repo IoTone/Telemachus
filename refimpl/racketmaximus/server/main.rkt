@@ -300,11 +300,12 @@
         "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"))
 (define (ext-of s) (let ([m (regexp-match #rx"\\.([A-Za-z0-9]+)$" s)]) (if m (string-downcase (cadr m)) "")))
 (define (mime-of s) (hash-ref STATIC-MIME (ext-of s) #"application/octet-stream"))
-(define (serve-file path)
+(define (serve-file path #:cache [cache #"public, max-age=300"] #:headers [extra '()])
   (if (and (file-exists? path))
       (response/output #:mime-type (mime-of (path->string path))
-                       #:headers (list (make-header #"Cache-Control" #"public, max-age=300")
-                                       (make-header #"X-Content-Type-Options" #"nosniff"))
+                       #:headers (append (list (make-header #"Cache-Control" cache)
+                                               (make-header #"X-Content-Type-Options" #"nosniff"))
+                                         extra)
                        (lambda (out) (write-bytes (file->bytes path) out)))
       (err "not found" 404)))
 ;; a path segment safe to interpolate into a filesystem path (no traversal, no slashes)
@@ -317,6 +318,24 @@
          (and (safe-seg? plugin) (andmap safe-seg? rest)
               (apply build-path (build-path impl-root "plugins" plugin "landing")
                      (if (null? rest) '("index.html") rest))))))
+
+;; issue #20: /api/x/<plugin>/bundle/<path...> → plugins/<plugin>/bundle/<path>,
+;; the AUTHENTICATED counterpart of the funnel's public landing bundle. Two rules
+;; keep customer screens off a public path: the plugin must be LOADED (so the
+;; route can only ever reach a directory the operator installed, never an
+;; arbitrary one), and every segment is a plain name — `..` and slashes are not
+;; names, so the path cannot climb out of the bundle directory into the plugin's
+;; source. The caller's principal and org are the plugin's API's business
+;; (/api/x/<id>/… routes see both); the bundle itself is code, one copy for
+;; everyone, which is why it does not vary by org.
+(define (plugin-bundle-file-path plugin rest-path)
+  (define rest (filter (lambda (s) (not (string=? s "")))
+                       (string-split (or rest-path "") "/")))
+  (and (safe-seg? plugin)
+       (for/or ([p (in-list (loaded-plugins))]) (equal? (hash-ref p 'id) plugin))
+       (andmap safe-seg? rest)
+       (apply build-path (build-path impl-root "plugins" plugin "bundle")
+              (if (null? rest) '("index.html") rest))))
 
 ;; Server-Sent Events: proc receives an `emit` that pushes one JSON event.
 (define (sse-response proc)
@@ -2141,6 +2160,16 @@
    'bundle-file (lambda (req plugin path)
                   (define f (bundle-file-path (request-path req)))
                   (if f (serve-file f) (err "not found" 404)))
+   ;; issue #20: authenticated, and never publicly cached. `Vary: Authorization`
+   ;; so no intermediary can hand one principal's request to another.
+   'plugin-bundle (lambda (req plugin path)
+                    (with-auth req
+                      (lambda (p)
+                        (define f (plugin-bundle-file-path plugin path))
+                        (if f
+                            (serve-file f #:cache #"private, no-store"
+                                        #:headers (list (make-header #"Vary" #"Authorization")))
+                            (err "not found" 404)))))
    'beta-template ep-beta-template
    'config ep-config
    'branding-get ep-branding-get 'branding-put ep-branding-put 'branding-logo ep-branding-logo

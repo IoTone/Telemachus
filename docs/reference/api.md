@@ -12,7 +12,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/activate` | public | — | — | The console, on the magic-link activation screen (hosted mode). |
 | GET | `/health` | public | — | — | Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status. |
 | GET | `/beta-sdk.js` | public | — | — | The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta). |
-| GET | `/beta/bundle/:plugin/*path` | public | — | — | A file from a Tier-B onboarding plugin's bundle directory. |
+| GET | `/beta/bundle/:plugin/*path` | public | — | — | A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in. |
+| GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache. |
 | GET | `/beta/template` | public | — | — | The Tier-C sandboxed HTML template, localized by the experience overlay. |
 | GET | `/api/config` | public | — | — | Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token. |
 | GET | `/api/branding` | public | — | — | Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |

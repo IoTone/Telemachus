@@ -52,7 +52,11 @@
    (R "GET" "/activate"    'ui #:auth 'public #:doc "The console, on the magic-link activation screen (hosted mode).")
    (R "GET" "/health"      'health #:auth 'public #:doc "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.")
    (R "GET" "/beta-sdk.js" 'beta-sdk #:auth 'public #:doc "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).")
-   (R "GET" "/beta/bundle/:plugin/*path" 'bundle-file #:auth 'public #:doc "A file from a Tier-B onboarding plugin's bundle directory.")
+   (R "GET" "/beta/bundle/:plugin/*path" 'bundle-file #:auth 'public #:doc "A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in.")
+   ;; issue #20: the authenticated counterpart. `bundle/` is reserved by the
+   ;; platform under every plugin's prefix, and core routes match before plugin
+   ;; ones, so a plugin cannot serve its own screens from a public cached path.
+   (R "GET" "/api/x/:plugin/bundle/*path" 'plugin-bundle #:doc "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache.")
    (R "GET" "/beta/template" 'beta-template #:auth 'public #:doc "The Tier-C sandboxed HTML template, localized by the experience overlay.")
 
    ;; ---- instance: config, branding, localization ------------------------------------
