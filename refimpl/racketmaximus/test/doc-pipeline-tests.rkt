@@ -12,7 +12,7 @@
 ;;      each with the source's visibility and grants, each with provenance
 
 (require rackunit db-kit/portable
-         racket/port racket/string racket/file racket/list
+         racket/port racket/string racket/file racket/list racket/system
          file/zip file/unzip
          json
          db-kit/migrate
@@ -195,6 +195,29 @@
   (check-exn #rx"no word/document.xml" (lambda () (render-docx (make-docx-without-body) (hasheq))))
   (check-exn #rx"data has no total" (lambda () (render-docx (make-docx SPLIT-DOCX-XML) (hasheq 'vendor "x" 'items '())))))
 
+;; ---- 1c. PDF output (DWF-6, slice 68) --------------------------------------------
+;; The toolchain (pandoc + tectonic) is looked up at call time; on a box without
+;; it the error is named and nothing else in the tool changes. With it, a filled
+;; Markdown form comes back as a PDF whose text is the filled text.
+(test-case "render-pdf: a named error without the toolchain, a real PDF with it"
+  (check-exn #rx"needs pandoc and tectonic"
+             (lambda () (render-pdf "# x" #:toolchain #f)))
+  (cond
+    [(pdf-toolchain)
+     (define pdf (render-pdf "# Approval\n\nVendor: Acme Corp\n\nTotal: 1250.5\n"))
+     (check-true (and (> (bytes-length pdf) 500) (equal? (subbytes pdf 0 4) #"%PDF")) "starts with the PDF magic")
+     (define pdftotext (find-executable-path "pdftotext"))
+     (when pdftotext
+       (define tmp (make-temporary-file "form-~a.pdf"))
+       (call-with-output-file tmp (lambda (o) (write-bytes pdf o)) #:exists 'truncate)
+       (define text (with-output-to-string (lambda () (system* pdftotext (path->string tmp) "-"))))
+       (delete-file tmp)
+       (check-true (regexp-match? #rx"Vendor: Acme Corp" text) "the PDF's text is the filled form"))
+     ;; an HTML template goes through pandoc's html reader
+     (define pdf2 (render-pdf "<h1>Approval</h1><p>Vendor: Acme &amp; Sons</p>" #:html? #t))
+     (check-equal? (subbytes pdf2 0 4) #"%PDF")]
+    [else (printf "  (pandoc/tectonic not on PATH — PDF rendering not exercised)\n")]))
+
 ;; ---- 2. extraction refuses what does not conform ----------------------------------
 (test-case "extract-fields: conforming JSON is accepted, everything else is refused"
   (define (with reply) (extract-fields "Invoice from Acme…" INVOICE-SCHEMA
@@ -281,6 +304,12 @@
                              (bytes->string/utf-8 (read-back conn alice (hash-ref ja-doc 'id))))
               "the translation is of the FORM, into the item's locale")
   (check-equal? (hash-ref fields-doc 'content_type) "application/json")
+  ;; every output is an artifact (slice 64): the step's stored result names the document
+  (let* ([form-step (for/first ([s (in-list (hash-ref done 'steps))] #:when (equal? (hash-ref s 'step_id) "form")) s)]
+         [res (hash-ref (hash-ref form-step 'output) 'result)])
+    (check-equal? (hash-ref (hash-ref res 'artifact) 'kind) "document")
+    (check-equal? (hash-ref (hash-ref res 'artifact) 'object_id) (hash-ref form-doc 'id))
+    (check-equal? (hash-ref res 'object_id) (hash-ref form-doc 'id) "…and the plain key the next step binds is still there"))
   (check-equal? (hash-ref ja-doc 'content_type) "text/markdown")
 
   ;; grants came along: bob (view on the invoice) reads every output; carol none

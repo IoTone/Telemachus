@@ -102,6 +102,7 @@ assert "run accepted" "$RUN" '"status":"running"'
 wait_run "$RID"; ST="$RUNST"
 [ "$ST" = done ] || ST="$ST — $(printf '%s' "$RUNJSON" | grep -oP '"error":"\K[^"]*' | head -1)"
 assert "run finished" "$ST" "done"
+RUNJSON_FORM="$RUNJSON"
 assert "the form step ran"        "$RUNJSON" '"step_id":"form"'
 refute "the source branch did not" "$RUNJSON" '"step_id":"translate_source"'
 
@@ -143,6 +144,8 @@ assert "processing lists the fields document" "$PROC" '"key":"inbox/acme.txt.ext
 assert "processing lists the form"            "$PROC" '"key":"inbox/acme.txt.form.md"'
 assert "processing names the run"             "$PROC" "\"id\":\"$RID\""
 assert "the form's panel says where it came from" "$(G "/api/repo-obj/$FORMID/processing")" '"derived_from":[{'
+# artifact-shaped results (slice 64): the run's form step names the document it made
+assert "the form step's result is an artifact" "$RUNJSON_FORM" '"artifact":{'
 # "Shared with me" (DSH step 3): bob was handed the invoice; the outputs inherited it
 assert "shared with me: the invoice"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt"'
 assert "shared with me: its outputs"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt.form.md"'
@@ -169,6 +172,32 @@ DID=$(printf '%s' "$LISTD" | python3 -c 'import sys,json;print(json.load(sys.std
 curl -s "$B/api/repo-obj/$DID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/form.docx"
 assert "the .docx opens and is filled" "$(python3 -c 'import sys,zipfile;print(zipfile.ZipFile(sys.argv[1]).read("word/document.xml").decode())' "$TELEMACHUS_DATA_DIR/form.docx")" 'Vendor: Acme Corp'
 
+echo
+echo "== 3b. PDF output (DWF-6): a workflow that binds format \"pdf\" ================"
+# doc_render's `format` is a tool argument, not a pipeline input: a plugin (or
+# this spec) binds it as a literal. Skipped where pandoc/tectonic are not on the
+# server's PATH — the named refusal is asserted instead.
+PDFWF='{"spec":1,"slug":"pdf-form","input":{"object_id":"string","template":"string"},"steps":[
+  {"id":"form","uses":"tool:doc_render","with":{"template":"${input.template}","object":"${input.object_id}","format":"pdf",
+   "data":{"vendor":"Acme Corp","total":1250.5,"buyer":{"name":"Globex"},"items":[{"description":"Widgets","amount":1000}]}}}]}'
+assert "pdf workflow published" "$(P /api/workflows "$PDFWF")" '"slug":"pdf-form"'
+RUNP=$(P /api/workflows/pdf-form/run "{\"input\":{\"object_id\":\"$INVID\",\"template\":\"templates/approval.md\"}}")
+RIDP=$(printf '%s' "$RUNP" | grep -oP '"id":"\K[^"]+' | head -1)
+STP=''; for i in $(seq 1 120); do STP=$(G /api/runs/$RIDP); printf '%s' "$STP" | grep -qE '"status":"(done|failed|error)"' && break; sleep 0.5; done
+if command -v pandoc >/dev/null && command -v tectonic >/dev/null; then
+  assert "pdf run finished" "$STP" '"status":"done"'
+  LISTP=$(G "/api/repo?prefix=inbox/acme.txt.form.pdf")
+  assert "the form is a .pdf beside the source" "$LISTP" '"key":"inbox/acme.txt.form.pdf"'
+  assert "…with the PDF content type" "$LISTP" '"content_type":"application/pdf"'
+  PDID=$(printf '%s' "$LISTP" | python3 -c 'import sys,json;print(json.load(sys.stdin)["objects"][0]["id"])')
+  curl -s "$B/api/repo-obj/$PDID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/form.pdf"
+  assert "it is a PDF" "$(head -c 4 "$TELEMACHUS_DATA_DIR/form.pdf")" '%PDF'
+  if command -v pdftotext >/dev/null; then
+    assert "the PDF's text is the filled form" "$(pdftotext "$TELEMACHUS_DATA_DIR/form.pdf" -)" 'Vendor: Acme Corp'
+  fi
+else
+  assert "pdf refused by name without the toolchain" "$STP" 'needs pandoc and tectonic'
+fi
 echo
 echo "== 4. no template: the SOURCE is translated; a re-run supersedes ==============="
 RUN2=$(P /api/workflows/process-upload/run "{\"input\":{\"object_id\":\"$INVID\",\"schema\":$SCHEMA,\"template\":\"\",\"locales\":[\"nl\"]}}")

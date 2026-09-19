@@ -52,6 +52,10 @@ jobs:
       # Its own ports (8836/8837) so it never races the smoke run's 8835.
       - name: Multi-tenancy demo
         run: bash test/multitenant-demo.sh
+      # A pull-model executor end to end: create it, run the reference worker
+      # against the scripted mock model, route a chat through it (slice 66).
+      - name: Pull executor smoke
+        run: bash test/pull-smoke.sh
       # The reference under docs/reference/ is generated from the source of truth
       # (tools, workflows, permissions, the route table, plugins) and COMMITTED;
       # this fails the build when a PR changes the code without regenerating.
@@ -88,6 +92,12 @@ jobs:
       # broken app should fail fast, and the tours would only photograph it.
       - name: Validate the demo (the e2e gate)
         run: bash test/e2e/validate.sh
+      # The funnel in the browser, in Japanese: the switcher, a shared ?lang= link,
+      # and the submit path's localized refusal — under the console's CSP. It was
+      # not in CI when the console's strings moved into the catalogs, and the
+      # funnel's chrome silently stayed English for a while (slice 68).
+      - name: Beta funnel localization (browser)
+        run: bash test/e2e/funnel-l10n.sh
       - name: Run tours (deterministic fallback model) + build catalogs
         run: bash test/e2e/run.sh
       - name: Upload catalogs

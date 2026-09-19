@@ -20,6 +20,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:write` | team | Upload documents and new versions. |
 | `instance:*` | instance | Everything at the instance tier; the operator (superadmin). |
 | `instance:manage` | instance | Instance administration: branding, localization policy, quotas, orgs, metrics. |
+| `jobs:execute` | team | Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run. |
 | `localization:manage` | team | Import and export catalogs, queue AI drafts, discard machine drafts. |
 | `localization:read` | team | See the Localization Manager's coverage and messages. |
 | `localization:review` | team | Approve or send back a colleague's translation (never one's own). |
@@ -35,6 +36,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `org:*` | org | Everything at the company tier. Never reaches instance:*. |
 | `org:manage` | org | Administer the company: teams and members. Manages, does not read, team data (TEN-2a). |
 | `org:read` | org | See the company, its teams, members and audit trail. |
+| `org:read-data` | org | Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role. |
 | `quota:manage` | team | Set quotas. |
 | `quota:read` | team | See quotas. |
 | `research:use` | team | Use the research surfaces. |
@@ -65,55 +67,58 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
 | Organization Admin (`org_admin`) | org | `org:read`, `org:manage`, `team:read`, `team:write`, `team:create`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
+| Organization Reader (`org_reader`) | org | `org:read`, `org:read-data`, `team:read` |
 
 ## Role matrix
 
 Which built-in role covers which permission (wildcards expanded).
 
-| Permission | owner | admin | member | viewer | org_owner | org_admin |
-|---|---|---|---|---|---|---|
-| `audit:read` | ✓ | ✓ |  | ✓ | ✓ | ✓ |
-| `chat:use` | ✓ | ✓ | ✓ |  |  |  |
-| `documents:delete` | ✓ | ✓ |  |  |  |  |
-| `documents:read` | ✓ | ✓ | ✓ | ✓ |  |  |
-| `documents:write` | ✓ | ✓ | ✓ |  |  |  |
-| `features:manage` | ✓ |  |  |  | ✓ | ✓ |
-| `files:delete` | ✓ | ✓ | ✓ |  |  |  |
-| `files:manage` | ✓ | ✓ |  |  |  |  |
-| `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |
-| `files:write` | ✓ | ✓ | ✓ |  |  |  |
-| `instance:manage` |  |  |  |  |  |  |
-| `localization:manage` | ✓ | ✓ |  |  |  |  |
-| `localization:read` | ✓ | ✓ | ✓ | ✓ |  |  |
-| `localization:review` | ✓ | ✓ |  |  |  |  |
-| `localization:translate` | ✓ | ✓ | ✓ |  |  |  |
-| `members:manage` | ✓ | ✓ |  |  | ✓ | ✓ |
-| `memory:read` | ✓ | ✓ | ✓ | ✓ |  |  |
-| `memory:write` | ✓ | ✓ | ✓ |  |  |  |
-| `models:serve` | ✓ | ✓ |  |  |  |  |
-| `notes:delete` | ✓ | ✓ |  |  |  |  |
-| `notes:manage` | ✓ |  |  |  |  |  |
-| `notes:read` | ✓ | ✓ | ✓ | ✓ |  |  |
-| `notes:write` | ✓ | ✓ | ✓ |  |  |  |
-| `org:manage` |  |  |  |  | ✓ | ✓ |
-| `org:read` |  |  |  |  | ✓ | ✓ |
-| `quota:manage` | ✓ |  |  |  | ✓ | ✓ |
-| `quota:read` | ✓ |  |  | ✓ | ✓ | ✓ |
-| `research:use` | ✓ | ✓ | ✓ |  |  |  |
-| `roles:manage` | ✓ |  |  |  | ✓ | ✓ |
-| `roles:read` | ✓ | ✓ |  | ✓ | ✓ | ✓ |
-| `settings:manage` | ✓ | ✓ |  |  | ✓ | ✓ |
-| `tasks:delete` | ✓ | ✓ |  |  |  |  |
-| `tasks:read` | ✓ | ✓ | ✓ | ✓ |  |  |
-| `tasks:write` | ✓ | ✓ | ✓ |  |  |  |
-| `team:create` | ✓ |  |  |  | ✓ | ✓ |
-| `team:delete` | ✓ |  |  |  | ✓ |  |
-| `team:read` | ✓ |  |  | ✓ | ✓ | ✓ |
-| `team:write` | ✓ |  |  |  | ✓ | ✓ |
-| `tokens:manage` | ✓ | ✓ |  |  | ✓ | ✓ |
-| `tools:invoke` | ✓ | ✓ | ✓ |  |  |  |
-| `webhooks:manage` | ✓ | ✓ |  |  |  |  |
-| `workflows:read` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `workflows:run` | ✓ | ✓ | ✓ |  |  |  |
-| `workflows:write` | ✓ | ✓ |  |  |  |  |
+| Permission | owner | admin | member | viewer | org_owner | org_admin | org_reader |
+|---|---|---|---|---|---|---|---|
+| `audit:read` | ✓ | ✓ |  | ✓ | ✓ | ✓ |  |
+| `chat:use` | ✓ | ✓ | ✓ |  |  |  |  |
+| `documents:delete` | ✓ | ✓ |  |  |  |  |  |
+| `documents:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
+| `documents:write` | ✓ | ✓ | ✓ |  |  |  |  |
+| `features:manage` | ✓ |  |  |  | ✓ | ✓ |  |
+| `files:delete` | ✓ | ✓ | ✓ |  |  |  |  |
+| `files:manage` | ✓ | ✓ |  |  |  |  |  |
+| `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
+| `files:write` | ✓ | ✓ | ✓ |  |  |  |  |
+| `instance:manage` |  |  |  |  |  |  |  |
+| `jobs:execute` | ✓ |  |  |  |  |  |  |
+| `localization:manage` | ✓ | ✓ |  |  |  |  |  |
+| `localization:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
+| `localization:review` | ✓ | ✓ |  |  |  |  |  |
+| `localization:translate` | ✓ | ✓ | ✓ |  |  |  |  |
+| `members:manage` | ✓ | ✓ |  |  | ✓ | ✓ |  |
+| `memory:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
+| `memory:write` | ✓ | ✓ | ✓ |  |  |  |  |
+| `models:serve` | ✓ | ✓ |  |  |  |  |  |
+| `notes:delete` | ✓ | ✓ |  |  |  |  |  |
+| `notes:manage` | ✓ |  |  |  |  |  |  |
+| `notes:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
+| `notes:write` | ✓ | ✓ | ✓ |  |  |  |  |
+| `org:manage` |  |  |  |  | ✓ | ✓ |  |
+| `org:read` |  |  |  |  | ✓ | ✓ | ✓ |
+| `org:read-data` |  |  |  |  |  |  | ✓ |
+| `quota:manage` | ✓ |  |  |  | ✓ | ✓ |  |
+| `quota:read` | ✓ |  |  | ✓ | ✓ | ✓ |  |
+| `research:use` | ✓ | ✓ | ✓ |  |  |  |  |
+| `roles:manage` | ✓ |  |  |  | ✓ | ✓ |  |
+| `roles:read` | ✓ | ✓ |  | ✓ | ✓ | ✓ |  |
+| `settings:manage` | ✓ | ✓ |  |  | ✓ | ✓ |  |
+| `tasks:delete` | ✓ | ✓ |  |  |  |  |  |
+| `tasks:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
+| `tasks:write` | ✓ | ✓ | ✓ |  |  |  |  |
+| `team:create` | ✓ |  |  |  | ✓ | ✓ |  |
+| `team:delete` | ✓ |  |  |  | ✓ |  |  |
+| `team:read` | ✓ |  |  | ✓ | ✓ | ✓ | ✓ |
+| `team:write` | ✓ |  |  |  | ✓ | ✓ |  |
+| `tokens:manage` | ✓ | ✓ |  |  | ✓ | ✓ |  |
+| `tools:invoke` | ✓ | ✓ | ✓ |  |  |  |  |
+| `webhooks:manage` | ✓ | ✓ |  |  |  |  |  |
+| `workflows:read` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  |
+| `workflows:run` | ✓ | ✓ | ✓ |  |  |  |  |
+| `workflows:write` | ✓ | ✓ |  |  |  |  |  |
 

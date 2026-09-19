@@ -24,6 +24,7 @@
          "../settings/settings.rkt")   ; the generic instance_settings accessor
 
 (provide branding-get branding-set! branding-defaults
+         org-branding-get org-branding-set! org-branding-clear! branding-for
          branding-title-max branding-tagline-max)
 
 (define KEY "branding")
@@ -66,3 +67,25 @@
 
 (define (branding-set! conn h)
   (setting-set! conn KEY (normalize (if (hash? h) h (hasheq)))))
+
+;; ---- TEN-2d: a company's own branding -----------------------------------------
+;; One more document under the same table, keyed `branding:<org-id>`. A company
+;; that has set nothing wears the instance's branding, field for field — there is
+;; no per-field merge, because a half-branded console (their title, our logo) is
+;; the confusing outcome, and "unset" should look exactly like today.
+(define (org-key org-id) (string-append KEY ":" org-id))
+
+;; the company's own document, normalized, or #f when it has never set one
+(define (org-branding-get conn org-id)
+  (define v (and org-id (setting-ref conn (org-key org-id) #f)))
+  (and v (normalize v)))
+
+(define (org-branding-set! conn org-id h)
+  (setting-set! conn (org-key org-id) (normalize (if (hash? h) h (hasheq)))))
+
+(define (org-branding-clear! conn org-id)
+  (setting-clear! conn (org-key org-id)))
+
+;; what a request should wear: the company's if it has one, else the instance's
+(define (branding-for conn org-id)
+  (or (and org-id (org-branding-get conn org-id)) (branding-get conn)))

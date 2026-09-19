@@ -12,7 +12,11 @@
 (provide perm-matches? instance-perm? org-perm? split-perm
          builtin-role-keys builtin-role-names builtin-role-perms
          builtin-org-role-keys org-role-key?
-         permission-doc permission-tier all-permissions)
+         permission-doc permission-tier all-permissions
+         DATA-READ-PERMS)
+
+;; the team-tier reads `org:read-data` unlocks across a company's teams (TEN-2h)
+(define DATA-READ-PERMS '("notes:read" "documents:read" "files:read"))
 
 (define (split-perm p)
   (define parts (string-split p ":"))
@@ -30,12 +34,16 @@
 (define (perm-matches? granted required)
   (or (string=? granted required)
       (string=? granted "*:*")
-      (let-values ([(gr ga) (split-perm granted)]
-                   [(rr ra) (split-perm required)])
-        (and (or (string=? gr "*") (string=? gr rr))
-             (or (string=? ga "*") (string=? ga ra))))))
+      ;; TEN-2h: `org:*` is the company-ADMINISTRATION wildcard; it does not
+      ;; reach `org:read-data`, which is granted by name (the org_reader role)
+      ;; so that reading a company's data is always a deliberate assignment
+      (and (not (string=? required "org:read-data"))
+           (let-values ([(gr ga) (split-perm granted)]
+                        [(rr ra) (split-perm required)])
+             (and (or (string=? gr "*") (string=? gr rr))
+                  (or (string=? ga "*") (string=? ga ra)))))))
 
-(define builtin-org-role-keys '("org_owner" "org_admin"))
+(define builtin-org-role-keys '("org_owner" "org_admin" "org_reader"))
 (define (org-role-key? k) (and (member k builtin-org-role-keys) #t))
 
 ;; team roles + the two org roles. Org roles live in the same `roles` table with
@@ -46,7 +54,8 @@
 
 (define builtin-role-names
   (hash "owner" "Owner" "admin" "Admin" "member" "Member" "viewer" "Viewer"
-        "org_owner" "Organization Owner" "org_admin" "Organization Admin"))
+        "org_owner" "Organization Owner" "org_admin" "Organization Admin"
+        "org_reader" "Organization Reader"))
 
 ;; Built-in team roles (team_id NULL). Note: none includes `instance:*` — that
 ;; tier is operator-only and enforced in the authz check, not by role data.
@@ -96,6 +105,12 @@
                  "quota:manage" "quota:read"
                  "settings:manage" "features:manage" "tokens:manage"
                  "audit:read" "workflows:read")
+   ;; TEN-2h: the one org role that READS. `org:read-data` reaches every team's
+   ;; team-visible notes, documents and search hits in the company — never a
+   ;; private one, never AI spend, never management. Granted deliberately by
+   ;; assigning THIS role; org_admin and org_owner do not carry it (TEN-2a stays
+   ;; the default), so a team can still enumerate who sees its work.
+   "org_reader" '("org:read" "org:read-data" "team:read")
    ;; the org steward — everything org_admin has, plus destroying and paying for
    ;; the company. Still not `instance:*`.
    "org_owner" '("org:*"
@@ -148,6 +163,7 @@
    "workflows:read"  "See workflow definitions, runs and triggers."
    "workflows:write" "Publish workflows and manage triggers."
    "workflows:run"   "Start and cancel runs. An S3 key needs this scope for its uploads to fire triggers."
+   "jobs:execute"    "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run."
    "team:read"    "See a team in the company."
    "team:write"   "Rename a team in the company."
    "team:create"  "Create a team in the company."
@@ -158,6 +174,7 @@
    "org:*"      "Everything at the company tier. Never reaches instance:*."
    "org:read"   "See the company, its teams, members and audit trail."
    "org:manage" "Administer the company: teams and members. Manages, does not read, team data (TEN-2a)."
+   "org:read-data" "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role."
    "instance:*"      "Everything at the instance tier; the operator (superadmin)."
    "instance:manage" "Instance administration: branding, localization policy, quotas, orgs, metrics."))
 

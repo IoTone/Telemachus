@@ -261,8 +261,8 @@ approved strings back. Neither is on the request path.
   `running`. That is the platform working. Before drafting a whole namespace,
   raise the team's budget (`POST /api/quota {"dimension":"ai.tokens.total",
   "limit":200000,"window":"day"}`, operator) — 170 UI strings cost roughly 20k
-  tokens on qwen2.5:7b. The Localize tab should say this when it queues a draft;
-  it does not yet.
+  tokens on qwen2.5:7b. The Localize tab says this when it queues a draft (the
+  draft endpoint returns `budget` with an estimate; `l10nDraft` toasts it).
 - **A draft that loses, invents, or mangles a placeholder is refused, not stored**
   (`draft-acceptable?` in `manager.rkt`). Two checks: the simple-placeholder set
   must match, AND the **brace count** must match. The second is what catches the
@@ -345,6 +345,36 @@ Operator runbook: `docs/ops/multi-tenancy-runbook.md`.
   owner token the create call returned.
 - There is deliberately **no `DELETE /api/orgs`** (TEN‑2g) and **no console UI** —
   the whole surface is HTTP.
+- **TEN‑2d (slice 68): a company's hostname and branding.** `orgs.domain`
+  (migration 0029, unique) is set by the SUPERADMIN only — `PATCH /api/orgs/<ref>
+  {"domain": "acme.example"}`, `null` clears — because a company must not be able
+  to claim another company's hostname, or the instance's. `request-org` in
+  main.rkt resolves the Host header first (`org-by-domain`: lower-cased, a
+  trailing `:port` dropped, a hostname and nothing else), then the caller's own
+  org when the request carries a valid token, and only when multi-tenancy is on.
+  Branding is one more `instance_settings` document, `branding:<org-id>`
+  (`branding-for` = the company's if set, else the instance's, WHOLE — no
+  per-field merge, so "unset" looks exactly like today). `PUT/GET/DELETE
+  /api/org/branding` + `POST /api/org/branding/logo` for the org admin; the
+  public `GET /api/branding` and the console's `<title>`/OG tags follow it, with
+  `scope: org|instance` saying which one answered. The console needs no change:
+  `loadBranding()` already sends the bearer, so a signed-in user gets their
+  company's branding on any host. Slug-derived subdomains were rejected: a real
+  customer has a real hostname with DNS and TLS in front of the box.
+  `test/multitenant-demo.sh` section 8b; `test/tenancy-tests.rkt` (the upgrade
+  test's "old world" is now every migration BEFORE 0016 — a later migration may
+  touch `orgs`, and 0029 does).
+- **TEN‑2h (slice 65): the `org_reader` role reads across the company.** It holds
+  `org:read-data`, which `can?` maps onto the team-tier DATA reads only
+  (`DATA-READ-PERMS` = notes/documents/files `:read`) in every team of its org —
+  `org-data-reader?` in `can?`'s base check and in the cross-team reachability
+  branch, which still refuses `private`. **`org:*` does NOT imply `org:read-data`**
+  (`perm-matches?` special-cases it): org_admin and org_owner still do not read,
+  so TEN‑2a stays the default. `?scope=org` on `GET /api/notes`, `/api/repo` and
+  `/api/search` lists every team in the caller's org through the same per-row
+  `can?` — a plain member asking for it sees nothing new. `PATCH
+  /api/org/members/<id> {org_role}` grants/revokes any org role (never your own).
+  `org-teams-of` in authz.rkt is the org's team list for such listings.
 
 ```sh
 TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # 2 seeded companies + 1 provisioned, 84 assertions
@@ -385,6 +415,12 @@ path-style, region from `TELEMACHUS_S3_REGION` (default `us-east-1`).
 raco test test/sigv4-tests.rkt     # 64 cases, AWS's own vectors + presign rules
 bash test/s3-smoke.sh              # 33 checks with the real aws CLI (skips if absent)
 ```
+
+The smoke EXPORTS `PORT` (default 8890): the server reads it from the environment,
+and a merely-defaulted shell variable is not exported — the server then boots on
+8835 and the readiness loop waits on 8890 for ten minutes before "server never
+came up". Run the S3 and server smokes one at a time; both default to 8835-ish
+ports and the sweep runs them sequentially for that reason.
 
 ## HTTP/1.1 listener (`web-kit/http1`, slice 51)
 
@@ -573,6 +609,21 @@ raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, d
 - The Automations card lives on the **Workflows** tab (`automationsCard`), with
   `trgCreate/trgToggle/trgDelete/trgHistory`; the create form's input textarea
   is prefilled with `PIPELINE_EXAMPLE_SCHEMA`.
+- **PDF forms (DWF‑6, slice 68)**: `doc_render {format: "pdf"}` fills a
+  Markdown or HTML template as before and hands the finished text to
+  **pandoc → tectonic** (`render-pdf`), writing `<key>.form.pdf` as
+  `application/pdf`. The toolchain is `find-executable-path`'d at CALL time —
+  a box without it boots and every other format works; the one call fails with
+  "needs pandoc and tectonic". `nix/telemachus.nix` puts both on the packaged
+  wrapper's PATH; a bare `racket server/main.rkt` needs them installed. tectonic
+  fetches TeX packages on its first run into `~/.cache/Tectonic` (the SERVER's
+  home) — a fresh box needs the network once, or a pre-warmed cache; a 429
+  from the bundle mirror is a retry, not a failure. A DOCX template is refused
+  for PDF (no LibreOffice). `format` is a TOOL argument, not a pipeline input:
+  a workflow binds it as a literal (`"with": {"format": "pdf", …}`, see the
+  `pdf-form` spec `test/doc-pipeline-smoke.sh` publishes); the four
+  `process-upload` inputs did not change. The unit test and the smoke exercise
+  the real toolchain when it is on PATH and assert the named refusal otherwise.
 - **DOCX**: `render-docx` unzips to a temp dir, runs `docx-prepare` on
   `word/document.xml` (re-joins placeholders Word split across runs; turns a
   marker-only table row into the `{{#each}}` marker so the rows between repeat),
@@ -587,6 +638,13 @@ raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, d
   (input order is a hash's — never assume `#wfi_0` is `object_id`), `wfStart`,
   `repoOpenDetail` → `#rprocessed`, `repoFilter(true)` → `#rf_shared`,
   `trgCreate` → `trgHistory` → `#tg_history`.
+- **Switching tabs in the gate is `goTab(page, tab, sel)`, never `go()` +
+  `waitForSelector`.** `go()` re-renders asynchronously and `renderTab` paints a
+  `…` placeholder first; on a tab the page is ALREADY showing, `waitForSelector`
+  matches the old DOM and the next assertion can run against the placeholder.
+  That is exactly how "localization card present in Admin" failed once in CI
+  (slower runner) and never locally. `goTab` waits for a LATER `renderSeq`, no
+  placeholder, and the selector.
 
 - **The model is a parameter**: `current-doc-chat`. Tests script it; the HTTP
   smoke uses `test/mock-llm.rkt`'s CHAT mode (`MOCK_REPLY_FILE`, a `{"needle":
@@ -657,7 +715,7 @@ and is COMMITTED; CI runs `telemachus-docs check` and fails on drift.
 - `docs/reference/strings.json` is a JSON surface for `telemachus-localize`:
   every description is a `doc.*` message (249). The CI localize gate includes it.
   `render --locale ja` writes `docs/reference/ja/` from the catalogs, English
-  where a string is not yet translated. Nobody has drafted `doc.*` yet.
+  where a string is not yet translated. `doc.*` was drafted into Japanese with the Manager on 15 Sep 2026 (257 machine drafts, 142 corrected by hand — the 7B model mixes in French/Spanish/Chinese fragments and leaves English words; review every draft) and `docs/reference/ja/` is committed; re-render it after drafting more.
 - The CLI evaluates the plugins (`load-plugins!`), so run it inside `nix develop`.
 
 ```sh
@@ -756,6 +814,142 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 # needs a live model; refuses to start without one, on purpose:
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
+
+## Plugin routes and artifact results (slices 63–64, issue #15)
+
+- **A plugin may `(provide routes)`**: `(list method path perm handler doc)` per
+  entry, handler `(conn principal args) -> jsexpr` with `args` =
+  `(hasheq 'params … 'query … 'body …)`. The loader validates each entry at load
+  (a bad one fails THAT plugin, not a request later) and the server mounts them
+  at **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so a plugin
+  can never shadow a core route or another plugin's. Always `with-auth`, then the
+  named permission through `require-perm`; a `raise-user-error` is the caller's
+  400. Matched AFTER the core table (`match-routes` over `PLUGIN-ROUTES`, built by
+  `install-plugin-routes!` after `load-plugins!` in main). They appear in
+  `docs/reference/api.md` under "Plugin routes" and in `GET /api/plugins`.
+  `plugins/example-tools` ships `word-count` as the worked example; the smoke
+  pins GET/POST, 401, 400 and the prefix.
+- **A tool may return an artifact** (`domain/agent/artifact.rkt`): a hash with an
+  `artifact` key `{kind, title, summary, content_type?, object_id?, version_id?,
+  url?}` plus any keys a workflow step should bind. The three surfaces agree by
+  construction: the model gets ONE line (`artifact->text`), the console gets the
+  hash on the `tool_result` event and renders `artifactCard` (opens the document
+  or follows the link), a workflow step keeps the whole value. Every
+  document-pipeline output is one now (`obj-summary` in doc-tools.rkt), and
+  `(out form result object_id)` still binds because the plain keys ride beside
+  the artifact. `dispatch-tool` (string for the transcript) and
+  `dispatch-tool/artifact` (text + the artifact for the event) share the checks.
+- Kinds: document, table, text, link, image. An unknown kind is an error at
+  construction — the console switches on it.
+
+## Pull-model executors (slice 66)
+
+Inference hosts that claim work instead of being called. Design:
+`docs/design/pull-executors.md` (PULL‑1…8, built). `domain/exec/pull.rkt`;
+migration `0028-executors`; `/api/executors`, `/api/org/executors`,
+`/api/workers/{claim,jobs/:id/heartbeat|complete|fail}`;
+`cli/telemachus-worker.rkt`.
+
+- **A remote kind has no in-process handler**: `register-job-kind! kind #f
+  #:remote? #t #:validate f`. The pool's `claim-next!` skips remote kinds; only
+  `worker-claim!` takes them. `infer.chat` is the shipped one — the wire
+  `run-chat` speaks — validated to `{reply: string, tokens_used: number}`.
+- **The worker token is an API token scoped `jobs:execute`, `ttl 'never`**,
+  shown once on create. `with-worker` resolves the executor through the token's
+  id (`executors.token_id`) — never through a request field. The operator's
+  token passes `jobs:execute` (operators pass everything team-tier) and is still
+  refused as "not bound to an executor"; the smoke pins that.
+- **`run-chat #:executor <pull>` blocks on a sub-job** (`pull-dispatch!`, via
+  the `pull-router` box executor.rkt exposes). The sub-job carries
+  `parent_job_id` and is EXEMPT from the team cap at claim — two parents at cap
+  2 would otherwise each wait for a sub-job nothing could claim. The team/user
+  come from `current-job` (inside a scheduler job) or
+  `current-request-principal` (on the request path, set by `with-auth`).
+- **Leases**: `LEASE-SECONDS` 120, heartbeat at a third; `reap-leases!` runs on
+  the pool's idle tick and re-queues with `attempt+1`, failing past
+  `MAX-ATTEMPTS` 3. Complete/fail are accepted only from the current holder
+  (`'not-holder` → 409). Tests expire leases by UPDATE, never by sleeping.
+- Executor health is derived: never-seen / active / stale (3× lease) / retired.
+  Retire revokes the token and requeues a held job.
+- **`notes-list` now requires `notes:read` up front** (found by this slice's
+  smoke): a token scoped without it got `{"notes":[]}` instead of a 403.
+
+```sh
+raco test test/pull-tests.rkt        # claims, the org gate, atomicity, leases, dispatch
+bash test/pull-smoke.sh              # a chat routed through the reference worker against the mock model
+```
+
+## Model roles (slice 67, KG‑7 / LOC‑5)
+
+`domain/ai/roles.rkt`: a role resolves to an executor NAME — the team's setting
+(`instance_settings` key `model-roles:<team>`, `PUT /api/model-roles`,
+settings:manage) → `TELEMACHUS_MODEL_<ROLE>` from the environment → `#f`, the
+local model. One role ships, **`utility`**: knowledge-graph extraction, the
+pipeline's field extraction and translation, and the Localization Manager's
+drafts go there when it is set; a person's chat never does. The tools set
+`current-utility-executor` around their model call and `default-chat` in
+doc-tools.rkt reads it (`run-chat #:executor`), so a pull executor on a GPU box
+takes the bulk work without any tool knowing. `PUT` refuses an executor that
+does not exist — a typo would silently send every extraction to the local
+model. With a role set and no local model, the seam no longer refuses.
+
+```sh
+raco test test/roles-tests.rkt
+```
+
+## Tokens, `/health`, security headers, meta tags (issues #11–#13)
+
+- **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for a year;
+  `issue-token!` now sets it (epoch seconds as text in the pre-existing TEXT
+  column) and `resolve-token` refuses an expired row — the ONE place a bearer
+  becomes a principal. Defaults: a session (login, bootstrap, member-add) 30
+  days, a console-issued API token 90 days; `POST /api/tokens {"ttl": seconds |
+  "never"}` overrides. A NULL expiry is "never", so tokens issued before the fix
+  keep working — nobody is locked out by the upgrade. The listing reports
+  `expires_at` and shows `status: "expired"` for a lapsed row that still says
+  `active` in the table.
+- **The token hash is peppered HMAC-SHA-256, stored `v1:<hex>`** (the prototype
+  was bare SHA-1 with a compiled-in salt). The pepper is `TELEMACHUS_TOKEN_PEPPER`
+  → `TELEMACHUS_SECRET` → a dev default the server WARNS about at boot. A legacy
+  40-hex row still resolves and is rehashed on first use (`token-row`), so an
+  upgrade signs nobody out; rotating the pepper signs everyone out at once, on
+  purpose. `resolve-token` rechecks the stored hash in constant time after the
+  indexed lookup — `constant-time=?` lives in `crypto.rkt` and SigV4 shares it.
+- **`/health` is `{ok, multitenant}` and nothing else** (#11). Version, KDF, TLS and the
+  codename moved to `GET /api/admin/status` (instance:manage). Do not put them
+  back: the beta instance is a public front door.
+- **The console has a Content-Security-Policy** (#11, part 2; `CONSOLE-CSP`):
+  same-origin everything, `object-src 'none'`, `base-uri 'self'`,
+  `frame-ancestors 'self'`, `form-action 'self'`, `img-src` also `data: blob:`.
+  Scripts and styles are still `'unsafe-inline'` — the console is one file with
+  ~136 inline handlers and ~245 style attributes, and a nonce would disable
+  `'unsafe-inline'` and break all of them. The follow-up that earns a nonce
+  policy is moving the handlers to delegated listeners. **The e2e gate proves the
+  console runs under the policy**: a CSP violation is a console error and the
+  gate fails on those. A Tier-B bundle that loads a CDN font or script is blocked
+  by this policy — bundle assets must be served from the bundle.
+  **Playwright under the policy:** `page.evaluate` works (it goes through CDP),
+  but `page.waitForFunction` evaluates its predicate as a STRING and dies with
+  "Refused to evaluate a string as JavaScript" — use a locator wait
+  (`locator(sel, {hasText}).waitFor()`, `filter({hasNotText})`) instead. The
+  funnel e2e (`test/e2e/funnel-l10n.sh`, now in CI) was the one that had it.
+- **The funnel's chrome follows the funnel's locale.** The shell loads the
+  `ui.*` catalog for the instance default before it knows about `?lang=`;
+  `betaLandingView` re-fetches it (`loadCatalog`, `S.catLocale`) when the server
+  answers in another locale. Without that the copy was Japanese and the sign-in
+  link and "verifying…" stayed English — invisible to every server-side test,
+  which is why the funnel e2e is in CI now.
+- **Baseline security headers on every response** (#11), added in `handle` via
+  `with-security-headers`: nosniff, `Referrer-Policy: strict-origin-when-cross-origin`,
+  `X-Frame-Options: SAMEORIGIN` (the Tier-C funnel iframe is same-origin), and
+  HSTS ONLY when `TELEMACHUS_TLS` is on — behind a TLS-terminating proxy, set it.
+  A route that sets one of these itself wins. A console CSP is a separate audit
+  (inline scripts); the download path already sends its own denying one.
+- **The shell carries a meta description and Open Graph tags** (#12), rewritten
+  per request from branding like the `<title>`: description = the tagline when
+  set (whitespace-normalized), else a product default; `og:image` = the logo
+  asset id when set. Same procedural `regexp-replace*` rule as the title — a
+  string replacement would expand `&`.
 
 ## Branding (Admin > Branding)
 

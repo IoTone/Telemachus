@@ -294,6 +294,7 @@ The owner token from §5.1, or any user with `org_owner` / `org_admin`:
 | `GET /api/org/teams` · `POST /api/org/teams` | list / create teams |
 | `POST /api/org/members` | add a person, optionally straight into a team |
 | `GET /api/org/audit` | audit across my company's teams |
+| `GET` · `PUT` · `DELETE /api/org/branding` · `POST /api/org/branding/logo` | the company's own title, tagline and logo (TEN‑2d) — what the console wears on the company's hostname and for its signed-in users; unset = the instance's |
 
 ```sh
 OWNER=tk_…
@@ -386,10 +387,15 @@ never be called on a production instance.
 
 Worth knowing before you promise it to a customer:
 
-- **Branding and hostnames are instance-wide** (TEN‑2d, open). `GET /api/branding`
-  serves one title, tagline and logo for the whole box, and `orgs.slug` is not
-  routed to a subdomain. Several companies on one instance today see the *same*
-  product name on the sign-in screen.
+- **Branding and hostnames are per company now** (TEN‑2d, built 15 Sep 2026).
+  Assign the hostname yourself — `PATCH /api/orgs/acme {"domain":"acme.example"}`
+  (superadmin; unique; `null` clears) — and point DNS and your TLS terminator at
+  the instance. The console served on that host wears the company's branding
+  before anyone signs in (`GET /api/branding` and the HTML title/OG tags both
+  follow the `Host` header); a signed-in user sees their own company's branding on
+  any host. A company that has set none wears the instance's. The org admin sets
+  the copy (`PUT /api/org/branding`); only you assign hostnames, so a company can
+  never claim another's, or the instance's.
 - **Model endpoints are instance-wide** (TEN‑2e, open). Executors are configured
   per instance, so a company cannot bring its own inference endpoint or key. Every
   org's traffic goes to `TELEMACHUS_MODEL_URL`; the isolation between them is the

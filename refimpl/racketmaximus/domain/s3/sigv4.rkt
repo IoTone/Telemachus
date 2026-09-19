@@ -25,7 +25,8 @@
 ;;      the client is often still waiting on our 100-continue to send it.
 
 (require racket/string racket/list racket/date
-         "../authz/sha2.rkt")
+         "../authz/sha2.rkt"
+         (only-in "../authz/crypto.rkt" constant-time=?))
 
 (provide (struct-out sigv4-auth)
          parse-authorization
@@ -311,8 +312,5 @@
           (p2 (date-hour d)) (p2 (date-minute d)) (p2 (date-second d))))
 
 ;; Comparing signatures with string=? leaks their prefix through timing. The cost of
-;; not caring is a remote attacker recovering a signature byte by byte.
-(define (constant-time=? a b)
-  (and (= (string-length a) (string-length b))
-       (zero? (for/fold ([acc 0]) ([x (in-string a)] [y (in-string b)])
-                (bitwise-ior acc (bitwise-xor (char->integer x) (char->integer y)))))))
+;; not caring is a remote attacker recovering a signature byte by byte. The
+;; comparison itself lives in domain/authz/crypto.rkt, shared with the token lookup.

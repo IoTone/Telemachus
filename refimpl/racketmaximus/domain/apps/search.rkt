@@ -38,17 +38,25 @@
   (define end (min (string-length t) (+ i m 60)))
   (string-append (if (> start 0) "…" "") (substring t start end) (if (< end (string-length t)) "…" "")))
 
-(define (search-all conn p q #:limit [lim 20])
+;; #:scope 'org searches every team in the caller's company (TEN-2h). Each row's
+;; resource carries ITS OWN team, so the per-row can? is the same rule as always.
+(define (search-all conn p q #:limit [lim 20] #:scope [scope 'team])
   (define team (principal-team-id p))
+  (define teams
+    (if (eq? scope 'org)
+        (let ([org (or (principal-org-id p) (team-org conn team))])
+          (if org (org-teams-of conn org) (list team)))
+        (list team)))
   (define pat (like q))
   (define note-hits
-    (for/list ([r (in-list (query-rows conn
+    (for*/list ([t (in-list teams)]
+                [r (in-list (query-rows conn
          (string-append "SELECT id, owner_user_id, visibility, title, body FROM notes "
                         "WHERE team_id = ? AND (title LIKE ? OR body LIKE ?) ORDER BY updated_at DESC LIMIT ?")
-         team pat pat lim))]
+         t pat pat lim))]
          #:when (can? conn p "notes:read"
                       #:resource (hasheq 'resource_type "notes" 'resource_id (vector-ref r 0)
-                                         'team_id team 'owner_user_id (vector-ref r 1)
+                                         'team_id t 'owner_user_id (vector-ref r 1)
                                          'visibility (vector-ref r 2))))
       (hasheq 'type "note" 'id (vector-ref r 0) 'title (vector-ref r 3)
               'snippet (snippet (vector-ref r 4) q))))
@@ -56,7 +64,8 @@
   ;; is checked too because the key is often a tidy path while the filename is what
   ;; the person actually remembers typing.
   (define repo-hits
-    (for/list ([r (in-list (query-rows conn
+    (for*/list ([t (in-list teams)]
+                [r (in-list (query-rows conn
          (string-append "SELECT o.id, o.owner_user_id, o.visibility, o.key, "
                         "COALESCE(v.filename, ''), COALESCE(v.content_type, ''), "
                         "COALESCE(t.content, '') "
@@ -66,10 +75,10 @@
                         "WHERE o.team_id = ? AND o.deleted_at IS NULL "
                         "AND (o.key LIKE ? OR v.filename LIKE ? OR t.content LIKE ?) "
                         "ORDER BY o.updated_at DESC LIMIT ?")
-         team pat pat pat lim))]
+         t pat pat pat lim))]
          #:when (can? conn p "files:read"
                       #:resource (hasheq 'resource_type "repo" 'resource_id (vector-ref r 0)
-                                         'team_id team 'owner_user_id (vector-ref r 1)
+                                         'team_id t 'owner_user_id (vector-ref r 1)
                                          'visibility (vector-ref r 2))))
       ;; when the CONTENT matched, show the words around the match, like a note;
       ;; when only the path matched, the content type is the most useful line

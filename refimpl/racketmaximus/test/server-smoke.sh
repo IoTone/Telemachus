@@ -40,6 +40,22 @@ tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do tries=$((tries
 
 B="localhost:$PORT"
 assert "health"          "$(curl -s $B/health)" '"ok":true'
+# issue #11: the public probe says up and nothing else; the details moved behind instance:manage
+if curl -s $B/health | grep -qE '"kdf"|"version"|"service"|"tls"'; then echo "  FAIL health discloses internals — $(curl -s $B/health)"; fail=1; else echo "  ok   health discloses nothing"; fi
+HDRS=$(curl -s -D - -o /dev/null $B/)
+assert "nosniff on the console"  "$HDRS" 'X-Content-Type-Options: nosniff'
+assert "referrer policy"         "$HDRS" 'Referrer-Policy: strict-origin-when-cross-origin'
+assert "frame options"           "$HDRS" 'X-Frame-Options: SAMEORIGIN'
+if printf '%s' "$HDRS" | grep -qi 'Strict-Transport-Security'; then echo "  FAIL HSTS sent on a plain-http instance"; fail=1; else echo "  ok   no HSTS without TLS"; fi
+assert "headers on JSON too"     "$(curl -s -D - -o /dev/null $B/health)" 'X-Content-Type-Options: nosniff'
+# issue #11 part 2: the console's CSP — same-origin everything, no plugins, no base hijack
+assert "CSP on the console"      "$HDRS" "Content-Security-Policy: default-src 'self'"
+assert "CSP: no object-src"      "$HDRS" "object-src 'none'"
+assert "CSP: frame-ancestors"    "$HDRS" "frame-ancestors 'self'"
+# issue #12: the raw shell carries a description and Open Graph tags for unfurlers
+SHELL_HTML=$(curl -s $B/)
+assert "meta description (default)" "$SHELL_HTML" '<meta name="description" content="A self-hosted, privacy-first platform'
+assert "og:title (default)"         "$SHELL_HTML" '<meta property="og:title" content="Telemachus">'
 # the Tier-B bundle root: a trailing slash means index.html. The route table's `*path`
 # once required a segment here and every bundle 404ed — caught by the beta tour, not
 # by any smoke, so this pins it (the file is served with nosniff).
@@ -57,6 +73,7 @@ assert "login new pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice"
 assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" 'Authentication required'
 assert "whoami operator" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"is_operator":true'
 assert "admin operator"  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
+assert "admin status carries the version now" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"kdf":"'
 MB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')
 assert "member token"    "$MB" '"token":"tk_'
 BOB=$(printf '%s' "$MB" | grep -oP '"token":\s*"\K[^"]+')
@@ -244,6 +261,8 @@ assert "HEAD /api/branding is not a 404" "$(curl -s -o /dev/null -w '%{http_code
 assert "unbranded instance serves the default title" "$(curl -s $B/)" '<title>Telemachus</title>'
 assert "branding title set" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"RCNT","tagline":"Import Compliance AI Platform"}')" '"title":"RCNT"'
 assert "branded instance serves the configured title" "$(curl -s $B/)" '<title>RCNT</title>'
+assert "…and og:title"                                "$(curl -s $B/)" '<meta property="og:title" content="RCNT">'
+assert "…and the tagline as the description"         "$(curl -s $B/)" '<meta name="description" content="Import Compliance AI Platform">'
 assert "a markup-bearing title is escaped, not injected" \
   "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"<script>x</script>"}' >/dev/null; curl -s $B/)" \
   '<title>&lt;script&gt;x&lt;/script&gt;</title>'
@@ -510,6 +529,23 @@ for i in $(seq 1 40); do
 done
 assert "kg: extraction fails without a model" "$kgs" "error"
 assert "…and says so"                          "$kgjson" 'no model configured'
+
+# ---- slice 67: model roles — where a team's bulk AI work goes
+assert "model roles: default is local" "$(curl -s $B/api/model-roles -H "Authorization: Bearer $OP")" '"utility":null'
+assert "model roles: unknown executor refused" "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":"nope"}}')" 'unknown executor'
+assert "model roles: unknown role refused"     "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"fancy":null}}')" 'unknown role'
+ROLE_EX=$(curl -s -X POST $B/api/executors -H "Authorization: Bearer $OP" -d '{"name":"cheap-box","mode":"pull","model":"small"}' | grep -oP '"name":"\K[^"]+' | head -1)
+assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":"cheap-box"}}')" '"utility":"cheap-box"'
+assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
+assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
+
+# ---- slice 63: a plugin's authenticated HTTP route, mounted under /api/x/<plugin>/
+assert "plugin route (GET, query)"  "$(curl -s "$B/api/x/example-tools/word-count?text=one+two+three" -H "Authorization: Bearer $OP")" '"words":3'
+assert "plugin route (POST, body)"  "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{"text":"a b"}')" '"words":2'
+assert "plugin route needs a token" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/word-count?text=x")" '401'
+assert "plugin route: a user error is a 400" "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{}')" 'text is required'
+assert "plugin route in the plugin listing" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"GET /word-count"'
+assert "no plugin route outside its prefix"  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/word-count?text=x" -H "Authorization: Bearer $OP")" '404'
 
 # ---- slice 57: the document pipeline plugin is present, and refuses to run on the
 # fallback model. Without this the uppercase-echo fallback would fail every schema

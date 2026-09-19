@@ -12,7 +12,14 @@
 
 (provide hmac-sha1 pbkdf2-hmac-sha1
          hotp totp base32-decode base32-encode
-         bytes->hex hex->bytes)
+         bytes->hex hex->bytes constant-time=?)
+
+;; Comparing secrets with string=? leaks their common prefix through timing. One
+;; definition, used by the token lookup and by SigV4 — a second copy would drift.
+(define (constant-time=? a b)
+  (and (= (string-length a) (string-length b))
+       (zero? (for/fold ([acc 0]) ([x (in-string a)] [y (in-string b)])
+                (bitwise-ior acc (bitwise-xor (char->integer x) (char->integer y)))))))
 
 (define (bytes->hex bs) (bytes->hex-string bs))
 (define (hex->bytes s) (hex-string->bytes s))

@@ -4,41 +4,873 @@
     "locale": "ja"
   },
   "messages": {
+    "doc.route.get.api.beta.challenge": {
+      "text": "申込前に申込フローが解く proof-of-work チャレンジ。",
+      "hash": "0532400b4f879f7ff40b6c8e0cc827e3c16ed708"
+    },
+    "beta.email_disposable": {
+      "text": "勤務先のメールアドレスをご利用ください。",
+      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
+    },
+    "doc.perm.team:write": {
+      "text": "会社のチーム名を変更します。",
+      "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
+    },
+    "ui.kg_queued": {
+      "text": "抽出をキューに入れました",
+      "hash": "e077135db696a9104da68d00f0f1384b1783028c"
+    },
+    "ui.deleted": {
+      "text": "削除しました",
+      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
+    },
+    "doc.tool.doc_extract_fields.text": {
+      "text": "ドキュメントのテキスト",
+      "hash": "9b4cea367889dc8020e848502ea0156bccac62fd"
+    },
+    "ui.curpw": {
+      "text": "現在のパスワード",
+      "hash": "19dff4dad0a7214ece14624f8c4c9fb206a1cfdd"
+    },
+    "doc.perm.files:manage": {
+      "text": "文書を管理する：公開範囲の変更、共有と取り消し。所有者は owner-ok により保持し、manage 権限の付与で1つの文書の管理を委任できます。",
+      "hash": "5f8597154d7cc35b56f411ca771924735caa2302"
+    },
+    "doc.route.post.api.repo-obj.id.unshare": {
+      "text": "プリンシパルがそのオブジェクトに持つすべての権限付与を取り消す。",
+      "hash": "7668b41176bb63b1818277dfb877788ede88c739"
+    },
+    "doc.route.get.api.admin.status": {
+      "text": "インスタンスの状態：バージョン、KDF、TLS とマルチテナントのフラグ、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。",
+      "hash": "1527b973024d3cb3d10acdc2d61beb3d95437d24"
+    },
+    "doc.route.get.api.doc-triggers": {
+      "text": "チームのアップロードトリガーと、チームの残り AI 予算。",
+      "hash": "bb3d4208581b8636141c176e39bb9cba82bdf617"
+    },
+    "ui.budget": {
+      "text": "AI予算",
+      "hash": "d8b28ed5e92646f6133b5e73ccac97d636e34dc9"
+    },
+    "doc.perm.localization:translate": {
+      "text": "翻訳を提出します。",
+      "hash": "a1215dd0d6f20b2a3094d0bf3dc04311146ba8b0"
+    },
+    "doc.route.get.api.repo-obj.id": {
+      "text": "バージョン付きのオブジェクトメタデータ",
+      "hash": "47ddf63dcd09afd8490b700c36942823229ec173"
+    },
+    "ui.store": {
+      "text": "保管先",
+      "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
+    },
+    "doc.route.post.api.ai.echo": {
+      "text": "クォータの動作確認用の、モデルを使わない計量付きエコー。",
+      "hash": "861bf88955af70f3bd63f4538436f46a4f899e3e"
+    },
+    "doc.route.post.api.branding.logo": {
+      "text": "インスタンスロゴをアップロード（マークとワードマークを置き換えます）",
+      "hash": "1d6aae8e5cb67d9c8b9623ac227d9a18295f46db"
+    },
+    "ui.draftbudget": {
+      "text": "AI 予算：約 {need} トークンが必要、本日の残りは {left} — 使用量画面で ai.tokens.total を上げないと下書きは待機します",
+      "hash": "5ef886737103f5053cb37b9f30169eac5a50cfa8"
+    },
+    "doc.perm.team:delete": {
+      "text": "チームを削除します。",
+      "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
+    },
+    "ui.updpw": {
+      "text": "パスワードを更新",
+      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
+    },
+    "doc.workflow.process-upload": {
+      "text": "テキストを抽出し、JSON スキーマに照らして構造化フィールドを取り出し（適合しなければ拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳する。すべての出力は元文書の隣にあるリポジトリ文書で、由来が記録されます。",
+      "hash": "41dfd3404a1fc0ec4a33fc8dbf03232097d86cbb"
+    },
+    "doc.workflow.index-documents": {
+      "text": "リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。",
+      "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
+    },
+    "doc.route.post.api.l10n.export": {
+      "text": "ロケールの承認済み文字列を locales/<locale>.json に書き戻す。承認済みが何もないロケールは拒否します。",
+      "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
+    },
+    "doc.route.post.api.beta.experience.publish": {
+      "text": "保存済みの下書きを公開する；以後は環境変数で投入された既定値より優先されます。",
+      "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
+    },
+    "ui.kg_mentions": {
+      "text": "言及",
+      "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
+    },
+    "doc.route.post.api.members": {
+      "text": "呼び出し元のチームに役割を付けてメンバーを追加；新しいメンバーの最初のトークンを返します。",
+      "hash": "c2e81fdfdb83e0915518a9c74ae921bf9375e74f"
+    },
+    "doc.tool.doc_text.object": {
+      "text": "リポジトリオブジェクトID",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.route.post.api.jobs": {
+      "text": "登録された種類のスケジューラジョブをキューイングします。",
+      "hash": "fff845878822c59c97eb52e16eb48498503ff750"
+    },
+    "ui.s3once": {
+      "text": "シークレットは今だけ表示されます。必ず控えてください。",
+      "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
+    },
+    "ui.knowledge": {
+      "text": "知識",
+      "hash": "dec1fccaba73443d77f5cfc48dacf9d496399f53"
+    },
+    "ui.documents": {
+      "text": "ドキュメント",
+      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
+    },
+    "ui.content": {
+      "text": "内容",
+      "hash": "4f9be057f0ea5d2ba72fd2c810e8d7b9aa98b469"
+    },
+    "ui.team": {
+      "text": "チーム",
+      "hash": "218887269ad5946d9dc53238651c90472884fb0f"
+    },
+    "doc.route.patch.api.doc-triggers.id": {
+      "text": "トリガーのフィールドを変更；存在しないフィールドはそのままにします。",
+      "hash": "7a33acd43eb1ef2bda67aa3b1c16daaca8fd3afd"
+    },
+    "ui.kg_extract": {
+      "text": "今すぐ抽出",
+      "hash": "9dee43b9c3f299103d6cc68724bb51f11ad1a816"
+    },
+    "doc.route.post.api.workflows.slug.run": {
+      "text": "{input} で実行を開始する；宣言された入力は必須で型付きです。202 と実行を返します。",
+      "hash": "1e305174211be63642083ac5f6d52e3fb3ad453a"
+    },
+    "ui.addterm": {
+      "text": "用語を追加",
+      "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
+    },
+    "doc.perm.tasks:read": {
+      "text": "タスクを読む。",
+      "hash": "736bd92b8e286f7a17a50b38358b9c0151b86a51"
+    },
+    "ui.copied": {
+      "text": "コピーしました",
+      "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
+    },
+    "doc.tool.repo_extract_text.id": {
+      "text": "リポジトリオブジェクトID",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.tool.create_note.body": {
+      "text": "ノートの本文。",
+      "hash": "22cb4f6d16ab9cc8a7366d340c2ca62ddd020421"
+    },
+    "doc.route.post.api.tokens": {
+      "text": "API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには \"never\"）を指定；生のトークンは一度だけ表示されます。",
+      "hash": "cebac657ad797c2405bee6e8bd1ac779ba5f6409"
+    },
+    "doc.route.post.api.2fa.enable": {
+      "text": "呼び出し元の TOTP 二要素認証を有効にする；シークレットを一度だけ返します。",
+      "hash": "83bb2e3272b292ad03dcf7509308776e0463261a"
+    },
+    "doc.tool.doc_extract_fields.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
     "http.already_initialized": {
       "text": "すでに初期化されています。",
       "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
+    },
+    "doc.tool.word_count.text": {
+      "text": "単語数を数えるテキスト",
+      "hash": "9f6ee81cda8dc3daf6b0a143f188de3f949664b0"
+    },
+    "ui.kg_alltypes": {
+      "text": "任意のタイプ",
+      "hash": "a28c54bd6aac059f8e4c1e9241bd9772b3d2a3a4"
+    },
+    "doc.route.post.api.beta.prospects.id.decide": {
+      "text": "見込み客を受け入れる、または辞退する。",
+      "hash": "56161a4c5d3676ba209a433f4210f490ce593fbe"
+    },
+    "doc.route.post.api.workflows": {
+      "text": "ワークフロー仕様を公開する（検証済み；未知のフィールドは拒否）；同じスラッグの再公開はバージョンを上げます。",
+      "hash": "57f5717f784659e41b73f398f34d8c757d99d3ff"
+    },
+    "doc.route.get.api.model-roles": {
+      "text": "チームの一括処理をロールごとにどのエグゼキュータへ送るか（utility：知識グラフとフィールド抽出、翻訳の下書き）、およびインスタンスの既定値。",
+      "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
+    },
+    "ui.version": {
+      "text": "バージョン",
+      "hash": "2da600bf9404843107a9531694f654e5662959e0"
+    },
+    "ui.refresh": {
+      "text": "更新",
+      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
+    },
+    "doc.tool.doc_extract_fields": {
+      "text": "JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。",
+      "hash": "84a1d20ebeaf0b0cf22ee9351924534b9f6079f8"
+    },
+    "ui.create": {
+      "text": "作成",
+      "hash": "6e157c5da4410b7e9de85f5c93026b9176e69064"
     },
     "beta.not_ready": {
       "text": "インスタンスが初期化されていません。",
       "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
     },
+    "doc.perm.team:read": {
+      "text": "会社内のチームを確認してください。",
+      "hash": "4199f8d5f9e5b33c92fab79383d9b06b39566bf1"
+    },
+    "doc.workflow.translate-chat": {
+      "text": "1回チャットし、返答をスペイン語・オランダ語・アイスランド語に展開してから、それぞれを戻す。",
+      "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
+    },
+    "ui.prompt": {
+      "text": "プロンプト",
+      "hash": "a817d7eb8e0f1dab755ab5203a082e5c3c094fce"
+    },
+    "ui.vis_team": {
+      "text": "チーム — チーム全員",
+      "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
+    },
+    "doc.route.get.api.orgs": {
+      "text": "インスタンス上のすべての組織をリスト表示します。",
+      "hash": "d64a348a2f5fb560e61a69808000eddd7aefe1c5"
+    },
+    "doc.tool.doc_render.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "doc.tool.kg_query.type": {
+      "text": "名前検索を1つのエンティティ種別に絞る。例：organization",
+      "hash": "bf3b06e97454031c475151174af5ebabf873a414"
+    },
+    "ui.l10nexport": {
+      "text": "書き出し",
+      "hash": "f3e4fadb9e370a1e2c0c622c01fc8c77daf93a2c"
+    },
+    "ui.limit": {
+      "text": "上限",
+      "hash": "24d948e4bdbe5b8224bbc0dfbab1923fab00b98e"
+    },
+    "doc.tool.update_note.body": {
+      "text": "新しい本文（任意）",
+      "hash": "3a122816e4cd1131b21101ef2b03720039410f71"
+    },
     "beta.domain_cap": {
       "text": "同じ組織からのお申し込みが多数あります。直接お問い合わせください。",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
-    "beta.field_required": {
-      "text": "{field}を入力してください。",
-      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    "doc.route.post.api.beta.assets": {
+      "text": "オンボーディング資産（ロゴ、ヒーロー画像、フォント）をアップロード（base64でJSON形式）、2MiBまで",
+      "hash": "abd6aaedec0f9ebc0a17e4662212539b1c93384f"
+    },
+    "ui.useglossary": {
+      "text": "用語集を使用",
+      "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
+    },
+    "doc.route.get.api.runs": {
+      "text": "チームの実行、新しい順。",
+      "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
+    },
+    "doc.workflow.index-knowledge.name": {
+      "text": "知識のインデックス作成",
+      "hash": "25914663dfac64e6314732a7e89badcc8c3ff7b0"
+    },
+    "ui.l10nhint": {
+      "text": "製品の翻訳。AIが下訳を作り、人が承認します。未レビューのものは製品に入りません。",
+      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
+    },
+    "ui.newversion": {
+      "text": "新しいバージョンとして保存しました",
+      "hash": "b9dcda73378ea2eefe58d13865d4e79407f77d6c"
+    },
+    "ui.source": {
+      "text": "ソース",
+      "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "doc.workflow.translate-chat.name": {
+      "text": "翻訳チャットワークフロー",
+      "hash": "e75f88b7089bc812a57d24e883339d56314117fa"
+    },
+    "doc.tool.doc_text.version": {
+      "text": "特定のバージョンID（デフォルト：現在のバージョン）",
+      "hash": "93568375b01d09d481e0d8fadea6dcd818ccb02a"
+    },
+    "doc.route.post.api.bootstrap": {
+      "text": "初回のみ：オペレーター、最初の組織とチームを作成する。オペレーターのトークンを返します。インスタンスにユーザーがいれば拒否します。",
+      "hash": "b8f59ef37a9d9a8df2dfabcb89713cc4ff7aaeaf"
+    },
+    "ui.definitions": {
+      "text": "定義",
+      "hash": "15225baac48fc3d689cb2b0f74b936eff4339ff7"
+    },
+    "doc.route.get.api.kg.entities.id": {
+      "text": "1つのエンティティとその関係・言及。各言及は元文書の公開範囲でフィルタされます。",
+      "hash": "d338ecb68c99fd3c3f0e504fab3b623030700b10"
+    },
+    "doc.perm.memory:read": {
+      "text": "エージェントのメモリを読む。",
+      "hash": "321c16ac921e7da92b7b6d8bba60a88f2202c710"
+    },
+    "doc.route.get.api.share-targets": {
+      "text": "文書を誰と共有できるか：チームのメンバーと組織内のチーム。",
+      "hash": "a62f22189412b782d7e39c1ce3cf7a66c96f0a61"
+    },
+    "doc.route.get.api.repo-obj.id.processing": {
+      "text": "「処理履歴」：派生した文書、元の文書、そしてこの文書に触れたすべての実行。",
+      "hash": "bbc2f3bfa24a3a3c3f7557c2fda8df12aaf31d20"
+    },
+    "ui.newpw": {
+      "text": "新しいパスワード",
+      "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
+    },
+    "doc.route.post.api.l10n.import": {
+      "text": "ディスク上のカタログをマネージャーのテーブルに取り込む。",
+      "hash": "ee1a9aa18b893d69cccefe0369bcdf203aa1ee28"
+    },
+    "doc.perm.instance:manage": {
+      "text": "インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス",
+      "hash": "336906f62b986937095973b250bdd09c8493001b"
+    },
+    "ui.noothers": {
+      "text": "このチームに他のメンバーがいません。",
+      "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
+    },
+    "doc.tool.doc_extract_fields.object": {
+      "text": "元文書のオブジェクト ID — フィールドをその隣に派生文書として書き出します。",
+      "hash": "af8362ab557f0334dca5f227dac8d3c64c401ab8"
+    },
+    "doc.perm.*:*": {
+      "text": "チーム層のすべて。instance:* や org:* には決して届きません。",
+      "hash": "9858077204559abb30b4e1ca17cb76ef2d5d35f4"
+    },
+    "ui.features": {
+      "text": "機能",
+      "hash": "fc338f87a058158eb824b53705961801516a9460"
+    },
+    "doc.route.get.api.jobs": {
+      "text": "チームのジョブ、最新から",
+      "hash": "2b1247c7a0fb1ca736ef30a6d6ce0649ac55eb2c"
+    },
+    "ui.bxthanks": {
+      "text": "ありがとうございます — お申し込みを確認しています。",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    },
+    "doc.tool.get_usage": {
+      "text": "チームの現在の AI 使用量をクォータと比べて報告する。",
+      "hash": "e068247f15386c62657ebb749bd6fdd35c0d758a"
+    },
+    "ui.objects": {
+      "text": "ドキュメント",
+      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
+    },
+    "ui.kg_hint": {
+      "text": "チームの文書から抽出されたエンティティと関係。すべての事実は、それを述べた文書とバージョンにリンクされ、読める文書の事実だけが表示されます。",
+      "hash": "f166845559c7d2906252b22c7bd07c8cac85ac9f"
+    },
+    "ui.l10nnothing": {
+      "text": "条件に一致するものがありません。",
+      "hash": "0f9b93bb965ce681887989cc7cea0ac7b93f4c22"
+    },
+    "ui.audit": {
+      "text": "監査ログ",
+      "hash": "3cfc5f1cc987f398078bb799369d4c03588802d9"
+    },
+    "beta.rate_limited": {
+      "text": "リクエストが多すぎます。少し時間をおいてお試しください。",
+      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
+    },
+    "ui.welcome": {
+      "text": "ようこそ — アカウント設定を完了してください。",
+      "hash": "97a86e68a1e32b85151da9fefe1b1bda6a4f6b84"
+    },
+    "ui.trigger_derived": {
+      "text": "派生文書にも",
+      "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
+    },
+    "ui.started": {
+      "text": "開始",
+      "hash": "faa9e7e7ef5a264c58c68a4a0b9c8bd54241450a"
+    },
+    "doc.route.get.api.beta.prospects": {
+      "text": "申込フローが捕捉した見込み客を、シグナルと判定とともに一覧する。",
+      "hash": "3487d465d91b86daddecb132e05ee29f1145e7b5"
+    },
+    "ui.viewrun": {
+      "text": "表示",
+      "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
+    },
+    "doc.route.put.api.beta.experience": {
+      "text": "オンボーディング体験のドラフトを保存します。",
+      "hash": "da7eda299b32e249d8261670d51c472e5c522447"
+    },
+    "ui.l10napprove": {
+      "text": "承認",
+      "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
+    },
+    "doc.route.post.api.executors": {
+      "text": "エグゼキュータを作成する：{name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}。プル型エグゼキュータのワーカートークンはこのレスポンスに含まれ、二度と表示されません。",
+      "hash": "2a7d5e2e6be081e7dd5bacc04f5e3abb46f09498"
+    },
+    "ui.admin": {
+      "text": "管理",
+      "hash": "4e7afebcfbae000b22c7c85e5560f89a2a0280b4"
+    },
+    "ui.brandlogo": {
+      "text": "ロゴ",
+      "hash": "83fce8327410848c9eb609acb21732c7c0fec96a"
+    },
+    "doc.perm.localization:manage": {
+      "text": "カタログのインポートとエクスポート、AIドラフトのキュー管理、機械ドラフトの破棄",
+      "hash": "b52a77e55ac80e83559f56f228f3b8afe522ff18"
+    },
+    "ui.trigger_types": {
+      "text": "コンテンツタイプ（空白 = 何でも）",
+      "hash": "c233fa078f402f539dcc118a797d48b63f1bb591"
+    },
+    "doc.route.post.api.translate.catalog": {
+      "text": "ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。",
+      "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
+    "ui.key": {
+      "text": "パス",
+      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
+    },
+    "doc.perm.jobs:execute": {
+      "text": "プル型エグゼキュータに提供されたジョブの取得・ハートビート・完了・失敗報告。ワーカートークンのみが保持し、1つのエグゼキュータに紐づきます；チームのデータには届かず、実行も開始しません。",
+      "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
+    },
+    "ui.apitokens": {
+      "text": "APIトークン",
+      "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
+    },
+    "ui.runwf_doc": {
+      "text": "ワークフローを実行…",
+      "hash": "48e95b8cd7e8597a1a0079c7013822562a36f1b7"
+    },
+    "ui.until": {
+      "text": "まで",
+      "hash": "b310f4d4d89b8570184b9777ad7d90fc1df20457"
+    },
+    "doc.route.get.api.whoami": {
+      "text": "呼び出し元：ユーザー、チーム、オペレーターフラグ、組織、組織ロール、ロケール、権限。",
+      "hash": "e891e2db35ff9e676f093991104b1c6232cc5312"
+    },
+    "ui.noshares": {
+      "text": "まだ誰とも共有していません。",
+      "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
     },
     "greeting.hello": {
       "text": "こんにちは、{name}さん！",
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
     },
+    "ui.s3keys": {
+      "text": "S3アクセスキー",
+      "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
+    },
+    "ui.l10ncoverage": {
+      "text": "進捗",
+      "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
+    },
+    "doc.plugin.doc-pipeline": {
+      "text": "アップロードされた文書を処理：テキストを抽出し、JSONスキーマに従って構造化フィールドを取得（適合しない場合は拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳します。すべての出力はソースと共にレポジトリ文書で、元情報が示されます。",
+      "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
+    },
+    "ui.submitjob": {
+      "text": "ジョブを送信",
+      "hash": "510341190745d586870fc9862595a371c925fc0f"
+    },
+    "ui.send": {
+      "text": "送信",
+      "hash": "9bc2575c3930437e80555f78757b783c842e8e66"
+    },
+    "ui.body": {
+      "text": "本文",
+      "hash": "718a7e8a582e982e452dd5700addba4ffc1cf40d"
+    },
+    "ui.disabled": {
+      "text": "無効",
+      "hash": "07596f183f5e91b1778d5e47b2752b8d42aa763d"
+    },
+    "doc.route.options.api.beta.challenge": {
+      "text": "サンドボックス化された Tier-C テンプレートのための CORS プリフライト。",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "ui.teamsec": {
+      "text": "チーム",
+      "hash": "218887269ad5946d9dc53238651c90472884fb0f"
+    },
+    "doc.perm.notes:read": {
+      "text": "ノートを読む",
+      "hash": "64e9a487433b3a19522136b9e8203dcde8ebb7d7"
+    },
+    "doc.route.delete.api.doc-triggers.id": {
+      "text": "トリガーとその履歴を削除します；開始した実行は残ります。",
+      "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
+    },
+    "beta.field_required": {
+      "text": "{field}を入力してください。",
+      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    },
+    "doc.tool.update_note": {
+      "text": "ID でノートのタイトルまたは本文を更新する。",
+      "hash": "44491022a8c823f95545b85549b446db8e969998"
+    },
+    "ui.enable": {
+      "text": "有効化",
+      "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
+    },
     "authz.bootstrap_done": {
       "text": "オペレーター{user}とチーム{team}を作成しました。",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "ui.link": {
+      "text": "リンク",
+      "hash": "d0517071aa376e797705058bbad4b658954b9930"
+    },
+    "doc.route.get.api.translate": {
+      "text": "チームの翻訳履歴",
+      "hash": "328c612fc6be4758174e7ae79ba5afd7b9517217"
+    },
+    "ui.all": {
+      "text": "すべて",
+      "hash": "6a72085653e4c5be8c7640c868ef787cbcf063d1"
+    },
+    "ui.steps": {
+      "text": "ステップ",
+      "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
+    },
+    "doc.tool.translate_text.target": {
+      "text": "対象言語コード、例えばes、nl、is",
+      "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
     },
     "beta.email_invalid": {
       "text": "有効なメールアドレスを入力してください。",
       "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
     },
+    "ui.updated": {
+      "text": "更新",
+      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
+    },
+    "doc.tool.doc_translate.locale": {
+      "text": "目標言語コード、例：ja, nl, es-419",
+      "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
+    },
+    "doc.perm.files:delete": {
+      "text": "リポジトリの文書を削除する。",
+      "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
+    },
+    "doc.plugin.example-tools": {
+      "text": "サードパーティ製プラグインのサンプル：word_count ツールを追加します。",
+      "hash": "08d4c34f73a5f64ccc20307d26f986326bc92808"
+    },
+    "doc.route.get.api.l10n.coverage": {
+      "text": "ローカライゼーションマネージャーのカタログのロケール別カバレッジ：総数、承認済み、機械翻訳、未翻訳、古いもの。",
+      "hash": "cdb91dd313c4c647ddd892ce2786897c54e061d7"
+    },
+    "ui.norepoobjects": {
+      "text": "まだドキュメントがありません。形式は自由です — pdf、svg、png、docx、xml、md。",
+      "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
+    },
+    "ui.del": {
+      "text": "削除",
+      "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
+    },
+    "doc.tool.doc_extract_fields.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "ui.noruns": {
+      "text": "実行履歴はまだありません。",
+      "hash": "7a8b1c283d427ac045b0fa7629bbaf611736e8e3"
+    },
+    "ui.uploaded": {
+      "text": "アップロードしました",
+      "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
+    },
     "beta.challenge_expired": {
       "text": "認証の有効期限が切れました。ページを再読み込みしてください。",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
     },
+    "doc.route.delete.api.tokens.id": {
+      "text": "API トークンを失効させる。",
+      "hash": "2c46f3380d93d3e842b6c8bfd3d579e611841d94"
+    },
+    "doc.route.post.api.login": {
+      "text": "ユーザー名とパスワードでサインインする（2FA が有効なら TOTP コードも）。ベアラートークンを返します。",
+      "hash": "ecef017a0f8bcbc7c67490c35767564bbd76afad"
+    },
+    "doc.plugin.knowledge-graph": {
+      "text": "チームのインデックスド文書から知識グラフへエンティティや関係を抽出するワークフロー。すべての事実は元となる文書とバージョンに追溯可能。変更があった部分のみが影響を受けます。再実行可能です。",
+      "hash": "05dfb3f0955f1d3e8c3af7a4870181947a094d67"
+    },
     "beta.field_too_short": {
       "text": "{field}は{n}文字以上で入力してください。",
       "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
+    },
+    "ui.l10nall": {
+      "text": "すべての状態",
+      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
+    },
+    "ui.fires": {
+      "text": "履歴",
+      "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
+    },
+    "doc.route.post.api.password": {
+      "text": "呼び出し元のパスワードを変更します。",
+      "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
+    },
+    "doc.route.post.api.org.executors": {
+      "text": "呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。",
+      "hash": "218f372f207fb10f594e39772c8cd33624edf803"
+    },
+    "doc.route.post.api.instance.suspend": {
+      "text": "ホストモード：テナントを一時停止（書き込みは402で拒否されます）",
+      "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
+    },
+    "ui.brandtagline": {
+      "text": "タグライン",
+      "hash": "b0f794835fa03c22f59c3a0c0efe64d0512fdab3"
+    },
+    "ui.kg_relations": {
+      "text": "関係",
+      "hash": "9649007e163d3f014a46e4a152bf6377c93bf3e5"
+    },
+    "doc.perm.members:manage": {
+      "text": "チームメンバーを追加・削除し、役割を設定します。",
+      "hash": "c51e6aa6288bf9dd89d8960203dc141a257942d9"
+    },
+    "doc.route.put.api.branding": {
+      "text": "インスタンスのタイトルとキャッチコピーを設定してください。",
+      "hash": "87e80f7e30178ee03e197bff8324b26cd8c80c7a"
+    },
+    "ui.role": {
+      "text": "ロール",
+      "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
+    },
+    "ui.cap_edit": {
+      "text": "編集",
+      "hash": "9ead47a82a0d25985f22f10651d1f93b3abba317"
+    },
+    "ui.revoked": {
+      "text": "失効しました",
+      "hash": "85f17ac049c4218273f708cd24197325bd4369b9"
+    },
+    "ui.loctoggle": {
+      "text": "利用者による言語の切り替えを許可する",
+      "hash": "f727a2857c4b05748fe85e72f82a53c4b5f42a4e"
+    },
+    "ui.kg_norelations": {
+      "text": "まだ関係ありません。",
+      "hash": "4a6068428c1138cbb6c24f3cc1bc07edce04ec85"
+    },
+    "doc.perm.localization:review": {
+      "text": "同僚の翻訳を承認または差し戻す（自分のものは不可）。",
+      "hash": "fdca6aa60b53adec763a5fa79e2a99a103dbd12d"
+    },
+    "ui.code": {
+      "text": "2FAコード（有効な場合）",
+      "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
+    },
+    "doc.route.get.api.beta.asset.id": {
+      "text": "オンボーディングアセットを1つ配信する。公開：申込フローとブランディングロゴはトークンなしで読み込みます。",
+      "hash": "fac8d41e29fc24770c6447eb425859743bafbc89"
+    },
+    "doc.route.post.api.orgs.ref.suspend": {
+      "text": "会社（id またはスラッグ）を停止する；その中のすべてのチームが読み取り専用になります。",
+      "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
+    },
+    "doc.route.post.api.workers.jobs.id.complete": {
+      "text": "結果を送信する：{result}。現在のリース保持者からのみ受け付け、種別ごとに検証されます。",
+      "hash": "b839ca3b12c2cb37972e9244d7d7ee37a3708429"
+    },
+    "ui.tokensleft": {
+      "text": "本日の残りトークン",
+      "hash": "9ef8f2c20416fad3aab70dc3a50194dd830ffe73"
+    },
+    "doc.tool.doc_translate": {
+      "text": "リポジトリ文書をチーム用語集を適用して翻訳し、結果をその隣に書き出す（ロケールは拡張子の前：report.md -> report.ja.md；PDF のテキストは report.ja.txt になります）。",
+      "hash": "77333d768a6432e71994ec915f2aa7f7715177bf"
+    },
+    "ui.size": {
+      "text": "サイズ",
+      "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
+    },
+    "ui.brandinghint": {
+      "text": "このインスタンスの名称・タグライン・ロゴ。サインイン画面、ヘッダー、ブラウザタブに反映されます。",
+      "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
+    },
+    "ui.kg_type": {
+      "text": "タイプ",
+      "hash": "3deb7456519697ecf4eefc455516c969a3681bae"
+    },
+    "ui.firstrun": {
+      "text": "初回起動 — 最初のオペレーターを作成",
+      "hash": "da6847a10e476c38e1e6115bc9b1a6009437adba"
+    },
+    "doc.workflow.process-upload.name": {
+      "text": "アップロードした文書を処理する",
+      "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
+    },
+    "doc.tool.kg_query": {
+      "text": "チームの文書がエンティティについて述べていること：その関係と、それに言及する文書を抜粋付きで。名前（またはエンティティ ID）を指定；hops 1 は近傍を、hops 2 はその近傍まで返します。",
+      "hash": "d6dc9485ecac2f80742e0ddea83e96860cd52f49"
+    },
+    "doc.route.put.api.l10n.messages.id": {
+      "text": "1メッセージの翻訳を提出します。",
+      "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
+    },
+    "doc.route.get.api.notes.id": {
+      "text": "1件のノート。",
+      "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
+    },
+    "ui.locavail": {
+      "text": "このビルドに含まれる言語",
+      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
+    },
+    "doc.route.post.api.orgs": {
+      "text": "会社を作成：org、最初のチーム、所有者。明示的なスラッグは自然キーです（再実行で409エラー）",
+      "hash": "42771b6fee9b1756ecf03cfe50df23b762abae38"
+    },
+    "ui.cap_manage": {
+      "text": "管理",
+      "hash": "3f282fcba8933e03a65a6dc92a27de8396961e2f"
+    },
+    "ui.deflocale": {
+      "text": "既定の言語",
+      "hash": "852814f288cc2951733962464a5ac17702f46f35"
+    },
+    "ui.seed": {
+      "text": "サンプルデータを読み込む",
+      "hash": "5c92151e013ae959e55f44466b85e5d2b90da0df"
+    },
+    "ui.createtoken": {
+      "text": "トークンを作成",
+      "hash": "4b3c8e356a7a5537138823e1fe97ad6235b665b6"
+    },
+    "doc.route.get.api.documents.id": {
+      "text": "一つのテキストドキュメントとその本文。",
+      "hash": "e1c946b49eef17ee9ada6cc049495cf3904562ed"
+    },
+    "doc.route.post.api.notes": {
+      "text": "公開範囲を指定してノートを作成する。",
+      "hash": "41706c61c8faa1b2f86d5d59a34b621e2571df63"
+    },
+    "doc.workflow.index-knowledge": {
+      "text": "インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。",
+      "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
+    },
+    "doc.tool.kg_query.name": {
+      "text": "エンティティ名（大文字小文字を区別しない）またはエンティティ ID",
+      "hash": "b1ce1930aefa3437d0b627497d2a49f116a75e64"
+    },
+    "doc.perm.tokens:manage": {
+      "text": "チームに対してAPIトークンを発行および取り消します。",
+      "hash": "57735f99f42f97b584f973ba150d37cf96b322e2"
+    },
+    "doc.route.get.api.repo-obj.id.grants": {
+      "text": "1つのプリンシパルにつき1行: 能力、権限、授与者、期限、期限切れ",
+      "hash": "7cef4b0996d8ecb5227457be4b77a314da1104a4"
+    },
+    "ui.translate": {
+      "text": "翻訳",
+      "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    },
+    "ui.usage": {
+      "text": "使用状況",
+      "hash": "0bb18642b70b9f8a9c12ccf39487328f306b8e19"
+    },
+    "beta.thanks": {
+      "text": "ありがとうございます。お申し込みを確認しています。",
+      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
+    },
+    "ui.saved": {
+      "text": "保存しました",
+      "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
+    },
+    "doc.perm.workflows:write": {
+      "text": "ワークフローを公開し、トリガーを管理します。",
+      "hash": "f981778de4196069299c6a8866294e550bf4c456"
+    },
+    "ui.enabled": {
+      "text": "有効",
+      "hash": "3ea3f9802accf8817bacd6f3df46a73b93ccddec"
+    },
+    "ui.visupdated": {
+      "text": "公開範囲を更新しました",
+      "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
+    },
+    "doc.route.get.api.repo": {
+      "text": "?prefix= でリポジトリオブジェクトを一覧する（ページ送り）；?shared=1 は呼び出し元が有効な権限付与を持ち所有していないものだけ；?scope=org は会社内のすべてのチームにわたります（TEN-2h）。",
+      "hash": "de55ec495c07f563596878a403924a739ed59b2f"
+    },
+    "doc.route.get.activate": {
+      "text": "マジックリンク認証画面（ホストモード）のコンソール.",
+      "hash": "0e6d2b90bf3be361bf26ba391a9b59f5b6fa617b"
+    },
+    "ui.kg_entities": {
+      "text": "エンティティ",
+      "hash": "9d88f3cc176f53090e9fd457c305bbeb86126bcd"
+    },
+    "ui.stepsused": {
+      "text": "使用ステップ数",
+      "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
+    },
+    "ui.sharewith": {
+      "text": "共有相手",
+      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
+    },
+    "doc.tool.doc_text": {
+      "text": "リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。",
+      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
+    },
+    "doc.route.post.api.workers.jobs.id.fail": {
+      "text": "失敗を報告する：{error}。現在のリース保持者からのみ受け付けます。",
+      "hash": "f9ac120db5b83cd4cbe316cc454cabd871b2a859"
+    },
+    "ui.upload": {
+      "text": "アップロード",
+      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    },
+    "doc.tool.translate_text.source": {
+      "text": "ソース言語コード、または自動",
+      "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
+    },
+    "doc.perm.roles:read": {
+      "text": "チームの役割とそれが与えるものを見る",
+      "hash": "8d9e3136ad48763f056ec3c85beefa5a27b53997"
+    },
+    "doc.route.post.api.beta.signup": {
+      "text": "オンボーディングフォームを送信する：公開された体験に対して検証され、不正利用対策で制限され、モデルが設定されていればモデルが判定します。",
+      "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
+    },
+    "doc.route.get.api.search": {
+      "text": "ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。",
+      "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
+    },
+    "ui.nofires": {
+      "text": "まだトリガーが発動していません。",
+      "hash": "e37475efef33ca816a4fa05d4ee8d82d1fc7e346"
+    },
+    "ui.l10ndraft": {
+      "text": "AI下訳",
+      "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
+    },
+    "doc.route.post.api.quota": {
+      "text": "呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。",
+      "hash": "465a2ad05cf18995a51999bd06272b6772b32e52"
+    },
+    "doc.perm.models:serve": {
+      "text": "チームのモデルエグゼキュータを登録する。",
+      "hash": "f0378315073f278fc7316f2dfb24ed7c1d3eb483"
     },
     "beta.duplicate": {
       "text": "お申し込みはすでに受け付けています。追ってご連絡いたします。",
@@ -48,649 +880,1069 @@
       "text": "権限がありません：{perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
     },
-    "beta.field_too_long": {
-      "text": "{field}は{n}文字以内で入力してください。",
-      "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
-    },
-    "beta.verify_failed": {
-      "text": "認証に失敗しました。ページを再読み込みしてください。",
-      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
-    },
-    "notes.saved": {
-      "text": "ノートを保存しました。",
-      "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
-    },
-    "http.unauthorized": {
-      "text": "認証が必要です。",
-      "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
-    },
-    "beta.field_digits": {
-      "text": "{field}は半角数字のみで入力してください。",
-      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
-    },
-    "inbox.summary": {
-      "text": "新着メッセージが{count}件あります。",
-      "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
-    },
-    "beta.email_disposable": {
-      "text": "勤務先のメールアドレスをご利用ください。",
-      "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
-    },
-    "beta.rate_limited": {
-      "text": "リクエストが多すぎます。少し時間をおいてお試しください。",
-      "hash": "d69c5963e99cd43d1c8630ec937be72619db817d"
-    },
-    "beta.thanks": {
-      "text": "ありがとうございます。お申し込みを確認しています。",
-      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
-    },
-    "ui.activate": {
-      "text": "アカウントを有効化",
-      "hash": "b9186563deea94527f03558a5ec059806d363c49"
-    },
-    "ui.addmember": {
-      "text": "メンバー追加",
-      "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
-    },
-    "ui.addterm": {
-      "text": "用語を追加",
-      "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
-    },
-    "ui.admin": {
-      "text": "管理",
-      "hash": "4e7afebcfbae000b22c7c85e5560f89a2a0280b4"
-    },
-    "ui.agent": {
-      "text": "エージェント",
-      "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
-    },
-    "ui.apitokens": {
-      "text": "APIトークン",
-      "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
-    },
-    "ui.audit": {
-      "text": "監査ログ",
-      "hash": "3cfc5f1cc987f398078bb799369d4c03588802d9"
-    },
-    "ui.back": {
-      "text": "戻る",
-      "hash": "b52b36b7269fbfc58ec24bb724691951a3decbe8"
-    },
-    "ui.beta": {
-      "text": "ベータ",
-      "hash": "f03b60f7e52b7ce49ed1e4f9fa511c452a2185bb"
-    },
-    "ui.body": {
-      "text": "本文",
-      "hash": "718a7e8a582e982e452dd5700addba4ffc1cf40d"
-    },
-    "ui.brandclearlogo": {
-      "text": "ロゴを削除",
-      "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
-    },
-    "ui.branding": {
-      "text": "ブランディング",
-      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
-    },
-    "ui.brandinghint": {
-      "text": "このインスタンスの名称・タグライン・ロゴ。サインイン画面、ヘッダー、ブラウザタブに反映されます。",
-      "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
-    },
-    "ui.brandlogo": {
-      "text": "ロゴ",
-      "hash": "83fce8327410848c9eb609acb21732c7c0fec96a"
-    },
-    "ui.brandreset": {
-      "text": "既定に戻す",
-      "hash": "39c90eb758c57422548baebb38a39652279feb65"
-    },
-    "ui.brandtagline": {
-      "text": "タグライン",
-      "hash": "b0f794835fa03c22f59c3a0c0efe64d0512fdab3"
-    },
-    "ui.brandtitle": {
-      "text": "名称",
-      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
-    },
-    "ui.bxrestart": {
-      "text": "開始できませんでした — 再読み込みしてください",
-      "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
-    },
-    "ui.bxthanks": {
-      "text": "ありがとうございます — お申し込みを確認しています。",
-      "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
-    },
-    "ui.bxtouch": {
-      "text": "追ってご連絡いたします。",
-      "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
-    },
-    "ui.bxverifying": {
-      "text": "本人確認を行っています…",
-      "hash": "c2527f263d0c2ca67f88d5da7f7273c6873eb796"
-    },
-    "ui.cancel": {
-      "text": "キャンセル",
-      "hash": "77dfd2135f4db726c47299bb55be26f7f4525a46"
-    },
-    "ui.chat": {
-      "text": "チャット",
-      "hash": "2ced57f125910a9e8ab95deea86e4ad7be418b5a"
-    },
-    "ui.chpw": {
-      "text": "パスワードの変更",
-      "hash": "88dee350141b934bd32db882794a951a7a40d898"
-    },
-    "ui.close": {
-      "text": "閉じる",
-      "hash": "bbfa773e5a63a5ea58c9b6207e608ca0120e592a"
-    },
-    "ui.code": {
-      "text": "2FAコード（有効な場合）",
-      "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
-    },
-    "ui.confirmpw": {
-      "text": "パスワードの確認",
-      "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
-    },
-    "ui.content": {
-      "text": "内容",
-      "hash": "4f9be057f0ea5d2ba72fd2c810e8d7b9aa98b469"
-    },
-    "ui.copied": {
-      "text": "コピーしました",
-      "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
-    },
-    "ui.copy": {
-      "text": "コピー",
-      "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
-    },
-    "ui.create": {
-      "text": "作成",
-      "hash": "6e157c5da4410b7e9de85f5c93026b9176e69064"
-    },
-    "ui.createop": {
-      "text": "オペレーターを作成",
-      "hash": "aed7b1a1cb14a92bdfa831efac4ad2b950129f36"
-    },
-    "ui.createtoken": {
-      "text": "トークンを作成",
-      "hash": "4b3c8e356a7a5537138823e1fe97ad6235b665b6"
-    },
-    "ui.curpw": {
-      "text": "現在のパスワード",
-      "hash": "19dff4dad0a7214ece14624f8c4c9fb206a1cfdd"
-    },
-    "ui.definitions": {
-      "text": "定義",
-      "hash": "15225baac48fc3d689cb2b0f74b936eff4339ff7"
-    },
-    "ui.deflocale": {
-      "text": "既定の言語",
-      "hash": "852814f288cc2951733962464a5ac17702f46f35"
-    },
-    "ui.del": {
-      "text": "削除",
-      "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
-    },
-    "ui.deleted": {
-      "text": "削除しました",
-      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
-    },
-    "ui.details": {
-      "text": "詳細",
-      "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
-    },
-    "ui.dimension": {
-      "text": "指標",
-      "hash": "45e147abd920eeb1aca320340e18cf67b4c77252"
-    },
-    "ui.disable": {
-      "text": "無効化",
-      "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
-    },
-    "ui.documents": {
-      "text": "ドキュメント",
-      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
-    },
-    "ui.download": {
-      "text": "ダウンロード",
-      "hash": "a479c9c34e878d07b4d67a73a48f432ad7dc53c8"
-    },
-    "ui.enable": {
-      "text": "有効化",
-      "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
-    },
-    "ui.features": {
-      "text": "機能",
-      "hash": "fc338f87a058158eb824b53705961801516a9460"
-    },
-    "ui.file": {
-      "text": "ファイル",
-      "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
-    },
-    "ui.firstrun": {
-      "text": "初回起動 — 最初のオペレーターを作成",
-      "hash": "da6847a10e476c38e1e6115bc9b1a6009437adba"
-    },
-    "ui.glossary": {
-      "text": "用語集",
-      "hash": "7427cf697be16a4ec1d916910128a59d920125e7"
-    },
-    "ui.input": {
-      "text": "入力",
-      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
-    },
-    "ui.jobs": {
-      "text": "ジョブ",
-      "hash": "437736fdb5bb707abdc048483193c86b9a99983e"
-    },
-    "ui.key": {
-      "text": "パス",
-      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
-    },
-    "ui.l10nall": {
-      "text": "すべての状態",
-      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
-    },
-    "ui.l10napprove": {
-      "text": "承認",
-      "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
-    },
-    "ui.l10ncoverage": {
-      "text": "進捗",
-      "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
-    },
-    "ui.l10ndraft": {
-      "text": "AI下訳",
-      "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
-    },
-    "ui.l10nexport": {
-      "text": "書き出し",
-      "hash": "f3e4fadb9e370a1e2c0c622c01fc8c77daf93a2c"
-    },
-    "ui.l10nhint": {
-      "text": "製品の翻訳。AIが下訳を作り、人が承認します。未レビューのものは製品に入りません。",
-      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
-    },
-    "ui.l10nimport": {
-      "text": "カタログを取り込む",
-      "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
-    },
-    "ui.l10nkey": {
-      "text": "キー",
-      "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
-    },
-    "ui.l10nnothing": {
-      "text": "条件に一致するものがありません。",
-      "hash": "0f9b93bb965ce681887989cc7cea0ac7b93f4c22"
-    },
-    "ui.l10nreject": {
-      "text": "差し戻し",
-      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
-    },
-    "ui.l10nsearch": {
-      "text": "キーまたは本文を検索",
-      "hash": "158dee2d34c71cee576d705f120a65012edc6027"
-    },
-    "ui.l10nself": {
-      "text": "自分の訳は承認できません。",
-      "hash": "fd49da1345752b110591d786f4541af26f37b1ff"
-    },
-    "ui.l10nsource": {
-      "text": "英語",
-      "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
-    },
-    "ui.l10nstatus": {
-      "text": "状態",
-      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
-    },
-    "ui.l10ntarget": {
-      "text": "翻訳先の言語",
-      "hash": "dae38f11269fd17ad122a3ec4e99cc99ca9fbc74"
-    },
-    "ui.l10ntranslation": {
-      "text": "訳文",
-      "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
-    },
-    "ui.limit": {
-      "text": "上限",
-      "hash": "24d948e4bdbe5b8224bbc0dfbab1923fab00b98e"
-    },
-    "ui.link": {
-      "text": "リンク",
-      "hash": "d0517071aa376e797705058bbad4b658954b9930"
-    },
-    "ui.linkhint": {
-      "text": "このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。ご自身のS3キーの権限で動作し、キーを失効させると無効になります。",
-      "hash": "7f9956fa5eca1bdb0470b328be9a2bdc32a49c33"
-    },
-    "ui.localization": {
-      "text": "言語設定",
-      "hash": "b9fc941160f1b0396956bfd39853ec712bd8d1fb"
-    },
-    "ui.localize": {
-      "text": "翻訳管理",
-      "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
-    },
-    "ui.locavail": {
-      "text": "このビルドに含まれる言語",
-      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
-    },
-    "ui.lochint": {
-      "text": "訪問者が言語を選んでいないときに、このインスタンスが応答する言語です。アカウント作成前のサインイン画面にも適用されます。",
-      "hash": "888ae32444f9106401926c83bd00ebcde5f99635"
-    },
-    "ui.locoffhint": {
-      "text": "オフにすると、応答は常に既定の言語になり、言語切り替えは表示されません。",
-      "hash": "a6bd7ff056cb8175b899353a0931069c5b8467ea"
-    },
-    "ui.loctoggle": {
-      "text": "利用者による言語の切り替えを許可する",
-      "hash": "f727a2857c4b05748fe85e72f82a53c4b5f42a4e"
-    },
-    "ui.logout": {
-      "text": "サインアウト",
-      "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
-    },
-    "ui.members": {
-      "text": "メンバー",
-      "hash": "1cb449c1126609b4b41e1d87f65f0d7cd19b49b9"
-    },
-    "ui.model": {
-      "text": "モデル",
-      "hash": "68c2cc7f0ceaa3e499ecb4db331feb4debbbcc23"
-    },
-    "ui.name": {
-      "text": "名前",
-      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
-    },
-    "ui.newdoc": {
-      "text": "新規ドキュメント",
-      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
-    },
-    "ui.newnote": {
-      "text": "新規ノート",
-      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
-    },
-    "ui.newpw": {
-      "text": "新しいパスワード",
-      "hash": "d850ee188c7c55b64bc3624534de5c5051a57dc6"
-    },
-    "ui.newversion": {
-      "text": "新しいバージョンとして保存しました",
-      "hash": "b9dcda73378ea2eefe58d13865d4e79407f77d6c"
-    },
-    "ui.nodefs": {
-      "text": "このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。それ以外の場合は /api/workflows に仕様をPOSTしてください。",
-      "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
-    },
-    "ui.nolimit": {
-      "text": "上限なし",
-      "hash": "f8e7920f869502bc3ba3e7eff30889bc66888286"
-    },
-    "ui.noothers": {
-      "text": "このチームに他のメンバーがいません。",
-      "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
-    },
-    "ui.norepoobjects": {
-      "text": "まだドキュメントがありません。形式は自由です — pdf、svg、png、docx、xml、md。",
-      "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
-    },
-    "ui.noruns": {
-      "text": "実行履歴はまだありません。",
-      "hash": "7a8b1c283d427ac045b0fa7629bbaf611736e8e3"
-    },
-    "ui.noshares": {
-      "text": "まだ誰とも共有していません。",
-      "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
-    },
-    "ui.notes": {
-      "text": "ノート",
-      "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
-    },
-    "ui.objects": {
-      "text": "ドキュメント",
-      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
-    },
-    "ui.operator": {
-      "text": "オペレーター",
-      "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
-    },
-    "ui.output": {
-      "text": "出力",
-      "hash": "4bed336194a9a5c86b6a734f03b3570d2aae1a68"
-    },
-    "ui.pass": {
-      "text": "パスワード",
-      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
-    },
-    "ui.prompt": {
-      "text": "プロンプト",
-      "hash": "a817d7eb8e0f1dab755ab5203a082e5c3c094fce"
-    },
-    "ui.qualify": {
-      "text": "承認",
-      "hash": "d8be1dde249c69ada1a96d5946aed689468a43f2"
-    },
-    "ui.recent": {
-      "text": "最近",
-      "hash": "76eec760c9b6e63eda7e9834fa40bc26d6f58eef"
-    },
-    "ui.refresh": {
-      "text": "更新",
-      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
-    },
-    "ui.reject": {
-      "text": "却下",
-      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
-    },
-    "ui.reply": {
-      "text": "返信",
-      "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
-    },
-    "ui.repository": {
-      "text": "ドキュメント保管庫",
-      "hash": "312386841084261c610413fa4de8b7505f469407"
-    },
-    "ui.requestaccess": {
-      "text": "アクセスを申請",
-      "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
-    },
-    "ui.results": {
-      "text": "結果",
-      "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
-    },
-    "ui.revoke": {
-      "text": "失効",
-      "hash": "0be720759ff04d13c5706881d5d227a2621f91a6"
-    },
-    "ui.revoked": {
-      "text": "失効しました",
-      "hash": "85f17ac049c4218273f708cd24197325bd4369b9"
-    },
-    "ui.role": {
-      "text": "ロール",
-      "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
-    },
-    "ui.runs": {
-      "text": "実行履歴",
-      "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
-    },
-    "ui.runwf": {
-      "text": "実行",
-      "hash": "b1b392607deaf29a7e81453e069b7c07a32a6b18"
-    },
-    "ui.s3created": {
-      "text": "キーを作成しました",
-      "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
-    },
-    "ui.s3hint": {
-      "text": "aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。",
-      "hash": "c779fcf2a535aaa614b214b37cdfc8f52112f1a4"
-    },
-    "ui.s3keys": {
-      "text": "S3アクセスキー",
-      "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
-    },
-    "ui.s3off": {
-      "text": "このインスタンスではS3エンドポイントが無効です（TELEMACHUS_S3_PORT）。",
-      "hash": "5c2e33d5d944b2c8eaf0e207473c8f61b6ca91f2"
-    },
-    "ui.s3once": {
-      "text": "シークレットは今だけ表示されます。必ず控えてください。",
-      "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
-    },
-    "ui.save": {
-      "text": "保存",
-      "hash": "efc007a393f66cdb14d57d385822a3d9e36ef873"
-    },
-    "ui.saved": {
-      "text": "保存しました",
-      "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
-    },
-    "ui.search": {
-      "text": "検索",
-      "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
-    },
-    "ui.searchph": {
-      "text": "ノート、ドキュメント、ファイル、翻訳…",
-      "hash": "bc6e4dbaec36a991517cc9f23c22f1f6fa25572d"
-    },
-    "ui.seed": {
-      "text": "サンプルデータを読み込む",
-      "hash": "5c92151e013ae959e55f44466b85e5d2b90da0df"
-    },
-    "ui.send": {
-      "text": "送信",
-      "hash": "9bc2575c3930437e80555f78757b783c842e8e66"
-    },
-    "ui.setpw": {
-      "text": "パスワードを設定",
-      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
-    },
-    "ui.setquota": {
-      "text": "上限を設定",
-      "hash": "634082ec4f01e693739b71275495c576e4988663"
-    },
-    "ui.share": {
-      "text": "共有",
-      "hash": "09ca55ca52d207f2cc1d9339e0226a88e9e96e2f"
-    },
-    "ui.shared": {
-      "text": "共有しました",
-      "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
-    },
     "ui.sharedwith": {
       "text": "共有中",
       "hash": "6203f44916a227ea2b0c8ec936b090f9d57e31ee"
-    },
-    "ui.sharewith": {
-      "text": "共有相手",
-      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
-    },
-    "ui.signin": {
-      "text": "サインイン",
-      "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
-    },
-    "ui.size": {
-      "text": "サイズ",
-      "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
-    },
-    "ui.source": {
-      "text": "ソース",
-      "hash": "6da13addb000b67d42a6d66391713819e634149f"
-    },
-    "ui.sourcetext": {
-      "text": "翻訳するテキスト",
-      "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
-    },
-    "ui.started": {
-      "text": "開始",
-      "hash": "faa9e7e7ef5a264c58c68a4a0b9c8bd54241450a"
     },
     "ui.status": {
       "text": "状態",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
     },
-    "ui.steps": {
-      "text": "ステップ",
-      "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
+    "ui.kg_search": {
+      "text": "エンティティを検索",
+      "hash": "5ad82ac25c9a7f7dd60bda8cee0b53bcbb7b97cc"
     },
-    "ui.stepsused": {
-      "text": "使用ステップ数",
-      "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
+    "doc.perm.files:write": {
+      "text": "ドキュメントと新バージョンをアップロードします。",
+      "hash": "e5297c6ea126b16479b1f9c5061614283b0a5e65"
     },
-    "ui.store": {
-      "text": "保管先",
-      "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
+    "ui.operator": {
+      "text": "オペレーター",
+      "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
     },
-    "ui.submit": {
-      "text": "送信",
-      "hash": "2dacf65959849884a011f36f76a04eebea94c5ea"
+    "doc.perm.team:create": {
+      "text": "会社でチームを作成します。",
+      "hash": "95faa3304499d95dc823e2ac1b3d55c4db48c57b"
     },
-    "ui.submitjob": {
-      "text": "ジョブを送信",
-      "hash": "510341190745d586870fc9862595a371c925fc0f"
+    "doc.perm.quota:manage": {
+      "text": "クォータを設定する。",
+      "hash": "e20b962fe4d92a7bfb238bbbaf4e80cf869bb168"
     },
-    "ui.tagline": {
-      "text": "チームAIプラットフォーム — リファレンス実装",
-      "hash": "376a8698238975b4eeda809c249ad17e73944eda"
+    "ui.output": {
+      "text": "出力",
+      "hash": "4bed336194a9a5c86b6a734f03b3570d2aae1a68"
     },
-    "ui.target": {
-      "text": "翻訳先の言語",
-      "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
+    "ui.nodefs": {
+      "text": "このチームにはまだワークフローが公開されていません。ワークフローを同梱するプラグインは初回利用時にここへ表示されます。それ以外の場合は /api/workflows に仕様をPOSTしてください。",
+      "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
     },
-    "ui.team": {
-      "text": "チーム",
-      "hash": "218887269ad5946d9dc53238651c90472884fb0f"
-    },
-    "ui.teamsignin": {
-      "text": "チームサインイン",
-      "hash": "681a8401eb4d38203e8dd2f2c7e847c608c0a17b"
-    },
-    "ui.term": {
-      "text": "用語",
-      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
-    },
-    "ui.testing": {
-      "text": "テストツール",
-      "hash": "3d3998625037d01c3f0c18b46c8e2f6a0db08edf"
-    },
-    "ui.title": {
-      "text": "タイトル",
-      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
-    },
-    "ui.tool": {
-      "text": "ツール",
-      "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
+    "doc.perm.tools:invoke": {
+      "text": "代理機またはワークフローのステップからツールを呼び出します；各ツールは自分の権限を確認します",
+      "hash": "44b342c7a46bbf0734fb7a29be9cfa4d39ff2df0"
     },
     "ui.tools": {
       "text": "ツール",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
     },
-    "ui.translate": {
-      "text": "翻訳",
-      "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    "doc.route.delete.api.executors.id": {
+      "text": "エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。",
+      "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
+    },
+    "doc.tool.kg_extract": {
+      "text": "1つのリポジトリ文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。検証を通らない返答は拒否します。",
+      "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
+    },
+    "beta.field_too_long": {
+      "text": "{field}は{n}文字以内で入力してください。",
+      "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
+    },
+    "doc.tool.repo_list_unindexed": {
+      "text": "検索用に抽出されていないリポジトリドキュメントをリストします（または、上書き後に古くなっています）。オブジェクトIDを返し、バッチ分まで；インデキシングワークフローを再実行して続行します。",
+      "hash": "80d72aa4588c5dc0269e9e1de25480ae0bd0a141"
+    },
+    "doc.route.get.api.config": {
+      "text": "公開インスタンス設定：ホームモード、マルチテナントフラグ、ローカライゼーションポリシー（既定ロケール、利用可能なロケール、切り替えの可否）。サインイン画面はトークンを持つ前に読み込みます。",
+      "hash": "f7ad449011473be8c8f03abe7165a7dbb0d861dc"
+    },
+    "ui.kg_documents": {
+      "text": "抽出済みの文書",
+      "hash": "c3ed5753cea882d8ebba13447927ef2d101ab9cd"
+    },
+    "doc.route.get.": {
+      "text": "コンソール（TELEMACHUS_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。",
+      "hash": "f0005618dfc54747edeb17e48ae0fcfd56c23355"
+    },
+    "doc.route.post.api.profile": {
+      "text": "呼び出し元のプロフィール(表示名、ロケール)を更新します。",
+      "hash": "ae34766f1a6a412439af179c06803b91462967f0"
+    },
+    "ui.sharedwithme": {
+      "text": "自分に共有されたもの",
+      "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
+    },
+    "doc.route.post.api.workers.claim": {
+      "text": "プル型ワーカーが実行可能な次のリモートジョブを取得する：{kinds, models, max_wait}；何もなければ 204。ジョブにはリースが付きます。",
+      "hash": "c28fe0e178aefb13910478d3e9898788db665982"
+    },
+    "ui.disable": {
+      "text": "無効化",
+      "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
+    },
+    "doc.route.get.api.ai.model": {
+      "text": "設定されているモデル（またはシミュレーションの代替が使われていること）。",
+      "hash": "4b99317a92df10325e6b8654caa37d448f7fe8de"
+    },
+    "doc.route.get.api.repo-obj.id.content": {
+      "text": "バイト列をダウンロードする（履歴は ?version=）。型がインライン許可リストにない限り、添付ファイルとして nosniff 付きで返します。",
+      "hash": "e3519b90c5108493988f2a53343a1245023dbe5c"
+    },
+    "ui.vis_private": {
+      "text": "非公開 — 自分のみ",
+      "hash": "ce5d97592d02df5ef8f88d1a118572f123833d86"
+    },
+    "doc.route.options.api.beta.signup": {
+      "text": "サンドボックス化された Tier-C テンプレートのための CORS プリフライト。",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "doc.route.delete.api.repo-obj.id": {
+      "text": "オブジェクトを削除する（他のバージョンから参照されなくなったブロブは解放されます）。",
+      "hash": "61d4b7ae735549dc1031d352194d8a56081128e9"
+    },
+    "doc.route.delete.api.notes.id": {
+      "text": "ノートを削除します。",
+      "hash": "edadf3ea6746bb44145806818cfca51cc6e85140"
+    },
+    "ui.l10nsearch": {
+      "text": "キーまたは本文を検索",
+      "hash": "158dee2d34c71cee576d705f120a65012edc6027"
+    },
+    "ui.glossary": {
+      "text": "用語集",
+      "hash": "7427cf697be16a4ec1d916910128a59d920125e7"
+    },
+    "ui.testing": {
+      "text": "テストツール",
+      "hash": "3d3998625037d01c3f0c18b46c8e2f6a0db08edf"
+    },
+    "ui.requestaccess": {
+      "text": "アクセスを申請",
+      "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
+    },
+    "doc.tool.chat_message": {
+      "text": "モデルにチャットメッセージを1つ送り、その返答を返す。",
+      "hash": "2f5eee6d8e27557d3c465f31654c3faa6ae5dce0"
+    },
+    "ui.chat": {
+      "text": "チャット",
+      "hash": "2ced57f125910a9e8ab95deea86e4ad7be418b5a"
+    },
+    "ui.locoffhint": {
+      "text": "オフにすると、応答は常に既定の言語になり、言語切り替えは表示されません。",
+      "hash": "a6bd7ff056cb8175b899353a0931069c5b8467ea"
+    },
+    "ui.beta": {
+      "text": "ベータ",
+      "hash": "f03b60f7e52b7ce49ed1e4f9fa511c452a2185bb"
+    },
+    "ui.recent": {
+      "text": "最近",
+      "hash": "76eec760c9b6e63eda7e9834fa40bc26d6f58eef"
+    },
+    "ui.user": {
+      "text": "ユーザー名",
+      "hash": "84c29015de33e5d22422382a372caba5c58f8c01"
+    },
+    "doc.route.post.api.glossary": {
+      "text": "対象言語の用語集に用語を追加または更新する。",
+      "hash": "7f4c9fae2f220843e7d68aa45e7ff148bff4cd7b"
+    },
+    "doc.tool.repo_extract_text": {
+      "text": "1つのリポジトリドキュメントのテキストを検索インデックスに抽出します。",
+      "hash": "abc97e3c3258563662360c069c8ec834c527371f"
+    },
+    "ui.l10nstatus": {
+      "text": "状態",
+      "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    },
+    "ui.vishint": {
+      "text": "アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。",
+      "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
+    },
+    "ui.agent": {
+      "text": "エージェント",
+      "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
+    },
+    "doc.plugin.translate-chat": {
+      "text": "デモワークフロープラグイン：一度チャットし、返答をスペイン語/オランダ語/アイスランド語に拡散させ、それぞれをユーザーの母国語に戻す",
+      "hash": "91f7eb085397a93509322e65886d76dc1659b76f"
+    },
+    "doc.route.get.api.documents": {
+      "text": "文書をリスト表示します。",
+      "hash": "de4fa39c0955689307a963f108c0396528663e13"
+    },
+    "ui.visibility": {
+      "text": "公開範囲",
+      "hash": "7d9ff4f0de398581c4640bcbb6e536c355a391be"
+    },
+    "doc.tool.translate_text.text": {
+      "text": "翻訳するテキスト",
+      "hash": "07cc5dd5e4ffdbcefffeb5687c74e77770b518cf"
+    },
+    "ui.workflow": {
+      "text": "ワークフロー",
+      "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
+    },
+    "ui.open": {
+      "text": "開く",
+      "hash": "cf9b77061f7b3126b49d50a6fa68f7ca8c26b7a3"
+    },
+    "ui.cap_view": {
+      "text": "閲覧",
+      "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
+    },
+    "ui.confirmpw": {
+      "text": "パスワードの確認",
+      "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
+    },
+    "doc.route.post.api.ai.chat.stream": {
+      "text": "同じターンを Server-Sent Events で返し、終了時に計量します。",
+      "hash": "8817c39fca03615973e0c0260b1ac14cb1025a6d"
+    },
+    "ui.kg_unextracted": {
+      "text": "待機中",
+      "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
+    },
+    "ui.brandtitle": {
+      "text": "名称",
+      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "doc.tool.doc_translate.object": {
+      "text": "ドキュメントのオブジェクトID",
+      "hash": "96dce9d90c48f917ad3b12a8baaeb758b1d9dfb1"
+    },
+    "ui.expires": {
+      "text": "期限（任意）",
+      "hash": "4d539d940b75f126882d95b6b8d7a194efb0b9e6"
+    },
+    "ui.jobs": {
+      "text": "ジョブ",
+      "hash": "437736fdb5bb707abdc048483193c86b9a99983e"
+    },
+    "ui.share": {
+      "text": "共有",
+      "hash": "09ca55ca52d207f2cc1d9339e0226a88e9e96e2f"
     },
     "ui.translation": {
       "text": "翻訳",
       "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
     },
-    "ui.updated": {
-      "text": "更新",
-      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
+    "doc.perm.chat:use": {
+      "text": "モデルと対話する：チャット、エージェント、翻訳、AIツール。従量制。",
+      "hash": "828cc8ee6dd6bf4ce22bcc5de9a585f9cd02b63f"
     },
-    "ui.updpw": {
-      "text": "パスワードを更新",
-      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
+    "doc.tool.doc_translate.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
-    "ui.upload": {
-      "text": "アップロード",
-      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    "doc.route.post.api.tools.name": {
+      "text": "チーム用のツールを有効にする/無効にする",
+      "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
     },
-    "ui.uploaded": {
-      "text": "アップロードしました",
-      "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
+    "doc.route.post.api.repo-obj.id.visibility": {
+      "text": "プライベート、チームまたは共有に設定します。",
+      "hash": "b2f9d2b5be1beb7994c3dd2fc7dad16b2475f989"
+    },
+    "doc.perm.tasks:write": {
+      "text": "タスクを作成し、編集します。",
+      "hash": "ab21675a1a37070f6b06dc92b5bb5598ff1b384a"
+    },
+    "doc.route.get.beta.bundle.plugin.path": {
+      "text": "Tier-Bオンボーディングプラグインのバンドルディレクトリからのファイル",
+      "hash": "02e562d9603b593449dd54d7be1807ac8120a957"
+    },
+    "doc.perm.*:read": {
+      "text": "チームに公開されたすべてのリソースを読む；AI 利用なし、変更なし。",
+      "hash": "b4b905e1f8563427da3e415c721f45d732072ab5"
+    },
+    "doc.route.delete.api.documents.id": {
+      "text": "テキストドキュメントを削除します。",
+      "hash": "f500abea97efc00a4a244e22ffe02227348e511b"
+    },
+    "ui.kg_none": {
+      "text": "一致するエンティティが見つかりません。ドキュメントをインデックス化し、その後抽出を行ってください。",
+      "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
+    },
+    "doc.route.patch.api.org.members.id": {
+      "text": "人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。",
+      "hash": "c12db2a62d70522a8cae022cf536347c52499014"
+    },
+    "ui.runwf": {
+      "text": "実行",
+      "hash": "b1b392607deaf29a7e81453e069b7c07a32a6b18"
+    },
+    "ui.l10nself": {
+      "text": "自分の訳は承認できません。",
+      "hash": "fd49da1345752b110591d786f4541af26f37b1ff"
+    },
+    "doc.route.post.api.s3.credentials": {
+      "text": "S3アクセスキーを発行し、オプションで範囲指定（トリガーが発生するプレフィックスに対してworkflows:runを追加します）。",
+      "hash": "147646a5ac123e8be377a93c65a8a202faa5598c"
+    },
+    "doc.route.get.api.executors": {
+      "text": "ローカルエグゼキュータ、環境変数で設定されたプッシュ型、API で作成されたもの（プッシュ型、またはワーカー付きのプル型）を、状態とともに。",
+      "hash": "0f04e37ff8172fa65a013f7e48e9af6fa319c0f8"
+    },
+    "ui.bytrigger": {
+      "text": "トリガー",
+      "hash": "63d62d4aee9a5d4fe8539e53a9e3d05ffc210c9b"
+    },
+    "ui.bxrestart": {
+      "text": "開始できませんでした — 再読み込みしてください",
+      "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
+    },
+    "doc.perm.features:manage": {
+      "text": "チームごとに機能をオン／オフにする。",
+      "hash": "3fd875d2a2bc213bb34b68678dc4352354e6861a"
+    },
+    "doc.perm.documents:delete": {
+      "text": "テキストドキュメントを削除します。",
+      "hash": "57f7cce6e25877b0f4c845a6ac47858739d4c03d"
+    },
+    "ui.search": {
+      "text": "検索",
+      "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
+    },
+    "ui.automations": {
+      "text": "自動化",
+      "hash": "82542d6d0a0aa0c1e9afdbe2f29d3057618daec2"
+    },
+    "ui.copy": {
+      "text": "コピー",
+      "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
+    },
+    "ui.activate": {
+      "text": "アカウントを有効化",
+      "hash": "b9186563deea94527f03558a5ec059806d363c49"
+    },
+    "doc.route.get.api.doc-triggers.id": {
+      "text": "1つのトリガーとその発火履歴（どのバージョン、どの実行、あるいはなぜ発火しなかったか）。",
+      "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
+    },
+    "doc.tool.doc_render": {
+      "text": "フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が \"pdf\" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。",
+      "hash": "60f537d9839bec95196ab4285cbd1b0967c15d46"
+    },
+    "doc.perm.audit:read": {
+      "text": "監査ログを読む。",
+      "hash": "87c1c4a7b67d30455fcce098e19ad429a1808b91"
+    },
+    "ui.brandreset": {
+      "text": "既定に戻す",
+      "hash": "39c90eb758c57422548baebb38a39652279feb65"
+    },
+    "doc.route.get.api.beta.assets": {
+      "text": "チームのオンボーディング資産をリストします。",
+      "hash": "20267ee4b84d7009da89c1736bcffcc39db17a42"
+    },
+    "doc.route.post.api.admin.seed-tenants": {
+      "text": "既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。",
+      "hash": "8ebbc1998b371a5d1fe99da2c98f2af7481e2a9a"
+    },
+    "doc.route.put.api.documents.id": {
+      "text": "テキスト文書のタイトル・本文・公開範囲を更新する（新しいバージョン）。",
+      "hash": "3fe2ff530ad25f0415478ddb3b6cf245d43a2000"
+    },
+    "doc.perm.quota:read": {
+      "text": "クォータを見る。",
+      "hash": "fb2e9e15c807d3a4e1c48139107fc7b18f522f21"
+    },
+    "doc.perm.org:read": {
+      "text": "会社、そのチーム、メンバー、監査ログを見る。",
+      "hash": "05279417b614668317d0b96f13b779958ddfcdda"
+    },
+    "notes.saved": {
+      "text": "ノートを保存しました。",
+      "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
+    },
+    "doc.route.post.api.agent": {
+      "text": "チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。",
+      "hash": "ba6777989b583f514ff66b05e086ce6523bef0bc"
+    },
+    "ui.capability": {
+      "text": "権限",
+      "hash": "88e288f3e3ca8d1137556d908dcb9f355209464b"
+    },
+    "doc.tool.update_note.title": {
+      "text": "新しいタイトル（任意）",
+      "hash": "8fdccec803eb3978be9bae1f71d5477a1728b73c"
+    },
+    "doc.route.get.api.orgs.ref": {
+      "text": "1つの会社、そのチームとクォータ。",
+      "hash": "6fc9a5c283b853226eaa9782224aed904fce2152"
+    },
+    "ui.repository": {
+      "text": "ドキュメント保管庫",
+      "hash": "312386841084261c610413fa4de8b7505f469407"
+    },
+    "doc.tool.update_note.id": {
+      "text": "ノートの ID",
+      "hash": "fd02a584451d28a275838f32365a74f1b2293116"
+    },
+    "doc.route.get.api.metrics": {
+      "text": "運用メトリクス。",
+      "hash": "77665524466afabbf3910faa0fe57d7740e33b24"
+    },
+    "ui.revoke": {
+      "text": "失効",
+      "hash": "0be720759ff04d13c5706881d5d227a2621f91a6"
+    },
+    "ui.logout": {
+      "text": "サインアウト",
+      "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
+    },
+    "doc.route.get.api.features": {
+      "text": "チームの機能フラグ",
+      "hash": "bd1955d40c93a9919c316f5efb74b2c6b18f0ad0"
+    },
+    "doc.route.post.api.x.example-tools.word-count": {
+      "text": "{text} の単語数を数える。",
+      "hash": "016eefc223bf8431662f415eb5b6addd72e2a957"
+    },
+    "doc.route.get.api.glossary": {
+      "text": "チーム用語集.",
+      "hash": "7986293803bb2029e37ce2d2f2e2c213446c48c7"
+    },
+    "http.unauthorized": {
+      "text": "認証が必要です。",
+      "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
+    },
+    "doc.plugin.rs3": {
+      "text": "文書のバイト列を SHA-256 でアドレス指定してローカルファイルシステムに保存します。文書リポジトリの既定の保存先です。",
+      "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
+    },
+    "ui.draftqueued": {
+      "text": "{n} 件の文字列を {b} バッチでキューに入れました — レビュー用に「機械翻訳」として届きます",
+      "hash": "7f2bcb13edb0fc717e74a87c3261d4f645569362"
+    },
+    "doc.route.post.api.doc-triggers": {
+      "text": "トリガーを作成：workflow_slug, match_prefix, match_types, input, fire_on_derived.",
+      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
+    },
+    "doc.route.get.api.workflows": {
+      "text": "チームのワークフロー定義。プラグイン提供のものは初回参照時に実体化されます。",
+      "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
+    },
+    "beta.verify_failed": {
+      "text": "認証に失敗しました。ページを再読み込みしてください。",
+      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
+    },
+    "ui.addtrigger": {
+      "text": "トリガーを追加",
+      "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
+    },
+    "ui.branding": {
+      "text": "ブランディング",
+      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
+    },
+    "doc.route.get.api.members": {
+      "text": "チームのメンバーと役割",
+      "hash": "32197624e684dac944e94da479c4c79400a6ba47"
+    },
+    "doc.route.get.api.beta.experience": {
+      "text": "チームの下書きのオンボーディング体験（判定プロンプトを含む）。",
+      "hash": "c3f2aec9df503e476f868327fba76ede78146862"
+    },
+    "ui.l10ntranslation": {
+      "text": "訳文",
+      "hash": "ac26a7a94ea2e66490f932b6415a09ef6f2a913c"
+    },
+    "doc.route.get.login": {
+      "text": "コンソール、まずサインイン — ベータのランディングに依存しない URL。",
+      "hash": "d02ef5047d3fda355ef1467fbfaf5e5e4667d53b"
+    },
+    "ui.automationshint": {
+      "text": "プレフィックスと種類に一致する文書がリポジトリに届いたとき（コンソールからでも S3 経由でも）、アップロードした人としてこのワークフローを実行します。",
+      "hash": "e8de9f25fa8a76419dea748d8560a6629de7d7ce"
+    },
+    "ui.newnote": {
+      "text": "新規ノート",
+      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
+    },
+    "doc.route.post.api.admin.seed": {
+      "text": "呼び出し元のチームにサンプルのノートと文書を投入する。",
+      "hash": "c9a7e323f4abf0ebc6ef99c4a87fee7475aaec0a"
+    },
+    "doc.route.get.api.workflows.slug": {
+      "text": "1つのワークフロー定義とその仕様",
+      "hash": "f3a279bebfb752bea2de432d2056d692f5131c8d"
+    },
+    "doc.route.get.api.repo-obj.id.derivations": {
+      "text": "由来: 文書がどの実行とステップから派生したか",
+      "hash": "a4913e813c9302f167c7e1c642e6851205f040f9"
+    },
+    "ui.linkhint": {
+      "text": "このリンクを知っている人は、今後{m}分間サインインなしでダウンロードできます。ご自身のS3キーの権限で動作し、キーを失効させると無効になります。",
+      "hash": "7f9956fa5eca1bdb0470b328be9a2bdc32a49c33"
+    },
+    "ui.processedby": {
+      "text": "処理履歴",
+      "hash": "e46e1f2081914128a574b3c06686ccce4454d5b1"
+    },
+    "doc.route.get.api.tokens": {
+      "text": "チームのAPIトークン",
+      "hash": "5ba2729ca20d3fedebf8ffb6e6af646ac7d0959d"
+    },
+    "ui.qualify": {
+      "text": "承認",
+      "hash": "d8be1dde249c69ada1a96d5946aed689468a43f2"
+    },
+    "ui.title": {
+      "text": "タイトル",
+      "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "doc.route.get.api.org.teams": {
+      "text": "呼び出し元の会社のチーム。",
+      "hash": "7138c15c403d14dc29ff02593fa0f27f089cd859"
+    },
+    "doc.route.get.beta.template": {
+      "text": "Tier-C のサンドボックス化 HTML テンプレート。体験オーバーレイでローカライズされます。",
+      "hash": "905e073cb8d041696017518f64247b9392c4fd97"
+    },
+    "doc.perm.workflows:read": {
+      "text": "ワークフロー定義、実行とトリガーを確認します。",
+      "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
+    },
+    "ui.setquota": {
+      "text": "上限を設定",
+      "hash": "634082ec4f01e693739b71275495c576e4988663"
+    },
+    "doc.route.get.api.kg.entities": {
+      "text": "?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。",
+      "hash": "5c2bb39d66573cf937e6ed22690d5ceadbc3a831"
+    },
+    "doc.route.post.api.provision": {
+      "text": "ホストモード：このインスタンスに所有者1名とマジックアクティベーションリンクをプロビジョニングする。",
+      "hash": "97856360470baac26856e94366d4bf93c51bb46e"
+    },
+    "ui.sourcetext": {
+      "text": "翻訳するテキスト",
+      "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
+    },
+    "ui.nolimit": {
+      "text": "上限なし",
+      "hash": "f8e7920f869502bc3ba3e7eff30889bc66888286"
+    },
+    "ui.l10nkey": {
+      "text": "キー",
+      "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
+    },
+    "doc.route.post.api.jobs.id.cancel": {
+      "text": "キューに並んでいるジョブをキャンセル（実行中のジョブは完了します）。",
+      "hash": "227ebe818250c89494c01d47fa7b9bef3ef81852"
+    },
+    "ui.localize": {
+      "text": "翻訳管理",
+      "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "ui.members": {
+      "text": "メンバー",
+      "hash": "1cb449c1126609b4b41e1d87f65f0d7cd19b49b9"
+    },
+    "ui.s3off": {
+      "text": "このインスタンスではS3エンドポイントが無効です（TELEMACHUS_S3_PORT）。",
+      "hash": "5c2e33d5d944b2c8eaf0e207473c8f61b6ca91f2"
+    },
+    "doc.route.post.api.documents": {
+      "text": "テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。",
+      "hash": "d8633651c22e353d235c4425d3599afa38db6fc0"
+    },
+    "doc.route.get.api.mcp": {
+      "text": "接続されたMCPサーバー",
+      "hash": "ee2175d19262c5c0d8e0ded042d864a035929822"
+    },
+    "doc.route.get.api.runs.id": {
+      "text": "1つの実行とそのステップ、インプット、アウトプット、およびエラー",
+      "hash": "413e1b81c79fa3b7b825a572f0afd2a188f66588"
+    },
+    "ui.pass": {
+      "text": "パスワード",
+      "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
+    },
+    "doc.tool.doc_render.template": {
+      "text": "テンプレートドキュメントのオブジェクトIDまたはキー",
+      "hash": "af52889b1f6ef204aecd17b5f6775b46587791f8"
+    },
+    "doc.route.options.api.beta.config": {
+      "text": "サンドボックス化された Tier-C テンプレートのための CORS プリフライト。",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "doc.perm.research:use": {
+      "text": "リサーチ機能を使う。",
+      "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
+    },
+    "doc.perm.notes:write": {
+      "text": "ノートの作成と編集",
+      "hash": "fdd2d6a55dcb86b65c6617635e455431b1e7f095"
+    },
+    "doc.route.delete.api.beta.asset.id": {
+      "text": "オンボーディングアセットを削除します。",
+      "hash": "ca144e9ef80342a5e185b34d4c1f81bd5ac56769"
+    },
+    "doc.perm.workflows:run": {
+      "text": "実行の開始と取り消し。アップロードでトリガーを発火させるには、S3 キーにこのスコープが必要です。",
+      "hash": "21cb174e21ed16c1c221a45bb425838fcd7e8690"
+    },
+    "doc.perm.roles:manage": {
+      "text": "チーム役割の作成と編集",
+      "hash": "0aea9032d70ee3ea8b424466b95567563af8697a"
+    },
+    "doc.route.post.api.repo-obj.id.presign": {
+      "text": "呼び出し元自身の最新の S3 キーで署名された、期限付きの事前署名 S3 URL。",
+      "hash": "a4f17cb24cd908a67d10d18e4bffc097d0618254"
+    },
+    "doc.perm.localization:read": {
+      "text": "ローカライゼーションマネージャーのカバレッジとメッセージを見る。",
+      "hash": "da2cba8e84f038c877872c710f02f7f21d1049f8"
+    },
+    "ui.notriggers": {
+      "text": "まだトリガーがありません。",
+      "hash": "d002af36e66ebe8d94ff89b02f91420bf027b376"
+    },
+    "doc.tool.create_note": {
+      "text": "現在のユーザーのチームにメモを作成します。",
+      "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
+    },
+    "doc.route.get.api.jobs.id": {
+      "text": "1つのジョブとその結果またはエラー",
+      "hash": "fe32c2dd94dd14a9e9e3c2737fa9398ac5636134"
+    },
+    "doc.route.delete.api.s3.credentials.id": {
+      "text": "S3アクセスキーを無効にする；そのアクセスキーで署名されたプレシグナードリンクも無効になります。",
+      "hash": "0d193ba9fd8c47b32b53a58ec0fef45870676b77"
+    },
+    "doc.route.post.api.org.teams": {
+      "text": "呼び元の会社でチームを作成します。",
+      "hash": "a7415a3f6a8a4781b80fa476af75d41f60cc2dde"
+    },
+    "ui.lochint": {
+      "text": "訪問者が言語を選んでいないときに、このインスタンスが応答する言語です。アカウント作成前のサインイン画面にも適用されます。",
+      "hash": "888ae32444f9106401926c83bd00ebcde5f99635"
+    },
+    "doc.route.post.api.kg.extract": {
+      "text": "チームの未抽出文書をインデックス化するワークフローをキューに追加します。",
+      "hash": "2606841d46a8c155e8382e21928cd03be3f511e8"
+    },
+    "doc.tool.doc_translate.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.workflow.index-documents.name": {
+      "text": "文書のインデックス作成",
+      "hash": "b658bbb3bc5f374f75c095db243bfd4e36f99f04"
+    },
+    "doc.tool.create_note.visibility": {
+      "text": "誰が見られるか；既定はチーム。",
+      "hash": "63f15092782b28f41c2f3abac7e63b008dcaef2f"
+    },
+    "ui.triggeradded": {
+      "text": "トリガーを追加しました",
+      "hash": "197951dfb575608c5f391dbd1aff0c29c29a34c8"
+    },
+    "doc.tool.doc_render.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.perm.settings:manage": {
+      "text": "チーム設定：トークン、機能フラグ、ツールの有効化、用語集、シード投入、監査ログ。",
+      "hash": "0062da01a09f0649738228059fa7da1360bbf57c"
+    },
+    "ui.vis_shared": {
+      "text": "限定共有 — 下記の相手のみ",
+      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    },
+    "doc.route.post.api.features.name": {
+      "text": "チーム用の機能を有効にする/無効にする",
+      "hash": "70450a5f4b07df469785c31e6aa303ffccafcc74"
+    },
+    "ui.back": {
+      "text": "戻る",
+      "hash": "b52b36b7269fbfc58ec24bb724691951a3decbe8"
+    },
+    "doc.route.get.api.workflows.schema": {
+      "text": "ワークフロー仕様フォーマット：バージョン、ステップ種類、バインディング参照、述語",
+      "hash": "5b7f95b61ad9613c47931f31046e2e5c7152fb46"
+    },
+    "doc.route.get.health": {
+      "text": "死活確認：{ok, multitenant} のみ — バージョン、KDF、TLS の状態は GET /api/admin/status にあります。",
+      "hash": "c614ac05e5f95db5aef973fb0d9099bcae50d0ef"
+    },
+    "doc.tool.word_count": {
+      "text": "テキストの単語数を数える。",
+      "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
+    },
+    "doc.route.post.api.l10n.review.id": {
+      "text": "翻訳を承認または差し戻す。翻訳者は自分の翻訳を承認できません。",
+      "hash": "694e98ff43653287a34b42e7e75e466a4beb43bd"
+    },
+    "ui.willversion": {
+      "text": "このパスは既にあります — 新しいバージョンとして保存され、公開範囲は現状のままです",
+      "hash": "3629795f10a247e233253f04af4fef7439e9a459"
+    },
+    "doc.route.get.api.notes": {
+      "text": "呼び出し元が読めるノートを一覧する；?scope=org は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。",
+      "hash": "9656ce2e5bd9ee7b9604b8c87abfa6860ccf1361"
+    },
+    "doc.tool.create_note.title": {
+      "text": "短いノートタイトル",
+      "hash": "54eab342b7a6b5c2b941aee1458cffe618ffcdbe"
+    },
+    "ui.createop": {
+      "text": "オペレーターを作成",
+      "hash": "aed7b1a1cb14a92bdfa831efac4ad2b950129f36"
+    },
+    "doc.tool.doc_extract_fields.schema": {
+      "text": "抽出オブジェクトが適合するJSONスキーマ",
+      "hash": "83e904382cbf96b6d364748cb9688696e3f88a3d"
+    },
+    "doc.perm.org:*": {
+      "text": "会社層のすべて。instance:* には決して届きません。",
+      "hash": "52de0860cce2504961d6406e8975a750db44984c"
+    },
+    "ui.s3created": {
+      "text": "キーを作成しました",
+      "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
+    },
+    "ui.trigger_prefix": {
+      "text": "キープレフィックス",
+      "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
+    },
+    "doc.route.patch.api.orgs.ref": {
+      "text": "会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。",
+      "hash": "354b1a6e317ec7aa48339cc2917f15b416b7f18b"
+    },
+    "doc.route.post.api.repo-obj.id.share": {
+      "text": "組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view|edit|manage, expires_at?}。{user_id} は従来どおり view を意味します。",
+      "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+    },
+    "doc.route.put.api.notes.id": {
+      "text": "ノートを更新します。",
+      "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
+    },
+    "doc.tool.chat_message.text": {
+      "text": "ユーザーが言ったこと",
+      "hash": "bfe8aadc4471ada97ff5ddf135d6d3bb0585636f"
+    },
+    "doc.route.get.api.l10n.messages": {
+      "text": "1つのロケールのメッセージ。?status=、?ns=、?q= で絞り込み、ページ送りできます。",
+      "hash": "d6cb6026eb6b9ff6e1665b7c274f8b0282c9c9d0"
+    },
+    "ui.reply": {
+      "text": "返信",
+      "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
+    },
+    "doc.route.put.api.model-roles": {
+      "text": "チームのモデルロールを設定する：{roles: {utility: <エグゼキュータ名> | null}}。エグゼキュータは存在している必要があります；null はインスタンスの既定値に戻り、それもなければローカルモデルになります。",
+      "hash": "bebca9dad4acba56a3bb609e0b2e098c0bcf8fc1"
+    },
+    "doc.tool.kg_query.hops": {
+      "text": "1（デフォルト）または2",
+      "hash": "04e287dac6a68b3604cd14a60fcfe52795c65786"
+    },
+    "doc.route.get.api.i18n.catalog": {
+      "text": "?locale= に対するコンソールの文字列。サーバー側でフォールバックチェーンを通して解決済み。公開：サインイン画面が必要とします。",
+      "hash": "80282f87d17426ec9fcc94a64519d2691104a001"
+    },
+    "ui.input": {
+      "text": "入力",
+      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
+    },
+    "doc.route.get.api.usage": {
+      "text": "チームのクォータ次元ごとの使用量、上限、残り。",
+      "hash": "17724760ce302a6beba0cc1dcdbdcdcdf7694b07"
+    },
+    "doc.route.get.api.plugins": {
+      "text": "読み込まれたプラグインと、そのツールおよびワークフロー。",
+      "hash": "167fb82427d578125bb3840706a7f14dc9cdc5dd"
+    },
+    "doc.perm.org:manage": {
+      "text": "会社の管理：チームとメンバー。チームデータは管理するが読まない（TEN-2a）。",
+      "hash": "d7516686c8225ea117fb689ec5055fa55f122dea"
+    },
+    "ui.setpw": {
+      "text": "パスワードを設定",
+      "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
+    },
+    "doc.route.get.beta-sdk.js": {
+      "text": "Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。",
+      "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
+    },
+    "doc.route.get.api.oop": {
+      "text": "接続済みのサンドボックス化（プロセス外）プラグインと、それらが要求できる機能。",
+      "hash": "0e0b67a716848dba7d3d889f5b9896b861229066"
+    },
+    "ui.people": {
+      "text": "メンバー",
+      "hash": "b37554f695b15005fd23907b9488e0a8ad4bca5f"
+    },
+    "doc.perm.notes:manage": {
+      "text": "自分が所有していないノートを共有する。",
+      "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
+    },
+    "ui.l10nsource": {
+      "text": "英語",
+      "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
+    },
+    "ui.l10ntarget": {
+      "text": "翻訳先の言語",
+      "hash": "dae38f11269fd17ad122a3ec4e99cc99ca9fbc74"
+    },
+    "ui.model": {
+      "text": "モデル",
+      "hash": "68c2cc7f0ceaa3e499ecb4db331feb4debbbcc23"
+    },
+    "ui.trigger_input": {
+      "text": "ワークフロー入力（JSON）",
+      "hash": "0e287a3b5d9d9407c8a710a5c3bda00a8ee0b997"
+    },
+    "ui.thisteam": {
+      "text": "このチーム",
+      "hash": "a0e16a05adc87d68631c59c6155c1de3a08c2d26"
+    },
+    "ui.localization": {
+      "text": "言語設定",
+      "hash": "b9fc941160f1b0396956bfd39853ec712bd8d1fb"
+    },
+    "ui.l10nimport": {
+      "text": "カタログを取り込む",
+      "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
+    },
+    "ui.addmember": {
+      "text": "メンバー追加",
+      "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
+    },
+    "doc.route.post.api.instance.resume": {
+      "text": "ホストモード：一時停止したテナントを再開",
+      "hash": "2b96e0bd6c952152f27dce21e03f30f906c922d4"
+    },
+    "ui.expired": {
+      "text": "有効期限切れ",
+      "hash": "45a6f9adb1df3a78aafc71391c7d3bfa7680229b"
+    },
+    "doc.tool.doc_render.object": {
+      "text": "元文書のオブジェクト ID — フォームはその隣に書き出されます（既定：テンプレートの隣）。",
+      "hash": "1b66f9c975259453418803c8fd1c4b6afd18ffa0"
+    },
+    "doc.route.post.api.workers.jobs.id.heartbeat": {
+      "text": "このワーカーが保持するジョブのリースを延長する。",
+      "hash": "e4e14c847eddc46cd5f851c2bf4a9f782f7ab7b3"
+    },
+    "ui.download": {
+      "text": "ダウンロード",
+      "hash": "a479c9c34e878d07b4d67a73a48f432ad7dc53c8"
+    },
+    "ui.nosharedwithme": {
+      "text": "まだ何も共有されていません。",
+      "hash": "3e65d083f7d44c17c1b1f6f409bf2db8f3bd7594"
+    },
+    "doc.route.get.api.branding": {
+      "text": "タイトル、タグライン、ロゴ。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。",
+      "hash": "f03c65a01cba613385734af46fde79946ef70dc6"
+    },
+    "doc.perm.documents:write": {
+      "text": "文書を作成し、編集します。",
+      "hash": "71aba7ce1032e99946218b1aa6cdeace59534548"
+    },
+    "doc.perm.tasks:delete": {
+      "text": "タスクを削除します。",
+      "hash": "cf30cf825b6d76a348086e00de5cde5bbf6dc319"
+    },
+    "ui.signin": {
+      "text": "サインイン",
+      "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
+    },
+    "ui.caphint": {
+      "text": "閲覧は開く・ダウンロード；編集はさらに新しいバージョンのアップロード；管理はさらに共有・取り消し・公開範囲の変更。",
+      "hash": "4891ee9161948bec6160f2e086fb5ff879be9550"
+    },
+    "inbox.summary": {
+      "text": "新着メッセージが{count}件あります。",
+      "hash": "66270ce646713e518e97c8d4a3d782756579bba7"
+    },
+    "ui.newdoc": {
+      "text": "新規ドキュメント",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
+    },
+    "beta.field_digits": {
+      "text": "{field}は半角数字のみで入力してください。",
+      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
+    },
+    "doc.tool.translate_text": {
+      "text": "目標言語にテキストを翻訳します。",
+      "hash": "97e00a1333476512c5752e4a68c059fc5df84cc4"
+    },
+    "ui.s3hint": {
+      "text": "aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。",
+      "hash": "c779fcf2a535aaa614b214b37cdfc8f52112f1a4"
+    },
+    "doc.route.post.api.orgs.ref.quota": {
+      "text": "組織レベルのクォータを設定；チームはその下に配置されます",
+      "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
+    },
+    "ui.results": {
+      "text": "結果",
+      "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
+    },
+    "doc.route.post.api.activate": {
+      "text": "ホストモード：アクティベーショントークンを交換し、所有者のパスワードを設定します",
+      "hash": "4abf505567758f834dd33521715f9792cffaebac"
+    },
+    "ui.notes": {
+      "text": "ノート",
+      "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
+    },
+    "ui.versions": {
+      "text": "バージョン",
+      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
+    },
+    "doc.route.post.api.l10n.discard": {
+      "text": "ロケールの機械翻訳の下書きを削除する（人の作業には触れません）。",
+      "hash": "6cd563b71dcf816676f66108dd48970be53285c1"
+    },
+    "ui.workflows": {
+      "text": "ワークフロー",
+      "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
+    },
+    "doc.tool.list_notes": {
+      "text": "現在のユーザーのメモ（タイトルと表示設定）を一覧表示します。",
+      "hash": "4f1bac788f076a7c3d361dd1dff2b3150e25f62c"
+    },
+    "ui.l10nreject": {
+      "text": "差し戻し",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    },
+    "doc.tool.doc_render.data": {
+      "text": "埋め込むデータ。例：抽出されたフィールド。",
+      "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
+    },
+    "doc.perm.instance:*": {
+      "text": "インスタンス層のすべて；オペレーター（スーパー管理者）。",
+      "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
+    },
+    "ui.tool": {
+      "text": "ツール",
+      "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
+    },
+    "doc.route.put.api.i18n": {
+      "text": "インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。",
+      "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
+    },
+    "doc.perm.files:read": {
+      "text": "リポジトリの文書を開く・ダウンロードする・検索する；由来と知識グラフを読む。",
+      "hash": "2efb78bec3b8ff4d1b71b73d0a5d3106dbb524e2"
+    },
+    "doc.perm.documents:read": {
+      "text": "文書を読みます。",
+      "hash": "dfb791562cc4c9aff44f300e3d36719565a15092"
+    },
+    "ui.file": {
+      "text": "ファイル",
+      "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "doc.route.post.api.instance.quota": {
+      "text": "ホストモード：テナントチームのクォータ制限を設定します。",
+      "hash": "bf7f950d26b1d684525c5d31a52a0a5d4d6b8eff"
+    },
+    "ui.submit": {
+      "text": "送信",
+      "hash": "2dacf65959849884a011f36f76a04eebea94c5ea"
+    },
+    "doc.route.get.api.tools": {
+      "text": "登録済みのツールとその権限、ソースおよびチーム別に有効化された状態。",
+      "hash": "ad48c089a09318e7fc58a39441e92d393cb6874d"
+    },
+    "doc.tool.kg_list_unextracted": {
+      "text": "テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）リポジトリ文書を一覧する。オブジェクト ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。",
+      "hash": "8d56c90624c7d25ffa9d65eca11819dee24f2292"
+    },
+    "ui.searchph": {
+      "text": "ノート、ドキュメント、ファイル、翻訳…",
+      "hash": "bc6e4dbaec36a991517cc9f23c22f1f6fa25572d"
+    },
+    "ui.name": {
+      "text": "名前",
+      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
+    },
+    "doc.perm.org:read-data": {
+      "text": "会社内のすべてのチームにわたり、チームに公開されたノート・文書・検索結果を読む（TEN-2h）。非公開のものは対象外；書き込み不可；AI 利用不可。org_reader ロールが保持します。",
+      "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
+    },
+    "ui.derivedfrom": {
+      "text": "派生元",
+      "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
+    },
+    "ui.bxverifying": {
+      "text": "本人確認を行っています…",
+      "hash": "c2527f263d0c2ca67f88d5da7f7273c6873eb796"
+    },
+    "doc.plugin.doc-indexer": {
+      "text": "リポジトリの文書からテキストを抽出して検索インデックスに入れるワークフロー：未インデックスのものを見つけ、分散して、それぞれ抽出します。いつでも再実行でき、変更のあったものにしか触れません。",
+      "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
+    },
+    "doc.route.post.api.orgs.ref.resume": {
+      "text": "一時停止中の企業を再開します。",
+      "hash": "fd7cd74e0a0889ebca0df4ecd0a42fa78193c537"
+    },
+    "ui.brandclearlogo": {
+      "text": "ロゴを削除",
+      "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
+    },
+    "ui.notprocessed": {
+      "text": "この文書を処理したワークフローはまだありません。",
+      "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
+    },
+    "doc.route.post.api.org.members": {
+      "text": "呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。",
+      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
+    },
+    "ui.target": {
+      "text": "翻訳先の言語",
+      "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
+    },
+    "doc.tool.kg_extract.object": {
+      "text": "リポジトリオブジェクト ID",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "ui.term": {
+      "text": "用語",
+      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
+    "doc.perm.webhooks:manage": {
+      "text": "外向きの Webhook を設定する。",
+      "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
+    },
+    "ui.tagline": {
+      "text": "チームAIプラットフォーム — リファレンス実装",
+      "hash": "376a8698238975b4eeda809c249ad17e73944eda"
+    },
+    "doc.route.post.api.notes.id.share": {
+      "text": "ユーザー（所有者、またはnotes:manage）とメモを共有します。与えられた権限はnotes:*のものでなければなりません。",
+      "hash": "0d2759fa361a325bf38191358c553fe0a8002de5"
+    },
+    "ui.runs": {
+      "text": "実行履歴",
+      "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
+    },
+    "ui.details": {
+      "text": "詳細",
+      "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
+    },
+    "doc.route.post.api.runs.id.cancel": {
+      "text": "実行を取消；既に実行中のステップが終了し、次のステップは開始しません。",
+      "hash": "a5433876ac6bc58b63613f8ca8dd4e86bf5e0485"
+    },
+    "doc.route.get.api.audit": {
+      "text": "チームの最近の監査イベント。",
+      "hash": "68f2168af4161167c86c370950860b1846399cb4"
+    },
+    "doc.route.get.api.org.audit": {
+      "text": "会社の監査ログ。",
+      "hash": "c709a0e57ace017ced6c3b073c4d646da3787214"
+    },
+    "doc.route.post.api.l10n.draft": {
+      "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",
+      "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
+    },
+    "doc.route.get.api.s3.credentials": {
+      "text": "呼び出し元の S3 アクセスキー（シークレットは二度と表示されません）と、それを使うエンドポイント／バケット。",
+      "hash": "051981c89ce1559f3c98f74b291a5c3a79f2e36b"
+    },
+    "doc.route.get.api.x.example-tools.word-count": {
+      "text": "?text= の単語数を数える。",
+      "hash": "70e0c02a5ce3763782554545ed4b01198d4f1de0"
+    },
+    "doc.route.get.api.beta.config": {
+      "text": "公開されたオンボーディング体験の公共セグメント（フィールド、コピー、テーマ）が1つの言語で表示されます。",
+      "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
     },
     "ui.uploadhint": {
       "text": "どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。",
@@ -700,69 +1952,97 @@
       "text": "アップロード中",
       "hash": "de27240983ef2f1432e07df25dd609712f69a107"
     },
-    "ui.usage": {
-      "text": "使用状況",
-      "hash": "0bb18642b70b9f8a9c12ccf39487328f306b8e19"
+    "doc.perm.notes:delete": {
+      "text": "ノートを削除",
+      "hash": "fe55e03b24dbaafd2872846f5d80257580bc8baa"
     },
-    "ui.useglossary": {
-      "text": "用語集を使用",
-      "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
+    "ui.close": {
+      "text": "閉じる",
+      "hash": "bbfa773e5a63a5ea58c9b6207e608ca0120e592a"
     },
-    "ui.user": {
-      "text": "ユーザー名",
-      "hash": "84c29015de33e5d22422382a372caba5c58f8c01"
+    "doc.route.post.api.translate": {
+      "text": "目標言語にテキストを翻訳し、チーム用語集を使用します。",
+      "hash": "6e66e87c1cec75b5d7189cb342fb0b0e273abaa1"
     },
-    "ui.version": {
-      "text": "バージョン",
-      "hash": "2da600bf9404843107a9531694f654e5662959e0"
+    "doc.plugin.beta-onboarding": {
+      "text": "SDK の init! フックで登録された、カスタマイズ済みのベータ申込フロー（founders プログラム）。",
+      "hash": "42373b624500e7a17676cf53acc366340197d2dc"
     },
-    "ui.versions": {
-      "text": "バージョン",
-      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
+    "ui.teamsignin": {
+      "text": "チームサインイン",
+      "hash": "681a8401eb4d38203e8dd2f2c7e847c608c0a17b"
     },
-    "ui.viewrun": {
-      "text": "表示",
-      "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
+    "ui.kg_entity": {
+      "text": "エンティティ",
+      "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
     },
-    "ui.vis_private": {
-      "text": "非公開 — 自分のみ",
-      "hash": "ce5d97592d02df5ef8f88d1a118572f123833d86"
+    "doc.route.put.api.repo.key": {
+      "text": "生のボディをキーにアップロードする（?filename=, ?visibility=）；既存のキーへの書き込みはバージョンを追加します。トリガーはここで評価されます。",
+      "hash": "784e7b58fcc81205c89dbf99ed8044ef8f8fa28f"
     },
-    "ui.vis_shared": {
-      "text": "限定共有 — 下記の相手のみ",
-      "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
+    "ui.chpw": {
+      "text": "パスワードの変更",
+      "hash": "88dee350141b934bd32db882794a951a7a40d898"
     },
-    "ui.vis_team": {
-      "text": "チーム — チーム全員",
-      "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
+    "ui.dimension": {
+      "text": "指標",
+      "hash": "45e147abd920eeb1aca320340e18cf67b4c77252"
     },
-    "ui.vishint": {
-      "text": "アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。",
-      "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
+    "ui.cancel": {
+      "text": "キャンセル",
+      "hash": "77dfd2135f4db726c47299bb55be26f7f4525a46"
     },
-    "ui.visibility": {
-      "text": "公開範囲",
-      "hash": "7d9ff4f0de398581c4640bcbb6e536c355a391be"
+    "doc.route.get.index.html": {
+      "text": "コンソール",
+      "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
     },
-    "ui.visupdated": {
-      "text": "公開範囲を更新しました",
-      "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
+    "ui.reject": {
+      "text": "却下",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
-    "ui.welcome": {
-      "text": "ようこそ — アカウント設定を完了してください。",
-      "hash": "97a86e68a1e32b85151da9fefe1b1bda6a4f6b84"
+    "ui.save": {
+      "text": "保存",
+      "hash": "efc007a393f66cdb14d57d385822a3d9e36ef873"
     },
-    "ui.willversion": {
-      "text": "このパスは既にあります — 新しいバージョンとして保存され、公開範囲は現状のままです",
-      "hash": "3629795f10a247e233253f04af4fef7439e9a459"
+    "doc.perm.memory:write": {
+      "text": "エージェントのメモリに書き込む。",
+      "hash": "6fc6dea3d5a1fe718255e3222cff9d4a11f28bc8"
     },
-    "ui.workflow": {
-      "text": "ワークフロー",
-      "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
+    "ui.shared": {
+      "text": "共有しました",
+      "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
     },
-    "ui.workflows": {
-      "text": "ワークフロー",
-      "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
+    "ui.bxtouch": {
+      "text": "追ってご連絡いたします。",
+      "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "doc.route.post.api.ai.chat": {
+      "text": "モデルの1ターン。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。",
+      "hash": "1bfac0736a442eddb532bcbfc50846b3d0b8feb9"
+    },
+    "doc.route.get.api.org": {
+      "text": "呼び出し元の会社",
+      "hash": "64fe44cbb3af833179d4b608cf69ed65492b7216"
+    },
+    "doc.route.delete.api.org.branding": {
+      "text": "会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。",
+      "hash": "857a3894f34105cb810552ada887faaead2e3fef"
+    },
+    "doc.route.get.api.org.branding": {
+      "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",
+      "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "doc.route.post.api.org.branding.logo": {
+      "text": "会社のロゴをアップロードし（base64）、会社のマークにする。",
+      "hash": "f7ae45c751f0b06e33155c77b4fe2135a843fed0"
+    },
+    "doc.route.put.api.org.branding": {
+      "text": "会社のタイトル・タグライン・ロゴを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。",
+      "hash": "4e58c08f2d8d7a4eb3da90665d7f7fd4a695e59e"
+    },
+    "doc.tool.doc_render.format": {
+      "text": "出力形式：テンプレート自身の形式（既定）または \"pdf\" — Markdown と HTML のテンプレートのみ",
+      "hash": "1b790d813f9ab8fbf2f32e9abd208f4c76f44e05"
     }
   }
 }

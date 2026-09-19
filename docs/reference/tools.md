@@ -7,7 +7,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `chat_message` | `chat:use` | translate-chat | Send one chat message to the model and return its reply. |
 | `create_note` | `notes:write` | built-in | Create a note for the current user's team. |
 | `doc_extract_fields` | `files:write` | built-in | Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json. |
-| `doc_render` | `files:write` | built-in | Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>. |
+| `doc_render` | `files:write` | built-in | Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is "pdf" (a Markdown or HTML template, converted with pandoc and tectonic). |
 | `doc_text` | `files:read` | built-in | Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run. |
 | `doc_translate` | `files:write` | built-in | Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt). |
 | `get_usage` | `chat:use` | built-in | Report the team's current AI usage against its quota. |
@@ -59,13 +59,14 @@ Permission: `files:write` · source: built-in
 
 ## `doc_render`
 
-Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>.
+Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is "pdf" (a Markdown or HTML template, converted with pandoc and tectonic).
 
 Permission: `files:write` · source: built-in
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `data` | object | yes | The data to fill in, e.g. the extracted fields |
+| `format` | string | no | Output format: the template's own (default) or "pdf" — Markdown and HTML templates only |
 | `object` | string | no | The source document's object id — the form is written beside it (default: beside the template) |
 | `run` | string | no | The workflow run id, for provenance |
 | `step` | string | no | The workflow step id, for provenance |

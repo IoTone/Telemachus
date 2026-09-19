@@ -13,7 +13,9 @@
          "../domain/authz/authz.rkt"
          "../domain/authz/permissions.rkt"
          "../domain/orgs/orgs.rkt"
-         "../domain/notes/notes.rkt")
+         "../domain/branding/branding.rkt"
+         "../domain/notes/notes.rkt"
+         "../domain/apps/search.rkt")
 
 (define (fresh)
   (define conn (fresh-db #:migrate? #f))
@@ -120,6 +122,50 @@
   ;; team comes from its team role there, not from being a company administrator
   (check-false (can? conn admin "chat:use" #:resource (hasheq 'team_id (hash-ref acme 'eng)))))
 
+;; ---- TEN-2h: the org READER ---------------------------------------------------
+(test-case "an org_reader reads team-visible data across its company's teams — never private, never elsewhere"
+  (define-values (conn root acme globex) (instance))
+  (define owner (hash-ref acme 'owner-p))
+  ;; a reader who is a member of OPS only, with the org_reader role
+  (define reader-id (hash-ref (org-attach-member! conn owner (hash-ref acme 'org)
+                                                  #:username "auditor@acme" #:team (hash-ref acme 'ops)
+                                                  #:role "viewer" #:org-role "org_reader")
+                              'user_id))
+  (define reader (user-principal conn reader-id (hash-ref acme 'ops)))
+  ;; engineering's team-visible note: readable; its private one: not
+  (check-true  (can? conn reader "notes:read" #:resource (note-res conn (hash-ref acme 'tv-id))))
+  (check-false (can? conn reader "notes:read" #:resource (note-res conn (hash-ref acme 'note-id))))
+  ;; read only: no write, no management, no AI spend at the org tier
+  (check-false (can? conn reader "notes:write" #:resource (note-res conn (hash-ref acme 'tv-id))))
+  (check-false (can? conn reader "members:manage" #:resource (hasheq 'team_id (hash-ref acme 'eng))))
+  (check-false (can? conn reader "chat:use" #:resource (hasheq 'team_id (hash-ref acme 'eng))))
+  ;; the admin and the owner still do NOT read (TEN-2a is the default; org:* does not imply org:read-data)
+  (check-false (can? conn (hash-ref acme 'admin-p) "notes:read" #:resource (note-res conn (hash-ref acme 'tv-id))))
+  ;; the owner is a MEMBER of engineering, so it reads that note through its team
+  ;; role; the org tier itself gives it nothing — org:* does not imply org:read-data
+  (check-false (org-data-reader? conn owner "notes:read") "org_owner's org:* is administration, not reading")
+  (check-false (org-data-reader? conn (hash-ref acme 'admin-p) "notes:read"))
+  (check-true  (org-data-reader? conn reader "notes:read"))
+  (check-false (org-data-reader? conn reader "notes:write") "…and only the READ permissions")
+  ;; and never another company
+  (check-false (can? conn reader "notes:read" #:resource (note-res conn (hash-ref globex 'tv-id))))
+  ;; the org-scoped listing: both teams' team-visible notes, nobody's private ones
+  (define listed (map (lambda (n) (hash-ref n 'title)) (notes-list conn reader #:scope 'org)))
+  (check-true (and (member "sprint" listed) #t) "engineering's team-visible note is listed")
+  (check-false (member "secret" listed) "…the private one is not")
+  (check-equal? (notes-list conn reader) '() "the team-scoped listing is still the reader's own (empty) team")
+  ;; a plain member asking for the org scope sees only what they could anyway
+  (define dev (hash-ref acme 'dev-p))
+  (check-equal? (length (notes-list conn dev #:scope 'org)) 2 "the dev sees their own team's two notes and nothing new")
+  ;; search follows the same rule
+  (check-true (for/or ([h (in-list (search-all conn reader "sprint" #:scope 'org))]) (equal? (hash-ref h 'type) "note")))
+  (check-false (for/or ([h (in-list (search-all conn reader "secret" #:scope 'org))]) (equal? (hash-ref h 'type) "note")))
+  (check-equal? (search-all conn reader "sprint") '() "without the org scope, nothing — the reader's own team has no notes")
+  ;; the role can be given to and taken from an existing user
+  (set-user-org-role! conn reader-id #f)
+  (check-false (can? conn (user-principal conn reader-id (hash-ref acme 'ops)) "notes:read"
+                     #:resource (note-res conn (hash-ref acme 'tv-id))) "without the role, the read is gone"))
+
 ;; ---- structural invariants --------------------------------------------------
 (test-case "team slugs are unique per org, not globally"
   (define-values (conn root acme globex) (instance))
@@ -188,7 +234,9 @@
 ;; in the OLD shape — no org_id anywhere — exactly as the old code left them.
 (test-case "0016-orgs upgrades a pre-existing single-tenant database"
   (define conn (fresh-db #:migrate? #f))
-  (define old-world (filter (lambda (m) (not (equal? (migration-id m) "0016-orgs"))) all-migrations))
+  ;; the world before orgs existed: every migration up to 0016, none after — a
+  ;; later migration may touch `orgs` (0029 does), so "all but 0016" is not it
+  (define old-world (takef all-migrations (lambda (m) (not (equal? (migration-id m) "0016-orgs")))))
   (migrate! conn old-world)
   (query-exec conn "INSERT INTO users (id, username, is_operator) VALUES ('u1','alice',1)")
   (query-exec conn "INSERT INTO users (id, username) VALUES ('u2','bob')")
@@ -224,3 +272,38 @@
   ;; re-running the migration list is a no-op
   (migrate! conn all-migrations)
   (check-equal? (query-value conn "SELECT COUNT(*) FROM orgs") 1))
+
+;; ---- TEN-2d: a company's hostname and branding --------------------------------
+(test-case "TEN-2d: a hostname routes to one company; branding is the company's own or the instance's"
+  (define-values (conn root acme globex) (instance))
+  (define a (hash-ref acme 'org)) (define g (hash-ref globex 'org))
+  ;; normalization: case, whitespace, a port; only a hostname
+  (check-equal? (normalize-domain " Acme.Test:8835 ") "acme.test")
+  (check-false (normalize-domain ""))
+  (check-false (normalize-domain 'null))
+  (check-exn #rx"not a hostname" (lambda () (normalize-domain "https://acme.test/x")))
+  (check-exn #rx"not a hostname" (lambda () (normalize-domain "*.acme.test")))
+  ;; set, look up, unique
+  (check-equal? (hash-ref (org-set-domain! conn root a "Acme.Test") 'domain) "acme.test")
+  (check-equal? (org-by-domain conn "acme.test:8835") a)
+  (check-false (org-by-domain conn "globex.test"))
+  (check-false (org-by-domain conn "not a host"))
+  (check-exn #rx"already assigned" (lambda () (org-set-domain! conn root g "acme.test")))
+  (check-equal? (hash-ref (org-get conn a) 'domain) "acme.test")
+  ;; clearing frees it
+  (org-set-domain! conn root a 'null)
+  (check-false (org-by-domain conn "acme.test"))
+  (check-equal? (hash-ref (org-get conn a) 'domain) 'null)
+  (check-equal? (hash-ref (org-set-domain! conn root g "acme.test") 'domain) "acme.test")
+  ;; branding: unset = the instance's, field for field; set = the company's own
+  (branding-set! conn (hasheq 'title "Instance Co" 'tagline "one box"))
+  (check-false (org-branding-get conn a))
+  (check-equal? (hash-ref (branding-for conn a) 'title) "Instance Co")
+  (org-branding-set! conn a (hasheq 'title "Acme Portal" 'tagline "" 'logo "not-an-asset-id!"))
+  (check-equal? (hash-ref (branding-for conn a) 'title) "Acme Portal")
+  (check-equal? (hash-ref (branding-for conn a) 'logo) "" "the logo whitelist applies to a company too")
+  ;; the other company is untouched, and so is the instance
+  (check-equal? (hash-ref (branding-for conn g) 'title) "Instance Co")
+  (check-equal? (hash-ref (branding-get conn) 'title) "Instance Co")
+  (org-branding-clear! conn a)
+  (check-equal? (hash-ref (branding-for conn a) 'title) "Instance Co"))

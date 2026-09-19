@@ -14,12 +14,14 @@
 ;; high-entropy random token lookup, but the hashing seam (`hash-token`) is where
 ;; a production KDF drops in. Password auth (login/2FA) is a later slice.
 
-(require db-kit/portable
+(require racket/date db-kit/portable
          json
          file/sha1
          "../db/id.rkt"
          "permissions.rkt"
-         "passwords.rkt")
+         "passwords.rkt"
+         "sha2.rkt"                 ; hmac-sha256 (libcrypto) — the token hash
+         (only-in "crypto.rkt" constant-time=?))
 
 (provide (struct-out principal)
          (struct-out exn:fail:forbidden)
@@ -29,11 +31,16 @@
          seed-builtin-roles! bootstrap!
          user-role-key user-permissions
          can? require-perm
-         issue-token! resolve-token list-tokens revoke-token!
+         issue-token! resolve-token list-tokens revoke-token! SESSION-TTL API-TOKEN-TTL
+         hash-token legacy-hash-token token-pepper-is-default?
          grant! revoke!
          audit! audit-list
          set-password! change-password! authenticate enable-2fa! first-team-for
-         user-locale set-user-locale!)
+         user-locale set-user-locale! org-data-reader? org-teams-of)
+
+;; every team id in an org, for an org-scoped listing (TEN-2h)
+(define (org-teams-of conn org-id)
+  (query-list conn "SELECT id FROM teams WHERE org_id = ? ORDER BY created_at, slug" org-id))
 
 ;; ---- principal --------------------------------------------------------------
 ;; token-scopes: #f = direct user (uncapped by scopes); (listof string) = token.
@@ -229,6 +236,13 @@
 (define (org-tier-covers? conn p required)
   (for/or ([g (in-list (user-org-permissions conn p))]) (perm-matches? g required)))
 
+;; TEN-2h: an org role holding `org:read-data` covers the team-tier data READS
+;; (and only those) across the company
+(define (org-data-reader? conn p required)
+  (and (member required DATA-READ-PERMS)
+       (org-tier-covers? conn p "org:read-data")
+       #t))
+
 (define (target-org conn p resource)
   (define rteam (and resource (hash-ref resource 'team_id #f)))
   (or (and rteam (team-org conn rteam))
@@ -260,6 +274,10 @@
        (define granted (append (user-permissions conn (principal-user-id p) (principal-team-id p))
                                (user-org-permissions conn p)))
        (or (for/or ([g (in-list granted)]) (perm-matches? g required))
+           ;; TEN-2h: an org reader holds the team-tier READ permissions on data in
+           ;; every team of its company — reachability below still keeps private
+           ;; resources private and the org gate keeps it inside the company
+           (org-data-reader? conn p required)
            ;; A resource grant is a DELEGATION (slice 56, DSH-1): a steward handed
            ;; this principal a permission on ONE resource, and it holds even when
            ;; the team role lacks it — that is what sharing an editable document
@@ -299,7 +317,8 @@
             ;; permissions its ORG role grants — that is what "administers the
             ;; company" means. Team-tier permissions never cross a team boundary,
             ;; and nothing at this tier reaches a `private` resource (TEN-2a).
-            (and (org-tier-covers? conn p required)
+            (and (or (org-tier-covers? conn p required)
+                     (org-data-reader? conn p required))              ; TEN-2h
                  (not (equal? (hash-ref res 'visibility "team") "private")))
             (has-grant? conn res p required))]
        [(or (equal? vis "private") (equal? vis "shared"))
@@ -329,33 +348,95 @@
      (for/or ([g (in-list rows)]) (perm-matches? g required))]))
 
 ;; ---- API tokens (issuer-perms ∩ scopes) ------------------------------------
-(define token-salt "telemachus-token-v0")   ; prototype pepper; swap with the KDF seam
-(define (hash-token tok) (sha1 (open-input-string (string-append token-salt tok))))
+;; ---- the token hash ---------------------------------------------------------
+;; A bearer is 24 random bytes, so the hash exists to make a database dump
+;; worthless, not to slow a brute force. It is HMAC-SHA-256 keyed by a PEPPER
+;; from the environment (TELEMACHUS_TOKEN_PEPPER, else TELEMACHUS_SECRET, else a
+;; dev default the server warns about at boot): a dump without the process's
+;; environment cannot be replayed. Stored as "v1:<hex>" so the rows written by
+;; the prototype scheme — bare SHA-1 with a compiled-in salt, 40 hex chars — are
+;; recognized, still resolve, and are REHASHED ON FIRST USE; nobody signs in
+;; again because of the upgrade. Rotating the pepper invalidates every v1 token
+;; at once, which is the point of having one.
+(define LEGACY-TOKEN-SALT "telemachus-token-v0")
+(define (legacy-hash-token tok) (sha1 (open-input-string (string-append LEGACY-TOKEN-SALT tok))))
+(define DEV-PEPPER "telemachus-dev-secret")
+(define (token-pepper)
+  (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
+  (or (env "TELEMACHUS_TOKEN_PEPPER") (env "TELEMACHUS_SECRET") DEV-PEPPER))
+(define (token-pepper-is-default?) (string=? (token-pepper) DEV-PEPPER))
+(define (hash-token tok)
+  (string-append "v1:" (bytes->hex-lower (hmac-sha256 (string->bytes/utf-8 (token-pepper)) (string->bytes/utf-8 tok)))))
+(define TOKEN-SELECT "SELECT user_id, team_id, scopes, status, expires_at, token_hash FROM api_tokens WHERE token_hash = ?")
+;; the row for a bearer: the current hash first, then the legacy one — and a legacy
+;; hit is rewritten to the current scheme before it is used
+(define (token-row conn bearer)
+  (define h (hash-token bearer))
+  (or (query-maybe-row conn TOKEN-SELECT h)
+      (let ([r (query-maybe-row conn TOKEN-SELECT (legacy-hash-token bearer))])
+        (and r
+             (begin (query-exec conn "UPDATE api_tokens SET token_hash = ? WHERE token_hash = ?" h (legacy-hash-token bearer))
+                    (vector-set! r 5 h)
+                    r)))))
 
 ;; returns (values raw-token token-id); raw-token is shown once and never stored.
-(define (issue-token! conn #:user user-id #:team team-id #:name [name sql-null] #:scopes [scopes '()])
+;; Expiry (issue #13): `expires_at` existed from migration 0001 and nothing ever
+;; read it, so every token — the console's own session included — lived forever.
+;; Stored as EPOCH SECONDS in the TEXT column (the column predates the epoch
+;; convention; a text integer sorts and compares fine, and stays dialect-neutral).
+;; `#:ttl` is seconds from now; #f means "the default for this kind of token";
+;; 'never means no expiry — for a machine token an operator explicitly wants
+;; long-lived. The defaults are deliberately different: a session (login,
+;; bootstrap, member-add) is 30 days, an API token issued from the console 90 days.
+(define SESSION-TTL (* 30 24 3600))
+(define API-TOKEN-TTL (* 90 24 3600))
+(define (issue-token! conn #:user user-id #:team team-id #:name [name sql-null] #:scopes [scopes '()]
+                      #:ttl [ttl #f])
   (define raw (random-token))
   (define tid (new-id))
+  (define expires
+    (cond [(eq? ttl 'never) sql-null]
+          [(and (real? ttl) (positive? ttl)) (number->string (+ (current-seconds) (inexact->exact (floor ttl))))]
+          [else (number->string (+ (current-seconds) SESSION-TTL))]))
   (query-exec conn
-    (string-append "INSERT INTO api_tokens (id, user_id, team_id, name, token_hash, prefix, scopes) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?)")
+    (string-append "INSERT INTO api_tokens (id, user_id, team_id, name, token_hash, prefix, scopes, expires_at) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     tid user-id team-id name (hash-token raw)
     (substring raw 0 (min 11 (string-length raw)))
-    (jsexpr->string scopes))
+    (jsexpr->string scopes) expires)
   (values raw tid))
+
+;; the row's expires_at as epoch seconds, or #f for never. Tolerates the empty
+;; string and garbage (treated as never) so a hand-edited row cannot lock anyone out.
+(define (token-expiry row-value)
+  (and (not (sql-null? row-value))
+       (let ([n (string->number (format "~a" row-value))]) (and (exact-integer? n) n))))
+(define (token-expired? row-value)
+  (let ([e (token-expiry row-value)]) (and e (<= e (current-seconds)))))
 
 ;; list a team's tokens for management — prefixes only, never the raw token.
 (define (list-tokens conn team-id)
   (for/list ([r (in-list (query-rows conn
-     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at "
+     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at, expires_at "
                     "FROM api_tokens WHERE team_id = ? ORDER BY created_at DESC") team-id))])
+    (define exp (token-expiry (vector-ref r 7)))
     (hasheq 'id (vector-ref r 0)
             'name (let ([n (vector-ref r 1)]) (if (sql-null? n) 'null n))
             'prefix (vector-ref r 2)
             'scopes (with-handlers ([exn:fail? (lambda (_) '())]) (string->jsexpr (vector-ref r 3)))
-            'status (vector-ref r 4)
+            ;; an expired token reads as `expired` here even though the row says
+            ;; `active` — the list is for a person deciding what to revoke
+            'status (if (and (equal? (vector-ref r 4) "active") (token-expired? (vector-ref r 7)))
+                        "expired" (vector-ref r 4))
             'last_used_at (let ([x (vector-ref r 5)]) (if (sql-null? x) 'null x))
-            'created_at (vector-ref r 6))))
+            'created_at (vector-ref r 6)
+            'expires_at (if exp (epoch->iso8601 exp) 'null))))
+
+(define (epoch->iso8601 secs)
+  (define d (seconds->date secs #f))
+  (define (two n) (if (< n 10) (format "0~a" n) (number->string n)))
+  (format "~a-~a-~aT~a:~a:~aZ" (date-year d) (two (date-month d)) (two (date-day d))
+          (two (date-hour d)) (two (date-minute d)) (two (date-second d))))
 
 ;; revoke a token by id within a team. Returns #t if it existed.
 (define (revoke-token! conn token-id team-id)
@@ -364,12 +445,15 @@
 
 ;; bearer token -> principal (capped by scopes), or #f if unknown/inactive.
 (define (resolve-token conn bearer)
-  (define row (query-maybe-row conn
-    "SELECT user_id, team_id, scopes, status FROM api_tokens WHERE token_hash = ?"
-    (hash-token bearer)))
+  (define row (token-row conn bearer))
   (cond
     [(not row) #f]
+    ;; the database matched by equality; recheck in constant time so nothing in
+    ;; THIS process compares a secret byte by byte with an early exit
+    [(not (constant-time=? (vector-ref row 5) (hash-token bearer))) #f]
     [(not (equal? (vector-ref row 3) "active")) #f]
+    ;; issue #13: enforced here, at the one place a bearer becomes a principal
+    [(token-expired? (vector-ref row 4)) #f]
     [else
      (define user-id (vector-ref row 0))
      (define team-id (vector-ref row 1))
@@ -379,7 +463,7 @@
        "SELECT is_operator, org_id, org_role_key FROM users WHERE id = ?" user-id))
      (define op (and urow (vector-ref urow 0)))
      (query-exec conn "UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = ?"
-                 (hash-token bearer))
+                 (vector-ref row 5))
      (principal user-id (and (number? op) (not (zero? op))) team-id
                 (if (list? scopes) scopes '())
                 (and urow (nz (vector-ref urow 1)))

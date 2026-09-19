@@ -8,7 +8,7 @@
 
 (require racket/string)
 
-(provide tools)
+(provide tools routes)
 
 (define word-count-schema
   (hasheq 'type "function"
@@ -28,3 +28,18 @@
 
 (define tools
   (list (list "word_count" word-count-schema "chat:use" word-count)))
+
+;; An authenticated HTTP route (slice 63): mounted by the platform at
+;; /api/x/example-tools/word-count. `args` carries 'params (path), 'query and
+;; 'body; the result is a jsexpr the server answers with as JSON. A user error is
+;; the caller's 400. The permission is checked by the server before the handler
+;; runs, like a tool's.
+(define (word-count-route conn principal args)
+  (define text (or (hash-ref (hash-ref args 'query) 'text #f)
+                   (let ([b (hash-ref args 'body)]) (and (hash? b) (hash-ref b 'text #f)))))
+  (unless (string? text) (raise-user-error 'word_count "text is required"))
+  (hasheq 'words (length (string-split text)) 'chars (string-length text)))
+
+(define routes
+  (list (list "GET"  "/word-count" "chat:use" word-count-route "Count the words in ?text=.")
+        (list "POST" "/word-count" "chat:use" word-count-route "Count the words in {text}.")))

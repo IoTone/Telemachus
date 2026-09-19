@@ -71,6 +71,8 @@
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
+         "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
+         "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
          "../domain/agent/run.rkt"
          "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
          "../domain/agent/plugins.rkt"            ; load-plugins!, loaded-plugins
@@ -258,15 +260,34 @@
 ;; read once, but branding is instance state an operator can change while the
 ;; server is running. Missing-file fallback UI-HTML has no <title> element;
 ;; regexp-replace# simply leaves it alone.
-(define (ui-html-branded)
-  (define title (hash-ref (branding-get db-conn) 'title ""))
-  (if (string=? title "")
-      UI-HTML
-      ;; Procedural replacement, not a string: regexp-replace* expands `&` and
-      ;; `\<n>` in a STRING replacement, so a branded title like "A & B" would
-      ;; corrupt the markup (caught by the smoke test's escape assertion).
-      (regexp-replace* #px"<title>.*?</title>" UI-HTML
-                       (lambda _ (string-append "<title>" (html-escape title) "</title>")))))
+;; The shell's <title>, meta description and Open Graph tags come from instance
+;; branding (issues #10 and #12): crawlers, unfurlers and link previews never run
+;; the SPA, so the raw HTML has to carry them. The description is the tagline when
+;; the operator set one, else the product's own default line — the copy is the
+;; operator's, which is why the tagline field is where it comes from. Procedural
+;; replacement throughout: regexp-replace* expands `&` and `\<n>` in a STRING
+;; replacement, so a branded title like "A & B" would corrupt the markup.
+(define DEFAULT-DESCRIPTION "A self-hosted, privacy-first platform for a team's AI tools and documents.")
+(define (ui-html-branded [req #f])
+  (define b (branding-for db-conn (request-org req)))
+  (define title (let ([t (hash-ref b 'title "")]) (if (string=? t "") "Telemachus" t)))
+  (define tagline (string-normalize-spaces (hash-ref b 'tagline "")))
+  (define description (if (string=? tagline "") DEFAULT-DESCRIPTION tagline))
+  ;; og:image must be an absolute URL — unfurlers do not resolve relative ones
+  (define logo (let ([l (hash-ref b 'logo 'null)])
+                 (and req (string? l) (not (string=? l ""))
+                      (string-append (public-base req) "/api/beta/asset/" l))))
+  (define meta
+    (string-append
+     "<meta name=\"description\" content=\"" (html-escape description) "\">"
+     "<meta property=\"og:type\" content=\"website\">"
+     "<meta property=\"og:site_name\" content=\"" (html-escape title) "\">"
+     "<meta property=\"og:title\" content=\"" (html-escape title) "\">"
+     "<meta property=\"og:description\" content=\"" (html-escape description) "\">"
+     (if logo (string-append "<meta property=\"og:image\" content=\"" (html-escape logo) "\">") "")
+     "<meta name=\"twitter:card\" content=\"summary\">"))
+  (regexp-replace* #px"<title>.*?</title>" UI-HTML
+                   (lambda _ (string-append "<title>" (html-escape title) "</title>" meta))))
 (define (html-response s)
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
@@ -309,9 +330,13 @@
        (proc emit)))))
 
 ;; ---- endpoints --------------------------------------------------------------
+;; issue #11: the public liveness probe says the instance is up and nothing else.
+;; The KDF, the version, the TLS flag and the codename used to ride here; they are
+;; an operator's business and live on GET /api/admin/status now (instance:manage).
+;; `multitenant` stays: it is a public product fact the console and the tenancy
+;; demo read before signing in, and it says nothing about this instance's build.
 (define (ep-health)
-  (json-response (hasheq 'ok #t 'service "telemachus" 'version app-version
-                         'tls (tls-on?) 'kdf (kdf-name) 'multitenant (multitenant?))))
+  (json-response (hasheq 'ok #t 'multitenant (multitenant?))))
 
 (define (ep-bootstrap req)
   (define body (read-json-body req))
@@ -343,6 +368,15 @@
   (define want (env* "TELEMACHUS_PROVISION_TOKEN"))
   (define got (req-header req #"x-provision-token"))
   (and want got (string=? want got)))
+
+;; TEN-2d: the company a request is FOR — the Host header first (a company's own
+;; hostname wears its branding before anyone has signed in), else the caller's own
+;; company when the request carries a valid token. Only with multi-tenancy on: a
+;; single-tenant instance has one implicit org and exactly one branding.
+(define (request-org req)
+  (and req (multitenant?)
+       (or (org-by-domain db-conn (req-header req #"host"))
+           (let ([p (current-principal req)]) (and p (caller-org p))))))
 
 (define (public-base req)
   (or (env* "TELEMACHUS_PUBLIC_URL")
@@ -416,6 +450,11 @@
 
 ;; anti-abuse state (in-memory, per-process)
 (define beta-secret (or (env* "TELEMACHUS_SECRET") "telemachus-dev-secret"))     ; set in prod
+;; the token pepper shares the fallback chain (TELEMACHUS_TOKEN_PEPPER → TELEMACHUS_SECRET);
+;; running on the dev default is loud at boot, not silent
+(define (warn-dev-pepper!)
+  (when (token-pepper-is-default?)
+    (printf "WARNING: TELEMACHUS_SECRET / TELEMACHUS_TOKEN_PEPPER not set — tokens are hashed with the dev pepper; set one in production\n")))
 (define pow-bits    (or (string->number (or (env* "TELEMACHUS_POW_BITS") "")) 16))
 (define beta-limiter (make-limiter))
 (define beta-used    (new-used-set))
@@ -437,11 +476,17 @@
 ;; ---- instance branding (Admin > Branding) --------------------------------------
 ;; READ IS PUBLIC, and has to be: the sign-in screen renders the title, tagline and
 ;; logo for someone who has no token yet. It is the text on the front door.
+(define (with-logo-url b)
+  (hash-set b 'logoUrl (let ([id (hash-ref b 'logo "")])
+                         (if (string=? id "") "" (string-append "/api/beta/asset/" id)))))
+
 (define (ep-branding-get req)
-  (define b (branding-get db-conn))
-  (json-response
-   (hash-set b 'logoUrl (let ([id (hash-ref b 'logo "")])
-                          (if (string=? id "") "" (string-append "/api/beta/asset/" id))))))
+  ;; TEN-2d: on a company's hostname, or for a company's signed-in user, the
+  ;; company's own branding when it has one; the instance's otherwise
+  (define org (request-org req))
+  (define own (and org (org-branding-get db-conn org)))
+  (json-response (hash-set (with-logo-url (or own (branding-get db-conn)))
+                           'scope (if own "org" "instance"))))
 
 (define (ep-branding-put req)
   (with-auth req (lambda (p)
@@ -887,6 +932,8 @@
     [else
      (require-perm db-conn p "instance:manage")          ; operator-only → localized 403
      (json-response (hasheq 'ok #t
+      ;; issue #11: what /health used to say, now behind instance:manage
+      'service "telemachus" 'version app-version 'tls (tls-on?) 'kdf (kdf-name)
                             'multitenant (multitenant?)
                             'users (query-value db-conn "SELECT COUNT(*) FROM users")
                             'teams (query-value db-conn "SELECT COUNT(*) FROM teams")
@@ -971,12 +1018,17 @@
     (define b (read-json-body req))
     (define name (let ([n (hash-ref b 'name #f)]) (and n (format "~a" n))))
     (define plan (let ([pl (hash-ref b 'plan #f)]) (and pl (format "~a" pl))))
+    (define domain? (hash-has-key? b 'domain))          ; TEN-2d: a string, or null to clear
     (cond
-      [(and (not name) (not plan)) (err "name and/or plan required" 400)]
+      [(and (not name) (not plan) (not domain?)) (err "name, plan and/or domain required" 400)]
       [(and plan (not (org-plan? plan)))
        (err (format "unknown plan; expected one of ~a"
                     (string-join (sort (hash-keys org-plan-quotas) string<?) ", ")) 400)]
-      [else (json-response (org-update! db-conn p id #:name name #:plan plan))]))))
+      [else
+       (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+         (define d (and domain? (org-set-domain! db-conn p id (hash-ref b 'domain))))
+         (define u (if (or name plan) (org-update! db-conn p id #:name name #:plan plan) (hasheq 'ok #t 'org_id id)))
+         (json-response (if d (hash-set u 'domain (hash-ref d 'domain)) u)))]))))
 
 (define (ep-org-quota req ref)
   (with-org req ref (lambda (p id)
@@ -1013,6 +1065,47 @@
       (define o (and (caller-org p) (org-get db-conn (caller-org p))))
       (if o (json-response o) (err "no organization for this principal" 404)))))))
 
+;; ---- TEN-2d: a company's own branding -------------------------------------------
+;; What the console wears on the company's hostname and for its signed-in users.
+;; `own: false` says the company has set nothing and is wearing the instance's.
+(define (ep-my-org-branding-get req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (define own (org-branding-get db-conn (caller-org p)))
+      (json-response (hash-set (with-logo-url (or own (branding-get db-conn))) 'own (and own #t))))))))
+
+(define (ep-my-org-branding-put req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (define b (read-json-body req))
+      (audit! db-conn #:action "org.branding" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "org" #:resource-id (caller-org p))
+      (json-response (hash-set (with-logo-url (org-branding-set! db-conn (caller-org p) (if (hash? b) b (hasheq)))) 'own #t)))))))
+
+(define (ep-my-org-branding-clear req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (org-branding-clear! db-conn (caller-org p))
+      (audit! db-conn #:action "org.branding.clear" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:resource-type "org" #:resource-id (caller-org p))
+      (json-response (hash-set (with-logo-url (branding-get db-conn)) 'own #f)))))))
+
+(define (ep-my-org-branding-logo req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+        (define b (read-json-body req))
+        (define id (asset-store! db-conn p #:mime (fmt b 'mime) #:filename (fmt b 'filename)
+                                 #:data-base64 (fmt b 'data)))
+        (define cur (or (org-branding-get db-conn (caller-org p)) (branding-get db-conn)))
+        (json-response (hasheq 'ok #t 'id id 'url (string-append "/api/beta/asset/" id)
+                               'branding (hash-set (org-branding-set! db-conn (caller-org p) (hash-set cur 'logo id)) 'own #t))
+                       #:code 201)))))))
+
 (define (ep-my-org-teams req)
   (with-mt req (lambda ()
     (with-auth req (lambda (p)
@@ -1034,6 +1127,27 @@
                                   #:slug (let ([sl (hash-ref b 'slug #f)]) (and sl (format "~a" sl)))))
          (if t (json-response t #:code 201)
              (err "a team with that slug already exists in this organization" 409))]))))))
+
+;; TEN-2h: promote or demote a person within the company — the only way to make an
+;; existing user an org_reader (or take it away), since the org role is set on
+;; creation otherwise. Only users of the caller's own org; never the caller.
+(define (ep-my-org-member-role req uid)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (define b (read-json-body req))
+      (define role (let ([r (hash-ref b 'org_role 'null)]) (if (eq? r 'null) #f (format "~a" r))))
+      (define target-org (user-org db-conn uid))
+      (cond
+        [(and role (not (org-role-key? role))) (err "unknown org_role" 400)]
+        [(not (equal? target-org (caller-org p))) (err "not found" 404)]
+        [(equal? uid (principal-user-id p)) (err "you cannot change your own org role" 400)]
+        [else
+         (set-user-org-role! db-conn uid role)
+         (audit! db-conn #:action "org.member.role" #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:resource-type "user" #:resource-id uid
+                 #:meta (jsexpr->string (hasheq 'org_role (or role 'null))))
+         (json-response (hasheq 'ok #t 'user_id uid 'org_role (or role 'null)))]))))))
 
 (define (ep-my-org-member-add req)
   (with-mt req (lambda ()
@@ -1109,6 +1223,7 @@
   (unless (feature-enabled? db-conn (principal-team-id p) name)
     (raise (exn:fail:forbidden (format "feature ~a is disabled" name) (current-continuation-marks) name))))
 
+(define current-request-principal (make-parameter #f))
 (define (with-auth req proc)
   (define p (current-principal req))
   (cond
@@ -1116,7 +1231,7 @@
     ;; ONB-7 read-only, now org-aware: a suspended COMPANY freezes every team in it
     [(and (tenant-read-only? db-conn (principal-team-id p)) (not (GET? (request-method req))))
      (err "tenant suspended — writes are disabled; contact your administrator" 402)]
-    [else (proc p)]))
+    [else (parameterize ([current-request-principal p]) (proc p))]))
 
 (define (ep-notes-create req)
   (with-auth req (lambda (p)
@@ -1125,8 +1240,9 @@
                                  #:body (hash-ref b 'body "") #:visibility (hash-ref b 'visibility "team"))
                    #:code 201))))
 
+(define (scope-of req) (if (equal? (query-param req 'scope "") "org") 'org 'team))
 (define (ep-notes-list req)
-  (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p))))))
+  (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p #:scope (scope-of req)))))))
 
 ;; ---- documents (offset-paginated) -------------------------------------------
 (define (ep-documents-create req)
@@ -1220,13 +1336,114 @@
   (define e (hash-ref b 'executor #f))
   (and e (let ([n (format "~a" e)]) (and (not (member n '("" "local"))) n))))
 (define (executor-model ex)
-  (if ex (let ([c (executor-config ex)]) (if c (cadr c) ex)) (hash-ref (model-info) 'model)))
+  (if ex
+      (let ([c (executor-config ex)])
+        (cond [c (cadr c)]
+              [(executor-by-name db-conn ex) => (lambda (e) (let ([m (hash-ref e 'model)]) (if (string? m) m ex)))]
+              [else ex]))
+      (hash-ref (model-info) 'model)))
+(define (executor-known? name) (or (executor-exists? name) (and (executor-by-name db-conn name) #t)))
 
+;; ---- executors (slice 66) -----------------------------------------------------------
+;; The env-configured push backends (federation.rkt) and the API-created ones
+;; (the executors table: push, and PULL with a worker token) in one listing.
 (define (ep-executors req)
   (with-auth req (lambda (p)
     (json-response (hasheq 'local (hasheq 'name "local" 'model (hash-ref (model-info) 'model)
                                           'configured (model-configured?) 'remote #f)
-                           'executors (list-executors))))))
+                           'executors (append (list-executors) (executor-list db-conn p)))))))
+
+;; create: the operator anywhere (org_id optional), an org admin for its own
+;; company (TEN-2e). A pull executor's worker token is in THIS response and never again.
+(define (create-executor! req p #:org [org #f])
+  (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+    (define b (read-json-body req))
+    (define caps (let ([c (hash-ref b 'capabilities #f)]) (if (hash? c) c (hasheq))))
+    (define-values (ex raw)
+      (executor-create! db-conn p #:name (fmt b 'name) #:mode (let ([m (fmt b 'mode)]) (if (string=? m "") "pull" m))
+                        #:org org
+                        #:url (let ([u (fmt b 'url)]) (and (not (string=? u "")) u))
+                        #:model (let ([m (fmt b 'model)]) (and (not (string=? m "")) m))
+                        #:key (let ([k (fmt b 'key)]) (and (not (string=? k "")) k))
+                        #:capabilities caps))
+    (json-response (if raw (hash-set ex 'worker_token raw) ex) #:code 201)))
+(define (ep-executor-create req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (define org (let ([o (hash-ref b 'org_id #f)]) (and (string? o) (not (string=? o "")) o)))
+    (create-executor! req p #:org org))))
+(define (ep-org-executor-create req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (create-executor! req p #:org (caller-org p)))))))
+(define (ep-executor-retire req id)
+  (with-auth req (lambda (p)
+    (unless (or (principal-is-operator p) (can? db-conn p "org:manage"))
+      (require-perm db-conn p "instance:manage"))
+    (if (executor-retire! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
+
+;; ---- model roles (slice 67) ----------------------------------------------------------
+(define (ep-model-roles-get req)
+  (with-auth req (lambda (p) (json-response (model-roles-get db-conn (principal-team-id p))))))
+(define (ep-model-roles-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define b (read-json-body req))
+      (define roles (let ([r (hash-ref b 'roles b)]) (if (hash? r) r (hasheq))))
+      ;; an executor must exist to be named — a typo here would silently send
+      ;; every extraction to the local model
+      (for ([(k v) (in-hash roles)])
+        (when (and (string? v) (not (string=? v "")) (not (executor-known? v)))
+          (raise-user-error 'model-roles "unknown executor ~a" v)))
+      (define out (model-roles-set! db-conn (principal-team-id p) roles))
+      (audit! db-conn #:action "model-roles.set" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:team-id (principal-team-id p) #:meta (jsexpr->string (hash-ref out 'roles)))
+      (json-response out)))))
+
+;; the worker protocol — the bearer is a worker token; the executor it is bound
+;; to is found through the token's id, so a token can never speak for another host
+(define (with-worker req proc)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:execute")
+    (define bearer (let ([h (req-header req #"authorization")])
+                     (and h (regexp-match? #rx"^Bearer " h) (substring h 7))))
+    (define tid (and bearer (query-maybe-value db-conn "SELECT id FROM api_tokens WHERE token_hash = ?" (hash-token bearer))))
+    (define ex (and tid (executor-by-token db-conn tid)))
+    (if ex (proc p ex) (err "this token is not bound to an executor" 403)))))
+
+(define (ep-worker-claim req)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (define (strs k) (let ([v (hash-ref b k '())]) (if (and (list? v) (andmap string? v)) v '())))
+    (define max-wait (let ([w (hash-ref b 'max_wait 0)]) (if (real? w) (min 25 (max 0 w)) 0)))
+    ;; long-poll: try, then wait a little and try again until max_wait is spent
+    (let loop ([waited 0])
+      (define job (worker-claim! db-conn ex #:kinds (strs 'kinds) #:models (strs 'models)))
+      (cond
+        [job (json-response job)]
+        [(>= waited max-wait) (json-response (hasheq 'job 'null) #:code 204)]
+        [else (sleep 1) (loop (+ waited 1))])))))
+(define (worker-verdict v job-id)
+  (case v
+    [(ok) (json-response (hasheq 'ok #t 'id job-id))]
+    [(not-holder) (err "not the lease holder of this job" 409)]
+    [(not-running) (err "the job is not running" 409)]
+    [else (err "not found" 404)]))
+(define (ep-worker-heartbeat req id)
+  (with-worker req (lambda (p ex)
+    (define v (worker-heartbeat! db-conn ex id))
+    (if (number? v) (json-response (hasheq 'ok #t 'id id 'lease_until v)) (worker-verdict v id)))))
+(define (ep-worker-complete req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))) id))))
+(define (ep-worker-fail req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (worker-verdict (worker-fail! db-conn ex id (fmt b 'error)) id))))
 
 ;; real model call (falls back to simulated when no model is configured)
 (define (ep-ai-chat req)
@@ -1242,7 +1459,7 @@
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
-      [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
+      [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
       [else
@@ -1276,7 +1493,7 @@
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
-      [(and ex (not (executor-exists? ex))) (err "unknown executor" 400)]
+      [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
       [else
@@ -1409,10 +1626,26 @@
     (define b (read-json-body req))
     (define scopes (let ([s (hash-ref b 'scopes #f)]) (if (list? s) s '("*:read"))))
     (define name (let ([n (hash-ref b 'name #f)]) (if n (format "~a" n) "api")))
-    (define-values (raw tokid)
-      (issue-token! db-conn #:user (principal-user-id p) #:team (principal-team-id p) #:name name #:scopes scopes))
-    (audit! db-conn #:action "token.issue" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p))
-    (json-response (hasheq 'id tokid 'token raw 'name name 'scopes scopes) #:code 201))))    ; raw shown once
+    ;; issue #13: `ttl` in seconds, "never" for a deliberately long-lived machine
+    ;; token, or absent for the 90-day default. Anything else is a 400.
+    (define ttl
+      (let ([v (hash-ref b 'ttl #f)])
+        (cond [(or (not v) (eq? v 'null)) API-TOKEN-TTL]
+              [(equal? v "never") 'never]
+              [(and (real? v) (positive? v)) v]
+              [(and (string? v) (string->number v) (positive? (string->number v))) (string->number v)]
+              [else 'bad])))
+    (cond
+      [(eq? ttl 'bad) (err "ttl must be a positive number of seconds, or \"never\"" 400)]
+      [else
+       (define-values (raw tokid)
+         (issue-token! db-conn #:user (principal-user-id p) #:team (principal-team-id p) #:name name #:scopes scopes #:ttl ttl))
+       (audit! db-conn #:action "token.issue" #:actor-type "user" #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+               #:meta (jsexpr->string (hasheq 'ttl (if (eq? ttl 'never) "never" ttl))))
+       (define listed (for/first ([t (in-list (list-tokens db-conn (principal-team-id p)))] #:when (equal? (hash-ref t 'id) tokid)) t))
+       (json-response (hasheq 'id tokid 'token raw 'name name 'scopes scopes
+                              'expires_at (if listed (hash-ref listed 'expires_at) 'null))
+                      #:code 201)]))))    ; raw shown once
 
 (define (ep-tokens-list req)
   (with-auth req (lambda (p)
@@ -1433,7 +1666,7 @@
     (define q (string-trim (query-param req 'q)))
     (if (< (string-length q) 2)
         (json-response (hasheq 'query q 'results '()))
-        (json-response (hasheq 'query q 'results (search-all db-conn p q)))))))
+        (json-response (hasheq 'query q 'results (search-all db-conn p q #:scope (scope-of req))))))))
 
 (define (ep-audit req)
   (with-auth req (lambda (p)
@@ -1512,7 +1745,8 @@
                             #:prefix (query-param req 'prefix "")
                             #:limit (or (string->number (query-param req 'limit "100")) 100)
                             #:offset (or (string->number (query-param req 'offset "0")) 0)
-                            #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))))
+                            #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))
+                            #:scope (scope-of req)))
     (json-response (hasheq 'objects (map obj-json objs)
                            'usage (repo-usage db-conn p))))))
 
@@ -1901,7 +2135,7 @@
 ;; an endpoint cannot exist without a documented entry, or an entry without code.
 (define HANDLERS
   (hasheq
-   'ui (lambda (req) (html-response (ui-html-branded)))
+   'ui (lambda (req) (html-response (ui-html-branded req)))
    'health (lambda (req) (ep-health))
    'beta-sdk (lambda (req) (serve-file (build-path impl-root "static" "beta-sdk.js")))
    'bundle-file (lambda (req plugin path)
@@ -1934,7 +2168,9 @@
    'org-quota ep-org-quota 'org-get ep-org-get 'org-update ep-org-update
    'seed-tenants ep-seed-tenants
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
-   'my-org-member-add ep-my-org-member-add 'my-org-audit ep-my-org-audit
+   'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
+   'my-org-branding-get ep-my-org-branding-get 'my-org-branding-put ep-my-org-branding-put
+   'my-org-branding-clear ep-my-org-branding-clear 'my-org-branding-logo ep-my-org-branding-logo
    'notes-create ep-notes-create 'notes-list ep-notes-list
    'documents-create ep-documents-create 'documents-list ep-documents-list
    'documents-get ep-documents-get 'documents-update ep-documents-update 'documents-delete ep-documents-delete
@@ -1943,6 +2179,9 @@
    'translate-catalog ep-translate-catalog 'translate ep-translate 'translate-list ep-translate-list
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors
+   'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
+   'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit
@@ -1970,6 +2209,35 @@
     (unless (memq k declared)
       (error 'routes "server/main.rkt has handler '~a' which server/routes.rkt does not declare" k))))
 
+;; ---- plugin routes (slice 63) -----------------------------------------------------
+;; Built once from the loader's registry, AFTER plugins load (see main). Every one
+;; is authenticated — with-auth, then the route's permission — and its handler is
+;; the plugin's (conn principal args) -> jsexpr, where args carries the path
+;; params, the query and the JSON body. A user error is the caller's 400.
+(define PLUGIN-ROUTES (box '()))          ; (listof (cons rt handler-proc))
+(define (install-plugin-routes!)
+  (set-box! PLUGIN-ROUTES
+    (for/list ([r (in-list (plugin-routes))])
+      (define entry (rt (hash-ref r 'method) (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
+                        (string->symbol (string-append "plugin:" (hash-ref r 'plugin)))
+                        'bearer (hash-ref r 'perm) #f (hash-ref r 'doc)))
+      (define perm (hash-ref r 'perm))
+      (define handler (hash-ref r 'handler))
+      (define names (route-params entry))
+      (cons entry
+            (lambda (req . vals)
+              (with-auth req (lambda (p)
+                (when perm (require-perm db-conn p perm))
+                (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+                  (define args
+                    (hasheq 'params (for/hasheq ([n (in-list names)] [v (in-list vals)]) (values (string->symbol n) v))
+                            'query (for/hasheq ([kv (in-list (url-query (request-uri req)))] #:when (cdr kv))
+                                     (values (car kv) (cdr kv)))
+                            'body (read-json-body req)))
+                  (define result (handler db-conn p args))
+                  (json-response (if (or (hash? result) (list? result) (string? result) (number? result) (boolean? result))
+                                     result (hasheq 'result (format "~a" result))))))))))))
+
 (define (route req)
   ;; HEAD must reach every GET route: monitors, link unfurlers and health
   ;; checkers probe with HEAD, and before 2026-09-04 every one of them got a
@@ -1983,20 +2251,67 @@
   (define-values (entry params) (match-route m (request-path req)))
   (cond
     [entry (apply (hash-ref HANDLERS (rt-handler entry)) req params)]
-    [else (err "not found" 404)]))
+    [else
+     ;; then the plugins' — under /api/x/<id>/ only, so nothing here can have
+     ;; shadowed a core route above
+     (define-values (pentry pparams) (match-routes (map car (unbox PLUGIN-ROUTES)) m (request-path req)))
+     (cond
+       [pentry (apply (cdr (assq pentry (unbox PLUGIN-ROUTES))) req pparams)]
+       [else (err "not found" 404)])]))
+
+;; issue #11: baseline security headers on EVERY response, added at the one seam
+;; every response passes through. Zero-risk set: nosniff (a JSON body is never
+;; sniffed into a script), a referrer policy (the console's URLs carry object ids
+;; and tokens never, but the origin is enough for anyone), frame denial (the
+;; console is not meant to be framed — the Tier-C funnel template is served
+;; INTO an iframe by the console itself, same origin, which SAMEORIGIN allows),
+;; and HSTS only when the instance says it is behind TLS. A Content-Security-Policy
+;; for the console is a separate audit (it has inline scripts); the download path
+;; already sends a denying one per object. A route that sets one of these itself
+;; wins — headers already present are left alone.
+;; The console's Content-Security-Policy (issue #11, part 2). What it buys: no
+;; script, style, image, font, frame or connection from any origin but our own,
+;; no plugins, no <base> hijack, no form posting elsewhere, no framing by other
+;; origins — so an injected payload cannot load remote code or beacon data out.
+;; What it does NOT buy yet: `'unsafe-inline'` for scripts and styles, because
+;; the console is one HTML file with ~136 inline event handlers and ~245 style
+;; attributes; a nonce would disable 'unsafe-inline' and break every one of
+;; them. Moving the handlers to delegated listeners is the follow-up that lets
+;; this become a nonce policy. The e2e gate fails on console errors, and a CSP
+;; violation is one, so the gate proves the console runs under this policy.
+;; Downloads keep their own, stricter, per-object CSP (present headers win).
+(define CONSOLE-CSP
+  (string-append "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                 "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+                 "frame-src 'self' blob: data:; frame-ancestors 'self'; form-action 'self'; "
+                 "base-uri 'self'; object-src 'none'"))
+(define BASE-SECURITY-HEADERS
+  (list (make-header #"X-Content-Type-Options" #"nosniff")
+        (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")
+        (make-header #"X-Frame-Options" #"SAMEORIGIN")
+        (make-header #"Content-Security-Policy" (string->bytes/utf-8 CONSOLE-CSP))))
+(define HSTS-HEADER (make-header #"Strict-Transport-Security" #"max-age=31536000; includeSubDomains"))
+(define (with-security-headers resp)
+  (define have (map header-field (response-headers resp)))
+  (define (missing h) (not (member (header-field h) have)))
+  (define add (append (filter missing BASE-SECURITY-HEADERS)
+                      (if (and (tls-on?) (missing HSTS-HEADER)) (list HSTS-HEADER) '())))
+  (if (null? add) resp (struct-copy response resp [headers (append (response-headers resp) add)])))
 
 (define (handle req)
   (parameterize ([current-localizer (localizer-for (request-locale req))])
-    (with-handlers ([exn:fail:forbidden?
-                     (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
-                    ;; a refused workflow spec is the caller's mistake — and the
-                    ;; detail is the whole point of rejecting rather than ignoring
-                    [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
-                    [exn:fail? (lambda (e) (err (exn-message e) 500))])
-      (route req))))
+    (with-security-headers
+     (with-handlers ([exn:fail:forbidden?
+                      (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
+                     ;; a refused workflow spec is the caller's mistake — and the
+                     ;; detail is the whole point of rejecting rather than ignoring
+                     [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
+                     [exn:fail? (lambda (e) (err (exn-message e) 500))])
+       (route req)))))
 
 (module+ main
   (init-db!)
+  (warn-dev-pepper!)
   ;; hosted VM launch: self-seed the owner from env on first boot, emit the
   ;; activation token to stdout (the provisioning sink) for the control plane.
   (when (and (saas-mode?) (env* "TELEMACHUS_SEED_OWNER_EMAIL")
@@ -2011,6 +2326,7 @@
     (flush-output))
   (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
   (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
+  (install-plugin-routes!)
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
   ;; request, so a relative root aims writes at whatever that is — for a Nix
@@ -2037,6 +2353,30 @@
   (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
   (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
+  ;; slice 66: the first REMOTE kind — the wire run-chat speaks, run by a pull
+  ;; worker; a result must carry a reply and a numeric token count
+  (register-job-kind! "infer.chat" #f #:remote? #t
+    #:validate (lambda (r)
+                 (cond [(not (hash? r)) "result must be an object"]
+                       [(not (string? (hash-ref r 'reply #f))) "result.reply must be a string"]
+                       [(not (number? (hash-ref r 'tokens_used #f))) "result.tokens_used must be a number"]
+                       [else #f])))
+  (set-reaper! reap-leases!)
+  ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
+  ;; current job (or a top-level one on the request path) and wait for a worker
+  (set-box! pull-router
+    (lambda (name msgs temp)
+      (define ex (executor-by-name db-conn name))
+      (and ex (equal? (hash-ref ex 'mode) "pull")
+           (let* ([job (current-job)]
+                  [p (current-request-principal)]
+                  [team (cond [job (hash-ref job 'team)] [p (principal-team-id p)] [else #f])]
+                  [user (cond [job (hash-ref job 'user)] [p (principal-user-id p)] [else #f])])
+             (unless team (error 'run-chat "no team context for executor ~a" name))
+             (define-values (reply tokens)
+               (pull-dispatch! db-conn #:team team #:user user #:executor name #:messages msgs
+                               #:temperature temp #:parent (and job (hash-ref job 'id))))
+             (cons reply tokens)))))
   ;; async job kinds + the worker pool
   (register-job-kind! "translate"
     (lambda (conn p payload)
@@ -2093,7 +2433,8 @@
              "Keep every placeholder in curly braces exactly as written. Keep it as short as the\n"
              "original; this is UI text. Do not add quotes, notes, or alternatives.\n"
              (jsexpr->string (hasheq 'text src 'locale loc))))
-          (define-values (reply tokens) (run-chat prompt))
+          (define-values (reply tokens)
+            (run-chat prompt #:executor (model-role-executor conn (principal-team-id p) "utility")))   ; KG-7 / LOC-5
           (set-box! total-tokens (+ (unbox total-tokens) tokens))
           (define raw (format "~a" reply))
           ;; The outermost {…} is the object even when the string itself has {user}

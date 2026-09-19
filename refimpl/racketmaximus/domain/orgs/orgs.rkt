@@ -23,6 +23,7 @@
 
 (provide org-slugify org-plan? org-resolve
          org-create! org-update! org-list org-get
+         org-set-domain! org-by-domain normalize-domain
          org-set-status! org-suspended? tenant-read-only?
          org-teams org-members org-audit org-add-team! org-attach-member!
          org-usage set-org-limit! org-quota
@@ -119,10 +120,50 @@
   (define oid (vector-ref r 0))
   (hasheq 'id oid 'slug (vector-ref r 1) 'name (vector-ref r 2)
           'status (vector-ref r 3) 'plan (vector-ref r 4) 'created_at (vector-ref r 5)
+          'domain (let ([d (vector-ref r 6)]) (if (or (not d) (sql-null? d)) 'null d))   ; TEN-2d
           'teams (query-value conn "SELECT COUNT(*) FROM teams WHERE org_id = ?" oid)
           'users (query-value conn "SELECT COUNT(*) FROM users WHERE org_id = ?" oid)))
 
-(define ORG-COLS "SELECT id, slug, name, status, plan, created_at FROM orgs ")
+(define ORG-COLS "SELECT id, slug, name, status, plan, created_at, domain FROM orgs ")
+
+;; ---- TEN-2d: a company's own hostname -----------------------------------------
+;; Lower-cased, trimmed, port dropped; a hostname and nothing else (no scheme, no
+;; path, no wildcard). #f for "clear". Anything that is not a hostname is a user
+;; error, never a silent substitution: the value routes PUBLIC requests.
+(define (normalize-domain v)
+  (cond
+    [(or (not v) (eq? v 'null)) #f]
+    [(not (string? v)) (raise-user-error 'org-set-domain! "domain must be a string or null")]
+    [else
+     (define h (string-downcase (string-trim v)))
+     (define host* (regexp-replace #px":[0-9]+$" h ""))   ; drop a trailing :port, nothing else
+     (cond
+       [(string=? host* "") #f]
+       [(not (regexp-match? #px"^[a-z0-9]([a-z0-9-]{0,62})(\\.[a-z0-9]([a-z0-9-]{0,62}))*$" host*))
+        (raise-user-error 'org-set-domain! "not a hostname: ~a" v)]
+       [else host*])]))
+
+;; Only the superadmin sets this (a company must not be able to claim a hostname
+;; that belongs to another company or to the instance) — the endpoint enforces it.
+(define (org-set-domain! conn actor org-id domain)
+  (define d (normalize-domain domain))
+  (cond
+    [(not (query-maybe-value conn "SELECT id FROM orgs WHERE id = ?" org-id)) #f]
+    [else
+     (define taken (and d (query-maybe-value conn "SELECT id FROM orgs WHERE domain = ? AND id <> ?" d org-id)))
+     (when taken (raise-user-error 'org-set-domain! "the hostname ~a is already assigned to another company" d))
+     (query-exec conn "UPDATE orgs SET domain = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                 (or d sql-null) org-id)
+     (audit! conn #:action "org.domain" #:actor-type "user"
+             #:actor-id (if actor (principal-user-id actor) "system")
+             #:resource-type "org" #:resource-id org-id)
+     (hasheq 'ok #t 'org_id org-id 'domain (or d 'null))]))
+
+;; The org a request's Host header names, or #f. The same normalization, so
+;; `Acme.Test:8835` finds `acme.test`; an unparseable host is simply no org.
+(define (org-by-domain conn host)
+  (define d (with-handlers ([exn:fail:user? (lambda (_) #f)]) (normalize-domain host)))
+  (and d (query-maybe-value conn "SELECT id FROM orgs WHERE domain = ?" d)))
 
 (define (org-list conn)
   (for/list ([r (in-list (query-rows conn (string-append ORG-COLS "ORDER BY created_at, slug")))])

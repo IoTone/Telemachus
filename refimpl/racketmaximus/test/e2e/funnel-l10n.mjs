@@ -26,10 +26,9 @@ ok('English headline', (await page.locator('.bx-hero h1').innerText()).includes(
 
 // switch to Japanese
 await page.click('.bx-lang button:nth-child(2)');
-await page.waitForFunction(() => {
-  const h = document.querySelector('.bx-hero h1');
-  return h && h.innerText.includes('ベータ版に参加する');
-}, null, { timeout: 20000 });
+// a locator wait, not waitForFunction: the funnel is served under the console's
+// CSP (no 'unsafe-eval'), and waitForFunction evaluates its predicate as a string
+await page.locator('.bx-hero h1', { hasText: 'ベータ版に参加する' }).waitFor({ timeout: 20000 });
 ok('headline switched to Japanese', true);
 ok('CTA localized', (await page.locator('.bx-cta').innerText()).includes('アクセスを申請'));
 const lbls = await page.locator('#betaform label').allInnerTexts();
@@ -65,11 +64,7 @@ await page.fill('#bf_email', 'probe@corp.example');
 await page.click('.bx-cta');
 // wait past the client-side placeholder for the SERVER's answer, or this reads
 // t('bxverifying') and proves nothing about locales/ja.json
-await page.waitForFunction(() => {
-  const m = document.querySelector('#betamsg');
-  const s = m ? m.innerText.trim() : '';
-  return s.length > 0 && !/本人確認/.test(s);
-}, null, { timeout: 20000 });
+await page.locator('#betamsg').filter({ hasText: /\S/, hasNotText: '本人確認' }).waitFor({ timeout: 20000 });
 const msg = await page.locator('#betamsg').innerText();
 ok('submit feedback is Japanese, not English', !/[A-Za-z]{4,}/.test(msg), msg);
 // The shipped form marks `name` required, so an empty submit is refused by the

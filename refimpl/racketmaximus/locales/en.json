@@ -40,8 +40,8 @@
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
     },
     "doc.route.get.api.admin.status": {
-      "text": "Instance counts: users, teams, orgs, notes, tokens, audit events, tenants.",
-      "hash": "51cd4f7ee855df27b9e65a6ffa5816fd3d394fa3"
+      "text": "Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants.",
+      "hash": "1527b973024d3cb3d10acdc2d61beb3d95437d24"
     },
     "doc.route.get.api.doc-triggers": {
       "text": "The team's upload triggers, with the team's remaining AI budget.",
@@ -71,6 +71,14 @@
       "text": "Upload the instance logo (replaces the mark and the wordmark).",
       "hash": "1d6aae8e5cb67d9c8b9623ac227d9a18295f46db"
     },
+    "ui.draftbudget": {
+      "text": "AI budget: about {need} tokens needed, {left} remaining today — raise ai.tokens.total in Usage or the drafts will wait",
+      "hash": "5ef886737103f5053cb37b9f30169eac5a50cfa8"
+    },
+    "doc.perm.team:delete": {
+      "text": "Delete a team.",
+      "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
+    },
     "ui.updpw": {
       "text": "Update password",
       "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
@@ -98,10 +106,6 @@
     "doc.route.post.api.members": {
       "text": "Add a member to the caller's team with a role; returns the new member's first token.",
       "hash": "c2e81fdfdb83e0915518a9c74ae921bf9375e74f"
-    },
-    "doc.perm.team:delete": {
-      "text": "Delete a team.",
-      "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
     },
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
@@ -164,8 +168,8 @@
       "hash": "22cb4f6d16ab9cc8a7366d340c2ca62ddd020421"
     },
     "doc.route.post.api.tokens": {
-      "text": "Issue an API token, optionally scoped; the raw token is shown once.",
-      "hash": "acba7a9e44fae4477cd5678b3d0447a3995b5354"
+      "text": "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.",
+      "hash": "cebac657ad797c2405bee6e8bd1ac779ba5f6409"
     },
     "doc.route.post.api.2fa.enable": {
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret once.",
@@ -194,6 +198,10 @@
     "doc.route.post.api.workflows": {
       "text": "Publish a workflow spec (validated; unknown fields refused); re-publishing a slug bumps its version.",
       "hash": "57f5717f784659e41b73f398f34d8c757d99d3ff"
+    },
+    "doc.route.get.api.model-roles": {
+      "text": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
+      "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
     },
     "ui.version": {
       "text": "Version",
@@ -407,6 +415,10 @@
       "text": "Approve",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
+    "doc.route.post.api.executors": {
+      "text": "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.",
+      "hash": "2a7d5e2e6be081e7dd5bacc04f5e3abb46f09498"
+    },
     "ui.admin": {
       "text": "Admin",
       "hash": "4e7afebcfbae000b22c7c85e5560f89a2a0280b4"
@@ -426,6 +438,14 @@
     "doc.route.post.api.translate.catalog": {
       "text": "Translate a whole locale catalog, placeholders preserved.",
       "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
+    "ui.key": {
+      "text": "Path",
+      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
+    },
+    "doc.perm.jobs:execute": {
+      "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
+      "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
     },
     "ui.apitokens": {
       "text": "API tokens",
@@ -498,10 +518,6 @@
     "beta.field_required": {
       "text": "{field} is required",
       "hash": "dda50f3ba4eb211a894985a368919f4833011910"
-    },
-    "ui.key": {
-      "text": "Path",
-      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
     },
     "doc.tool.update_note": {
       "text": "Update a note's title and/or body by id.",
@@ -611,6 +627,10 @@
       "text": "Change the caller's password.",
       "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
     },
+    "doc.route.post.api.org.executors": {
+      "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
+      "hash": "218f372f207fb10f594e39772c8cd33624edf803"
+    },
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
@@ -666,6 +686,10 @@
     "doc.route.post.api.orgs.ref.suspend": {
       "text": "Suspend a company (id or slug); every team in it becomes read-only.",
       "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
+    },
+    "doc.route.post.api.workers.jobs.id.complete": {
+      "text": "Post a result: {result}. Accepted only from the current lease holder; validated by the kind.",
+      "hash": "b839ca3b12c2cb37972e9244d7d7ee37a3708429"
     },
     "ui.tokensleft": {
       "text": "tokens left today",
@@ -784,8 +808,8 @@
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
     },
     "doc.route.get.api.repo": {
-      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own.",
-      "hash": "a9d3b3f240f08189876fa2e118ce40e9d44f8526"
+      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).",
+      "hash": "de55ec495c07f563596878a403924a739ed59b2f"
     },
     "doc.route.get.activate": {
       "text": "The console, on the magic-link activation screen (hosted mode).",
@@ -807,6 +831,10 @@
       "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
       "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
     },
+    "doc.route.post.api.workers.jobs.id.fail": {
+      "text": "Report a failure: {error}. Accepted only from the current lease holder.",
+      "hash": "f9ac120db5b83cd4cbe316cc454cabd871b2a859"
+    },
     "ui.upload": {
       "text": "Upload",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
@@ -824,8 +852,8 @@
       "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
     },
     "doc.route.get.api.search": {
-      "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?.",
-      "hash": "14d55a26ffc0a283955af67b2f27c140bea36dcd"
+      "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.",
+      "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
     },
     "ui.nofires": {
       "text": "This trigger has not fired yet.",
@@ -895,6 +923,14 @@
       "text": "Tools",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
     },
+    "doc.route.delete.api.executors.id": {
+      "text": "Retire an executor: its worker token is revoked and any job it holds returns to the queue.",
+      "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
+    },
+    "doc.tool.kg_extract": {
+      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
+      "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
+    },
     "beta.field_too_long": {
       "text": "{field} must be at most {n} characters",
       "hash": "3afe7c02c6ba5ce03943650e048c0afa1394d04d"
@@ -923,13 +959,13 @@
       "text": "Shared with me",
       "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
     },
+    "doc.route.post.api.workers.claim": {
+      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease.",
+      "hash": "c28fe0e178aefb13910478d3e9898788db665982"
+    },
     "ui.disable": {
       "text": "Disable",
       "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
-    },
-    "doc.tool.kg_extract": {
-      "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
-      "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
     },
     "doc.route.get.api.ai.model": {
       "text": "Which model is configured (or that the simulated fallback is in use).",
@@ -1035,6 +1071,14 @@
       "text": "Workflow",
       "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
     },
+    "ui.open": {
+      "text": "Open",
+      "hash": "cf9b77061f7b3126b49d50a6fa68f7ca8c26b7a3"
+    },
+    "ui.cap_view": {
+      "text": "view",
+      "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
+    },
     "ui.confirmpw": {
       "text": "Confirm password",
       "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
@@ -1046,10 +1090,6 @@
     "ui.kg_unextracted": {
       "text": "waiting",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
-    },
-    "ui.cap_view": {
-      "text": "view",
-      "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
     },
     "ui.brandtitle": {
       "text": "Title",
@@ -1111,6 +1151,10 @@
       "text": "No entities match. Index documents first, then extract.",
       "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
     },
+    "doc.route.patch.api.org.members.id": {
+      "text": "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.",
+      "hash": "c12db2a62d70522a8cae022cf536347c52499014"
+    },
     "ui.runwf": {
       "text": "Run",
       "hash": "b1b392607deaf29a7e81453e069b7c07a32a6b18"
@@ -1124,8 +1168,8 @@
       "hash": "147646a5ac123e8be377a93c65a8a202faa5598c"
     },
     "doc.route.get.api.executors": {
-      "text": "The local executor and any federated ones.",
-      "hash": "e54804d6a14a8223610680c6e8a335762498cbd8"
+      "text": "The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health.",
+      "hash": "0f04e37ff8172fa65a013f7e48e9af6fa319c0f8"
     },
     "ui.bytrigger": {
       "text": "trigger",
@@ -1239,6 +1283,10 @@
       "text": "The team's feature flags.",
       "hash": "bd1955d40c93a9919c316f5efb74b2c6b18f0ad0"
     },
+    "doc.route.post.api.x.example-tools.word-count": {
+      "text": "Count the words in {text}.",
+      "hash": "016eefc223bf8431662f415eb5b6addd72e2a957"
+    },
     "doc.route.get.api.glossary": {
       "text": "The team glossary.",
       "hash": "7986293803bb2029e37ce2d2f2e2c213446c48c7"
@@ -1250,6 +1298,14 @@
     "doc.plugin.rs3": {
       "text": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
       "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
+    },
+    "ui.draftqueued": {
+      "text": "Queued {n} strings in {b} batch(es) — they land as “machine” for review",
+      "hash": "7f2bcb13edb0fc717e74a87c3261d4f645569362"
+    },
+    "doc.route.post.api.doc-triggers": {
+      "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
+      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
     },
     "doc.route.get.api.workflows": {
       "text": "The team's workflow definitions, plugin-contributed ones materialized on first look.",
@@ -1270,10 +1326,6 @@
     "doc.route.get.api.members": {
       "text": "The team's members and roles.",
       "hash": "32197624e684dac944e94da479c4c79400a6ba47"
-    },
-    "doc.route.post.api.doc-triggers": {
-      "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
-      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
     },
     "doc.route.get.api.beta.experience": {
       "text": "The team's draft onboarding experience, including the judge prompt.",
@@ -1500,8 +1552,8 @@
       "hash": "5b7f95b61ad9613c47931f31046e2e5c7152fb46"
     },
     "doc.route.get.health": {
-      "text": "Liveness: {ok, service, version}.",
-      "hash": "b57b58c0a4d2bf987d16ebbe2dde703aa8699b59"
+      "text": "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.",
+      "hash": "c614ac05e5f95db5aef973fb0d9099bcae50d0ef"
     },
     "doc.tool.word_count": {
       "text": "Count the number of words in a piece of text.",
@@ -1516,8 +1568,8 @@
       "hash": "3629795f10a247e233253f04af4fef7439e9a459"
     },
     "doc.route.get.api.notes": {
-      "text": "List the notes the caller can read.",
-      "hash": "bfc837b16414b5a34e848ca6ddab45a72b63a82d"
+      "text": "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).",
+      "hash": "9656ce2e5bd9ee7b9604b8c87abfa6860ccf1361"
     },
     "doc.tool.create_note.title": {
       "text": "Short note title",
@@ -1566,6 +1618,10 @@
     "ui.reply": {
       "text": "Reply",
       "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
+    },
+    "doc.route.put.api.model-roles": {
+      "text": "Set a team's model roles: {roles: {utility: <executor name> | null}}. The executor must exist; null returns to the instance default, then the local model.",
+      "hash": "bebca9dad4acba56a3bb609e0b2e098c0bcf8fc1"
     },
     "doc.tool.kg_query.hops": {
       "text": "1 (default) or 2",
@@ -1654,6 +1710,10 @@
     "doc.tool.doc_render.object": {
       "text": "The source document's object id — the form is written beside it (default: beside the template)",
       "hash": "1b66f9c975259453418803c8fd1c4b6afd18ffa0"
+    },
+    "doc.route.post.api.workers.jobs.id.heartbeat": {
+      "text": "Extend the lease on a job this worker holds.",
+      "hash": "e4e14c847eddc46cd5f851c2bf4a9f782f7ab7b3"
     },
     "ui.download": {
       "text": "Download",
@@ -1787,6 +1847,14 @@
       "text": "notes, documents, files, translations…",
       "hash": "bc6e4dbaec36a991517cc9f23c22f1f6fa25572d"
     },
+    "ui.name": {
+      "text": "Name",
+      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
+    },
+    "doc.perm.org:read-data": {
+      "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
+      "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
+    },
     "ui.derivedfrom": {
       "text": "Derived from",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
@@ -1812,8 +1880,8 @@
       "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
     "doc.route.post.api.org.members": {
-      "text": "Add a person to a team in the caller's company.",
-      "hash": "c3fef23375f6c6addc50ba9705103eae80b14ce8"
+      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
+      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
     },
     "ui.target": {
       "text": "Target language",
@@ -1847,10 +1915,6 @@
       "text": "Details",
       "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
     },
-    "ui.name": {
-      "text": "Name",
-      "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
-    },
     "doc.route.post.api.runs.id.cancel": {
       "text": "Cancel a run; a step already executing finishes, the next never starts.",
       "hash": "a5433876ac6bc58b63613f8ca8dd4e86bf5e0485"
@@ -1870,6 +1934,14 @@
     "doc.route.get.api.s3.credentials": {
       "text": "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.",
       "hash": "051981c89ce1559f3c98f74b291a5c3a79f2e36b"
+    },
+    "doc.route.get.api.x.example-tools.word-count": {
+      "text": "Count the words in ?text=.",
+      "hash": "70e0c02a5ce3763782554545ed4b01198d4f1de0"
+    },
+    "doc.route.get.api.beta.config": {
+      "text": "The published onboarding experience's public slice (fields, copy, theme) in one language.",
+      "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
     },
     "ui.uploadhint": {
       "text": "Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.",
@@ -1946,10 +2018,6 @@
     "doc.route.post.api.ai.chat": {
       "text": "One model turn. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.",
       "hash": "1bfac0736a442eddb532bcbfc50846b3d0b8feb9"
-    },
-    "doc.route.get.api.beta.config": {
-      "text": "The published onboarding experience's public slice (fields, copy, theme) in one language.",
-      "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
     },
     "doc.route.get.api.org": {
       "text": "The caller's own company.",

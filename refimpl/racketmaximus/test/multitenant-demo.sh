@@ -167,6 +167,30 @@ assert "org admin ✗ instance"          "$(g /api/admin/status $HR_TOK)" 'Forbi
 refute "org audit is acme-only"        "$(g /api/org/audit $HR_TOK)"    'globex'
 
 echo
+echo "== 7b. TEN-2h — an org READER reads team-visible data across the company ======="
+RD=$(pj /api/org/members $ACME_OWNER "{\"username\":\"auditor@acme.test\",\"password\":\"acme-aud1\",\"org_role\":\"org_reader\",\"team_id\":\"$OPS_TEAM\",\"role\":\"viewer\"}")
+assert "org reader created" "$RD" '"org_role":"org_reader"'
+RD_TOK=$(jget 'd["token"]' <<<"$RD")
+assert "org reader ✓ other team's team-visible note" "$(g /api/notes/$TV_ID $RD_TOK)" '"title":"Sprint plan"'
+PV=$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $ACME_DEV" -d '{"title":"Salary bands","body":"private","visibility":"private"}')
+PV_ID=$(jget 'd["id"]' <<<"$PV")
+assert "org reader ✗ a private note"               "$(g /api/notes/$PV_ID $RD_TOK)" 'Forbidden'
+assert "org reader ✓ org-scoped listing"           "$(g "/api/notes?scope=org" $RD_TOK)" '"title":"Sprint plan"'
+refute "…without the private one"                  "$(g "/api/notes?scope=org" $RD_TOK)" 'Salary bands'
+refute "team-scoped listing is still the reader's own team" "$(g /api/notes $RD_TOK)" 'Sprint plan'
+assert "org reader ✓ org-scoped search"            "$(g "/api/search?q=Sprint&scope=org" $RD_TOK)" '"type":"note"'
+assert "org reader ✗ writes"                       "$(curl -s -X PUT $B/api/notes/$TV_ID -H "Authorization: Bearer $RD_TOK" -d '{"title":"x"}')" 'Forbidden'
+assert "org reader ✗ management"                   "$(pj /api/org/teams $RD_TOK '{"name":"Nope"}')" 'Forbidden'
+assert "org admin still ✗ (TEN-2a is the default)" "$(g /api/notes/$TV_ID $HR_TOK)" 'Forbidden'
+# the role can be given to an existing person, and taken away
+RD_ID=$(jget 'd["user_id"]' <<<"$RD")
+assert "demote to no org role" "$(curl -s -X PATCH $B/api/org/members/$RD_ID -H "Authorization: Bearer $ACME_OWNER" -d '{"org_role":null}')" '"org_role":null'
+assert "…and the read is gone" "$(g /api/notes/$TV_ID $RD_TOK)" 'Forbidden'
+assert "promote back"          "$(curl -s -X PATCH $B/api/org/members/$RD_ID -H "Authorization: Bearer $ACME_OWNER" -d '{"org_role":"org_reader"}')" '"org_role":"org_reader"'
+assert "…and it is back"       "$(g /api/notes/$TV_ID $RD_TOK)" '"title":"Sprint plan"'
+assert "cannot change your own org role" "$(curl -s -X PATCH $B/api/org/members/$(jget 'd["tenants"][0]["owner"]["user_id"]' <<<"$SEED") -H "Authorization: Bearer $ACME_OWNER" -d '{"org_role":"org_reader"}')" 'your own'
+
+echo
 echo "== 8. the org quota caps the company above its teams ==========================="
 # the team's own budget is generous (200 req/day); the COMPANY is capped at 1
 assert "org cap set" "$(pj /api/orgs/$ACME_ORG/quota $ROOT '{"dimension":"ai.requests","limit":1,"window":"day"}')" '"ok":true'
@@ -181,6 +205,30 @@ assert "sibling team also refused" "$E3" 'quota exceeded'
 # ...while the other company is untouched
 assert "globex unaffected" "$(pj /api/ai/echo $GLBX_DEV '{"prompt":"hello"}')" '"reply":"HELLO"'
 
+echo
+echo "== 8b. TEN-2d — a company's hostname wears the company's branding =============="
+assert "instance branding set" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $ROOT" -d '{"title":"Instance Co","tagline":"one box"}')" '"title":"Instance Co"'
+assert "acme has no branding of its own" "$(g /api/org/branding $ACME_OWNER)" '"own":false'
+assert "acme sets its branding" "$(curl -s -X PUT $B/api/org/branding -H "Authorization: Bearer $ACME_OWNER" -d '{"title":"Acme Portal","tagline":"Acme documents"}')" '"title":"Acme Portal"'
+assert "a dev may not" "$(curl -s -X PUT $B/api/org/branding -H "Authorization: Bearer $ACME_DEV" -d '{"title":"x"}')" 'Forbidden'
+assert "superadmin assigns acme a hostname" "$(curl -s -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ROOT" -d '{"domain":"Acme.Test"}')" '"domain":"acme.test"'
+assert "a hostname is a hostname" "$(curl -s -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ROOT" -d '{"domain":"https://acme.test/x"}')" 'not a hostname'
+assert "globex cannot take it" "$(curl -s -X PATCH $B/api/orgs/globex -H "Authorization: Bearer $ROOT" -d '{"domain":"acme.test"}')" 'already assigned'
+assert "an org admin cannot set a hostname" "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ACME_OWNER" -d '{"domain":"evil.test"}')" '403'
+# PUBLIC, before sign-in: the Host header picks the company
+assert "acme.test wears Acme"        "$(curl -s $B/api/branding -H 'Host: acme.test')" '"title":"Acme Portal"'
+assert "…as the company's own"       "$(curl -s $B/api/branding -H 'Host: acme.test')" '"scope":"org"'
+assert "the console HTML too"        "$(curl -s $B/ -H 'Host: acme.test:8835')" '<title>Acme Portal</title>'
+assert "og tags follow"              "$(curl -s $B/ -H 'Host: acme.test')" 'og:description" content="Acme documents"'
+assert "the bare host is the instance" "$(curl -s $B/api/branding)" '"title":"Instance Co"'
+assert "…scope instance"             "$(curl -s $B/api/branding)" '"scope":"instance"'
+# signed in, on any host: the caller's own company
+assert "an acme user sees Acme"      "$(g /api/branding $ACME_DEV)" '"title":"Acme Portal"'
+assert "a globex user sees the instance" "$(g /api/branding $GLBX_DEV)" '"title":"Instance Co"'
+assert "the superadmin sees the instance" "$(g /api/branding $ROOT)" '"title":"Instance Co"'
+assert "acme clears it" "$(curl -s -X DELETE $B/api/org/branding -H "Authorization: Bearer $ACME_OWNER")" '"own":false'
+assert "acme.test is the instance again" "$(curl -s $B/api/branding -H 'Host: acme.test')" '"title":"Instance Co"'
+assert "hostname cleared" "$(curl -s -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ROOT" -d '{"domain":null}')" '"domain":null'
 echo
 echo "== 9. suspending a company freezes only that company ==========================="
 assert "suspend acme" "$(pj /api/orgs/$ACME_ORG/suspend $ROOT)" '"status":"suspended"'

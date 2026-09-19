@@ -29,6 +29,7 @@
          "../repo/repo.rkt"
          "../repo/extract.rkt"
          "../repo/doc-tools.rkt"          ; current-doc-chat
+         "../ai/roles.rkt"                ; the team's utility executor
          "kg.rkt")
 
 (provide validate-extraction extract-knowledge LIST-BATCH EXTRACT-TEXT-CAP)
@@ -142,7 +143,9 @@
      (kg-mark-extracted! conn (hash-ref o 'team_id) id (hash-ref o 'version_id) 0 0)
      (format "skipped ~a — no extracted text (run index-documents first)" (hash-ref o 'key))]
     [else
-     (define-values (extraction tokens) (extract-knowledge text))
+     (define-values (extraction tokens)
+       (parameterize ([current-utility-executor (model-role-executor conn (hash-ref o 'team_id) "utility")])   ; KG-7
+         (extract-knowledge text)))
      (meter! conn p tokens)
      (kg-upsert! conn (hash-ref o 'team_id) id (hash-ref o 'version_id) extraction)
      (hasheq 'object_id id 'key (hash-ref o 'key)

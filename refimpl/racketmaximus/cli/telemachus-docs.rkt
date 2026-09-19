@@ -97,12 +97,21 @@
             (hasheq 'id (hash-ref p 'id) 'name (hash-ref p 'name) 'version (hash-ref p 'version)
                     'description (hash-ref p 'description "")
                     'tools (sort (hash-ref p 'tools '()) string<?)
-                    'workflows (sort (hash-ref p 'workflows '()) string<?)))
+                    'workflows (sort (hash-ref p 'workflows '()) string<?)
+                    'routes (sort (hash-ref p 'routes '()) string<?)))
           string<? #:key (lambda (p) (hash-ref p 'id))))
+  ;; the plugins' authenticated routes, in api.md beside the core ones
+  (define proutes
+    (for/list ([r (in-list (plugin-routes))])
+      (hasheq 'method (hash-ref r 'method) 'path (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
+              'handler (string-append "plugin:" (hash-ref r 'plugin))
+              'auth "bearer" 'permission (or (hash-ref r 'perm) 'null) 'feature 'null
+              'description (hash-ref r 'doc) 'plugin (hash-ref r 'plugin))))
   ;; every route permission must be described, like every role permission is
   (for ([r (in-list ROUTES)]) (when (rt-perm r) (permission-doc (rt-perm r))))
+  (for ([r (in-list proutes)]) (when (string? (hash-ref r 'permission)) (permission-doc (hash-ref r 'permission))))
   (hasheq 'version app-version 'tools tools 'workflows workflows
-          'permissions permissions 'roles roles 'routes routes 'plugins plugins))
+          'permissions permissions 'roles roles 'routes routes 'plugin_routes proutes 'plugins plugins))
 
 ;; ---- deterministic JSON ---------------------------------------------------------------
 (define (json-out v out [indent 0])
@@ -155,7 +164,7 @@
     (hash-set! h (string-append "doc.workflow." (hash-ref w 'slug)) (hash-ref w 'description)))
   (for ([p (in-list (hash-ref model 'permissions))])
     (hash-set! h (string-append "doc.perm." (hash-ref p 'name)) (hash-ref p 'description)))
-  (for ([r (in-list (hash-ref model 'routes))])
+  (for ([r (in-list (append (hash-ref model 'routes) (hash-ref model 'plugin_routes '())))])
     (hash-set! h (route-id r) (hash-ref r 'description)))
   (for ([p (in-list (hash-ref model 'plugins))])
     (hash-set! h (string-append "doc.plugin." (hash-ref p 'id)) (hash-ref p 'description)))
@@ -347,7 +356,20 @@
                   (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
                   (let ([f (hash-ref r 'feature)]) (if (string? f) (code f) "—"))
                   (L (route-id r) (hash-ref r 'description)))))
-   "\n"))
+   "\n"
+   (let ([pr (hash-ref model 'plugin_routes '())])
+     (if (null? pr) ""
+         (string-append
+          "## Plugin routes\n\n"
+          "Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every one "
+          "requires a bearer token; the permission, when named, is checked before the "
+          "plugin's handler runs. Matched after the core routes above.\n\n"
+          (table '("Method" "Path" "Plugin" "Permission" "Description")
+                 (for/list ([r (in-list pr)])
+                   (list (hash-ref r 'method) (code (hash-ref r 'path)) (code (hash-ref r 'plugin))
+                         (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
+                         (L (route-id r) (hash-ref r 'description)))))
+          "\n")))))
 
 (define (render-plugins model L)
   (define plugins (hash-ref model 'plugins))
@@ -357,16 +379,18 @@
    "(`id`, `name`, `version`, `description`, `entry`) and an entry module. Plugins run "
    "in-process with platform privileges; placing one in the directory is the consent.\n\n"
    "## Loaded plugins\n\n"
-   (table '("Plugin" "Version" "Tools" "Workflows" "Description")
+   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Description")
           (for/list ([p (in-list plugins)])
             (list (string-append (hash-ref p 'name) " (" (code (hash-ref p 'id)) ")") (hash-ref p 'version)
                   (let ([t (hash-ref p 'tools)]) (if (null? t) "—" (string-join (map code t) ", ")))
                   (let ([w (hash-ref p 'workflows)]) (if (null? w) "—" (string-join (map code w) ", ")))
+                  (let ([r (hash-ref p 'routes '())]) (if (null? r) "—" (string-join (map code r) ", ")))
                   (L (string-append "doc.plugin." (hash-ref p 'id)) (hash-ref p 'description)))))
    "\n## The seams a plugin may fill\n\n"
    "| Seam | How | Where it lands |\n|---|---|---|\n"
    "| Tools | `(provide tools)` — a list of `(name schema permission handler)`; the handler is `(conn principal args) -> result` | the same registry as built-ins: per-tool RBAC and per-team activation apply |\n"
    "| Workflows | `(provide workflows)` — specs from `define-workflow`, or `workflows/*.json` | validated like an API-published spec; materialized into a team on first lookup |\n"
+   "| HTTP routes | `(provide routes)` — a list of `(method path permission handler doc)`; the handler is `(conn principal args) -> jsexpr` with `args` = `{params, query, body}` | mounted at `/api/x/<plugin>/<path>`, always authenticated, permission checked first; listed in [api.md](api.md) |\n"
    "| Anything else | `(provide init!)` — runs with full SDK access at load | e.g. `register-blob-store!` (the `rs3` local store), `register-onboarding!` (a beta funnel experience) |\n"
    "| A beta funnel bundle | a `bundle/` directory served at `/beta/bundle/<id>/` | a Tier-B custom frontend over `window.Telemachus.beta` |\n\n"
    "See [sdk.md](sdk.md) for the authoring surfaces.\n"))
@@ -393,6 +417,20 @@
    "parsed arguments. It checks its own permission (`require-perm`) and meters its "
    "own AI spend (`tenant-quota-record!`); a result that is not a string is JSON-"
    "encoded at the agent boundary and kept as a value for a workflow step.\n\n"
+   "## Artifact-shaped results\n\n"
+   "A handler may return a string, a JSON value, or an **artifact** — a result that "
+   "names a thing rather than carrying it:\n\n"
+   "```racket\n"
+   "(artifact #:kind \"document\" #:title (hash-ref o 'key) #:summary \"the filled form\"\n"
+   "          #:content-type ct #:object-id (hash-ref o 'id) #:version-id (hash-ref o 'version_id)\n"
+   "          #:extra (hasheq 'object_id (hash-ref o 'id)))   ; keys a workflow step may bind\n"
+   "```\n\n"
+   "Kinds are `document`, `table`, `text`, `link`, `image`. The model receives one "
+   "line (`[document] inbox/acme.pdf.form.docx — the filled form (application/…) "
+   "object_id=…`) instead of the payload; the console renders a card that opens the "
+   "document or follows the link; a workflow step keeps the whole value, so "
+   "`(out step result object_id)` binds as before. Every document-pipeline tool "
+   "returns one.\n\n"
    "## `define-workflow`\n\n"
    "A workflow is a validated data spec; the macro emits it, and a JSON document "
    "posted to `POST /api/workflows` goes through the same validator. Unknown fields "
@@ -425,6 +463,21 @@
    "`/beta-sdk.js` exposes `window.Telemachus.beta` — `config()`, `challenge()`, "
    "`signup(fields)` — for a Tier-B bundle; a Tier-C template gets the same three "
    "endpoints over CORS from its sandboxed iframe.\n\n"
+   "## Plugin routes\n\n"
+   "A plugin may contribute authenticated HTTP endpoints — the API a Tier-B "
+   "onboarding bundle or an app-specific console calls:\n\n"
+   "```racket\n"
+   "(define (word-count-route conn principal args)          ; args: {params, query, body}\n"
+   "  (define text (hash-ref (hash-ref args 'query) 'text #f))\n"
+   "  (unless (string? text) (raise-user-error 'word_count \"text is required\"))   ; -> 400\n"
+   "  (hasheq 'words (length (string-split text))))               ; -> 200 JSON\n\n"
+   "(define routes\n"
+   "  (list (list \"GET\" \"/word-count\" \"chat:use\" word-count-route \"Count the words in ?text=.\")))\n"
+   "```\n\n"
+   "The platform mounts it at `/api/x/<plugin-id>/word-count`, so a plugin can never "
+   "shadow a core route. Every plugin route requires a bearer token; the named "
+   "permission is checked through `can?` before the handler runs, exactly as a "
+   "tool's is. A malformed entry fails the plugin's load.\n\n"
    "## The route table\n\n"
    "`server/routes.rkt` declares every HTTP route with its permission, "
    "authentication, feature flag and one line of documentation; the server refuses "

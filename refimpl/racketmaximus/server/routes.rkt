@@ -27,7 +27,15 @@
 
 (require racket/string racket/list)
 
-(provide (struct-out rt) ROUTES match-route route-params)
+(provide (struct-out rt) ROUTES match-route match-routes route-params
+         PLUGIN-ROUTE-PREFIX plugin-route-path)
+
+;; Plugin-contributed routes (slice 63) live under ONE platform-fixed prefix that
+;; carries the plugin id — /api/x/<plugin-id>/… — so a plugin cannot shadow a core
+;; route or another plugin's, by construction rather than by a check.
+(define PLUGIN-ROUTE-PREFIX "/api/x/")
+(define (plugin-route-path plugin-id path)
+  (string-append PLUGIN-ROUTE-PREFIX plugin-id "/" (regexp-replace #rx"^/+" path "")))
 
 (struct rt (method path handler auth perm feature doc) #:transparent)
 
@@ -42,14 +50,14 @@
    (R "GET" "/index.html"  'ui #:auth 'public #:doc "The console.")
    (R "GET" "/login"       'ui #:auth 'public #:doc "The console, sign-in first — a URL that never depends on the beta landing.")
    (R "GET" "/activate"    'ui #:auth 'public #:doc "The console, on the magic-link activation screen (hosted mode).")
-   (R "GET" "/health"      'health #:auth 'public #:doc "Liveness: {ok, service, version}.")
+   (R "GET" "/health"      'health #:auth 'public #:doc "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.")
    (R "GET" "/beta-sdk.js" 'beta-sdk #:auth 'public #:doc "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).")
    (R "GET" "/beta/bundle/:plugin/*path" 'bundle-file #:auth 'public #:doc "A file from a Tier-B onboarding plugin's bundle directory.")
    (R "GET" "/beta/template" 'beta-template #:auth 'public #:doc "The Tier-C sandboxed HTML template, localized by the experience overlay.")
 
    ;; ---- instance: config, branding, localization ------------------------------------
    (R "GET" "/api/config"   'config #:auth 'public #:doc "Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token.")
-   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Instance title, tagline and logo. Public: the sign-in screen renders them.")
+   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).")
    (R "PUT" "/api/branding" 'branding-put #:perm "instance:manage" #:doc "Set the instance title and tagline.")
    (R "POST" "/api/branding/logo" 'branding-logo #:perm "instance:manage" #:doc "Upload the instance logo (replaces the mark and the wordmark).")
    (R "GET" "/api/i18n/catalog" 'i18n-catalog #:auth 'public #:doc "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.")
@@ -94,7 +102,7 @@
    (R "POST" "/api/profile" 'profile #:doc "Update the caller's profile (display name, locale).")
    (R "POST" "/api/members" 'add-member #:perm "members:manage" #:doc "Add a member to the caller's team with a role; returns the new member's first token.")
    (R "GET" "/api/members" 'members-list #:doc "The team's members and roles.")
-   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance counts: users, teams, orgs, notes, tokens, audit events, tenants.")
+   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
 
    ;; ---- multi-tenancy: superadmin plane, then org-admin plane ----------------------
    (R "POST" "/api/orgs" 'orgs-create #:auth 'superadmin #:perm "instance:manage" #:doc "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).")
@@ -103,17 +111,22 @@
    (R "POST" "/api/orgs/:ref/resume" 'org-resume #:auth 'superadmin #:perm "instance:manage" #:doc "Resume a suspended company.")
    (R "POST" "/api/orgs/:ref/quota" 'org-quota #:auth 'superadmin #:perm "instance:manage" #:doc "Set an org-level quota; teams nest beneath it.")
    (R "GET" "/api/orgs/:ref" 'org-get #:auth 'superadmin #:perm "instance:manage" #:doc "One company, its teams and quotas.")
-   (R "PATCH" "/api/orgs/:ref" 'org-update #:auth 'superadmin #:perm "instance:manage" #:doc "Rename a company and/or change its plan (a plan change re-applies the plan's caps).")
+   (R "PATCH" "/api/orgs/:ref" 'org-update #:auth 'superadmin #:perm "instance:manage" #:doc "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).")
    (R "POST" "/api/admin/seed-tenants" 'seed-tenants #:auth 'superadmin #:perm "instance:manage" #:doc "Seed Acme and Globex with known dev passwords — demo fixture only.")
    (R "GET" "/api/org" 'my-org #:auth 'org-admin #:perm "org:read" #:doc "The caller's own company.")
    (R "GET" "/api/org/teams" 'my-org-teams #:auth 'org-admin #:perm "org:read" #:doc "The teams in the caller's company.")
    (R "POST" "/api/org/teams" 'my-org-team-create #:auth 'org-admin #:perm "org:manage" #:doc "Create a team in the caller's company.")
-   (R "POST" "/api/org/members" 'my-org-member-add #:auth 'org-admin #:perm "org:manage" #:doc "Add a person to a team in the caller's company.")
+   (R "POST" "/api/org/members" 'my-org-member-add #:auth 'org-admin #:perm "org:manage" #:doc "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).")
+   (R "PATCH" "/api/org/members/:id" 'my-org-member-role #:auth 'org-admin #:perm "org:manage" #:doc "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.")
    (R "GET" "/api/org/audit" 'my-org-audit #:auth 'org-admin #:perm "org:read" #:doc "The company's audit trail.")
+   (R "GET" "/api/org/branding" 'my-org-branding-get #:auth 'org-admin #:perm "org:read" #:doc "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.")
+   (R "PUT" "/api/org/branding" 'my-org-branding-put #:auth 'org-admin #:perm "org:manage" #:doc "Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users.")
+   (R "DELETE" "/api/org/branding" 'my-org-branding-clear #:auth 'org-admin #:perm "org:manage" #:doc "Drop the company's branding; its users see the instance's again.")
+   (R "POST" "/api/org/branding/logo" 'my-org-branding-logo #:auth 'org-admin #:perm "org:manage" #:doc "Upload the company's logo (base64) and make it the company's mark.")
 
    ;; ---- notes and text documents ----------------------------------------------------
    (R "POST" "/api/notes" 'notes-create #:perm "notes:write" #:doc "Create a note with a visibility.")
-   (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List the notes the caller can read.")
+   (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).")
    (R "POST" "/api/documents" 'documents-create #:perm "files:write" #:doc "Create a text document (a repository object with content_type text/markdown).")
    (R "GET" "/api/documents" 'documents-list #:perm "files:read" #:doc "List text documents.")
    (R "GET" "/api/documents/:id" 'documents-get #:perm "files:read" #:doc "One text document with its body.")
@@ -135,16 +148,25 @@
    (R "POST" "/api/glossary" 'glossary-add #:perm "settings:manage" #:doc "Add or update a glossary term for a target language.")
    (R "GET" "/api/glossary" 'glossary-list #:perm "chat:use" #:doc "The team glossary.")
    (R "GET" "/api/ai/model" 'ai-model #:doc "Which model is configured (or that the simulated fallback is in use).")
-   (R "GET" "/api/executors" 'executors #:doc "The local executor and any federated ones.")
+   (R "GET" "/api/model-roles" 'model-roles-get #:doc "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.")
+   (R "PUT" "/api/model-roles" 'model-roles-put #:perm "settings:manage" #:doc "Set a team's model roles: {roles: {utility: <executor name> | null}}. The executor must exist; null returns to the instance default, then the local model.")
+   (R "GET" "/api/executors" 'executors #:doc "The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health.")
+   (R "POST" "/api/executors" 'executor-create #:perm "instance:manage" #:doc "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.")
+   (R "DELETE" "/api/executors/:id" 'executor-retire #:perm "instance:manage" #:doc "Retire an executor: its worker token is revoked and any job it holds returns to the queue.")
+   (R "POST" "/api/org/executors" 'org-executor-create #:auth 'org-admin #:perm "org:manage" #:doc "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.")
+   (R "POST" "/api/workers/claim" 'worker-claim #:perm "jobs:execute" #:doc "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease.")
+   (R "POST" "/api/workers/jobs/:id/heartbeat" 'worker-heartbeat #:perm "jobs:execute" #:doc "Extend the lease on a job this worker holds.")
+   (R "POST" "/api/workers/jobs/:id/complete" 'worker-complete #:perm "jobs:execute" #:doc "Post a result: {result}. Accepted only from the current lease holder; validated by the kind.")
+   (R "POST" "/api/workers/jobs/:id/fail" 'worker-fail #:perm "jobs:execute" #:doc "Report a failure: {error}. Accepted only from the current lease holder.")
 
    ;; ---- quotas, tools, tokens, search, audit, jobs -------------------------------------
    (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit and remaining.")
    (R "POST" "/api/quota" 'quota-set #:perm "instance:manage" #:doc "Set a quota limit for the caller's team (dimension, limit, window).")
    (R "GET" "/api/tools" 'tools-list #:doc "Every registered tool with its permission, source and per-team enabled state.")
-   (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped; the raw token is shown once.")
+   (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
    (R "GET" "/api/tokens" 'tokens-list #:perm "settings:manage" #:doc "The team's API tokens.")
    (R "DELETE" "/api/tokens/:id" 'tokens-revoke #:perm "settings:manage" #:doc "Revoke an API token.")
-   (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?.")
+   (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.")
    (R "GET" "/api/audit" 'audit #:perm "settings:manage" #:doc "The team's recent audit events.")
    (R "POST" "/api/jobs" 'jobs-create #:perm "chat:use" #:doc "Enqueue a scheduler job of a registered kind.")
    (R "GET" "/api/jobs" 'jobs-list #:doc "The team's jobs, newest first.")
@@ -152,7 +174,7 @@
    (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error.")
 
    ;; ---- document repository -------------------------------------------------------------
-   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own.")
+   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).")
    (R "POST" "/api/repo-obj/:id/share" 'repo-share #:perm "files:manage" #:doc "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.")
    (R "POST" "/api/repo-obj/:id/unshare" 'repo-unshare #:perm "files:manage" #:doc "Revoke every grant a principal holds on the object.")
    (R "GET" "/api/repo-obj/:id/grants" 'repo-grants #:perm "files:manage" #:doc "One entry per principal: capability, permissions, granted_by, expiry, expired.")
@@ -210,9 +232,10 @@
     (substring seg 1)))
 
 ;; -> (values entry param-values) or (values #f #f)
-(define (match-route method segs)
+(define (match-route method segs) (match-routes ROUTES method segs))
+(define (match-routes routes method segs)
   (define ss (filter (lambda (s) (not (string=? s ""))) segs))
-  (let loop ([rs ROUTES])
+  (let loop ([rs routes])
     (cond
       [(null? rs) (values #f #f)]
       [(not (string=? (rt-method (car rs)) method)) (loop (cdr rs))]

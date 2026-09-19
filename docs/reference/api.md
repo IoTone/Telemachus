@@ -10,12 +10,12 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/index.html` | public | — | — | The console. |
 | GET | `/login` | public | — | — | The console, sign-in first — a URL that never depends on the beta landing. |
 | GET | `/activate` | public | — | — | The console, on the magic-link activation screen (hosted mode). |
-| GET | `/health` | public | — | — | Liveness: {ok, service, version}. |
+| GET | `/health` | public | — | — | Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status. |
 | GET | `/beta-sdk.js` | public | — | — | The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta). |
 | GET | `/beta/bundle/:plugin/*path` | public | — | — | A file from a Tier-B onboarding plugin's bundle directory. |
 | GET | `/beta/template` | public | — | — | The Tier-C sandboxed HTML template, localized by the experience overlay. |
 | GET | `/api/config` | public | — | — | Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token. |
-| GET | `/api/branding` | public | — | — | Instance title, tagline and logo. Public: the sign-in screen renders them. |
+| GET | `/api/branding` | public | — | — | Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |
 | PUT | `/api/branding` | bearer | `instance:manage` | — | Set the instance title and tagline. |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | — | Upload the instance logo (replaces the mark and the wordmark). |
 | GET | `/api/i18n/catalog` | public | — | — | The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them. |
@@ -56,22 +56,27 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/profile` | bearer | — | — | Update the caller's profile (display name, locale). |
 | POST | `/api/members` | bearer | `members:manage` | — | Add a member to the caller's team with a role; returns the new member's first token. |
 | GET | `/api/members` | bearer | — | — | The team's members and roles. |
-| GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance counts: users, teams, orgs, notes, tokens, audit events, tenants. |
+| GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
 | POST | `/api/orgs` | superadmin | `instance:manage` | — | Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run). |
 | GET | `/api/orgs` | superadmin | `instance:manage` | — | List every org on the instance. |
 | POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | — | Suspend a company (id or slug); every team in it becomes read-only. |
 | POST | `/api/orgs/:ref/resume` | superadmin | `instance:manage` | — | Resume a suspended company. |
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | Set an org-level quota; teams nest beneath it. |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | One company, its teams and quotas. |
-| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | Rename a company and/or change its plan (a plan change re-applies the plan's caps). |
+| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d). |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | Seed Acme and Globex with known dev passwords — demo fixture only. |
 | GET | `/api/org` | org-admin | `org:read` | — | The caller's own company. |
 | GET | `/api/org/teams` | org-admin | `org:read` | — | The teams in the caller's company. |
 | POST | `/api/org/teams` | org-admin | `org:manage` | — | Create a team in the caller's company. |
-| POST | `/api/org/members` | org-admin | `org:manage` | — | Add a person to a team in the caller's company. |
+| POST | `/api/org/members` | org-admin | `org:manage` | — | Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader). |
+| PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own. |
 | GET | `/api/org/audit` | org-admin | `org:read` | — | The company's audit trail. |
+| GET | `/api/org/branding` | org-admin | `org:read` | — | The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none. |
+| PUT | `/api/org/branding` | org-admin | `org:manage` | — | Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users. |
+| DELETE | `/api/org/branding` | org-admin | `org:manage` | — | Drop the company's branding; its users see the instance's again. |
+| POST | `/api/org/branding/logo` | org-admin | `org:manage` | — | Upload the company's logo (base64) and make it the company's mark. |
 | POST | `/api/notes` | bearer | `notes:write` | — | Create a note with a visibility. |
-| GET | `/api/notes` | bearer | `notes:read` | — | List the notes the caller can read. |
+| GET | `/api/notes` | bearer | `notes:read` | — | List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones). |
 | POST | `/api/documents` | bearer | `files:write` | — | Create a text document (a repository object with content_type text/markdown). |
 | GET | `/api/documents` | bearer | `files:read` | — | List text documents. |
 | GET | `/api/documents/:id` | bearer | `files:read` | — | One text document with its body. |
@@ -91,20 +96,29 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/glossary` | bearer | `settings:manage` | — | Add or update a glossary term for a target language. |
 | GET | `/api/glossary` | bearer | `chat:use` | — | The team glossary. |
 | GET | `/api/ai/model` | bearer | — | — | Which model is configured (or that the simulated fallback is in use). |
-| GET | `/api/executors` | bearer | — | — | The local executor and any federated ones. |
+| GET | `/api/model-roles` | bearer | — | — | Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default. |
+| PUT | `/api/model-roles` | bearer | `settings:manage` | — | Set a team's model roles: {roles: {utility: <executor name> \| null}}. The executor must exist; null returns to the instance default, then the local model. |
+| GET | `/api/executors` | bearer | — | — | The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health. |
+| POST | `/api/executors` | bearer | `instance:manage` | — | Create an executor: {name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again. |
+| DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | Retire an executor: its worker token is revoked and any job it holds returns to the queue. |
+| POST | `/api/org/executors` | org-admin | `org:manage` | — | Create an executor bound to the caller's company (TEN-2e): offered only to its teams. |
+| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease. |
+| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | Extend the lease on a job this worker holds. |
+| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | Post a result: {result}. Accepted only from the current lease holder; validated by the kind. |
+| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | Report a failure: {error}. Accepted only from the current lease holder. |
 | GET | `/api/usage` | bearer | — | — | The team's quota dimensions with used, limit and remaining. |
 | POST | `/api/quota` | bearer | `instance:manage` | — | Set a quota limit for the caller's team (dimension, limit, window). |
 | GET | `/api/tools` | bearer | — | — | Every registered tool with its permission, source and per-team enabled state. |
-| POST | `/api/tokens` | bearer | `settings:manage` | — | Issue an API token, optionally scoped; the raw token is shown once. |
+| POST | `/api/tokens` | bearer | `settings:manage` | — | Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; "never" for a long-lived machine token); the raw token is shown once. |
 | GET | `/api/tokens` | bearer | `settings:manage` | — | The team's API tokens. |
 | DELETE | `/api/tokens/:id` | bearer | `settings:manage` | — | Revoke an API token. |
-| GET | `/api/search` | bearer | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?. |
+| GET | `/api/search` | bearer | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader. |
 | GET | `/api/audit` | bearer | `settings:manage` | — | The team's recent audit events. |
 | POST | `/api/jobs` | bearer | `chat:use` | — | Enqueue a scheduler job of a registered kind. |
 | GET | `/api/jobs` | bearer | — | — | The team's jobs, newest first. |
 | POST | `/api/jobs/:id/cancel` | bearer | — | — | Cancel a queued job (a running one finishes). |
 | GET | `/api/jobs/:id` | bearer | — | — | One job with its result or error. |
-| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own. |
+| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h). |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | Share with a user or a team in the org: {principal_type, principal_id, capability: view\|edit\|manage, expires_at?}. {user_id} still means view. |
 | POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | Revoke every grant a principal holds on the object. |
 | GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | One entry per principal: capability, permissions, granted_by, expiry, expired. |
@@ -144,4 +158,13 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/mcp` | bearer | — | — | Connected MCP servers. |
 | GET | `/api/oop` | bearer | — | — | Connected sandboxed (out-of-process) plugins and the capabilities they may ask for. |
 | POST | `/api/tools/:name` | bearer | `settings:manage` | — | Enable or disable a tool for the team. |
+
+## Plugin routes
+
+Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every one requires a bearer token; the permission, when named, is checked before the plugin's handler runs. Matched after the core routes above.
+
+| Method | Path | Plugin | Permission | Description |
+|---|---|---|---|---|
+| GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in ?text=. |
+| POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in {text}. |
 

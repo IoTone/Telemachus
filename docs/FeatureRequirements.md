@@ -111,7 +111,7 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       carries a **"Processed by"** panel; form templates may be Markdown, HTML or
       **DOCX**; the e2e gate runs the invoice scenario end to end.
       Design: [`design/document-workflows.md`](design/document-workflows.md).
-      *Deferred:* PDF rendering (DWF‑6).
+      PDF output: `doc_render {format: "pdf"}` through pandoc + tectonic (DWF‑6, slice 68).
 - [x] **Localization Manager** — extract unlocalized strings, team-managed
       translation completion, AI-assisted drafts, CI gate on commits. Flagship that
       proves the platform can build tools.
@@ -125,6 +125,13 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       run without touching human work, and a queued draft reports the team's AI
       budget so an over-budget queue does not look like a hang. **Used to produce
       `nl` and `es-419`, server and console** (see the localization line above).
+- [x] **Pull-model inference hosts** — an executor that comes to the work: a
+      worker holding a token scoped to one permission claims `infer.chat` jobs from
+      the same queue everything else uses, under a lease with heartbeats, and posts
+      the result; capability matching at claim; `run-chat` routes a named pull
+      executor through it so every model-using tool works unchanged; per-org
+      executors close TEN‑2e. Reference worker `cli/telemachus-worker.rkt`.
+      Design: [`design/pull-executors.md`](design/pull-executors.md).
 - [x] **Knowledge Graph** — entities and relations extracted from the team's
       documents, every fact traceable to the document and version that asserted
       it. Visibility is inherited from the sources through `can?` (a fact shows if
@@ -146,7 +153,9 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
   true.** Decision **TEN‑2** supersedes it: an **org** layer sits above teams and
   `TELEMACHUS_MULTITENANT=1` lets several companies share one instance, isolated by
   an org gate that runs *before* every permission, grant and token-scope check, with
-  a superadmin plane and a per-company org-admin plane.
+  a superadmin plane and a per-company org-admin plane. An org admin manages but
+  does not read (TEN‑2a); reading across a company's teams is the deliberately
+  granted `org_reader` role (TEN‑2h), team-visible data only, via `?scope=org`.
   Design: [`design/multi-tenancy.md`](design/multi-tenancy.md) ·
   operators: [`ops/multi-tenancy-runbook.md`](ops/multi-tenancy-runbook.md).
   The hosted offering can now serve separate legal entities either way — one

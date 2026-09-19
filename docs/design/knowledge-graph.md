@@ -189,9 +189,12 @@ KnowledgeGraph:
   description seen is kept.
 - **Extraction text is capped at 12k characters** — a 7B model's window, and
   where a document's named things live.
-- **KG‑7 (a `utility` model role) is not distinct yet**: extraction uses the
-  configured model through the same seam as everything else. Wiring a cheaper
-  model per role is a small follow-up once one is configured.
+- **KG‑7 is built (slice 67, `domain/ai/roles.rkt`)**: `kg_extract` routes its
+  model call to the team's `utility` executor when one is set (`PUT
+  /api/model-roles`, else `TELEMACHUS_MODEL_UTILITY`, else the local model) —
+  typically a pull executor on a cheaper or better-placed host. The pipeline's
+  extraction and translation and the Localization Manager's drafts share the
+  role; a person's chat never uses it.
 - The tab is lists with citations (KG‑6): an entity browser with a type filter,
   and for one entity its relations and every mention linking to the document.
   "Extract now" queues the workflow and lands on its run.
