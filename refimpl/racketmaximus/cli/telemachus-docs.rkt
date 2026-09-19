@@ -379,18 +379,20 @@
    "(`id`, `name`, `version`, `description`, `entry`) and an entry module. Plugins run "
    "in-process with platform privileges; placing one in the directory is the consent.\n\n"
    "## Loaded plugins\n\n"
-   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Description")
+   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Job kinds" "Description")
           (for/list ([p (in-list plugins)])
             (list (string-append (hash-ref p 'name) " (" (code (hash-ref p 'id)) ")") (hash-ref p 'version)
                   (let ([t (hash-ref p 'tools)]) (if (null? t) "—" (string-join (map code t) ", ")))
                   (let ([w (hash-ref p 'workflows)]) (if (null? w) "—" (string-join (map code w) ", ")))
                   (let ([r (hash-ref p 'routes '())]) (if (null? r) "—" (string-join (map code r) ", ")))
+                  (let ([k (hash-ref p 'job_kinds '())]) (if (null? k) "—" (string-join (map code k) ", ")))
                   (L (string-append "doc.plugin." (hash-ref p 'id)) (hash-ref p 'description)))))
    "\n## The seams a plugin may fill\n\n"
    "| Seam | How | Where it lands |\n|---|---|---|\n"
    "| Tools | `(provide tools)` — a list of `(name schema permission handler)`; the handler is `(conn principal args) -> result` | the same registry as built-ins: per-tool RBAC and per-team activation apply |\n"
    "| Workflows | `(provide workflows)` — specs from `define-workflow`, or `workflows/*.json` | validated like an API-published spec; materialized into a team on first lookup |\n"
    "| HTTP routes | `(provide routes)` — a list of `(method path permission handler doc)`; the handler is `(conn principal args) -> jsexpr` with `args` = `{params, query, body}` | mounted at `/api/x/<plugin>/<path>`, always authenticated, permission checked first; listed in [api.md](api.md) |\n"
+   "| Job kinds | `(provide init!)` calling `register-job-kind!`; the kind must be named `x.<plugin-id>.<name>` | the same queue as core kinds: per-team cap, quota admission, the org gate, cancel and the lease |\n"
    "| Anything else | `(provide init!)` — runs with full SDK access at load | e.g. `register-blob-store!` (the `rs3` local store), `register-onboarding!` (a beta funnel experience) |\n"
    "| A beta funnel bundle | a `bundle/` directory served at `/beta/bundle/<id>/` | a Tier-B custom frontend over `window.Telemachus.beta` |\n\n"
    "See [sdk.md](sdk.md) for the authoring surfaces.\n"))
@@ -478,6 +480,28 @@
    "shadow a core route. Every plugin route requires a bearer token; the named "
    "permission is checked through `can?` before the handler runs, exactly as a "
    "tool's is. A malformed entry fails the plugin's load.\n\n"
+   "## Job kinds\n\n"
+   "A plugin may add background work of its own. `init!` runs at load with full "
+   "SDK access, and that is the documented route:\n\n"
+   "```racket\n"
+   "(define (word-count-job conn principal payload)       ; -> a jsexpr result\n"
+   "  (hasheq 'words (length (string-split (hash-ref payload 'text \"\")))))\n\n"
+   "(define (init!)\n"
+   "  (register-job-kind! \"x.example-tools.word-count\" word-count-job))\n"
+   "```\n\n"
+   "The name is **platform-fixed**: `x.<plugin-id>.<name>`, the same rule plugin "
+   "routes follow, enforced while the plugin's `init!` runs — so a plugin can never "
+   "take a core kind's name (`flow.step`, `infer.chat`) or another plugin's, and a "
+   "violation fails that plugin's load rather than surfacing at claim time.\n\n"
+   "A plugin kind is an ordinary job. It inherits everything the row carries, not "
+   "anything from the plugin: the enqueuing team and user, the per-team concurrency "
+   "cap and quota admission at claim, the org gate on whatever the handler touches, "
+   "cancellation, and the lease that returns it to the queue if the worker dies. "
+   "`enqueue-job!` submits one; `GET /api/jobs` lists it like any other.\n\n"
+   "A **remote** kind (`#:remote? #t`) has no in-process handler — it is claimed by "
+   "a pull executor over HTTP — and must carry `#:validate`, a procedure returning a "
+   "string naming the problem or `#f`. It is the only thing standing between a "
+   "worker's reply and the rest of the system, so it is required, not optional.\n\n"
    "## The route table\n\n"
    "`server/routes.rkt` declares every HTTP route with its permission, "
    "authentication, feature flag and one line of documentation; the server refuses "

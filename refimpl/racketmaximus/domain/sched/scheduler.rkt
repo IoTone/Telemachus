@@ -23,6 +23,7 @@
 
 (require db-kit/portable
          json
+         racket/string
          "../db/id.rkt"
          "../authz/authz.rkt")     ; user-principal
 
@@ -30,7 +31,8 @@
          process-one! start-scheduler! set-cap-for! set-admit?! set-record!!
          remote-kind? remote-kind-validator scheduler-cap-for scheduler-admit? scheduler-record!
          set-reaper! current-job
-         claim-job! reap-orphans! POOL-LEASE-SECONDS)
+         claim-job! reap-orphans! POOL-LEASE-SECONDS
+         current-plugin registered-job-kinds job-kinds-of-plugin plugin-kind-prefix)
 
 (define (vr r i) (vector-ref r i))
 (define (now) (current-seconds))
@@ -42,7 +44,43 @@
 ;; result the kind's #:validate accepts (a string naming the problem, or #f).
 (define *kinds* (make-hash))
 (define *remote* (make-hash))       ; kind -> validator
-(define (register-job-kind! kind handler #:remote? [remote? #f] #:validate [validate (lambda (r) #f)])
+(define (registered-job-kinds)
+  (sort (append (hash-keys *kinds*) (hash-keys *remote*)) string<?))
+
+;; A PLUGIN may register a job kind too (issue #21) — `init!` runs with full SDK
+;; access, and this is the documented route. The loader parameterizes this to the
+;; plugin's id while its init! runs; everything registered under it must be named
+;; `x.<plugin-id>.<kind>`, the same platform-fixed prefix plugin ROUTES get, so a
+;; plugin can never take a core kind's name (`flow.step`, `infer.chat`) or another
+;; plugin's. A violation raises, and the loader turns that into "this plugin
+;; failed to load" rather than a mystery at claim time.
+(define current-plugin (make-parameter #f))
+(define (plugin-kind-prefix id) (string-append "x." id "."))
+
+;; kind -> the plugin that registered it, so `GET /api/plugins` and the generated
+;; reference can say whose a kind is. Owned by the registry rather than derived by
+;; the loader from a before/after diff: re-loading the plugins must not make a
+;; kind look like nobody's.
+(define *kind-source* (make-hash))
+(define (job-kinds-of-plugin id)
+  (sort (for/list ([(k v) (in-hash *kind-source*)] #:when (equal? v id)) k) string<?))
+
+(define (register-job-kind! kind handler #:remote? [remote? #f] #:validate [validate #f])
+  (define pid (current-plugin))
+  (when pid
+    (define want (plugin-kind-prefix pid))
+    (unless (and (string? kind) (string-prefix? kind want) (> (string-length kind) (string-length want)))
+      (error 'register-job-kind! "plugin ~a: a job kind must be named ~a<name> (got ~s)" pid want kind))
+    ;; someone ELSE already owns this name. Re-registering your own is fine: the
+    ;; loader may run again in one process, and a reload must not fail the plugin.
+    (when (and (or (hash-has-key? *kinds* kind) (hash-has-key? *remote* kind))
+               (not (equal? (hash-ref *kind-source* kind #f) pid)))
+      (error 'register-job-kind! "plugin ~a: job kind ~s is already registered" pid kind)))
+  ;; a remote kind's validator is the only thing between a worker's reply and the
+  ;; rest of the system — there is no in-process handler to be strict for it.
+  (when (and remote? (not (procedure? validate)))
+    (error 'register-job-kind! "job kind ~s is remote and needs #:validate" kind))
+  (when pid (hash-set! *kind-source* kind pid))
   (if remote?
       (hash-set! *remote* kind validate)
       (hash-set! *kinds* kind handler)))

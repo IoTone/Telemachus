@@ -11,6 +11,9 @@
 ;;                              ; mounted at /api/x/<id>/<path>; always authenticated;
 ;;                              ; handler : (conn principal args) -> jsexpr, where args is
 ;;                              ; (hasheq 'params {…path params} 'query {…} 'body <json>)
+;;                              ; (provide init!)     ; anything else, incl.
+;;                              ; register-job-kind! — a plugin's kinds are named
+;;                              ; x.<id>.<name> and the loader enforces it
 ;;   plugins/<id>/workflows/*.json                 ; …or the same specs as plain files
 ;;
 ;; Plugin tools register through the SAME registry as built-ins, so they inherit
@@ -21,7 +24,7 @@
 ;; extensions). Installing one — placing it in the plugins dir — IS the consent.
 ;; Sandboxed/out-of-process plugins are future hardening (see THREAT model).
 
-(require json racket/list "registry.rkt" "../flow/run.rkt")
+(require json racket/list "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
 
 (provide load-plugins! loaded-plugins plugin-routes)
 
@@ -77,7 +80,11 @@
           (define wf-slugs
             (for/list ([w (in-list wfs)])
               (hash-ref (register-plugin-workflow! id w) 'slug)))
-          (when (procedure? init!) (init!))
+          ;; init! runs with the plugin's identity bound, so anything it registers
+          ;; that the platform namespaces — job kinds (issue #21) — is checked
+          ;; against this plugin's prefix, and a violation fails THIS plugin.
+          (when (procedure? init!) (parameterize ([current-plugin id]) (init!)))
+          (define job-kinds (job-kinds-of-plugin id))
           (define names
             (for/list ([t (in-list tools)])
               (register-tool! (list-ref t 0) (list-ref t 1) (list-ref t 2) (list-ref t 3) #:source id)
@@ -93,10 +100,12 @@
                     (list (hasheq 'id id 'name (hash-ref m 'name id) 'version (hash-ref m 'version "")
                                   'description (hash-ref m 'description "") 'tools names
                                   'workflows wf-slugs
+                                  'job_kinds job-kinds
                                   'routes (for/list ([r (in-list routes)])
                                             (string-append (hash-ref r 'method) " " (hash-ref r 'path)))))))
-          (log (format "~a v~a — ~a tool(s)~a~a~a" id (hash-ref m 'version "?") (length names)
+          (log (format "~a v~a — ~a tool(s)~a~a~a~a" id (hash-ref m 'version "?") (length names)
                        (if (null? wf-slugs) "" (format ", ~a workflow(s)" (length wf-slugs)))
                        (if (null? routes) "" (format ", ~a route(s)" (length routes)))
+                       (if (null? job-kinds) "" (format ", ~a job kind(s)" (length job-kinds)))
                        (if (procedure? init!) " +init" "")))))))
   (unbox *loaded*))
