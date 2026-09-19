@@ -11,6 +11,11 @@
 #
 # Skips with exit 0 if the aws CLI is absent, so it is safe in CI without one.
 set -u
+# Self-sufficient, like server-smoke and pull-smoke: this ran for a year only ever
+# inside `nix develop`, which exports PLTCOLLECTS, so CI's first run of it could not
+# find web-kit and the server "never came up".
+cd "$(dirname "$0")/.."
+export PLTCOLLECTS="$(pwd)/pkgs:"
 fail=0
 assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1";
   else echo "  FAIL $1 — expected: $3 — got: $(printf '%s' "$2" | tr -d '\000' | head -c 300)"; fail=1; fi; }
