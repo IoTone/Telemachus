@@ -965,6 +965,18 @@ migration `0028-executors`; `/api/executors`, `/api/org/executors`,
   (`finish!`), so a reaped run cannot land its result — or its bill — on the new
   attempt. `reap-orphans!` sweeps NULL-lease `running` rows at startup: that is
   the upgrade path from a build that claimed without a lease.
+- **Issue #24: every claim is FENCED by a `claim_token`** (migration `0031`).
+  `status='running'` plus `executor_id` could not tell one attempt from another —
+  the same holder may be the one that re-claimed a reaped job — so `claim-job!`
+  mints a token per attempt and returns it (`#f` when the claim lost). Every later
+  write carries it: `finish!`, the lease refresher, and the worker's
+  heartbeat/complete/fail. Requeue, retire and every terminal write CLEAR it, so a
+  stale token can never match again. **The pool's `claim-next!` now returns
+  `(cons id token)`**, and `run-claimed!` takes the token as its second argument.
+  **Wire change**: `POST /api/workers/claim` returns `claim_token` and
+  `/api/workers/jobs/:id/{heartbeat,complete,fail}` require it — a worker that
+  drops it gets a 409, so a third-party worker must be updated in lockstep with
+  the server.
 - Executor health is derived: never-seen / active / stale (3× lease) / retired.
   Retire revokes the token and requeues a held job.
 - **`notes-list` now requires `notes:read` up front** (found by this slice's

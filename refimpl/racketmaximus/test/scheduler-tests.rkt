@@ -87,7 +87,10 @@
   (register-job-kind! "ok" (lambda (conn p pl) (hasheq 'ok #t)))
   (define j (enqueue-job! c #:team tid #:user uid #:kind "ok"))
   (define lease (+ (current-seconds) POOL-LEASE-SECONDS))
-  (check-true (claim-job! c j #:lease lease))            ; first claimant takes it
+  ;; the claim returns this attempt's fencing token (issue #24), #f if it lost
+  (define token (claim-job! c j #:lease lease))
+  (check-true (string? token))                           ; first claimant takes it
+  (check-equal? (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j) token)
   (check-false (claim-job! c j #:lease (+ lease 99)))    ; second finds it no longer queued
   ;; the loser's update changed nothing: the first lease still stands
   (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "running")

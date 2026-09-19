@@ -1515,18 +1515,23 @@
     [(not-holder) (err "not the lease holder of this job" 409)]
     [(not-running) (err "the job is not running" 409)]
     [else (err "not found" 404)]))
+;; issue #24: every write about a claimed job carries the attempt's claim_token,
+;; which the claim response handed the worker. A worker that sends none is refused
+;; on any job claimed since migration 0031 — the fence is the point.
+(define (claim-token-of b) (let ([v (hash-ref b 'claim_token #f)]) (and (string? v) v)))
 (define (ep-worker-heartbeat req id)
   (with-worker req (lambda (p ex)
-    (define v (worker-heartbeat! db-conn ex id))
+    (define v (worker-heartbeat! db-conn ex id #:token (claim-token-of (read-json-body req))))
     (if (number? v) (json-response (hasheq 'ok #t 'id id 'lease_until v)) (worker-verdict v id)))))
 (define (ep-worker-complete req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
-    (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))) id))))
+    (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))
+                                      #:token (claim-token-of b)) id))))
 (define (ep-worker-fail req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
-    (worker-verdict (worker-fail! db-conn ex id (fmt b 'error)) id))))
+    (worker-verdict (worker-fail! db-conn ex id (fmt b 'error) #:token (claim-token-of b)) id))))
 
 ;; real model call (falls back to simulated when no model is configured)
 (define (ep-ai-chat req)

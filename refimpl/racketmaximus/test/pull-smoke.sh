@@ -96,6 +96,18 @@ assert "a parts prompt reaches the model"     "$(cat "$TELEMACHUS_DATA_DIR/parts
 echo "== 4. a stale result is refused; retire kills the token ==="
 JID=$(G /api/jobs | python3 -c 'import sys,json;print(json.load(sys.stdin)["jobs"][0]["id"])')
 assert "completing a finished job is 409" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$JID/complete -H "Authorization: Bearer $WT" -d '{"result":{"reply":"x","tokens_used":1}}')" '409'
+# issue #24: a claim hands back a fencing token, and a write without the right one
+# is refused — this is what stops a lapsed attempt landing on the one that replaced it
+CJ=$(P /api/jobs '{"kind":"infer.chat","payload":{"messages":[{"role":"user","content":"fence"}]}}')
+CJID=$(printf '%s' "$CJ" | jq_ 'd["id"]')
+CLAIM=$(curl -s -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"],"max_wait":2}')
+assert "the claim carries a fencing token" "$CLAIM" '"claim_token":"'
+FENCE=$(printf '%s' "$CLAIM" | jq_ 'd["claim_token"]')
+assert "a heartbeat without the token is 409" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$CJID/heartbeat -H "Authorization: Bearer $WT" -d '{}')" '409'
+assert "…with the wrong token too"           "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$CJID/heartbeat -H "Authorization: Bearer $WT" -d '{"claim_token":"nope"}')" '409'
+assert "…and with the right one it is 200"   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$CJID/heartbeat -H "Authorization: Bearer $WT" -d "{\"claim_token\":\"$FENCE\"}")" '200'
+assert "a result without the token is 409"   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$CJID/complete -H "Authorization: Bearer $WT" -d '{"result":{"reply":"x","tokens_used":1}}')" '409'
+assert "…and with it, the job completes"     "$(curl -s -X POST $B/api/workers/jobs/$CJID/complete -H "Authorization: Bearer $WT" -d "{\"claim_token\":\"$FENCE\",\"result\":{\"reply\":\"fenced\",\"tokens_used\":1}}")" '"ok":true'
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'
 assert "…and the worker token is dead" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{}')" '401'
 assert "…and the executor is retired" "$(G /api/executors)" '"status":"retired"'

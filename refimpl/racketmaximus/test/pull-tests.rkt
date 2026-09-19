@@ -60,17 +60,23 @@
   (check-equal? (hash-ref got 'id) j1 "the Acme worker gets Acme's job, not Globex's")
   (check-false (worker-claim! c acme-ex #:kinds '("infer.chat") #:models '("llama-70b" "qwen2.5:7b")) "…and nothing else")
   ;; the instance-wide worker gets Globex's
-  (check-equal? (hash-ref (worker-claim! c wide #:kinds '("infer.chat") #:models '("qwen2.5:7b")) 'id) g1)
+  (define wide-got (worker-claim! c wide #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+  (check-equal? (hash-ref wide-got 'id) g1)
   ;; atomic: j1 is held by acme-ex; a second claim from wide cannot take it
   (check-false (worker-claim! c wide #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
   ;; only the holder completes; a bad shape fails the job
-  (check-equal? (worker-complete! c wide j1 (hasheq 'reply "x" 'tokens_used 1)) 'not-holder)
-  (check-equal? (worker-complete! c acme-ex j1 (hasheq 'nope 1)) 'ok "accepted from the holder…")
+  (check-equal? (worker-complete! c wide j1 (hasheq 'reply "x" 'tokens_used 1)
+                                  #:token (hash-ref wide-got 'claim_token)) 'not-holder)
+  (check-equal? (worker-complete! c acme-ex j1 (hasheq 'nope 1)
+                                  #:token (hash-ref got 'claim_token)) 'ok "accepted from the holder…")
   (check-equal? (hash-ref (get-job c j1 (hash-ref acme 'team_id)) 'status) "error" "…but a bad result fails the job")
   (check-true (regexp-match? #rx"reply must be a string" (hash-ref (get-job c j1 (hash-ref acme 'team_id)) 'error)))
-  (check-equal? (worker-complete! c wide g1 (hasheq 'reply "hello" 'tokens_used 9)) 'ok)
+  (check-equal? (worker-complete! c wide g1 (hasheq 'reply "hello" 'tokens_used 9)
+                                  #:token (hash-ref wide-got 'claim_token)) 'ok)
   (check-equal? (hash-ref (hash-ref (get-job c g1 (hash-ref globex 'team_id)) 'result) 'reply) "hello")
-  (check-equal? (worker-complete! c wide g1 (hasheq 'reply "again" 'tokens_used 1)) 'not-running "a finished job takes no second result")
+  (check-equal? (worker-complete! c wide g1 (hasheq 'reply "again" 'tokens_used 1)
+                                  #:token (hash-ref wide-got 'claim_token)) 'not-running
+                "a finished job takes no second result")
   (check-equal? (hash-ref (car (executor-list c op)) 'status) "active" "a worker that claimed is active")
   (disconnect c))
 
@@ -83,7 +89,12 @@
   (define claimed (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
   (check-equal? (hash-ref claimed 'id) j)
   (check-true (> (hash-ref claimed 'lease_until) (current-seconds)))
-  (check-true (number? (worker-heartbeat! c ex j)) "the holder heartbeats")
+  (define fence (hash-ref claimed 'claim_token))
+  (check-true (string? fence) "the claim hands back a fencing token")
+  (check-true (number? (worker-heartbeat! c ex j #:token fence)) "the holder heartbeats")
+  (check-equal? (worker-heartbeat! c ex j #:token "not-the-token") 'not-holder
+                "…and a stale token is refused (issue #24)")
+  (check-equal? (worker-heartbeat! c ex j) 'not-holder "…as is no token at all")
   (check-equal? (reap-leases! c) 0 "a live lease is not reaped")
   ;; expire it by hand — the test must not sleep two minutes
   (define (expire!) (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j))
@@ -91,8 +102,9 @@
   (check-equal? (reap-leases! c) 1)
   (check-equal? (hash-ref (get-job c j tid) 'status) "queued" "an expired lease returns the job to the queue")
   (check-equal? (hash-ref (get-job c j tid) 'attempt) 2)
-  (check-equal? (worker-heartbeat! c ex j) 'not-running "…and the old holder's heartbeat is refused")
-  (check-equal? (worker-complete! c ex j (hasheq 'reply "late" 'tokens_used 1)) 'not-running "a late result is refused too")
+  (check-equal? (worker-heartbeat! c ex j #:token fence) 'not-running "…and the old holder's heartbeat is refused")
+  (check-equal? (worker-complete! c ex j (hasheq 'reply "late" 'tokens_used 1) #:token fence) 'not-running
+                "a late result is refused too")
   ;; claim, expire, claim, expire → past MAX-ATTEMPTS it fails for good
   (for ([_ (in-range (sub1 MAX-ATTEMPTS))])
     (check-true (and (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")) #t))
@@ -122,7 +134,9 @@
                 (define job (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
                 (cond [job (worker-complete! c ex (hash-ref job 'id)
                                              (hasheq 'reply (string-append "echo: " (hash-ref (car (hash-ref (hash-ref job 'payload) 'messages)) 'content))
-                                                     'tokens_used 3))
+                                                     'tokens_used 3)
+                                             ;; the claim's fence goes back with the result (issue #24)
+                                             #:token (hash-ref job 'claim_token))
                            (semaphore-post done)]
                       [(< n 400) (sleep 0.05) (loop (add1 n))])))))
   (define-values (reply tokens)
@@ -144,7 +158,7 @@
   (define-values (uid tid) (bootstrap! c #:username "root"))
   ;; a pool job, claimed the way the scheduler claims one: leased, no executor
   (define j (enqueue-job! c #:team tid #:user uid #:kind "local.echo" #:payload (hasheq 'x "hi")))
-  (check-true (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS)))
+  (check-true (string? (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS))))
   (check-true (sql-null? (query-value c "SELECT executor_id FROM jobs WHERE id = ?" j)) "no executor holds it")
   (check-equal? (reap-leases! c) 0 "a live lease is not reaped")
   ;; the worker's process is gone: nothing refreshes the lease
@@ -156,4 +170,52 @@
   (check-equal? (query-value c "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND status='running'" tid) 0)
   (check-equal? (process-one! c) j "the pool picks the recovered job back up")
   (check-equal? (hash-ref (get-job c j tid) 'status) "done")
+  (disconnect c))
+
+;; ---- the fence (issue #24) ------------------------------------------------------
+
+(test-case "a re-claimed job refuses the previous attempt's result, same holder and all"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok0) (executor-create! c p #:name "one-box" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  ;; attempt 1 claims, and is still alive when its lease lapses
+  (define a1 (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define t1 (hash-ref a1 'claim_token))
+  (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j)
+  (check-equal? (reap-leases! c) 1)
+  ;; the SAME executor claims it again — which is exactly the case executor_id and
+  ;; status cannot tell apart
+  (define a2 (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define t2 (hash-ref a2 'claim_token))
+  (check-equal? (hash-ref a2 'id) j)
+  (check-false (equal? t1 t2) "a new attempt mints a new token")
+  ;; attempt 1 finally finishes: refused, and the job is still running for attempt 2
+  (check-equal? (worker-complete! c ex j (hasheq 'reply "from attempt 1" 'tokens_used 1) #:token t1) 'not-holder)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "running")
+  (check-equal? (worker-fail! c ex j "attempt 1 gave up" #:token t1) 'not-holder
+                "…and it cannot fail the live attempt either")
+  ;; attempt 2 completes normally
+  (check-equal? (worker-complete! c ex j (hasheq 'reply "from attempt 2" 'tokens_used 2) #:token t2) 'ok)
+  (define done (get-job c j tid))
+  (check-equal? (hash-ref done 'status) "done")
+  (check-equal? (hash-ref (hash-ref done 'result) 'reply) "from attempt 2")
+  ;; and the token is cleared, so even attempt 2 cannot write twice
+  (check-equal? (worker-complete! c ex j (hasheq 'reply "again" 'tokens_used 1) #:token t2) 'not-running)
+  (disconnect c))
+
+(test-case "the pool is fenced the same way"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "local.echo" #:payload (hasheq 'x "hi")))
+  (define t1 (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS)))
+  (check-true (string? t1) "a pool claim mints a token too")
+  ;; reaped and re-claimed
+  (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j)
+  (check-equal? (reap-leases! c) 1)
+  (check-true (sql-null? (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j))
+              "requeueing clears the token")
+  (define t2 (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS)))
+  (check-false (equal? t1 t2))
   (disconnect c))
