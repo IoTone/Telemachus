@@ -70,6 +70,8 @@
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
+         "../domain/ai/content.rkt"               ; content parts + response formats (issue #18)
+         (only-in "../domain/authz/secretbox.rkt" secrets-enabled? secret-key-id)   ; issue #19
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
          "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
@@ -300,11 +302,12 @@
         "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"))
 (define (ext-of s) (let ([m (regexp-match #rx"\\.([A-Za-z0-9]+)$" s)]) (if m (string-downcase (cadr m)) "")))
 (define (mime-of s) (hash-ref STATIC-MIME (ext-of s) #"application/octet-stream"))
-(define (serve-file path)
+(define (serve-file path #:cache [cache #"public, max-age=300"] #:headers [extra '()])
   (if (and (file-exists? path))
       (response/output #:mime-type (mime-of (path->string path))
-                       #:headers (list (make-header #"Cache-Control" #"public, max-age=300")
-                                       (make-header #"X-Content-Type-Options" #"nosniff"))
+                       #:headers (append (list (make-header #"Cache-Control" cache)
+                                               (make-header #"X-Content-Type-Options" #"nosniff"))
+                                         extra)
                        (lambda (out) (write-bytes (file->bytes path) out)))
       (err "not found" 404)))
 ;; a path segment safe to interpolate into a filesystem path (no traversal, no slashes)
@@ -317,6 +320,24 @@
          (and (safe-seg? plugin) (andmap safe-seg? rest)
               (apply build-path (build-path impl-root "plugins" plugin "landing")
                      (if (null? rest) '("index.html") rest))))))
+
+;; issue #20: /api/x/<plugin>/bundle/<path...> → plugins/<plugin>/bundle/<path>,
+;; the AUTHENTICATED counterpart of the funnel's public landing bundle. Two rules
+;; keep customer screens off a public path: the plugin must be LOADED (so the
+;; route can only ever reach a directory the operator installed, never an
+;; arbitrary one), and every segment is a plain name — `..` and slashes are not
+;; names, so the path cannot climb out of the bundle directory into the plugin's
+;; source. The caller's principal and org are the plugin's API's business
+;; (/api/x/<id>/… routes see both); the bundle itself is code, one copy for
+;; everyone, which is why it does not vary by org.
+(define (plugin-bundle-file-path plugin rest-path)
+  (define rest (filter (lambda (s) (not (string=? s "")))
+                       (string-split (or rest-path "") "/")))
+  (and (safe-seg? plugin)
+       (for/or ([p (in-list (loaded-plugins))]) (equal? (hash-ref p 'id) plugin))
+       (andmap safe-seg? rest)
+       (apply build-path (build-path impl-root "plugins" plugin "bundle")
+              (if (null? rest) '("index.html") rest))))
 
 ;; Server-Sent Events: proc receives an `emit` that pushes one JSON event.
 (define (sse-response proc)
@@ -934,6 +955,9 @@
      (json-response (hasheq 'ok #t
       ;; issue #11: what /health used to say, now behind instance:manage
       'service "telemachus" 'version app-version 'tls (tls-on?) 'kdf (kdf-name)
+                            ;; issue #19: is a dump of this database replayable?
+                            'secrets (if (secrets-enabled?) "sealed" "plaintext")
+                            'secret_key_id (or (secret-key-id) 'null)
                             'multitenant (multitenant?)
                             'users (query-value db-conn "SELECT COUNT(*) FROM users")
                             'teams (query-value db-conn "SELECT COUNT(*) FROM teams")
@@ -1208,6 +1232,31 @@
       [(change-password! db-conn (principal-user-id p) cur new) (json-response (hasheq 'ok #t))]
       [else (err "current password incorrect" 403)]))))
 
+;; issue #19: a TOTP seed is the one credential its owner cannot rotate by using
+;; it. Clearing it is what makes a leaked seed — from a database dump taken before
+;; the instance had a secret key, say — a recoverable incident.
+(define (ep-2fa-reset req)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else
+     (define had (reset-2fa! db-conn (principal-user-id p)))
+     (audit! db-conn #:action "user.2fa.reset" #:actor-type "user" #:actor-id (principal-user-id p)
+             #:resource-type "user" #:resource-id (principal-user-id p))
+     (json-response (hasheq 'ok #t 'was_enabled had))]))
+
+;; the same, for someone else — an operator act, audited as one
+(define (ep-admin-2fa-reset req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (cond
+      [(not (query-maybe-value db-conn "SELECT id FROM users WHERE id = ?" id)) (err "not found" 404)]
+      [else
+       (define had (reset-2fa! db-conn id))
+       (audit! db-conn #:action "user.2fa.reset" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:resource-type "user" #:resource-id id)
+       (json-response (hasheq 'ok #t 'user_id id 'was_enabled had))]))))
+
 (define (ep-2fa-enable req)
   (define p (current-principal req))
   (cond
@@ -1451,14 +1500,19 @@
     (require-perm db-conn p "chat:use")
     (require-feature p "chat")
     (define b (read-json-body req))
+    ;; `prompt` is a string or a list of content parts (issue #18)
     (define prompt (hash-ref b 'prompt ""))
+    (define rf (let ([v (hash-ref b 'response_format #f)]) (and v (not (eq? v 'null)) v)))
     (define ex (pick-executor b))
     (when ex (require-perm db-conn p "instance:manage"))          ; routing to specific compute = operator
-    (define est (estimate-tokens prompt))
+    (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
+    (define est (estimate-tokens prompt-text))
     (define sid (principal-team-id p))
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
+      [(content-problem prompt) => (lambda (bad) (err bad 400))]
+      [(and rf (response-format-problem rf)) => (lambda (bad) (err bad 400))]
       [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
@@ -1466,11 +1520,14 @@
        (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
        (with-slot GOV (string-append "team:" sid) (or climit 2)
          (lambda (inflight)
-           (define-values (reply tokens) (run-chat prompt #:executor ex))   ; local or federated
+           ;; run-chat refuses a reply that does not honour the format, so a
+           ;; 200 here means the schema held; `parsed` is that reply as JSON.
+           (define-values (reply tokens) (run-chat prompt #:executor ex #:response-format rf))
            (tenant-quota-record! db-conn p "ai.requests" 1)
            (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
            (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
            (json-response (hasheq 'reply reply 'tokens_used tokens
+                                  'parsed (response-format-parse rf reply)
                                   'model (executor-model ex)
                                   'executor (or ex "local")
                                   'concurrent inflight
@@ -1486,13 +1543,17 @@
     (require-feature p "chat")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
+    (define rf (let ([v (hash-ref b 'response_format #f)]) (and v (not (eq? v 'null)) v)))
     (define ex (pick-executor b))
     (when ex (require-perm db-conn p "instance:manage"))
-    (define est (estimate-tokens prompt))
+    (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
+    (define est (estimate-tokens prompt-text))
     (define sid (principal-team-id p))
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
+      [(content-problem prompt) => (lambda (bad) (err bad 400))]
+      [(and rf (response-format-problem rf)) => (lambda (bad) (err bad 400))]
       [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
@@ -1502,14 +1563,24 @@
         (lambda (emit)
           (with-slot GOV (string-append "team:" sid) (or climit 2)
             (lambda (inflight)
-              (define tokens (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok))) #:executor ex))
+              (define-values (tokens text)
+                (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok))) #:executor ex
+                                 #:response-format rf))
               (tenant-quota-record! db-conn p "ai.requests" 1)
               (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
               (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
-              (emit (hasheq 'done #t 'tokens_used tokens
-                            'model (executor-model ex)
-                            'executor (or ex "local")
-                            'remaining_tokens (hash-ref after 'remaining)))))))]))))
+              ;; a format can only be judged once the stream has ended, so the
+              ;; verdict rides in the final event rather than raising after the
+              ;; answer has already gone out. `parsed` on success, `schema_error`
+              ;; when the model did not honour it — never a silent pass.
+              (define-values (parsed problem) (response-format-verify rf text))
+              (emit (let ([done (hasheq 'done #t 'tokens_used tokens
+                                        'model (executor-model ex)
+                                        'executor (or ex "local")
+                                        'remaining_tokens (hash-ref after 'remaining))])
+                      (cond [(not rf) done]
+                            [problem (hash-set done 'schema_error problem)]
+                            [else (hash-set done 'parsed parsed)])))))))]))))
 
 ;; agent mode: the model uses tools (RBAC-checked per tool) to operate the platform.
 (define (ep-agent req)
@@ -2141,6 +2212,16 @@
    'bundle-file (lambda (req plugin path)
                   (define f (bundle-file-path (request-path req)))
                   (if f (serve-file f) (err "not found" 404)))
+   ;; issue #20: authenticated, and never publicly cached. `Vary: Authorization`
+   ;; so no intermediary can hand one principal's request to another.
+   'plugin-bundle (lambda (req plugin path)
+                    (with-auth req
+                      (lambda (p)
+                        (define f (plugin-bundle-file-path plugin path))
+                        (if f
+                            (serve-file f #:cache #"private, no-store"
+                                        #:headers (list (make-header #"Vary" #"Authorization")))
+                            (err "not found" 404)))))
    'beta-template ep-beta-template
    'config ep-config
    'branding-get ep-branding-get 'branding-put ep-branding-put 'branding-logo ep-branding-logo
@@ -2159,7 +2240,8 @@
    'tenant-suspend (lambda (req) (ep-tenant req suspend!))
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota
-   'login ep-login '2fa-enable ep-2fa-enable 'password ep-password
+   'login ep-login '2fa-enable ep-2fa-enable '2fa-reset ep-2fa-reset
+   'admin-2fa-reset ep-admin-2fa-reset 'password ep-password
    'whoami ep-whoami 'profile ep-profile 'add-member ep-add-member 'members-list ep-members-list
    'admin-status ep-admin-status
    'orgs-create ep-orgs-create 'orgs-list ep-orgs-list
@@ -2355,17 +2437,26 @@
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
   ;; slice 66: the first REMOTE kind — the wire run-chat speaks, run by a pull
   ;; worker; a result must carry a reply and a numeric token count
+  ;; A worker answers with `reply` (a string) or with `content` — the same parts
+  ;; shape a provider may send (issue #18) — so a remote executor can return what
+  ;; a local call can. Parts are normalized to text on the way out of the wire.
   (register-job-kind! "infer.chat" #f #:remote? #t
     #:validate (lambda (r)
                  (cond [(not (hash? r)) "result must be an object"]
-                       [(not (string? (hash-ref r 'reply #f))) "result.reply must be a string"]
+                       [(and (not (hash-has-key? r 'reply)) (not (hash-has-key? r 'content)))
+                        "result needs a reply (a string) or a content (a list of parts)"]
+                       [(and (hash-has-key? r 'reply) (not (string? (hash-ref r 'reply))))
+                        "result.reply must be a string"]
+                       [(and (not (hash-has-key? r 'reply))
+                             (let-values ([(_t p) (content->text (hash-ref r 'content))]) p))
+                        => (lambda (p) (string-append "result.content: " p))]
                        [(not (number? (hash-ref r 'tokens_used #f))) "result.tokens_used must be a number"]
                        [else #f])))
   (set-reaper! reap-leases!)
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker
   (set-box! pull-router
-    (lambda (name msgs temp)
+    (lambda (name msgs temp rf)
       (define ex (executor-by-name db-conn name))
       (and ex (equal? (hash-ref ex 'mode) "pull")
            (let* ([job (current-job)]
@@ -2375,7 +2466,8 @@
              (unless team (error 'run-chat "no team context for executor ~a" name))
              (define-values (reply tokens)
                (pull-dispatch! db-conn #:team team #:user user #:executor name #:messages msgs
-                               #:temperature temp #:parent (and job (hash-ref job 'id))))
+                               #:temperature temp #:parent (and job (hash-ref job 'id))
+                               #:response-format rf))
              (cons reply tokens)))))
   ;; async job kinds + the worker pool
   (register-job-kind! "translate"
@@ -2499,8 +2591,10 @@
   (define ip (bind-ip))
   (define port (listen-port))
   (when tls? (ensure-cert!))
-  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · max upload: ~a MiB)\n"
+  (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · secrets: ~a · max upload: ~a MiB)\n"
           (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off")
+          ;; issue #19: say plainly whether a dump of this database is replayable
+          (if (secrets-enabled?) (format "sealed (key ~a)" (secret-key-id)) "plaintext")
           (quotient (max-upload-bytes) (* 1024 1024)))
   ;; The S3 front door is a SEPARATE listener on a separate port: it runs on
   ;; web-kit/http1 because it must answer `Expect: 100-continue` and stream bodies

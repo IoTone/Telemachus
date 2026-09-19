@@ -24,10 +24,13 @@
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
+         (only-in "../ai/content.rkt" content->text)
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
          "federation.rkt")
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
+         executor-secret executor-context
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER
          pull-dispatch!)
 
@@ -38,6 +41,13 @@
 (define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- executors --------------------------------------------------------------------
+;; a push executor's key is sealed at rest like the other replayable secrets
+;; (issue #19); it is read back only by the rewrap CLI and a future push caller
+(define (executor-context id) (string-append "executors.secret_key:" id))
+(define (executor-secret conn id)
+  (let ([v (query-maybe-value conn "SELECT secret_key FROM executors WHERE id = ?" id)])
+    (and v (not (sql-null? v)) (secret-unwrap (executor-context id) v))))
+
 (define ESELECT
   (string-append "SELECT id, org_id, name, mode, url, model, capabilities, token_id, status, last_seen_at, created_at, created_by "
                  "FROM executors"))
@@ -79,7 +89,8 @@
   (query-exec conn
     (string-append "INSERT INTO executors (id, org_id, name, mode, url, model, secret_key, capabilities, token_id, created_by) "
                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    id (or org-id sql-null) name mode (or url sql-null) (or model sql-null) (or key sql-null)
+    id (or org-id sql-null) name mode (or url sql-null) (or model sql-null)
+    (if key (secret-wrap (executor-context id) key) sql-null)
     (jsexpr->string caps) (or tid sql-null) (principal-user-id p))
   (when (equal? mode "push")
     (register-executor! name #:url url #:model (or model "local") #:key key))
@@ -155,15 +166,16 @@
              (or sub? (< (query-value conn "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND status = 'running'" team)
                          ((scheduler-cap-for) team)))
              ((scheduler-admit?) conn team)
-             (let ([lease (+ (now) LEASE-SECONDS)])
-               (query-exec conn
-                 (string-append "UPDATE jobs SET status = 'running', executor_id = ?, lease_until = ?, "
-                                "started_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'queued'")
-                 (hash-ref ex 'id) lease id)
-               (define row (query-row conn "SELECT id, kind, payload, team_id FROM jobs WHERE id = ?" id))
-               (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
-                       'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vector-ref row 2)))
-                       'lease_until lease 'lease_seconds LEASE-SECONDS)))))))
+             ;; the same conditional claim the pool makes: the update names the
+             ;; row it expects and is believed only when RETURNING hands one back,
+             ;; so two workers scanning the same queue never both get this job.
+             (let* ([lease (+ (now) LEASE-SECONDS)]
+                    [took? (claim-job! conn id #:lease lease #:executor (hash-ref ex 'id))])
+               (and took?
+                    (let ([row (query-row conn "SELECT id, kind, payload, team_id FROM jobs WHERE id = ?" id)])
+                      (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
+                              'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vector-ref row 2)))
+                              'lease_until lease 'lease_seconds LEASE-SECONDS)))))))))
 
 ;; is this job held by this executor, and still running? -> 'ok | 'not-holder | 'not-running
 (define (holder-check conn ex job-id)
@@ -216,8 +228,12 @@
 ;; an expired lease returns the job to the queue with attempt+1; past MAX-ATTEMPTS
 ;; it fails with the reason. Called from the scheduler's idle tick and by tests.
 (define (reap-leases! conn)
+  ;; every claim carries a lease now — a pull worker's and the pool's alike — so
+  ;; this recovers an in-process job whose worker died as well as a remote one.
+  ;; (`lease_until < ?` already skips a NULL lease; those are swept at boot by
+  ;; the scheduler's reap-orphans!.)
   (define expired (query-rows conn
-    "SELECT id, attempt FROM jobs WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until < ?" (now)))
+    "SELECT id, attempt FROM jobs WHERE status = 'running' AND lease_until < ?" (now)))
   (for ([r (in-list expired)])
     (define id (vector-ref r 0)) (define attempt (vector-ref r 1))
     (if (< attempt MAX-ATTEMPTS)
@@ -235,11 +251,16 @@
 ;; team cap (its parent holds the slot) and requirements naming the executor.
 (define WAIT-SECONDS 300)
 (define (pull-dispatch! conn #:team team #:user user #:executor name #:messages msgs
-                        #:model [model #f] #:temperature [temp 0.7] #:parent [parent #f])
+                        #:model [model #f] #:temperature [temp 0.7] #:parent [parent #f]
+                        #:response-format [rf #f])
   (define ex (executor-by-name conn name))
   (unless ex (error 'run-chat "no executor named ~a" name))
+  ;; response_format rides in the payload (issue #18): a worker must be able to
+  ;; answer a schema request, or a pull executor could not run the same call the
+  ;; local path can.
   (define id (enqueue-job! conn #:team team #:user user #:kind "infer.chat"
-                           #:payload (hasheq 'messages msgs 'model (or model (hash-ref ex 'model) 'null) 'temperature temp)
+                           #:payload (let ([pl (hasheq 'messages msgs 'model (or model (hash-ref ex 'model) 'null) 'temperature temp)])
+                                       (if rf (hash-set pl 'response_format rf) pl))
                            #:requirements (hasheq 'executor name 'model (or model (hash-ref ex 'model) 'null))
                            #:parent parent))
   (let loop ([waited 0])
@@ -248,7 +269,12 @@
     (cond
       [(equal? st "done")
        (define res (string->jsexpr (vector-ref r 1)))
-       (values (hash-ref res 'reply "") (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
+       ;; a worker may answer with `reply` or with content parts (issue #18); the
+       ;; validator has already refused parts that carry no text
+       (define reply
+         (cond [(string? (hash-ref res 'reply #f)) (hash-ref res 'reply)]
+               [else (let-values ([(t _p) (content->text (hash-ref res 'content ""))]) t)]))
+       (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
       [(member st '("error" "canceled"))
        (error 'run-chat "executor ~a: ~a" name (let ([e (vector-ref r 2)]) (if (sql-null? e) st e)))]
       [(> waited WAIT-SECONDS)

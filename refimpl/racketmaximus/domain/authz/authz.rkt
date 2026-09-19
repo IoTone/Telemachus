@@ -21,6 +21,7 @@
          "permissions.rkt"
          "passwords.rkt"
          "sha2.rkt"                 ; hmac-sha256 (libcrypto) — the token hash
+         (only-in "secretbox.rkt" secret-wrap secret-unwrap)   ; secrets at rest (issue #19)
          (only-in "crypto.rkt" constant-time=?))
 
 (provide (struct-out principal)
@@ -35,7 +36,7 @@
          hash-token legacy-hash-token token-pepper-is-default?
          grant! revoke!
          audit! audit-list
-         set-password! change-password! authenticate enable-2fa! first-team-for
+         set-password! change-password! authenticate enable-2fa! reset-2fa! first-team-for
          user-locale set-user-locale! org-data-reader? org-teams-of)
 
 ;; every team id in an org, for an org-scoped listing (TEN-2h)
@@ -176,10 +177,27 @@
     [(or (not ph) (sql-null? ph) (not (verify-password current ph))) #f]
     [else (set-password! conn user-id new) #t]))
 
+;; The seed is the one secret here that cannot be reissued by the person who owns
+;; it without help, so it is also the one worth encrypting at rest (issue #19) and
+;; the one worth being able to REVOKE — see reset-2fa! below.
+(define (totp-context user-id) (string-append "users.totp_secret:" user-id))
+
 (define (enable-2fa! conn user-id #:account [account "user"])
   (define secret (new-totp-secret))
-  (query-exec conn "UPDATE users SET totp_secret = ? WHERE id = ?" secret user-id)
+  (query-exec conn "UPDATE users SET totp_secret = ? WHERE id = ?"
+              (secret-wrap (totp-context user-id) secret) user-id)
   (values secret (totp-uri secret #:account account)))
+
+;; Clear a user's second factor so they must enrol again, and the old seed — a
+;; seed that may sit in a database dump somebody took — stops working. An operator
+;; may do this for anyone; anyone may do it for themselves. Returns #t if 2FA was
+;; on. This is what makes a leaked seed a recoverable incident rather than a
+;; permanent one: a TOTP seed cannot be rotated by using it, the way a password or
+;; an access key can.
+(define (reset-2fa! conn user-id)
+  (define had (query-maybe-value conn "SELECT totp_secret FROM users WHERE id = ?" user-id))
+  (query-exec conn "UPDATE users SET totp_secret = NULL WHERE id = ?" user-id)
+  (and had (not (sql-null? had)) (string? had) (not (string=? had "")) #t))
 
 (define (first-team-for conn user-id)
   (query-maybe-value conn
@@ -199,7 +217,9 @@
      (cond
        [(or (sql-null? ph) (not (verify-password password ph))) #f]
        [(and (not (sql-null? secret)) (string? secret) (not (string=? secret "")))
-        (and code (totp-valid? secret code) uid)]     ; 2FA required
+        ;; the stored seed may be sealed (issue #19); a row written before a key was
+        ;; configured is plaintext and passes through unchanged
+        (and code (totp-valid? (secret-unwrap (totp-context uid) secret) code) uid)]   ; 2FA required
        [else uid])]))
 
 ;; ---- permission resolution --------------------------------------------------

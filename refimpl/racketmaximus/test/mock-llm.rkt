@@ -31,11 +31,21 @@
   (define table
     (with-handlers ([exn:fail? (lambda (_) (hasheq))])
       (string->jsexpr (strip-bom (file->string reply-file)))))
+  ;; content may be a STRING or a list of parts (issue #18) — read both, or a
+  ;; parts prompt would match no needle and every scripted scenario would look
+  ;; like the default reply
+  (define (content-text c)
+    (cond [(string? c) c]
+          [(list? c) (apply string-append
+                            (for/list ([p (in-list c)]
+                                       #:when (and (hash? p) (equal? (hash-ref p 'type #f) "text")
+                                                   (string? (hash-ref p 'text #f))))
+                              (hash-ref p 'text)))]
+          [else ""]))
   (define text
     (apply string-append
            (for/list ([m (in-list (let ([m (hash-ref parsed 'messages '())]) (if (list? m) m '())))])
-             (define c (and (hash? m) (hash-ref m 'content "")))
-             (if (string? c) (string-append c "\n") ""))))
+             (string-append (content-text (and (hash? m) (hash-ref m 'content ""))) "\n"))))
   ;; the LONGEST needle found in the request wins, so a specific needle can sit
   ;; beside a general one without depending on hash order
   (define hits

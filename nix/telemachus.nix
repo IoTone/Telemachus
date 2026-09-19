@@ -25,7 +25,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   buildPhase = ''
     runHook preBuild
-    raco make -j $NIX_BUILD_CORES server/main.rkt cli/telemachus-localize.rkt
+    raco make -j $NIX_BUILD_CORES server/main.rkt cli/telemachus-localize.rkt cli/telemachus-secrets.rkt
     runHook postBuild
   '';
 
@@ -48,7 +48,9 @@ stdenv.mkDerivation (finalAttrs: {
     mkdir -p $out/share/telemachus $out/bin
     cp -r . $out/share/telemachus/
 
-    for entry in server:server/main.rkt localize:cli/telemachus-localize.rkt; do
+    # telemachus-secrets is an OPERATOR tool (issue #19): adopting or rotating the
+    # key that seals stored secrets is done from the shell, never at boot.
+    for entry in server:server/main.rkt localize:cli/telemachus-localize.rkt secrets:cli/telemachus-secrets.rkt; do
       name=''${entry%%:*}; path=''${entry#*:}
       makeWrapper ${racket}/bin/racket $out/bin/telemachus-$name \
         --add-flags "$out/share/telemachus/$path" \

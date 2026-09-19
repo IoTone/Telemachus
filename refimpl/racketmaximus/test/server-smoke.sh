@@ -62,6 +62,9 @@ assert "og:title (default)"         "$SHELL_HTML" '<meta property="og:title" con
 assert "bundle root serves index.html" "$(curl -s -o /dev/null -w '%{http_code} %{content_type}' $B/beta/bundle/beta-onboarding/)" '200 text/html'
 assert "bundle file by path"           "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/beta-onboarding/index.html)" '200'
 assert "bundle traversal refused"      "$(curl -s -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
+# …and when the client does NOT collapse it either: a ".." segment reaches the
+# server as Racket's 'up symbol, and used to raise a 500 instead of being refused
+assert "…even unnormalized"           "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/beta/bundle/beta-onboarding/../plugin.json")" '404'
 BS=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"s3cret"}')
 assert "bootstrap token" "$BS" '"token":"tk_'
 assert "bootstrap msg"   "$BS" 'Created operator alice'
@@ -99,6 +102,18 @@ if [ "${MAXC:-9}" -le 2 ]; then echo "  ok   concurrency cap (max=$MAXC of 2)"; 
 assert "ai model info"   "$(curl -s $B/api/ai/model -H "Authorization: Bearer $OP")" '"configured":false'
 assert "ai chat reply"   "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" '"reply":"HELLO"'
 assert "ai chat stream"  "$(curl -sN -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":"hello world"}')" '"done":true'
+# issue #18: a prompt may be content PARTS, and a malformed one is named rather
+# than reaching the provider as an opaque 400
+assert "chat: a parts prompt"          "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"text","text":"hello"},{"type":"text","text":" world"}]}')" '"reply":"HELLO WORLD"'
+assert "chat: an unsupported part"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"input_audio"}]}')" 'unsupported type'
+assert "chat: a part with no type"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"text":"loose"}]}')" 'content part 0: no'
+assert "…and that is a 400"            "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"text":"loose"}]}')" '400'
+assert "chat: an unknown response_format" "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"yaml"}}')" 'not supported'
+assert "chat: a schemaless json_schema"   "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"json_schema","json_schema":{"name":"x"}}}')" 'json_schema.schema'
+# the simulated fallback cannot honour a format, and says so instead of passing an
+# upper-cased echo off as conforming JSON
+assert "chat: no model, no format"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"json_object"}}')" 'no model configured'
+assert "chat: a parts prompt streams"  "$(curl -sN -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"text","text":"hello"}]}')" '"done":true'
 assert "agent no-model"  "$(curl -s -X POST $B/api/agent -H "Authorization: Bearer $OP" -d '{"prompt":"hi"}')" 'requires a configured model'
 assert "tools list"      "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'create_note'
 assert "tool toggle off" "$(curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}')" '"enabled":false'
@@ -539,6 +554,17 @@ assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-ro
 assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
 assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
 
+# ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
+assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'
+assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'
+TFA=$(curl -s -X POST $B/api/2fa/enable -H "Authorization: Bearer $OP")
+assert "2fa enable returns the seed once"     "$TFA" '"secret":'
+assert "…and resetting it says it was on"     "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":true'
+assert "…a second reset says it was not"      "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":false'
+assert "an operator may revoke another user's seed" "$(curl -s -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $OP")" '"ok":true'
+assert "…a member may not"                    "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $BOB")" '403'
+assert "…and an unknown user is a 404"        "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/admin/users/nobody/2fa -H "Authorization: Bearer $OP")" '404'
+
 # ---- slice 63: a plugin's authenticated HTTP route, mounted under /api/x/<plugin>/
 assert "plugin route (GET, query)"  "$(curl -s "$B/api/x/example-tools/word-count?text=one+two+three" -H "Authorization: Bearer $OP")" '"words":3'
 assert "plugin route (POST, body)"  "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{"text":"a b"}')" '"words":2'
@@ -546,6 +572,22 @@ assert "plugin route needs a token" "$(curl -s -o /dev/null -w '%{http_code}' "$
 assert "plugin route: a user error is a 400" "$(curl -s -X POST $B/api/x/example-tools/word-count -H "Authorization: Bearer $OP" -d '{}')" 'text is required'
 assert "plugin route in the plugin listing" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"GET /word-count"'
 assert "no plugin route outside its prefix"  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/word-count?text=x" -H "Authorization: Bearer $OP")" '404'
+assert "plugin job kind is listed for its plugin" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.example-tools.word-count"'
+
+# ---- issue #20: a plugin's AUTHENTICATED bundle. The funnel's landing bundle is
+# public and publicly cached; customer screens must not be, so they come from a
+# second directory behind a bearer token and a no-store response.
+assert "plugin bundle needs a token"  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/example-tools/bundle/)" '401'
+assert "plugin bundle serves index.html" "$(curl -s $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP")" 'Word count'
+assert "…the same file by name"       "$(curl -s $B/api/x/example-tools/bundle/index.html -H "Authorization: Bearer $OP")" 'Word count'
+assert "…is never publicly cached"    "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^cache-control:')" 'private, no-store'
+assert "…and varies by Authorization" "$(curl -s -D- -o /dev/null $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP" | tr -d '\r' | grep -i '^vary:')" 'Authorization'
+assert "the public landing path is NOT the authenticated one" "$(curl -s -o /dev/null -w '%{http_code}' $B/beta/bundle/example-tools/index.html)" '404'
+# --path-as-is, or curl collapses the ../ itself and the server never sees it
+assert "plugin bundle: no traversal out of the directory" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/../main.rkt" -H "Authorization: Bearer $OP")" '404'
+assert "plugin bundle: no ENCODED traversal either" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/%2e%2e/main.rkt" -H "Authorization: Bearer $OP")" '404'
+assert "plugin bundle: a nested traversal is a 404 too" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/a/../../plugin.json" -H "Authorization: Bearer $OP")" '404'
+assert "plugin bundle: an unloaded plugin is a 404" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/nope/bundle/index.html -H "Authorization: Bearer $OP")" '404'
 
 # ---- slice 57: the document pipeline plugin is present, and refuses to run on the
 # fallback model. Without this the uppercase-echo fallback would fail every schema

@@ -136,3 +136,24 @@
   (check-equal? (hash-ref (car jobs) 'status) "done")
   (check-exn #rx"no executor named" (lambda () (pull-dispatch! c #:team tid #:user uid #:executor "nope" #:messages '())))
   (disconnect c))
+
+;; ---- the reaper covers the pool too (issue #17) --------------------------------
+
+(test-case "reap-leases! recovers an in-process job whose worker died"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  ;; a pool job, claimed the way the scheduler claims one: leased, no executor
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "local.echo" #:payload (hasheq 'x "hi")))
+  (check-true (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS)))
+  (check-true (sql-null? (query-value c "SELECT executor_id FROM jobs WHERE id = ?" j)) "no executor holds it")
+  (check-equal? (reap-leases! c) 0 "a live lease is not reaped")
+  ;; the worker's process is gone: nothing refreshes the lease
+  (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j)
+  (check-equal? (reap-leases! c) 1)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "queued" "back in the queue, not running forever")
+  (check-equal? (hash-ref (get-job c j tid) 'attempt) 2)
+  ;; and the per-team cap counts it again only once it is re-claimed
+  (check-equal? (query-value c "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND status='running'" tid) 0)
+  (check-equal? (process-one! c) j "the pool picks the recovered job back up")
+  (check-equal? (hash-ref (get-job c j tid) 'status) "done")
+  (disconnect c))

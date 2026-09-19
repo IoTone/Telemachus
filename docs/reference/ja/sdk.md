@@ -75,6 +75,37 @@ A plugin may contribute authenticated HTTP endpoints — the API a Tier-B onboar
 
 The platform mounts it at `/api/x/<plugin-id>/word-count`, so a plugin can never shadow a core route. Every plugin route requires a bearer token; the named permission is checked through `can?` before the handler runs, exactly as a tool's is. A malformed entry fails the plugin's load.
 
+## Plugin bundles
+
+A plugin serves its own screens from two directories, and the difference is who may read them:
+
+| Directory | Served at | Who |
+|---|---|---|
+| `landing/` | `/beta/bundle/<id>/` | anyone — the Tier-B onboarding funnel, a public page a prospect is linked to, cached `public, max-age=300` |
+| `bundle/` | `/api/x/<id>/bundle/` | a caller with a bearer token; `Cache-Control: private, no-store` and `Vary: Authorization`, so no shared cache ever holds one |
+
+`bundle/` is reserved by the platform under every plugin's prefix, and core routes match before plugin ones, so a plugin cannot take that path for something else. The path is resolved segment by segment against the *loaded* plugin's directory: it can never climb out of `bundle/` into the plugin's source, and it can never reach a directory nobody installed. The bundle is code — one copy for everyone; anything that varies by organisation comes from the plugin's own API routes, which see the principal and the org. Assets must ship in the bundle: the console's Content-Security-Policy is same-origin, so a CDN script or font is blocked.
+
+`plugins/example-tools/bundle/index.html` is the worked example — a screen that calls its own `/api/x/example-tools/word-count` route.
+
+## Job kinds
+
+A plugin may add background work of its own. `init!` runs at load with full SDK access, and that is the documented route:
+
+```racket
+(define (word-count-job conn principal payload)       ; -> a jsexpr result
+  (hasheq 'words (length (string-split (hash-ref payload 'text "")))))
+
+(define (init!)
+  (register-job-kind! "x.example-tools.word-count" word-count-job))
+```
+
+The name is **platform-fixed**: `x.<plugin-id>.<name>`, the same rule plugin routes follow, enforced while the plugin's `init!` runs — so a plugin can never take a core kind's name (`flow.step`, `infer.chat`) or another plugin's, and a violation fails that plugin's load rather than surfacing at claim time.
+
+A plugin kind is an ordinary job. It inherits everything the row carries, not anything from the plugin: the enqueuing team and user, the per-team concurrency cap and quota admission at claim, the org gate on whatever the handler touches, cancellation, and the lease that returns it to the queue if the worker dies. `enqueue-job!` submits one; `GET /api/jobs` lists it like any other.
+
+A **remote** kind (`#:remote? #t`) has no in-process handler — it is claimed by a pull executor over HTTP — and must carry `#:validate`, a procedure returning a string naming the problem or `#f`. It is the only thing standing between a worker's reply and the rest of the system, so it is required, not optional.
+
 ## The route table
 
 `server/routes.rkt` declares every HTTP route with its permission, authentication, feature flag and one line of documentation; the server refuses to boot if the table and the handlers disagree. [api.md](api.md) is rendered from it.

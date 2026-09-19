@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Word count</title>
+<!-- The worked example for an AUTHENTICATED plugin bundle (issue #20). The
+     platform serves this directory at /api/x/example-tools/bundle/ to a caller
+     with a bearer token, with `Cache-Control: private, no-store`, so a plugin's
+     customer screens never sit behind a public cached path. Assets must ship in
+     the bundle: the console's Content-Security-Policy is same-origin, so a CDN
+     script or font is blocked. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 34rem; }
+  input, button { font: inherit; padding: .4rem .6rem; }
+  output { display: block; margin-top: 1rem; font-weight: 600; }
+</style>
+<h1>Word count</h1>
+<p>A plugin screen calling its own API route.</p>
+<p><input id="t" size="40" placeholder="Type something"> <button id="go">Count</button></p>
+<output id="out"></output>
+<script>
+  // The token the console signed in with; the bundle and the API route below
+  // are served by the same origin and both require it.
+  const token = localStorage.getItem('tmx_token');
+  document.getElementById('go').onclick = async () => {
+    const text = document.getElementById('t').value;
+    const r = await fetch('/api/x/example-tools/word-count?text=' + encodeURIComponent(text),
+                          { headers: { Authorization: 'Bearer ' + token } });
+    const j = await r.json();
+    document.getElementById('out').textContent =
+      r.ok ? `${j.words} words, ${j.chars} characters` : (j.error || 'failed');
+  };
+</script>

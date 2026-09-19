@@ -52,7 +52,11 @@
    (R "GET" "/activate"    'ui #:auth 'public #:doc "The console, on the magic-link activation screen (hosted mode).")
    (R "GET" "/health"      'health #:auth 'public #:doc "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.")
    (R "GET" "/beta-sdk.js" 'beta-sdk #:auth 'public #:doc "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).")
-   (R "GET" "/beta/bundle/:plugin/*path" 'bundle-file #:auth 'public #:doc "A file from a Tier-B onboarding plugin's bundle directory.")
+   (R "GET" "/beta/bundle/:plugin/*path" 'bundle-file #:auth 'public #:doc "A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in.")
+   ;; issue #20: the authenticated counterpart. `bundle/` is reserved by the
+   ;; platform under every plugin's prefix, and core routes match before plugin
+   ;; ones, so a plugin cannot serve its own screens from a public cached path.
+   (R "GET" "/api/x/:plugin/bundle/*path" 'plugin-bundle #:doc "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache.")
    (R "GET" "/beta/template" 'beta-template #:auth 'public #:doc "The Tier-C sandboxed HTML template, localized by the experience overlay.")
 
    ;; ---- instance: config, branding, localization ------------------------------------
@@ -97,12 +101,14 @@
    (R "POST" "/api/instance/quota" 'instance-quota #:auth 'provision #:doc "Hosted mode: set a quota limit for the tenant's team.")
    (R "POST" "/api/login" 'login #:auth 'public #:doc "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token.")
    (R "POST" "/api/2fa/enable" '2fa-enable #:doc "Enable TOTP two-factor authentication for the caller; returns the secret once.")
+   (R "DELETE" "/api/2fa" '2fa-reset #:doc "Turn the caller's own TOTP off, so the old seed stops working and they must enrol again.")
+   (R "DELETE" "/api/admin/users/:id/2fa" 'admin-2fa-reset #:perm "instance:manage" #:doc "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.")
    (R "POST" "/api/password" 'password #:doc "Change the caller's password.")
    (R "GET" "/api/whoami" 'whoami #:doc "The caller: user, team, operator flag, org, org role, locale, permissions.")
    (R "POST" "/api/profile" 'profile #:doc "Update the caller's profile (display name, locale).")
    (R "POST" "/api/members" 'add-member #:perm "members:manage" #:doc "Add a member to the caller's team with a role; returns the new member's first token.")
    (R "GET" "/api/members" 'members-list #:doc "The team's members and roles.")
-   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
+   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
 
    ;; ---- multi-tenancy: superadmin plane, then org-admin plane ----------------------
    (R "POST" "/api/orgs" 'orgs-create #:auth 'superadmin #:perm "instance:manage" #:doc "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).")
@@ -139,8 +145,8 @@
 
    ;; ---- AI: chat, agent, translation ---------------------------------------------------
    (R "POST" "/api/ai/echo" 'ai-echo #:perm "chat:use" #:doc "A metered no-model echo, for exercising quotas.")
-   (R "POST" "/api/ai/chat" 'ai-chat #:perm "chat:use" #:feature "chat" #:doc "One model turn. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.")
-   (R "POST" "/api/ai/chat/stream" 'ai-chat-stream #:perm "chat:use" #:feature "chat" #:doc "The same turn as server-sent events, metered at the end.")
+   (R "POST" "/api/ai/chat" 'ai-chat #:perm "chat:use" #:feature "chat" #:doc "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.")
+   (R "POST" "/api/ai/chat/stream" 'ai-chat-stream #:perm "chat:use" #:feature "chat" #:doc "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it.")
    (R "POST" "/api/agent" 'agent #:perm "chat:use" #:feature "agent" #:doc "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.")
    (R "POST" "/api/translate/catalog" 'translate-catalog #:perm "chat:use" #:feature "translate" #:doc "Translate a whole locale catalog, placeholders preserved.")
    (R "POST" "/api/translate" 'translate #:perm "chat:use" #:feature "translate" #:doc "Translate text into a target language, applying the team glossary.")

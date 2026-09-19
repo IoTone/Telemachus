@@ -14,7 +14,8 @@
 ;; only ever connects OUT.
 
 (require racket/string racket/list json
-         "../domain/agent/llm.rkt")      ; http-post-json
+         "../domain/agent/llm.rkt"       ; http-post-json
+         (only-in "../domain/ai/content.rkt" content->text))
 
 (define (env k [d #f]) (let ([v (getenv k)]) (if (and v (not (string=? v ""))) v d)))
 (define BASE  (regexp-replace #rx"/+$" (env "TELEMACHUS_URL" "http://127.0.0.1:8835") ""))
@@ -31,20 +32,29 @@
 (define (post path body)
   (http-post-json (string-append BASE path) body auth))
 
-;; the one remote kind this worker knows: infer.chat — forward to the model
+;; the one remote kind this worker knows: infer.chat — forward to the model.
+;; `response_format` is forwarded when the platform asked for one (issue #18), so
+;; a schema request routed to a pull executor reaches the provider as it would
+;; locally; the platform checks the reply against it either way.
 (define (run-infer-chat payload)
   (define body
-    (hasheq 'model (let ([m (hash-ref payload 'model 'null)]) (if (string? m) m (if (pair? MODELS) (car MODELS) "local")))
-            'messages (hash-ref payload 'messages '())
-            'temperature (hash-ref payload 'temperature 0.7)
-            'stream #f))
+    (let ([b (hasheq 'model (let ([m (hash-ref payload 'model 'null)]) (if (string? m) m (if (pair? MODELS) (car MODELS) "local")))
+                     'messages (hash-ref payload 'messages '())
+                     'temperature (hash-ref payload 'temperature 0.7)
+                     'stream #f)])
+      (let ([rf (hash-ref payload 'response_format #f)])
+        (if (and rf (not (eq? rf 'null))) (hash-set b 'response_format rf) b))))
   (define-values (code resp)
     (http-post-json MODEL-URL body (append (list "Content-Type: application/json")
                                           (if MODEL-KEY (list (string-append "Authorization: Bearer " MODEL-KEY)) '()))))
   (unless (= code 200) (error 'worker "model endpoint returned HTTP ~a" code))
   (define choices (hash-ref resp 'choices '()))
+  ;; a provider may answer with content PARTS; join their text rather than
+  ;; posting an empty reply the platform cannot tell from a quiet model
   (define reply (if (pair? choices)
-                    (let ([c (hash-ref (hash-ref (car choices) 'message (hasheq)) 'content "")]) (if (string? c) c ""))
+                    (let-values ([(t problem) (content->text (hash-ref (hash-ref (car choices) 'message (hasheq)) 'content ""))])
+                      (when problem (error 'worker "the model's reply could not be read as text: ~a" problem))
+                      t)
                     ""))
   (define tokens (let ([t (hash-ref (hash-ref resp 'usage (hasheq)) 'total_tokens #f)])
                    (if (number? t) t (max 1 (quotient (string-length reply) 4)))))
