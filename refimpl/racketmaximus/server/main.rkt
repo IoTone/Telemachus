@@ -509,11 +509,20 @@
   (json-response (hash-set (with-logo-url (or own (branding-get db-conn)))
                            'scope (if own "org" "instance"))))
 
+;; A theme is refused, not clamped: an unknown token or an unreadable colour pair
+;; comes back as a 400 naming it. Clamping would leave the operator looking at a
+;; palette they did not ask for, wondering which half of it took.
+(define (branding-theme-problem b)
+  (let ([th (hash-ref b 'theme #f)])
+    (and th (not (eq? th 'null)) (theme-problem th))))
+
 (define (ep-branding-put req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
-    (define b (read-json-body req))
-    (json-response (branding-set! db-conn (if (hash? b) b (hasheq)))))))
+    (define b (let ([x (read-json-body req)]) (if (hash? x) x (hasheq))))
+    (cond
+      [(branding-theme-problem b) => (lambda (bad) (err bad 400))]
+      [else (json-response (branding-set! db-conn b))]))))
 
 ;; The logo rides the existing asset table and is served by the existing PUBLIC
 ;; /api/beta/asset/<id> route — one asset mechanism, not two.
@@ -1106,7 +1115,9 @@
       (define b (read-json-body req))
       (audit! db-conn #:action "org.branding" #:actor-type "user" #:actor-id (principal-user-id p)
               #:resource-type "org" #:resource-id (caller-org p))
-      (json-response (hash-set (with-logo-url (org-branding-set! db-conn (caller-org p) (if (hash? b) b (hasheq)))) 'own #t)))))))
+      (cond
+        [(branding-theme-problem (if (hash? b) b (hasheq))) => (lambda (bad) (err bad 400))]
+        [else (json-response (hash-set (with-logo-url (org-branding-set! db-conn (caller-org p) (if (hash? b) b (hasheq)))) 'own #t))]))))))
 
 (define (ep-my-org-branding-clear req)
   (with-mt req (lambda ()

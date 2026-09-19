@@ -61,8 +61,8 @@
 
    ;; ---- instance: config, branding, localization ------------------------------------
    (R "GET" "/api/config"   'config #:auth 'public #:doc "Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token.")
-   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).")
-   (R "PUT" "/api/branding" 'branding-put #:perm "instance:manage" #:doc "Set the instance title and tagline.")
+   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).")
+   (R "PUT" "/api/branding" 'branding-put #:perm "instance:manage" #:doc "Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it.")
    (R "POST" "/api/branding/logo" 'branding-logo #:perm "instance:manage" #:doc "Upload the instance logo (replaces the mark and the wordmark).")
    (R "GET" "/api/i18n/catalog" 'i18n-catalog #:auth 'public #:doc "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.")
    (R "PUT" "/api/i18n" 'i18n-put #:perm "instance:manage" #:doc "Set the instance default locale and whether users may switch.")
@@ -126,7 +126,7 @@
    (R "PATCH" "/api/org/members/:id" 'my-org-member-role #:auth 'org-admin #:perm "org:manage" #:doc "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.")
    (R "GET" "/api/org/audit" 'my-org-audit #:auth 'org-admin #:perm "org:read" #:doc "The company's audit trail.")
    (R "GET" "/api/org/branding" 'my-org-branding-get #:auth 'org-admin #:perm "org:read" #:doc "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.")
-   (R "PUT" "/api/org/branding" 'my-org-branding-put #:auth 'org-admin #:perm "org:manage" #:doc "Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users.")
+   (R "PUT" "/api/org/branding" 'my-org-branding-put #:auth 'org-admin #:perm "org:manage" #:doc "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.")
    (R "DELETE" "/api/org/branding" 'my-org-branding-clear #:auth 'org-admin #:perm "org:manage" #:doc "Drop the company's branding; its users see the instance's again.")
    (R "POST" "/api/org/branding/logo" 'my-org-branding-logo #:auth 'org-admin #:perm "org:manage" #:doc "Upload the company's logo (base64) and make it the company's mark.")
 

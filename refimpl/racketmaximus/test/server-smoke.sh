@@ -284,6 +284,21 @@ assert "a markup-bearing title is escaped, not injected" \
 # restore the default so later assertions and reruns start from a clean slate
 curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{}' >/dev/null
 assert "blank title put falls back to the default" "$(curl -s $B/api/branding)" '"title":"Telemachus"'
+
+# ---- integrator theming: the console's palette rides the branding document
+assert "branding carries a theme"      "$(curl -s $B/api/branding)" '"theme":'
+assert "…the shipped palette by default" "$(curl -s $B/api/branding)" '"bg":"#0b1a2b"'
+THEME='{"title":"Acme","theme":{"bg":"#101014","surface":"#1b1b22","ink":"#f5f5f7","muted":"#a0a0ad","brand":"#c9a227","brandInk":"#ffffff","radius":"12px","mode":"dark","fontBody":"Serif"}}'
+assert "a theme is stored"             "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d "$THEME")" '"brand":"#c9a227"'
+assert "…and served to the PUBLIC sign-in screen" "$(curl -s $B/api/branding)" '"brand":"#c9a227"'
+assert "an unknown token is refused"   "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"accent":"#ffffff"}}')" 'unknown theme token'
+assert "…as a 400"                     "$(curl -s -o /dev/null -w '%{http_code}' -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"accent":"#ffffff"}}')" '400'
+assert "a non-colour is refused"       "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"bg":"url(x)"}}')" 'must be a hex colour'
+assert "an illegible theme is refused" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"bg":"#ffffff","ink":"#fefefe"}}')" 'will not be able to read it'
+assert "…and the stored theme is untouched" "$(curl -s $B/api/branding)" '"brand":"#c9a227"'
+assert "a member cannot theme the instance" "$(curl -s -o /dev/null -w '%{http_code}' -X PUT $B/api/branding -H "Authorization: Bearer $BOB" -d "$THEME")" '403'
+curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"Telemachus"}' >/dev/null
+assert "reset restores the shipped palette" "$(curl -s $B/api/branding)" '"brand":"#6fa0d1"'
 assert "members list"    "$(curl -s $B/api/members -H "Authorization: Bearer $OP")" '"username":"bob"'
 assert "unauth 401 en"   "$(curl -s $B/api/whoami)" 'Authentication required.'
 assert "unauth 401 ja"   "$(curl -s $B/api/whoami -H 'Accept-Language: ja')" '認証が必要です'

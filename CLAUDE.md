@@ -1080,6 +1080,42 @@ instance-wide setting needs code, not a migration.
   the Mentor mark plus `S.brand.title` when there is none. This is separate from the
   beta funnel's own theme — that is a public marketing page, this is the product name.
 
+### The console's theme (integrator theming)
+
+The branding document carries a `theme`, and it is **the funnel's token vocabulary**
+(`brand brandInk bg surface ink muted radius mode fontBody`) on purpose: a customer's
+palette is written once and worn by both. Per-org for free — it is the same
+`branding:<org-id>` document, so TEN‑2d's Host routing themes a company's console
+before anyone signs in.
+
+- **Tokens are values, never declarations**, so each is validated against a narrow
+  pattern (hex colour, `<n>px`, an enumerated font/mode) rather than escaped.
+  **An unknown token is a 400**, not a silent drop — a token that does nothing is
+  how a customer concludes the theming is broken.
+- **Contrast is ENFORCED server-side** (`theme-problem`), not warned about like the
+  funnel editor does: this is the screen people sign in on, and an instance that
+  themed its own sign-in link into invisibility has no way back through the UI.
+  WCAG AA — 4.5:1 for text/muted/panel/button label, 3:1 for brand on ground.
+- **The button label is checked against the MIXED ground, not `brand`.** The console
+  paints `--accent2` as `color-mix(brand, <the dark side>, 50%)`; `BUTTON-MIX` in
+  branding.rkt must stay equal to that percentage, or the gate judges a colour
+  nothing draws.
+- **Which side is "dark" is MEASURED, not read from `mode`** (`darker` by luminance):
+  an operator who sets light colours while `mode` still says dark should get a
+  legible button, not a refusal about a token they did not think they set.
+- **The read side is forgiving where the write side refuses**: an invalid stored
+  token falls back to the shipped one, because `GET /api/branding` is the PUBLIC
+  sign-in screen and must never 500.
+- `applyTheme` in the console maps tokens → CSS custom properties on every render
+  pass (branding is public, so the sign-in screen is themed too); `--panel2`,
+  `--line`, `--accent2/3` are DERIVED with `color-mix`, so a theme stays the few
+  decisions an integrator actually wants to make. A browser without `color-mix`
+  drops those and keeps the stylesheet's values.
+- The e2e gate proves the mapping end to end (live preview, then a reload reading
+  the stored theme). **The server's 400 for an illegible theme is pinned in
+  server-smoke, NOT in the e2e gate** — that gate fails on any console error, and a
+  deliberate 400 logs one.
+
 ## Paths: anchor at definition, never at use
 
 **`serve/servlet` repoints `current-directory` at the web server's own default web

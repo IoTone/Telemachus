@@ -15,9 +15,9 @@
          --muted:#93a4b8; --accent:#6fa0d1; --accent2:#245e96; --accent3:#2b6ba8;
          --gold:#c9a227; --ok:#8fae52; --bad:#e0725f; --warn:#d9a441; }
   *{box-sizing:border-box} html,body{margin:0;height:100%}
-  body{background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif)}
   a{color:var(--accent)} button{font:inherit;cursor:pointer}
-  .btn{background:var(--accent2);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600}
+  .btn{background:var(--accent2);color:var(--btn-ink,#fff);border:0;border-radius:var(--radius,8px);padding:9px 14px;font-weight:600}
   .btn:hover{background:var(--accent3)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
   .btn.sm{padding:5px 10px;font-size:13px;border-radius:6px} .btn.bad{background:#3a2222;border:1px solid #5e332c;color:#f2b8ab}
   input,textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
@@ -158,6 +158,50 @@ async function loadBranding(){
   const r = await api('/api/branding');
   if(r.ok && r.json) S.brand = Object.assign(S.brand, r.json);
   document.title = S.brand.title || 'Telemachus';
+  applyTheme(S.brand.theme);
+}
+// The console's palette, from the branding document's theme tokens — the SAME
+// vocabulary the beta funnel uses (brand, brandInk, bg, surface, ink, muted,
+// radius, mode, fontBody), so a customer's palette is written once and worn by
+// both. /api/branding is public and this runs on every render pass, so the
+// sign-in screen is themed too, and a company's own theme lands the moment its
+// bearer resolves (TEN-2d: by Host before that).
+//
+// Values are validated by the server and re-checked here with the same pattern —
+// they go into a style property, so a token is a value, never a declaration.
+const THEME_HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+function themeOk(v){ return typeof v==='string' && THEME_HEX.test(v.trim()); }
+// A ground tinted toward the ink: the console needs a second panel and a hairline
+// that the token set does not spell out, and deriving them keeps a theme to the
+// few decisions an integrator actually wants to make. color-mix is ignored by a
+// browser that lacks it, which falls back to the stylesheet's own value.
+function mix(a,b,pct){ return `color-mix(in srgb, ${a} ${pct}%, ${b})`; }
+function applyTheme(th){
+  const r = document.documentElement.style;
+  const KEYS = ['--bg','--panel','--panel2','--line','--fg','--muted','--accent','--accent2','--accent3','--radius','--font'];
+  if(!th || typeof th!=='object'){ KEYS.forEach(k=>r.removeProperty(k)); return; }
+  const c = (k,d)=> themeOk(th[k]) ? th[k].trim() : d;
+  const bg=c('bg','#0b1a2b'), surface=c('surface','#12253a'), ink=c('ink','#f2ede1');
+  const muted=c('muted','#93a4b8'), brand=c('brand','#6fa0d1'), brandInk=c('brandInk','#ffffff');
+  const light = th.mode==='light';
+  r.setProperty('--bg', bg);
+  r.setProperty('--panel', surface);
+  r.setProperty('--panel2', mix(ink, surface, light?6:8));      // inputs, table stripes
+  r.setProperty('--line', mix(ink, surface, light?18:16));      // hairlines
+  r.setProperty('--fg', ink);
+  r.setProperty('--muted', muted);
+  r.setProperty('--accent', brand);
+  // A button ground is the brand deepened toward whichever side of the theme is
+  // dark — measured, not taken from `mode`: the background on a dark theme, the
+  // ink on a light one, where mixing toward the background would wash the brand
+  // out. 50% is BUTTON-MIX in domain/branding/branding.rkt, which checks the
+  // label's contrast against exactly this ground.
+  const deep = darkerOf(ink, bg);
+  r.setProperty('--accent2', mix(brand, deep, 50));             // button ground
+  r.setProperty('--accent3', mix(brand, deep, 65));             // …and its hover
+  r.setProperty('--btn-ink', brandInk);
+  if(/^[0-9]{1,2}px$/.test(String(th.radius||''))) r.setProperty('--radius', th.radius);
+  r.setProperty('--font', fontStack(th.fontBody));
 }
 // The instance localization policy. Public, and fetched on EVERY render pass —
 // including for a signed-in user, who otherwise would never see an operator turn
@@ -611,8 +655,10 @@ async function adminView(){
       <div><input type="file" id="brf" accept="image/png,image/jpeg,image/svg+xml,image/webp" onchange="doBrandLogo(this)"></div>
       ${B.logo?`<div style="flex:0 0 auto"><button class="btn sm ghost" onclick="doBrandLogoClear()">${t('brandclearlogo')}</button></div>`:''}
     </div>
+    ${brandThemeEditor()}
     <div style="margin-top:10px"><button class="btn" onclick="doBrandSave()">${t('save')}</button>
-      <button class="btn ghost" style="margin-left:8px" onclick="doBrandReset()">${t('brandreset')}</button></div></div>`;
+      <button class="btn ghost" style="margin-left:8px" onclick="doBrandReset()">${t('brandreset')}</button>
+      <button class="btn ghost" style="margin-left:8px" onclick="doBrandThemeReset()">${t('brandthemereset')}</button></div></div>`;
   // Localization: instance-wide, `instance:manage`, and the reason it sits beside
   // Branding rather than in a user preference pane — it is what an ANONYMOUS
   // visitor gets, so it cannot live behind a sign-in.
@@ -651,13 +697,65 @@ async function doI18nSave(){
 // the whole shell, so the header, the sign-in lockup and the preview can never
 // disagree with what was actually stored.
 async function applyBrand(b){ if(b) S.brand=Object.assign(S.brand,b,{logoUrl:b.logo?('/api/beta/asset/'+b.logo):''});
-  document.title=S.brand.title||'Telemachus'; render(); }
+  document.title=S.brand.title||'Telemachus'; applyTheme(S.brand.theme); render(); }
+// ---- the theme editor (Admin > Branding) ----
+// The tokens are the funnel's, so an operator who has skinned a campaign already
+// knows this control. Editing previews LIVE (applyTheme against a draft) and only
+// Save writes; the server re-checks every token and the contrast floor, so the
+// warning here is a courtesy, not the gate.
+const THEME_DEFAULTS={bg:'#0b1a2b',surface:'#12253a',ink:'#f2ede1',muted:'#93a4b8',
+  brand:'#6fa0d1',brandInk:'#ffffff',radius:'8px',mode:'dark',fontBody:'System'};
+function themeDraft(){ if(!S.brand.theme) S.brand.theme=Object.assign({},THEME_DEFAULTS); return S.brand.theme; }
+function brandThemeSet(k,v){ themeDraft()[k]=v; applyTheme(S.brand.theme);
+  const w=document.getElementById('thwarn'); if(w) w.innerHTML=brandContrast(S.brand.theme); }
+// the same pairs and thresholds the server enforces (domain/branding/branding.rkt)
+function darkerOf(a,b){ const la=bxLum(a), lb=bxLum(b);
+  if(la===null||lb===null) return b;
+  return la<lb ? a : b; }
+function mixHex(a,b,p){ const rgb=h=>{ const x=String(h||'').trim().replace(/^#/,'');
+    const f=x.length===3?x.split('').map(c=>c+c).join(''):x;
+    return [0,2,4].map(i=>parseInt(f.slice(i,i+2),16)); };
+  const A=rgb(a),B=rgb(b);
+  if(A.some(isNaN)||B.some(isNaN)) return a;
+  return '#'+A.map((v,i)=>Math.round(p*v+(1-p)*B[i]).toString(16).padStart(2,'0')).join(''); }
+function brandContrast(th){
+  th=Object.assign({},THEME_DEFAULTS,th||{});
+  // the button ground is mixed, not `brand` itself — mirror BUTTON-MIX (50%) and
+  // the mode-dependent dark side
+  const btn=mixHex(th.brand, darkerOf(th.ink,th.bg), 0.5);
+  const checks=[[t('think'),th.ink,th.bg,4.5],[t('thmuted'),th.muted,th.bg,4.5],
+    [t('thsurface'),th.ink,th.surface,4.5],[t('thbrandink'),th.brandInk,btn,4.5],
+    [t('thbrand'),th.brand,th.bg,3.0]];
+  const bad=checks.map(([label,fg,bg,min])=>{ const r=bxContrast(fg,bg);
+    return r===null||r>=min?null:{label,ratio:r,min}; }).filter(Boolean);
+  if(!bad.length) return '';
+  return `<div class="bx-warn" style="margin-top:8px"><b>${esc(t('thcontrast'))}</b>${bad.map(w=>
+    `<div>${esc(w.label)} — <b>${w.ratio.toFixed(2)}:1</b> (${w.min}:1)</div>`).join('')}
+    <div class="muted" style="margin-top:6px">${esc(t('thcontrasthint'))}</div></div>`; }
+function brandThemeEditor(){
+  const th=Object.assign({},THEME_DEFAULTS,S.brand.theme||{});
+  const col=(k,label)=>`<div><label>${esc(label)}</label>
+    <input type="color" value="${esc(th[k])}" oninput="brandThemeSet('${k}',this.value)"></div>`;
+  const pick=(k,label,opts)=>`<div><label>${esc(label)}</label><select onchange="brandThemeSet('${k}',this.value)">
+    ${opts.map(o=>`<option value="${esc(o)}"${th[k]===o?' selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
+  return `<h4 style="margin:16px 0 4px">${esc(t('brandtheme'))}</h4>
+    <p class="muted" style="margin-top:0">${esc(t('brandthemehint'))}</p>
+    <div class="row">${col('bg',t('thbg'))}${col('surface',t('thsurface'))}${col('ink',t('think'))}${col('muted',t('thmuted'))}</div>
+    <div class="row">${col('brand',t('thbrand'))}${col('brandInk',t('thbrandink'))}
+      ${pick('mode',t('thmode'),['dark','light'])}${pick('fontBody',t('thfont'),['System','Serif','Mono','Rounded'])}
+      ${pick('radius',t('thradius'),['0px','4px','8px','12px','16px'])}</div>
+    <div id="thwarn">${brandContrast(th)}</div>`; }
+async function doBrandThemeReset(){
+  S.brand.theme=Object.assign({},THEME_DEFAULTS); applyTheme(S.brand.theme); await doBrandSave(); }
+
 async function doBrandSave(){
-  const r=await api('/api/branding',{method:'PUT',body:{title:val('brt'),tagline:val('brg'),logo:S.brand.logo||''}});
+  const r=await api('/api/branding',{method:'PUT',
+    body:{title:val('brt'),tagline:val('brg'),logo:S.brand.logo||'',theme:S.brand.theme||undefined}});
   if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandReset(){
-  const r=await api('/api/branding',{method:'PUT',body:{title:'Telemachus',tagline:'',logo:''}});
+  S.brand.theme=Object.assign({},THEME_DEFAULTS);
+  const r=await api('/api/branding',{method:'PUT',body:{title:'Telemachus',tagline:'',logo:'',theme:S.brand.theme}});
   if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandLogoClear(){
