@@ -36,6 +36,9 @@
             openssl         # TELEMACHUS_TLS=1 shells out to it for a self-signed cert
             poppler-utils   # pdftotext — PDF text extraction for the search index (slice 54)
             curl python3    # every demo script uses both
+            awscli2         # test/s3-smoke.sh drives the REAL client (issue #25) — the
+                            # endpoint was built against aws-cli requests captured on
+                            # the wire, so a mock would not prove the same thing
             nodejs_24       # the Playwright e2e tours (browser NOT included — see below)
             tectonic        # the developer e-book: docs/book/*.tex -> PDF (fetches TeX packages on first run)
             pandoc          # …and the same source -> a single-page HTML e-book

@@ -37,6 +37,13 @@ export TELEMACHUS_DATA_DIR="$TMP/data"
 export DATABASE_URL="${DATABASE_URL:-sqlite://$TMP/s3.db}"
 echo "s3-smoke DATABASE_URL=$DATABASE_URL"
 export TELEMACHUS_BIND=127.0.0.1
+# Issue #25: the credential's secret is SEALED at rest (issue #19) unless an
+# instance opts out, and SigV4 has to unwrap it on every signed request. Run this
+# suite the way a real deployment runs — with a key — so the sealed path is what
+# the real client exercises. Pass TELEMACHUS_SECRET_KEY=... to use your own, or
+# TELEMACHUS_SECRET_KEY= (empty) to check the plaintext path instead.
+export TELEMACHUS_SECRET_KEY="${TELEMACHUS_SECRET_KEY-2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe}"
+[ -n "$TELEMACHUS_SECRET_KEY" ] && echo "s3-smoke: secrets sealed (key set)" || echo "s3-smoke: secrets in the clear"
 export TELEMACHUS_S3_PORT="$S3_PORT"
 racket server/main.rkt >"$TMP/server.log" 2>&1 &
 SRV=$!

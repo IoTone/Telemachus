@@ -448,6 +448,14 @@ raco test test/sigv4-tests.rkt     # 64 cases, AWS's own vectors + presign rules
 bash test/s3-smoke.sh              # 33 checks with the real aws CLI (skips if absent)
 ```
 
+**The smoke runs with secrets SEALED** (issue #25): it exports a
+`TELEMACHUS_SECRET_KEY` unless you set one, because since #19 SigV4 unwraps the
+credential on every signed request and the presign path unwraps through
+`s3-cred-newest` — the case a mock cannot prove. `awscli2` is in the devShell and
+CI installs AWS CLI v2, so the suite no longer skips silently; a skip was how that
+path went unexercised in the first place. Pass `TELEMACHUS_SECRET_KEY=` (empty) to
+exercise the plaintext path instead.
+
 The smoke EXPORTS `PORT` (default 8890): the server reads it from the environment,
 and a merely-defaulted shell variable is not exported — the server then boots on
 8835 and the readiness loop waits on 8890 for ten minutes before "server never
