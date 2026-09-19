@@ -1273,9 +1273,32 @@
   (cond
     [(not p) (unauthorized)]
     [else
-     (define-values (secret uri) (enable-2fa! db-conn (principal-user-id p)))
+     (define-values (secret uri codes) (enable-2fa! db-conn (principal-user-id p)))
+     ;; the codes are shown HERE and never again — enrolling without a way back in
+     ;; is how people lock themselves out of their own instance (issue #26)
      (json-response (hasheq 'secret secret 'otpauth_uri uri
-                            'note "2FA enabled — future logins for this user require a TOTP code"))]))
+                            'recovery_codes codes
+                            'note "2FA enabled — future logins for this user require a TOTP code or one recovery code. The codes are shown once; keep them somewhere the authenticator is not."))]))
+
+;; Re-issue: the outstanding set is invalidated and a new one returned once. A set
+;; printed on paper should be the whole truth about what opens this account, so
+;; this replaces rather than tops up.
+(define (ep-2fa-codes-new req)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else
+     (define codes (issue-recovery-codes! db-conn (principal-user-id p)))
+     (audit! db-conn #:action "user.2fa.codes" #:actor-type "user" #:actor-id (principal-user-id p)
+             #:resource-type "user" #:resource-id (principal-user-id p))
+     (json-response (hasheq 'recovery_codes codes 'count (length codes)))]))
+
+;; How many are left — the number worth warning about in a UI. Never the codes.
+(define (ep-2fa-codes-get req)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else (json-response (hasheq 'remaining (recovery-codes-remaining db-conn (principal-user-id p))))]))
 
 ;; ---- notes (ownable/shareable resource) -------------------------------------
 ;; refuse an endpoint whose feature a team has turned off (→ localized 403)
@@ -2252,6 +2275,7 @@
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota
    'login ep-login '2fa-enable ep-2fa-enable '2fa-reset ep-2fa-reset
+   '2fa-codes-new ep-2fa-codes-new '2fa-codes-get ep-2fa-codes-get
    'admin-2fa-reset ep-admin-2fa-reset 'password ep-password
    'whoami ep-whoami 'profile ep-profile 'add-member ep-add-member 'members-list ep-members-list
    'admin-status ep-admin-status

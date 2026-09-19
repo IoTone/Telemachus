@@ -52,7 +52,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/quota` | provision | — | — | ホストモード：テナントチームのクォータ制限を設定します。 |
 | POST | `/api/login` | public | — | — | ユーザー名とパスワードでサインインする（2FA が有効なら TOTP コードも）。ベアラートークンを返します。 |
 | POST | `/api/2fa/enable` | bearer | — | — | 呼び出し元の TOTP 二要素認証を有効にする；シークレットを一度だけ返します。 |
-| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed stops working and they must enrol again. |
+| POST | `/api/2fa/recovery-codes` | bearer | — | — | Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26). |
+| GET | `/api/2fa/recovery-codes` | bearer | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |
+| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again. |
 | DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
 | POST | `/api/password` | bearer | — | — | 呼び出し元のパスワードを変更します。 |
 | GET | `/api/whoami` | bearer | — | — | 呼び出し元：ユーザー、チーム、オペレーターフラグ、組織、組織ロール、ロケール、権限。 |

@@ -51,8 +51,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/resume` | provision | — | — | Hosted mode: resume a suspended tenant. |
 | POST | `/api/instance/quota` | provision | — | — | Hosted mode: set a quota limit for the tenant's team. |
 | POST | `/api/login` | public | — | — | Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. |
-| POST | `/api/2fa/enable` | bearer | — | — | Enable TOTP two-factor authentication for the caller; returns the secret once. |
-| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed stops working and they must enrol again. |
+| POST | `/api/2fa/enable` | bearer | — | — | Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once. |
+| POST | `/api/2fa/recovery-codes` | bearer | — | — | Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26). |
+| GET | `/api/2fa/recovery-codes` | bearer | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |
+| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again. |
 | DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
 | POST | `/api/password` | bearer | — | — | Change the caller's password. |
 | GET | `/api/whoami` | bearer | — | — | The caller: user, team, operator flag, org, org role, locale, permissions. |

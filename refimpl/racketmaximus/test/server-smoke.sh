@@ -574,7 +574,13 @@ assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/
 assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'
 TFA=$(curl -s -X POST $B/api/2fa/enable -H "Authorization: Bearer $OP")
 assert "2fa enable returns the seed once"     "$TFA" '"secret":'
+# issue #26: enrolling hands out the way back in at the same time
+assert "…and a set of recovery codes"         "$TFA" '"recovery_codes":['
+assert "ten of them are unspent"              "$(curl -s $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP")" '"remaining":10'
+assert "re-issuing returns a fresh set"       "$(curl -s -X POST $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP")" '"count":10'
+assert "…and the count endpoint never leaks them" "$(curl -s $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP" | grep -c recovery_codes || true)" '0'
 assert "…and resetting it says it was on"     "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":true'
+assert "…taking the recovery codes with it"   "$(curl -s $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP")" '"remaining":0'
 assert "…a second reset says it was not"      "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":false'
 assert "an operator may revoke another user's seed" "$(curl -s -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $OP")" '"ok":true'
 assert "…a member may not"                    "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $BOB")" '403'

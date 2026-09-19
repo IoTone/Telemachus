@@ -141,7 +141,7 @@
       (define c (fresh))
       (define-values (uid tid) (bootstrap! c #:username "alice"))
       (set-password! c uid "pw-pw-pw1")
-      (define-values (seed uri) (enable-2fa! c uid))
+      (define-values (seed uri codes) (enable-2fa! c uid))
       ;; what a dump would show
       (define stored (query-value c "SELECT totp_secret FROM users WHERE id = ?" uid))
       (check-true (wrapped-secret? stored) "the column holds a sealed value")

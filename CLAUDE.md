@@ -1073,6 +1073,17 @@ raco test test/roles-tests.rkt
 - **A TOTP seed is the one credential its owner cannot rotate by using it**, so
   it is revocable now: `DELETE /api/2fa` (self) and `DELETE
   /api/admin/users/:id/2fa` (`instance:manage`), both audited `user.2fa.reset`.
+- **Recovery codes are the way back in** (issue #26, migration `0030`). Ten
+  single-use codes, issued BY `enable-2fa!` itself — handing out a second factor
+  without one is how people lock themselves out. They are **hashed** (`hash-token`
+  over `recovery:<normalized>`), because unlike the seed a code is compared, not
+  computed from; rotating the token pepper therefore retires outstanding codes
+  along with outstanding tokens. Matching forgives case and dashes (they are typed
+  off paper). Spending is the same statement as matching (`UPDATE … WHERE used_at
+  IS NULL RETURNING id`), so two sign-ins cannot both spend one; a spent row is
+  KEPT so "already used" stays distinguishable. `reset-2fa!` deletes them with the
+  seed. `POST /api/2fa/recovery-codes` re-issues (replaces, never tops up — a set
+  on paper should be the whole truth); `GET` returns only `remaining`.
 - The key is memoized by its **raw value**, not by the variable name — a cache
   keyed on the name pins whatever was set first, which breaks any test that sets
   a key and any process handed a rotated environment.

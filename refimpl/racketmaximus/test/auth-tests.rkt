@@ -4,7 +4,7 @@
 ;;   raco test test/auth-tests.rkt   (with pkgs on PLTCOLLECTS)
 
 (require rackunit
-         racket/string
+         racket/string racket/list
          db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
@@ -45,7 +45,75 @@
   (check-false (authenticate c "ghost" "x"))
   (check-equal? (first-team-for c uid) tid)
   ;; enable 2FA: password alone is no longer enough; a valid TOTP code is
-  (define-values (secret _uri) (enable-2fa! c uid))
+  (define-values (secret _uri _codes) (enable-2fa! c uid))
   (check-false (authenticate c "alice" "s3cret"))                    ; missing code
   (define code (totp (base32-decode secret) (current-seconds) 30 6))
   (check-equal? (authenticate c "alice" "s3cret" #:code code) uid))
+
+;; ---- recovery codes (issue #26) -----------------------------------------------
+
+(test-case "a recovery code signs in when the authenticator is gone, once"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
+  (define-values (secret _uri codes) (enable-2fa! c uid))
+  ;; enrolling hands out the way back in at the same time
+  (check-equal? (length codes) RECOVERY-CODE-COUNT)
+  (check-equal? (recovery-codes-remaining c uid) RECOVERY-CODE-COUNT)
+  (check-true (for/and ([x (in-list codes)]) (regexp-match? #px"^[a-z0-9]{5}-[a-z0-9]{5}$" x)))
+  (check-equal? (length (remove-duplicates codes)) RECOVERY-CODE-COUNT "…and they are distinct")
+  ;; a TOTP code still works, and does not spend anything
+  (check-equal? (authenticate c "alice" "s3cret" #:code (totp (base32-decode secret) (current-seconds) 30 6)) uid)
+  (check-equal? (recovery-codes-remaining c uid) RECOVERY-CODE-COUNT)
+  ;; the authenticator is gone: a recovery code takes its place
+  (define one (car codes))
+  (check-equal? (authenticate c "alice" "s3cret" #:code one) uid)
+  (check-equal? (recovery-codes-remaining c uid) (sub1 RECOVERY-CODE-COUNT) "…and is spent")
+  ;; single use: the same code does not work twice
+  (check-false (authenticate c "alice" "s3cret" #:code one))
+  ;; …while the others still do
+  (check-equal? (authenticate c "alice" "s3cret" #:code (cadr codes)) uid)
+  ;; a code is typed off paper: case and dashes are forgiven, nothing else is
+  (check-equal? (authenticate c "alice" "s3cret" #:code (string-upcase (caddr codes))) uid)
+  (check-equal? (authenticate c "alice" "s3cret"
+                              #:code (regexp-replace #rx"-" (cadddr codes) "")) uid)
+  (check-false (authenticate c "alice" "s3cret" #:code "aaaaa-bbbbb") "a code nobody issued")
+  ;; the password is still required — a code is a second factor, not a way past the first
+  (check-false (authenticate c "alice" "wrong" #:code (list-ref codes 4)))
+  (check-equal? (recovery-codes-remaining c uid) (- RECOVERY-CODE-COUNT 4)
+                "…and a failed password spends nothing")
+  (disconnect c))
+
+(test-case "re-issuing replaces the outstanding set; a reset takes the codes with it"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
+  (define-values (_s _u codes) (enable-2fa! c uid))
+  (define fresh-set (issue-recovery-codes! c uid))
+  (check-equal? (recovery-codes-remaining c uid) RECOVERY-CODE-COUNT)
+  (check-false (authenticate c "alice" "s3cret" #:code (car codes)) "the old set is dead")
+  (check-equal? (authenticate c "alice" "s3cret" #:code (car fresh-set)) uid)
+  ;; a reset revokes the seed AND the codes — they exist to open that second factor
+  (check-true (reset-2fa! c uid))
+  (check-equal? (recovery-codes-remaining c uid) 0)
+  (check-equal? (authenticate c "alice" "s3cret") uid "2FA is off")
+  ;; enrolling again issues a new set, and the old codes stay dead
+  (define-values (_s2 _u2 codes2) (enable-2fa! c uid))
+  (check-false (authenticate c "alice" "s3cret" #:code (cadr fresh-set)))
+  (check-equal? (authenticate c "alice" "s3cret" #:code (car codes2)) uid)
+  (disconnect c))
+
+(test-case "codes are stored as hashes, not as codes"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice" #:password "s3cret"))
+  (define-values (_s _u codes) (enable-2fa! c uid))
+  (define stored (query-list c "SELECT code_hash FROM user_recovery_codes WHERE user_id = ?" uid))
+  (check-equal? (length stored) RECOVERY-CODE-COUNT)
+  (for ([h (in-list stored)]) (check-true (regexp-match? #rx"^v1:" h)))
+  (for ([code (in-list codes)])
+    (check-false (for/or ([h (in-list stored)]) (regexp-match? (regexp (regexp-quote code)) h))
+                 "the code itself is not in the row"))
+  ;; a spent code keeps its row, so "already used" stays distinguishable in an audit
+  (authenticate c "alice" "s3cret" #:code (car codes))
+  (check-equal? (query-value c "SELECT COUNT(*) FROM user_recovery_codes WHERE user_id = ?" uid)
+                RECOVERY-CODE-COUNT)
+  (check-equal? (query-value c "SELECT COUNT(*) FROM user_recovery_codes WHERE user_id = ? AND used_at IS NOT NULL" uid) 1)
+  (disconnect c))
