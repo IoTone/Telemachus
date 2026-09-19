@@ -569,6 +569,16 @@ assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-ro
 assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
 assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
 
+# ---- issue #27: the console runs under a NONCE, not 'unsafe-inline'
+CSPH=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -i '^content-security-policy:')
+assert "the console's CSP carries a nonce"   "$CSPH" "script-src 'self' 'nonce-"
+assert "…and no longer allows inline script" "$(printf '%s' "$CSPH" | grep -c "script-src 'self' 'unsafe-inline'" || true)" '0'
+assert "…while styles keep theirs (~250 attributes)" "$CSPH" "style-src 'self' 'unsafe-inline'"
+assert "the nonce is in the page too"       "$(curl -s $B/ | grep -c '<script nonce="' || true)" '1'
+N1=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -oE "nonce-[0-9a-f]+" | head -1)
+N2=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -oE "nonce-[0-9a-f]+" | head -1)
+assert "…and it is fresh per response"      "$([ "$N1" != "$N2" ] && echo different || echo same)" 'different'
+
 # ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
 assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'
 assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'

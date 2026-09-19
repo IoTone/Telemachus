@@ -19,6 +19,8 @@
 
 (require racket/path
          (only-in racket/list take remove-duplicates)
+         (only-in racket/random crypto-random-bytes)     ; the console's CSP nonce (issue #27)
+         (only-in file/sha1 bytes->hex-string)
          racket/string
          racket/file
          racket/system
@@ -270,7 +272,13 @@
 ;; replacement throughout: regexp-replace* expands `&` and `\<n>` in a STRING
 ;; replacement, so a branded title like "A & B" would corrupt the markup.
 (define DEFAULT-DESCRIPTION "A self-hosted, privacy-first platform for a team's AI tools and documents.")
-(define (ui-html-branded [req #f])
+;; issue #27: the console's script runs under a per-request NONCE now, so the CSP
+;; no longer needs `script-src 'unsafe-inline'` — which is the directive that lets
+;; an injected <script> execute. A nonce cannot authorize an inline event handler,
+;; which is why all 141 of them became delegated listeners first.
+(define (new-nonce) (bytes->hex-string (crypto-random-bytes 16)))
+
+(define (ui-html-branded [req #f] [nonce #f])
   (define b (branding-for db-conn (request-org req)))
   (define title (let ([t (hash-ref b 'title "")]) (if (string=? t "") "Telemachus" t)))
   (define tagline (string-normalize-spaces (hash-ref b 'tagline "")))
@@ -288,8 +296,15 @@
      "<meta property=\"og:description\" content=\"" (html-escape description) "\">"
      (if logo (string-append "<meta property=\"og:image\" content=\"" (html-escape logo) "\">") "")
      "<meta name=\"twitter:card\" content=\"summary\">"))
-  (regexp-replace* #px"<title>.*?</title>" UI-HTML
-                   (lambda _ (string-append "<title>" (html-escape title) "</title>" meta))))
+  (define with-title
+    (regexp-replace* #px"<title>.*?</title>" UI-HTML
+                     (lambda _ (string-append "<title>" (html-escape title) "</title>" meta))))
+  ;; …and the nonce. A procedural replacement, like the title: a string
+  ;; replacement would expand `&` in the value.
+  (if nonce
+      (regexp-replace #px"<script>" with-title
+                      (lambda _ (string-append "<script nonce=\"" nonce "\">")))
+      with-title))
 (define (html-response s)
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
@@ -2245,7 +2260,13 @@
 ;; an endpoint cannot exist without a documented entry, or an entry without code.
 (define HANDLERS
   (hasheq
-   'ui (lambda (req) (html-response (ui-html-branded req)))
+   'ui (lambda (req)
+         ;; one nonce per response, in the HTML and in the header that admits it
+         (define nonce (new-nonce))
+         (response/output #:mime-type #"text/html; charset=utf-8"
+                          #:headers (list (make-header #"Content-Security-Policy"
+                                                       (string->bytes/utf-8 (console-csp nonce))))
+                          (lambda (out) (write-string (ui-html-branded req nonce) out))))
    'health (lambda (req) (ep-health))
    'beta-sdk (lambda (req) (serve-file (build-path impl-root "static" "beta-sdk.js")))
    'bundle-file (lambda (req plugin path)
@@ -2402,11 +2423,23 @@
 ;; this become a nonce policy. The e2e gate fails on console errors, and a CSP
 ;; violation is one, so the gate proves the console runs under this policy.
 ;; Downloads keep their own, stricter, per-object CSP (present headers win).
-(define CONSOLE-CSP
-  (string-append "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+;; What this buys now (issue #27): script-src carries a per-request NONCE instead
+;; of 'unsafe-inline', so an injected <script> — the payload that matters — cannot
+;; run, and neither can an inline event handler, because attributes cannot be
+;; nonced. That is why the console's 141 inline handlers moved to delegated
+;; listeners first; the policy could not be tightened while they existed.
+;;
+;; style-src KEEPS 'unsafe-inline', deliberately: the console still has ~250 style
+;; attributes, and injected CSS is a far smaller prize than injected script. That
+;; is the next tranche, not a blocker for this one.
+(define (console-csp nonce)
+  (string-append "default-src 'self'; "
+                 "script-src 'self' " (if nonce (string-append "'nonce-" nonce "'") "'unsafe-inline'") "; "
+                 "style-src 'self' 'unsafe-inline'; "
                  "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
                  "frame-src 'self' blob: data:; frame-ancestors 'self'; form-action 'self'; "
                  "base-uri 'self'; object-src 'none'"))
+(define CONSOLE-CSP (console-csp #f))
 (define BASE-SECURITY-HEADERS
   (list (make-header #"X-Content-Type-Options" #"nosniff")
         (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")

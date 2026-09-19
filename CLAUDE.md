@@ -1026,13 +1026,26 @@ raco test test/roles-tests.rkt
 - **`/health` is `{ok, multitenant}` and nothing else** (#11). Version, KDF, TLS and the
   codename moved to `GET /api/admin/status` (instance:manage). Do not put them
   back: the beta instance is a public front door.
-- **The console has a Content-Security-Policy** (#11, part 2; `CONSOLE-CSP`):
-  same-origin everything, `object-src 'none'`, `base-uri 'self'`,
-  `frame-ancestors 'self'`, `form-action 'self'`, `img-src` also `data: blob:`.
-  Scripts and styles are still `'unsafe-inline'` — the console is one file with
-  ~136 inline handlers and ~245 style attributes, and a nonce would disable
-  `'unsafe-inline'` and break all of them. The follow-up that earns a nonce
-  policy is moving the handlers to delegated listeners. **The e2e gate proves the
+- **The console runs under a per-request NONCE** (#11 part 2, then issue #27;
+  `console-csp`): same-origin everything, `object-src 'none'`, `base-uri 'self'`,
+  `frame-ancestors 'self'`, `form-action 'self'`, `img-src` also `data: blob:`,
+  and **`script-src 'self' 'nonce-…'` — no `'unsafe-inline'`**, which is the
+  directive that lets an injected script tag run. `style-src` keeps
+  `'unsafe-inline'` on purpose: ~250 style attributes remain and injected CSS is a
+  far smaller prize. Every other response still gets the baseline CSP with
+  `'unsafe-inline'` — a plugin bundle page may carry inline script of its own.
+- **All 141 inline handlers are delegated now** (issue #27), because a nonce
+  cannot authorize an `onclick` attribute. A render writes
+  `data-h-click="${H((el,ev)=>doThing(row.id))}"`; `H` parks the closure and
+  returns its index; one document listener per event type dispatches. `this` is
+  `el`, `event` is `ev`, and a handler returning `false` still gets
+  `preventDefault()` — an `<a href="#">` would otherwise start jumping to the top.
+  Arguments are real values instead of escaped strings, which also killed a
+  quoting-bug class. **`data-h-…` must live in a TEMPLATE literal**: one handler
+  sat inside `${live?'data-h-click="…"':'disabled'}`, a single-quoted string, so
+  `${H(…)}` never interpolated and the funnel's submit button shipped dead. The
+  browser test caught it; `test/console-tests.rkt` now pins both that and "no
+  inline handlers", so the policy cannot silently regress. **The e2e gate proves the
   console runs under the policy**: a CSP violation is a console error and the
   gate fails on those. A Tier-B bundle that loads a CDN font or script is blocked
   by this policy — bundle assets must be served from the bundle.
