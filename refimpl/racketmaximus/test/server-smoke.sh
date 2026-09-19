@@ -102,6 +102,18 @@ if [ "${MAXC:-9}" -le 2 ]; then echo "  ok   concurrency cap (max=$MAXC of 2)"; 
 assert "ai model info"   "$(curl -s $B/api/ai/model -H "Authorization: Bearer $OP")" '"configured":false'
 assert "ai chat reply"   "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" '"reply":"HELLO"'
 assert "ai chat stream"  "$(curl -sN -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":"hello world"}')" '"done":true'
+# issue #18: a prompt may be content PARTS, and a malformed one is named rather
+# than reaching the provider as an opaque 400
+assert "chat: a parts prompt"          "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"text","text":"hello"},{"type":"text","text":" world"}]}')" '"reply":"HELLO WORLD"'
+assert "chat: an unsupported part"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"input_audio"}]}')" 'unsupported type'
+assert "chat: a part with no type"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"text":"loose"}]}')" 'content part 0: no'
+assert "…and that is a 400"            "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"text":"loose"}]}')" '400'
+assert "chat: an unknown response_format" "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"yaml"}}')" 'not supported'
+assert "chat: a schemaless json_schema"   "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"json_schema","json_schema":{"name":"x"}}}')" 'json_schema.schema'
+# the simulated fallback cannot honour a format, and says so instead of passing an
+# upper-cased echo off as conforming JSON
+assert "chat: no model, no format"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"json_object"}}')" 'no model configured'
+assert "chat: a parts prompt streams"  "$(curl -sN -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"text","text":"hello"}]}')" '"done":true'
 assert "agent no-model"  "$(curl -s -X POST $B/api/agent -H "Authorization: Bearer $OP" -d '{"prompt":"hi"}')" 'requires a configured model'
 assert "tools list"      "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'create_note'
 assert "tool toggle off" "$(curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}')" '"enabled":false'

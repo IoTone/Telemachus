@@ -308,6 +308,38 @@ the HTTP layer: `query-param` compared a string key with `assq` against
 a request for Dutch was answered with Japanese. A filter that is ignored rather
 than refused is invisible to a model test.
 
+## Chat: content parts and response formats (issue #18)
+
+`domain/ai/content.rkt` is the ONE place both are decided, so the agent loop, the
+chat endpoint, the stream and the pull wire cannot disagree.
+
+- **A reply's content may be PARTS**, the OpenAI `[{type:"text",text:…}]` shape.
+  `(if (string? c) c "")` used to read every reply, so a parts reply became an
+  empty message and nobody complained. `content->text` joins text parts; content
+  that carries parts and NO text is a named error, never a quiet `""` — that is
+  the whole point, an empty answer must never be manufactured. Content that is
+  absent/`null`/`[]` is still legitimately "" (a tool-call-only turn), which is
+  why the agent parsers only raise when the turn has no tool calls either.
+- **`prompt` on `/api/ai/chat` is a string OR parts.** `content-problem` refuses
+  anything else up front (`text` and `image_url` only) — an unknown part shape
+  otherwise reaches the provider as an opaque 400 that names nothing.
+- **`response_format` rides to the model AND is checked here.** Most local servers
+  ignore the field, so a schema request would otherwise come back as prose the
+  caller parses as if it had conformed. `json_object` and `json_schema` go through
+  `domain/tools/jsonschema.rkt` — the same validator, and the same
+  `$.total: expected number, got string` refusal, as the pipeline's DWF‑5
+  extraction. `outer-json` (a fence or a sentence around the JSON is fine) is
+  shared with doc-tools for the same reason.
+- **The simulated fallback refuses a format** rather than passing an upper-cased
+  echo off as conforming JSON — same call as the doc tools' "no model configured".
+- **Streaming judges the format at the END**: `run-chat-stream` returns
+  `(values tokens text)` now, and the final SSE event carries `parsed` or
+  `schema_error`. Raising after the answer has already streamed would be worse.
+- **The wire carries it too**: `infer.chat`'s payload takes `response_format`, its
+  validator accepts `reply` (a string) or `content` (parts), and the reference
+  worker forwards the format. The `pull-router` box is
+  `(name msgs temp rf)` — a 3-arg test double will fail with an arity mismatch.
+
 ## Multi-tenancy (several companies on one instance)
 
 Off by default. `TELEMACHUS_MULTITENANT=1` adds an **org** layer above teams plus two

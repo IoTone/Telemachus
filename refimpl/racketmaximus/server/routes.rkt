@@ -143,8 +143,8 @@
 
    ;; ---- AI: chat, agent, translation ---------------------------------------------------
    (R "POST" "/api/ai/echo" 'ai-echo #:perm "chat:use" #:doc "A metered no-model echo, for exercising quotas.")
-   (R "POST" "/api/ai/chat" 'ai-chat #:perm "chat:use" #:feature "chat" #:doc "One model turn. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.")
-   (R "POST" "/api/ai/chat/stream" 'ai-chat-stream #:perm "chat:use" #:feature "chat" #:doc "The same turn as server-sent events, metered at the end.")
+   (R "POST" "/api/ai/chat" 'ai-chat #:perm "chat:use" #:feature "chat" #:doc "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.")
+   (R "POST" "/api/ai/chat/stream" 'ai-chat-stream #:perm "chat:use" #:feature "chat" #:doc "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it.")
    (R "POST" "/api/agent" 'agent #:perm "chat:use" #:feature "agent" #:doc "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.")
    (R "POST" "/api/translate/catalog" 'translate-catalog #:perm "chat:use" #:feature "translate" #:doc "Translate a whole locale catalog, placeholders preserved.")
    (R "POST" "/api/translate" 'translate #:perm "chat:use" #:feature "translate" #:doc "Translate text into a target language, applying the team glossary.")

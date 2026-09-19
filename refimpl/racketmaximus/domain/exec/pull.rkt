@@ -24,6 +24,7 @@
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
+         (only-in "../ai/content.rkt" content->text)
          "federation.rkt")
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
@@ -240,11 +241,16 @@
 ;; team cap (its parent holds the slot) and requirements naming the executor.
 (define WAIT-SECONDS 300)
 (define (pull-dispatch! conn #:team team #:user user #:executor name #:messages msgs
-                        #:model [model #f] #:temperature [temp 0.7] #:parent [parent #f])
+                        #:model [model #f] #:temperature [temp 0.7] #:parent [parent #f]
+                        #:response-format [rf #f])
   (define ex (executor-by-name conn name))
   (unless ex (error 'run-chat "no executor named ~a" name))
+  ;; response_format rides in the payload (issue #18): a worker must be able to
+  ;; answer a schema request, or a pull executor could not run the same call the
+  ;; local path can.
   (define id (enqueue-job! conn #:team team #:user user #:kind "infer.chat"
-                           #:payload (hasheq 'messages msgs 'model (or model (hash-ref ex 'model) 'null) 'temperature temp)
+                           #:payload (let ([pl (hasheq 'messages msgs 'model (or model (hash-ref ex 'model) 'null) 'temperature temp)])
+                                       (if rf (hash-set pl 'response_format rf) pl))
                            #:requirements (hasheq 'executor name 'model (or model (hash-ref ex 'model) 'null))
                            #:parent parent))
   (let loop ([waited 0])
@@ -253,7 +259,12 @@
     (cond
       [(equal? st "done")
        (define res (string->jsexpr (vector-ref r 1)))
-       (values (hash-ref res 'reply "") (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
+       ;; a worker may answer with `reply` or with content parts (issue #18); the
+       ;; validator has already refused parts that carry no text
+       (define reply
+         (cond [(string? (hash-ref res 'reply #f)) (hash-ref res 'reply)]
+               [else (let-values ([(t _p) (content->text (hash-ref res 'content ""))]) t)]))
+       (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
       [(member st '("error" "canceled"))
        (error 'run-chat "executor ~a: ~a" name (let ([e (vector-ref r 2)]) (if (sql-null? e) st e)))]
       [(> waited WAIT-SECONDS)

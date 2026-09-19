@@ -39,6 +39,7 @@
          "../authz/authz.rkt"
          "../orgs/orgs.rkt"           ; tenant-quota-record!
          "../ai/executor.rkt"         ; run-chat, model-configured?
+         (only-in "../ai/content.rkt" outer-json)
          "../ai/roles.rkt"            ; the team's utility executor (KG-7)
          "../apps/translate.rkt"      ; translate!
          "repo.rkt"
@@ -167,14 +168,9 @@
    "strings. If the document does not contain a value and the schema allows null, use "
    "null. No prose, no explanation, no markdown fences."))
 
-;; the outermost {…} of the reply, parsed — a model that wraps its JSON in a fence
-;; or a sentence still gets read; one that returns no object at all is refused
-(define (outer-json raw)
-  (define a (for/first ([i (in-naturals)] [c (in-string raw)] #:when (char=? c #\{)) i))
-  (define b (for/last  ([i (in-naturals)] [c (in-string raw)] #:when (char=? c #\})) i))
-  (and a b (> b a)
-       (with-handlers ([exn:fail? (lambda (_) #f)])
-         (string->jsexpr (substring raw a (add1 b))))))
+;; the outermost {…} of the reply is read by `outer-json`, shared with the chat
+;; response-format check (domain/ai/content.rkt) so "what counts as the model's
+;; JSON" has one answer on this platform.
 
 ;; text × schema -> (values fields tokens), or raises. Pure of the repository so the
 ;; refusal rules are testable with a scripted reply.

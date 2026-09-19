@@ -70,6 +70,7 @@
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
          "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
+         "../domain/ai/content.rkt"               ; content parts + response formats (issue #18)
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
          "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
@@ -1470,14 +1471,19 @@
     (require-perm db-conn p "chat:use")
     (require-feature p "chat")
     (define b (read-json-body req))
+    ;; `prompt` is a string or a list of content parts (issue #18)
     (define prompt (hash-ref b 'prompt ""))
+    (define rf (let ([v (hash-ref b 'response_format #f)]) (and v (not (eq? v 'null)) v)))
     (define ex (pick-executor b))
     (when ex (require-perm db-conn p "instance:manage"))          ; routing to specific compute = operator
-    (define est (estimate-tokens prompt))
+    (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
+    (define est (estimate-tokens prompt-text))
     (define sid (principal-team-id p))
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
+      [(content-problem prompt) => (lambda (bad) (err bad 400))]
+      [(and rf (response-format-problem rf)) => (lambda (bad) (err bad 400))]
       [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
@@ -1485,11 +1491,14 @@
        (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
        (with-slot GOV (string-append "team:" sid) (or climit 2)
          (lambda (inflight)
-           (define-values (reply tokens) (run-chat prompt #:executor ex))   ; local or federated
+           ;; run-chat refuses a reply that does not honour the format, so a
+           ;; 200 here means the schema held; `parsed` is that reply as JSON.
+           (define-values (reply tokens) (run-chat prompt #:executor ex #:response-format rf))
            (tenant-quota-record! db-conn p "ai.requests" 1)
            (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
            (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
            (json-response (hasheq 'reply reply 'tokens_used tokens
+                                  'parsed (response-format-parse rf reply)
                                   'model (executor-model ex)
                                   'executor (or ex "local")
                                   'concurrent inflight
@@ -1505,13 +1514,17 @@
     (require-feature p "chat")
     (define b (read-json-body req))
     (define prompt (hash-ref b 'prompt ""))
+    (define rf (let ([v (hash-ref b 'response_format #f)]) (and v (not (eq? v 'null)) v)))
     (define ex (pick-executor b))
     (when ex (require-perm db-conn p "instance:manage"))
-    (define est (estimate-tokens prompt))
+    (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
+    (define est (estimate-tokens prompt-text))
     (define sid (principal-team-id p))
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
+      [(content-problem prompt) => (lambda (bad) (err bad 400))]
+      [(and rf (response-format-problem rf)) => (lambda (bad) (err bad 400))]
       [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
@@ -1521,14 +1534,24 @@
         (lambda (emit)
           (with-slot GOV (string-append "team:" sid) (or climit 2)
             (lambda (inflight)
-              (define tokens (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok))) #:executor ex))
+              (define-values (tokens text)
+                (run-chat-stream prompt (lambda (tok) (emit (hasheq 'token tok))) #:executor ex
+                                 #:response-format rf))
               (tenant-quota-record! db-conn p "ai.requests" 1)
               (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
               (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
-              (emit (hasheq 'done #t 'tokens_used tokens
-                            'model (executor-model ex)
-                            'executor (or ex "local")
-                            'remaining_tokens (hash-ref after 'remaining)))))))]))))
+              ;; a format can only be judged once the stream has ended, so the
+              ;; verdict rides in the final event rather than raising after the
+              ;; answer has already gone out. `parsed` on success, `schema_error`
+              ;; when the model did not honour it — never a silent pass.
+              (define-values (parsed problem) (response-format-verify rf text))
+              (emit (let ([done (hasheq 'done #t 'tokens_used tokens
+                                        'model (executor-model ex)
+                                        'executor (or ex "local")
+                                        'remaining_tokens (hash-ref after 'remaining))])
+                      (cond [(not rf) done]
+                            [problem (hash-set done 'schema_error problem)]
+                            [else (hash-set done 'parsed parsed)])))))))]))))
 
 ;; agent mode: the model uses tools (RBAC-checked per tool) to operate the platform.
 (define (ep-agent req)
@@ -2384,17 +2407,26 @@
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
   ;; slice 66: the first REMOTE kind — the wire run-chat speaks, run by a pull
   ;; worker; a result must carry a reply and a numeric token count
+  ;; A worker answers with `reply` (a string) or with `content` — the same parts
+  ;; shape a provider may send (issue #18) — so a remote executor can return what
+  ;; a local call can. Parts are normalized to text on the way out of the wire.
   (register-job-kind! "infer.chat" #f #:remote? #t
     #:validate (lambda (r)
                  (cond [(not (hash? r)) "result must be an object"]
-                       [(not (string? (hash-ref r 'reply #f))) "result.reply must be a string"]
+                       [(and (not (hash-has-key? r 'reply)) (not (hash-has-key? r 'content)))
+                        "result needs a reply (a string) or a content (a list of parts)"]
+                       [(and (hash-has-key? r 'reply) (not (string? (hash-ref r 'reply))))
+                        "result.reply must be a string"]
+                       [(and (not (hash-has-key? r 'reply))
+                             (let-values ([(_t p) (content->text (hash-ref r 'content))]) p))
+                        => (lambda (p) (string-append "result.content: " p))]
                        [(not (number? (hash-ref r 'tokens_used #f))) "result.tokens_used must be a number"]
                        [else #f])))
   (set-reaper! reap-leases!)
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker
   (set-box! pull-router
-    (lambda (name msgs temp)
+    (lambda (name msgs temp rf)
       (define ex (executor-by-name db-conn name))
       (and ex (equal? (hash-ref ex 'mode) "pull")
            (let* ([job (current-job)]
@@ -2404,7 +2436,8 @@
              (unless team (error 'run-chat "no team context for executor ~a" name))
              (define-values (reply tokens)
                (pull-dispatch! db-conn #:team team #:user user #:executor name #:messages msgs
-                               #:temperature temp #:parent (and job (hash-ref job 'id))))
+                               #:temperature temp #:parent (and job (hash-ref job 'id))
+                               #:response-format rf))
              (cons reply tokens)))))
   ;; async job kinds + the worker pool
   (register-job-kind! "translate"

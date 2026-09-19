@@ -61,6 +61,38 @@ assert "the sub-job is done"          "$(G /api/jobs)" '"status":"done"'
 assert "the executor is active now"   "$(G /api/executors)" '"status":"active"'
 assert "AI spend was metered"         "$(G /api/usage)" '"dimension":"ai.tokens.total"'
 
+echo "== 3b. issue #18: a schema-shaped chat, and a parts prompt, through the worker ==="
+# the mock re-reads its reply file per request; a needle now answers with JSON
+printf '{"give me the invoice": "Sure:\\n```json\\n{\\"total\\": 42, \\"currency\\": \\"JPY\\"}\\n```", "*": "pulled: hello from the worker"}' > "$MOCK_REPLY_FILE"
+SCHEMA='{"type":"json_schema","json_schema":{"name":"invoice","schema":{"type":"object","properties":{"total":{"type":"number"},"currency":{"type":"string"}},"required":["total","currency"]}}}'
+run_worker(){ TELEMACHUS_URL="http://127.0.0.1:$PORT" TELEMACHUS_WORKER_TOKEN="$WT" TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions" TELEMACHUS_WORKER_MODELS=mock \
+  racket cli/telemachus-worker.rkt --once >>"$TELEMACHUS_DATA_DIR/worker.log" 2>&1; }
+
+( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
+    -d "{\"prompt\":\"give me the invoice\",\"executor\":\"laptop-gpu\",\"response_format\":$SCHEMA}" > "$TELEMACHUS_DATA_DIR/schema.json" ) & C2=$!
+sleep 1; run_worker; wait $C2
+assert "a schema request reaches the worker"  "$(cat "$TELEMACHUS_DATA_DIR/schema.json")" '"total":42'
+assert "…and comes back parsed"               "$(cat "$TELEMACHUS_DATA_DIR/schema.json")" '"parsed":'
+assert "…through the pull executor"           "$(cat "$TELEMACHUS_DATA_DIR/schema.json")" '"executor":"laptop-gpu"'
+
+# the same reply against a schema it does NOT satisfy: refused, naming the path.
+# The mock ignores response_format, exactly as a local server does — which is why
+# the platform checks the reply itself.
+BAD='{"type":"json_schema","json_schema":{"name":"invoice","schema":{"type":"object","properties":{"total":{"type":"string"}},"required":["total"]}}}'
+( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
+    -d "{\"prompt\":\"give me the invoice\",\"executor\":\"laptop-gpu\",\"response_format\":$BAD}" > "$TELEMACHUS_DATA_DIR/bad.json" ) & C3=$!
+sleep 1; run_worker; wait $C3
+assert "a reply that misses the schema is refused" "$(cat "$TELEMACHUS_DATA_DIR/bad.json")" 'does not honour response_format'
+assert "…and the refusal names the path"          "$(cat "$TELEMACHUS_DATA_DIR/bad.json")" '$.total'
+
+# a PARTS prompt reaches the provider verbatim: the mock matches its needle in a
+# text part, so a parts prompt is not silently an empty one
+( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
+    -d '{"prompt":[{"type":"text","text":"give me the invoice"}],"executor":"laptop-gpu"}' > "$TELEMACHUS_DATA_DIR/parts.json" ) & C4=$!
+sleep 1; run_worker; wait $C4
+# the invoice reply (not the "*" default) proves the needle was found in a TEXT PART
+assert "a parts prompt reaches the model"     "$(cat "$TELEMACHUS_DATA_DIR/parts.json")" '"reply":"Sure:'
+
 echo "== 4. a stale result is refused; retire kills the token ==="
 JID=$(G /api/jobs | python3 -c 'import sys,json;print(json.load(sys.stdin)["jobs"][0]["id"])')
 assert "completing a finished job is 409" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$JID/complete -H "Authorization: Bearer $WT" -d '{"result":{"reply":"x","tokens_used":1}}')" '409'

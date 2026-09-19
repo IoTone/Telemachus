@@ -15,7 +15,8 @@
          "tools.rkt"                    ; side effect: registers the built-in tools
          "../authz/authz.rkt"           ; can?, exn:fail:forbidden, principal-*
          "../ai/executor.rkt")          ; model-url/name/key, model-configured?
-(require (only-in "llm.rkt" http-post-json))
+(require (only-in "llm.rkt" http-post-json)
+         (only-in "../ai/content.rkt" content->text))
 
 (provide run-agent-flow agent-configured? make-exec parse-agent-response dispatch-tool)
 
@@ -40,8 +41,14 @@
 (define (parse-agent-response resp)
   (define choices (hash-ref resp 'choices '()))
   (define msg (if (pair? choices) (hash-ref (car choices) 'message (hasheq)) (hasheq)))
-  (define content (let ([c (hash-ref msg 'content 'null)]) (if (string? c) c "")))
   (define tcs (let ([t (hash-ref msg 'tool_calls '())]) (if (list? t) t '())))
+  ;; content PARTS are read, not silently emptied (issue #18); unreadable content
+  ;; is an error only when the turn carries no tool calls either
+  (define content
+    (let-values ([(text problem) (content->text (hash-ref msg 'content 'null))])
+      (when (and problem (null? tcs))
+        (error 'agent "the model's reply could not be read as text: ~a" problem))
+      text))
   (define pairs
     (for/list ([tc (in-list tcs)] [i (in-naturals)])
       (define fn (hash-ref tc 'function (hasheq)))

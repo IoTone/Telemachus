@@ -88,8 +88,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PUT | `/api/notes/:id` | bearer | `notes:write` | — | Update a note. |
 | DELETE | `/api/notes/:id` | bearer | `notes:delete` | — | Delete a note. |
 | POST | `/api/ai/echo` | bearer | `chat:use` | — | A metered no-model echo, for exercising quotas. |
-| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | One model turn. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. |
-| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | The same turn as server-sent events, metered at the end. |
+| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text\|json_object\|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. |
+| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it. |
 | POST | `/api/agent` | bearer | `chat:use` | `agent` | Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered. |
 | POST | `/api/translate/catalog` | bearer | `chat:use` | `translate` | Translate a whole locale catalog, placeholders preserved. |
 | POST | `/api/translate` | bearer | `chat:use` | `translate` | Translate text into a target language, applying the team glossary. |

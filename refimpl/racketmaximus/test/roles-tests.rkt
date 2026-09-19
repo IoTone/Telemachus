@@ -36,7 +36,8 @@
 (test-case "the document tools' model seam routes utility work to the role's executor"
   ;; a pull executor answers through the router box; no server, no model URL
   (define seen (box #f))
-  (set-box! pull-router (lambda (name msgs temp) (set-box! seen name) (cons "{\"title\":\"t\"}" 4)))
+  ;; the router takes the response format too (issue #18); this call asks for none
+  (set-box! pull-router (lambda (name msgs temp rf) (set-box! seen name) (cons "{\"title\":\"t\"}" 4)))
   (define-values (fields tokens)
     (parameterize ([current-utility-executor "util-box"])
       (extract-fields "some text" (hasheq 'type "object" 'properties (hasheq 'title (hasheq 'type "string"))))))
@@ -44,5 +45,5 @@
   (check-equal? (hash-ref fields 'title) "t")
   (check-equal? tokens 4)
   ;; without a role and without a local model, the seam still refuses loudly
-  (set-box! pull-router (lambda (name msgs temp) #f))
+  (set-box! pull-router (lambda (name msgs temp rf) #f))
   (check-exn #rx"no model configured" (lambda () (extract-fields "text" (hasheq 'type "object")))))

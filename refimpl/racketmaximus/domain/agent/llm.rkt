@@ -13,6 +13,7 @@
          net/url
          json
          "loop.rkt"                 ; assistant-msg
+         "../ai/content.rkt"        ; content->text (issue #18)
          "../tools/convert.rkt")    ; function-call->tool-block
 
 (provide chat-response->assistant-msg openai-llm http-post-json
@@ -35,10 +36,22 @@
                                         'function (hasheq 'name name 'arguments args)))
 
 ;; ---- pure: parse a /v1/chat/completions response into an assistant-msg ------
+;; Content PARTS are read here too (issue #18). A turn that carries tool calls may
+;; legitimately have nothing readable as text — that is what a tool-call-only reply
+;; looks like — so an unreadable content is only an error when it is ALL the model
+;; said, which is the case where "" was indistinguishable from a quiet model.
+(define (content-text-or-raise who c tool-calls?)
+  (define-values (text problem) (content->text c))
+  (when (and problem (not tool-calls?))
+    (error who "the model's reply could not be read as text: ~a" problem))
+  text)
+
 (define (chat-response->assistant-msg resp)
   (define choices (hash-ref resp 'choices '()))
   (define msg (if (pair? choices) (hash-ref (car choices) 'message (hasheq)) (hasheq)))
-  (define content (let ([c (hash-ref msg 'content 'null)]) (if (string? c) c "")))
+  (define content
+    (content-text-or-raise 'openai-llm (hash-ref msg 'content 'null)
+                           (pair? (let ([t (hash-ref msg 'tool_calls '())]) (if (list? t) t '())))))
   ;; build (block . raw-call) pairs, dropping any the converter rejects so the
   ;; two stay aligned (loop pairs raw-call[i] with result[i]).
   (define pairs
@@ -97,7 +110,9 @@
             [else
              (define choices (hash-ref chunk 'choices '()))
              (define delta (if (pair? choices) (hash-ref (car choices) 'delta (hasheq)) (hasheq)))
-             (let ([c (hash-ref delta 'content #f)]) (when (string? c) (on-content c)))
+             (let ([c (hash-ref delta 'content #f)])
+               (when c (let-values ([(t _p) (content->text c)])
+                         (unless (string=? t "") (on-content t)))))
              (loop (cons delta acc))])])]
       [else (loop acc)])))   ; skip blanks / comments
 
@@ -108,7 +123,8 @@
   (define content (open-output-string))
   (define calls (make-hash))                 ; index -> mutable hash 'id/'name/'args
   (for ([d (in-list deltas)])
-    (let ([c (hash-ref d 'content #f)]) (when (string? c) (write-string c content)))
+    (let ([c (hash-ref d 'content #f)])
+      (when c (let-values ([(t _p) (content->text c)]) (write-string t content))))
     (for ([tc (in-list (let ([t (hash-ref d 'tool_calls '())]) (if (list? t) t '())))])
       (define idx (let ([i (hash-ref tc 'index 0)]) (if (number? i) i 0)))
       (define cur (hash-ref! calls idx (lambda () (make-hash (list (cons 'id #f) (cons 'name "") (cons 'args ""))))))
@@ -131,13 +147,15 @@
 (define (openai-llm-stream #:endpoint endpoint #:model model
                            #:api-key [api-key #f] #:tools [tools '()]
                            #:temperature [temperature 0]
-                           #:on-content [on-content void])
+                           #:on-content [on-content void]
+                           #:response-format [rf #f])
   (define headers
     (append (list "Content-Type: application/json")
             (if api-key (list (string-append "Authorization: Bearer " api-key)) '())))
   (lambda (messages)
-    (define body (hasheq 'model model 'messages (sanitize-wire-messages messages) 'stream #t
-                         'temperature temperature 'tool_choice "auto" 'tools tools))
+    (define body (let ([b (hasheq 'model model 'messages (sanitize-wire-messages messages) 'stream #t
+                                  'temperature temperature 'tool_choice "auto" 'tools tools)])
+                   (if rf (hash-set b 'response_format rf) b)))
     (define-values (code in) (http-post-stream endpoint body headers))
     (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
     (stream-deltas->assistant-msg (read-sse-deltas in on-content))))
