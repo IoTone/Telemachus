@@ -847,6 +847,21 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## The integrator's guide (`docs/integrators-guide.md`)
+
+The document a downstream team follows to put THEIR product on Telemachus: theme
+the console (branding tokens), ship tools, serve their own screens
+(`plugins/<id>/bundle/`), back them with their own routes (`/api/x/<id>/…`), add
+job kinds, and skin the funnel. `plugins/integrator-demo/` is the worked example
+— one tool, two routes, a namespaced job kind, and a bundle screen that reads
+`GET /api/branding` and maps the same theme tokens, which is how a customer's
+palette reaches their own screens. `test/server-smoke.sh` asserts all four seams,
+so the example cannot rot silently.
+
+The guide states the gaps rather than papering over them: a plugin cannot add a
+tab to the core console, feature flags are per TEAM only (no instance-wide
+switch), and there is no hot reload.
+
 ## Plugin routes and artifact results (slices 63–64, issue #15)
 
 - **A plugin may `(provide routes)`**: `(list method path perm handler doc)` per

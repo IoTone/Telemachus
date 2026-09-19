@@ -17,6 +17,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `list_notes` | `notes:read` | built-in | List the current user's notes (title and visibility). |
 | `repo_extract_text` | `files:write` | built-in | Extract the text of one repository document into the search index. |
 | `repo_list_unindexed` | `files:read` | built-in | List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue. |
+| `shipment_eta` | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
 | `translate_text` | `chat:use` | translate-chat | Translate text into a target language. |
 | `update_note` | `notes:write` | built-in | Update a note's title and/or body by id. |
 | `word_count` | `chat:use` | example-tools | Count the number of words in a piece of text. |
@@ -163,6 +164,16 @@ Permission: `files:read` · source: built-in
 
 No parameters.
 
+
+## `shipment_eta`
+
+Estimate arrival days for a shipment lane.
+
+Permission: `chat:use` · source: integrator-demo
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `lane` | string | yes | Lane, e.g. SIN-LAX |
 
 ## `translate_text`
 

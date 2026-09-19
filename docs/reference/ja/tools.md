@@ -17,6 +17,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `list_notes` | `notes:read` | built-in | 現在のユーザーのメモ（タイトルと表示設定）を一覧表示します。 |
 | `repo_extract_text` | `files:write` | built-in | 1つのリポジトリドキュメントのテキストを検索インデックスに抽出します。 |
 | `repo_list_unindexed` | `files:read` | built-in | 検索用に抽出されていないリポジトリドキュメントをリストします（または、上書き後に古くなっています）。オブジェクトIDを返し、バッチ分まで；インデキシングワークフローを再実行して続行します。 |
+| `shipment_eta` | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
 | `translate_text` | `chat:use` | translate-chat | 目標言語にテキストを翻訳します。 |
 | `update_note` | `notes:write` | built-in | ID でノートのタイトルまたは本文を更新する。 |
 | `word_count` | `chat:use` | example-tools | テキストの単語数を数える。 |
@@ -163,6 +164,16 @@ Permission: `files:read` · source: built-in
 
 No parameters.
 
+
+## `shipment_eta`
+
+Estimate arrival days for a shipment lane.
+
+Permission: `chat:use` · source: integrator-demo
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `lane` | string | yes | Lane, e.g. SIN-LAX |
 
 ## `translate_text`
 

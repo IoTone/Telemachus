@@ -170,4 +170,6 @@ Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every on
 |---|---|---|---|---|
 | GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in ?text=. |
 | POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in {text}. |
+| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for ?lane=. |
+| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for {lane}. |
 

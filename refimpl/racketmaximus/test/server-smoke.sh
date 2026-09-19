@@ -604,6 +604,16 @@ assert "plugin bundle: no ENCODED traversal either" "$(curl -s --path-as-is -o /
 assert "plugin bundle: a nested traversal is a 404 too" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/a/../../plugin.json" -H "Authorization: Bearer $OP")" '404'
 assert "plugin bundle: an unloaded plugin is a 404" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/nope/bundle/index.html -H "Authorization: Bearer $OP")" '404'
 
+# ---- the integrator example (docs/integrators-guide.md): all four seams at once
+assert "example: the tool is registered"   "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" '"shipment_eta"'
+assert "example: its route answers"        "$(curl -s "$B/api/x/integrator-demo/eta?lane=sin-lax" -H "Authorization: Bearer $OP")" '"days":18'
+assert "…and needs a token"                "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/integrator-demo/eta?lane=sin-lax")" '401'
+assert "…and refuses a missing argument"   "$(curl -s -X POST $B/api/x/integrator-demo/eta -H "Authorization: Bearer $OP" -d '{}')" 'lane is required'
+assert "example: its job kind is namespaced" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.integrator-demo.lane-report"'
+EJ=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"x.integrator-demo.lane-report","payload":{"lanes":["sin-lax","hkg-lax"]}}')
+assert "example: the job is accepted"      "$EJ" '"id"'
+assert "example: its screen is served to a signed-in caller" "$(curl -s $B/api/x/integrator-demo/bundle/ -H "Authorization: Bearer $OP")" 'Lane ETA'
+
 # ---- slice 57: the document pipeline plugin is present, and refuses to run on the
 # fallback model. Without this the uppercase-echo fallback would fail every schema
 # with "the model did not return a JSON object" — true, and useless to an operator.
