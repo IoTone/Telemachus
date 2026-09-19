@@ -78,3 +78,65 @@
   (check-equal? (hash-ref (get-job c j tid) 'status) "done")
   (check-equal? (unbox billed) 7)
   (set-admit?! (lambda (conn team) #t)) (set-record!! (lambda (conn team result) (void))))   ; restore defaults
+
+;; ---- the claim is conditional, and a claimed job is leased (issue #17) --------
+
+(test-case "claim-job! is conditional: only the caller that took the row believes it"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok" (lambda (conn p pl) (hasheq 'ok #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "ok"))
+  (define lease (+ (current-seconds) POOL-LEASE-SECONDS))
+  (check-true (claim-job! c j #:lease lease))            ; first claimant takes it
+  (check-false (claim-job! c j #:lease (+ lease 99)))    ; second finds it no longer queued
+  ;; the loser's update changed nothing: the first lease still stands
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "running")
+  (check-equal? (query-value c "SELECT lease_until FROM jobs WHERE id = ?" j) lease))
+
+(test-case "a pool claim carries a lease, and clears it when the job finishes"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define seen (box #f))
+  (register-job-kind! "peek"
+    (lambda (conn p pl)
+      ;; mid-run: the row we are running carries a live lease, so the reaper
+      ;; leaves it alone while this worker is alive
+      (set-box! seen (query-value conn "SELECT lease_until FROM jobs WHERE id = ?" (hash-ref (current-job) 'id)))
+      (hasheq 'ok #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "peek"))
+  (check-equal? (process-one! c) j)
+  (check-true (number? (unbox seen)))
+  (check-true (> (unbox seen) (current-seconds)))
+  (check-equal? (hash-ref (get-job c j tid) 'status) "done")
+  (check-true (sql-null? (query-value c "SELECT lease_until FROM jobs WHERE id = ?" j))))   ; released
+
+(test-case "a run whose lease was reaped mid-flight does not clobber the new attempt"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define billed (box 0))
+  (set-record!! (lambda (conn team result) (set-box! billed (add1 (unbox billed)))))
+  (register-job-kind! "slow"
+    (lambda (conn p pl)
+      ;; stand in for the reaper: the lease expired and the job went back to the queue
+      (query-exec conn "UPDATE jobs SET status='queued', lease_until=NULL, attempt=2 WHERE id = ?"
+                  (hash-ref (current-job) 'id))
+      (hasheq 'tokens_used 5)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "slow"))
+  (process-one! c)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "queued")   ; still the queued retry, not "done"
+  (check-equal? (unbox billed) 0)                                ; and nothing was billed for it
+  (set-record!! (lambda (conn team result) (void))))
+
+(test-case "reap-orphans! requeues a job left running with no lease"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok" (lambda (conn p pl) (hasheq 'ok #t)))
+  ;; what a pre-lease build (or a process that died) leaves behind
+  (define orphan (new-id))
+  (query-exec c "INSERT INTO jobs (id,team_id,user_id,kind,status) VALUES (?,?,?,?,'running')" orphan tid uid "ok")
+  (define live (new-id))
+  (query-exec c "INSERT INTO jobs (id,team_id,user_id,kind,status,lease_until) VALUES (?,?,?,?,'running',?)"
+              live tid uid "ok" (+ (current-seconds) 300))
+  (check-equal? (reap-orphans! c) 1)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" orphan) "queued")
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" live) "running"))   ; a live lease is untouched

@@ -155,15 +155,16 @@
              (or sub? (< (query-value conn "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND status = 'running'" team)
                          ((scheduler-cap-for) team)))
              ((scheduler-admit?) conn team)
-             (let ([lease (+ (now) LEASE-SECONDS)])
-               (query-exec conn
-                 (string-append "UPDATE jobs SET status = 'running', executor_id = ?, lease_until = ?, "
-                                "started_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'queued'")
-                 (hash-ref ex 'id) lease id)
-               (define row (query-row conn "SELECT id, kind, payload, team_id FROM jobs WHERE id = ?" id))
-               (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
-                       'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vector-ref row 2)))
-                       'lease_until lease 'lease_seconds LEASE-SECONDS)))))))
+             ;; the same conditional claim the pool makes: the update names the
+             ;; row it expects and is believed only when RETURNING hands one back,
+             ;; so two workers scanning the same queue never both get this job.
+             (let* ([lease (+ (now) LEASE-SECONDS)]
+                    [took? (claim-job! conn id #:lease lease #:executor (hash-ref ex 'id))])
+               (and took?
+                    (let ([row (query-row conn "SELECT id, kind, payload, team_id FROM jobs WHERE id = ?" id)])
+                      (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
+                              'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vector-ref row 2)))
+                              'lease_until lease 'lease_seconds LEASE-SECONDS)))))))))
 
 ;; is this job held by this executor, and still running? -> 'ok | 'not-holder | 'not-running
 (define (holder-check conn ex job-id)
@@ -216,8 +217,12 @@
 ;; an expired lease returns the job to the queue with attempt+1; past MAX-ATTEMPTS
 ;; it fails with the reason. Called from the scheduler's idle tick and by tests.
 (define (reap-leases! conn)
+  ;; every claim carries a lease now — a pull worker's and the pool's alike — so
+  ;; this recovers an in-process job whose worker died as well as a remote one.
+  ;; (`lease_until < ?` already skips a NULL lease; those are swept at boot by
+  ;; the scheduler's reap-orphans!.)
   (define expired (query-rows conn
-    "SELECT id, attempt FROM jobs WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until < ?" (now)))
+    "SELECT id, attempt FROM jobs WHERE status = 'running' AND lease_until < ?" (now)))
   (for ([r (in-list expired)])
     (define id (vector-ref r 0)) (define attempt (vector-ref r 1))
     (if (< attempt MAX-ATTEMPTS)
