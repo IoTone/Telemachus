@@ -363,6 +363,29 @@ try {
   const pub = await apiCall(page, '/api/branding');
   eq('branding readable publicly after save', pub.json && pub.json.tagline, 'Private AI for one team');
 
+  // ── the theme: tokens on the branding document become the console's palette ──
+  // This is the only end-to-end proof that the token → CSS-variable mapping works;
+  // a model test can only say the document was stored.
+  await page.evaluate(() => {
+    window.brandThemeSet('bg', '#101014');
+    window.brandThemeSet('brand', '#c9a227');
+  });
+  ok('editing a token previews live',
+    await until(page, () => getComputedStyle(document.body).backgroundColor === 'rgb(16, 16, 20)'));
+  await page.evaluate(() => window.doBrandSave());
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  ok('…and survives a reload, from the stored theme',
+    await until(page, () => getComputedStyle(document.body).backgroundColor === 'rgb(16, 16, 20)',
+      { timeout: 15000 }));
+  const themed = await apiCall(page, '/api/branding');
+  eq('the theme is public, so the sign-in screen wears it too',
+    themed.json && themed.json.theme && themed.json.theme.brand, '#c9a227');
+  // The server's refusal of an illegible theme is pinned in server-smoke.sh, NOT
+  // here: this gate fails on any console error, and a deliberate 400 logs one.
+  // the reload above left the console on its default tab — come back before the
+  // rest of this step reaches for Admin's controls
+  ok('back on Admin after the reload', await goTab(page, 'admin', '#brt'));
+
   // logo upload replaces the mark
   await page.setInputFiles('#brf', {
     name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(pngB64, 'base64')

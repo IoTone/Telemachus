@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Lane ETA</title>
+<!--
+  A customer's own screen, served by the platform at
+  /api/x/integrator-demo/bundle/ to a caller with a bearer token, answered
+  `private, no-store`. Two things this file demonstrates and the guide explains:
+
+  1. It wears the INSTANCE (or the company's) theme, by reading the same public
+     branding document the console reads and mapping the same tokens. A customer
+     sets their palette once and every surface follows.
+  2. Everything it loads, it ships. The console's Content-Security-Policy is
+     same-origin, so a CDN font or script is blocked — by design.
+-->
+<style>
+  :root{ --bg:#0b1a2b; --panel:#12253a; --ink:#f2ede1; --muted:#93a4b8;
+         --brand:#6fa0d1; --brandink:#ffffff; --radius:8px;
+         --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif }
+  body{margin:0;padding:2rem;background:var(--bg);color:var(--ink);font:15px/1.6 var(--font)}
+  main{max-width:34rem;margin:0 auto}
+  .card{background:var(--panel);border-radius:var(--radius);padding:1.2rem 1.4rem;margin-top:1rem}
+  label{display:block;color:var(--muted);font-size:13px;margin-bottom:4px}
+  input{width:100%;padding:.5rem .6rem;border-radius:var(--radius);border:1px solid var(--muted);
+        background:transparent;color:var(--ink);font:inherit}
+  button{margin-top:.8rem;padding:.55rem 1rem;border:0;border-radius:var(--radius);
+         background:var(--brand);color:var(--brandink);font:inherit;font-weight:600;cursor:pointer}
+  output{display:block;margin-top:1rem;font-size:18px;font-weight:600}
+  .muted{color:var(--muted)}
+</style>
+<main>
+  <h1>Lane ETA</h1>
+  <p class="muted">A plugin screen: its own API route, the instance's theme.</p>
+  <div class="card">
+    <label for="lane">Lane</label>
+    <input id="lane" value="SIN-LAX" placeholder="SIN-LAX">
+    <button id="go">Estimate</button>
+    <output id="out"></output>
+  </div>
+</main>
+<script>
+  // The console stores the session token here; this screen is served from the
+  // same origin and its API route requires the same bearer.
+  const token = localStorage.getItem('tmx_token');
+  const auth = { Authorization: 'Bearer ' + token };
+
+  // ---- wear the instance's (or the company's) theme -------------------------
+  // GET /api/branding is public and carries the same theme tokens the console
+  // maps. Sending the bearer means a company's own theme answers on any host.
+  const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+  const FONTS = { System:'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif',
+                  Serif:'Georgia,Cambria,"Times New Roman",serif',
+                  Mono:'ui-monospace,SFMono-Regular,Menlo,monospace',
+                  Rounded:'ui-rounded,"SF Pro Rounded",system-ui,sans-serif' };
+  async function applyBrandTheme(){
+    try {
+      const r = await fetch('/api/branding', { headers: auth });
+      if(!r.ok) return;
+      const b = await r.json();
+      document.title = (b.title ? b.title + ' — ' : '') + 'Lane ETA';
+      const th = b.theme; if(!th) return;
+      const s = document.documentElement.style;
+      const put = (name, key) => { if(HEX.test(String(th[key]||''))) s.setProperty(name, th[key]); };
+      put('--bg','bg'); put('--panel','surface'); put('--ink','ink');
+      put('--muted','muted'); put('--brand','brand'); put('--brandink','brandInk');
+      if(/^[0-9]{1,2}px$/.test(String(th.radius||''))) s.setProperty('--radius', th.radius);
+      if(FONTS[th.fontBody]) s.setProperty('--font', FONTS[th.fontBody]);
+    } catch (e) { /* unthemed is a fine fallback; never block the screen on it */ }
+  }
+  applyBrandTheme();
+
+  // ---- call this plugin's own route ----------------------------------------
+  document.getElementById('go').onclick = async () => {
+    const lane = document.getElementById('lane').value;
+    const out = document.getElementById('out');
+    out.textContent = '…';
+    const r = await fetch('/api/x/integrator-demo/eta?lane=' + encodeURIComponent(lane), { headers: auth });
+    const j = await r.json().catch(() => ({}));
+    out.textContent = r.ok ? `${j.lane}: about ${j.days} days` : (j.error || 'failed');
+  };
+</script>

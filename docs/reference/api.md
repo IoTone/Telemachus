@@ -16,8 +16,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache. |
 | GET | `/beta/template` | public | — | — | The Tier-C sandboxed HTML template, localized by the experience overlay. |
 | GET | `/api/config` | public | — | — | Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token. |
-| GET | `/api/branding` | public | — | — | Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |
-| PUT | `/api/branding` | bearer | `instance:manage` | — | Set the instance title and tagline. |
+| GET | `/api/branding` | public | — | — | Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |
+| PUT | `/api/branding` | bearer | `instance:manage` | — | Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it. |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | — | Upload the instance logo (replaces the mark and the wordmark). |
 | GET | `/api/i18n/catalog` | public | — | — | The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them. |
 | PUT | `/api/i18n` | bearer | `instance:manage` | — | Set the instance default locale and whether users may switch. |
@@ -51,8 +51,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/resume` | provision | — | — | Hosted mode: resume a suspended tenant. |
 | POST | `/api/instance/quota` | provision | — | — | Hosted mode: set a quota limit for the tenant's team. |
 | POST | `/api/login` | public | — | — | Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. |
-| POST | `/api/2fa/enable` | bearer | — | — | Enable TOTP two-factor authentication for the caller; returns the secret once. |
-| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed stops working and they must enrol again. |
+| POST | `/api/2fa/enable` | bearer | — | — | Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once. |
+| POST | `/api/2fa/recovery-codes` | bearer | — | — | Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26). |
+| GET | `/api/2fa/recovery-codes` | bearer | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |
+| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again. |
 | DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
 | POST | `/api/password` | bearer | — | — | Change the caller's password. |
 | GET | `/api/whoami` | bearer | — | — | The caller: user, team, operator flag, org, org role, locale, permissions. |
@@ -75,7 +77,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own. |
 | GET | `/api/org/audit` | org-admin | `org:read` | — | The company's audit trail. |
 | GET | `/api/org/branding` | org-admin | `org:read` | — | The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none. |
-| PUT | `/api/org/branding` | org-admin | `org:manage` | — | Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users. |
+| PUT | `/api/org/branding` | org-admin | `org:manage` | — | Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are. |
 | DELETE | `/api/org/branding` | org-admin | `org:manage` | — | Drop the company's branding; its users see the instance's again. |
 | POST | `/api/org/branding/logo` | org-admin | `org:manage` | — | Upload the company's logo (base64) and make it the company's mark. |
 | POST | `/api/notes` | bearer | `notes:write` | — | Create a note with a visibility. |
@@ -105,10 +107,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/executors` | bearer | `instance:manage` | — | Create an executor: {name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again. |
 | DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | Retire an executor: its worker token is revoked and any job it holds returns to the queue. |
 | POST | `/api/org/executors` | org-admin | `org:manage` | — | Create an executor bound to the caller's company (TEN-2e): offered only to its teams. |
-| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease. |
-| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | Extend the lease on a job this worker holds. |
-| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | Post a result: {result}. Accepted only from the current lease holder; validated by the kind. |
-| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | Report a failure: {error}. Accepted only from the current lease holder. |
+| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back. |
+| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409. |
+| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind. |
+| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt. |
 | GET | `/api/usage` | bearer | — | — | The team's quota dimensions with used, limit and remaining. |
 | POST | `/api/quota` | bearer | `instance:manage` | — | Set a quota limit for the caller's team (dimension, limit, window). |
 | GET | `/api/tools` | bearer | — | — | Every registered tool with its permission, source and per-team enabled state. |
@@ -170,4 +172,6 @@ Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every on
 |---|---|---|---|---|
 | GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in ?text=. |
 | POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in {text}. |
+| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for ?lane=. |
+| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for {lane}. |
 

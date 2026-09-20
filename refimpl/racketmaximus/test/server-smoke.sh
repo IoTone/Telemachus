@@ -284,6 +284,21 @@ assert "a markup-bearing title is escaped, not injected" \
 # restore the default so later assertions and reruns start from a clean slate
 curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{}' >/dev/null
 assert "blank title put falls back to the default" "$(curl -s $B/api/branding)" '"title":"Telemachus"'
+
+# ---- integrator theming: the console's palette rides the branding document
+assert "branding carries a theme"      "$(curl -s $B/api/branding)" '"theme":'
+assert "…the shipped palette by default" "$(curl -s $B/api/branding)" '"bg":"#0b1a2b"'
+THEME='{"title":"Acme","theme":{"bg":"#101014","surface":"#1b1b22","ink":"#f5f5f7","muted":"#a0a0ad","brand":"#c9a227","brandInk":"#ffffff","radius":"12px","mode":"dark","fontBody":"Serif"}}'
+assert "a theme is stored"             "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d "$THEME")" '"brand":"#c9a227"'
+assert "…and served to the PUBLIC sign-in screen" "$(curl -s $B/api/branding)" '"brand":"#c9a227"'
+assert "an unknown token is refused"   "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"accent":"#ffffff"}}')" 'unknown theme token'
+assert "…as a 400"                     "$(curl -s -o /dev/null -w '%{http_code}' -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"accent":"#ffffff"}}')" '400'
+assert "a non-colour is refused"       "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"bg":"url(x)"}}')" 'must be a hex colour'
+assert "an illegible theme is refused" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"bg":"#ffffff","ink":"#fefefe"}}')" 'will not be able to read it'
+assert "…and the stored theme is untouched" "$(curl -s $B/api/branding)" '"brand":"#c9a227"'
+assert "a member cannot theme the instance" "$(curl -s -o /dev/null -w '%{http_code}' -X PUT $B/api/branding -H "Authorization: Bearer $BOB" -d "$THEME")" '403'
+curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"Telemachus"}' >/dev/null
+assert "reset restores the shipped palette" "$(curl -s $B/api/branding)" '"brand":"#6fa0d1"'
 assert "members list"    "$(curl -s $B/api/members -H "Authorization: Bearer $OP")" '"username":"bob"'
 assert "unauth 401 en"   "$(curl -s $B/api/whoami)" 'Authentication required.'
 assert "unauth 401 ja"   "$(curl -s $B/api/whoami -H 'Accept-Language: ja')" '認証が必要です'
@@ -554,12 +569,28 @@ assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-ro
 assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
 assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
 
+# ---- issue #27: the console runs under a NONCE, not 'unsafe-inline'
+CSPH=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -i '^content-security-policy:')
+assert "the console's CSP carries a nonce"   "$CSPH" "script-src 'self' 'nonce-"
+assert "…and no longer allows inline script" "$(printf '%s' "$CSPH" | grep -c "script-src 'self' 'unsafe-inline'" || true)" '0'
+assert "…while styles keep theirs (~250 attributes)" "$CSPH" "style-src 'self' 'unsafe-inline'"
+assert "the nonce is in the page too"       "$(curl -s $B/ | grep -c '<script nonce="' || true)" '1'
+N1=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -oE "nonce-[0-9a-f]+" | head -1)
+N2=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -oE "nonce-[0-9a-f]+" | head -1)
+assert "…and it is fresh per response"      "$([ "$N1" != "$N2" ] && echo different || echo same)" 'different'
+
 # ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
 assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'
 assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'
 TFA=$(curl -s -X POST $B/api/2fa/enable -H "Authorization: Bearer $OP")
 assert "2fa enable returns the seed once"     "$TFA" '"secret":'
+# issue #26: enrolling hands out the way back in at the same time
+assert "…and a set of recovery codes"         "$TFA" '"recovery_codes":['
+assert "ten of them are unspent"              "$(curl -s $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP")" '"remaining":10'
+assert "re-issuing returns a fresh set"       "$(curl -s -X POST $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP")" '"count":10'
+assert "…and the count endpoint never leaks them" "$(curl -s $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP" | grep -c recovery_codes || true)" '0'
 assert "…and resetting it says it was on"     "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":true'
+assert "…taking the recovery codes with it"   "$(curl -s $B/api/2fa/recovery-codes -H "Authorization: Bearer $OP")" '"remaining":0'
 assert "…a second reset says it was not"      "$(curl -s -X DELETE $B/api/2fa -H "Authorization: Bearer $OP")" '"was_enabled":false'
 assert "an operator may revoke another user's seed" "$(curl -s -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $OP")" '"ok":true'
 assert "…a member may not"                    "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/admin/users/$BOBID/2fa -H "Authorization: Bearer $BOB")" '403'
@@ -588,6 +619,16 @@ assert "plugin bundle: no traversal out of the directory" "$(curl -s --path-as-i
 assert "plugin bundle: no ENCODED traversal either" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/%2e%2e/main.rkt" -H "Authorization: Bearer $OP")" '404'
 assert "plugin bundle: a nested traversal is a 404 too" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/a/../../plugin.json" -H "Authorization: Bearer $OP")" '404'
 assert "plugin bundle: an unloaded plugin is a 404" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/nope/bundle/index.html -H "Authorization: Bearer $OP")" '404'
+
+# ---- the integrator example (docs/integrators-guide.md): all four seams at once
+assert "example: the tool is registered"   "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" '"shipment_eta"'
+assert "example: its route answers"        "$(curl -s "$B/api/x/integrator-demo/eta?lane=sin-lax" -H "Authorization: Bearer $OP")" '"days":18'
+assert "…and needs a token"                "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/integrator-demo/eta?lane=sin-lax")" '401'
+assert "…and refuses a missing argument"   "$(curl -s -X POST $B/api/x/integrator-demo/eta -H "Authorization: Bearer $OP" -d '{}')" 'lane is required'
+assert "example: its job kind is namespaced" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.integrator-demo.lane-report"'
+EJ=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"x.integrator-demo.lane-report","payload":{"lanes":["sin-lax","hkg-lax"]}}')
+assert "example: the job is accepted"      "$EJ" '"id"'
+assert "example: its screen is served to a signed-in caller" "$(curl -s $B/api/x/integrator-demo/bundle/ -H "Authorization: Bearer $OP")" 'Lane ETA'
 
 # ---- slice 57: the document pipeline plugin is present, and refuses to run on the
 # fallback model. Without this the uppercase-echo fallback would fail every schema

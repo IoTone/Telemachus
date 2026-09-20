@@ -40,8 +40,8 @@
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
     },
     "doc.route.get.api.admin.status": {
-      "text": "Instance status: version, KDF, TLS and multi-tenancy flags, and counts of users, teams, orgs, notes, tokens, audit events, tenants.",
-      "hash": "1527b973024d3cb3d10acdc2d61beb3d95437d24"
+      "text": "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.",
+      "hash": "8370c95c77a4500fe4a6b1be2fffbbeb65977e19"
     },
     "doc.route.get.api.doc-triggers": {
       "text": "The team's upload triggers, with the team's remaining AI budget.",
@@ -115,6 +115,10 @@
       "text": "Enqueue a scheduler job of a registered kind.",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
     },
+    "doc.route.put.api.org.branding": {
+      "text": "Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users.",
+      "hash": "4e58c08f2d8d7a4eb3da90665d7f7fd4a695e59e"
+    },
     "ui.s3once": {
       "text": "Copy the secret now — it is not shown again.",
       "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
@@ -135,6 +139,10 @@
       "text": "Team",
       "hash": "218887269ad5946d9dc53238651c90472884fb0f"
     },
+    "ui.thmuted": {
+      "text": "Muted text",
+      "hash": "dee48bca04ebefcf164cb6d7f91b3ea08807f968"
+    },
     "doc.route.patch.api.doc-triggers.id": {
       "text": "Change a trigger's fields; absent fields are left alone.",
       "hash": "7a33acd43eb1ef2bda67aa3b1c16daaca8fd3afd"
@@ -154,6 +162,10 @@
     "doc.perm.tasks:read": {
       "text": "Read tasks.",
       "hash": "736bd92b8e286f7a17a50b38358b9c0151b86a51"
+    },
+    "ui.thsurface": {
+      "text": "Panel",
+      "hash": "2f4bd749ecf708ff53a15e9e7904176bd92ad347"
     },
     "ui.copied": {
       "text": "Copied",
@@ -231,6 +243,14 @@
       "text": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
       "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
     },
+    "ui.useglossary": {
+      "text": "Use glossary",
+      "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
+    },
+    "doc.route.delete.api.2fa": {
+      "text": "Turn the caller's own TOTP off, so the old seed stops working and they must enrol again.",
+      "hash": "d6b4225e212825919d3da360418d282f4c27cacc"
+    },
     "ui.prompt": {
       "text": "Prompt",
       "hash": "a817d7eb8e0f1dab755ab5203a082e5c3c094fce"
@@ -270,10 +290,6 @@
     "doc.route.post.api.beta.assets": {
       "text": "Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB.",
       "hash": "abd6aaedec0f9ebc0a17e4662212539b1c93384f"
-    },
-    "ui.useglossary": {
-      "text": "Use glossary",
-      "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
     },
     "doc.route.get.api.runs": {
       "text": "The team's runs, newest first.",
@@ -367,6 +383,14 @@
       "text": "Report the team's current AI usage against its quota.",
       "hash": "e068247f15386c62657ebb749bd6fdd35c0d758a"
     },
+    "ui.trigger_types": {
+      "text": "Content types (blank = any)",
+      "hash": "c233fa078f402f539dcc118a797d48b63f1bb591"
+    },
+    "doc.route.delete.api.admin.users.id.2fa": {
+      "text": "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.",
+      "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
+    },
     "ui.objects": {
       "text": "Documents",
       "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
@@ -430,10 +454,6 @@
     "doc.perm.localization:manage": {
       "text": "Import and export catalogs, queue AI drafts, discard machine drafts.",
       "hash": "b52a77e55ac80e83559f56f228f3b8afe522ff18"
-    },
-    "ui.trigger_types": {
-      "text": "Content types (blank = any)",
-      "hash": "c233fa078f402f539dcc118a797d48b63f1bb591"
     },
     "doc.route.post.api.translate.catalog": {
       "text": "Translate a whole locale catalog, placeholders preserved.",
@@ -583,6 +603,14 @@
       "text": "Delete",
       "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
     },
+    "doc.route.post.api.password": {
+      "text": "Change the caller's password.",
+      "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
+    },
+    "doc.tool.doc_render.format": {
+      "text": "Output format: the template's own (default) or \"pdf\" — Markdown and HTML templates only",
+      "hash": "1b790d813f9ab8fbf2f32e9abd208f4c76f44e05"
+    },
     "doc.tool.doc_extract_fields.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
@@ -615,6 +643,10 @@
       "text": "{field} must be at least {n} characters",
       "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
     },
+    "ui.thbg": {
+      "text": "Background",
+      "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
+    },
     "ui.l10nall": {
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
@@ -622,10 +654,6 @@
     "ui.fires": {
       "text": "History",
       "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
-    },
-    "doc.route.post.api.password": {
-      "text": "Change the caller's password.",
-      "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
     },
     "doc.route.post.api.org.executors": {
       "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
@@ -919,6 +947,10 @@
       "text": "Call tools from the agent or a workflow step; each tool then checks its own permission.",
       "hash": "44b342c7a46bbf0734fb7a29be9cfa4d39ff2df0"
     },
+    "doc.route.get.api.x.plugin.bundle.path": {
+      "text": "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache.",
+      "hash": "d3a86b6663cfb8e61e7a53b11462b2062d3dc53e"
+    },
     "ui.tools": {
       "text": "Tools",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
@@ -986,6 +1018,10 @@
     "doc.route.delete.api.repo-obj.id": {
       "text": "Delete an object (blobs are released when no other version references them).",
       "hash": "61d4b7ae735549dc1031d352194d8a56081128e9"
+    },
+    "doc.route.delete.api.org.branding": {
+      "text": "Drop the company's branding; its users see the instance's again.",
+      "hash": "857a3894f34105cb810552ada887faaead2e3fef"
     },
     "doc.route.delete.api.notes.id": {
       "text": "Delete a note.",
@@ -1084,8 +1120,12 @@
       "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
     },
     "doc.route.post.api.ai.chat.stream": {
-      "text": "The same turn as server-sent events, metered at the end.",
-      "hash": "8817c39fca03615973e0c0260b1ac14cb1025a6d"
+      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it.",
+      "hash": "b7e4ec3d446974eff8f49c3c7d506b4ceb5fbb4d"
+    },
+    "ui.brandthemereset": {
+      "text": "Reset theme",
+      "hash": "d8726c4de543a6d05fd3b09750488193ab6c3572"
     },
     "ui.kg_unextracted": {
       "text": "waiting",
@@ -1136,12 +1176,20 @@
       "hash": "ab21675a1a37070f6b06dc92b5bb5598ff1b384a"
     },
     "doc.route.get.beta.bundle.plugin.path": {
-      "text": "A file from a Tier-B onboarding plugin's bundle directory.",
-      "hash": "02e562d9603b593449dd54d7be1807ac8120a957"
+      "text": "A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in.",
+      "hash": "5c5f4ce04999606ea4e9e25bfcf3cb71020ea3fd"
     },
     "doc.perm.*:read": {
       "text": "Read every team-visible resource; no AI spend, no mutation.",
       "hash": "b4b905e1f8563427da3e415c721f45d732072ab5"
+    },
+    "ui.thbrandink": {
+      "text": "Text on brand",
+      "hash": "f6248b16f2f73b99ad6b63c1dde8532e45e6e548"
+    },
+    "doc.perm.documents:delete": {
+      "text": "Delete text documents.",
+      "hash": "57f7cce6e25877b0f4c845a6ac47858739d4c03d"
     },
     "doc.route.delete.api.documents.id": {
       "text": "Delete a text document.",
@@ -1183,9 +1231,9 @@
       "text": "Turn features on and off for teams.",
       "hash": "3fd875d2a2bc213bb34b68678dc4352354e6861a"
     },
-    "doc.perm.documents:delete": {
-      "text": "Delete text documents.",
-      "hash": "57f7cce6e25877b0f4c845a6ac47858739d4c03d"
+    "doc.route.get.api.org.branding": {
+      "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
+      "hash": "ed143a926240ffabe318645984be613401b30646"
     },
     "ui.search": {
       "text": "Search",
@@ -1208,8 +1256,8 @@
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
     },
     "doc.tool.doc_render": {
-      "text": "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>.",
-      "hash": "9ffaed59a958dcdfc1f4899bc4a93dd238315d32"
+      "text": "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is \"pdf\" (a Markdown or HTML template, converted with pandoc and tectonic).",
+      "hash": "60f537d9839bec95196ab4285cbd1b0967c15d46"
     },
     "doc.perm.audit:read": {
       "text": "Read the audit trail.",
@@ -1391,6 +1439,14 @@
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "ui.thfont": {
+      "text": "Font",
+      "hash": "b97c4d4cddf23ec47395af460f9e28df2a0f9b04"
+    },
+    "doc.route.post.api.provision": {
+      "text": "Hosted mode: provision this instance with exactly one owner and a magic activation link.",
+      "hash": "97856360470baac26856e94366d4bf93c51bb46e"
+    },
     "ui.setquota": {
       "text": "Set limit",
       "hash": "634082ec4f01e693739b71275495c576e4988663"
@@ -1398,10 +1454,6 @@
     "doc.route.get.api.kg.entities": {
       "text": "Find entities by ?q= and ?type=; only those with a mention the caller can read.",
       "hash": "5c2bb39d66573cf937e6ed22690d5ceadbc3a831"
-    },
-    "doc.route.post.api.provision": {
-      "text": "Hosted mode: provision this instance with exactly one owner and a magic activation link.",
-      "hash": "97856360470baac26856e94366d4bf93c51bb46e"
     },
     "ui.sourcetext": {
       "text": "Text to translate",
@@ -1483,6 +1535,10 @@
       "text": "See the Localization Manager's coverage and messages.",
       "hash": "da2cba8e84f038c877872c710f02f7f21d1049f8"
     },
+    "ui.thcontrasthint": {
+      "text": "Readers may not be able to see this text. The server refuses a theme below the minimum.",
+      "hash": "931f620bbf6a582ae8b0d682fcec3c2206887dd4"
+    },
     "ui.notriggers": {
       "text": "No triggers yet.",
       "hash": "d002af36e66ebe8d94ff89b02f91420bf027b376"
@@ -1507,6 +1563,10 @@
       "text": "The language this instance answers in when a visitor has not chosen one — including on the sign-in screen, before anyone has an account.",
       "hash": "888ae32444f9106401926c83bd00ebcde5f99635"
     },
+    "ui.thradius": {
+      "text": "Corner radius",
+      "hash": "c7a86e072be0a7a476c9e29aa6514eb2d3fde8ab"
+    },
     "doc.route.post.api.kg.extract": {
       "text": "Queue the index-knowledge workflow over the team's unextracted documents.",
       "hash": "2606841d46a8c155e8382e21928cd03be3f511e8"
@@ -1522,6 +1582,10 @@
     "doc.tool.create_note.visibility": {
       "text": "Who can see it; defaults to team",
       "hash": "63f15092782b28f41c2f3abac7e63b008dcaef2f"
+    },
+    "ui.think": {
+      "text": "Text",
+      "hash": "c3328c39b0e29f78e9ff45db674248b1d245887d"
     },
     "ui.triggeradded": {
       "text": "Trigger added",
@@ -1579,6 +1643,14 @@
       "text": "Create operator",
       "hash": "aed7b1a1cb14a92bdfa831efac4ad2b950129f36"
     },
+    "doc.route.post.api.repo-obj.id.share": {
+      "text": "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.",
+      "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+    },
+    "ui.brandtheme": {
+      "text": "Theme",
+      "hash": "a797e30923ac1be590300ce6b08e63b4e6dc6688"
+    },
     "doc.tool.doc_extract_fields.schema": {
       "text": "A JSON schema the extracted object must conform to",
       "hash": "83e904382cbf96b6d364748cb9688696e3f88a3d"
@@ -1586,6 +1658,10 @@
     "doc.perm.org:*": {
       "text": "Everything at the company tier. Never reaches instance:*.",
       "hash": "52de0860cce2504961d6406e8975a750db44984c"
+    },
+    "ui.thcontrast": {
+      "text": "Low contrast",
+      "hash": "c514fc92a9f3c72498755b9357d30ad2ee1bf399"
     },
     "ui.s3created": {
       "text": "Key created",
@@ -1596,12 +1672,8 @@
       "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
     },
     "doc.route.patch.api.orgs.ref": {
-      "text": "Rename a company and/or change its plan (a plan change re-applies the plan's caps).",
-      "hash": "093b33177881ac65e6c35826a611a06df0f1182b"
-    },
-    "doc.route.post.api.repo-obj.id.share": {
-      "text": "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.",
-      "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
+      "text": "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).",
+      "hash": "354b1a6e317ec7aa48339cc2917f15b416b7f18b"
     },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
@@ -1723,9 +1795,13 @@
       "text": "Nothing has been shared with you yet.",
       "hash": "3e65d083f7d44c17c1b1f6f409bf2db8f3bd7594"
     },
+    "ui.thbrand": {
+      "text": "Brand",
+      "hash": "62b4aa574f708ad26153df481b7f720473b4f1c5"
+    },
     "doc.route.get.api.branding": {
-      "text": "Instance title, tagline and logo. Public: the sign-in screen renders them.",
-      "hash": "4125e05ed8a7237592159ed5041f68200890f4bd"
+      "text": "Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).",
+      "hash": "f03c65a01cba613385734af46fde79946ef70dc6"
     },
     "doc.perm.documents:write": {
       "text": "Create and edit text documents.",
@@ -1919,6 +1995,10 @@
       "text": "Cancel a run; a step already executing finishes, the next never starts.",
       "hash": "a5433876ac6bc58b63613f8ca8dd4e86bf5e0485"
     },
+    "doc.route.post.api.org.branding.logo": {
+      "text": "Upload the company's logo (base64) and make it the company's mark.",
+      "hash": "f7ae45c751f0b06e33155c77b4fe2135a843fed0"
+    },
     "doc.route.get.api.audit": {
       "text": "The team's recent audit events.",
       "hash": "68f2168af4161167c86c370950860b1846399cb4"
@@ -1926,6 +2006,14 @@
     "doc.route.get.api.org.audit": {
       "text": "The company's audit trail.",
       "hash": "c709a0e57ace017ced6c3b073c4d646da3787214"
+    },
+    "ui.brandthemehint": {
+      "text": "The palette this console wears — the same tokens the beta funnel uses. Changes preview live; Save applies them for everyone.",
+      "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
+    },
+    "doc.route.post.api.ai.chat": {
+      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.",
+      "hash": "0d0991ea659a2a58c2bb9bfd143226414dd66378"
     },
     "doc.route.post.api.l10n.draft": {
       "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
@@ -1942,6 +2030,10 @@
     "doc.route.get.api.beta.config": {
       "text": "The published onboarding experience's public slice (fields, copy, theme) in one language.",
       "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
+    },
+    "ui.thmode": {
+      "text": "Mode",
+      "hash": "a7b93d2128e820f861fc8dfccd9f5521e89ad21f"
     },
     "ui.uploadhint": {
       "text": "Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.",
@@ -2014,10 +2106,6 @@
     "ui.bxtouch": {
       "text": "We’ll be in touch.",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
-    },
-    "doc.route.post.api.ai.chat": {
-      "text": "One model turn. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.",
-      "hash": "1bfac0736a442eddb532bcbfc50846b3d0b8feb9"
     },
     "doc.route.get.api.org": {
       "text": "The caller's own company.",

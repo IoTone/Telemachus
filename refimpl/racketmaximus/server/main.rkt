@@ -19,6 +19,8 @@
 
 (require racket/path
          (only-in racket/list take remove-duplicates)
+         (only-in racket/random crypto-random-bytes)     ; the console's CSP nonce (issue #27)
+         (only-in file/sha1 bytes->hex-string)
          racket/string
          racket/file
          racket/system
@@ -270,7 +272,13 @@
 ;; replacement throughout: regexp-replace* expands `&` and `\<n>` in a STRING
 ;; replacement, so a branded title like "A & B" would corrupt the markup.
 (define DEFAULT-DESCRIPTION "A self-hosted, privacy-first platform for a team's AI tools and documents.")
-(define (ui-html-branded [req #f])
+;; issue #27: the console's script runs under a per-request NONCE now, so the CSP
+;; no longer needs `script-src 'unsafe-inline'` — which is the directive that lets
+;; an injected <script> execute. A nonce cannot authorize an inline event handler,
+;; which is why all 141 of them became delegated listeners first.
+(define (new-nonce) (bytes->hex-string (crypto-random-bytes 16)))
+
+(define (ui-html-branded [req #f] [nonce #f])
   (define b (branding-for db-conn (request-org req)))
   (define title (let ([t (hash-ref b 'title "")]) (if (string=? t "") "Telemachus" t)))
   (define tagline (string-normalize-spaces (hash-ref b 'tagline "")))
@@ -288,8 +296,15 @@
      "<meta property=\"og:description\" content=\"" (html-escape description) "\">"
      (if logo (string-append "<meta property=\"og:image\" content=\"" (html-escape logo) "\">") "")
      "<meta name=\"twitter:card\" content=\"summary\">"))
-  (regexp-replace* #px"<title>.*?</title>" UI-HTML
-                   (lambda _ (string-append "<title>" (html-escape title) "</title>" meta))))
+  (define with-title
+    (regexp-replace* #px"<title>.*?</title>" UI-HTML
+                     (lambda _ (string-append "<title>" (html-escape title) "</title>" meta))))
+  ;; …and the nonce. A procedural replacement, like the title: a string
+  ;; replacement would expand `&` in the value.
+  (if nonce
+      (regexp-replace #px"<script>" with-title
+                      (lambda _ (string-append "<script nonce=\"" nonce "\">")))
+      with-title))
 (define (html-response s)
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
@@ -509,11 +524,20 @@
   (json-response (hash-set (with-logo-url (or own (branding-get db-conn)))
                            'scope (if own "org" "instance"))))
 
+;; A theme is refused, not clamped: an unknown token or an unreadable colour pair
+;; comes back as a 400 naming it. Clamping would leave the operator looking at a
+;; palette they did not ask for, wondering which half of it took.
+(define (branding-theme-problem b)
+  (let ([th (hash-ref b 'theme #f)])
+    (and th (not (eq? th 'null)) (theme-problem th))))
+
 (define (ep-branding-put req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
-    (define b (read-json-body req))
-    (json-response (branding-set! db-conn (if (hash? b) b (hasheq)))))))
+    (define b (let ([x (read-json-body req)]) (if (hash? x) x (hasheq))))
+    (cond
+      [(branding-theme-problem b) => (lambda (bad) (err bad 400))]
+      [else (json-response (branding-set! db-conn b))]))))
 
 ;; The logo rides the existing asset table and is served by the existing PUBLIC
 ;; /api/beta/asset/<id> route — one asset mechanism, not two.
@@ -1106,7 +1130,9 @@
       (define b (read-json-body req))
       (audit! db-conn #:action "org.branding" #:actor-type "user" #:actor-id (principal-user-id p)
               #:resource-type "org" #:resource-id (caller-org p))
-      (json-response (hash-set (with-logo-url (org-branding-set! db-conn (caller-org p) (if (hash? b) b (hasheq)))) 'own #t)))))))
+      (cond
+        [(branding-theme-problem (if (hash? b) b (hasheq))) => (lambda (bad) (err bad 400))]
+        [else (json-response (hash-set (with-logo-url (org-branding-set! db-conn (caller-org p) (if (hash? b) b (hasheq)))) 'own #t))]))))))
 
 (define (ep-my-org-branding-clear req)
   (with-mt req (lambda ()
@@ -1262,9 +1288,32 @@
   (cond
     [(not p) (unauthorized)]
     [else
-     (define-values (secret uri) (enable-2fa! db-conn (principal-user-id p)))
+     (define-values (secret uri codes) (enable-2fa! db-conn (principal-user-id p)))
+     ;; the codes are shown HERE and never again — enrolling without a way back in
+     ;; is how people lock themselves out of their own instance (issue #26)
      (json-response (hasheq 'secret secret 'otpauth_uri uri
-                            'note "2FA enabled — future logins for this user require a TOTP code"))]))
+                            'recovery_codes codes
+                            'note "2FA enabled — future logins for this user require a TOTP code or one recovery code. The codes are shown once; keep them somewhere the authenticator is not."))]))
+
+;; Re-issue: the outstanding set is invalidated and a new one returned once. A set
+;; printed on paper should be the whole truth about what opens this account, so
+;; this replaces rather than tops up.
+(define (ep-2fa-codes-new req)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else
+     (define codes (issue-recovery-codes! db-conn (principal-user-id p)))
+     (audit! db-conn #:action "user.2fa.codes" #:actor-type "user" #:actor-id (principal-user-id p)
+             #:resource-type "user" #:resource-id (principal-user-id p))
+     (json-response (hasheq 'recovery_codes codes 'count (length codes)))]))
+
+;; How many are left — the number worth warning about in a UI. Never the codes.
+(define (ep-2fa-codes-get req)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else (json-response (hasheq 'remaining (recovery-codes-remaining db-conn (principal-user-id p))))]))
 
 ;; ---- notes (ownable/shareable resource) -------------------------------------
 ;; refuse an endpoint whose feature a team has turned off (→ localized 403)
@@ -1481,18 +1530,23 @@
     [(not-holder) (err "not the lease holder of this job" 409)]
     [(not-running) (err "the job is not running" 409)]
     [else (err "not found" 404)]))
+;; issue #24: every write about a claimed job carries the attempt's claim_token,
+;; which the claim response handed the worker. A worker that sends none is refused
+;; on any job claimed since migration 0031 — the fence is the point.
+(define (claim-token-of b) (let ([v (hash-ref b 'claim_token #f)]) (and (string? v) v)))
 (define (ep-worker-heartbeat req id)
   (with-worker req (lambda (p ex)
-    (define v (worker-heartbeat! db-conn ex id))
+    (define v (worker-heartbeat! db-conn ex id #:token (claim-token-of (read-json-body req))))
     (if (number? v) (json-response (hasheq 'ok #t 'id id 'lease_until v)) (worker-verdict v id)))))
 (define (ep-worker-complete req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
-    (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))) id))))
+    (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))
+                                      #:token (claim-token-of b)) id))))
 (define (ep-worker-fail req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
-    (worker-verdict (worker-fail! db-conn ex id (fmt b 'error)) id))))
+    (worker-verdict (worker-fail! db-conn ex id (fmt b 'error) #:token (claim-token-of b)) id))))
 
 ;; real model call (falls back to simulated when no model is configured)
 (define (ep-ai-chat req)
@@ -2206,7 +2260,13 @@
 ;; an endpoint cannot exist without a documented entry, or an entry without code.
 (define HANDLERS
   (hasheq
-   'ui (lambda (req) (html-response (ui-html-branded req)))
+   'ui (lambda (req)
+         ;; one nonce per response, in the HTML and in the header that admits it
+         (define nonce (new-nonce))
+         (response/output #:mime-type #"text/html; charset=utf-8"
+                          #:headers (list (make-header #"Content-Security-Policy"
+                                                       (string->bytes/utf-8 (console-csp nonce))))
+                          (lambda (out) (write-string (ui-html-branded req nonce) out))))
    'health (lambda (req) (ep-health))
    'beta-sdk (lambda (req) (serve-file (build-path impl-root "static" "beta-sdk.js")))
    'bundle-file (lambda (req plugin path)
@@ -2241,6 +2301,7 @@
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota
    'login ep-login '2fa-enable ep-2fa-enable '2fa-reset ep-2fa-reset
+   '2fa-codes-new ep-2fa-codes-new '2fa-codes-get ep-2fa-codes-get
    'admin-2fa-reset ep-admin-2fa-reset 'password ep-password
    'whoami ep-whoami 'profile ep-profile 'add-member ep-add-member 'members-list ep-members-list
    'admin-status ep-admin-status
@@ -2362,11 +2423,23 @@
 ;; this become a nonce policy. The e2e gate fails on console errors, and a CSP
 ;; violation is one, so the gate proves the console runs under this policy.
 ;; Downloads keep their own, stricter, per-object CSP (present headers win).
-(define CONSOLE-CSP
-  (string-append "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+;; What this buys now (issue #27): script-src carries a per-request NONCE instead
+;; of 'unsafe-inline', so an injected <script> — the payload that matters — cannot
+;; run, and neither can an inline event handler, because attributes cannot be
+;; nonced. That is why the console's 141 inline handlers moved to delegated
+;; listeners first; the policy could not be tightened while they existed.
+;;
+;; style-src KEEPS 'unsafe-inline', deliberately: the console still has ~250 style
+;; attributes, and injected CSS is a far smaller prize than injected script. That
+;; is the next tranche, not a blocker for this one.
+(define (console-csp nonce)
+  (string-append "default-src 'self'; "
+                 "script-src 'self' " (if nonce (string-append "'nonce-" nonce "'") "'unsafe-inline'") "; "
+                 "style-src 'self' 'unsafe-inline'; "
                  "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
                  "frame-src 'self' blob: data:; frame-ancestors 'self'; form-action 'self'; "
                  "base-uri 'self'; object-src 'none'"))
+(define CONSOLE-CSP (console-csp #f))
 (define BASE-SECURITY-HEADERS
   (list (make-header #"X-Content-Type-Options" #"nosniff")
         (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")

@@ -1,0 +1,7 @@
+{
+  "id": "integrator-demo",
+  "name": "Integrator demo",
+  "version": "0.1.0",
+  "description": "The worked example for docs/integrators-guide.md: a tool, an authenticated route, a background job kind and a themed screen.",
+  "entry": "main.rkt"
+}

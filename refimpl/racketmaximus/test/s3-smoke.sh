@@ -11,6 +11,11 @@
 #
 # Skips with exit 0 if the aws CLI is absent, so it is safe in CI without one.
 set -u
+# Self-sufficient, like server-smoke and pull-smoke: this ran for a year only ever
+# inside `nix develop`, which exports PLTCOLLECTS, so CI's first run of it could not
+# find web-kit and the server "never came up".
+cd "$(dirname "$0")/.."
+export PLTCOLLECTS="$(pwd)/pkgs:"
 fail=0
 assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1";
   else echo "  FAIL $1 — expected: $3 — got: $(printf '%s' "$2" | tr -d '\000' | head -c 300)"; fail=1; fi; }
@@ -37,6 +42,13 @@ export TELEMACHUS_DATA_DIR="$TMP/data"
 export DATABASE_URL="${DATABASE_URL:-sqlite://$TMP/s3.db}"
 echo "s3-smoke DATABASE_URL=$DATABASE_URL"
 export TELEMACHUS_BIND=127.0.0.1
+# Issue #25: the credential's secret is SEALED at rest (issue #19) unless an
+# instance opts out, and SigV4 has to unwrap it on every signed request. Run this
+# suite the way a real deployment runs — with a key — so the sealed path is what
+# the real client exercises. Pass TELEMACHUS_SECRET_KEY=... to use your own, or
+# TELEMACHUS_SECRET_KEY= (empty) to check the plaintext path instead.
+export TELEMACHUS_SECRET_KEY="${TELEMACHUS_SECRET_KEY-2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe}"
+[ -n "$TELEMACHUS_SECRET_KEY" ] && echo "s3-smoke: secrets sealed (key set)" || echo "s3-smoke: secrets in the clear"
 export TELEMACHUS_S3_PORT="$S3_PORT"
 racket server/main.rkt >"$TMP/server.log" 2>&1 &
 SRV=$!

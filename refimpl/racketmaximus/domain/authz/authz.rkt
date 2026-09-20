@@ -16,6 +16,7 @@
 
 (require racket/date db-kit/portable
          json
+         racket/random          ; crypto-random-bytes — recovery codes (issue #26)
          file/sha1
          "../db/id.rkt"
          "permissions.rkt"
@@ -37,6 +38,7 @@
          grant! revoke!
          audit! audit-list
          set-password! change-password! authenticate enable-2fa! reset-2fa! first-team-for
+         issue-recovery-codes! recovery-codes-remaining RECOVERY-CODE-COUNT
          user-locale set-user-locale! org-data-reader? org-teams-of)
 
 ;; every team id in an org, for an org-scoped listing (TEN-2h)
@@ -182,11 +184,63 @@
 ;; the one worth being able to REVOKE — see reset-2fa! below.
 (define (totp-context user-id) (string-append "users.totp_secret:" user-id))
 
+;; ---- recovery codes (issue #26) -----------------------------------------------
+;; The way back in when the authenticator is gone. Unlike the seed, a code is
+;; COMPARED rather than computed from, so it is stored as a hash — the same
+;; peppered HMAC-SHA-256 an API token uses, so rotating the pepper retires
+;; outstanding codes along with outstanding tokens, which is the behaviour an
+;; operator rotating a leaked pepper wants.
+;;
+;; Single use: a spent code's row is kept with `used_at` set rather than deleted,
+;; so "you have already used this one" is distinguishable from "that is not a
+;; code" in an audit, and a re-issue can say how many were spent.
+(define RECOVERY-CODE-COUNT 10)
+(define CODE-ALPHABET "abcdefghjkmnpqrstuvwxyz23456789")   ; no l/i/o/0/1 — these get read aloud
+
+(define (new-recovery-code)
+  (define (chunk n)
+    (list->string (for/list ([b (in-bytes (crypto-random-bytes n))])
+                    (string-ref CODE-ALPHABET (modulo b (string-length CODE-ALPHABET))))))
+  (string-append (chunk 5) "-" (chunk 5)))
+
+;; Codes are matched case-insensitively and with dashes optional: they are typed
+;; by a person, off paper, usually badly.
+(define (normalize-code s)
+  (string-downcase (regexp-replace* #px"[^0-9a-zA-Z]" (if (string? s) s "") "")))
+(define (hash-recovery-code s) (hash-token (string-append "recovery:" (normalize-code s))))
+
+;; Issue a fresh set, invalidating any outstanding ones, and return the plaintext
+;; ONCE. Replacing rather than topping up is deliberate: a set printed on paper
+;; should be the whole truth about what opens this account.
+(define (issue-recovery-codes! conn user-id #:count [n RECOVERY-CODE-COUNT])
+  (query-exec conn "DELETE FROM user_recovery_codes WHERE user_id = ?" user-id)
+  (for/list ([_ (in-range n)])
+    (define code (new-recovery-code))
+    (query-exec conn "INSERT INTO user_recovery_codes (id, user_id, code_hash) VALUES (?, ?, ?)"
+                (new-id) user-id (hash-recovery-code code))
+    code))
+
+(define (recovery-codes-remaining conn user-id)
+  (query-value conn "SELECT COUNT(*) FROM user_recovery_codes WHERE user_id = ? AND used_at IS NULL" user-id))
+
+;; Spend one. -> #t if it was valid and unspent; the row is burned in the same
+;; statement it is matched by, so two simultaneous sign-ins cannot both spend it.
+(define (spend-recovery-code! conn user-id code)
+  (define h (hash-recovery-code code))
+  (define r (query conn
+    (string-append "UPDATE user_recovery_codes SET used_at = CURRENT_TIMESTAMP "
+                   "WHERE user_id = ? AND code_hash = ? AND used_at IS NULL RETURNING id")
+    user-id h))
+  (and (rows-result? r) (pair? (rows-result-rows r))))
+
 (define (enable-2fa! conn user-id #:account [account "user"])
   (define secret (new-totp-secret))
   (query-exec conn "UPDATE users SET totp_secret = ? WHERE id = ?"
               (secret-wrap (totp-context user-id) secret) user-id)
-  (values secret (totp-uri secret #:account account)))
+  ;; enrolling issues the way back in at the same time — a second factor handed
+  ;; out without one is how people get locked out of their own instance
+  (define codes (issue-recovery-codes! conn user-id))
+  (values secret (totp-uri secret #:account account) codes))
 
 ;; Clear a user's second factor so they must enrol again, and the old seed — a
 ;; seed that may sit in a database dump somebody took — stops working. An operator
@@ -197,6 +251,9 @@
 (define (reset-2fa! conn user-id)
   (define had (query-maybe-value conn "SELECT totp_secret FROM users WHERE id = ?" user-id))
   (query-exec conn "UPDATE users SET totp_secret = NULL WHERE id = ?" user-id)
+  ;; the codes go with the seed: they exist to open this second factor, and a
+  ;; revoked factor's codes must not survive into the next enrolment
+  (query-exec conn "DELETE FROM user_recovery_codes WHERE user_id = ?" user-id)
   (and had (not (sql-null? had)) (string? had) (not (string=? had "")) #t))
 
 (define (first-team-for conn user-id)
@@ -219,7 +276,11 @@
        [(and (not (sql-null? secret)) (string? secret) (not (string=? secret "")))
         ;; the stored seed may be sealed (issue #19); a row written before a key was
         ;; configured is plaintext and passes through unchanged
-        (and code (totp-valid? (secret-unwrap (totp-context uid) secret) code) uid)]   ; 2FA required
+        (and code
+             (or (totp-valid? (secret-unwrap (totp-context uid) secret) code)
+                 ;; …or a recovery code, spent as it is checked (issue #26)
+                 (spend-recovery-code! conn uid code))
+             uid)]   ; 2FA required
        [else uid])]))
 
 ;; ---- permission resolution --------------------------------------------------

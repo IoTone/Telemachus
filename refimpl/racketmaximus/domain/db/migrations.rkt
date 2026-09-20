@@ -939,6 +939,36 @@
        "ALTER TABLE orgs ADD COLUMN domain TEXT"
        "CREATE UNIQUE INDEX idx_orgs_domain ON orgs(domain)"))))
 
+;; issue #26: a second factor needs a way back in. A TOTP seed cannot be rotated
+;; by using it, and a lost authenticator otherwise needs an operator — on a
+;; single-admin instance, nobody. Recovery codes ARE hashable (they are compared,
+;; not computed from), so unlike the seed they are stored as hashes.
+(define m-0030-recovery-codes
+  (migration "0030-recovery-codes"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE user_recovery_codes ("
+        "  id TEXT PRIMARY KEY,"
+        "  user_id TEXT NOT NULL,"
+        "  code_hash TEXT NOT NULL,"
+        "  used_at TEXT,"                       ; NULL = still spendable; a row is never deleted on use
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_recovery_user ON user_recovery_codes(user_id)"
+       "CREATE UNIQUE INDEX idx_recovery_hash ON user_recovery_codes(code_hash)"))))
+
+;; issue #24: a fencing token per claim. A lease can expire while the original run
+;; is still alive and finishing; the reaper re-queues the job, someone claims it
+;; again, and the first run's late result would still pass a check that only asks
+;; "is this row running, and is it mine?" — because the SAME holder may be the one
+;; who re-claimed it. The token changes on every claim, so a late write from a
+;; previous attempt cannot match.
+(define m-0031-claim-token
+  (migration "0031-claim-token"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE jobs ADD COLUMN claim_token TEXT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token))

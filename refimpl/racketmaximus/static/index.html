@@ -15,9 +15,9 @@
          --muted:#93a4b8; --accent:#6fa0d1; --accent2:#245e96; --accent3:#2b6ba8;
          --gold:#c9a227; --ok:#8fae52; --bad:#e0725f; --warn:#d9a441; }
   *{box-sizing:border-box} html,body{margin:0;height:100%}
-  body{background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif)}
   a{color:var(--accent)} button{font:inherit;cursor:pointer}
-  .btn{background:var(--accent2);color:#fff;border:0;border-radius:8px;padding:9px 14px;font-weight:600}
+  .btn{background:var(--accent2);color:var(--btn-ink,#fff);border:0;border-radius:var(--radius,8px);padding:9px 14px;font-weight:600}
   .btn:hover{background:var(--accent3)} .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
   .btn.sm{padding:5px 10px;font-size:13px;border-radius:6px} .btn.bad{background:#3a2222;border:1px solid #5e332c;color:#f2b8ab}
   input,textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
@@ -112,6 +112,47 @@
 <div id="app"></div>
 <div id="toast" class="toast"></div>
 <script>
+// ---- event delegation (issue #27) -------------------------------------------
+// Every handler in this file used to be an inline `data-h-click="${H((el,ev)=>…)}"` attribute, which
+// forced the console's Content-Security-Policy to keep `script-src
+// 'unsafe-inline'` — and 'unsafe-inline' is precisely what lets an injected
+// script tag run. Attributes cannot carry a nonce, so the attributes had to go.
+// (No literal script tag appears in this comment on purpose: the server adds the
+// nonce by rewriting the FIRST one in the file, and test/console-tests.rkt pins
+// that there is exactly one.)
+//
+// The transform keeps the call expressions exactly where they were readable:
+// a render writes `data-h-click="${H(()=>doThing(row.id))}"`, H parks the closure
+// and returns its index, and ONE listener per event type dispatches to it. The
+// arguments stay real values instead of being escaped into a string and parsed
+// back out, which also removed a class of quoting bug — a note title with an
+// apostrophe used to break its own button.
+//
+// `this` inside a converted handler is the element (`el`), and `event` is `ev`;
+// a handler that returns false still suppresses the default action. One real
+// behaviour change: only the NEAREST element with a handler for that event runs,
+// where inline attributes on nested elements would each fire as the event bubbled.
+// The console has no nested clickable regions that relied on that.
+// The table is never cleared: entries are a closure each, a render pass adds a
+// few dozen, and dropping them would risk unbinding an element still on screen
+// from a partial re-render. A long session accumulates a few thousand — tens of
+// kilobytes, against the certainty of a live button going dead.
+const HANDLERS = [];
+function H(fn){ HANDLERS.push(fn); return HANDLERS.length - 1; }
+for (const evname of ['click','input','change','keydown']) {
+  document.addEventListener(evname, (ev) => {
+    const el = ev.target && ev.target.closest && ev.target.closest('[data-h-' + evname + ']');
+    if (!el) return;
+    const fn = HANDLERS[+el.getAttribute('data-h-' + evname)];
+    if (typeof fn !== 'function') return;
+    // `return false` used to stop an <a href="#"> from navigating, because that is
+    // what a false return from an inline handler means. A delegated listener's
+    // return value is ignored by the browser, so honour it here or every one of
+    // those links starts jumping to the top of the page.
+    if (fn(el, ev) === false) ev.preventDefault();
+  });
+}
+
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
   i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0 };
 // The console's strings are no longer here. English is the source of truth in
@@ -158,6 +199,50 @@ async function loadBranding(){
   const r = await api('/api/branding');
   if(r.ok && r.json) S.brand = Object.assign(S.brand, r.json);
   document.title = S.brand.title || 'Telemachus';
+  applyTheme(S.brand.theme);
+}
+// The console's palette, from the branding document's theme tokens — the SAME
+// vocabulary the beta funnel uses (brand, brandInk, bg, surface, ink, muted,
+// radius, mode, fontBody), so a customer's palette is written once and worn by
+// both. /api/branding is public and this runs on every render pass, so the
+// sign-in screen is themed too, and a company's own theme lands the moment its
+// bearer resolves (TEN-2d: by Host before that).
+//
+// Values are validated by the server and re-checked here with the same pattern —
+// they go into a style property, so a token is a value, never a declaration.
+const THEME_HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+function themeOk(v){ return typeof v==='string' && THEME_HEX.test(v.trim()); }
+// A ground tinted toward the ink: the console needs a second panel and a hairline
+// that the token set does not spell out, and deriving them keeps a theme to the
+// few decisions an integrator actually wants to make. color-mix is ignored by a
+// browser that lacks it, which falls back to the stylesheet's own value.
+function mix(a,b,pct){ return `color-mix(in srgb, ${a} ${pct}%, ${b})`; }
+function applyTheme(th){
+  const r = document.documentElement.style;
+  const KEYS = ['--bg','--panel','--panel2','--line','--fg','--muted','--accent','--accent2','--accent3','--radius','--font'];
+  if(!th || typeof th!=='object'){ KEYS.forEach(k=>r.removeProperty(k)); return; }
+  const c = (k,d)=> themeOk(th[k]) ? th[k].trim() : d;
+  const bg=c('bg','#0b1a2b'), surface=c('surface','#12253a'), ink=c('ink','#f2ede1');
+  const muted=c('muted','#93a4b8'), brand=c('brand','#6fa0d1'), brandInk=c('brandInk','#ffffff');
+  const light = th.mode==='light';
+  r.setProperty('--bg', bg);
+  r.setProperty('--panel', surface);
+  r.setProperty('--panel2', mix(ink, surface, light?6:8));      // inputs, table stripes
+  r.setProperty('--line', mix(ink, surface, light?18:16));      // hairlines
+  r.setProperty('--fg', ink);
+  r.setProperty('--muted', muted);
+  r.setProperty('--accent', brand);
+  // A button ground is the brand deepened toward whichever side of the theme is
+  // dark — measured, not taken from `mode`: the background on a dark theme, the
+  // ink on a light one, where mixing toward the background would wash the brand
+  // out. 50% is BUTTON-MIX in domain/branding/branding.rkt, which checks the
+  // label's contrast against exactly this ground.
+  const deep = darkerOf(ink, bg);
+  r.setProperty('--accent2', mix(brand, deep, 50));             // button ground
+  r.setProperty('--accent3', mix(brand, deep, 65));             // …and its hover
+  r.setProperty('--btn-ink', brandInk);
+  if(/^[0-9]{1,2}px$/.test(String(th.radius||''))) r.setProperty('--radius', th.radius);
+  r.setProperty('--font', fontStack(th.fontBody));
 }
 // The instance localization policy. Public, and fetched on EVERY render pass —
 // including for a signed-in user, who otherwise would never see an operator turn
@@ -224,14 +309,14 @@ function authView(){
       <label>${t('user')}</label><input id="lu" autofocus>
       <label>${t('pass')}</label><input id="lp" type="password">
       <label>${t('code')}</label><input id="lc">
-      <button class="btn" style="width:100%" onclick="doLogin()">${t('signin')}</button>
+      <button class="btn" style="width:100%" data-h-click="${H((el,ev)=>doLogin())}">${t('signin')}</button>
     </div>
     <details class="card" style="margin-top:14px">
       <summary style="cursor:pointer" class="muted">${t('firstrun')}</summary>
       <div style="margin-top:12px">
         <label>${t('user')}</label><input id="bu" value="alice">
         <label>${t('pass')}</label><input id="bp" type="password" value="s3cret">
-        <button class="btn ghost" onclick="doBootstrap()">${t('createop')}</button>
+        <button class="btn ghost" data-h-click="${H((el,ev)=>doBootstrap())}">${t('createop')}</button>
       </div>
     </details>
   </div>`;
@@ -252,7 +337,7 @@ const LANGNAME = {en:'EN', ja:'日本語'};
 // choose, so offering a chooser would be a lie.
 function langBtns(){ if(!S.i18n.enabled) return '';
   const av = S.i18n.available||['en']; if(av.length<2) return '';
-  return av.map(l=>`<button class="${S.lang===l?'active':''}" onclick="setLang('${l}')">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
+  return av.map(l=>`<button class="${S.lang===l?'active':''}" data-h-click="${H((el,ev)=>setLang((l)))}">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
 function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
@@ -262,9 +347,9 @@ function appShell(){
       <span class="sp"></span>
       <span class="langtog">${langBtns()}</span>
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
-      <button class="btn ghost sm" onclick="logout()">${t('logout')}</button>
+      <button class="btn ghost sm" data-h-click="${H((el,ev)=>logout())}">${t('logout')}</button>
     </header>
-    <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" onclick="go('${x}')">${t(x)}</button>`).join('')}</nav>
+    <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" data-h-click="${H((el,ev)=>go((x)))}">${t(x)}</button>`).join('')}</nav>
     <main class="wrap" id="main"></main>`;
 }
 function go(tab){ S.tab=tab; S.newToken=null;
@@ -281,7 +366,7 @@ async function chatView(){
   return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
     <div class="card">
       <label>${t('prompt')}</label><textarea id="cp" rows="3">Hello team</textarea>
-      <button class="btn" onclick="doChat()">${t('send')}</button>
+      <button class="btn" data-h-click="${H((el,ev)=>doChat())}">${t('send')}</button>
     </div><div id="chatlog"></div>`;
 }
 async function doChat(){
@@ -307,7 +392,7 @@ async function agentView(){
   return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
     <div class="card"><label>${t('prompt')}</label>
       <textarea id="ap" rows="3">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
-      <button class="btn" onclick="doAgent()">${t('send')}</button></div><div id="agentlog"></div>`;
+      <button class="btn" data-h-click="${H((el,ev)=>doAgent())}">${t('send')}</button></div><div id="agentlog"></div>`;
 }
 async function doAgent(){
   const prompt=val('ap'); const log=document.getElementById('agentlog'); const id='g'+Date.now();
@@ -331,7 +416,7 @@ async function doAgent(){
 // an artifact-shaped tool result (slice 64): the thing a tool produced, as a card
 // that opens it, rather than its payload as text
 function artifactCard(a){
-  const open = a.object_id ? `<button class="btn sm ghost" onclick="kgOpenDoc('${esc(a.object_id)}')">${t('details')}</button>`
+  const open = a.object_id ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpenDoc((a.object_id)))}">${t('details')}</button>`
              : (a.url ? `<a class="btn sm ghost" href="${esc(a.url)}" target="_blank" rel="noopener">${t('open')}</a>` : '');
   return `<div class="card" style="margin:4px 0 8px 20px;padding:8px 10px;display:flex;gap:10px;align-items:center">
     <span class="badge">${esc(a.kind)}</span>
@@ -348,15 +433,15 @@ async function notesView(){
       <div class="muted">${esc(n.body)}</div>
       <div class="row" style="margin-top:8px">
         <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
-        <div><button class="btn sm ghost" onclick="doShare('${n.id}')">${t('share')}</button></div>
-        <div><button class="btn sm bad" onclick="doDelNote('${n.id}')">${t('del')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
+        <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
       </div></div>`).join('') || `<p class="muted">—</p>`;
   return `<h2>${t('notes')}</h2>
     <div class="card"><h3>${t('newnote')}</h3>
       <label>${t('title')}</label><input id="nt" value="Secret plan">
       <label>${t('body')}</label><input id="nb" value="only for me">
       <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
-      <button class="btn" onclick="doCreateNote()">${t('create')}</button>
+      <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
     </div>${list}`;
 }
 async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:{title:val('nt'),body:val('nb'),visibility:val('nv')}});
@@ -375,17 +460,17 @@ async function teamView(){
   const tokens = tks.ok ? tks.json.tokens : [];
   const aud = manage ? await api('/api/audit') : {ok:false};
   const audits = aud.ok ? aud.json.audit : [];
-  const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" onclick="doRevokeToken('${esc(x.id)}')">${t('revoke')}</button>`:''}</td></tr>`).join('');
+  const tokRows = tokens.map(x=>`<tr><td>${esc(x.name||'—')}</td><td class="mono muted">${esc(x.prefix)}…</td><td class="mono muted">${(x.scopes||[]).map(esc).join(' ')}</td><td>${x.status==='active'?'<span class="badge ok">active</span>':'<span class="badge">'+esc(x.status)+'</span>'}</td><td>${x.status==='active'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRevokeToken((x.id)))}">${t('revoke')}</button>`:''}</td></tr>`).join('');
   const newTokBox = S.newToken ? `<div class="card" style="border-color:var(--ok);margin:0 0 10px"><b>New token — copy now, shown once:</b><br><span class="mono" style="word-break:break-all">${esc(S.newToken)}</span></div>` : '';
   const tokCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('apitokens')}</h3>${newTokBox}
       <div class="row" style="align-items:end;margin-bottom:8px"><div><label>${t('name')||'name'}</label><input id="tkn"></div>
       <div><label>scopes</label><input id="tks" value="*:read"></div>
-      <div><button class="btn sm" onclick="doCreateToken()">${t('createtoken')}</button></div></div>
+      <div><button class="btn sm" data-h-click="${H((el,ev)=>doCreateToken())}">${t('createtoken')}</button></div></div>
       <table><thead><tr><th>name</th><th>prefix</th><th>scopes</th><th>status</th><th></th></tr></thead><tbody>${tokRows}</tbody></table></div>` : '';
   const audRows = audits.slice(0,20).map(a=>`<tr><td class="mono muted">${esc((a.at||'').replace('T',' ').slice(0,19))}</td><td>${esc(a.action)}</td><td class="mono muted">${esc((a.actor_id||'').slice(0,8))}</td><td class="mono muted">${a.resource_type?esc(a.resource_type)+' '+esc((a.resource_id||'').slice(0,8)):''}</td></tr>`).join('');
   const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('audit')} <span class="muted" style="font-size:13px">— recent activity</span></h3>
       <table><thead><tr><th>time</th><th>action</th><th>actor</th><th>resource</th></tr></thead><tbody>${audRows}</tbody></table></div>` : '';
-  const featRows = Object.entries(S.features||{}).map(([f,on])=>`<tr><td class="mono">${esc(f)}</td><td>${on?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td><td><button class="btn sm ghost" onclick="doToggleFeature('${esc(f)}',${!on})">${on?t('disable'):t('enable')}</button></td></tr>`).join('');
+  const featRows = Object.entries(S.features||{}).map(([f,on])=>`<tr><td class="mono">${esc(f)}</td><td>${on?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?t('disable'):t('enable')}</button></td></tr>`).join('');
   const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('features')} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
       <table><thead><tr><th>feature</th><th>status</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
   return `<h2>${t('team')}</h2>
@@ -393,12 +478,12 @@ async function teamView(){
     <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>
       <div class="row"><div><label>${t('user')}</label><input id="mu"></div><div><label>${t('pass')}</label><input id="mp" type="password"></div>
       <div><label>${t('role')}</label><select id="mr"><option>member</option><option>admin</option><option>viewer</option></select></div></div>
-      <button class="btn" onclick="doAddMember()">${t('addmember')}</button>
+      <button class="btn" data-h-click="${H((el,ev)=>doAddMember())}">${t('addmember')}</button>
     </div>
     <div class="card" style="margin-top:14px"><h3>${t('chpw')}</h3>
       <label>${t('curpw')}</label><input id="pc" type="password">
       <label>${t('newpw')}</label><input id="pn" type="password">
-      <button class="btn" onclick="doChangePw()">${t('updpw')}</button>
+      <button class="btn" data-h-click="${H((el,ev)=>doChangePw())}">${t('updpw')}</button>
     </div>${featCard}${tokCard}${audCard}`;
 }
 async function doToggleFeature(name,on){
@@ -434,11 +519,11 @@ async function usageView(){
   const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${t('setquota')}</h3>
       <div class="row"><div><label>${t('dimension')}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
       <div><label>${t('limit')}</label><input id="ql" value="50"></div></div>
-      <button class="btn" onclick="doSetQuota()">${t('setquota')}</button></div>` : '';
+      <button class="btn" data-h-click="${H((el,ev)=>doSetQuota())}">${t('setquota')}</button></div>` : '';
   const toolRows=tools.map(x=>`<tr><td class="mono">${esc(x.name)}</td><td class="mono muted">${esc(x.permission)}</td>
       <td>${x.source==='built-in'?'<span class="badge">built-in</span>':`<span class="badge ok">🔌 ${esc(x.source)}</span>`}</td>
       <td>${x.enabled?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td>
-      <td>${manage?`<button class="btn sm ghost" onclick="doToggleTool('${esc(x.name)}',${!x.enabled})">${x.enabled?t('disable'):t('enable')}</button>`:''}</td></tr>`).join('');
+      <td>${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleTool((x.name),(!x.enabled)))}">${x.enabled?t('disable'):t('enable')}</button>`:''}</td></tr>`).join('');
   const plugLine = plugins.length ? `<p class="muted" style="margin:0 0 8px">🔌 ${plugins.map(p=>esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
   const oopLine = oops.length ? `<p class="muted" style="margin:0 0 8px">🛡️ sandboxed: ${oops.map(p=>esc(p.name)+' <span class="mono">['+(p.scopes||[]).map(esc).join(', ')+']</span>').join(' · ')}</p>` : '';
   return `<h2>${t('usage')}</h2>
@@ -499,16 +584,16 @@ async function localizeView(){
         <textarea id="l10n_${esc(i.message_id)}" rows="2" ${write?'':'disabled'}>${esc(i.text)}</textarea></td>
       <td style="vertical-align:top;white-space:nowrap">${l10nBadge(i.status)}</td>
       <td style="vertical-align:top;white-space:nowrap">
-        ${write?`<button class="btn sm" onclick="l10nSave('${esc(i.message_id)}')">${t('save')}</button>`:''}
-        ${canApprove?`<button class="btn sm ghost" onclick="l10nReview('${esc(tid)}','approve')">${t('l10napprove')}</button>
-                      <button class="btn sm ghost" onclick="l10nReview('${esc(tid)}','reject')">${t('l10nreject')}</button>`:''}
+        ${write?`<button class="btn sm" data-h-click="${H((el,ev)=>l10nSave((i.message_id)))}">${t('save')}</button>`:''}
+        ${canApprove?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'approve'))}">${t('l10napprove')}</button>
+                      <button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nReview((tid),'reject'))}">${t('l10nreject')}</button>`:''}
         ${(review && mine && tid && i.status!=='approved')?`<span class="muted" style="font-size:12px">${esc(t('l10nself'))}</span>`:''}
       </td></tr>`;
   }).join('');
 
   const pager = `<div class="row" style="margin-top:8px">
-      ${S3.offset>0?`<button class="btn sm ghost" onclick="l10nPage(${Math.max(0,S3.offset-50)})">« prev</button>`:''}
-      ${(S3.offset+50)<total?`<button class="btn sm ghost" onclick="l10nPage(${S3.offset+50})">next »</button>`:''}
+      ${S3.offset>0?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nPage((Math.max(0,S3.offset-50))))}">« prev</button>`:''}
+      ${(S3.offset+50)<total?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nPage((S3.offset+50)))}">next »</button>`:''}
       <span class="muted" style="font-size:12px;align-self:center">${S3.offset+1}–${Math.min(S3.offset+50,total)} / ${total}</span></div>`;
 
   return `<h2>${t('localize')}</h2>
@@ -516,34 +601,34 @@ async function localizeView(){
     <div class="card">
       <div class="row" style="align-items:end">
         <div style="flex:0 0 170px"><label>${t('l10ntarget')}</label>
-          <select onchange="l10nSetLocale(this.value)">
+          <select data-h-change="${H((el,ev)=>l10nSetLocale(el.value))}">
             ${known.map(l=>`<option value="${esc(l)}" ${l===S3.locale?'selected':''}>${esc(l)}</option>`).join('')}
           </select></div>
         <div style="flex:2">
           <label>${t('l10ncoverage')} — ${c.approved} / ${c.total} (${c.pct}%)</label>
           ${bar}<div style="font-size:12px">${statusCounts}</div></div>
         <div style="flex:0 0 auto">
-          ${manage?`<button class="btn sm ghost" onclick="l10nImport()">${t('l10nimport')}</button>
-                    <button class="btn sm" onclick="l10nDraft()">${t('l10ndraft')}</button>
-                    <button class="btn sm ghost" onclick="l10nExport()">${t('l10nexport')}</button>`:''}
+          ${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nImport())}">${t('l10nimport')}</button>
+                    <button class="btn sm" data-h-click="${H((el,ev)=>l10nDraft())}">${t('l10ndraft')}</button>
+                    <button class="btn sm ghost" data-h-click="${H((el,ev)=>l10nExport())}">${t('l10nexport')}</button>`:''}
         </div>
       </div>
     </div>
     <div class="card" style="margin-top:14px">
       <div class="row" style="align-items:end">
         <div style="flex:0 0 180px"><label>${t('l10nstatus')}</label>
-          <select onchange="l10nFilter('status',this.value)">
+          <select data-h-change="${H((el,ev)=>l10nFilter('status',el.value))}">
             <option value="">${t('l10nall')}</option>
             ${['missing','machine','drafted','needs_review','approved','stale'].map(x=>
               `<option value="${x}" ${S3.status===x?'selected':''}>${x.replace('_',' ')}</option>`).join('')}
           </select></div>
         <div style="flex:0 0 160px"><label>namespace</label>
-          <select onchange="l10nFilter('ns',this.value)">
+          <select data-h-change="${H((el,ev)=>l10nFilter('ns',el.value))}">
             <option value="">all</option>
             ${(c.by_namespace||[]).map(n=>`<option value="${esc(n.namespace)}" ${S3.ns===n.namespace?'selected':''}>${esc(n.namespace)} (${n.approved}/${n.total})</option>`).join('')}
           </select></div>
         <div style="flex:2"><label>${t('l10nsearch')}</label>
-          <input id="l10nq" value="${esc(S3.q)}" onchange="l10nFilter('q',this.value)"></div>
+          <input id="l10nq" value="${esc(S3.q)}" data-h-change="${H((el,ev)=>l10nFilter('q',el.value))}"></div>
       </div>
       ${items.length? `<table><thead><tr><th>${t('l10nkey')}</th><th>${t('l10nsource')}</th><th>${t('l10ntranslation')}</th><th>${t('l10nstatus')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>${pager}`
                     : `<p class="muted">${esc(t('l10nnothing'))}</p>`}
@@ -608,11 +693,13 @@ async function adminView(){
       <div style="flex:0 0 auto;min-width:0">
         <span class="brand" style="font-size:20px">${brandLockup(30)}</span>
       </div>
-      <div><input type="file" id="brf" accept="image/png,image/jpeg,image/svg+xml,image/webp" onchange="doBrandLogo(this)"></div>
-      ${B.logo?`<div style="flex:0 0 auto"><button class="btn sm ghost" onclick="doBrandLogoClear()">${t('brandclearlogo')}</button></div>`:''}
+      <div><input type="file" id="brf" accept="image/png,image/jpeg,image/svg+xml,image/webp" data-h-change="${H((el,ev)=>doBrandLogo(el))}"></div>
+      ${B.logo?`<div style="flex:0 0 auto"><button class="btn sm ghost" data-h-click="${H((el,ev)=>doBrandLogoClear())}">${t('brandclearlogo')}</button></div>`:''}
     </div>
-    <div style="margin-top:10px"><button class="btn" onclick="doBrandSave()">${t('save')}</button>
-      <button class="btn ghost" style="margin-left:8px" onclick="doBrandReset()">${t('brandreset')}</button></div></div>`;
+    ${brandThemeEditor()}
+    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doBrandSave())}">${t('save')}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doBrandReset())}">${t('brandreset')}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>doBrandThemeReset())}">${t('brandthemereset')}</button></div></div>`;
   // Localization: instance-wide, `instance:manage`, and the reason it sits beside
   // Branding rather than in a user preference pane — it is what an ANONYMOUS
   // visitor gets, so it cannot live behind a sign-in.
@@ -628,10 +715,10 @@ async function adminView(){
     </div>
     <p class="muted" style="margin-top:6px;font-size:12px">${t('locoffhint')}</p>
     <p class="muted" style="font-size:12px">${t('locavail')}: ${(I.available||[]).map(l=>esc(LANGNAME[l]||l)).join(' \u00b7 ')}</p>
-    <div style="margin-top:10px"><button class="btn" onclick="doI18nSave()">${t('save')}</button></div></div>`;
+    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doI18nSave())}">${t('save')}</button></div></div>`;
   const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
-    <button class="btn" onclick="doSeedSamples()">${t('seed')}</button></div>`;
+    <button class="btn" data-h-click="${H((el,ev)=>doSeedSamples())}">${t('seed')}</button></div>`;
   return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${locCard}${seedCard}`;
 }
 // ---- localization (Admin) ----
@@ -651,13 +738,65 @@ async function doI18nSave(){
 // the whole shell, so the header, the sign-in lockup and the preview can never
 // disagree with what was actually stored.
 async function applyBrand(b){ if(b) S.brand=Object.assign(S.brand,b,{logoUrl:b.logo?('/api/beta/asset/'+b.logo):''});
-  document.title=S.brand.title||'Telemachus'; render(); }
+  document.title=S.brand.title||'Telemachus'; applyTheme(S.brand.theme); render(); }
+// ---- the theme editor (Admin > Branding) ----
+// The tokens are the funnel's, so an operator who has skinned a campaign already
+// knows this control. Editing previews LIVE (applyTheme against a draft) and only
+// Save writes; the server re-checks every token and the contrast floor, so the
+// warning here is a courtesy, not the gate.
+const THEME_DEFAULTS={bg:'#0b1a2b',surface:'#12253a',ink:'#f2ede1',muted:'#93a4b8',
+  brand:'#6fa0d1',brandInk:'#ffffff',radius:'8px',mode:'dark',fontBody:'System'};
+function themeDraft(){ if(!S.brand.theme) S.brand.theme=Object.assign({},THEME_DEFAULTS); return S.brand.theme; }
+function brandThemeSet(k,v){ themeDraft()[k]=v; applyTheme(S.brand.theme);
+  const w=document.getElementById('thwarn'); if(w) w.innerHTML=brandContrast(S.brand.theme); }
+// the same pairs and thresholds the server enforces (domain/branding/branding.rkt)
+function darkerOf(a,b){ const la=bxLum(a), lb=bxLum(b);
+  if(la===null||lb===null) return b;
+  return la<lb ? a : b; }
+function mixHex(a,b,p){ const rgb=h=>{ const x=String(h||'').trim().replace(/^#/,'');
+    const f=x.length===3?x.split('').map(c=>c+c).join(''):x;
+    return [0,2,4].map(i=>parseInt(f.slice(i,i+2),16)); };
+  const A=rgb(a),B=rgb(b);
+  if(A.some(isNaN)||B.some(isNaN)) return a;
+  return '#'+A.map((v,i)=>Math.round(p*v+(1-p)*B[i]).toString(16).padStart(2,'0')).join(''); }
+function brandContrast(th){
+  th=Object.assign({},THEME_DEFAULTS,th||{});
+  // the button ground is mixed, not `brand` itself — mirror BUTTON-MIX (50%) and
+  // the mode-dependent dark side
+  const btn=mixHex(th.brand, darkerOf(th.ink,th.bg), 0.5);
+  const checks=[[t('think'),th.ink,th.bg,4.5],[t('thmuted'),th.muted,th.bg,4.5],
+    [t('thsurface'),th.ink,th.surface,4.5],[t('thbrandink'),th.brandInk,btn,4.5],
+    [t('thbrand'),th.brand,th.bg,3.0]];
+  const bad=checks.map(([label,fg,bg,min])=>{ const r=bxContrast(fg,bg);
+    return r===null||r>=min?null:{label,ratio:r,min}; }).filter(Boolean);
+  if(!bad.length) return '';
+  return `<div class="bx-warn" style="margin-top:8px"><b>${esc(t('thcontrast'))}</b>${bad.map(w=>
+    `<div>${esc(w.label)} — <b>${w.ratio.toFixed(2)}:1</b> (${w.min}:1)</div>`).join('')}
+    <div class="muted" style="margin-top:6px">${esc(t('thcontrasthint'))}</div></div>`; }
+function brandThemeEditor(){
+  const th=Object.assign({},THEME_DEFAULTS,S.brand.theme||{});
+  const col=(k,label)=>`<div><label>${esc(label)}</label>
+    <input type="color" value="${esc(th[k])}" data-h-input="${H((el,ev)=>brandThemeSet((k),el.value))}"></div>`;
+  const pick=(k,label,opts)=>`<div><label>${esc(label)}</label><select data-h-change="${H((el,ev)=>brandThemeSet((k),el.value))}">
+    ${opts.map(o=>`<option value="${esc(o)}"${th[k]===o?' selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
+  return `<h4 style="margin:16px 0 4px">${esc(t('brandtheme'))}</h4>
+    <p class="muted" style="margin-top:0">${esc(t('brandthemehint'))}</p>
+    <div class="row">${col('bg',t('thbg'))}${col('surface',t('thsurface'))}${col('ink',t('think'))}${col('muted',t('thmuted'))}</div>
+    <div class="row">${col('brand',t('thbrand'))}${col('brandInk',t('thbrandink'))}
+      ${pick('mode',t('thmode'),['dark','light'])}${pick('fontBody',t('thfont'),['System','Serif','Mono','Rounded'])}
+      ${pick('radius',t('thradius'),['0px','4px','8px','12px','16px'])}</div>
+    <div id="thwarn">${brandContrast(th)}</div>`; }
+async function doBrandThemeReset(){
+  S.brand.theme=Object.assign({},THEME_DEFAULTS); applyTheme(S.brand.theme); await doBrandSave(); }
+
 async function doBrandSave(){
-  const r=await api('/api/branding',{method:'PUT',body:{title:val('brt'),tagline:val('brg'),logo:S.brand.logo||''}});
+  const r=await api('/api/branding',{method:'PUT',
+    body:{title:val('brt'),tagline:val('brg'),logo:S.brand.logo||'',theme:S.brand.theme||undefined}});
   if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandReset(){
-  const r=await api('/api/branding',{method:'PUT',body:{title:'Telemachus',tagline:'',logo:''}});
+  S.brand.theme=Object.assign({},THEME_DEFAULTS);
+  const r=await api('/api/branding',{method:'PUT',body:{title:'Telemachus',tagline:'',logo:'',theme:S.brand.theme}});
   if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandLogoClear(){
@@ -695,7 +834,7 @@ async function translateView(){
      <div class="row" style="margin-top:8px;align-items:end">
        <div><label>${t('target')}</label><select id="trtgt">${opts}</select></div>
        <div><label><input type="checkbox" id="trgl" checked> ${t('useglossary')}</label></div>
-       <div><button class="btn" onclick="doTranslate()">${t('translate')}</button></div>
+       <div><button class="btn" data-h-click="${H((el,ev)=>doTranslate())}">${t('translate')}</button></div>
      </div>
      <div id="trout" class="mono" style="margin-top:12px;white-space:pre-wrap"></div>
    </div>
@@ -704,7 +843,7 @@ async function translateView(){
         <div><label>${t('target')}</label><select id="gltgt">${opts}</select></div>
         <div><label>${t('term')}</label><input id="glterm"></div>
         <div><label>${t('translation')}</label><input id="gltr"></div>
-        <div><button class="btn sm" onclick="doAddTerm()">${t('addterm')}</button></div></div>`:''}
+        <div><button class="btn sm" data-h-click="${H((el,ev)=>doAddTerm())}">${t('addterm')}</button></div></div>`:''}
      <table><thead><tr><th>lang</th><th>${t('term')}</th><th>${t('translation')}</th></tr></thead><tbody>${termRows}</tbody></table>
    </div>
    <div class="card" style="margin-top:14px"><h3>${t('recent')}</h3>
@@ -760,7 +899,7 @@ function bxLangBtns(cfg){
   if(!S.i18n.enabled || av.length < 2) return '';
   const cur = (cfg && cfg.locale) || S.lang;
   return `<span class="bx-lang">${av.map(l=>
-    `<button type="button" class="${cur===l?'active':''}" onclick="bxSetLang('${esc(l)}')">${esc(LANGNAME[l]||l.toUpperCase())}</button>`
+    `<button type="button" class="${cur===l?'active':''}" data-h-click="${H((el,ev)=>bxSetLang((l)))}">${esc(LANGNAME[l]||l.toUpperCase())}</button>`
   ).join('')}</span>`;
 }
 // ?lang= is the funnel's carrier, not localStorage: a funnel is a page people are
@@ -802,7 +941,7 @@ function renderLandingShell(cfg, mode){
   const details=(cfg.details||[]).filter(d=>d&&(d.heading||d.body)).map(d=>`<div><h3>${esc(d.heading||'')}</h3><p>${esc(d.body||'')}</p></div>`).join('');
   const form=`<div id="betaform">${fields.map(bxField).join('')}
       <input id="bf__hp" name="_hp" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
-      <button class="bx-cta" ${live?'onclick="doBetaSignup()"':'disabled'}>${esc(cfg.cta||'Request access')}</button></div>
+      <button class="bx-cta" ${live?`data-h-click="${H((el,ev)=>doBetaSignup())}"`:'disabled'}>${esc(cfg.cta||'Request access')}</button></div>
       <div id="betamsg" style="margin-top:10px"></div>`;
   const th=cfg.theme||{};
   const fontFace = th.fontFile ? `<style>@font-face{font-family:bxcustom;font-display:swap;src:url(${esc(assetUrl(th.fontFile))})}</style>` : '';
@@ -818,7 +957,7 @@ function renderLandingShell(cfg, mode){
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>
     <div class="bx-main">
       <div class="bx-card">${form}</div>
-      <div class="bx-details">${details||''}${live&&cfg.showSignIn!==false?`<p class="bx-signin" style="margin-top:8px"><a href="#" onclick="teamSignIn();return false">${t('teamsignin')} →</a></p>`:''}</div>
+      <div class="bx-details">${details||''}${live&&cfg.showSignIn!==false?`<p class="bx-signin" style="margin-top:8px"><a href="#" data-h-click="${H((el,ev)=>{teamSignIn();return false})}">${t('teamsignin')} →</a></p>`:''}</div>
     </div>
     <footer class="bx-foot">${esc(cfg.footer||'')}</footer>
   </div></div>`;
@@ -872,7 +1011,7 @@ function activateView(token){
       <input type="hidden" id="atok" value="${esc(token)}">
       <label>${t('newpw')}</label><input id="apw" type="password" autofocus>
       <label>${t('confirmpw')}</label><input id="apw2" type="password">
-      <button class="btn" style="width:100%" onclick="doActivate()">${t('activate')}</button>
+      <button class="btn" style="width:100%" data-h-click="${H((el,ev)=>doActivate())}">${t('activate')}</button>
     </div></div>`;
 }
 async function doActivate(){
@@ -887,15 +1026,15 @@ async function documentsView(){
   const off=S.docOffset||0;
   const r=await api('/api/documents?offset='+off);
   const docs=r.ok?r.json.documents:[]; const next=r.ok?r.json.next_offset:null;
-  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}</td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" onclick="doDelDoc('${esc(d.id)}')">${t('del')}</button></td></tr>`).join('');
+  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}</td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>doDelDoc((d.id)))}">${t('del')}</button></td></tr>`).join('');
   return `<h2>${t('documents')}</h2>
     <div class="card"><h3>${t('newdoc')}</h3>
       <label>${t('title')}</label><input id="dt">
       <label>${t('content')}</label><textarea id="dc" rows="4"></textarea>
       <label>${t('visibility')}</label><select id="dv"><option>team</option><option>private</option></select>
-      <button class="btn" onclick="doCreateDoc()">${t('create')}</button></div>
+      <button class="btn" data-h-click="${H((el,ev)=>doCreateDoc())}">${t('create')}</button></div>
     <div class="card" style="margin-top:14px"><table><thead><tr><th>${t('title')}</th><th>${t('visibility')}</th><th>${t('content')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-      <div class="row" style="margin-top:8px">${off>0?`<button class="btn sm ghost" onclick="doMoreDocs(0)">« first</button>`:''}${(typeof next==='number')?`<button class="btn sm ghost" onclick="doMoreDocs(${next})">more »</button>`:''}</div></div>`;
+      <div class="row" style="margin-top:8px">${off>0?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs(0))}">« first</button>`:''}${(typeof next==='number')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs((next)))}">more »</button>`:''}</div></div>`;
 }
 async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',body:{title:val('dt'),content:val('dc'),visibility:val('dv')}});
   if(r.ok){ S.docOffset=0; toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
@@ -911,15 +1050,15 @@ function jobResultText(j){
 }
 async function jobsView(){
   const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
-  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${j.status==='queued'?`<button class="btn sm ghost" onclick="doCancelJob('${esc(j.id)}')">${t('cancel')}</button>`:''}</td></tr>`).join('');
+  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${j.status==='queued'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
   return `<h2>${t('jobs')}</h2>
     <div class="card"><h3>${t('submitjob')}</h3>
       <div class="row" style="align-items:end">
         <div><label>kind</label><select id="jk"><option value="chat">chat</option><option value="translate">translate</option></select></div>
         <div style="flex:1"><label>${t('prompt')} / ${t('sourcetext')}</label><input id="jtext"></div>
         <div><label>${t('target')}</label><input id="jtgt" value="ja" style="width:90px"></div>
-        <div><button class="btn" onclick="doSubmitJob()">${t('submit')}</button></div></div></div>
-    <div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div>
+        <div><button class="btn" data-h-click="${H((el,ev)=>doSubmitJob())}">${t('submit')}</button></div></div></div>
+    <div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3><button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div>
       <table style="margin-top:8px"><thead><tr><th>id</th><th>kind</th><th>status</th><th>result</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 async function doSubmitJob(){
@@ -961,9 +1100,9 @@ async function repoView(){
       <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(o.size))}</td>
       <td class="muted" style="font-size:12px">${esc(o.updated_at)}</td>
       <td style="white-space:nowrap">
-        <button class="btn sm" onclick="repoDownload('${esc(o.id)}','${esc(o.key)}')">${t('download')}</button>
-        <button class="btn sm ghost" onclick="repoLink('${esc(o.id)}')">${t('link')}</button>
-        <button class="btn sm ghost" onclick="repoOpenDetail('${esc(o.id)}')">${t('details')}</button>
+        <button class="btn sm" data-h-click="${H((el,ev)=>repoDownload((o.id),(o.key)))}">${t('download')}</button>
+        <button class="btn sm ghost" data-h-click="${H((el,ev)=>repoLink((o.id)))}">${t('link')}</button>
+        <button class="btn sm ghost" data-h-click="${H((el,ev)=>repoOpenDetail((o.id)))}">${t('details')}</button>
       </td></tr>`).join('');
   const limit = (usage.limit===null||usage.limit===undefined) ? t('nolimit') : humanBytes(usage.limit);
   return `<h2>${t('repository')}
@@ -971,16 +1110,16 @@ async function repoView(){
     <div class="card">
       <h3 style="margin:0 0 10px">${t('upload')}</h3>
       <div class="row" style="align-items:end">
-        <div style="flex:2"><label>${t('file')}</label><input type="file" id="rfile" onchange="repoFilePicked()"></div>
+        <div style="flex:2"><label>${t('file')}</label><input type="file" id="rfile" data-h-change="${H((el,ev)=>repoFilePicked())}"></div>
         <div style="flex:2"><label>${t('key')}</label>
-          <input id="rkey" placeholder="reports/2026/q3.pdf" oninput="repoKeyChanged()">
+          <input id="rkey" placeholder="reports/2026/q3.pdf" data-h-input="${H((el,ev)=>repoKeyChanged())}">
           <div id="rovr"></div></div>
         <div style="flex:1"><label>${t('visibility')}</label>
           <select id="rvis">
             <option value="team">${t('vis_team')}</option>
             <option value="private">${t('vis_private')}</option>
           </select></div>
-        <div style="flex:none"><button class="btn" onclick="repoUpload()">${t('upload')}</button></div>
+        <div style="flex:none"><button class="btn" data-h-click="${H((el,ev)=>repoUpload())}">${t('upload')}</button></div>
       </div>
       <div class="muted" style="font-size:12px">${t('uploadhint')}</div>
       <div id="rprog"></div>
@@ -989,9 +1128,9 @@ async function repoView(){
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3 style="margin:0">${t('objects')}</h3>
         <div style="flex:none">
-          <button class="btn sm${S.repoShared?' ghost':''}" id="rf_all" onclick="repoFilter(false)">${t('all')}</button>
-          <button class="btn sm${S.repoShared?'':' ghost'}" id="rf_shared" onclick="repoFilter(true)">${t('sharedwithme')}</button>
-          <button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
+          <button class="btn sm${S.repoShared?' ghost':''}" id="rf_all" data-h-click="${H((el,ev)=>repoFilter(false))}">${t('all')}</button>
+          <button class="btn sm${S.repoShared?'':' ghost'}" id="rf_shared" data-h-click="${H((el,ev)=>repoFilter(true))}">${t('sharedwithme')}</button>
+          <button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div></div>
       ${objs.length
         ? `<table style="margin-top:8px"><thead><tr><th>${t('key')}</th><th>${t('visibility')}</th><th>${t('size')}</th><th>${t('updated')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
         : `<p class="muted" style="margin-top:8px">${S.repoShared?t('nosharedwithme'):t('norepoobjects')}</p>`}
@@ -1012,7 +1151,7 @@ async function s3Card(){
       <td class="mono muted">${esc(c.access_key_id)}</td>
       <td class="mono muted" style="font-size:12px">${(c.scopes||[]).map(esc).join(' ')}</td>
       <td>${c.status==='active'?'<span class="badge ok">active</span>':`<span class="badge">${esc(c.status)}</span>`}</td>
-      <td>${c.status==='active'?`<button class="btn sm ghost" onclick="s3Revoke('${esc(c.id)}')">${t('revoke')}</button>`:''}</td>
+      <td>${c.status==='active'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>s3Revoke((c.id)))}">${t('revoke')}</button>`:''}</td>
     </tr>`).join('');
   const newkey = S.s3New ? `<div class="card" style="margin-top:10px;border-color:#3a4a24">
       <b>${t('s3once')}</b>
@@ -1028,7 +1167,7 @@ aws --endpoint-url ${esc(ep)} s3 cp report.pdf s3://${esc(bucket)}/reports/</pre
     ${usage}
     <div class="row" style="align-items:end;margin-top:10px">
       <div style="flex:2"><label>${t('name')}</label><input id="s3name" placeholder="laptop"></div>
-      <div style="flex:none"><button class="btn" onclick="s3Create()">${t('createtoken')}</button></div>
+      <div style="flex:none"><button class="btn" data-h-click="${H((el,ev)=>s3Create())}">${t('createtoken')}</button></div>
     </div>
     ${newkey}
     ${creds.length?`<table style="margin-top:8px"><thead><tr><th>${t('name')}</th><th>access key</th><th>scopes</th><th>${t('status')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:''}
@@ -1113,8 +1252,8 @@ async function repoLink(id){
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0">${t('link')} — <span class="mono">${esc(r.json.key)}</span></h3>
       <div style="flex:none">
-        <button class="btn sm" onclick="repoCopyLink()">${t('copy')}</button>
-        <button class="btn sm ghost" onclick="document.getElementById('rdetail').innerHTML=''">${t('close')}</button>
+        <button class="btn sm" data-h-click="${H((el,ev)=>repoCopyLink())}">${t('copy')}</button>
+        <button class="btn sm ghost" data-h-click="${H((el,ev)=>document.getElementById('rdetail').innerHTML='')}">${t('close')}</button>
       </div></div>
     <div class="muted" style="font-size:12px;margin:6px 0">${t('linkhint').replace('{m}', mins)}</div>
     <pre class="wfjson" id="rlink">${esc(r.json.url)}</pre></div>`;
@@ -1141,13 +1280,13 @@ async function repoOpenDetail(id){
       <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(v.size))}</td>
       <td class="mono muted" style="font-size:12px">${esc(String(v.digest).slice(0,12))}…</td>
       <td class="muted" style="font-size:12px">${esc(v.created_at)}</td>
-      <td>${v.current?'':`<button class="btn sm ghost" onclick="repoDownloadVersion('${esc(id)}','${esc(v.id)}','${esc(o.key)}')">${t('download')}</button>`}</td>
+      <td>${v.current?'':`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownloadVersion((id),(v.id),(o.key)))}">${t('download')}</button>`}</td>
     </tr>`).join('');
   // one row per principal: who, what they may do, until when — and revoke (DSH step 3)
   const grows=grants.length
     ? grants.map(x=>`<tr><td>${x.principal_type==='team'?'<span class="badge">'+t('teamsec')+'</span> ':''}${esc(x.name||x.username||x.principal_id)}</td>
         <td class="mono muted">${esc(t('cap_'+(x.capability||'view')))}${x.expired?' <span class="badge bad">'+t('expired')+'</span>':(x.expires_at?' · '+t('until')+' '+esc(x.expires_at.slice(0,10)):'')}</td>
-        <td><button class="btn sm bad" onclick="repoUnshare('${esc(id)}','${esc(x.principal_type)}','${esc(x.principal_id)}')">${t('revoke')}</button></td></tr>`).join('')
+        <td><button class="btn sm bad" data-h-click="${H((el,ev)=>repoUnshare((id),(x.principal_type),(x.principal_id)))}">${t('revoke')}</button></td></tr>`).join('')
     : `<tr><td colspan="3" class="muted">${t('noshares')}</td></tr>`;
   // a person on this team, or a team in this org (DSH-6) — never anyone outside it
   const uopts=users.filter(x=>x.user_id!==o.owner_user_id)
@@ -1158,13 +1297,13 @@ async function repoOpenDetail(id){
   const drows=(proc.derived||[]).map(d=>`<tr><td><b class="mono">${esc(d.key)}</b><div class="muted" style="font-size:12px">${esc(d.content_type)}${d.version>1?' · v'+esc(d.version):''}</div></td>
       <td class="muted">${esc(d.step_id||'—')}</td>
       <td class="muted" style="font-size:12px">${esc(d.created_at)}</td>
-      <td style="white-space:nowrap"><button class="btn sm ghost" onclick="repoOpenDetail('${esc(d.object_id)}')">${t('details')}</button>${d.run_id?` <button class="btn sm ghost" onclick="repoViewRun('${esc(d.run_id)}')">${t('viewrun')}</button>`:''}</td></tr>`).join('');
+      <td style="white-space:nowrap"><button class="btn sm ghost" data-h-click="${H((el,ev)=>repoOpenDetail((d.object_id)))}">${t('details')}</button>${d.run_id?` <button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((d.run_id)))}">${t('viewrun')}</button>`:''}</td></tr>`).join('');
   const frows=(proc.derived_from||[]).map(d=>`<tr><td>${t('derivedfrom')} <b class="mono">${esc(d.key||d.source_object_id)}</b></td>
       <td class="muted">${esc(d.step_id||'—')}</td><td class="muted" style="font-size:12px">${esc(d.created_at)}</td>
-      <td style="white-space:nowrap"><button class="btn sm ghost" onclick="repoOpenDetail('${esc(d.source_object_id)}')">${t('details')}</button>${d.run_id?` <button class="btn sm ghost" onclick="repoViewRun('${esc(d.run_id)}')">${t('viewrun')}</button>`:''}</td></tr>`).join('');
+      <td style="white-space:nowrap"><button class="btn sm ghost" data-h-click="${H((el,ev)=>repoOpenDetail((d.source_object_id)))}">${t('details')}</button>${d.run_id?` <button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((d.run_id)))}">${t('viewrun')}</button>`:''}</td></tr>`).join('');
   const rrows=(proc.runs||[]).map(r=>`<tr><td>${esc(r.slug||'—')}${r.trigger_id?' <span class="badge">'+t('bytrigger')+'</span>':''}</td>
       <td>${wfBadge(r.status)}</td><td class="muted" style="font-size:12px">${esc(r.created_at)}</td>
-      <td><button class="btn sm ghost" onclick="repoViewRun('${esc(r.id)}')">${t('viewrun')}</button></td></tr>`).join('');
+      <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((r.id)))}">${t('viewrun')}</button></td></tr>`).join('');
   const processed = (drows||frows||rrows)
     ? `<div id="rprocessed" style="margin-top:14px"><h4 style="margin:0 0 6px">${t('processedby')}</h4>
         ${(drows||frows)?`<table><tbody>${frows}${drows}</tbody></table>`:''}
@@ -1174,13 +1313,13 @@ async function repoOpenDetail(id){
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0" class="mono">${esc(o.key)}</h3>
       <div style="flex:none">
-        <button class="btn sm" onclick="repoRunWorkflow('${esc(id)}')">${t('runwf_doc')}</button>
-        <button class="btn sm bad" onclick="repoDelete('${esc(id)}')">${t('del')}</button>
-        <button class="btn sm ghost" onclick="document.getElementById('rdetail').innerHTML=''">${t('close')}</button>
+        <button class="btn sm" data-h-click="${H((el,ev)=>repoRunWorkflow((id)))}">${t('runwf_doc')}</button>
+        <button class="btn sm bad" data-h-click="${H((el,ev)=>repoDelete((id)))}">${t('del')}</button>
+        <button class="btn sm ghost" data-h-click="${H((el,ev)=>document.getElementById('rdetail').innerHTML='')}">${t('close')}</button>
       </div></div>
     <div class="row" style="margin-top:12px;align-items:end">
       <div style="flex:1"><label>${t('visibility')}</label>
-        <select id="rdvis" onchange="repoSetVis('${esc(id)}')">
+        <select id="rdvis" data-h-change="${H((el,ev)=>repoSetVis((id)))}">
           ${['team','private','shared'].map(v=>`<option value="${v}"${o.visibility===v?' selected':''}>${t('vis_'+v)}</option>`).join('')}
         </select></div>
       <div style="flex:2"><label>${t('sharewith')}</label>
@@ -1188,7 +1327,7 @@ async function repoOpenDetail(id){
       <div style="flex:1"><label>${t('capability')}</label>
         <select id="rdcap"><option value="view">${t('cap_view')}</option><option value="edit">${t('cap_edit')}</option><option value="manage">${t('cap_manage')}</option></select></div>
       <div style="flex:1"><label>${t('expires')}</label><input type="date" id="rdexp"></div>
-      <div style="flex:none"><button class="btn" onclick="repoShare('${esc(id)}')">${t('share')}</button></div>
+      <div style="flex:none"><button class="btn" data-h-click="${H((el,ev)=>repoShare((id)))}">${t('share')}</button></div>
     </div>
     <div class="muted" style="font-size:12px;margin-bottom:12px">${t('vishint')} ${t('caphint')}</div>
     <div class="row">
@@ -1289,9 +1428,9 @@ async function automationsCard(defs){
       <td><b>${esc(x.workflow_slug)}</b><div class="muted mono" style="font-size:12px">${esc(x.match_prefix||'*')}${x.match_types?' · '+esc(x.match_types):''}${x.fire_on_derived?' · '+t('trigger_derived'):''}</div></td>
       <td>${x.enabled?'<span class="badge ok">'+t('enabled')+'</span>':'<span class="badge">'+t('disabled')+'</span>'}</td>
       <td style="white-space:nowrap">
-        <button class="btn sm ghost" onclick="trgHistory('${esc(x.id)}')">${t('fires')}</button>
-        ${canPerm('workflows:write')?`<button class="btn sm ghost" onclick="trgToggle('${esc(x.id)}',${x.enabled?'false':'true'})">${x.enabled?t('disable'):t('enable')}</button>
-        <button class="btn sm bad" onclick="trgDelete('${esc(x.id)}')">${t('del')}</button>`:''}
+        <button class="btn sm ghost" data-h-click="${H((el,ev)=>trgHistory((x.id)))}">${t('fires')}</button>
+        ${canPerm('workflows:write')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>trgToggle((x.id),(x.enabled?'false':'true')))}">${x.enabled?t('disable'):t('enable')}</button>
+        <button class="btn sm bad" data-h-click="${H((el,ev)=>trgDelete((x.id)))}">${t('del')}</button>`:''}
       </td></tr>`).join('');
   const wopts=defs.map(d=>`<option value="${esc(d.slug)}"${d.slug==='process-upload'?' selected':''}>${esc(d.name||d.slug)}</option>`).join('');
   const form=canPerm('workflows:write')?`<div class="row" style="align-items:end;margin-top:10px">
@@ -1302,7 +1441,7 @@ async function automationsCard(defs){
     </div>
     <label>${t('trigger_input')}</label>
     <textarea id="tg_input" rows="4">${esc(JSON.stringify({schema:PIPELINE_EXAMPLE_SCHEMA,template:'',locales:[]},null,1))}</textarea>
-    <div style="margin-top:8px"><button class="btn" onclick="trgCreate()">${t('addtrigger')}</button></div>`:'';
+    <div style="margin-top:8px"><button class="btn" data-h-click="${H((el,ev)=>trgCreate())}">${t('addtrigger')}</button></div>`:'';
   return `<div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0">${t('automations')}</h3>
@@ -1336,7 +1475,7 @@ async function trgHistory(id){
   el.innerHTML=`<div style="margin-top:8px"><b>${t('fires')}</b> — <span class="mono muted">${esc(r.json.match_prefix||'*')}</span>
     ${fires.length?`<table style="margin-top:4px"><tbody>${fires.map(f=>`<tr><td class="mono">${esc(f.key||f.object_id)}</td>
       <td class="muted" style="font-size:12px">${esc(f.fired_at)}</td>
-      <td>${f.run_id?`<button class="btn sm ghost" onclick="repoViewRun('${esc(f.run_id)}')">${t('viewrun')}</button>`:`<span class="badge bad">${esc(f.error||'—')}</span>`}</td></tr>`).join('')}</tbody></table>`
+      <td>${f.run_id?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoViewRun((f.run_id)))}">${t('viewrun')}</button>`:`<span class="badge bad">${esc(f.error||'—')}</span>`}</td></tr>`).join('')}</tbody></table>`
                  :`<p class="muted" style="margin:4px 0 0">${t('nofires')}</p>`}</div>`;
 }
 
@@ -1350,7 +1489,7 @@ async function workflowsView(){
       <td class="muted">v${esc(d.version)}</td>
       <td><span class="badge">${esc(d.source||'api')}</span></td>
       <td class="muted">${esc(d.step_count)}</td>
-      <td><button class="btn sm${S.wfSel===d.slug?' ghost':''}" onclick="wfSelect('${esc(d.slug)}')">${t('runwf')}</button></td>
+      <td><button class="btn sm${S.wfSel===d.slug?' ghost':''}" data-h-click="${H((el,ev)=>wfSelect((d.slug)))}">${t('runwf')}</button></td>
     </tr>`).join('');
   const runRows=runs.map(r=>`<tr>
       <td class="mono muted">${esc(r.id.slice(0,8))}</td>
@@ -1358,13 +1497,13 @@ async function workflowsView(){
       <td>${wfBadge(r.status)}</td>
       <td class="muted">${esc(r.steps_used)} ${t('stepsused')}</td>
       <td class="muted" style="font-size:12px">${esc(r.created_at)}</td>
-      <td><button class="btn sm ghost" onclick="wfOpen('${esc(r.id)}')">${t('viewrun')}</button></td>
+      <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>wfOpen((r.id)))}">${t('viewrun')}</button></td>
     </tr>`).join('');
   return `<h2>${t('workflows')}</h2>
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3 style="margin:0">${t('definitions')}</h3>
-        <div style="flex:none"><button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button></div></div>
+        <div style="flex:none"><button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div></div>
       ${defs.length?`<table style="margin-top:8px"><thead><tr><th>${t('workflow')}</th><th>${t('version')}</th><th>${t('source')}</th><th>${t('steps')}</th><th></th></tr></thead><tbody>${defRows}</tbody></table>`
                    :`<p class="muted" style="margin-top:8px">${t('nodefs')}</p>`}
     </div>
@@ -1393,8 +1532,8 @@ function wfRunForm(){
     <h3 style="margin:0 0 4px">${t('runwf')} — ${esc(d.name||d.slug)}</h3>${desc}
     <div class="muted mono" style="font-size:12px;margin-bottom:12px">${esc(d.slug)} v${esc(d.version)} · ${chain}</div>
     ${fields}
-    <button class="btn" onclick="wfStart()">${t('runwf')}</button>
-    <button class="btn ghost" onclick="wfSelect(null)">${t('cancel')}</button></div>`;
+    <button class="btn" data-h-click="${H((el,ev)=>wfStart())}">${t('runwf')}</button>
+    <button class="btn ghost" data-h-click="${H((el,ev)=>wfSelect(null))}">${t('cancel')}</button></div>`;
 }
 
 async function wfSelect(slug){
@@ -1434,7 +1573,7 @@ async function wfCancel(id){
 async function wfRunView(id){
   const r=await api('/api/runs/'+encodeURIComponent(id));
   if(!r.ok) return `<h2>${t('runs')}</h2><div class="card"><p class="muted">${esc(r.json.error||'not found')}</p>
-    <button class="btn ghost" onclick="wfBack()">${t('back')}</button></div>`;
+    <button class="btn ghost" data-h-click="${H((el,ev)=>wfBack())}">${t('back')}</button></div>`;
   const run=r.json, steps=run.steps||[];
   const live=(run.status==='queued'||run.status==='running');
   // a step row survives a restart because it IS the state — so polling the run is
@@ -1454,7 +1593,7 @@ async function wfRunView(id){
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <div style="flex:none">${wfBadge(run.status)} <span class="muted">${esc(run.steps_used)} ${t('stepsused')}</span>${live?' <span class="muted">· live</span>':''}</div>
-        <div style="flex:none">${live?`<button class="btn sm bad" onclick="wfCancel('${esc(run.id)}')">${t('cancel')}</button> `:''}<button class="btn sm ghost" onclick="renderTab()">${t('refresh')}</button> <button class="btn sm ghost" onclick="wfBack()">${t('back')}</button></div>
+        <div style="flex:none">${live?`<button class="btn sm bad" data-h-click="${H((el,ev)=>wfCancel((run.id)))}">${t('cancel')}</button> `:''}<button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>wfBack())}">${t('back')}</button></div>
       </div>
       ${wfJson(run.input,t('input'))}${wfJson(run.output,t('output'))}
     </div>${err}
@@ -1480,7 +1619,7 @@ async function betaView(){
       <td>${details(p)}</td>
       <td>${verdict(p.judge)}</td>
       <td><span class="badge">${esc(p.status)}</span></td>
-      <td>${(p.status==='qualified'||p.status==='rejected')?'':`<button class="btn sm" onclick="doDecide('${esc(p.id)}','qualified')">${t('qualify')}</button> <button class="btn sm ghost" onclick="doDecide('${esc(p.id)}','rejected')">${t('reject')}</button>`}</td>
+      <td>${(p.status==='qualified'||p.status==='rejected')?'':`<button class="btn sm" data-h-click="${H((el,ev)=>doDecide((p.id),'qualified'))}">${t('qualify')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDecide((p.id),'rejected'))}">${t('reject')}</button>`}</td>
     </tr>`).join('');
   return `<h2>${t('beta')} — prospects</h2>${bcard}
     <div class="card"><table><thead><tr><th>prospect</th><th>details</th><th>LLM judge</th><th>status</th><th></th></tr></thead>
@@ -1493,8 +1632,8 @@ async function doDecide(id,decision){
 // ---- Beta tab: prospects | onboarding-page editor ----
 async function betaTabView(){
   const seg=`<div style="display:flex;gap:8px;margin-bottom:14px">
-     <button class="btn sm ${S.betaSub==='editor'?'ghost':''}" onclick="betaSub('prospects')">Prospects</button>
-     <button class="btn sm ${S.betaSub==='editor'?'':'ghost'}" onclick="betaSub('editor')">Onboarding page</button></div>`;
+     <button class="btn sm ${S.betaSub==='editor'?'ghost':''}" data-h-click="${H((el,ev)=>betaSub('prospects'))}">Prospects</button>
+     <button class="btn sm ${S.betaSub==='editor'?'':'ghost'}" data-h-click="${H((el,ev)=>betaSub('editor'))}">Onboarding page</button></div>`;
   return seg + (S.betaSub==='editor' ? await betaEditorView() : await betaView());
 }
 function betaSub(s){ S.betaSub=s; renderTab(); }
@@ -1505,8 +1644,8 @@ async function betaEditorView(){
     <div><div class="muted" style="margin-bottom:8px">Live preview — this is exactly what applicants see</div>
       <div id="bx-preview" style="border:1px solid var(--line);border-radius:12px;overflow:hidden;max-height:70vh;overflow-y:auto">${renderLandingShell(S.exp,'preview')}</div>
       <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
-        <button class="btn" onclick="bxSaveDraft()">Save draft</button>
-        <button class="btn ghost" onclick="bxPublish()">Publish</button>
+        <button class="btn" data-h-click="${H((el,ev)=>bxSaveDraft())}">Save draft</button>
+        <button class="btn ghost" data-h-click="${H((el,ev)=>bxPublish())}">Publish</button>
         <span id="bxmsg" class="muted" style="font-size:13px"></span></div>
     </div></div>`;
 }
@@ -1542,7 +1681,7 @@ function bxSetLanding(v){
   else S.exp.landing={type:'shell'};
   bxRerender(); }
 function bxAsset(label,target,accept){ const has=bxGet(target);
-  return `<label>${label}</label><input type="file" accept="${accept}" onchange="bxUpload(this,'${target}')">${has?`<div class="muted" style="margin:-6px 0 12px;font-size:12px">uploaded ✓ &nbsp;<a href="#" onclick="bxClear('${target}');return false">remove</a></div>`:''}`; }
+  return `<label>${label}</label><input type="file" accept="${accept}" data-h-change="${H((el,ev)=>bxUpload(el,(target)))}">${has?`<div class="muted" style="margin:-6px 0 12px;font-size:12px">uploaded ✓ &nbsp;<a href="#" data-h-click="${H((el,ev)=>{bxClear((target));return false})}">remove</a></div>`:''}`; }
 function bxAddDetail(){ (S.exp.details=S.exp.details||[]).push({heading:'',body:''}); bxRerender(); }
 function bxDelDetail(i){ S.exp.details.splice(i,1); bxRerender(); }
 function bxAddField(){ const fs=(S.exp.fields=S.exp.fields||[]); fs.push({key:'field'+(fs.length+1),label:'New field',type:'text',required:false}); bxRerender(); }
@@ -1589,47 +1728,47 @@ function bxContrastWarnings(th){
     <div class="muted" style="margin-top:6px">Readers may not be able to see this text.</div></div>`; }
 function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
   const iv=(p,v)=>`value="${esc(v==null?'':v)}"`;
-  const color=(label,path,def)=>`<div><label>${label}</label><input type="color" ${iv(path.split('.').reduce((o,k)=>o&&o[k],e)||def)} oninput="bxSet('${path}',this.value)"></div>`;
+  const color=(label,path,def)=>`<div><label>${label}</label><input type="color" ${iv(path.split('.').reduce((o,k)=>o&&o[k],e)||def)} data-h-input="${H((el,ev)=>bxSet((path),el.value))}"></div>`;
   const fieldRow=(f,i)=>`<div class="fieldrow">
-      <div class="row"><div><label>Label</label><input ${iv(f.label)} oninput="bxSetField(${i},'label',this.value)"></div>
-        <div><label>Key</label><input ${iv(f.key)} oninput="bxSetField(${i},'key',this.value)"></div></div>
-      <div class="row"><div><label>Type</label><select onchange="bxSetField(${i},'type',this.value)">${['text','email','tel','textarea','select'].map(t=>`<option ${f.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
-        <div style="flex:0 0 auto"><label>Required</label><input type="checkbox" style="width:auto" ${f.required?'checked':''} onchange="bxSetField(${i},'required',this.checked)"></div></div>
-      ${f.type==='select'?`<label>Options (comma-separated)</label><input ${iv((f.options||[]).join(', '))} oninput="bxSetField(${i},'options',this.value)">`:''}
+      <div class="row"><div><label>Label</label><input ${iv(f.label)} data-h-input="${H((el,ev)=>bxSetField((i),'label',el.value))}"></div>
+        <div><label>Key</label><input ${iv(f.key)} data-h-input="${H((el,ev)=>bxSetField((i),'key',el.value))}"></div></div>
+      <div class="row"><div><label>Type</label><select data-h-change="${H((el,ev)=>bxSetField((i),'type',el.value))}">${['text','email','tel','textarea','select'].map(t=>`<option ${f.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+        <div style="flex:0 0 auto"><label>Required</label><input type="checkbox" style="width:auto" ${f.required?'checked':''} data-h-change="${H((el,ev)=>bxSetField((i),'required',el.checked))}"></div></div>
+      ${f.type==='select'?`<label>Options (comma-separated)</label><input ${iv((f.options||[]).join(', '))} data-h-input="${H((el,ev)=>bxSetField((i),'options',el.value))}">`:''}
       ${f.type==='select'?'':`<div class="row">
-        <div><label>Min length</label><input type="number" min="0" ${iv(f.minlength)} oninput="bxSetField(${i},'minlength',this.value)"></div>
-        <div><label>Max length</label><input type="number" min="0" ${iv(f.maxlength)} oninput="bxSetField(${i},'maxlength',this.value)"></div>
-        <div style="flex:0 0 auto"><label>Digits only</label><input type="checkbox" style="width:auto" ${f.digits?'checked':''} onchange="bxSetField(${i},'digits',this.checked)"></div></div>`}
-      <button class="btn sm bad" onclick="bxDelField(${i})">Remove field</button></div>`;
-  const detailRow=(d,i)=>`<div class="fieldrow"><label>Heading</label><input ${iv(d.heading)} oninput="S.exp.details[${i}].heading=this.value;bxPreview()">
-      <label>Body</label><textarea rows="2" oninput="S.exp.details[${i}].body=this.value;bxPreview()">${esc(d.body||'')}</textarea>
-      <button class="btn sm bad" onclick="bxDelDetail(${i})">Remove</button></div>`;
+        <div><label>Min length</label><input type="number" min="0" ${iv(f.minlength)} data-h-input="${H((el,ev)=>bxSetField((i),'minlength',el.value))}"></div>
+        <div><label>Max length</label><input type="number" min="0" ${iv(f.maxlength)} data-h-input="${H((el,ev)=>bxSetField((i),'maxlength',el.value))}"></div>
+        <div style="flex:0 0 auto"><label>Digits only</label><input type="checkbox" style="width:auto" ${f.digits?'checked':''} data-h-change="${H((el,ev)=>bxSetField((i),'digits',el.checked))}"></div></div>`}
+      <button class="btn sm bad" data-h-click="${H((el,ev)=>bxDelField((i)))}">Remove field</button></div>`;
+  const detailRow=(d,i)=>`<div class="fieldrow"><label>Heading</label><input ${iv(d.heading)} data-h-input="${H((el,ev)=>{S.exp.details[(i)].heading=el.value;bxPreview()})}">
+      <label>Body</label><textarea rows="2" data-h-input="${H((el,ev)=>{S.exp.details[(i)].body=el.value;bxPreview()})}">${esc(d.body||'')}</textarea>
+      <button class="btn sm bad" data-h-click="${H((el,ev)=>bxDelDetail((i)))}">Remove</button></div>`;
   const lt=(e.landing&&e.landing.type)||'shell';
   const isBundle=lt==='bundle', isTemplate=lt==='template';
   return `<div class="card">
     <div class="sec">Rendering</div>
     <label>Landing renderer</label>
-    <select onchange="bxSetLanding(this.value)">
+    <select data-h-change="${H((el,ev)=>bxSetLanding(el.value))}">
       <option value="shell" ${lt==='shell'?'selected':''}>Built-in — Tier A (themeable, no code)</option>
       <option value="template" ${isTemplate?'selected':''}>Custom HTML template — Tier C</option>
       <option value="bundle" ${isBundle?'selected':''}>Custom plugin bundle — Tier B</option>
     </select>
-    ${isBundle?`<label>Plugin name</label><input ${iv(e.landing.plugin)} oninput="bxSet('landing.plugin',this.value)">
+    ${isBundle?`<label>Plugin name</label><input ${iv(e.landing.plugin)} data-h-input="${H((el,ev)=>bxSet('landing.plugin',el.value))}">
       <div class="muted" style="font-size:12px;margin:-6px 0 12px">Served from <span class="mono">/beta/bundle/${esc(e.landing.plugin||'')}/</span>. The controls below still configure the SDK payload (fields, judge); the bundle owns the look.</div>`:''}
     ${isTemplate?`<label>HTML template</label>
-      <textarea class="mono" rows="12" style="font-size:12px" oninput="bxSet('template',this.value)">${esc(e.template||'')}</textarea>
+      <textarea class="mono" rows="12" style="font-size:12px" data-h-input="${H((el,ev)=>bxSet('template',el.value))}">${esc(e.template||'')}</textarea>
       <div class="muted" style="font-size:12px;margin:-6px 0 12px">Placeholders: <span class="mono">{{title}} {{subtitle}} {{eyebrow}} {{logo}} {{cta}} {{footer}} {{fields}} {{message}}</span>. Scripts, event handlers and dangerous tags are stripped on publish; the page renders in a sandboxed iframe and submission is wired for you (a <span class="mono">[data-beta-submit]</span> button).</div>`:''}
     <div class="sec">Branding</div>
-    <label>Logo text</label><input ${iv(e.logo)} oninput="bxSet('logo',this.value)">
+    <label>Logo text</label><input ${iv(e.logo)} data-h-input="${H((el,ev)=>bxSet('logo',el.value))}">
     ${bxAsset('Logo image (overrides text)','logoImage','image/*')}
-    <label>Eyebrow</label><input ${iv(e.eyebrow)} oninput="bxSet('eyebrow',this.value)">
-    <label>Hero title</label><input ${iv(e.title)} oninput="bxSet('title',this.value)">
-    <label>Hero subtitle</label><textarea rows="2" oninput="bxSet('subtitle',this.value)">${esc(e.subtitle||'')}</textarea>
-    <label>Button label</label><input ${iv(e.cta)} oninput="bxSet('cta',this.value)">
-    <label>Footer</label><textarea rows="2" oninput="bxSet('footer',this.value)">${esc(e.footer||'')}</textarea>
+    <label>Eyebrow</label><input ${iv(e.eyebrow)} data-h-input="${H((el,ev)=>bxSet('eyebrow',el.value))}">
+    <label>Hero title</label><input ${iv(e.title)} data-h-input="${H((el,ev)=>bxSet('title',el.value))}">
+    <label>Hero subtitle</label><textarea rows="2" data-h-input="${H((el,ev)=>bxSet('subtitle',el.value))}">${esc(e.subtitle||'')}</textarea>
+    <label>Button label</label><input ${iv(e.cta)} data-h-input="${H((el,ev)=>bxSet('cta',el.value))}">
+    <label>Footer</label><textarea rows="2" data-h-input="${H((el,ev)=>bxSet('footer',el.value))}">${esc(e.footer||'')}</textarea>
     <label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0">
       <input type="checkbox" style="width:auto;margin:0" ${e.showSignIn!==false?'checked':''}
-             onchange="bxSet('showSignIn',this.checked)">
+             data-h-change="${H((el,ev)=>bxSet('showSignIn',el.checked))}">
       Show the team sign-in link on the landing page</label>
     <div class="muted" style="font-size:12px;margin:-6px 0 12px">Your team can always sign in at <code>/login</code>, whether or not this is shown.</div>
 
@@ -1640,22 +1779,22 @@ function betaControls(){ const e=S.exp||{}; const th=e.theme||{};
       ${color('Text','theme.ink','#f2ede1')}${color('Muted','theme.muted','#93a4b8')}</div>
     ${bxContrastWarnings(th)}
     <div class="row" style="margin-top:10px">
-      <div><label>Font</label><select onchange="bxSet('theme.fontBody',this.value)">${['System','Serif','Rounded','Mono'].map(f=>`<option ${th.fontBody===f?'selected':''}>${f}</option>`).join('')}</select></div>
-      <div><label>Corner radius</label><input ${iv(th.radius||'12px')} oninput="bxSet('theme.radius',this.value)"></div></div>
-    <label>Hero background (color or CSS gradient)</label><input ${iv(th.heroBg)} oninput="bxSet('theme.heroBg',this.value)">
+      <div><label>Font</label><select data-h-change="${H((el,ev)=>bxSet('theme.fontBody',el.value))}">${['System','Serif','Rounded','Mono'].map(f=>`<option ${th.fontBody===f?'selected':''}>${f}</option>`).join('')}</select></div>
+      <div><label>Corner radius</label><input ${iv(th.radius||'12px')} data-h-input="${H((el,ev)=>bxSet('theme.radius',el.value))}"></div></div>
+    <label>Hero background (color or CSS gradient)</label><input ${iv(th.heroBg)} data-h-input="${H((el,ev)=>bxSet('theme.heroBg',el.value))}">
     ${bxAsset('Hero image (overlaid, overrides background)','theme.heroImage','image/*')}
     ${bxAsset('Custom font (woff2/woff/ttf/otf)','theme.fontFile','.woff2,.woff,.ttf,.otf,font/*')}
 
     <div class="sec">Detail blocks</div>
     ${(e.details||[]).map(detailRow).join('')}
-    <button class="btn sm ghost" onclick="bxAddDetail()">+ Add block</button>
+    <button class="btn sm ghost" data-h-click="${H((el,ev)=>bxAddDetail())}">+ Add block</button>
 
     <div class="sec">Form fields</div>
     ${(e.fields||[]).map(fieldRow).join('')}
-    <button class="btn sm ghost" onclick="bxAddField()">+ Add field</button>
+    <button class="btn sm ghost" data-h-click="${H((el,ev)=>bxAddField())}">+ Add field</button>
 
     <div class="sec">LLM judge prompt <span class="muted" style="text-transform:none">(never shown to applicants)</span></div>
-    <textarea rows="4" oninput="bxSet('judge-system',this.value)">${esc(e['judge-system']||'')}</textarea>
+    <textarea rows="4" data-h-input="${H((el,ev)=>bxSet('judge-system',el.value))}">${esc(e['judge-system']||'')}</textarea>
   </div>`;
 }
 async function bxSaveDraft(){ const m=document.getElementById('bxmsg'); const r=await api('/api/beta/experience',{method:'PUT',body:S.exp});
@@ -1676,17 +1815,17 @@ async function knowledgeView(){
       <td><b>${esc(e.name)}</b>${e.description?`<div class="muted" style="font-size:12px">${esc(e.description)}</div>`:''}</td>
       <td><span class="badge">${esc(e.type)}</span></td>
       <td class="muted">${esc(e.relation_count)} · ${esc(e.mention_count)}</td>
-      <td><button class="btn sm ghost" onclick="kgOpen('${esc(e.id)}')">${t('details')}</button></td></tr>`).join('');
+      <td><button class="btn sm ghost" data-h-click="${H((el,ev)=>kgOpen((e.id)))}">${t('details')}</button></td></tr>`).join('');
   return `<h2>${t('knowledge')}
       <span class="muted" style="font-size:14px">${esc(st.entities||0)} ${t('kg_entities')} · ${esc(st.relations||0)} ${t('kg_relations')} · ${esc(st.documents||0)} ${t('kg_documents')}${st.unextracted?` · ${esc(st.unextracted)} ${t('kg_unextracted')}`:''}</span></h2>
     <div class="card">
       <div class="muted" style="font-size:12px;margin-bottom:8px">${t('kg_hint')}</div>
       <div class="row" style="align-items:end">
-        <div style="flex:2"><label>${t('kg_search')}</label><input id="kgq" value="${esc(S.kg.q)}" onkeydown="if(event.key==='Enter')kgSearch()"></div>
+        <div style="flex:2"><label>${t('kg_search')}</label><input id="kgq" value="${esc(S.kg.q)}" data-h-keydown="${H((el,ev)=>{if(ev.key==='Enter')kgSearch()})}"></div>
         <div style="flex:1"><label>${t('kg_type')}</label>
           <select id="kgtype"><option value="">${t('kg_alltypes')}</option>${types.map(x=>`<option value="${esc(x)}"${S.kg.type===x?' selected':''}>${esc(x)}</option>`).join('')}</select></div>
-        <div style="flex:none"><button class="btn" onclick="kgSearch()">${t('search')}</button>
-          ${canPerm('workflows:run')?`<button class="btn ghost" onclick="kgExtract()">${t('kg_extract')}</button>`:''}</div>
+        <div style="flex:none"><button class="btn" data-h-click="${H((el,ev)=>kgSearch())}">${t('search')}</button>
+          ${canPerm('workflows:run')?`<button class="btn ghost" data-h-click="${H((el,ev)=>kgExtract())}">${t('kg_extract')}</button>`:''}</div>
       </div>
       ${ents.length?`<table style="margin-top:10px"><thead><tr><th>${t('kg_entity')}</th><th>${t('kg_type')}</th><th>${t('kg_relations')} · ${t('kg_mentions')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
                    :`<p class="muted" style="margin-top:10px">${t('kg_none')}</p>`}
@@ -1705,16 +1844,16 @@ async function kgDetailHtml(id){
   if(!r.ok) return `<div class="card" style="margin-top:14px"><p class="muted">${esc(r.json.error||'not found')}</p></div>`;
   const e=r.json;
   const rels=(e.relations||[]).map(x=>`<tr>
-      <td>${x.direction==='out'?`<b>${esc(e.name)}</b>`:`<a href="#" onclick="kgOpen('${esc(x.subject_id)}');return false">${esc(x.subject)}</a>`}</td>
+      <td>${x.direction==='out'?`<b>${esc(e.name)}</b>`:`<a href="#" data-h-click="${H((el,ev)=>{kgOpen((x.subject_id));return false})}">${esc(x.subject)}</a>`}</td>
       <td class="mono muted">${esc(x.predicate)}</td>
-      <td>${x.direction==='in'?`<b>${esc(e.name)}</b>`:`<a href="#" onclick="kgOpen('${esc(x.object_id)}');return false">${esc(x.object)}</a>`}</td>
-      <td class="muted" style="font-size:12px">${(x.mentions||[]).map(m=>`<a href="#" onclick="kgOpenDoc('${esc(m.object_id)}');return false" class="mono">${esc(m.key)}</a>`).join(', ')}</td></tr>`).join('');
-  const ments=(e.mentions||[]).map(m=>`<tr><td><a href="#" onclick="kgOpenDoc('${esc(m.object_id)}');return false" class="mono">${esc(m.key)}</a></td>
+      <td>${x.direction==='in'?`<b>${esc(e.name)}</b>`:`<a href="#" data-h-click="${H((el,ev)=>{kgOpen((x.object_id));return false})}">${esc(x.object)}</a>`}</td>
+      <td class="muted" style="font-size:12px">${(x.mentions||[]).map(m=>`<a href="#" data-h-click="${H((el,ev)=>{kgOpenDoc((m.object_id));return false})}" class="mono">${esc(m.key)}</a>`).join(', ')}</td></tr>`).join('');
+  const ments=(e.mentions||[]).map(m=>`<tr><td><a href="#" data-h-click="${H((el,ev)=>{kgOpenDoc((m.object_id));return false})}" class="mono">${esc(m.key)}</a></td>
       <td class="muted">“${esc(m.snippet)}”</td></tr>`).join('');
   return `<div class="card" style="margin-top:14px">
     <div class="row" style="justify-content:space-between;align-items:center">
       <h3 style="margin:0">${esc(e.name)} <span class="badge">${esc(e.type)}</span></h3>
-      <div style="flex:none"><button class="btn sm ghost" onclick="S.kg.sel=null;document.getElementById('kgdetail').innerHTML=''">${t('close')}</button></div></div>
+      <div style="flex:none"><button class="btn sm ghost" data-h-click="${H((el,ev)=>{S.kg.sel=null;document.getElementById('kgdetail').innerHTML=''})}">${t('close')}</button></div></div>
     ${e.description?`<p class="muted" style="margin:6px 0 0">${esc(e.description)}</p>`:''}
     <h4 style="margin:12px 0 6px">${t('kg_relations')}</h4>
     ${rels?`<table><tbody>${rels}</tbody></table>`:`<p class="muted">${t('kg_norelations')}</p>`}
@@ -1726,8 +1865,8 @@ async function searchView(){
   return `<h2>${t('search')}</h2>
     <div class="card">
       <div class="row" style="align-items:end"><div style="flex:1"><label>${t('search')}</label>
-        <input id="sq" onkeydown="if(event.key==='Enter')doSearch()" placeholder="${t('searchph')}"></div>
-        <div><button class="btn" onclick="doSearch()">${t('search')}</button></div></div>
+        <input id="sq" data-h-keydown="${H((el,ev)=>{if(ev.key==='Enter')doSearch()})}" placeholder="${t('searchph')}"></div>
+        <div><button class="btn" data-h-click="${H((el,ev)=>doSearch())}">${t('search')}</button></div></div>
       <div id="sres" style="margin-top:12px"></div></div>`;
 }
 async function doSearch(){
@@ -1740,7 +1879,7 @@ async function doSearch(){
       res.map(x=>`<tr><td><span class="badge${x.type==='file'?' run':''}">${esc(x.type)}</span></td>
         <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}</td>
         <td class="muted">${esc(x.snippet||'')}</td>
-        <td>${x.type==='file'?`<button class="btn sm ghost" onclick="repoDownload('${esc(x.id)}','${esc(x.title||'')}')">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
+        <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : '<p class="muted">no results</p>';
 }
 // `render` awaits four times (branding, me, config/features). Anything that

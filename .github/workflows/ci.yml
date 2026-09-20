@@ -56,6 +56,19 @@ jobs:
       # against the scripted mock model, route a chat through it (slice 66).
       - name: Pull executor smoke
         run: bash test/pull-smoke.sh
+      # Issue #25: the S3 endpoint was built against real aws-cli requests captured
+      # on the wire, and since #19 the credential's secret is SEALED at rest, so
+      # SigV4 unwraps it on every signed request. The suite skips silently without
+      # the CLI, which is how that path went unexercised — install it here, the way
+      # poppler-utils is installed above, rather than let the skip hide a gap.
+      - name: Install AWS CLI v2
+        run: |
+          curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+          unzip -q /tmp/awscliv2.zip -d /tmp
+          sudo /tmp/aws/install --update
+          aws --version
+      - name: S3 endpoint smoke (sealed credential)
+        run: bash test/s3-smoke.sh
       # The reference under docs/reference/ is generated from the source of truth
       # (tools, workflows, permissions, the route table, plugins) and COMMITTED;
       # this fails the build when a PR changes the code without regenerating.

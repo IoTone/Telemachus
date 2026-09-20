@@ -226,6 +226,13 @@ lives under `refimpl/<name>/`.
 
 - `README.md`, `ACKNOWLEDGMENTS.md`, `docs/` — project design docs & attribution.
 - `docs/FeatureRequirements.md` — the requirements (authored from the predecessor review).
+- **`docs/integrators-guide.md` — putting your own product on Telemachus**: theme the
+  console, ship tools, serve your own screens and API, add background work. The
+  worked example is `refimpl/racketmaximus/plugins/integrator-demo/`.
+- `docs/reference/` — generated from the source (routes, tools, workflows,
+  permissions, plugins, the SDK) and committed; CI fails on drift.
+- `docs/ops/` — operator runbooks (workflow engine, multi-tenancy, document
+  repository, secrets at rest).
 - `refimpl/racketmaximus/` — the first reference implementation (Racket); has its own README.
 
 Additional reference implementations (a different backend, or another engineer's

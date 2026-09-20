@@ -64,19 +64,25 @@
   (define id (hash-ref job 'id))
   (define kind (hash-ref job 'kind))
   (define lease (let ([l (hash-ref job 'lease_seconds 120)]) (if (number? l) l 120)))
+  ;; the claim's fencing token (issue #24): it goes back with every heartbeat and
+  ;; with the result, so a run whose lease lapsed cannot complete the attempt that
+  ;; replaced it. A worker that drops it will be refused with 409.
+  (define token (let ([t (hash-ref job 'claim_token #f)]) (if (string? t) t 'null)))
   ;; heartbeat at a third of the lease while the job runs
   (define beat (thread (lambda () (let loop () (sleep (max 1 (quotient lease 3)))
-                                    (post (format "/api/workers/jobs/~a/heartbeat" id) (hasheq)) (loop)))))
+                                    (post (format "/api/workers/jobs/~a/heartbeat" id) (hasheq 'claim_token token)) (loop)))))
   (with-handlers ([exn:fail? (lambda (e)
                                (kill-thread beat)
-                               (post (format "/api/workers/jobs/~a/fail" id) (hasheq 'error (exn-message e)))
+                               (post (format "/api/workers/jobs/~a/fail" id)
+                                     (hasheq 'error (exn-message e) 'claim_token token))
                                (printf "job ~a (~a): FAILED — ~a\n" id kind (exn-message e)))])
     (define result
       (case kind
         [("infer.chat") (run-infer-chat (hash-ref job 'payload (hasheq)))]
         [else (error 'worker "this worker does not run ~a" kind)]))
     (kill-thread beat)
-    (define-values (code resp) (post (format "/api/workers/jobs/~a/complete" id) (hasheq 'result result)))
+    (define-values (code resp) (post (format "/api/workers/jobs/~a/complete" id)
+                                     (hasheq 'result result 'claim_token token)))
     (printf "job ~a (~a): ~a\n" id kind (if (= code 200) "done" (format "complete refused (HTTP ~a)" code)))))
 
 (printf "telemachus-worker → ~a  models ~a  kinds infer.chat\n" BASE (if (null? MODELS) "(any)" (string-join MODELS ",")))

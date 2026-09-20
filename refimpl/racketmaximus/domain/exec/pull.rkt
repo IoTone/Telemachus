@@ -120,7 +120,8 @@
          (when (string? (hash-ref e 'token_id))
            (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" (hash-ref e 'token_id)))
          ;; a job this host holds goes back to the queue right away
-         (query-exec conn "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL WHERE executor_id = ? AND status = 'running'" id)
+         (query-exec conn (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
+                                         "claim_token = NULL WHERE executor_id = ? AND status = 'running'") id)
          (audit! conn #:action "executor.retire" #:actor-type "user" #:actor-id (principal-user-id p)
                  #:resource-type "executor" #:resource-id id)
          #t)))
@@ -170,23 +171,37 @@
              ;; row it expects and is believed only when RETURNING hands one back,
              ;; so two workers scanning the same queue never both get this job.
              (let* ([lease (+ (now) LEASE-SECONDS)]
-                    [took? (claim-job! conn id #:lease lease #:executor (hash-ref ex 'id))])
-               (and took?
+                    [token (claim-job! conn id #:lease lease #:executor (hash-ref ex 'id))])
+               (and token
                     (let ([row (query-row conn "SELECT id, kind, payload, team_id FROM jobs WHERE id = ?" id)])
+                      ;; claim_token fences this attempt (issue #24): the worker sends
+                      ;; it back on every heartbeat and on the result, so a previous
+                      ;; attempt that is still alive cannot complete this one — not
+                      ;; even when the same executor re-claimed it.
                       (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
                               'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vector-ref row 2)))
+                              'claim_token token
                               'lease_until lease 'lease_seconds LEASE-SECONDS)))))))))
 
-;; is this job held by this executor, and still running? -> 'ok | 'not-holder | 'not-running
-(define (holder-check conn ex job-id)
-  (define r (query-maybe-row conn "SELECT executor_id, status FROM jobs WHERE id = ?" job-id))
+;; is this job held by this executor, on THIS attempt, and still running?
+;;   -> 'ok | 'not-holder | 'not-running | 'not-found
+;;
+;; The token is what makes "this attempt" answerable (issue #24). Without it, an
+;; executor whose lease lapsed mid-run — and which then re-claimed the same job —
+;; could complete it with the older run's result, because executor_id and status
+;; both matched. A caller that sends no token is refused whenever the row carries
+;; one, which every claim since 0031 does.
+(define (holder-check conn ex job-id [token #f])
+  (define r (query-maybe-row conn "SELECT executor_id, status, claim_token FROM jobs WHERE id = ?" job-id))
   (cond [(not r) 'not-found]
         [(not (equal? (vector-ref r 1) "running")) 'not-running]
         [(not (equal? (vector-ref r 0) (hash-ref ex 'id))) 'not-holder]
+        [(let ([ct (vector-ref r 2)])
+           (and (not (sql-null? ct)) (not (equal? ct token)))) 'not-holder]
         [else 'ok]))
 
-(define (worker-heartbeat! conn ex job-id)
-  (define v (holder-check conn ex job-id))
+(define (worker-heartbeat! conn ex job-id #:token [token #f])
+  (define v (holder-check conn ex job-id token))
   (cond
     [(eq? v 'ok)
      (define lease (+ (now) LEASE-SECONDS))
@@ -197,8 +212,8 @@
 
 ;; a result is accepted only from the current holder; it is validated by the
 ;; kind's #:validate (a bad shape is the WORKER's mistake and fails the job)
-(define (worker-complete! conn ex job-id result)
-  (define v (holder-check conn ex job-id))
+(define (worker-complete! conn ex job-id result #:token [token #f])
+  (define v (holder-check conn ex job-id token))
   (cond
     [(not (eq? v 'ok)) v]
     [else
@@ -206,22 +221,25 @@
      (define problem ((remote-kind-validator kind) result))
      (cond
        [problem
-        (query-exec conn "UPDATE jobs SET status = 'error', error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
+        (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
+                                        "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                     (string-append "worker returned a bad result: " problem) job-id)
         'ok]
        [else
-        (query-exec conn "UPDATE jobs SET status = 'done', result = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
+        (query-exec conn (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
+                                        "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                     (jsexpr->string result) job-id)
         (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
         ((scheduler-record!) conn team result)
         'ok])]))
 
-(define (worker-fail! conn ex job-id message)
-  (define v (holder-check conn ex job-id))
+(define (worker-fail! conn ex job-id message #:token [token #f])
+  (define v (holder-check conn ex job-id token))
   (cond
     [(not (eq? v 'ok)) v]
     [else
-     (query-exec conn "UPDATE jobs SET status = 'error', error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
+     (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
+                                     "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                  (format "executor ~a: ~a" (hash-ref ex 'name) message) job-id)
      'ok]))
 
@@ -237,10 +255,12 @@
   (for ([r (in-list expired)])
     (define id (vector-ref r 0)) (define attempt (vector-ref r 1))
     (if (< attempt MAX-ATTEMPTS)
-        (query-exec conn "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, attempt = ? WHERE id = ?"
+        (query-exec conn (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
+                                        "claim_token = NULL, attempt = ? WHERE id = ?")
                     (add1 attempt) id)
         (query-exec conn
-          "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, lease_until = NULL, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
+          (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, lease_until = NULL, "
+                         "claim_token = NULL, finished_at = CURRENT_TIMESTAMP WHERE id = ?")
           (format "no executor completed it in ~a attempts (leases expired)" MAX-ATTEMPTS) id)))
   (length expired))
 

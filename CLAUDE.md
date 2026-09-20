@@ -448,6 +448,14 @@ raco test test/sigv4-tests.rkt     # 64 cases, AWS's own vectors + presign rules
 bash test/s3-smoke.sh              # 33 checks with the real aws CLI (skips if absent)
 ```
 
+**The smoke runs with secrets SEALED** (issue #25): it exports a
+`TELEMACHUS_SECRET_KEY` unless you set one, because since #19 SigV4 unwraps the
+credential on every signed request and the presign path unwraps through
+`s3-cred-newest` — the case a mock cannot prove. `awscli2` is in the devShell and
+CI installs AWS CLI v2, so the suite no longer skips silently; a skip was how that
+path went unexercised in the first place. Pass `TELEMACHUS_SECRET_KEY=` (empty) to
+exercise the plaintext path instead.
+
 The smoke EXPORTS `PORT` (default 8890): the server reads it from the environment,
 and a merely-defaulted shell variable is not exported — the server then boots on
 8835 and the readiness loop waits on 8890 for ten minutes before "server never
@@ -847,6 +855,21 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## The integrator's guide (`docs/integrators-guide.md`)
+
+The document a downstream team follows to put THEIR product on Telemachus: theme
+the console (branding tokens), ship tools, serve their own screens
+(`plugins/<id>/bundle/`), back them with their own routes (`/api/x/<id>/…`), add
+job kinds, and skin the funnel. `plugins/integrator-demo/` is the worked example
+— one tool, two routes, a namespaced job kind, and a bundle screen that reads
+`GET /api/branding` and maps the same theme tokens, which is how a customer's
+palette reaches their own screens. `test/server-smoke.sh` asserts all four seams,
+so the example cannot rot silently.
+
+The guide states the gaps rather than papering over them: a plugin cannot add a
+tab to the core console, feature flags are per TEAM only (no instance-wide
+switch), and there is no hot reload.
+
 ## Plugin routes and artifact results (slices 63–64, issue #15)
 
 - **A plugin may `(provide routes)`**: `(list method path perm handler doc)` per
@@ -942,6 +965,18 @@ migration `0028-executors`; `/api/executors`, `/api/org/executors`,
   (`finish!`), so a reaped run cannot land its result — or its bill — on the new
   attempt. `reap-orphans!` sweeps NULL-lease `running` rows at startup: that is
   the upgrade path from a build that claimed without a lease.
+- **Issue #24: every claim is FENCED by a `claim_token`** (migration `0031`).
+  `status='running'` plus `executor_id` could not tell one attempt from another —
+  the same holder may be the one that re-claimed a reaped job — so `claim-job!`
+  mints a token per attempt and returns it (`#f` when the claim lost). Every later
+  write carries it: `finish!`, the lease refresher, and the worker's
+  heartbeat/complete/fail. Requeue, retire and every terminal write CLEAR it, so a
+  stale token can never match again. **The pool's `claim-next!` now returns
+  `(cons id token)`**, and `run-claimed!` takes the token as its second argument.
+  **Wire change**: `POST /api/workers/claim` returns `claim_token` and
+  `/api/workers/jobs/:id/{heartbeat,complete,fail}` require it — a worker that
+  drops it gets a 409, so a third-party worker must be updated in lockstep with
+  the server.
 - Executor health is derived: never-seen / active / stale (3× lease) / retired.
   Retire revokes the token and requeues a held job.
 - **`notes-list` now requires `notes:read` up front** (found by this slice's
@@ -991,13 +1026,26 @@ raco test test/roles-tests.rkt
 - **`/health` is `{ok, multitenant}` and nothing else** (#11). Version, KDF, TLS and the
   codename moved to `GET /api/admin/status` (instance:manage). Do not put them
   back: the beta instance is a public front door.
-- **The console has a Content-Security-Policy** (#11, part 2; `CONSOLE-CSP`):
-  same-origin everything, `object-src 'none'`, `base-uri 'self'`,
-  `frame-ancestors 'self'`, `form-action 'self'`, `img-src` also `data: blob:`.
-  Scripts and styles are still `'unsafe-inline'` — the console is one file with
-  ~136 inline handlers and ~245 style attributes, and a nonce would disable
-  `'unsafe-inline'` and break all of them. The follow-up that earns a nonce
-  policy is moving the handlers to delegated listeners. **The e2e gate proves the
+- **The console runs under a per-request NONCE** (#11 part 2, then issue #27;
+  `console-csp`): same-origin everything, `object-src 'none'`, `base-uri 'self'`,
+  `frame-ancestors 'self'`, `form-action 'self'`, `img-src` also `data: blob:`,
+  and **`script-src 'self' 'nonce-…'` — no `'unsafe-inline'`**, which is the
+  directive that lets an injected script tag run. `style-src` keeps
+  `'unsafe-inline'` on purpose: ~250 style attributes remain and injected CSS is a
+  far smaller prize. Every other response still gets the baseline CSP with
+  `'unsafe-inline'` — a plugin bundle page may carry inline script of its own.
+- **All 141 inline handlers are delegated now** (issue #27), because a nonce
+  cannot authorize an `onclick` attribute. A render writes
+  `data-h-click="${H((el,ev)=>doThing(row.id))}"`; `H` parks the closure and
+  returns its index; one document listener per event type dispatches. `this` is
+  `el`, `event` is `ev`, and a handler returning `false` still gets
+  `preventDefault()` — an `<a href="#">` would otherwise start jumping to the top.
+  Arguments are real values instead of escaped strings, which also killed a
+  quoting-bug class. **`data-h-…` must live in a TEMPLATE literal**: one handler
+  sat inside `${live?'data-h-click="…"':'disabled'}`, a single-quoted string, so
+  `${H(…)}` never interpolated and the funnel's submit button shipped dead. The
+  browser test caught it; `test/console-tests.rkt` now pins both that and "no
+  inline handlers", so the policy cannot silently regress. **The e2e gate proves the
   console runs under the policy**: a CSP violation is a console error and the
   gate fails on those. A Tier-B bundle that loads a CDN font or script is blocked
   by this policy — bundle assets must be served from the bundle.
@@ -1058,6 +1106,17 @@ raco test test/roles-tests.rkt
 - **A TOTP seed is the one credential its owner cannot rotate by using it**, so
   it is revocable now: `DELETE /api/2fa` (self) and `DELETE
   /api/admin/users/:id/2fa` (`instance:manage`), both audited `user.2fa.reset`.
+- **Recovery codes are the way back in** (issue #26, migration `0030`). Ten
+  single-use codes, issued BY `enable-2fa!` itself — handing out a second factor
+  without one is how people lock themselves out. They are **hashed** (`hash-token`
+  over `recovery:<normalized>`), because unlike the seed a code is compared, not
+  computed from; rotating the token pepper therefore retires outstanding codes
+  along with outstanding tokens. Matching forgives case and dashes (they are typed
+  off paper). Spending is the same statement as matching (`UPDATE … WHERE used_at
+  IS NULL RETURNING id`), so two sign-ins cannot both spend one; a spent row is
+  KEPT so "already used" stays distinguishable. `reset-2fa!` deletes them with the
+  seed. `POST /api/2fa/recovery-codes` re-issues (replaces, never tops up — a set
+  on paper should be the whole truth); `GET` returns only `remaining`.
 - The key is memoized by its **raw value**, not by the variable name — a cache
   keyed on the name pins whatever was set first, which breaks any test that sets
   a key and any process handed a rotated environment.
@@ -1079,6 +1138,42 @@ instance-wide setting needs code, not a migration.
 - An uploaded logo REPLACES the mark and the wordmark both; the console falls back to
   the Mentor mark plus `S.brand.title` when there is none. This is separate from the
   beta funnel's own theme — that is a public marketing page, this is the product name.
+
+### The console's theme (integrator theming)
+
+The branding document carries a `theme`, and it is **the funnel's token vocabulary**
+(`brand brandInk bg surface ink muted radius mode fontBody`) on purpose: a customer's
+palette is written once and worn by both. Per-org for free — it is the same
+`branding:<org-id>` document, so TEN‑2d's Host routing themes a company's console
+before anyone signs in.
+
+- **Tokens are values, never declarations**, so each is validated against a narrow
+  pattern (hex colour, `<n>px`, an enumerated font/mode) rather than escaped.
+  **An unknown token is a 400**, not a silent drop — a token that does nothing is
+  how a customer concludes the theming is broken.
+- **Contrast is ENFORCED server-side** (`theme-problem`), not warned about like the
+  funnel editor does: this is the screen people sign in on, and an instance that
+  themed its own sign-in link into invisibility has no way back through the UI.
+  WCAG AA — 4.5:1 for text/muted/panel/button label, 3:1 for brand on ground.
+- **The button label is checked against the MIXED ground, not `brand`.** The console
+  paints `--accent2` as `color-mix(brand, <the dark side>, 50%)`; `BUTTON-MIX` in
+  branding.rkt must stay equal to that percentage, or the gate judges a colour
+  nothing draws.
+- **Which side is "dark" is MEASURED, not read from `mode`** (`darker` by luminance):
+  an operator who sets light colours while `mode` still says dark should get a
+  legible button, not a refusal about a token they did not think they set.
+- **The read side is forgiving where the write side refuses**: an invalid stored
+  token falls back to the shipped one, because `GET /api/branding` is the PUBLIC
+  sign-in screen and must never 500.
+- `applyTheme` in the console maps tokens → CSS custom properties on every render
+  pass (branding is public, so the sign-in screen is themed too); `--panel2`,
+  `--line`, `--accent2/3` are DERIVED with `color-mix`, so a theme stays the few
+  decisions an integrator actually wants to make. A browser without `color-mix`
+  drops those and keeps the stylesheet's values.
+- The e2e gate proves the mapping end to end (live preview, then a reload reading
+  the stored theme). **The server's 400 for an illegible theme is pinned in
+  server-smoke, NOT in the e2e gate** — that gate fails on any console error, and a
+  deliberate 400 logs one.
 
 ## Paths: anchor at definition, never at use
 

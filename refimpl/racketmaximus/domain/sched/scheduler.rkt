@@ -10,8 +10,10 @@
 ;;     names the row it expects (UPDATE … WHERE id = ? AND status='queued'
 ;;     RETURNING id) and is believed only when a row comes back, so two workers
 ;;     never run one job even when they are not in the same process.
-;;   • Leased. A claimed job carries lease_until, refreshed while it runs; a job
-;;     whose worker died is returned to the queue by the reaper (slice 69).
+;;   • Leased and FENCED. A claimed job carries lease_until, refreshed while it
+;;     runs, plus a claim_token minted for that attempt; a job whose worker died
+;;     is returned to the queue by the reaper, and the dead attempt's token no
+;;     longer matches, so its late result cannot land (slice 69, issue #24).
 ;;   • Bounded pool. A fixed N worker threads (never unbounded) drain the queue;
 ;;     Racket DB connections are thread-safe (ops serialized), so they share one.
 ;;   • Testable core. `process-one!` is synchronous (claim → run → record); the
@@ -167,32 +169,41 @@
 ;; (SQLite ≥ 3.35). Shared with the pull path so both claims are believed the
 ;; same way.
 (define (claim-job! conn id #:lease lease #:executor [executor #f])
+  ;; the fencing token for THIS attempt (issue #24): every later write about this
+  ;; run carries it, so a previous attempt that is still alive cannot be mistaken
+  ;; for the current one — not even by the same holder re-claiming the job.
+  (define token (new-id))
   (define r (query conn
     (string-append "UPDATE jobs SET status='running', started_at=CURRENT_TIMESTAMP, "
-                   "lease_until=?, executor_id=? WHERE id = ? AND status='queued' RETURNING id")
-    lease (or executor sql-null) id))
-  (and (rows-result? r) (pair? (rows-result-rows r))))
+                   "lease_until=?, executor_id=?, claim_token=? WHERE id = ? AND status='queued' RETURNING id")
+    lease (or executor sql-null) token id))
+  (and (rows-result? r) (pair? (rows-result-rows r)) token))
 
-;; Terminal write, guarded on still holding the job: a run whose lease expired
-;; and was re-queued by the reaper must not land its result on top of the new
-;; attempt. Returns #t if this call wrote the terminal row.
-(define (finish! conn id status #:result [result #f] #:error [err #f])
+;; Terminal write, guarded on still holding THIS attempt: a run whose lease expired
+;; and was re-queued must not land its result on top of the new one. `status` alone
+;; is not enough — the job may be running again — so the attempt's claim token is
+;; part of the condition (issue #24). Returns #t if this call wrote the row.
+(define (finish! conn id status #:result [result #f] #:error [err #f] #:token [token #f])
   (define r (query conn
-    (string-append "UPDATE jobs SET status=?, result=?, error=?, lease_until=NULL, "
-                   "finished_at=CURRENT_TIMESTAMP WHERE id = ? AND status='running' RETURNING id")
-    status (or result sql-null) (or err sql-null) id))
+    (string-append "UPDATE jobs SET status=?, result=?, error=?, lease_until=NULL, claim_token=NULL, "
+                   "finished_at=CURRENT_TIMESTAMP WHERE id = ? AND status='running'"
+                   (if token " AND claim_token = ?" "") " RETURNING id")
+    status (or result sql-null) (or err sql-null) id token))
   (and (rows-result? r) (pair? (rows-result-rows r))))
 
 ;; Keep the lease alive while the handler runs. The refresher is a thread on the
 ;; same connection (Racket serializes ops), killed when the handler returns; if
 ;; the process dies, so does it, and the lease lapses — which is the point.
-(define (with-lease conn id thunk)
+(define (with-lease conn id token thunk)
   (define beat (thread (lambda ()
                          (let loop ()
                            (sleep (/ POOL-LEASE-SECONDS 3))
                            (with-handlers ([exn:fail? void])
-                             (query-exec conn "UPDATE jobs SET lease_until = ? WHERE id = ? AND status='running'"
-                                         (+ (now) POOL-LEASE-SECONDS) id))
+                             ;; only OUR attempt's lease: if this job was reaped and
+                             ;; re-claimed, refreshing it would extend someone else's
+                             (query-exec conn
+                               "UPDATE jobs SET lease_until = ? WHERE id = ? AND status='running' AND claim_token = ?"
+                               (+ (now) POOL-LEASE-SECONDS) id token))
                            (loop)))))
   (dynamic-wind void thunk (lambda () (kill-thread beat))))
 
@@ -206,7 +217,8 @@
 (define (reap-orphans! conn)
   (define ids (query-list conn "SELECT id FROM jobs WHERE status='running' AND lease_until IS NULL"))
   (for ([id (in-list ids)])
-    (query-exec conn "UPDATE jobs SET status='queued', started_at=NULL WHERE id = ? AND status='running' AND lease_until IS NULL" id))
+    (query-exec conn (string-append "UPDATE jobs SET status='queued', started_at=NULL, claim_token=NULL "
+                                    "WHERE id = ? AND status='running' AND lease_until IS NULL") id))
   (length ids))
 
 (define (claim-next! conn)
@@ -223,35 +235,39 @@
              ;; a sub-job of an admitted parent is exempt from the cap — the parent holds the slot
              (or (not (sql-null? (vector-ref r 3))) (< running (cap-for team)))
              ((unbox *admit?*) conn team)             ; quota gate — over-budget teams defer
-             ;; believed only if the conditional update actually took the row
-             (claim-job! conn id #:lease (+ (now) POOL-LEASE-SECONDS))
-             id)))))
+             ;; believed only if the conditional update actually took the row; the
+             ;; token it returns fences every later write about this attempt
+             (let ([token (claim-job! conn id #:lease (+ (now) POOL-LEASE-SECONDS))])
+               (and token (cons id token))))))))
 
-(define (run-claimed! conn id)
+(define (run-claimed! conn id [token #f])
   (define r (query-maybe-row conn "SELECT team_id, user_id, kind, payload FROM jobs WHERE id = ?" id))
   (when r
     (define team (vr r 0)) (define user (vr r 1)) (define kind (vr r 2))
     (define payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vr r 3))))
     (define handler (hash-ref *kinds* kind #f))
-    (with-handlers ([exn:fail? (lambda (e) (finish! conn id "error" #:error (exn-message e)))])
+    (with-handlers ([exn:fail? (lambda (e) (finish! conn id "error" #:error (exn-message e) #:token token))])
       (cond
         [(not handler)
-         (finish! conn id "error" #:error "unknown job kind")]
+         (finish! conn id "error" #:error "unknown job kind" #:token token)]
         [else
-         (define result (with-lease conn id
+         (define result (with-lease conn id token
                           (lambda ()
                             (parameterize ([current-job (hasheq 'id id 'team team 'user user)])
                               (handler conn (user-principal conn user team) payload)))))
          ;; bill only what we actually recorded: a run whose lease lapsed mid-flight
          ;; has been re-queued, and the new attempt will bill its own usage.
-         (when (finish! conn id "done" #:result (jsexpr->string result))
+         (when (finish! conn id "done" #:result (jsexpr->string result) #:token token)
            ((unbox *record!*) conn team result))]))))    ; meter usage for a successful run
 
 ;; synchronous: claim + run the next queued job. Returns its id, or #f if none.
 ;; Used by the worker loop and directly by tests.
 (define (process-one! conn)
-  (define id (claim-next! conn))
-  (and id (begin (run-claimed! conn id) id)))
+  (define claimed (claim-next! conn))
+  (and claimed
+       (let ([id (car claimed)] [token (cdr claimed)])
+         (run-claimed! conn id token)
+         id)))
 
 ;; ---- the bounded worker pool ------------------------------------------------
 (define *run* (box #f))

@@ -61,8 +61,8 @@
 
    ;; ---- instance: config, branding, localization ------------------------------------
    (R "GET" "/api/config"   'config #:auth 'public #:doc "Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token.")
-   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).")
-   (R "PUT" "/api/branding" 'branding-put #:perm "instance:manage" #:doc "Set the instance title and tagline.")
+   (R "GET" "/api/branding" 'branding-get #:auth 'public #:doc "Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).")
+   (R "PUT" "/api/branding" 'branding-put #:perm "instance:manage" #:doc "Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it.")
    (R "POST" "/api/branding/logo" 'branding-logo #:perm "instance:manage" #:doc "Upload the instance logo (replaces the mark and the wordmark).")
    (R "GET" "/api/i18n/catalog" 'i18n-catalog #:auth 'public #:doc "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.")
    (R "PUT" "/api/i18n" 'i18n-put #:perm "instance:manage" #:doc "Set the instance default locale and whether users may switch.")
@@ -100,8 +100,10 @@
    (R "POST" "/api/instance/resume" 'tenant-resume #:auth 'provision #:doc "Hosted mode: resume a suspended tenant.")
    (R "POST" "/api/instance/quota" 'instance-quota #:auth 'provision #:doc "Hosted mode: set a quota limit for the tenant's team.")
    (R "POST" "/api/login" 'login #:auth 'public #:doc "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token.")
-   (R "POST" "/api/2fa/enable" '2fa-enable #:doc "Enable TOTP two-factor authentication for the caller; returns the secret once.")
-   (R "DELETE" "/api/2fa" '2fa-reset #:doc "Turn the caller's own TOTP off, so the old seed stops working and they must enrol again.")
+   (R "POST" "/api/2fa/enable" '2fa-enable #:doc "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.")
+   (R "POST" "/api/2fa/recovery-codes" '2fa-codes-new #:doc "Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26).")
+   (R "GET" "/api/2fa/recovery-codes" '2fa-codes-get #:doc "How many of the caller's recovery codes are still unspent. Never the codes themselves.")
+   (R "DELETE" "/api/2fa" '2fa-reset #:doc "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.")
    (R "DELETE" "/api/admin/users/:id/2fa" 'admin-2fa-reset #:perm "instance:manage" #:doc "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.")
    (R "POST" "/api/password" 'password #:doc "Change the caller's password.")
    (R "GET" "/api/whoami" 'whoami #:doc "The caller: user, team, operator flag, org, org role, locale, permissions.")
@@ -126,7 +128,7 @@
    (R "PATCH" "/api/org/members/:id" 'my-org-member-role #:auth 'org-admin #:perm "org:manage" #:doc "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.")
    (R "GET" "/api/org/audit" 'my-org-audit #:auth 'org-admin #:perm "org:read" #:doc "The company's audit trail.")
    (R "GET" "/api/org/branding" 'my-org-branding-get #:auth 'org-admin #:perm "org:read" #:doc "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.")
-   (R "PUT" "/api/org/branding" 'my-org-branding-put #:auth 'org-admin #:perm "org:manage" #:doc "Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users.")
+   (R "PUT" "/api/org/branding" 'my-org-branding-put #:auth 'org-admin #:perm "org:manage" #:doc "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.")
    (R "DELETE" "/api/org/branding" 'my-org-branding-clear #:auth 'org-admin #:perm "org:manage" #:doc "Drop the company's branding; its users see the instance's again.")
    (R "POST" "/api/org/branding/logo" 'my-org-branding-logo #:auth 'org-admin #:perm "org:manage" #:doc "Upload the company's logo (base64) and make it the company's mark.")
 
@@ -160,10 +162,10 @@
    (R "POST" "/api/executors" 'executor-create #:perm "instance:manage" #:doc "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.")
    (R "DELETE" "/api/executors/:id" 'executor-retire #:perm "instance:manage" #:doc "Retire an executor: its worker token is revoked and any job it holds returns to the queue.")
    (R "POST" "/api/org/executors" 'org-executor-create #:auth 'org-admin #:perm "org:manage" #:doc "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.")
-   (R "POST" "/api/workers/claim" 'worker-claim #:perm "jobs:execute" #:doc "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease.")
-   (R "POST" "/api/workers/jobs/:id/heartbeat" 'worker-heartbeat #:perm "jobs:execute" #:doc "Extend the lease on a job this worker holds.")
-   (R "POST" "/api/workers/jobs/:id/complete" 'worker-complete #:perm "jobs:execute" #:doc "Post a result: {result}. Accepted only from the current lease holder; validated by the kind.")
-   (R "POST" "/api/workers/jobs/:id/fail" 'worker-fail #:perm "jobs:execute" #:doc "Report a failure: {error}. Accepted only from the current lease holder.")
+   (R "POST" "/api/workers/claim" 'worker-claim #:perm "jobs:execute" #:doc "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back.")
+   (R "POST" "/api/workers/jobs/:id/heartbeat" 'worker-heartbeat #:perm "jobs:execute" #:doc "Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409.")
+   (R "POST" "/api/workers/jobs/:id/complete" 'worker-complete #:perm "jobs:execute" #:doc "Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind.")
+   (R "POST" "/api/workers/jobs/:id/fail" 'worker-fail #:perm "jobs:execute" #:doc "Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt.")
 
    ;; ---- quotas, tools, tokens, search, audit, jobs -------------------------------------
    (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit and remaining.")
