@@ -52,15 +52,27 @@
   "title": "The route table and the generated reference"
  },
  {
-  "file": "ch-13-tests",
+  "file": "ch-13-queue",
+  "title": "The job queue"
+ },
+ {
+  "file": "ch-14-secrets",
+  "title": "Secrets and the front door"
+ },
+ {
+  "file": "ch-15-extending",
+  "title": "Extending Telemachus"
+ },
+ {
+  "file": "ch-16-tests",
   "title": "How the project tests"
  },
  {
-  "file": "ch-14-operating",
+  "file": "ch-17-operating",
   "title": "Operating notes"
  },
  {
-  "file": "ch-15-contributing",
+  "file": "ch-18-contributing",
   "title": "Contributing"
  }
 ]

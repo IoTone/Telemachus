@@ -819,6 +819,40 @@ and HTML are committed beside the source; rebuild and commit them together.
 - **`\ifpdfonly`** guards the title page and the `titlesec` chapter format; pandoc
   honours TeX conditionals, and `build.sh` flips the switch to false on the copy
   it hands to pandoc, so the HTML gets `\maketitle` plus the sketch instead.
+- **Adding a chapter is four steps**: the `.tex` (with a `\chapterart{}` before
+  the `\chapter{}`), a scene in `art/vignettes.py` plus its row in `CHAPTERS`
+  (the stem carries the number, so inserting one renames the stems after it —
+  `git rm` the old pair), `python3 art/vignettes.py && node art/render.mjs`, then
+  `bash build.sh`. The HTML edition keys its art off pandoc's heading id, which
+  `vignettes.py` derives from the chapter title in `CHAPTERS` — a title that does
+  not match the `.tex` silently loses its sketch.
+- **Props live in a 360×300 viewBox under `translate(-30 -40) scale(0.55)`**, so a
+  prop's x must stay under ~700 and y between ~80 and ~600 or it is clipped. The
+  proven slots: a main block at x 500–700, a held item at x 120–240 / y 150–230,
+  and a small item beside the figure at x 364–434.
+- `\texttt{}` has no `…`: the typewriter font drops it with a warning and the
+  character vanishes from the PDF. Spell it `...` inside code text.
+
+## The published site (GitHub Pages)
+
+`scripts/build-site.sh` assembles `build/site/` with pandoc — the book (both
+editions, already built and committed), the README, the integrator's guide, the
+generated reference (including `ja/`), the runbooks and the design documents.
+`.github/workflows/pages.yml` runs it on a push to `main` that touches `docs/`,
+the README or the builder, and deploys with `actions/deploy-pages`.
+
+- **The site mirrors the REPOSITORY's layout**, `.md` becoming `.html`, so every
+  relative link between documents resolves on the site exactly as in a checkout.
+  Flattening the paths broke four links the first time it ran; the workflow now
+  fails on any local link that does not resolve.
+- `scripts/site/links.lua` rewrites a link to a source file (anything not
+  published) into a GitHub blob URL, which is honest where a dead relative link
+  would 404.
+- **The measure lives on `body`**, not on `main`: a pandoc page has no wrapper
+  element, so a rule keyed on `<main>` leaves every generated page full-bleed.
+- CI needs only pandoc — no LaTeX, no Racket — because the book's PDF and HTML
+  are committed artifacts. Rebuild them with `docs/book/build.sh` inside
+  `nix develop` and commit them with the source.
 
 ## Workflow engine (plugins that process in steps)
 

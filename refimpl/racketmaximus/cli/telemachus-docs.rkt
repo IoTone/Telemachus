@@ -98,6 +98,10 @@
                     'description (hash-ref p 'description "")
                     'tools (sort (hash-ref p 'tools '()) string<?)
                     'workflows (sort (hash-ref p 'workflows '()) string<?)
+                    ;; the plugin's job kinds (issue #21) — the model carried them
+                    ;; from the loader but this projection dropped the key, so the
+                    ;; column rendered "—" for a plugin that has one
+                    'job_kinds (sort (hash-ref p 'job_kinds '()) string<?)
                     'routes (sort (hash-ref p 'routes '()) string<?)))
           string<? #:key (lambda (p) (hash-ref p 'id))))
   ;; the plugins' authenticated routes, in api.md beside the core ones

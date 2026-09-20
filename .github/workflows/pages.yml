@@ -1,0 +1,79 @@
+name: Pages
+
+# The documentation site: the developer e-book (both editions), the integrator's
+# guide, the GENERATED reference, the runbooks and the design documents. Built by
+# scripts/build-site.sh from what is already committed — the book's PDF and HTML
+# are built and committed by docs/book/build.sh inside `nix develop`, so this job
+# needs no LaTeX and no Racket, only pandoc.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'scripts/build-site.sh'
+      - 'scripts/site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+# One deployment at a time; let a running one finish rather than cancelling it
+# half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pandoc
+      - name: Build
+        run: bash scripts/build-site.sh
+      # A relative link that resolves in a checkout must resolve on the site too;
+      # mirroring the repository's layout is what makes that true, and this is what
+      # proves it stayed true.
+      - name: Check every local link resolves
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          root = 'build/site'
+          missing = []
+          for dirpath, _, files in os.walk(root):
+              for f in files:
+                  if not f.endswith('.html'): continue
+                  p = os.path.join(dirpath, f)
+                  html = open(p, encoding='utf-8', errors='replace').read()
+                  for target in re.findall(r'(?:href|src)="([^"]+)"', html):
+                      if target.startswith(('http', '#', 'data:', 'mailto:')): continue
+                      t = target.split('#')[0]
+                      if not t: continue
+                      if not os.path.exists(os.path.normpath(os.path.join(dirpath, t))):
+                          missing.append(f'{p} -> {target}')
+          for m in missing: print('MISSING', m)
+          print(f'{len(missing)} broken link(s)')
+          sys.exit(1 if missing else 0)
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
