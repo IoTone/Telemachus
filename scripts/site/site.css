@@ -1,0 +1,61 @@
+/* The published site (scripts/build-site.sh). The Mentor palette the console and
+   the book already use: deep aegean grounds, bone ink, one gold accent spent
+   sparingly. Dark by default, because the product is; light when the reader's
+   system asks for it. */
+:root{
+  --bg:#0b1a2b; --panel:#12253a; --line:#24384f; --fg:#f2ede1; --muted:#93a4b8;
+  --accent:#6fa0d1; --gold:#c9a227; --radius:10px;
+}
+@media (prefers-color-scheme: light){
+  :root{ --bg:#fbfaf7; --panel:#ffffff; --line:#dcd8cd; --fg:#16202b; --muted:#5b6b7c;
+         --accent:#1f5c99; }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+/* The measure lives on BODY, because a pandoc page has no wrapper element to put
+   it on — its content is a run of headings and paragraphs directly in the body,
+   and a rule keyed on <main> left every generated page full-bleed. */
+body{
+  background:var(--bg); color:var(--fg);
+  font:16px/1.65 ui-serif, Georgia, Cambria, "Times New Roman", serif;
+  max-width:52rem; margin:0 auto; padding:0 16px 5rem;
+}
+main, header.site{margin:0 auto}
+header.site{padding:3.5rem 0 1rem; border-bottom:1px solid var(--line); margin-bottom:2rem}
+header.site .mark{display:flex; align-items:baseline; gap:.6rem}
+header.site h1{font-size:2.1rem; margin:0; letter-spacing:-0.01em}
+header.site h1 .dot{color:var(--gold)}
+header.site p{color:var(--muted); margin:.5rem 0 0}
+a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px}
+h1,h2,h3,h4{font-family:ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height:1.25}
+h2{margin-top:2.4rem; font-size:1.35rem}
+h3{margin-top:1.8rem; font-size:1.1rem}
+code,pre,kbd{font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.88em}
+code{background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:.08em .35em}
+pre{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:1rem; overflow-x:auto}
+pre code{background:none; border:0; padding:0}
+blockquote{border-left:3px solid var(--line); margin:1.2rem 0; padding:.2rem 0 .2rem 1rem; color:var(--muted)}
+table{border-collapse:collapse; width:100%; margin:1.2rem 0; font-size:.94em}
+/* the generated reference's tables are wide (a route, its auth, its permission,
+   its feature flag and a sentence); on a wide screen let them past the measure
+   rather than wrapping every cell to three lines */
+@media (min-width:64rem){ table{ width:calc(100% + 7rem); margin-left:-3.5rem } }
+@media (max-width:40rem){ table{ display:block; overflow-x:auto } }
+th,td{border:1px solid var(--line); padding:.45rem .6rem; text-align:left; vertical-align:top}
+th{background:var(--panel)}
+hr{border:0; border-top:1px solid var(--line); margin:2.5rem 0}
+img{max-width:100%}
+
+/* the landing page's card grid */
+.cards{display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(15rem,1fr)); padding:0; margin:1.5rem 0 0; list-style:none}
+.cards li{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:1.1rem 1.2rem}
+.cards h3{margin:0 0 .35rem; font-size:1.02rem}
+.cards p{margin:0; color:var(--muted); font-size:.92rem}
+.cards h3 a{text-decoration:none}
+.cards h3 a:hover{text-decoration:underline}
+.lede{font-size:1.1rem}
+.meta{color:var(--muted); font-size:.9rem}
+.backlink{display:inline-block; margin:1.5rem 0 0; font-size:.92rem}
+footer.site{margin:3.5rem auto 0; padding-top:1.2rem;
+            border-top:1px solid var(--line); color:var(--muted); font-size:.9rem}

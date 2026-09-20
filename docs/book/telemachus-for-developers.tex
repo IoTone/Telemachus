@@ -52,7 +52,7 @@
 
 \title{Telemachus for Developers\\[0.5em]\large A small book about a Racket-first, self-hosted team AI platform}
 \author{IoTone, Inc.}
-\date{September 2026 --- version 0.1.0}
+\date{September 2026 --- version 0.2.0}
 
 \begin{document}
 \ifpdfonly
@@ -67,7 +67,7 @@
     \vspace{1.2cm}
     {\large IoTone, Inc.\par}
     \vspace{0.3em}
-    {\large September 2026 --- version 0.1.0\par}
+    {\large September 2026 --- version 0.2.0\par}
     \vfill
     {\small\itshape Telemachus, a concept sketch: a young Ithacan with a scroll, Mentor's owl on his shoulder.\par}
   \end{titlepage}
@@ -113,6 +113,7 @@ These are not slogans; each one has changed a design at least once.
 docs/design/        design documents and the decision log
 docs/reference/     GENERATED: tools, workflows, permissions, API, plugins, SDK
 docs/ops/           operator runbooks
+docs/integrators-guide.md  putting your own product on the platform
 docs/book/          this book
 refimpl/racketmaximus/
   server/main.rkt   the HTTP server: handlers, boot, plugin loading
@@ -120,7 +121,8 @@ refimpl/racketmaximus/
   domain/           the model: authz, repo, flow, sched, quota, i18n, kg, ...
   pkgs/             db-kit, web-kit, cli-kit: small libraries with no platform knowledge
   plugins/          shipped plugins: doc-indexer, doc-pipeline, knowledge-graph, rs3, ...
-  cli/              telemachus-localize, telemachus-docs
+  cli/              telemachus-localize, telemachus-docs, telemachus-worker,
+                    telemachus-secrets
   static/           the console (one HTML file) and its English strings
   locales/          the catalogs: en, ja, nl, es-419
   test/             unit suites, smoke scripts, the e2e gate, mock servers
@@ -306,6 +308,12 @@ Built-in tools, plugin tools and workflow tools all land in one registry, tagged
 
 Everything that calls a model goes through \texttt{run-chat} in \texttt{domain/ai/executor.rkt}, and the tools that need structured output take the model as a parameter (\texttt{current-doc-chat}). Unit tests script it; the HTTP smokes run \texttt{test/mock-llm.rkt}, a deterministic OpenAI-compatible server whose chat mode answers from a file of \texttt{needle: reply} pairs, longest needle winning. The same smoke runs against a live model when the model URL is set. This is how a pipeline that needs a model is tested in CI in seconds and verified against qwen2.5:7b on a developer's machine.
 
+\section{What a message may carry}
+
+A message's content is a string \emph{or} a list of parts, the OpenAI-compatible \texttt{[\{type: "text", text: ...\}]} shape that gateways and multimodal servers send. One module decides this for every path --- the agent loop, the chat endpoint, the stream and the pull wire --- so they cannot disagree. Text parts are joined; content that carries parts and \emph{no} text is a named error rather than a quiet empty string. That distinction is the whole point: an empty reply must never be manufactured, because it is indistinguishable from a model that said nothing. Content that is absent or empty is still legitimately empty --- that is what a tool-call-only turn looks like --- so the agent parsers raise only when the turn has no tool calls either. This was a silent bug for a year: \texttt{(if (string? c) c "")} read every reply, and a provider that answered in parts produced an empty message and no complaint.
+
+A caller may also ask for a shape. \texttt{response\_format} --- \texttt{text}, \texttt{json\_object} or \texttt{json\_schema} --- rides to the provider \emph{and} is checked against the reply here, because most local servers ignore the field entirely and a schema request would otherwise come back as prose the caller parses as though it had conformed. Validation is the same subset validator, and the same \texttt{\$.total: expected number, got string} refusal, as the document pipeline's extraction. The simulated no-model fallback refuses a format rather than passing an upper-cased echo off as conforming JSON. Streaming judges the format once the stream has ended and reports the verdict in its final event; raising after the answer has already gone out would be worse.
+
 \section{Files to open}
 
 \texttt{domain/tools/dsl.rkt}, \texttt{domain/agent/registry.rkt}, \texttt{domain/agent/plugins.rkt}, \texttt{domain/ai/executor.rkt}, \texttt{docs/reference/tools.md}.
@@ -418,7 +426,127 @@ racket cli/telemachus-docs.rkt render --locale ja
 
 Adding an endpoint is therefore: one entry in the table, one handler in the map, one render, one commit. Forgetting the render fails CI; forgetting either half refuses to boot.
 
-\chapterart{art/ch-13-tests.png}
+\chapterart{art/ch-13-queue.png}
+\chapter{The job queue}
+
+\section{What a job is}
+
+A job is a row: a team, a user, a kind, a JSON payload, a priority, a status. Nothing about a running job lives in memory, which is why a restart loses no work and why a workflow step, a bulk translation and a model call routed to another machine can all be the same thing. A bounded pool of worker threads drains the queue; each thread claims one job, runs its kind's handler, and writes the result back to the row.
+
+Two policies are applied at claim time rather than inside the handler, so no kind can forget them: a \textbf{per-team concurrency cap}, which stops one team's batch monopolizing the pool, and \textbf{quota admission}, which leaves an over-budget team's jobs queued rather than failing them. A queue that has stopped moving with nothing running is usually a team out of AI budget, and that is the platform working.
+
+\section{Claiming one}
+
+Claiming looks trivial and is not. The pool scans for queued rows, picks a candidate, and flips it to running --- but the flip must be \emph{conditional} on the row still being queued, and the condition is worthless unless somebody reads the result:
+
+\begin{lstlisting}
+UPDATE jobs SET status='running', started_at=CURRENT_TIMESTAMP,
+                lease_until=?, executor_id=?, claim_token=?
+ WHERE id = ? AND status='queued'
+ RETURNING id
+\end{lstlisting}
+
+The claim is believed only when a row comes back. This matters more than it looks: the driver reports affected rows on PostgreSQL and not on SQLite, so a row count would have been a dialect-dependent answer, while \texttt{RETURNING} works on both. A claimant whose update matched nothing moves to the next candidate instead of running a job another worker holds. Before this, exclusion rested on a lock inside one process --- fine until there are two.
+
+\section{When a worker dies}
+
+Every claim carries a \textbf{lease}: a timestamp the holder refreshes while it works. If the holder dies, the lease lapses, and a reaper returns the job to the queue with its attempt count raised, failing it for good after three. This applies to the in-process pool exactly as it does to a remote worker; when it did not, a pool job whose process died sat \texttt{running} forever and kept consuming its team's concurrency slot. A job left behind by an older build --- running, with no lease --- is swept back to the queue when the pool starts.
+
+Recovery creates a subtler problem, and it is the one worth remembering. Suppose a lease lapses while the original run is still alive; the reaper requeues the job; the \emph{same} holder claims it again. The first run finally finishes and writes its result. Status matches. Holder matches. Nothing in either check can tell the two attempts apart. So each claim also mints a \textbf{fencing token}, and every later write about that attempt carries it --- the terminal write, the lease refresh, and a remote worker's heartbeat, completion and failure. Requeueing clears the column; so does every terminal write. A token from a previous attempt can never match again, and neither can a second write from the current one.
+
+\begin{lstlisting}
+claim  -> id + lease_until + claim_token
+heartbeat / complete / fail  -> must carry that claim_token, or 409
+\end{lstlisting}
+
+\section{Executors that come to the work}
+
+An inference host does not have to be callable from the server. A \textbf{pull executor} runs a loop that long-polls for a job it can run, heartbeats while it runs it, and posts the result --- so it works from behind NAT or on a tailnet, connecting outward only. Its credential is an API token whose only scope is \texttt{jobs:execute}, shown once and bound to the executor row; the executor is resolved through the token, never through a field in the request.
+
+A \textbf{remote kind} is registered with no in-process handler: the pool skips it, only a worker can claim it, and its results are validated by a function the kind must supply, because there is no local handler to be strict on its behalf. The shipped one is \texttt{infer.chat} --- exactly the wire \texttt{run-chat} speaks --- so a synchronous model call becomes a sub-job and waits for a worker, and every model-using tool works unchanged when its chat is routed elsewhere. A sub-job carries its parent and is exempt from the team cap at claim: two parents at a cap of two would otherwise each wait forever for a sub-job nothing could claim.
+
+\section{Which model runs what}
+
+A \emph{model role} resolves to an executor name: the team's setting, then an environment variable, then the local model. One role ships --- \texttt{utility} --- and it carries the bulk work: knowledge-graph extraction, the pipeline's field extraction and translation, and the Localization Manager's drafts. A person's chat never goes there. The tools set the role around their own model call, so a GPU box can take the batch work without any tool knowing it exists. Setting a role to an executor that does not exist is refused, because a typo would otherwise send every extraction quietly back to the local model.
+
+\section{Files to open}
+
+\texttt{domain/sched/scheduler.rkt} (read \texttt{claim-job!}, \texttt{finish!} and \texttt{with-lease}), \texttt{domain/exec/pull.rkt}, \texttt{domain/ai/roles.rkt}, \texttt{cli/telemachus-worker.rkt}, \texttt{docs/design/pull-executors.md}, \texttt{test/pull-tests.rkt}, \texttt{test/pull-smoke.sh}.
+
+\chapterart{art/ch-14-secrets.png}
+\chapter{Secrets and the front door}
+
+\section{What is hashed, and what cannot be}
+
+Passwords and API tokens are stored as hashes --- a token as a peppered HMAC-SHA-256 with the pepper in the environment, so a database dump without the process's environment cannot be replayed. Rotating the pepper signs everyone out at once, which is a fine emergency action and the reason it is rotatable. Tokens also expire now: a session after thirty days, a console-issued API token after ninety, and a row with no expiry is still ``never'', so an upgrade signs nobody out.
+
+Three secrets cannot be hashed, because they are not compared --- they are \emph{used}. A TOTP seed generates the code; an S3 secret keys the HMAC that verifies a signature; a push executor's key signs its requests. All three used to sit in the clear, which made one dump --- a backup, a replica, a \texttt{pg\_dump} pasted into a ticket, a stolen volume snapshot --- enough to replay every one of them.
+
+\section{Sealing the rest}
+
+They are sealed with AES-256-GCM, keyed from the environment and never from the database. The claim is deliberately narrow, and worth stating precisely because the earlier note in the code got it half right: this defends a \textbf{dump} and does nothing for a \textbf{host}. An attacker running as the server reads the key out of its own environment. But a dump travels without that environment, and a dump is the thing that ends up somewhere it should not.
+
+\begin{lstlisting}
+enc:v1:<key-id>:<nonce>:<ciphertext+tag>
+\end{lstlisting}
+
+Anything without that prefix is plaintext and is read as-is, so adopting a key is not a migration and needs no downtime: rows seal as they are rewritten, and a CLI seals the rest. The same CLI rotates --- a previous key reads, the current key writes --- and it is deliberately not something the server does at boot, because a mistyped key at startup would seal every row with a key nobody has. Running with no key at all remains supported; that is the ``the database is the trust boundary'' position, and the only change is that it is now visible in the boot line and in the admin status rather than inherited silently.
+
+Two details carry weight. Each value is sealed with its own column and row id as additional authenticated data, so a ciphertext lifted out of one row and pasted into another does not open --- someone with write access cannot move a known secret onto another principal. And a sealed value that will not open \emph{raises}: it must never degrade to an empty string, because an empty TOTP seed would silently disable somebody's second factor.
+
+\section{The second factor, and the way back in}
+
+A password can be changed and an access key re-issued. A TOTP seed cannot be rotated by using it, which is what made a leaked one permanent --- so it is revocable: a user can turn their own off, and an operator can revoke anyone's, both audited. That covers the leak. It does not cover the lost phone, so enrolment also hands out ten single-use \textbf{recovery codes}, and a code is accepted anywhere a TOTP code is. Unlike the seed, a code \emph{is} compared, so it is hashed like a token.
+
+The small decisions are where the value is: matching forgives case and dashes, and the alphabet drops the characters people confuse, because these are read aloud and typed off paper; spending a code is the same statement that matches it, so two simultaneous sign-ins cannot both spend one; a spent row is kept rather than deleted, so ``already used'' stays distinguishable from ``never issued''; re-issuing replaces the whole set, because a set on paper should be the whole truth about what opens the account; and revoking the second factor deletes the codes with it.
+
+\section{The console's policy}
+
+Every response carries a baseline set of headers, and the console carries a Content-Security-Policy that is same-origin for everything. Its script source is now a \textbf{per-request nonce} rather than \texttt{'unsafe-inline'} --- which is the directive that lets an injected script tag execute.
+
+Earning that cost more than the policy line. A nonce cannot authorize an inline event handler, and the console was built from a hundred and forty-one of them. They are all delegated listeners now: a render writes a data attribute holding an index into a registry of closures, and one listener per event type dispatches to it. The call expressions stayed where they were readable, and their arguments are now real values instead of being escaped into a string and parsed back out --- which also removed a class of quoting bug where a title containing an apostrophe could break its own button. Style attributes keep their allowance: two hundred and fifty of them remain, and injected CSS is a far smaller prize than injected script.
+
+One handler sat inside a single-quoted string rather than a template literal, so its registry call never interpolated and the funnel's submit button shipped as dead text. No static check saw it; a browser test pressed the button and timed out. There are now static checks for both the inline handlers and that exact stranding, because the policy holds only while they hold.
+
+\section{Files to open}
+
+\texttt{domain/authz/secretbox.rkt}, \texttt{domain/authz/authz.rkt} (tokens, 2FA, recovery codes), \texttt{cli/telemachus-secrets.rkt}, \texttt{docs/ops/secrets-at-rest-runbook.md}, \texttt{test/secretbox-tests.rkt}, \texttt{test/console-tests.rkt}.
+
+\chapterart{art/ch-15-extending.png}
+\chapter{Extending Telemachus}
+
+\section{Four seams, and one prefix}
+
+A plugin is a directory with a manifest and an entry module, loaded at boot. It may fill four seams, and the whole extension contract is those four:
+
+\begin{itemize}
+\item \textbf{Tools} --- \texttt{(provide tools)}. A capability the model may call. It registers through the same registry as the built-ins, so per-tool permissions and per-team activation apply without the plugin doing anything.
+\item \textbf{Workflows} --- \texttt{(provide workflows)}, or spec files in a directory. Validated exactly as an API-published spec is, and materialized into a team on first lookup, because a plugin has no team at load time.
+\item \textbf{HTTP routes} --- \texttt{(provide routes)}. Mounted at \texttt{/api/x/<plugin-id>/...}. The prefix is platform-fixed, so a plugin cannot shadow a core route or another plugin's; every route requires a bearer token and the permission it names is checked before the handler runs; and a malformed entry fails \emph{that plugin's load} rather than a request an hour later.
+\item \textbf{Job kinds} --- registered from \texttt{init!}, named \texttt{x.<plugin-id>.<name>}. A plugin kind is an ordinary job: the enqueuing team and user, the concurrency cap, quota admission, the org gate, cancellation and the lease all apply, and none of it is inherited from the plugin. A remote kind must supply a validator, since there is no in-process handler to be strict for it.
+\end{itemize}
+
+\section{Screens of your own}
+
+A plugin serves its own pages from two directories, and the difference between them is who may read them. \texttt{landing/} is public at \texttt{/beta/bundle/<id>/} and publicly cached --- it is a marketing funnel a prospect is linked to. \texttt{bundle/} is authenticated at \texttt{/api/x/<id>/bundle/}, requires a bearer token, and is answered \texttt{private, no-store}. Customer screens belong in the second; before it existed there was only the first, and serving a signed-in screen set from it would have put customer pages behind a public cache.
+
+Assets ship inside the bundle. The console's policy is same-origin, so a CDN font or script is blocked --- deliberately.
+
+\section{Wearing the customer's colours}
+
+The branding document carries a \emph{theme}: background, surface, ink, muted, brand, the ink that sits on the brand, a corner radius, a mode and a font. It is the same token vocabulary the onboarding funnel already used, so a palette is written once and worn by both, and it is per-organization for free, because a company's branding is one more document under the same key --- a company on its own hostname is themed before anyone signs in.
+
+Two rules keep it honest. An unknown token is refused rather than ignored, because a token that silently does nothing is how an integrator concludes the theming is broken. And contrast is \emph{enforced} by the server, not merely warned about: WCAG AA for text, muted text, text on a panel and a button label, and a lower bar for the brand against its ground. This is the screen people sign in on, and an instance that themed its own sign-in link into invisibility would have no way back through the UI. The button's ground is a colour the console mixes rather than a token, so that mix is what gets checked --- checking the brand itself would fail themes that render perfectly and pass ones that do not --- and which side of the palette counts as dark is measured, not read from the mode token.
+
+\section{What is not available}
+
+Stated plainly, so nobody designs around a hope: a plugin cannot add a tab to the core console --- it serves its own screens instead; feature flags are per team, with no instance-wide switch, so ``this deployment has no chat'' means doing it for every team; and there is no hot reload, so adding a plugin means a restart.
+
+\section{Files to open}
+
+\texttt{docs/integrators-guide.md}; \texttt{plugins/integrator-demo/}, the worked example --- a tool, two routes, a job kind and a themed screen; \texttt{domain/agent/plugins.rkt}; \texttt{domain/branding/branding.rkt}; \texttt{docs/reference/sdk.md} and \texttt{docs/reference/plugins.md}.
+
+\chapterart{art/ch-16-tests.png}
 \chapter{How the project tests}
 
 \begin{itemize}
@@ -427,12 +555,16 @@ Adding an endpoint is therefore: one entry in the table, one handler in the map,
 \item \textbf{The end-to-end gate} (\texttt{test/e2e/validate.sh}) drives the console in a headless browser, fails on any uncaught page error and any 5xx, and runs the whole document pipeline against the scripted mock model. It is the deploy gate; the screenshot tours do not assert and will photograph a broken page.
 \item \textbf{Mocks are servers.} \texttt{test/mock-llm.rkt} is a deterministic OpenAI-compatible model with a tool-call mode for the agent loop and a chat mode for the pipeline.
 \item \textbf{Verify on PostgreSQL} before calling anything done. Everything honours \texttt{DATABASE\_URL}.
-\item \textbf{The gates in CI}: unit, smoke, multi-tenancy, the localization gate (English required, other locales advisory), the documentation drift gate, the e2e gate.
+\item \textbf{The gates in CI}: unit, smoke, multi-tenancy, the S3 endpoint against the real \texttt{aws} client, the localization gate (English required, other locales advisory), the documentation drift gate, the end-to-end gate, and the funnel's browser test.
 \end{itemize}
+
+\textbf{A suite that can skip is a suite that can hide.} The S3 smoke exits cleanly when the \texttt{aws} CLI is absent --- so when the credential's secret became encrypted at rest, the path that decrypts it on every signed request went unexercised, because no developer box and no CI runner had the client. The client is in the development shell and installed in CI now, and the suite runs with the secret sealed, which is how a real deployment runs it. The same suite had never run outside the Nix shell, so it had never needed to set its own collection path; its first run in CI could not load a library and reported that the server never came up.
+
+\textbf{Some things only a browser can see.} Converting the console's inline handlers left exactly one of them inside a quoted string rather than a template literal, so it rendered as literal text and the funnel's submit button did nothing. Every static check passed. A browser test pressed the button and timed out. Where a static check \emph{is} possible, write it afterwards: the two invariants that conversion depends on are now pinned in a unit test that reads the console as a file.
 
 Some habits the tests taught: never assert ``newest first'' on two rows created in the same second; kill a background server by PID, never by pattern (\texttt{pkill -f} matches its own command line); a test that creates documents must point the blob root at a temporary directory or it writes into the checkout.
 
-\chapterart{art/ch-14-operating.png}
+\chapterart{art/ch-17-operating.png}
 \chapter{Operating notes}
 
 \begin{itemize}
@@ -442,17 +574,21 @@ Some habits the tests taught: never assert ``newest first'' on two rows created 
 \item \textbf{The console caches its HTML at startup}; restart to pick up edits.
 \item \textbf{Multi-tenancy needs one restart} to set the flag; onboarding a company after that needs none.
 \item \textbf{PDF text extraction needs poppler-utils}; a missing extractor fails the indexing run deliberately, so that no PDF is silently unsearchable for months.
+\item \textbf{Decide about secrets at rest before you take a backup.} With no key set, a dump of the database carries every TOTP seed and S3 secret in the clear --- a supported choice, and now a visible one. Adopting a key is one command and no downtime; keeping the key in the same backup as the database buys nothing. Losing it means re-enrolling every second factor and re-issuing every access key.
+\item \textbf{Upgrading the server upgrades the workers.} A pull worker must return the claim's fencing token with every heartbeat and result; one that does not gets a 409. The reference worker sends it, but a third-party worker has to be updated in step.
+\item \textbf{A theme can be refused.} The console's palette is validated and contrast-gated when it is written, so an operator who asks for an unreadable combination is told which pair and by how much, rather than discovering it on the sign-in screen.
 \end{itemize}
 
 The runbooks under \texttt{docs/ops/} cover the document repository, the workflow engine and multi-tenancy in operator terms.
 
-\chapterart{art/ch-15-contributing.png}
+\chapterart{art/ch-18-contributing.png}
 \chapter{Contributing}
 
 \begin{itemize}
 \item Read \texttt{CLAUDE.md} before starting; add to it when you learn something that cost you time. It is the project's memory.
 \item Keep SQL dialect-neutral and run the suites on both dialects.
 \item Every model-facing feature validates and refuses; every AI call is metered; every resource is checked through \texttt{can?}.
+\item Refuse loudly rather than degrade quietly. An unreadable reply, an unknown theme token, a secret that will not decrypt and a schema the model did not honour are all errors that name themselves --- never an empty string, a dropped field or a silent default. Most of the bugs this project has had to hunt were something failing politely.
 \item Adding a route, a tool, a workflow or a permission changes the generated reference: regenerate and commit it in the same change.
 \item New user-facing strings go into the right home of the three, then through the extractor. English is required by the gate; other locales are coverage.
 \item Design first for anything with a policy fork: a short document under \texttt{docs/design/} with data shapes, a contract any backend could implement, and the decisions to confirm. The decision log is \texttt{docs/design/decisions.md}.

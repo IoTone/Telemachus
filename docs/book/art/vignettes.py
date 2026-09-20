@@ -315,8 +315,47 @@ def build():
 <path d="M660 560 h90 v50 h-90 z" fill="PAPER"/><path d="M660 560 h90 v50 h-90 z M672 576 h60 M672 592 h40" stroke-width="2"/>''',
         '<path d="M20 262 h330"/>', "translate(-50 8) scale(0.36)", owl_pose=(640, 640, 0.8, "wings-down"))
 
-    # 13 How the project tests — stringing the bow (the test of the suitors)
-    scenes["ch-13-tests"] = scene_with_prop("full", "focus", "R_up", "L_hold_front",
+    # 16 How the project tests — stringing the bow (the test of the suitors)
+    # 13 The job queue — a claimed job in hand, the lease clock, more waiting on the rail
+    scenes["ch-13-queue"] = scene_with_prop("bust", "focus", "R_up", "L_hold_front",
+        '<g fill="WASH" fill-opacity="0.5"><path d="M470 330 h64 v50 h-64 z"/><path d="M553 330 h64 v50 h-64 z"/><path d="M636 330 h64 v50 h-64 z"/></g>',
+        '''<path d="M460 398 h250" stroke-width="3"/>
+<g stroke-width="2.4"><path d="M470 330 h64 v50 h-64 z"/><path d="M553 330 h64 v50 h-64 z"/><path d="M636 330 h64 v50 h-64 z"/></g>
+<g stroke-width="1.6" stroke-opacity="0.65"><path d="M482 348 h40 M482 364 h26 M565 348 h40 M565 364 h26 M648 348 h40 M648 364 h26"/></g>
+<path d="M130 150 h86 v58 h-86 z" fill="PAPER"/><path d="M130 150 h86 v58 h-86 z M144 168 h58 M144 186 h38" stroke-width="2.4"/>
+<circle cx="207" cy="159" r="7" stroke-width="2" fill="GOLD"/>
+<circle cx="415" cy="262" r="32" stroke-width="2.6" fill="PAPER"/><path d="M415 262 v-19 M415 262 l13 9" stroke-width="2.4"/>
+<g stroke-width="1.6" stroke-opacity="0.55"><path d="M415 226 v-8 M451 262 h8 M415 298 v8 M379 262 h-8"/></g>''',
+        '<path d="M260 60 h60"/>', "translate(-30 -40) scale(0.55)", owl_pose=(420, 470, 0.85, "perched"))
+
+    # 14 Secrets and the front door — a strongbox shut, its key hanging beside it
+    scenes["ch-14-secrets"] = scene_with_prop("bust", "focus", "R_hold_side", "L_hold_front",
+        '<path d="M500 300 h190 v170 h-190 z" fill="WASH" fill-opacity="0.45"/>',
+        '''<path d="M500 300 h190 v170 h-190 z M500 352 h190" stroke-width="3"/>
+<path d="M500 352 q95 -62 190 0" stroke-width="2.6" fill="PAPER" fill-opacity="0.5"/>
+<circle cx="595" cy="404" r="20" stroke-width="2.6" fill="PAPER"/><circle cx="595" cy="400" r="6" stroke-width="2"/><path d="M595 406 v28" stroke-width="2.6"/>
+<g stroke-width="1.8" stroke-opacity="0.55"><path d="M516 324 h34 M640 324 h34"/></g>
+<path d="M398 392 v-52" stroke-width="1.8" stroke-opacity="0.7"/>
+<circle cx="398" cy="410" r="18" stroke-width="2.6" fill="GOLD" fill-opacity="0.45"/><circle cx="398" cy="410" r="6" stroke-width="2"/>
+<path d="M398 428 v48 M398 456 h14 M398 472 h10" stroke-width="2.6"/>
+<path d="M110 96 h150 v54 h-150 z" fill="PAPER"/><path d="M110 96 h150 v54 h-150 z" stroke-width="2.4"/>
+<g stroke-width="2" stroke-opacity="0.7"><path d="M126 116 h26 M162 116 h26 M198 116 h26 M126 134 h60"/></g>''',
+        '<path d="M300 40 h40"/>', "translate(-30 -40) scale(0.55)", owl_pose=(416, 286, 1.0, "perched"))
+
+    # 15 Extending Telemachus — a new block, cut to fit, going into a frame of three
+    scenes["ch-15-extending"] = scene_with_prop("bust", "grin", "R_up", "L_hold_front",
+        '<g fill="WASH" fill-opacity="0.5"><path d="M510 320 h80 v80 h-80 z"/><path d="M600 320 h80 v80 h-80 z"/><path d="M510 410 h80 v80 h-80 z"/></g>',
+        '''<path d="M500 310 h190 v190 h-190 z" stroke-width="3"/>
+<g stroke-width="2.4"><path d="M510 320 h80 v80 h-80 z"/><path d="M600 320 h80 v80 h-80 z"/><path d="M510 410 h80 v80 h-80 z"/></g>
+<path d="M600 410 h80 v80 h-80 z" stroke-width="2" stroke-dasharray="6 5"/>
+<g stroke-width="1.6" stroke-opacity="0.6"><path d="M524 350 h52 M524 368 h34 M614 350 h52 M524 440 h52"/></g>
+<path d="M130 150 h84 v84 h-84 z" fill="GOLD" fill-opacity="0.45"/><path d="M130 150 h84 v84 h-84 z" stroke-width="2.6"/>
+<path d="M214 182 h22 a10 10 0 0 1 0 20 h-22" stroke-width="2.2"/>
+<path d="M236 254 q60 90 190 150" stroke-width="1.8" stroke-opacity="0.5" stroke-dasharray="5 5"/>''',
+        '<path d="M260 60 h60"/>', "translate(-30 -40) scale(0.55)", owl_pose=(430, 200, 0.9, "flying"))
+
+    # 16 How the project tests — stringing the bow (the test of the suitors)
+    scenes["ch-16-tests"] = scene_with_prop("full", "focus", "R_up", "L_hold_front",
         "",
         '''<path d="M150 140 q-90 200 0 400" stroke-width="4"/>
 <path d="M150 140 q-60 200 0 400" stroke-width="1.5" stroke-opacity="0.5"/>
@@ -325,8 +364,8 @@ def build():
 <path d="M340 420 l180 0 M520 420 l-14 -8 M520 420 l-14 8" stroke-width="2.2"/>''',
         '<path d="M20 262 h330"/>', "translate(-40 8) scale(0.36)", owl_pose=(560, 300, 0.85, "perched"))
 
-    # 14 Operating notes — at the tiller, steering
-    scenes["ch-14-operating"] = scene_with_prop("bust", "focus", "R_hold_side", "L_hold_front",
+    # 17 Operating notes — at the tiller, steering
+    scenes["ch-17-operating"] = scene_with_prop("bust", "focus", "R_hold_side", "L_hold_front",
         '<circle cx="470" cy="420" r="70" fill="WASH" fill-opacity="0.35"/>',
         '''<circle cx="470" cy="420" r="70" stroke-width="3"/><circle cx="470" cy="420" r="14" stroke-width="2.4" fill="GOLD"/>
 <path d="M470 350 v140 M400 420 h140 M420 370 l100 100 M520 370 l-100 100" stroke-width="2.4"/>
@@ -334,8 +373,8 @@ def build():
 <path d="M560 520 q30 -14 60 0 q30 14 60 0" stroke-width="2" stroke-opacity="0.8"/>''',
         '<path d="M300 40 h40"/>', "translate(-30 -40) scale(0.55)", owl_pose=(416, 286, 1.0, "perched"))
 
-    # 15 Contributing — handing the owl a new scroll for the shelf
-    scenes["ch-15-contributing"] = scene_with_prop("bust", "grin", "R_hold_side", "L_up",
+    # 18 Contributing — handing the owl a new scroll for the shelf
+    scenes["ch-18-contributing"] = scene_with_prop("bust", "grin", "R_hold_side", "L_up",
         '<path d="M430 180 h60 v18 h-60 z" fill="PAPER"/>',
         '''<path d="M430 180 h60 M430 198 h60" stroke-width="2.4"/><ellipse cx="430" cy="189" rx="5" ry="9" stroke-width="2.2"/><ellipse cx="490" cy="189" rx="5" ry="9" stroke-width="2.2"/>
 <path d="M560 300 h150 v120 h-150 z M560 360 h150" stroke-width="2.4"/>
@@ -359,9 +398,12 @@ CHAPTERS = [  # (file stem, chapter title as written in the .tex)
     ("ch-10-l10n", "Localization"),
     ("ch-11-kg", "The knowledge graph"),
     ("ch-12-routes", "The route table and the generated reference"),
-    ("ch-13-tests", "How the project tests"),
-    ("ch-14-operating", "Operating notes"),
-    ("ch-15-contributing", "Contributing"),
+    ("ch-13-queue", "The job queue"),
+    ("ch-14-secrets", "Secrets and the front door"),
+    ("ch-15-extending", "Extending Telemachus"),
+    ("ch-16-tests", "How the project tests"),
+    ("ch-17-operating", "Operating notes"),
+    ("ch-18-contributing", "Contributing"),
 ]
 
 if __name__ == "__main__":
