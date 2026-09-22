@@ -25,7 +25,7 @@
          "../authz/authz.rkt"
          "../repo/repo.rkt"
          "../repo/blobs.rkt"
-         "../authz/sha2.rkt"
+         sha2-kit
          "sigv4.rkt"
          "creds.rkt")
 

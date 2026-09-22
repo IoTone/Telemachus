@@ -19,7 +19,7 @@
 
 (require racket/file racket/port racket/string
          (only-in "../../config.rkt" data-dir)
-         "../authz/sha2.rkt")
+         sha2-kit)
 
 (provide register-blob-store! blob-store-names active-blob-store-name
          blob-put! blob-get blob-delete! blob-size blob-exists? blob-stage!
