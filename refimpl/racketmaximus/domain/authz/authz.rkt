@@ -21,7 +21,7 @@
          "../db/id.rkt"
          "permissions.rkt"
          "passwords.rkt"
-         "sha2.rkt"                 ; hmac-sha256 (libcrypto) — the token hash
+         sha2-kit                 ; hmac-sha256 (libcrypto) — the token hash
          (only-in "secretbox.rkt" secret-wrap secret-unwrap)   ; secrets at rest (issue #19)
          (only-in "crypto.rkt" constant-time=?))
 

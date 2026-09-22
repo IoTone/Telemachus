@@ -25,7 +25,7 @@
 ;;      the client is often still waiting on our 100-continue to send it.
 
 (require racket/string racket/list racket/date
-         "../authz/sha2.rkt"
+         sha2-kit
          (only-in "../authz/crypto.rkt" constant-time=?))
 
 (provide (struct-out sigv4-auth)

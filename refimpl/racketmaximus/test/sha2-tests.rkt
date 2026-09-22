@@ -5,7 +5,7 @@
 ;; that our FFI signatures, buffer sizes and chunking are right, which is the part we
 ;; actually wrote and the part that fails silently when it is wrong.
 
-(require rackunit racket/port "../domain/authz/sha2.rkt")
+(require rackunit racket/port sha2-kit)
 
 ;; ---- SHA-256: NIST FIPS 180-4 examples ---------------------------------------
 (check-equal? (sha256-hex #"abc")

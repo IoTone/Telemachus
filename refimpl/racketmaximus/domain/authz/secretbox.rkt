@@ -45,7 +45,7 @@
          racket/string racket/random net/base64
          (only-in file/sha1 bytes->hex-string)
          (only-in "crypto.rkt" pbkdf2-hmac-sha1)
-         (only-in "sha2.rkt" sha256))
+         (only-in sha2-kit sha256))
 
 (provide aes-256-gcm-encrypt aes-256-gcm-decrypt
          secrets-enabled? secret-key-id secret-wrap secret-unwrap wrapped-secret?
