@@ -30,7 +30,7 @@
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            racket          # 9.2 CS — the version the project develops against
+            racket          # 9.3 CS — the version the project develops against
             sqlite          # the default backend, plus its CLI for poking at a DB
             postgresql      # the OTHER dialect: migrations must pass on both
             openssl         # TELEMACHUS_TLS=1 shells out to it for a self-signed cert
