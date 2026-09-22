@@ -1,6 +1,11 @@
 #lang racket/base
 
-;; domain/authz/sha2.rkt — SHA-256 and HMAC-SHA256 over libcrypto's EVP interface.
+;; sha2-kit — SHA-256 and HMAC-SHA256 over libcrypto's EVP interface.
+;;
+;; A package rather than a domain module: it knows nothing about Telemachus, and
+;; callers outside the server (a tool corpus computing content addresses, say)
+;; need it as much as the repo and S3 lanes do. It sat under domain/authz only
+;; because that is where the first caller lived.
 ;;
 ;; Deliberately NOT in crypto.rkt: that module's contract is "self-contained, no
 ;; native deps", built on the runtime's own `sha1-bytes`. minimal-racket ships no
