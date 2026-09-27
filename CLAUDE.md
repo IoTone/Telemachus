@@ -1106,6 +1106,72 @@ raco test test/roles-tests.rkt
   asset id when set. Same procedural `regexp-replace*` rule as the title — a
   string replacement would expand `&`.
 
+## Session timeouts (issue #38, slice 70)
+
+`domain/authz/session-policy.rkt` — an **idle** timeout and an **absolute** cap,
+which is what the OWASP Session Management Cheat Sheet asks for. Migration
+`0032-session-policy`; decisions SESS‑1…8 in `docs/design/decisions.md`.
+
+- **Two clocks, because they answer different attacks.** Idle limits an
+  unattended desk; absolute limits a stolen token that is being *used*, which
+  never idles out. Shipped defaults are 30 minutes and 8 hours — the least
+  disruptive ends of OWASP's own bands (15‑30 low risk, 4‑8 for a full-day
+  worker). `null` on a field means no limit on that axis, spelled explicitly so
+  "I did not set this" and "I turned this off" cannot look the same.
+- **Only `kind = 'session'` is governed.** Migration 0032 added `kind`,
+  `created_epoch` and `last_used_epoch` to `api_tokens`. A machine token is idle
+  by design and idling one out is a silent outage, so `api` and `worker` are
+  exempt. **`#:kind` on `issue-token!` defaults to the EXEMPT value**, so a caller
+  who forgets it mints a token that behaves as tokens did before. `name` cannot
+  stand in for the kind: a login is named "login" but a member added to a team
+  gets a session with no name at all.
+- **The epoch columns exist because `created_at` and `last_used_at` are TEXT
+  `CURRENT_TIMESTAMP`, whose format differs by dialect** (SQLite
+  `2026-08-21 04:16:09`, Postgres `…225696-07`). A rule comparing those would be
+  invisible on one and wrong on the other — the same trap `LastModified` set in
+  the S3 listing. Epoch seconds, like `expires_at` and the quota windows.
+- **Two layers: an instance document and `session-policy:<org-id>`**, both in the
+  `instance_settings` table branding and localization already share, so the org
+  layer needed no migration. **An org may TIGHTEN and may never loosen** (SESS‑4):
+  the effective value is the stricter per axis, and an org asking for a week of
+  idle time gets the instance's thirty minutes rather than an error. This is
+  deliberately asymmetric with branding, where the org's document wins whole —
+  branding is cosmetic, this is a control and the instance owns the floor.
+- **Enforced in `resolve-token` and nowhere else**, the one place a bearer becomes
+  a principal. A lapsed row is revoked with a REASON (`expired-idle` /
+  `expired-absolute`) so `GET /api/tokens` can show an operator why a session
+  ended, and so a lapsed session cannot be revived by using it.
+- **A corrupt stored document reads as the shipped posture, not as "no limits".**
+  `normalize` fills every field from the defaults: a control must fail CLOSED.
+- **The upgrade signs nobody out.** Existing rows default to `kind = 'api'` with
+  NULL clocks, so nothing is enforced on them; they still expire on
+  `expires_at`. Existing rows include customers' machine credentials, and
+  breaking those is worse than letting old browser sessions run out.
+- **The console's countdown is driven by the last REQUEST, never by pointer
+  activity** (`S.lastReq`, stamped in `api()`). The server measures requests, so a
+  mouse-driven timer would show a live session the server had already expired.
+  "Stay signed in" issues a real request, which is exactly what refreshes the
+  server's clock. The banner is wired with `addEventListener`, not `data-h-click`,
+  because it lives in the static shell rather than in a render pass.
+- **A live workflow run keeps a session alive** while its view is open: that poll
+  is the console's only recurring request. Nothing else polls, so an idle console
+  really does go idle.
+- **The Admin card talks minutes and hours; the wire talks seconds.** An empty box
+  means null, not zero.
+- `GET`/`PUT /api/session-policy` (`instance:manage`);
+  `GET`/`PUT`/`DELETE /api/org/session-policy` (`org:read` / `org:manage`).
+  `GET /api/whoami` carries the caller's own effective policy, which is what the
+  console counts down against.
+- **The deliberate 400 for a bad policy is pinned in `server-smoke.sh`, NOT in the
+  e2e gate** — that gate fails on any console error and a 400 logs one. Same call
+  the branding theme's refusal made.
+
+```sh
+raco test test/session-policy-tests.rkt   # 19 cases: validation, tightening, both clocks, resolve-token
+bash test/server-smoke.sh                 # the "session policy:" block, 13 assertions
+TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org layer
+```
+
 ## Secrets at rest (issue #19)
 
 `domain/authz/secretbox.rkt` — AES-256-GCM over libcrypto EVP, the same FFI seam

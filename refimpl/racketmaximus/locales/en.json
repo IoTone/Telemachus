@@ -15,6 +15,10 @@
       "text": "Rename a team in the company.",
       "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
     },
+    "ui.idlelabel": {
+      "text": "Idle timeout (minutes)",
+      "hash": "672838c3a5ca896935af8cacf4fb6a40a7600da4"
+    },
     "ui.kg_queued": {
       "text": "Extraction queued",
       "hash": "e077135db696a9104da68d00f0f1384b1783028c"
@@ -116,8 +120,8 @@
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
     },
     "doc.route.put.api.org.branding": {
-      "text": "Set the company's title, tagline and logo: what the console wears on the company's hostname and for its signed-in users.",
-      "hash": "4e58c08f2d8d7a4eb3da90665d7f7fd4a695e59e"
+      "text": "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.",
+      "hash": "999005b24f8ad5bf7e9099934d4fedd77ee9f5af"
     },
     "ui.s3once": {
       "text": "Copy the secret now — it is not shown again.",
@@ -179,13 +183,25 @@
       "text": "Note body text",
       "hash": "22cb4f6d16ab9cc8a7366d340c2ca62ddd020421"
     },
+    "doc.route.post.api.beta.assets": {
+      "text": "Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB.",
+      "hash": "abd6aaedec0f9ebc0a17e4662212539b1c93384f"
+    },
+    "doc.route.put.api.session-policy": {
+      "text": "Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them.",
+      "hash": "1220312b0666ecb536e3e0bfa33a1399f684dda7"
+    },
+    "doc.route.post.api.2fa.recovery-codes": {
+      "text": "Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26).",
+      "hash": "d242f21cac46785dbb55b28fec2eb3d821476cfa"
+    },
     "doc.route.post.api.tokens": {
       "text": "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.",
       "hash": "cebac657ad797c2405bee6e8bd1ac779ba5f6409"
     },
     "doc.route.post.api.2fa.enable": {
-      "text": "Enable TOTP two-factor authentication for the caller; returns the secret once.",
-      "hash": "83bb2e3272b292ad03dcf7509308776e0463261a"
+      "text": "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.",
+      "hash": "a23ae826a41c12acc5e93a274177b49fc2f65a41"
     },
     "doc.tool.doc_extract_fields.run": {
       "text": "The workflow run id, for provenance",
@@ -248,8 +264,8 @@
       "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
     },
     "doc.route.delete.api.2fa": {
-      "text": "Turn the caller's own TOTP off, so the old seed stops working and they must enrol again.",
-      "hash": "d6b4225e212825919d3da360418d282f4c27cacc"
+      "text": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",
+      "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
     },
     "ui.prompt": {
       "text": "Prompt",
@@ -286,10 +302,6 @@
     "beta.domain_cap": {
       "text": "too many requests from your organization — please reach out directly",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
-    },
-    "doc.route.post.api.beta.assets": {
-      "text": "Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB.",
-      "hash": "abd6aaedec0f9ebc0a17e4662212539b1c93384f"
     },
     "doc.route.get.api.runs": {
       "text": "The team's runs, newest first.",
@@ -399,6 +411,10 @@
       "text": "Entities and relations extracted from the team's documents. Every fact links to the document and version that said it; you only see facts from documents you can read.",
       "hash": "f166845559c7d2906252b22c7bd07c8cac85ac9f"
     },
+    "doc.route.get.api.session-policy": {
+      "text": "The instance session timeouts (issue #38): idle_seconds, absolute_seconds, warn_seconds, with the shipped defaults and the accepted bounds.",
+      "hash": "73a156d6efb37db94c2d8294ad92b3451ee5728c"
+    },
     "ui.l10nnothing": {
       "text": "Nothing matches that filter.",
       "hash": "0f9b93bb965ce681887989cc7cea0ac7b93f4c22"
@@ -414,6 +430,10 @@
     "ui.welcome": {
       "text": "Welcome — finish setting up your account.",
       "hash": "97a86e68a1e32b85151da9fefe1b1bda6a4f6b84"
+    },
+    "ui.idlestay": {
+      "text": "Stay signed in",
+      "hash": "e5f5f70f7283fadfeab321814dc11434ed17d688"
     },
     "ui.trigger_derived": {
       "text": "also on derived documents",
@@ -442,6 +462,10 @@
     "doc.route.post.api.executors": {
       "text": "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.",
       "hash": "2a7d5e2e6be081e7dd5bacc04f5e3abb46f09498"
+    },
+    "ui.sessionhint": {
+      "text": "A session ends after this much inactivity, and after the maximum age however active it is. Leave a box empty for no limit on that axis. A company may tighten these for its own people and can never loosen them.",
+      "hash": "1d02689efccf6fb2cf711fb360cded8080aa70e7"
     },
     "ui.admin": {
       "text": "Admin",
@@ -474,6 +498,14 @@
     "ui.runwf_doc": {
       "text": "Run workflow…",
       "hash": "48e95b8cd7e8597a1a0079c7013822562a36f1b7"
+    },
+    "doc.tool.update_note": {
+      "text": "Update a note's title and/or body by id.",
+      "hash": "44491022a8c823f95545b85549b446db8e969998"
+    },
+    "doc.tool.shipment_eta": {
+      "text": "Estimate arrival days for a shipment lane.",
+      "hash": "f51b84f35d383babe2977d268114273192db0e6c"
     },
     "ui.until": {
       "text": "until",
@@ -538,10 +570,6 @@
     "beta.field_required": {
       "text": "{field} is required",
       "hash": "dda50f3ba4eb211a894985a368919f4833011910"
-    },
-    "doc.tool.update_note": {
-      "text": "Update a note's title and/or body by id.",
-      "hash": "44491022a8c823f95545b85549b446db8e969998"
     },
     "ui.enable": {
       "text": "Enable",
@@ -643,6 +671,10 @@
       "text": "{field} must be at least {n} characters",
       "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
     },
+    "doc.route.delete.api.org.session-policy": {
+      "text": "Drop the company's session timeouts; its users fall back to the instance policy.",
+      "hash": "31f74f2824b4a25e07c1aa68ac60f5ae9f5d1ea2"
+    },
     "ui.thbg": {
       "text": "Background",
       "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
@@ -676,8 +708,8 @@
       "hash": "c51e6aa6288bf9dd89d8960203dc141a257942d9"
     },
     "doc.route.put.api.branding": {
-      "text": "Set the instance title and tagline.",
-      "hash": "87e80f7e30178ee03e197bff8324b26cd8c80c7a"
+      "text": "Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it.",
+      "hash": "238d31f0df21df92e8e0420bffbd7abb2e899177"
     },
     "ui.role": {
       "text": "Role",
@@ -699,6 +731,10 @@
       "text": "No relations yet.",
       "hash": "4a6068428c1138cbb6c24f3cc1bc07edce04ec85"
     },
+    "doc.route.post.api.x.integrator-demo.eta": {
+      "text": "Estimated days for {lane}.",
+      "hash": "49ca6d4a241734f256e80e0d3927afab75a7a778"
+    },
     "doc.perm.localization:review": {
       "text": "Approve or send back a colleague's translation (never one's own).",
       "hash": "fdca6aa60b53adec763a5fa79e2a99a103dbd12d"
@@ -716,8 +752,8 @@
       "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
     },
     "doc.route.post.api.workers.jobs.id.complete": {
-      "text": "Post a result: {result}. Accepted only from the current lease holder; validated by the kind.",
-      "hash": "b839ca3b12c2cb37972e9244d7d7ee37a3708429"
+      "text": "Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind.",
+      "hash": "219718d4db6a99151cf728aab0ae218332b69122"
     },
     "ui.tokensleft": {
       "text": "tokens left today",
@@ -815,6 +851,14 @@
       "text": "Usage",
       "hash": "0bb18642b70b9f8a9c12ccf39487328f306b8e19"
     },
+    "ui.abslabel": {
+      "text": "Maximum session (hours)",
+      "hash": "010b76a1cb115c9cc82895af976e58e593af4933"
+    },
+    "doc.route.post.api.workers.jobs.id.fail": {
+      "text": "Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt.",
+      "hash": "552ad47d82dfe6d6ff2cf940dcc35c4903dfde3b"
+    },
     "beta.thanks": {
       "text": "Thanks — your request is in review.",
       "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
@@ -858,10 +902,6 @@
     "doc.tool.doc_text": {
       "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
       "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
-    },
-    "doc.route.post.api.workers.jobs.id.fail": {
-      "text": "Report a failure: {error}. Accepted only from the current lease holder.",
-      "hash": "f9ac120db5b83cd4cbe316cc454cabd871b2a859"
     },
     "ui.upload": {
       "text": "Upload",
@@ -971,6 +1011,10 @@
       "text": "List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue.",
       "hash": "80d72aa4588c5dc0269e9e1de25480ae0bd0a141"
     },
+    "ui.idlewarn": {
+      "text": "Signing you out in {n}s for inactivity.",
+      "hash": "c35c6e3f8bd6207d3adfce8fdccafa3994ac9aac"
+    },
     "doc.route.get.api.config": {
       "text": "Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token.",
       "hash": "f7ad449011473be8c8f03abe7165a7dbb0d861dc"
@@ -992,12 +1036,20 @@
       "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
     },
     "doc.route.post.api.workers.claim": {
-      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease.",
-      "hash": "c28fe0e178aefb13910478d3e9898788db665982"
+      "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back.",
+      "hash": "5aa8b491c64d543c3c4b253ae91cc850a8b12a77"
     },
     "ui.disable": {
       "text": "Disable",
       "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
+    },
+    "ui.confirmpw": {
+      "text": "Confirm password",
+      "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
+    },
+    "ui.warnlabel": {
+      "text": "Warn before (seconds)",
+      "hash": "eceb500f0e1871b1d18159d95db9c3494052ac6a"
     },
     "doc.route.get.api.ai.model": {
       "text": "Which model is configured (or that the simulated fallback is in use).",
@@ -1059,6 +1111,10 @@
       "text": "Beta",
       "hash": "f03b60f7e52b7ce49ed1e4f9fa511c452a2185bb"
     },
+    "doc.plugin.integrator-demo": {
+      "text": "The worked example for docs/integrators-guide.md: a tool, an authenticated route, a background job kind and a themed screen.",
+      "hash": "1eaa93b3ee6e704763e6cbd6bcba1604728514e7"
+    },
     "ui.recent": {
       "text": "Recent",
       "hash": "76eec760c9b6e63eda7e9834fa40bc26d6f58eef"
@@ -1114,10 +1170,6 @@
     "ui.cap_view": {
       "text": "view",
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
-    },
-    "ui.confirmpw": {
-      "text": "Confirm password",
-      "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
     },
     "doc.route.post.api.ai.chat.stream": {
       "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it.",
@@ -1295,6 +1347,14 @@
       "text": "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.",
       "hash": "ba6777989b583f514ff66b05e086ce6523bef0bc"
     },
+    "ui.branding": {
+      "text": "Branding",
+      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
+    },
+    "doc.route.get.api.org.session-policy": {
+      "text": "The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied.",
+      "hash": "5c0202597a8e09cba5a7be8019aa70cc95b12960"
+    },
     "ui.capability": {
       "text": "Can",
       "hash": "88e288f3e3ca8d1137556d908dcb9f355209464b"
@@ -1366,10 +1426,6 @@
     "ui.addtrigger": {
       "text": "Add trigger",
       "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
-    },
-    "ui.branding": {
-      "text": "Branding",
-      "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
     },
     "doc.route.get.api.members": {
       "text": "The team's members and roles.",
@@ -1551,6 +1607,10 @@
       "text": "One job with its result or error.",
       "hash": "fe32c2dd94dd14a9e9e3c2737fa9398ac5636134"
     },
+    "ui.sessionsec": {
+      "text": "Session security",
+      "hash": "e48bbb0249f6ed7c4810bef5fbd64de2c32d76fa"
+    },
     "doc.route.delete.api.s3.credentials.id": {
       "text": "Revoke an S3 access key; presigned links signed with it die with it.",
       "hash": "0d193ba9fd8c47b32b53a58ec0fef45870676b77"
@@ -1683,6 +1743,10 @@
       "text": "What the user said",
       "hash": "bfe8aadc4471ada97ff5ddf135d6d3bb0585636f"
     },
+    "doc.route.get.api.x.integrator-demo.eta": {
+      "text": "Estimated days for ?lane=.",
+      "hash": "2268d831fda2d55ab8ed18cab5d35a763a072dda"
+    },
     "doc.route.get.api.l10n.messages": {
       "text": "The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged.",
       "hash": "d6cb6026eb6b9ff6e1665b7c274f8b0282c9c9d0"
@@ -1767,6 +1831,14 @@
       "text": "Import catalogs",
       "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
     },
+    "beta.field_digits": {
+      "text": "{field} must contain digits only",
+      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
+    },
+    "ui.idleout": {
+      "text": "Signed out for inactivity.",
+      "hash": "6c0649c3d468d7e687ffd7719576506f64b0f2a5"
+    },
     "ui.addmember": {
       "text": "Add member",
       "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
@@ -1784,8 +1856,8 @@
       "hash": "1b66f9c975259453418803c8fd1c4b6afd18ffa0"
     },
     "doc.route.post.api.workers.jobs.id.heartbeat": {
-      "text": "Extend the lease on a job this worker holds.",
-      "hash": "e4e14c847eddc46cd5f851c2bf4a9f782f7ab7b3"
+      "text": "Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409.",
+      "hash": "7c5cab8cfb5e9fe78bdf2903b748b2144efbe4e1"
     },
     "ui.download": {
       "text": "Download",
@@ -1800,8 +1872,8 @@
       "hash": "62b4aa574f708ad26153df481b7f720473b4f1c5"
     },
     "doc.route.get.api.branding": {
-      "text": "Title, tagline and logo. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).",
-      "hash": "f03c65a01cba613385734af46fde79946ef70dc6"
+      "text": "Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).",
+      "hash": "f3e64499ded4920c022bac80f5a0907720610f51"
     },
     "doc.perm.documents:write": {
       "text": "Create and edit text documents.",
@@ -1826,10 +1898,6 @@
     "ui.newdoc": {
       "text": "New document",
       "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
-    },
-    "beta.field_digits": {
-      "text": "{field} must contain digits only",
-      "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
     },
     "doc.tool.translate_text": {
       "text": "Translate text into a target language.",
@@ -1931,6 +1999,10 @@
       "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
     },
+    "doc.tool.shipment_eta.lane": {
+      "text": "Lane, e.g. SIN-LAX",
+      "hash": "4870ab50a6b4deaf0f771dbf8ff7ac99449b6ea0"
+    },
     "ui.derivedfrom": {
       "text": "Derived from",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
@@ -1962,6 +2034,10 @@
     "ui.target": {
       "text": "Target language",
       "hash": "f137c97e3de044babb50524619905eefd5aa79dd"
+    },
+    "doc.route.put.api.org.session-policy": {
+      "text": "Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's.",
+      "hash": "23fd5bd1c7e8fee805e5dd4078b9fd51b7cf2030"
     },
     "doc.tool.kg_extract.object": {
       "text": "The repository object id",
@@ -2094,6 +2170,10 @@
     "ui.save": {
       "text": "Save",
       "hash": "efc007a393f66cdb14d57d385822a3d9e36ef873"
+    },
+    "doc.route.get.api.2fa.recovery-codes": {
+      "text": "How many of the caller's recovery codes are still unspent. Never the codes themselves.",
+      "hash": "353008494e1946762d883b2c8ee7cac8ee350f75"
     },
     "doc.perm.memory:write": {
       "text": "Write to the agent's memory.",

@@ -451,6 +451,34 @@ try {
 
   // ── 9. sign out and back in ─────────────────────────────────────────────────
   // ── Localization Manager — the flagship's own surface ───────────────────────
+  // ── admin: session security (issue #38) ─────────────────────────────────────
+  step('admin: session timeouts');
+  ok('session security card present in Admin', await goTab(page, 'admin', '#spidle'));
+  const spBefore = (await apiCall(page, '/api/session-policy')).json.policy;
+  // the UI talks minutes and hours; the wire talks seconds
+  eq('the idle box shows the policy in minutes',
+     await page.inputValue('#spidle'), String(Math.round(spBefore.idle_seconds / 60)));
+  await page.fill('#spidle', '12');
+  await page.fill('#spabs', '2');
+  await page.evaluate(() => window.doSessionPolicySave());
+  ok('saving converts minutes and hours to seconds', await until(page, () => true) &&
+     await (async () => {
+       const p = (await apiCall(page, '/api/session-policy')).json.policy;
+       return p.idle_seconds === 720 && p.absolute_seconds === 7200;
+     })());
+  // the caller's own effective policy reaches the console, which is what the
+  // inactivity warning counts down against
+  const wai = (await apiCall(page, '/api/whoami')).json;
+  ok('whoami carries the effective session policy',
+     wai.session_policy && wai.session_policy.idle_seconds === 720,
+     JSON.stringify(wai.session_policy));
+  // The server's refusal of an illegible policy is pinned in test/server-smoke.sh,
+  // NOT here: this gate fails on any console error and a deliberate 400 logs one.
+  // Widening the expected-4xx filter to cover 400 would hide a real validation bug
+  // anywhere else in the run. Same call the branding theme's 400 made.
+  // put it back so nothing later in this run is racing a 12-minute window
+  await apiCall(page, '/api/session-policy', { method: 'PUT', body: spBefore });
+
   step('localize: the Localization Manager');
   await page.evaluate(() => window.go('localize'));
   await page.waitForTimeout(900);

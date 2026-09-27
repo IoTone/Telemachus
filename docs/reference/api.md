@@ -18,6 +18,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/config` | public | — | — | Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token. |
 | GET | `/api/branding` | public | — | — | Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |
 | PUT | `/api/branding` | bearer | `instance:manage` | — | Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it. |
+| GET | `/api/session-policy` | bearer | `instance:manage` | — | The instance session timeouts (issue #38): idle_seconds, absolute_seconds, warn_seconds, with the shipped defaults and the accepted bounds. |
+| PUT | `/api/session-policy` | bearer | `instance:manage` | — | Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them. |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | — | Upload the instance logo (replaces the mark and the wordmark). |
 | GET | `/api/i18n/catalog` | public | — | — | The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them. |
 | PUT | `/api/i18n` | bearer | `instance:manage` | — | Set the instance default locale and whether users may switch. |
@@ -76,6 +78,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/org/members` | org-admin | `org:manage` | — | Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader). |
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own. |
 | GET | `/api/org/audit` | org-admin | `org:read` | — | The company's audit trail. |
+| GET | `/api/org/session-policy` | org-admin | `org:read` | — | The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied. |
+| PUT | `/api/org/session-policy` | org-admin | `org:manage` | — | Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's. |
+| DELETE | `/api/org/session-policy` | org-admin | `org:manage` | — | Drop the company's session timeouts; its users fall back to the instance policy. |
 | GET | `/api/org/branding` | org-admin | `org:read` | — | The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none. |
 | PUT | `/api/org/branding` | org-admin | `org:manage` | — | Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are. |
 | DELETE | `/api/org/branding` | org-admin | `org:manage` | — | Drop the company's branding; its users see the instance's again. |

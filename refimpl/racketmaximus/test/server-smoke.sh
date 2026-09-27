@@ -703,5 +703,40 @@ assert "a member may NOT export to disk" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/l10n/export" -H "Authorization: Bearer $BOB" -d '{"locale":"qps"}')" \
   "403"
 
+# ---- session policy (issue #38, OWASP idle + absolute timeouts) -----------------
+echo
+echo "session policy:"
+SP=$(curl -s "$B/api/session-policy" -H "Authorization: Bearer $OP")
+assert "the shipped idle window is OWASP's 30 minutes" "$SP" '"idle_seconds":1800'
+assert "...and the absolute cap is 8 hours"            "$SP" '"absolute_seconds":28800'
+assert "the bounds are published with the policy"      "$SP" '"idle_min"'
+assert "a member may not read the instance policy" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/session-policy" -H "Authorization: Bearer $BOB")" "403"
+assert "an operator may tighten it" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":900,"absolute_seconds":14400,"warn_seconds":60}')" \
+  '"idle_seconds":900'
+# validation is the point: a control that silently ignores a setting is worse than none
+assert "an unknown field is refused, not dropped" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_minutes":30}')" 'unknown field'
+assert "an idle window below the floor is refused" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":5}')" 'at least 60 seconds'
+assert "a warning after the fact is refused" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":300,"warn_seconds":300}')" 'must be less than'
+assert "an absolute cap under the idle window is refused" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":3600,"absolute_seconds":600}')" 'must not be less than'
+# the console needs its own numbers to warn in advance, and gets them per-caller
+assert "whoami carries the caller's effective policy" \
+  "$(curl -s "$B/api/whoami" -H "Authorization: Bearer $OP")" '"session_policy"'
+# a token listing distinguishes a browser session from a machine credential
+TL=$(curl -s "$B/api/tokens" -H "Authorization: Bearer $OP")
+assert "the token listing labels the kind" "$TL" '"kind"'
+assert "the bootstrap credential is a session" "$TL" '"kind":"session"'
+# the org plane is 404 while multi-tenancy is off, like the rest of it
+assert "the org policy plane is invisible single-tenant" \
+  "$(curl -s "$B/api/org/session-policy" -H "Authorization: Bearer $OP")" 'not enabled'
+# put it back so nothing downstream in this smoke runs under a 15-minute window
+curl -s -o /dev/null -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" \
+  -d '{"idle_seconds":1800,"absolute_seconds":28800,"warn_seconds":60}'
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

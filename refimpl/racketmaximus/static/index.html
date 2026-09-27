@@ -60,6 +60,12 @@
   .bubble .q{color:var(--muted);font-size:13px} .toast{position:fixed;right:16px;bottom:16px;max-width:340px;padding:12px 14px;border-radius:10px;
          background:#2e1c18;border:1px solid #5e332c;color:#f2c9bf;box-shadow:0 8px 30px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:.2s}
   .toast.show{opacity:1;transform:none} .toast.ok{background:#1a2415;border-color:#3a4a24;color:#d3e6ae}
+  /* issue #38: the inactivity warning. Fixed to the TOP so it cannot be mistaken
+     for a toast, which is transient by convention and this is not. */
+  .idlebar{position:fixed;left:50%;top:0;transform:translateX(-50%);z-index:60;display:flex;gap:10px;
+           align-items:center;padding:10px 14px;border-radius:0 0 10px 10px;background:#2e1c18;
+           border:1px solid #5e332c;border-top:none;color:#f2c9bf;box-shadow:0 8px 30px rgba(0,0,0,.4);
+           font-size:13px;max-width:92vw}
   h1,h2,h3{letter-spacing:-.01em} h2{margin:.2em 0 .6em}
   /* ---- Tier-A skinnable beta landing: fully theme-token driven, scoped to .bx ---- */
   .bx{min-height:100vh;background:var(--bx-bg,#0b1a2b);color:var(--bx-ink,#f2ede1);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
@@ -111,6 +117,7 @@
 <body>
 <div id="app"></div>
 <div id="toast" class="toast"></div>
+<div id="idlebar" class="idlebar" hidden><span id="idlemsg"></span><button class="btn sm" id="idlestay" type="button"></button></div>
 <script>
 // ---- event delegation (issue #27) -------------------------------------------
 // Every handler in this file used to be an inline `data-h-click="${H((el,ev)=>…)}"` attribute, which
@@ -283,6 +290,11 @@ S.l10n = {locale:'ja', status:'', ns:'', q:'', offset:0};
 const esc = s => (''+ (s??'')).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 async function api(path, {method='GET', body=null}={}){
+  // issue #38: the client's idle clock counts from the last REQUEST, never from
+  // the last mouse move. The server measures requests, so a timer driven by
+  // pointer activity would cheerfully show a live session the server had already
+  // expired — the one failure mode an inactivity warning must not have.
+  S.lastReq = Date.now();
   const headers = {'X-Telemachus-Locale': S.lang};
   if (S.token) headers['Authorization'] = 'Bearer '+S.token;
   if (body) headers['Content-Type'] = 'application/json';
@@ -670,6 +682,7 @@ async function l10nExport(){
 async function adminView(){
   const r=await api('/api/admin/status');
   const mr=await api('/api/metrics'); const M=mr.ok?mr.json:{};
+  const spr=await api('/api/session-policy'); if(spr.ok) S.adminPolicy=spr.json;   // issue #38
   const stat=(k,l)=>`<div class="card"><label>${l}</label><h2>${M[k]??'–'}</h2></div>`;
   const body = r.ok ? `<div class="row">${stat('users','users')}${stat('teams','teams')}${stat('notes','notes')}${stat('translations','translations')}${stat('active_tokens','tokens')}${stat('audit_events','audit')}</div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
   const xr=await api('/api/executors');
@@ -716,15 +729,40 @@ async function adminView(){
     <p class="muted" style="margin-top:6px;font-size:12px">${t('locoffhint')}</p>
     <p class="muted" style="font-size:12px">${t('locavail')}: ${(I.available||[]).map(l=>esc(LANGNAME[l]||l)).join(' \u00b7 ')}</p>
     <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doI18nSave())}">${t('save')}</button></div></div>`;
+  // issue #38: minutes and hours in the UI, seconds on the wire. An operator
+  // thinking about "thirty minutes" should not have to multiply.
+  const SP=(S.adminPolicy&&S.adminPolicy.policy)||{};
+  const mins=(v)=>typeof v==='number'?Math.round(v/60):'';
+  const hrs=(v)=>typeof v==='number'?(Math.round(v/360)/10):'';
+  const secCard=`<div class="card" style="margin-top:14px"><h3>${t('sessionsec')}</h3>
+    <div class="row">
+      <div><label>${t('idlelabel')}</label><input id="spidle" type="number" min="1" value="${mins(SP.idle_seconds)}"></div>
+      <div><label>${t('abslabel')}</label><input id="spabs" type="number" min="1" step="0.5" value="${hrs(SP.absolute_seconds)}"></div>
+      <div><label>${t('warnlabel')}</label><input id="spwarn" type="number" min="0" value="${typeof SP.warn_seconds==='number'?SP.warn_seconds:60}"></div>
+    </div>
+    <p class="muted" style="margin-top:6px;font-size:12px">${t('sessionhint')}</p>
+    <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doSessionPolicySave())}">${t('save')}</button></div></div>`;
   const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
     <button class="btn" data-h-click="${H((el,ev)=>doSeedSamples())}">${t('seed')}</button></div>`;
-  return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${locCard}${seedCard}`;
+  return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${locCard}${secCard}${seedCard}`;
 }
 // ---- localization (Admin) ----
 // Re-render the whole shell on success: turning the switcher off has to remove it
 // from the header in the same beat, and changing the default may change the
 // language this very page is written in.
+// Blank means "no limit on this axis", which the API spells as null. An empty box
+// and a zero must not mean the same thing in a security control.
+async function doSessionPolicySave(){
+  const num=(id)=>{ const v=(document.getElementById(id)||{}).value; return v===''||v==null?null:Number(v); };
+  const idle=num('spidle'), abs=num('spabs'), warn=num('spwarn');
+  const r=await api('/api/session-policy',{method:'PUT',body:{
+    idle_seconds: idle==null?null:Math.round(idle*60),
+    absolute_seconds: abs==null?null:Math.round(abs*3600),
+    warn_seconds: warn==null?0:Math.round(warn)}});
+  if(r.ok && r.json){ S.adminPolicy=r.json; toast(t('saved')); await refreshMe(); render(); }
+  else toast((r.json&&r.json.error)||'error');
+}
 async function doI18nSave(){
   const r=await api('/api/i18n',{method:'PUT',
     body:{default:val('locdef'), enabled:document.getElementById('locsw').checked}});
@@ -818,8 +856,38 @@ async function doSeedSamples(){
 }
 
 // ---------- render ----------
-async function refreshMe(){ if(!S.token){S.me=null;return;} const r=await api('/api/whoami');
-  if(r.ok) S.me=r.json; else { S.token=null; localStorage.removeItem('tmx_token'); S.me=null; } }
+async function refreshMe(){ if(!S.token){S.me=null;S.sessionPolicy=null;return;} const r=await api('/api/whoami');
+  if(r.ok){ S.me=r.json; S.sessionPolicy=r.json.session_policy||null; }
+  else { S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.sessionPolicy=null; } }
+
+// ---------- inactivity (issue #38, OWASP) ----------
+// The SERVER enforces the timeout in resolve-token; this is the courtesy half
+// OWASP asks for, so that a session ending is something a person saw coming
+// rather than a form that silently stopped working. "Stay signed in" makes a real
+// request, which is exactly what refreshes the server's clock.
+function idleBar(show, msg){
+  const bar=document.getElementById('idlebar'); if(!bar) return;
+  if(show){ document.getElementById('idlemsg').textContent=msg;
+            document.getElementById('idlestay').textContent=t('idlestay');
+            bar.hidden=false; }
+  else bar.hidden=true;
+}
+async function idleStay(){ idleBar(false); await api('/api/whoami'); }
+function idleSignOut(){
+  idleBar(false);
+  S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.sessionPolicy=null;
+  S.forceLogin=true; toast(t('idleout')); render();
+}
+function idleTick(){
+  const pol=S.sessionPolicy;
+  if(!S.token || !pol || typeof pol.idle_seconds!=='number'){ idleBar(false); return; }
+  const idleFor=(Date.now()-(S.lastReq||Date.now()))/1000;
+  const left=Math.ceil(pol.idle_seconds-idleFor);
+  const warnAt=typeof pol.warn_seconds==='number'?pol.warn_seconds:0;
+  if(left<=0) idleSignOut();
+  else if(warnAt>0 && left<=warnAt) idleBar(true, t('idlewarn').replace('{n}', left));
+  else idleBar(false);
+}
 async function translateView(){
   const langs=[['ja','日本語'],['nl','Nederlands'],['es-419','Español (LatAm)'],['en','English'],['fr','Français'],['de','Deutsch']];
   const gl=await api('/api/glossary'); const terms=gl.ok?gl.json.glossary:[];
@@ -1893,6 +1961,14 @@ async function render(){
   const seq = ++shellSeq;
   const stale = () => seq !== shellSeq;
   const app=document.getElementById('app');
+  if(!S.idleWired){
+    S.idleWired=true;
+    const stay=document.getElementById('idlestay');
+    if(stay) stay.addEventListener('click', idleStay);
+    // 5s is fine: the warning counts down in whole seconds and the server is the
+    // authority either way, so this only has to be prompt enough to be useful
+    setInterval(idleTick, 5000);
+  }
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
   await loadBranding(); if(stale()) return;

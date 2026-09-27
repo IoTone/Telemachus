@@ -103,7 +103,7 @@
           #:actor-id (if actor (principal-user-id actor) "system")
           #:team-id tid #:resource-type "org" #:resource-id oid)
   (define-values (tok _t)
-    (issue-token! conn #:user uid #:team tid #:name "org-owner" #:scopes '("*:*")))
+    (issue-token! conn #:user uid #:team tid #:name "org-owner" #:scopes '("*:*") #:kind SESSION-KIND))
   (hasheq 'org_id oid 'org_slug oslug 'org_name name 'plan plan
           'team_id tid 'team_slug team-slug
           'owner_user_id uid 'owner_username owner-username 'token tok))
@@ -245,7 +245,7 @@
      (audit! conn #:action "org.member.add" #:actor-type "user"
              #:actor-id (principal-user-id actor) #:team-id tid
              #:resource-type "user" #:resource-id uid)
-     (define-values (tok _t) (issue-token! conn #:user uid #:team tid #:scopes '("*:*")))
+     (define-values (tok _t) (issue-token! conn #:user uid #:team tid #:scopes '("*:*") #:kind SESSION-KIND))
      (hasheq 'user_id uid 'username username 'team_id tid 'role role
              'org_role (or org-role 'null) 'token tok)]))
 

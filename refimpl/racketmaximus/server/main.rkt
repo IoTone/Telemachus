@@ -393,7 +393,7 @@
                    #:team-name (if mt "Instance" "Default")
                    #:team-slug (if mt "instance" "default")))
      (default-policy! db-conn tid)                       ; starter AI quota for the team
-     (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "bootstrap" #:scopes '("*:*")))
+     (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "bootstrap" #:scopes '("*:*") #:kind SESSION-KIND))
      (json-response (hasheq 'user_id uid 'team_id tid 'token tok 'multitenant mt
                             'org_id (team-org db-conn tid)
                             'message (msg-bootstrap-done username (if mt "Instance" "Default")))
@@ -716,6 +716,71 @@
                                              'remaining (hash-ref q 'remaining)
                                              'estimate (* 120 (length ids)))))))))
 
+;; ---- session policy (issue #38, OWASP) ------------------------------------------
+;; Two layers: the instance default here, and an org's own policy below. An org may
+;; only TIGHTEN — see the note at the top of domain/authz/session-policy.rkt.
+(define (ep-session-policy-get req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (json-response (hasheq 'policy (session-policy-get db-conn)
+                           'shipped (shipped-session-policy)
+                           'bounds (hasheq 'idle_min IDLE-MIN 'idle_max IDLE-MAX
+                                           'absolute_min ABSOLUTE-MIN 'absolute_max ABSOLUTE-MAX
+                                           'warn_max WARN-MAX))))))
+
+(define (ep-session-policy-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (define problem (policy-problem (if (hash? b) b (hasheq))))
+    (cond
+      [problem (err problem 400)]
+      [else
+       (define saved (session-policy-set! db-conn b))
+       (audit! db-conn #:action "session.policy" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:resource-type "instance" #:resource-id "instance")
+       (json-response (hasheq 'policy saved))]))))
+
+(define (ep-my-org-session-policy-get req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (define own (org-session-policy-get db-conn (caller-org p)))
+      (json-response (hasheq 'policy (or own 'null)
+                             'own (and own #t)
+                             ;; what actually applies, after the instance floor
+                             'effective (session-policy-for db-conn (caller-org p))
+                             'instance (session-policy-get db-conn))))))))
+
+(define (ep-my-org-session-policy-put req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (define b (read-json-body req))
+      (define problem (policy-problem (if (hash? b) b (hasheq))))
+      (cond
+        [problem (err problem 400)]
+        [else
+         (org-session-policy-set! db-conn (caller-org p) b)
+         (audit! db-conn #:action "org.session.policy" #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:resource-type "org" #:resource-id (caller-org p))
+         ;; report the EFFECTIVE policy, not the document we stored: an org that
+         ;; asked to loosen the instance floor gets the floor, and finding that
+         ;; out here beats discovering it when nobody gets signed out
+         (json-response (hasheq 'policy (org-session-policy-get db-conn (caller-org p))
+                                'own #t
+                                'effective (session-policy-for db-conn (caller-org p))))]))))))
+
+(define (ep-my-org-session-policy-clear req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (org-session-policy-clear! db-conn (caller-org p))
+      (audit! db-conn #:action "org.session.policy.clear" #:actor-type "user"
+              #:actor-id (principal-user-id p) #:resource-type "org" #:resource-id (caller-org p))
+      (json-response (hasheq 'policy 'null 'own #f
+                             'effective (session-policy-for db-conn (caller-org p)))))))))
+
 (define (ep-branding-logo req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "instance:manage")
@@ -924,7 +989,13 @@
                              'multitenant (multitenant?)
                              'locale (user-locale db-conn (principal-user-id p))
                              'permissions (perms-of p)
-                             'token_scopes (or (principal-token-scopes p) 'null)))))
+                             'token_scopes (or (principal-token-scopes p) 'null)
+                             ;; issue #38: the caller's OWN effective session
+                             ;; policy, org tightening already applied. The console
+                             ;; warns and signs out on these numbers; the server
+                             ;; still enforces them independently in resolve-token,
+                             ;; because a client-side timer is a courtesy.
+                             'session_policy (session-policy-for db-conn (principal-org-id p))))))
 
 ;; the user's own language — the durable preference a workflow binds to as
 ;; ${principal.locale}, as opposed to the per-request Accept-Language header
@@ -967,7 +1038,7 @@
         (audit! db-conn #:action "member.add" #:actor-type "user" #:actor-id (principal-user-id p)
                 #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid)
         (define-values (tok _t)
-          (issue-token! db-conn #:user uid #:team (principal-team-id p) #:scopes '("*:*")))
+          (issue-token! db-conn #:user uid #:team (principal-team-id p) #:scopes '("*:*") #:kind SESSION-KIND))
         (json-response (hasheq 'user_id uid 'role role 'token tok) #:code 201)])]))
 
 (define (ep-admin-status req)
@@ -1244,7 +1315,7 @@
        [(not uid) (unauthorized)]                       ; bad password / missing-or-bad 2FA code
        [else
         (define tid (first-team-for db-conn uid))
-        (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "login" #:scopes '("*:*")))
+        (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "login" #:scopes '("*:*") #:kind SESSION-KIND))
         (json-response (hasheq 'token tok 'user_id uid 'team_id tid))])]))
 
 (define (ep-password req)
@@ -2312,6 +2383,10 @@
    'seed-tenants ep-seed-tenants
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
+   'session-policy-get ep-session-policy-get 'session-policy-put ep-session-policy-put
+   'my-org-session-policy-get ep-my-org-session-policy-get
+   'my-org-session-policy-put ep-my-org-session-policy-put
+   'my-org-session-policy-clear ep-my-org-session-policy-clear
    'my-org-branding-get ep-my-org-branding-get 'my-org-branding-put ep-my-org-branding-put
    'my-org-branding-clear ep-my-org-branding-clear 'my-org-branding-logo ep-my-org-branding-logo
    'notes-create ep-notes-create 'notes-list ep-notes-list
