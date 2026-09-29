@@ -77,7 +77,7 @@ h1#contributing::before { background-image: url("data:image/svg+xml;charset=utf-
 <header id="title-block-header">
 <h1 class="title">Telemachus for Developers</h1>
 <p class="author">IoTone, Inc.</p>
-<p class="date">September 2026 — version 0.2.0</p>
+<p class="date">September 2026 — version 0.3.0</p>
 </header>
 <nav id="TOC" role="doc-toc">
 <ul>
@@ -99,7 +99,7 @@ this</a></li>
 <li><a href="#a-map-of-the-code" id="toc-a-map-of-the-code"><span class="toc-section-number">3</span> A map of the code</a>
 <ul>
 <li><a href="#layers" id="toc-layers"><span class="toc-section-number">3.1</span> Layers</a></li>
-<li><a href="#the-three-small-libraries" id="toc-the-three-small-libraries"><span class="toc-section-number">3.2</span> The three small libraries</a></li>
+<li><a href="#the-four-small-libraries" id="toc-the-four-small-libraries"><span class="toc-section-number">3.2</span> The four small libraries</a></li>
 <li><a href="#one-principal-one-check" id="toc-one-principal-one-check"><span class="toc-section-number">3.3</span> One principal, one check</a></li>
 <li><a href="#files-to-open-1" id="toc-files-to-open-1"><span class="toc-section-number">3.4</span> Files to open</a></li>
 </ul></li>
@@ -174,23 +174,27 @@ work</a></li>
 </ul></li>
 <li><a href="#secrets-and-the-front-door" id="toc-secrets-and-the-front-door"><span class="toc-section-number">14</span> Secrets and the front door</a>
 <ul>
-<li><a href="#what-is-hashed-and-what-cannot-be" id="toc-what-is-hashed-and-what-cannot-be"><span class="toc-section-number">14.1</span> What is hashed, and what cannot
+<li><a href="#who-may-call-at-all" id="toc-who-may-call-at-all"><span class="toc-section-number">14.1</span> Who may call at all</a></li>
+<li><a href="#what-is-hashed-and-what-cannot-be" id="toc-what-is-hashed-and-what-cannot-be"><span class="toc-section-number">14.2</span> What is hashed, and what cannot
 be</a></li>
-<li><a href="#sealing-the-rest" id="toc-sealing-the-rest"><span class="toc-section-number">14.2</span> Sealing the rest</a></li>
-<li><a href="#the-second-factor-and-the-way-back-in" id="toc-the-second-factor-and-the-way-back-in"><span class="toc-section-number">14.3</span> The second factor, and the way
+<li><a href="#sealing-the-rest" id="toc-sealing-the-rest"><span class="toc-section-number">14.3</span> Sealing the rest</a></li>
+<li><a href="#the-second-factor-and-the-way-back-in" id="toc-the-second-factor-and-the-way-back-in"><span class="toc-section-number">14.4</span> The second factor, and the way
 back in</a></li>
-<li><a href="#the-consoles-policy" id="toc-the-consoles-policy"><span class="toc-section-number">14.4</span> The console’s policy</a></li>
-<li><a href="#files-to-open-11" id="toc-files-to-open-11"><span class="toc-section-number">14.5</span> Files to open</a></li>
+<li><a href="#how-long-a-session-lasts" id="toc-how-long-a-session-lasts"><span class="toc-section-number">14.5</span> How long a session lasts</a></li>
+<li><a href="#the-consoles-policy" id="toc-the-consoles-policy"><span class="toc-section-number">14.6</span> The console’s policy</a></li>
+<li><a href="#files-to-open-11" id="toc-files-to-open-11"><span class="toc-section-number">14.7</span> Files to open</a></li>
 </ul></li>
 <li><a href="#extending-telemachus" id="toc-extending-telemachus"><span class="toc-section-number">15</span> Extending Telemachus</a>
 <ul>
 <li><a href="#four-seams-and-one-prefix" id="toc-four-seams-and-one-prefix"><span class="toc-section-number">15.1</span> Four seams, and one
 prefix</a></li>
-<li><a href="#screens-of-your-own" id="toc-screens-of-your-own"><span class="toc-section-number">15.2</span> Screens of your own</a></li>
-<li><a href="#wearing-the-customers-colours" id="toc-wearing-the-customers-colours"><span class="toc-section-number">15.3</span> Wearing the customer’s
+<li><a href="#where-plugins-are-found-and-what-happens-when-one-is-not" id="toc-where-plugins-are-found-and-what-happens-when-one-is-not"><span class="toc-section-number">15.2</span> Where plugins are found, and what
+happens when one is not</a></li>
+<li><a href="#screens-of-your-own" id="toc-screens-of-your-own"><span class="toc-section-number">15.3</span> Screens of your own</a></li>
+<li><a href="#wearing-the-customers-colours" id="toc-wearing-the-customers-colours"><span class="toc-section-number">15.4</span> Wearing the customer’s
 colours</a></li>
-<li><a href="#what-is-not-available" id="toc-what-is-not-available"><span class="toc-section-number">15.4</span> What is not available</a></li>
-<li><a href="#files-to-open-12" id="toc-files-to-open-12"><span class="toc-section-number">15.5</span> Files to open</a></li>
+<li><a href="#what-is-not-available" id="toc-what-is-not-available"><span class="toc-section-number">15.5</span> What is not available</a></li>
+<li><a href="#files-to-open-12" id="toc-files-to-open-12"><span class="toc-section-number">15.6</span> Files to open</a></li>
 </ul></li>
 <li><a href="#how-the-project-tests" id="toc-how-the-project-tests"><span class="toc-section-number">16</span> How the project tests</a></li>
 <li><a href="#operating-notes" id="toc-operating-notes"><span class="toc-section-number">17</span> Operating notes</a></li>
@@ -234,7 +238,7 @@ held-back tier. Concepts may be reused from the earlier Python system,
 but only owner-authored Racket and owner-authored documents were carried
 over.</p></li>
 <li><p><strong>Racket first.</strong> The reference implementation is
-Racket 9.2 CS. Non-Racket plugin authoring is explicitly not a
+Racket 9.3 CS. Non-Racket plugin authoring is explicitly not a
 requirement; where a data format is the contract (workflow specs, tool
 schemas), it is because the format earns its place, not because Racket
 is a barrier.</p></li>
@@ -269,7 +273,7 @@ refimpl/racketmaximus/
   server/main.rkt   the HTTP server: handlers, boot, plugin loading
   server/routes.rkt the declared route table
   domain/           the model: authz, repo, flow, sched, quota, i18n, kg, ...
-  pkgs/             db-kit, web-kit, cli-kit: small libraries with no platform knowledge
+  pkgs/             db-kit, web-kit, cli-kit, sha2-kit: libraries with no platform knowledge
   plugins/          shipped plugins: doc-indexer, doc-pipeline, knowledge-graph, rs3, ...
   cli/              telemachus-localize, telemachus-docs, telemachus-worker,
                     telemachus-secrets
@@ -278,7 +282,7 @@ refimpl/racketmaximus/
   test/             unit suites, smoke scripts, the e2e gate, mock servers</code></pre>
 <h1 data-number="2" id="getting-it-running"><span class="header-section-number">2</span> Getting it running</h1>
 <h2 data-number="2.1" id="the-toolchain"><span class="header-section-number">2.1</span> The toolchain</h2>
-<pre><code>nix develop                         # from the repo root; pins Racket 9.2, exports PLTCOLLECTS
+<pre><code>nix develop                         # from the repo root; pins Racket 9.3, exports PLTCOLLECTS
 cd refimpl/racketmaximus
 raco make server/main.rkt           # precompile; startup is slow otherwise
 raco test test/*-tests.rkt          # the unit suite
@@ -396,7 +400,7 @@ teams</td>
 </tr>
 </tbody>
 </table>
-<h2 data-number="3.2" id="the-three-small-libraries"><span class="header-section-number">3.2</span> The three small libraries</h2>
+<h2 data-number="3.2" id="the-four-small-libraries"><span class="header-section-number">3.2</span> The four small libraries</h2>
 <p><code>pkgs/</code> holds code that knows nothing about Telemachus and
 could be lifted out.</p>
 <p><code>db-kit/portable</code> is a drop-in for Racket’s
@@ -412,8 +416,24 @@ the S3 endpoint moves multi-gigabyte files and because
 <code>Expect: 100-continue</code> has to be answered lazily, on the
 first read of the body, so that a handler refusing before it reads never
 receives the bytes at all.</p>
-<p><code>cli-kit</code> is argument parsing for the two command-line
-tools.</p>
+<p><code>cli-kit</code> is argument parsing for the command-line tools,
+and an EXIT CONTRACT. A tool could say “it worked” and “it broke”; it
+had no way to say the domain <em>refused</em> the input, which is a
+different answer needing a different response — fix the input, versus
+page an operator. Four outcomes now: <code>0</code> ran, with the result
+on stdout; <code>2</code> refused, with an error object that always
+carries reasons; <code>1</code> could not run, with stdout
+<em>empty</em>; <code>64</code> CLI misuse, on stderr. Two of those are
+enforced rather than documented: a refusal with no reasons is rejected
+(it is a 1 wearing a 2’s exit code), and a run that did not happen
+writes nothing to stdout, because it must not hand anyone a
+document.</p>
+<p><code>sha2-kit</code> is SHA-256 and HMAC-SHA-256 over libcrypto. It
+is a package rather than a module inside <code>domain/</code> because it
+has no platform knowledge, and separate from <code>crypto.rkt</code> —
+whose contract is “no native dependencies” — because it takes the FFI.
+Correctness is pinned to the NIST vectors: the risk in a binding is a
+wrong signature, and a vector says so at once.</p>
 <h2 data-number="3.3" id="one-principal-one-check"><span class="header-section-number">3.3</span> One principal, one check</h2>
 <p>Every request resolves to a <em>principal</em>: a user id, a team id,
 an operator flag, an optional org role, and — for API tokens and S3 keys
@@ -507,7 +527,14 @@ listing.</p>
 <li><p>Time windows are epoch integer columns, not timestamp arithmetic.
 <code>CURRENT_TIMESTAMP</code> has second resolution and its text form
 differs by dialect; anything that must order “newest first” within a
-second carries an epoch-millisecond column.</p></li>
+second carries an epoch column of its own. The audit log learned this
+late: it ordered by its text timestamp and then by a random UUID, so two
+entries written in the same second came back in an order unrelated to
+what happened — a review decision could read before the assessment that
+caused it. Note what was <em>not</em> enough: milliseconds. A burst of
+writes lands inside one tick whatever the unit, so the column is
+microseconds AND the writer bumps it to stay strictly increasing within
+the process. A clock reading is not an ordering key.</p></li>
 <li><p>Use <code>ON CONFLICT ... DO NOTHING</code> or
 <code>DO UPDATE</code> for upserts; both dialects support the syntax
 with a named conflict target.</p></li>
@@ -585,8 +612,16 @@ registry, tagged with their source. A team may disable any tool; the
 agent offers only enabled tools to the model and dispatch refuses
 disabled ones. Plugins run in-process with platform privileges — placing
 one in <code>plugins/</code> is the consent — and sandboxed
-out-of-process plugins exist as a separate, capability-scoped
-mechanism.</p>
+out-of-process plugins exist as a separate, capability-scoped mechanism,
+speaking newline-delimited JSON over stdio.</p>
+<p>An out-of-process tool may answer with STRUCTURE, not only text: its
+result message carries an optional structured field beside the human
+one. Without it every such answer became a JSON <em>string</em> by the
+time a workflow bound it, so a later step needed an in-process shim
+whose whole job was to parse what the platform had just stringified —
+while an in-process tool had been free to return a value for slices. The
+platform never guesses that a string was meant to be JSON; the plugin
+says so by sending the structured field.</p>
 <h2 data-number="7.3" id="the-model-seam"><span class="header-section-number">7.3</span> The model seam</h2>
 <p>Everything that calls a model goes through <code>run-chat</code> in
 <code>domain/ai/executor.rkt</code>, and the tools that need structured
@@ -911,7 +946,32 @@ model.</p>
 <code>docs/design/pull-executors.md</code>,
 <code>test/pull-tests.rkt</code>, <code>test/pull-smoke.sh</code>.</p>
 <h1 data-number="14" id="secrets-and-the-front-door"><span class="header-section-number">14</span> Secrets and the front door</h1>
-<h2 data-number="14.1" id="what-is-hashed-and-what-cannot-be"><span class="header-section-number">14.1</span> What is hashed, and what
+<h2 data-number="14.1" id="who-may-call-at-all"><span class="header-section-number">14.1</span> Who may call at all</h2>
+<p>Before any of this: a request has to become a principal, and for a
+long time it could become one too easily. With no bearer token, the
+server fell back to two HEADERS — <code>X-Telemachus-User</code> and
+<code>X-Telemachus-Team</code> — and resolved them to that user. On a
+laptop that is a convenience: a script acts as somebody without minting
+a token. On an instance bound to a network address it was a login, and a
+free one: any caller on that network was whoever they said they were,
+with every permission that user holds. Note where this sits —
+<em>before</em> role checks, scopes, the org gate and session policy,
+none of which run until a principal exists. An identity mistake at that
+layer cannot be caught by any control above it.</p>
+<p>The headers are honoured only from a trusted peer now: loopback, or
+an address the operator names in
+<code>TELEMACHUS_TRUSTED_HEADER_PEERS</code> because a reverse proxy
+really does terminate there. Nothing is trusted for looking private —
+“10.x is internal” is an assumption about somebody else’s network.
+<code>POST /api/bootstrap</code> is gated the same way, because an
+un-bootstrapped instance belongs to whoever calls it first, and on a LAN
+that is a stranger; an operator who cannot reach loopback presents a
+secret instead.</p>
+<p>The rule lives in its own small module so it can be tested directly.
+That matters more than it sounds: every smoke runs on the same host as
+the server, so a smoke can never <em>be</em> a stranger, and this gap
+survived a year of them.</p>
+<h2 data-number="14.2" id="what-is-hashed-and-what-cannot-be"><span class="header-section-number">14.2</span> What is hashed, and what
 cannot be</h2>
 <p>Passwords and API tokens are stored as hashes — a token as a peppered
 HMAC-SHA-256 with the pepper in the environment, so a database dump
@@ -926,7 +986,7 @@ HMAC that verifies a signature; a push executor’s key signs its
 requests. All three used to sit in the clear, which made one dump — a
 backup, a replica, a <code>pg_dump</code> pasted into a ticket, a stolen
 volume snapshot — enough to replay every one of them.</p>
-<h2 data-number="14.2" id="sealing-the-rest"><span class="header-section-number">14.2</span> Sealing the rest</h2>
+<h2 data-number="14.3" id="sealing-the-rest"><span class="header-section-number">14.3</span> Sealing the rest</h2>
 <p>They are sealed with AES-256-GCM, keyed from the environment and
 never from the database. The claim is deliberately narrow, and worth
 stating precisely because the earlier note in the code got it half
@@ -951,7 +1011,7 @@ access cannot move a known secret onto another principal. And a sealed
 value that will not open <em>raises</em>: it must never degrade to an
 empty string, because an empty TOTP seed would silently disable
 somebody’s second factor.</p>
-<h2 data-number="14.3" id="the-second-factor-and-the-way-back-in"><span class="header-section-number">14.3</span> The second factor, and the way
+<h2 data-number="14.4" id="the-second-factor-and-the-way-back-in"><span class="header-section-number">14.4</span> The second factor, and the way
 back in</h2>
 <p>A password can be changed and an access key re-issued. A TOTP seed
 cannot be rotated by using it, which is what made a leaked one permanent
@@ -970,7 +1030,35 @@ stays distinguishable from “never issued”; re-issuing replaces the whole
 set, because a set on paper should be the whole truth about what opens
 the account; and revoking the second factor deletes the codes with
 it.</p>
-<h2 data-number="14.4" id="the-consoles-policy"><span class="header-section-number">14.4</span> The console’s policy</h2>
+<h2 data-number="14.5" id="how-long-a-session-lasts"><span class="header-section-number">14.5</span> How long a session lasts</h2>
+<p>Two clocks, because they answer different attacks. An
+<strong>idle</strong> timeout limits an unattended desk; an
+<strong>absolute</strong> cap limits a stolen token that is being used,
+which never idles out. The shipped defaults are thirty minutes and eight
+hours — the least disruptive ends of OWASP’s own bands — and
+<code>null</code> on either means no limit on that axis, spelled
+explicitly so that “I did not set this” and “I turned this off” cannot
+look the same.</p>
+<p>Only a SESSION is governed. A machine token is idle by design, and
+idling one out is a silent outage, so API and worker tokens are exempt —
+and the parameter that says which a token is defaults to the exempt
+value, so a caller who forgets it mints a token that behaves as tokens
+always did. The clocks are epoch columns rather than the text timestamps
+beside them, because a text <code>CURRENT_TIMESTAMP</code> formats
+differently on each dialect and a rule comparing those would be
+invisible on one and wrong on the other.</p>
+<p>An instance sets the policy and a company may TIGHTEN it, never
+loosen it: the effective value is the stricter of the two per axis. That
+is deliberately the opposite of branding, where the company’s document
+wins whole — branding is cosmetic, this is a control, and the instance
+owns the floor. Enforcement is in <code>resolve-token</code> and nowhere
+else, the one place a bearer becomes a principal; a lapsed session is
+revoked with a reason, so the token list can say why it ended and a
+lapsed session cannot be revived by using it.</p>
+<p>The console counts down against the last REQUEST, not against pointer
+activity. The server measures requests, so a mouse-driven timer would
+cheerfully show a live session the server had already expired.</p>
+<h2 data-number="14.6" id="the-consoles-policy"><span class="header-section-number">14.6</span> The console’s policy</h2>
 <p>Every response carries a baseline set of headers, and the console
 carries a Content-Security-Policy that is same-origin for everything.
 Its script source is now a <strong>per-request nonce</strong> rather
@@ -993,7 +1081,7 @@ button shipped as dead text. No static check saw it; a browser test
 pressed the button and timed out. There are now static checks for both
 the inline handlers and that exact stranding, because the policy holds
 only while they hold.</p>
-<h2 data-number="14.5" id="files-to-open-11"><span class="header-section-number">14.5</span> Files to open</h2>
+<h2 data-number="14.7" id="files-to-open-11"><span class="header-section-number">14.7</span> Files to open</h2>
 <p><code>domain/authz/secretbox.rkt</code>,
 <code>domain/authz/authz.rkt</code> (tokens, 2FA, recovery codes),
 <code>cli/telemachus-secrets.rkt</code>,
@@ -1030,7 +1118,32 @@ of it is inherited from the plugin. A remote kind must supply a
 validator, since there is no in-process handler to be strict for
 it.</p></li>
 </ul>
-<h2 data-number="15.2" id="screens-of-your-own"><span class="header-section-number">15.2</span> Screens of your own</h2>
+<h2 data-number="15.2" id="where-plugins-are-found-and-what-happens-when-one-is-not"><span class="header-section-number">15.2</span> Where plugins are found, and
+what happens when one is not</h2>
+<p>The built-in directory is always searched;
+<code>TELEMACHUS_PLUGINS</code> adds more, as a <code>:</code>-separated
+list, and a literal <code>-</code> entry drops the built-ins for a
+deployment that means to ship only its own. It used to name the ONE
+directory to load, so adding a plugin of your own silently removed the
+document pipeline and every other shipped one — an instance that came up
+looking healthy with its workflows gone.</p>
+<p>That shape — healthy-looking and quietly missing — is worth naming,
+because the loader had a second instance of it. A plugin that throws
+while loading is caught, logged and skipped, which is right: one bad
+plugin must not stop the server. But it was ONLY logged, one line among
+sixty, and the instance then served an API with that plugin’s tools,
+workflows, routes and job kinds simply absent. Failures are kept now: a
+<code>failed</code> list beside the plugin listing, a warning block at
+boot that says how many and why, and a strict mode that refuses to start
+at all. Two plugins claiming one id is a failure too, rather than a
+silent shadow.</p>
+<p>A related trap, since it produced exactly this:
+<code>raco make</code> does not reach a plugin’s entry module, because
+the loader <code>dynamic-require</code>s it. A Racket upgrade therefore
+leaves stale bytecode under <code>plugins/&lt;id&gt;/compiled/</code>
+that fails to load — and before the change above, said so in one line
+nobody read.</p>
+<h2 data-number="15.3" id="screens-of-your-own"><span class="header-section-number">15.3</span> Screens of your own</h2>
 <p>A plugin serves its own pages from two directories, and the
 difference between them is who may read them. <code>landing/</code> is
 public at <code>/beta/bundle/&lt;id&gt;/</code> and publicly cached — it
@@ -1042,7 +1155,21 @@ first, and serving a signed-in screen set from it would have put
 customer pages behind a public cache.</p>
 <p>Assets ship inside the bundle. The console’s policy is same-origin,
 so a CDN font or script is blocked — deliberately.</p>
-<h2 data-number="15.3" id="wearing-the-customers-colours"><span class="header-section-number">15.3</span> Wearing the customer’s
+<p>Two things about that authenticated directory are worth knowing
+before you build on it. Its files are served from where the LOADER found
+the plugin, not from a fixed path under the checkout: a plugin loaded
+from elsewhere used to serve its tools and routes perfectly while every
+page it had came back 404. And a page there cannot simply be opened in a
+browser, because the token lives in the console’s storage and a
+navigation carries no bearer — the smoke passed for a year because
+<code>curl</code> sends a header a browser never will. Opening one means
+minting a short-lived TICKET with the token you do have; the first
+response sets it as a cookie scoped to that plugin’s bundle path, so the
+page’s own script and stylesheet follow without it trailing through
+every URL. Not a session cookie issued at sign-in: the JSON API keeps
+its no-cookie, no-CSRF-surface property, and this one reaches nothing
+but one plugin’s static files.</p>
+<h2 data-number="15.4" id="wearing-the-customers-colours"><span class="header-section-number">15.4</span> Wearing the customer’s
 colours</h2>
 <p>The branding document carries a <em>theme</em>: background, surface,
 ink, muted, brand, the ink that sits on the brand, a corner radius, a
@@ -1063,13 +1190,13 @@ than a token, so that mix is what gets checked — checking the brand
 itself would fail themes that render perfectly and pass ones that do not
 — and which side of the palette counts as dark is measured, not read
 from the mode token.</p>
-<h2 data-number="15.4" id="what-is-not-available"><span class="header-section-number">15.4</span> What is not available</h2>
+<h2 data-number="15.5" id="what-is-not-available"><span class="header-section-number">15.5</span> What is not available</h2>
 <p>Stated plainly, so nobody designs around a hope: a plugin cannot add
 a tab to the core console — it serves its own screens instead; feature
 flags are per team, with no instance-wide switch, so “this deployment
 has no chat” means doing it for every team; and there is no hot reload,
 so adding a plugin means a restart.</p>
-<h2 data-number="15.5" id="files-to-open-12"><span class="header-section-number">15.5</span> Files to open</h2>
+<h2 data-number="15.6" id="files-to-open-12"><span class="header-section-number">15.6</span> Files to open</h2>
 <p><code>docs/integrators-guide.md</code>;
 <code>plugins/integrator-demo/</code>, the worked example — a tool, two
 routes, a job kind and a themed screen;
