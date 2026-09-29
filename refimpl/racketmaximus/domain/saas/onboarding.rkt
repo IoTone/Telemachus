@@ -98,7 +98,7 @@
      (query-exec conn "UPDATE activation_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?" (vector-ref row 0))
      (query-exec conn "UPDATE provisioning SET status = 'activated', updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ?" uid)
      (define tid (first-team-for conn uid))
-     (define-values (tok _t) (issue-token! conn #:user uid #:team tid #:name "login" #:scopes '("*:*")))
+     (define-values (tok _t) (issue-token! conn #:user uid #:team tid #:name "login" #:scopes '("*:*") #:kind SESSION-KIND))
      (audit! conn #:action "activate" #:actor-type "user" #:actor-id uid #:team-id tid)
      (values uid tid tok)]))
 

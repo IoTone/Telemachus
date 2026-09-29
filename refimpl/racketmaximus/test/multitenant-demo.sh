@@ -230,6 +230,30 @@ assert "acme clears it" "$(curl -s -X DELETE $B/api/org/branding -H "Authorizati
 assert "acme.test is the instance again" "$(curl -s $B/api/branding -H 'Host: acme.test')" '"title":"Instance Co"'
 assert "hostname cleared" "$(curl -s -X PATCH $B/api/orgs/$ACME_ORG -H "Authorization: Bearer $ROOT" -d '{"domain":null}')" '"domain":null'
 echo
+echo "== 8c. issue #38 — an org may TIGHTEN the session policy, never loosen it ======="
+assert "instance policy set" "$(curl -s -X PUT $B/api/session-policy -H "Authorization: Bearer $ROOT" -d '{"idle_seconds":1800,"absolute_seconds":28800,"warn_seconds":60}')" '"idle_seconds":1800'
+assert "acme has no policy of its own" "$(g /api/org/session-policy $ACME_OWNER)" '"own":false'
+assert "...and inherits the instance's"  "$(g /api/org/session-policy $ACME_OWNER)" '"idle_seconds":1800'
+# tightening works
+assert "acme tightens to 5 minutes" "$(curl -s -X PUT $B/api/org/session-policy -H "Authorization: Bearer $ACME_OWNER" -d '{"idle_seconds":300,"absolute_seconds":3600}')" '"idle_seconds":300'
+assert "the effective policy is the tighter one" "$(g /api/org/session-policy $ACME_OWNER)" '"effective":{"absolute_seconds":3600,"idle_seconds":300'
+# loosening does NOT: the instance operator owns the floor, and a compromised org
+# admin must not be able to remove it
+LOOSE=$(curl -s -X PUT $B/api/org/session-policy -H "Authorization: Bearer $ACME_OWNER" -d '{"idle_seconds":604800,"absolute_seconds":2592000}')
+assert "asking for a week of idle time is accepted as a document" "$LOOSE" '"idle_seconds":604800'
+assert "...but the EFFECTIVE idle window is still the instance's 30 minutes" "$LOOSE" '"effective":{"absolute_seconds":28800,"idle_seconds":1800'
+# a plain member cannot touch it
+assert "a dev may not set the org policy" "$(curl -s -X PUT $B/api/org/session-policy -H "Authorization: Bearer $ACME_DEV" -d '{"idle_seconds":60}')" 'Forbidden'
+# validation applies at the org layer too
+assert "the org layer validates as well" "$(curl -s -X PUT $B/api/org/session-policy -H "Authorization: Bearer $ACME_OWNER" -d '{"idle_hours":2}')" 'unknown field'
+# the other company is untouched
+assert "globex still inherits the instance policy" "$(g /api/org/session-policy $GLBX_OWNER)" '"own":false'
+# a user's own effective policy reaches them on whoami
+assert "an acme user is told their own window" "$(g /api/whoami $ACME_DEV)" '"session_policy"'
+assert "clearing restores the inherited policy" "$(curl -s -X DELETE $B/api/org/session-policy -H "Authorization: Bearer $ACME_OWNER")" '"own":false'
+assert "...back to the instance's 30 minutes" "$(g /api/org/session-policy $ACME_OWNER)" '"idle_seconds":1800'
+
+echo
 echo "== 9. suspending a company freezes only that company ==========================="
 assert "suspend acme" "$(pj /api/orgs/$ACME_ORG/suspend $ROOT)" '"status":"suspended"'
 assert "acme writes blocked"  "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $ACME_DEV" -d '{"title":"nope"}')" 'tenant suspended'

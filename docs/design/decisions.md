@@ -208,6 +208,23 @@ instance holds exactly one user (the owner); provider actions
 | **DWF‑8** | The first-user path | **A shipped `doc-pipeline` plugin, configured per trigger** · vs bespoke per customer | One workflow, many configurations. |
 
 
+## Session timeouts (SESS) — decided 27 Sep 2026 (issue #38), built as slice 70
+
+Following the OWASP Session Management Cheat Sheet, which asks for two clocks and
+not one. `domain/authz/session-policy.rkt`, migration `0032-session-policy`,
+enforced in `resolve-token`.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **SESS‑1** | How many clocks | **Both an idle timeout and an absolute cap** · vs idle only · vs absolute only | They answer different attacks. Idle limits an unattended desk; absolute limits a stolen token that is being kept warm, which never idles out. OWASP asks for both. |
+| **SESS‑2** | What the clocks apply to | **Interactive sessions only** (`api_tokens.kind = 'session'`) · vs every token | A machine token is idle by design; idling out a weekly batch job would be a silent outage. `name` could not stand in for this, because a member added to a team gets a session with no name. |
+| **SESS‑3** | Where the layers live | **An instance document plus a per-org document in `instance_settings`** · vs a column · vs instance only | Issue #38 asks for a system default and an org policy. Branding already proved the `key` / `key:<org-id>` shape for the org layer (TEN‑2d), so the second layer needs no migration. |
+| **SESS‑4** | Who wins between them | **An org may TIGHTEN and may never loosen; the effective value is the stricter per axis** · vs the org's document wins whole (branding's rule) · vs instance only | The instance operator owns the compliance posture of the box. If an org admin could raise their own idle window the instance floor would be advisory, and one compromised org admin would remove it. Deliberately asymmetric with branding, which is cosmetic. |
+| **SESS‑5** | The shipped default | **30 minutes idle, 8 hours absolute** · vs off by default · vs OWASP's high-value 2-5 minutes | The issue asks for a *default*, so "off" fails it. These are the least disruptive ends of OWASP's own bands (15-30 low-risk, 4-8 for a full-day worker). An operator who needs the high-value numbers sets them in one call. |
+| **SESS‑6** | The upgrade | **Pre-existing rows default to `kind = 'api'` and have NULL clocks, so nothing is enforced on them** · vs backfilling them as sessions | Existing rows include customers' machine credentials and worker tokens. Breaking those is a worse upgrade than letting pre-upgrade browser sessions run to their 30-day expiry. Same call issue #13 made with a NULL expiry: an upgrade locks nobody out. |
+| **SESS‑7** | Enforcement point | **`resolve-token`, and the row is revoked with a reason** · vs a scheduled sweep · vs client-side only | It is the one place a bearer becomes a principal, so there is no path around it. OWASP: server-side invalidation is "the most relevant and mandatory". The status becomes `expired-idle` or `expired-absolute` so an operator can see why a session ended. |
+| **SESS‑8** | Telling the user | **The console counts down from the last REQUEST and warns before signing out** · vs a silent bounce to the sign-in screen · vs a timer driven by pointer activity | OWASP asks that the user be able to see it coming. Counting pointer activity would be actively wrong: the server measures requests, so a mouse-driven timer would show a live session the server had already expired. |
+
 ## Pull-model executors (PULL) — decided 15 Sep 2026, see [pull-executors.md](pull-executors.md)
 
 | # | Decision | Recommendation · alternatives | Why it matters |

@@ -569,6 +569,34 @@ assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-ro
 assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
 assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
 
+# ---- issue #40: identity headers still work from LOOPBACK (local tooling), and
+# the peer rule that refuses them from anywhere else is unit-tested in
+# test/peer-tests.rkt — a smoke running on the same host cannot be a stranger.
+assert "identity headers work from loopback" "$(curl -s $B/api/whoami -H 'X-Telemachus-User: alice' -H 'X-Telemachus-Team: default')" '"is_operator":true'
+assert "…and no headers is still a 401"      "$(curl -s -o /dev/null -w '%{http_code}' $B/api/whoami)" '401'
+
+# ---- issue #41: bootstrap closed after first use, whatever the caller presents
+assert "bootstrap refuses a second run"      "$(curl -s -X POST $B/api/bootstrap -d '{"username":"mallory","password":"pw-pw-pw1"}')" 'Already initialized'
+
+# ---- issue #43: an authenticated plugin page can be OPENED in a browser
+TKT=$(curl -s -X POST $B/api/x/example-tools/bundle-ticket -H "Authorization: Bearer $OP" -d '{}')
+assert "a bundle ticket is minted"           "$TKT" '"ticket":"'
+assert "…with the url to open"               "$TKT" '"url":"/api/x/example-tools/bundle/?ticket='
+TICKET=$(printf '%s' "$TKT" | grep -oP '"ticket":\s*"\K[^"]+')
+assert "the page opens with the ticket, no bearer" "$(curl -s "$B/api/x/example-tools/bundle/?ticket=$TICKET")" 'Word count'
+assert "…and sets a cookie scoped to that bundle" "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'tmx_bundle='
+assert "…HttpOnly and SameSite=Strict"        "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'HttpOnly; SameSite=Strict'
+assert "a sub-resource loads on the cookie alone" "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: tmx_bundle=$TICKET" $B/api/x/example-tools/bundle/index.html)" '200'
+assert "a made-up ticket is refused"          "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/?ticket=nope")" '401'
+assert "a ticket for one plugin is not another's" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/integrator-demo/bundle/?ticket=$TICKET")" '401'
+assert "a bearer still works, as the smoke always did" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP")" '200'
+assert "a ticket for an unknown plugin is a 404" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/x/nope/bundle-ticket -H "Authorization: Bearer $OP" -d '{}')" '404'
+
+# ---- issue #48: a plugin that failed to load is reported, not just logged
+assert "the plugin listing carries a failed list" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"failed":'
+assert "…and it is empty on a healthy instance"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"failed":[]'
+assert "a plugin with a page says so"            "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"bundle":true'
+
 # ---- issue #27: the console runs under a NONCE, not 'unsafe-inline'
 CSPH=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -i '^content-security-policy:')
 assert "the console's CSP carries a nonce"   "$CSPH" "script-src 'self' 'nonce-"
@@ -702,6 +730,41 @@ assert "a member may NOT review" \
 assert "a member may NOT export to disk" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/l10n/export" -H "Authorization: Bearer $BOB" -d '{"locale":"qps"}')" \
   "403"
+
+# ---- session policy (issue #38, OWASP idle + absolute timeouts) -----------------
+echo
+echo "session policy:"
+SP=$(curl -s "$B/api/session-policy" -H "Authorization: Bearer $OP")
+assert "the shipped idle window is OWASP's 30 minutes" "$SP" '"idle_seconds":1800'
+assert "...and the absolute cap is 8 hours"            "$SP" '"absolute_seconds":28800'
+assert "the bounds are published with the policy"      "$SP" '"idle_min"'
+assert "a member may not read the instance policy" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/session-policy" -H "Authorization: Bearer $BOB")" "403"
+assert "an operator may tighten it" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":900,"absolute_seconds":14400,"warn_seconds":60}')" \
+  '"idle_seconds":900'
+# validation is the point: a control that silently ignores a setting is worse than none
+assert "an unknown field is refused, not dropped" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_minutes":30}')" 'unknown field'
+assert "an idle window below the floor is refused" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":5}')" 'at least 60 seconds'
+assert "a warning after the fact is refused" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":300,"warn_seconds":300}')" 'must be less than'
+assert "an absolute cap under the idle window is refused" \
+  "$(curl -s -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" -d '{"idle_seconds":3600,"absolute_seconds":600}')" 'must not be less than'
+# the console needs its own numbers to warn in advance, and gets them per-caller
+assert "whoami carries the caller's effective policy" \
+  "$(curl -s "$B/api/whoami" -H "Authorization: Bearer $OP")" '"session_policy"'
+# a token listing distinguishes a browser session from a machine credential
+TL=$(curl -s "$B/api/tokens" -H "Authorization: Bearer $OP")
+assert "the token listing labels the kind" "$TL" '"kind"'
+assert "the bootstrap credential is a session" "$TL" '"kind":"session"'
+# the org plane is 404 while multi-tenancy is off, like the rest of it
+assert "the org policy plane is invisible single-tenant" \
+  "$(curl -s "$B/api/org/session-policy" -H "Authorization: Bearer $OP")" 'not enabled'
+# put it back so nothing downstream in this smoke runs under a 15-minute window
+curl -s -o /dev/null -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" \
+  -d '{"idle_seconds":1800,"absolute_seconds":28800,"warn_seconds":60}'
 
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

@@ -969,6 +969,50 @@
       (exec* conn
        "ALTER TABLE jobs ADD COLUMN claim_token TEXT"))))
 
+
+;; SEC-1 (issue #38): sessions get an inactivity timeout and an absolute cap, and
+;; enforcing either one needs three things the table never carried.
+;;
+;;   kind             'session' | 'api' | 'worker'. An idle timeout belongs to an
+;;                    INTERACTIVE session and must never touch a machine token: a
+;;                    batch job that runs weekly is idle by design. `name` cannot
+;;                    stand in for this — a login is named "login", but a member
+;;                    added to a team gets a session with no name at all.
+;;   created_epoch    the absolute clock. `created_at` is TEXT CURRENT_TIMESTAMP,
+;;   last_used_epoch  the idle clock.   whose FORMAT DIFFERS BY DIALECT (SQLite
+;;                    "2026-08-21 04:16:09" vs Postgres "…225696-07"), so any rule
+;;                    that compared it would be invisible on one and wrong on the
+;;                    other. Epoch seconds, like expires_at and the quota windows.
+;;
+;; Existing rows default to 'api', NOT 'session'. They include worker tokens and
+;; customers' machine credentials, and silently idling those out is a far worse
+;; upgrade than letting pre-upgrade browser sessions run to their 30-day expiry.
+;; Same call as issue #13 made with a NULL expiry: an upgrade locks nobody out.
+(define m-0032-session-policy
+  (migration "0032-session-policy"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE api_tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'api'"
+       "ALTER TABLE api_tokens ADD COLUMN created_epoch BIGINT"
+       "ALTER TABLE api_tokens ADD COLUMN last_used_epoch BIGINT"))))
+
+;; issue #47: `at` is CURRENT_TIMESTAMP, one-second resolution on SQLite, and `id`
+;; is a random UUID — so two entries written in the same second came back in an
+;; order unrelated to what happened, and a decision could read before the
+;; assessment that caused it.
+;;
+;; `at_us` is epoch MICROSECONDS, and the writer bumps it so that it strictly
+;; increases within a process. Milliseconds were tried first and were not enough:
+;; five writes in a test loop landed in the same millisecond, which is also what
+;; a burst of real audit events does. A number sorts the same on both dialects,
+;; unlike the text timestamp beside it.
+(define m-0033-audit-seq
+  (migration "0033-audit-seq"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE audit_log ADD COLUMN at_us BIGINT"
+       "CREATE INDEX idx_audit_team_us ON audit_log(team_id, at_us)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq))

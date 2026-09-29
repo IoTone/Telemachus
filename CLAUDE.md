@@ -930,6 +930,12 @@ switch), and there is no hot reload.
   `dispatch-tool/artifact` (text + the artifact for the event) share the checks.
 - Kinds: document, table, text, link, image. An unknown kind is an error at
   construction — the console switches on it.
+- **An out-of-process tool may answer with STRUCTURE** (issue #46): the protocol's
+  `result` message takes an optional `result` jsexpr beside `text`. Returning only
+  `text` made every such answer a JSON *string* by the time a workflow bound it,
+  so a step needed an in-process shim to parse what the platform had just
+  stringified. The platform never guesses that a string was meant to be JSON — the
+  plugin says so by sending `result`.
 - **A plugin may register a JOB KIND** (issue #21), through `init!` — the
   documented route, not a fourth `(provide …)`. The loader binds the plugin's id
   while `init!` runs, and the kind must be named **`x.<plugin-id>.<name>`**, the
@@ -942,6 +948,18 @@ switch), and there is no hot reload.
   handler to be strict for it. A plugin kind inherits everything from the row
   (team, user, cap, quota admission, org gate, cancel, lease) and nothing from
   the plugin. Worked example: `x.example-tools.word-count`.
+- **An authenticated page needs a TICKET to be opened** (issue #43). The bundle
+  route wants a bearer and a browser navigation carries none, so
+  `POST /api/x/<id>/bundle-ticket` mints a short-lived ticket bound to (principal,
+  plugin); `?ticket=` opens the page and the response sets it as a cookie scoped
+  to `/api/x/<id>/bundle/` so sub-resources load. Deliberately NOT a session
+  cookie issued at sign-in: the JSON API keeps its no-cookie, no-CSRF-surface
+  property. The console links a plugin with a `bundle/` directory from the Usage
+  tab (`pluginOpen`, which opens the window BEFORE awaiting — a popup blocker
+  refuses one opened after).
+- **`query-param`'s default is `""`, and an empty string is TRUE in Racket.** `(or
+  (query-param req 'x) fallback)` therefore never reaches the fallback — which is
+  how every bundle sub-resource 401'd on its cookie the first time.
 - **Two bundle directories, and the difference is who may read them** (issue #20).
   `plugins/<id>/landing/` is PUBLIC at `/beta/bundle/<id>/` (the funnel a prospect
   is linked to, `public, max-age=300`). `plugins/<id>/bundle/` is the
@@ -1106,6 +1124,114 @@ raco test test/roles-tests.rkt
   asset id when set. Same procedural `regexp-replace*` rule as the title — a
   string replacement would expand `&`.
 
+## Session timeouts (issue #38, slice 70)
+
+`domain/authz/session-policy.rkt` — an **idle** timeout and an **absolute** cap,
+which is what the OWASP Session Management Cheat Sheet asks for. Migration
+`0032-session-policy`; decisions SESS‑1…8 in `docs/design/decisions.md`.
+
+- **Two clocks, because they answer different attacks.** Idle limits an
+  unattended desk; absolute limits a stolen token that is being *used*, which
+  never idles out. Shipped defaults are 30 minutes and 8 hours — the least
+  disruptive ends of OWASP's own bands (15‑30 low risk, 4‑8 for a full-day
+  worker). `null` on a field means no limit on that axis, spelled explicitly so
+  "I did not set this" and "I turned this off" cannot look the same.
+- **Only `kind = 'session'` is governed.** Migration 0032 added `kind`,
+  `created_epoch` and `last_used_epoch` to `api_tokens`. A machine token is idle
+  by design and idling one out is a silent outage, so `api` and `worker` are
+  exempt. **`#:kind` on `issue-token!` defaults to the EXEMPT value**, so a caller
+  who forgets it mints a token that behaves as tokens did before. `name` cannot
+  stand in for the kind: a login is named "login" but a member added to a team
+  gets a session with no name at all.
+- **The epoch columns exist because `created_at` and `last_used_at` are TEXT
+  `CURRENT_TIMESTAMP`, whose format differs by dialect** (SQLite
+  `2026-08-21 04:16:09`, Postgres `…225696-07`). A rule comparing those would be
+  invisible on one and wrong on the other — the same trap `LastModified` set in
+  the S3 listing. Epoch seconds, like `expires_at` and the quota windows.
+- **Two layers: an instance document and `session-policy:<org-id>`**, both in the
+  `instance_settings` table branding and localization already share, so the org
+  layer needed no migration. **An org may TIGHTEN and may never loosen** (SESS‑4):
+  the effective value is the stricter per axis, and an org asking for a week of
+  idle time gets the instance's thirty minutes rather than an error. This is
+  deliberately asymmetric with branding, where the org's document wins whole —
+  branding is cosmetic, this is a control and the instance owns the floor.
+- **Enforced in `resolve-token` and nowhere else**, the one place a bearer becomes
+  a principal. A lapsed row is revoked with a REASON (`expired-idle` /
+  `expired-absolute`) so `GET /api/tokens` can show an operator why a session
+  ended, and so a lapsed session cannot be revived by using it.
+- **A corrupt stored document reads as the shipped posture, not as "no limits".**
+  `normalize` fills every field from the defaults: a control must fail CLOSED.
+- **The upgrade signs nobody out.** Existing rows default to `kind = 'api'` with
+  NULL clocks, so nothing is enforced on them; they still expire on
+  `expires_at`. Existing rows include customers' machine credentials, and
+  breaking those is worse than letting old browser sessions run out.
+- **The console's countdown is driven by the last REQUEST, never by pointer
+  activity** (`S.lastReq`, stamped in `api()`). The server measures requests, so a
+  mouse-driven timer would show a live session the server had already expired.
+  "Stay signed in" issues a real request, which is exactly what refreshes the
+  server's clock. The banner is wired with `addEventListener`, not `data-h-click`,
+  because it lives in the static shell rather than in a render pass.
+- **A live workflow run keeps a session alive** while its view is open: that poll
+  is the console's only recurring request. Nothing else polls, so an idle console
+  really does go idle.
+- **The Admin card talks minutes and hours; the wire talks seconds.** An empty box
+  means null, not zero.
+- `GET`/`PUT /api/session-policy` (`instance:manage`);
+  `GET`/`PUT`/`DELETE /api/org/session-policy` (`org:read` / `org:manage`).
+  `GET /api/whoami` carries the caller's own effective policy, which is what the
+  console counts down against.
+- **The deliberate 400 for a bad policy is pinned in `server-smoke.sh`, NOT in the
+  e2e gate** — that gate fails on any console error and a 400 logs one. Same call
+  the branding theme's refusal made.
+
+```sh
+raco test test/session-policy-tests.rkt   # 19 cases: validation, tightening, both clocks, resolve-token
+bash test/server-smoke.sh                 # the "session policy:" block, 13 assertions
+TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org layer
+```
+
+## Who may call: the peer gate (issues #40, #41)
+
+- **Identity headers are a LOOPBACK convenience, not a login.** `current-principal`
+  falls back to `X-Telemachus-User` / `-Team` when there is no bearer — and until
+  this gate, an instance bound to a network address handed a full principal to
+  anyone who could reach it, ahead of RBAC, scopes, the org gate and session
+  policy, none of which run before a principal exists. `domain/authz/peer.rkt`
+  owns the rule (`peer-trusted?`), so it is unit-testable without a live server;
+  `TELEMACHUS_TRUSTED_HEADER_PEERS` names a reverse proxy that may assert
+  identity, and nothing is trusted for looking private (10.x is somebody else's
+  network).
+- **`POST /api/bootstrap` is loopback-only too**, or gated by
+  `TELEMACHUS_BOOTSTRAP_SECRET` (`X-Telemachus-Bootstrap`, compared in constant
+  time). Before this, a fresh instance on a LAN belonged to whoever called first.
+  The refusal names both paths — a bare 403 on a fresh instance reads as a broken
+  build.
+- The smokes run on localhost, so they exercise the ALLOWED side; the refusal is
+  pinned in `test/peer-tests.rkt` instead. A smoke on the same host can never be
+  a stranger, which is exactly why the gap survived so long.
+
+## Plugins: directories, pages and failures (issues #44, #45, #48)
+
+- **`TELEMACHUS_PLUGINS` is a `:`-separated LIST, searched after the built-in
+  directory.** It used to name the ONE directory to load, so pointing it at a
+  plugin of your own silently removed doc-pipeline and every other shipped one. A
+  literal `-` entry drops the built-ins for a deployment that means to.
+- **A plugin's pages come from where the loader loaded it** (`plugin-dir`), not
+  from `impl-root/plugins`: a plugin outside the checkout used to serve its tools
+  and routes while 404-ing every page it had. The directory is kept beside the
+  listing, never inside it — the listing is JSON on an API and the server's
+  filesystem layout is nobody's business. The listing does carry `bundle: true/false`.
+- **A plugin that fails to load is REPORTED**: `plugin-failures`, `failed` on
+  `GET /api/plugins`, a `WARNING: N plugin(s) FAILED` block at boot, and
+  `TELEMACHUS_PLUGINS_STRICT=1` to refuse to start. It used to be one log line
+  among sixty, which is how a stale `plugins/*/compiled/*.zo` after the 9.3 bump
+  left `example-tools` missing and the instance "healthy".
+- **Two plugins with one id: the first wins and the second is a failure**, rather
+  than a silent shadow.
+- `raco make server/main.rkt` does NOT reach a plugin's entry module (it is
+  `dynamic-require`d), so a Racket upgrade leaves stale `plugins/*/compiled/`
+  bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump.
+
 ## Secrets at rest (issue #19)
 
 `domain/authz/secretbox.rkt` — AES-256-GCM over libcrypto EVP, the same FFI seam
@@ -1158,6 +1284,21 @@ raco test test/roles-tests.rkt
 ```sh
 raco test test/secretbox-tests.rkt        # NIST vectors + the stored-form rules + the three seams
 ```
+
+## The audit log's ordering key (issue #47)
+
+`at` is `CURRENT_TIMESTAMP` — one-second resolution on SQLite — and `id` is a
+random UUID, so entries written in the same second came back in an order unrelated
+to what happened. `audit_log.at_us` (migration `0033-audit-seq`) is epoch
+MICROSECONDS, and `audit-stamp!` bumps it so it strictly increases within the
+process: milliseconds were tried first and a loop of five writes landed in the
+same one. `audit-list` orders `at DESC, at_us DESC, id DESC` — `at` first because
+it is right for rows written before the column existed.
+
+**`test/fold-tests.rkt` builds a half-migrated database** (the world before the
+0022 fold) and runs TODAY'S code against it, so any later migration the code
+depends on has to be in its `also-required` list. A real instance never sees a
+partial schema; that test does.
 
 ## Branding (Admin > Branding)
 

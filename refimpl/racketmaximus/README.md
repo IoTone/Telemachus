@@ -292,7 +292,9 @@ demo runs under:
 
 ```bash
 cd refimpl/racketmaximus
-export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"   # Racket 9.2 CS (apt's 8.2 is too old)
+# Nix is the toolchain: `nix develop` from the repo root pins Racket and exports
+# PLTCOLLECTS for you. (Homebrew/linuxbrew is NOT supported — its glibc mismatch
+# breaks libcrypto, so no SHA-256; apt's Racket is too old.)
 export PLTCOLLECTS="$PWD/pkgs:"                               # resolves cli-kit/db-kit/web-kit
 export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"       # or postgres://user:pass@host:port/db
 export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI-compat (ollama)

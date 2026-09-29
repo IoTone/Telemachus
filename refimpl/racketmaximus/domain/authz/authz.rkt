@@ -23,6 +23,7 @@
          "passwords.rkt"
          sha2-kit                 ; hmac-sha256 (libcrypto) — the token hash
          (only-in "secretbox.rkt" secret-wrap secret-unwrap)   ; secrets at rest (issue #19)
+         "session-policy.rkt"     ; idle + absolute session timeouts (issue #38)
          (only-in "crypto.rkt" constant-time=?))
 
 (provide (struct-out principal)
@@ -34,6 +35,8 @@
          user-role-key user-permissions
          can? require-perm
          issue-token! resolve-token list-tokens revoke-token! SESSION-TTL API-TOKEN-TTL
+         ;; issue #38: callers name the kind of credential they are minting
+         (all-from-out "session-policy.rkt")
          hash-token legacy-hash-token token-pepper-is-default?
          grant! revoke!
          audit! audit-list
@@ -448,7 +451,9 @@
 (define (token-pepper-is-default?) (string=? (token-pepper) DEV-PEPPER))
 (define (hash-token tok)
   (string-append "v1:" (bytes->hex-lower (hmac-sha256 (string->bytes/utf-8 (token-pepper)) (string->bytes/utf-8 tok)))))
-(define TOKEN-SELECT "SELECT user_id, team_id, scopes, status, expires_at, token_hash FROM api_tokens WHERE token_hash = ?")
+(define TOKEN-SELECT
+  (string-append "SELECT user_id, team_id, scopes, status, expires_at, token_hash, "
+                 "kind, created_epoch, last_used_epoch FROM api_tokens WHERE token_hash = ?"))
 ;; the row for a bearer: the current hash first, then the legacy one — and a legacy
 ;; hit is rewritten to the current scheme before it is used
 (define (token-row conn bearer)
@@ -471,20 +476,31 @@
 ;; bootstrap, member-add) is 30 days, an API token issued from the console 90 days.
 (define SESSION-TTL (* 30 24 3600))
 (define API-TOKEN-TTL (* 90 24 3600))
+;; #:kind is what decides whether the session timeouts apply at all (issue #38):
+;; "session" for an interactive sign-in, "api" for a credential a program holds,
+;; "worker" for a pull executor. It defaults to "api" — the exempt value — so a
+;; caller that forgets it produces a token that behaves exactly as tokens did
+;; before, rather than one that silently starts idling out.
 (define (issue-token! conn #:user user-id #:team team-id #:name [name sql-null] #:scopes [scopes '()]
-                      #:ttl [ttl #f])
+                      #:ttl [ttl #f] #:kind [kind API-KIND])
   (define raw (random-token))
   (define tid (new-id))
+  (define now (current-seconds))
   (define expires
     (cond [(eq? ttl 'never) sql-null]
-          [(and (real? ttl) (positive? ttl)) (number->string (+ (current-seconds) (inexact->exact (floor ttl))))]
-          [else (number->string (+ (current-seconds) SESSION-TTL))]))
+          [(and (real? ttl) (positive? ttl)) (number->string (+ now (inexact->exact (floor ttl))))]
+          [else (number->string (+ now SESSION-TTL))]))
   (query-exec conn
-    (string-append "INSERT INTO api_tokens (id, user_id, team_id, name, token_hash, prefix, scopes, expires_at) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    (string-append "INSERT INTO api_tokens (id, user_id, team_id, name, token_hash, prefix, scopes, expires_at, "
+                   "kind, created_epoch, last_used_epoch) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     tid user-id team-id name (hash-token raw)
     (substring raw 0 (min 11 (string-length raw)))
-    (jsexpr->string scopes) expires)
+    (jsexpr->string scopes) expires
+    kind now
+    ;; the idle clock starts at issue, not at first use: a session minted and then
+    ;; abandoned should lapse on the same schedule as one that was used once
+    now)
   (values raw tid))
 
 ;; the row's expires_at as epoch seconds, or #f for never. Tolerates the empty
@@ -498,7 +514,7 @@
 ;; list a team's tokens for management — prefixes only, never the raw token.
 (define (list-tokens conn team-id)
   (for/list ([r (in-list (query-rows conn
-     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at, expires_at "
+     (string-append "SELECT id, name, prefix, scopes, status, last_used_at, created_at, expires_at, kind "
                     "FROM api_tokens WHERE team_id = ? ORDER BY created_at DESC") team-id))])
     (define exp (token-expiry (vector-ref r 7)))
     (hasheq 'id (vector-ref r 0)
@@ -511,7 +527,10 @@
                         "expired" (vector-ref r 4))
             'last_used_at (let ([x (vector-ref r 5)]) (if (sql-null? x) 'null x))
             'created_at (vector-ref r 6)
-            'expires_at (if exp (epoch->iso8601 exp) 'null))))
+            'expires_at (if exp (epoch->iso8601 exp) 'null)
+            ;; issue #38: which credential this is, so an operator can tell a
+            ;; browser session from a machine token before revoking one
+            'kind (nz* (vector-ref r 8)))))
 
 (define (epoch->iso8601 secs)
   (define d (seconds->date secs #f))
@@ -543,12 +562,42 @@
      (define urow (query-maybe-row conn
        "SELECT is_operator, org_id, org_role_key FROM users WHERE id = ?" user-id))
      (define op (and urow (vector-ref urow 0)))
-     (query-exec conn "UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE token_hash = ?"
-                 (vector-ref row 5))
-     (principal user-id (and (number? op) (not (zero? op))) team-id
-                (if (list? scopes) scopes '())
-                (and urow (nz (vector-ref urow 1)))
-                (and urow (nz (vector-ref urow 2))))]))
+     (define org-id (and urow (nz (vector-ref urow 1))))
+     ;; issue #38: the session clocks, evaluated against the policy in force RIGHT
+     ;; NOW rather than against anything frozen into the row at issue time — so
+     ;; tightening the policy takes effect on the next request, not on the next
+     ;; sign-in. OWASP: server-side invalidation is the mandatory half.
+     (define reason
+       (session-timeout-reason (session-policy-for conn org-id)
+                               (nz* (vector-ref row 6))
+                               (epoch-col (vector-ref row 7))
+                               (epoch-col (vector-ref row 8))))
+     (cond
+       [reason
+        ;; revoke, so the next request does not have to recompute the same verdict
+        ;; and so `list-tokens` can show an operator why the session ended
+        (query-exec conn "UPDATE api_tokens SET status = ? WHERE token_hash = ?"
+                    (if (eq? reason 'idle) "expired-idle" "expired-absolute")
+                    (vector-ref row 5))
+        #f]
+       [else
+        (query-exec conn
+          (string-append "UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP, last_used_epoch = ? "
+                         "WHERE token_hash = ?")
+          (current-seconds) (vector-ref row 5))
+        (principal user-id (and (number? op) (not (zero? op))) team-id
+                   (if (list? scopes) scopes '())
+                   org-id
+                   (and urow (nz (vector-ref urow 2))))])]))
+
+;; a TEXT column that should hold a word, as a string ("" when NULL)
+(define (nz* v) (if (or (not v) (sql-null? v)) "" (format "~a" v)))
+;; a BIGINT epoch column, as an integer or #f. Postgres hands back an integer and
+;; SQLite may hand back a string for the same column, so both are accepted.
+(define (epoch-col v)
+  (cond [(or (not v) (sql-null? v)) #f]
+        [(and (real? v) (integer? v)) (inexact->exact v)]
+        [else (let ([n (string->number (format "~a" v))]) (and (exact-integer? n) n))]))
 
 ;; ---- resource grants (sharing) ---------------------------------------------
 (define (grant! conn #:resource-type rtype #:resource-id rid
@@ -580,16 +629,36 @@
                 #:resource-id [resource-id sql-null] #:result [result "ok"] #:meta [meta sql-null])
   (query-exec conn
     (string-append "INSERT INTO audit_log "
-                   "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    (new-id) actor-type actor-id team-id action resource-type resource-id result meta))
+                   "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta, at_us) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    (new-id) actor-type actor-id team-id action resource-type resource-id result meta (audit-stamp!)))
+
+;; issue #47: the ordering key, and the reason it is not simply a clock reading —
+;; a burst of events lands inside one tick whatever the unit, and then the order
+;; is back to whatever the storage feels like. Microseconds, never repeating
+;; within this process: a later write always sorts after an earlier one, and
+;; across processes the wall clock still puts them in the right order.
+(define audit-clock (make-semaphore 1))
+(define last-audit-us (box 0))
+(define (audit-stamp!)
+  (call-with-semaphore audit-clock
+    (lambda ()
+      (define now (inexact->exact (round (* 1000 (current-inexact-milliseconds)))))
+      (define prev (unbox last-audit-us))
+      (define v (if (> now prev) now (add1 prev)))
+      (set-box! last-audit-us v)
+      v)))
 
 ;; recent audit events for a team (newest first), for the management UI.
 (define (audit-list conn team-id #:limit [lim 50] #:offset [off 0])
   (define (nz x) (if (sql-null? x) 'null x))
   (for/list ([r (in-list (query-rows conn
      (string-append "SELECT id, action, actor_type, actor_id, resource_type, resource_id, result, at "
-                    "FROM audit_log WHERE team_id = ? ORDER BY at DESC, id DESC LIMIT ? OFFSET ?")
+                    ;; `at` first — it is right for rows written before at_us
+                    ;; existed — then the microsecond within that second, then the
+                    ;; id so the order is at least stable when neither can say
+                    ;; (issue #47)
+                    "FROM audit_log WHERE team_id = ? ORDER BY at DESC, at_us DESC, id DESC LIMIT ? OFFSET ?")
      team-id lim off))])
     (hasheq 'id (vector-ref r 0) 'action (vector-ref r 1)
             'actor_type (nz (vector-ref r 2)) 'actor_id (nz (vector-ref r 3))

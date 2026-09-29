@@ -84,7 +84,7 @@
   (define-values (raw tid)
     (if (equal? mode "pull")
         (issue-token! conn #:user (principal-user-id p) #:team (principal-team-id p)
-                      #:name (string-append "worker:" name) #:scopes '("jobs:execute") #:ttl 'never)
+                      #:name (string-append "worker:" name) #:scopes '("jobs:execute") #:ttl 'never #:kind WORKER-KIND)
         (values #f #f)))
   (query-exec conn
     (string-append "INSERT INTO executors (id, org_id, name, mode, url, model, secret_key, capabilities, token_id, created_by) "

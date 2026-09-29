@@ -295,6 +295,7 @@ The owner token from §5.1, or any user with `org_owner` / `org_admin`:
 | `POST /api/org/members` | add a person, optionally straight into a team |
 | `GET /api/org/audit` | audit across my company's teams |
 | `GET` · `PUT` · `DELETE /api/org/branding` · `POST /api/org/branding/logo` | the company's own title, tagline and logo (TEN‑2d) — what the console wears on the company's hostname and for its signed-in users; unset = the instance's |
+| `GET` · `PUT` · `DELETE /api/org/session-policy` | the company's own session timeouts (SESS‑4). A company may TIGHTEN the instance's policy and can never loosen it: ask for a looser window and the response hands back the instance's as `effective`. Unset = the instance's |
 
 ```sh
 OWNER=tk_…

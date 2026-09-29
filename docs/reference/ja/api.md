@@ -13,11 +13,14 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/health` | public | — | — | 死活確認：{ok, multitenant} のみ — バージョン、KDF、TLS の状態は GET /api/admin/status にあります。 |
 | GET | `/beta-sdk.js` | public | — | — | Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。 |
 | GET | `/beta/bundle/:plugin/*path` | public | — | — | Tier-Bオンボーディングプラグインのバンドルディレクトリからのファイル |
-| GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache. |
+| POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path. |
+| GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache. |
 | GET | `/beta/template` | public | — | — | Tier-C のサンドボックス化 HTML テンプレート。体験オーバーレイでローカライズされます。 |
 | GET | `/api/config` | public | — | — | 公開インスタンス設定：ホームモード、マルチテナントフラグ、ローカライゼーションポリシー（既定ロケール、利用可能なロケール、切り替えの可否）。サインイン画面はトークンを持つ前に読み込みます。 |
 | GET | `/api/branding` | public | — | — | タイトル、タグライン、ロゴ。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。 |
 | PUT | `/api/branding` | bearer | `instance:manage` | — | インスタンスのタイトルとキャッチコピーを設定してください。 |
+| GET | `/api/session-policy` | bearer | `instance:manage` | — | インスタンスのセッションタイムアウト（issue #38）：idle_seconds、absolute_seconds、warn_seconds と、出荷時の既定値および許容範囲。 |
+| PUT | `/api/session-policy` | bearer | `instance:manage` | — | インスタンスのセッションタイムアウトを設定する。フィールドに null を指定するとその軸に上限を設けない。会社はこれを厳しくできるが、緩めることはできない。 |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | — | インスタンスロゴをアップロード（マークとワードマークを置き換えます） |
 | GET | `/api/i18n/catalog` | public | — | — | ?locale= に対するコンソールの文字列。サーバー側でフォールバックチェーンを通して解決済み。公開：サインイン画面が必要とします。 |
 | PUT | `/api/i18n` | bearer | `instance:manage` | — | インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。 |
@@ -76,6 +79,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/org/members` | org-admin | `org:manage` | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。 |
 | PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | 人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。 |
 | GET | `/api/org/audit` | org-admin | `org:read` | — | 会社の監査ログ。 |
+| GET | `/api/org/session-policy` | org-admin | `org:read` | — | 会社自身のセッションタイムアウト、インスタンスのもの、そしてインスタンスの下限を適用した実効ポリシー。 |
+| PUT | `/api/org/session-policy` | org-admin | `org:manage` | — | 会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。 |
+| DELETE | `/api/org/session-policy` | org-admin | `org:manage` | — | 会社のセッションタイムアウトを取り下げる；そのユーザーはインスタンスのポリシーに戻ります。 |
 | GET | `/api/org/branding` | org-admin | `org:read` | — | 会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。 |
 | PUT | `/api/org/branding` | org-admin | `org:manage` | — | 会社のタイトル・タグライン・ロゴを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。 |
 | DELETE | `/api/org/branding` | org-admin | `org:manage` | — | 会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。 |

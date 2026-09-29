@@ -28,12 +28,23 @@
 (define BLOB-ROOT (make-temporary-file "telemachus-fold-blobs-~a" 'directory))
 (current-blob-root BLOB-ROOT)
 
-;; the migrations BEFORE the fold — the world as slice 54 left it
+;; the migrations BEFORE the fold — the world as slice 54 left it.
+;;
+;; Plus any LATER migration that today's code cannot run without: this test is
+;; the one place the platform ever meets a half-migrated database, because a real
+;; instance applies every migration at startup before a line of code runs. When
+;; `audit!` began writing `at_us` (issue #47), `bootstrap!` here started failing
+;; on a column the pre-fold world had never heard of. Add to this list when that
+;; happens again; it is a statement about the CODE's requirements, not about the
+;; fold.
+(define also-required '("0033-audit-seq"))
 (define pre-fold
-  (let loop ([ms all-migrations] [acc '()])
-    (cond [(null? ms) (reverse acc)]
-          [(equal? (migration-id (car ms)) "0022-fold-documents") (reverse acc)]
-          [else (loop (cdr ms) (cons (car ms) acc))])))
+  (append
+   (let loop ([ms all-migrations] [acc '()])
+     (cond [(null? ms) (reverse acc)]
+           [(equal? (migration-id (car ms)) "0022-fold-documents") (reverse acc)]
+           [else (loop (cdr ms) (cons (car ms) acc))]))
+   (filter (lambda (m) (member (migration-id m) also-required)) all-migrations)))
 
 (test-case "the fold carries every document across, losslessly"
   (define c (fresh-db #:migrate? #f))
