@@ -52,7 +52,7 @@
 
 \title{Telemachus for Developers\\[0.5em]\large A small book about a Racket-first, self-hosted team AI platform}
 \author{IoTone, Inc.}
-\date{September 2026 --- version 0.2.0}
+\date{September 2026 --- version 0.3.0}
 
 \begin{document}
 \ifpdfonly
@@ -67,7 +67,7 @@
     \vspace{1.2cm}
     {\large IoTone, Inc.\par}
     \vspace{0.3em}
-    {\large September 2026 --- version 0.2.0\par}
+    {\large September 2026 --- version 0.3.0\par}
     \vfill
     {\small\itshape Telemachus, a concept sketch: a young Ithacan with a scroll, Mentor's owl on his shoulder.\par}
   \end{titlepage}
@@ -100,7 +100,7 @@ These are not slogans; each one has changed a design at least once.
 
 \begin{itemize}
 \item \textbf{Clean MIT, pure open source.} No open core, no held-back tier. Concepts may be reused from the earlier Python system, but only owner-authored Racket and owner-authored documents were carried over.
-\item \textbf{Racket first.} The reference implementation is Racket 9.2 CS. Non-Racket plugin authoring is explicitly not a requirement; where a data format is the contract (workflow specs, tool schemas), it is because the format earns its place, not because Racket is a barrier.
+\item \textbf{Racket first.} The reference implementation is Racket 9.3 CS. Non-Racket plugin authoring is explicitly not a requirement; where a data format is the contract (workflow specs, tool schemas), it is because the format earns its place, not because Racket is a barrier.
 \item \textbf{Deterministic dependencies.} Nix is the toolchain, and there is no second one. No Homebrew, no conda, no ``python spice kitchen'' on the deploy host. A PDF renderer is a dependency; so is a graph-visualization library; both were declined until someone needs them.
 \item \textbf{Contract first, backends swappable.} The durable product is the SDK contract, the HTTP API, the security model and the protocols. A second implementation would target those, not the Racket code. The generated reference exists so that the contract is written down by the code itself.
 \item \textbf{Self-hosted and privacy-first.} Bytes never leave the instance unless the operator points the model URL at something external. The blob store is content-addressed inside an org's namespace precisely so that two tenants can never learn about each other's files.
@@ -119,7 +119,7 @@ refimpl/racketmaximus/
   server/main.rkt   the HTTP server: handlers, boot, plugin loading
   server/routes.rkt the declared route table
   domain/           the model: authz, repo, flow, sched, quota, i18n, kg, ...
-  pkgs/             db-kit, web-kit, cli-kit: small libraries with no platform knowledge
+  pkgs/             db-kit, web-kit, cli-kit, sha2-kit: libraries with no platform knowledge
   plugins/          shipped plugins: doc-indexer, doc-pipeline, knowledge-graph, rs3, ...
   cli/              telemachus-localize, telemachus-docs, telemachus-worker,
                     telemachus-secrets
@@ -134,7 +134,7 @@ refimpl/racketmaximus/
 \section{The toolchain}
 
 \begin{lstlisting}
-nix develop                         # from the repo root; pins Racket 9.2, exports PLTCOLLECTS
+nix develop                         # from the repo root; pins Racket 9.3, exports PLTCOLLECTS
 cd refimpl/racketmaximus
 raco make server/main.rkt           # precompile; startup is slow otherwise
 raco test test/*-tests.rkt          # the unit suite
@@ -194,7 +194,7 @@ Module & Owns \\
 \bottomrule
 \end{longtable}
 
-\section{The three small libraries}
+\section{The four small libraries}
 
 \texttt{pkgs/} holds code that knows nothing about Telemachus and could be lifted out.
 
@@ -202,7 +202,9 @@ Module & Owns \\
 
 \texttt{web-kit} wraps Racket's \texttt{web-server} for the JSON control plane and adds \texttt{web-kit/http1}, an HTTP/1.1 listener that treats request bodies as ports. The second exists because the S3 endpoint moves multi-gigabyte files and because \texttt{Expect: 100-continue} has to be answered lazily, on the first read of the body, so that a handler refusing before it reads never receives the bytes at all.
 
-\texttt{cli-kit} is argument parsing for the two command-line tools.
+\texttt{cli-kit} is argument parsing for the command-line tools, and an EXIT CONTRACT. A tool could say ``it worked'' and ``it broke''; it had no way to say the domain \emph{refused} the input, which is a different answer needing a different response --- fix the input, versus page an operator. Four outcomes now: \texttt{0} ran, with the result on stdout; \texttt{2} refused, with an error object that always carries reasons; \texttt{1} could not run, with stdout \emph{empty}; \texttt{64} CLI misuse, on stderr. Two of those are enforced rather than documented: a refusal with no reasons is rejected (it is a 1 wearing a 2's exit code), and a run that did not happen writes nothing to stdout, because it must not hand anyone a document.
+
+\texttt{sha2-kit} is SHA-256 and HMAC-SHA-256 over libcrypto. It is a package rather than a module inside \texttt{domain/} because it has no platform knowledge, and separate from \texttt{crypto.rkt} --- whose contract is ``no native dependencies'' --- because it takes the FFI. Correctness is pinned to the NIST vectors: the risk in a binding is a wrong signature, and a vector says so at once.
 
 \section{One principal, one check}
 
@@ -251,7 +253,7 @@ Some rules that came from those runs:
 
 \begin{itemize}
 \item Quote reserved words (\texttt{"window"}).
-\item Time windows are epoch integer columns, not timestamp arithmetic. \texttt{CURRENT\_TIMESTAMP} has second resolution and its text form differs by dialect; anything that must order ``newest first'' within a second carries an epoch-millisecond column.
+\item Time windows are epoch integer columns, not timestamp arithmetic. \texttt{CURRENT\_TIMESTAMP} has second resolution and its text form differs by dialect; anything that must order ``newest first'' within a second carries an epoch column of its own. The audit log learned this late: it ordered by its text timestamp and then by a random UUID, so two entries written in the same second came back in an order unrelated to what happened --- a review decision could read before the assessment that caused it. Note what was \emph{not} enough: milliseconds. A burst of writes lands inside one tick whatever the unit, so the column is microseconds AND the writer bumps it to stay strictly increasing within the process. A clock reading is not an ordering key.
 \item Use \texttt{ON CONFLICT ... DO NOTHING} or \texttt{DO UPDATE} for upserts; both dialects support the syntax with a named conflict target.
 \item A \texttt{hasheq}'s iteration order is not stable across Racket processes. Never depend on it for anything that must be reproducible --- JSON written to disk, the order of columns in a generated table.
 \end{itemize}
@@ -302,7 +304,9 @@ Sharing is the capability model of the previous chapter, over the grants table t
 
 \section{The registry}
 
-Built-in tools, plugin tools and workflow tools all land in one registry, tagged with their source. A team may disable any tool; the agent offers only enabled tools to the model and dispatch refuses disabled ones. Plugins run in-process with platform privileges --- placing one in \texttt{plugins/} is the consent --- and sandboxed out-of-process plugins exist as a separate, capability-scoped mechanism.
+Built-in tools, plugin tools and workflow tools all land in one registry, tagged with their source. A team may disable any tool; the agent offers only enabled tools to the model and dispatch refuses disabled ones. Plugins run in-process with platform privileges --- placing one in \texttt{plugins/} is the consent --- and sandboxed out-of-process plugins exist as a separate, capability-scoped mechanism, speaking newline-delimited JSON over stdio.
+
+An out-of-process tool may answer with STRUCTURE, not only text: its result message carries an optional structured field beside the human one. Without it every such answer became a JSON \emph{string} by the time a workflow bound it, so a later step needed an in-process shim whose whole job was to parse what the platform had just stringified --- while an in-process tool had been free to return a value for slices. The platform never guesses that a string was meant to be JSON; the plugin says so by sending the structured field.
 
 \section{The model seam}
 
@@ -476,6 +480,14 @@ A \emph{model role} resolves to an executor name: the team's setting, then an en
 \chapterart{art/ch-14-secrets.png}
 \chapter{Secrets and the front door}
 
+\section{Who may call at all}
+
+Before any of this: a request has to become a principal, and for a long time it could become one too easily. With no bearer token, the server fell back to two HEADERS --- \texttt{X-Telemachus-User} and \texttt{X-Telemachus-Team} --- and resolved them to that user. On a laptop that is a convenience: a script acts as somebody without minting a token. On an instance bound to a network address it was a login, and a free one: any caller on that network was whoever they said they were, with every permission that user holds. Note where this sits --- \emph{before} role checks, scopes, the org gate and session policy, none of which run until a principal exists. An identity mistake at that layer cannot be caught by any control above it.
+
+The headers are honoured only from a trusted peer now: loopback, or an address the operator names in \texttt{TELEMACHUS\_TRUSTED\_HEADER\_PEERS} because a reverse proxy really does terminate there. Nothing is trusted for looking private --- ``10.x is internal'' is an assumption about somebody else's network. \texttt{POST /api/bootstrap} is gated the same way, because an un-bootstrapped instance belongs to whoever calls it first, and on a LAN that is a stranger; an operator who cannot reach loopback presents a secret instead.
+
+The rule lives in its own small module so it can be tested directly. That matters more than it sounds: every smoke runs on the same host as the server, so a smoke can never \emph{be} a stranger, and this gap survived a year of them.
+
 \section{What is hashed, and what cannot be}
 
 Passwords and API tokens are stored as hashes --- a token as a peppered HMAC-SHA-256 with the pepper in the environment, so a database dump without the process's environment cannot be replayed. Rotating the pepper signs everyone out at once, which is a fine emergency action and the reason it is rotatable. Tokens also expire now: a session after thirty days, a console-issued API token after ninety, and a row with no expiry is still ``never'', so an upgrade signs nobody out.
@@ -499,6 +511,16 @@ Two details carry weight. Each value is sealed with its own column and row id as
 A password can be changed and an access key re-issued. A TOTP seed cannot be rotated by using it, which is what made a leaked one permanent --- so it is revocable: a user can turn their own off, and an operator can revoke anyone's, both audited. That covers the leak. It does not cover the lost phone, so enrolment also hands out ten single-use \textbf{recovery codes}, and a code is accepted anywhere a TOTP code is. Unlike the seed, a code \emph{is} compared, so it is hashed like a token.
 
 The small decisions are where the value is: matching forgives case and dashes, and the alphabet drops the characters people confuse, because these are read aloud and typed off paper; spending a code is the same statement that matches it, so two simultaneous sign-ins cannot both spend one; a spent row is kept rather than deleted, so ``already used'' stays distinguishable from ``never issued''; re-issuing replaces the whole set, because a set on paper should be the whole truth about what opens the account; and revoking the second factor deletes the codes with it.
+
+\section{How long a session lasts}
+
+Two clocks, because they answer different attacks. An \textbf{idle} timeout limits an unattended desk; an \textbf{absolute} cap limits a stolen token that is being used, which never idles out. The shipped defaults are thirty minutes and eight hours --- the least disruptive ends of OWASP's own bands --- and \texttt{null} on either means no limit on that axis, spelled explicitly so that ``I did not set this'' and ``I turned this off'' cannot look the same.
+
+Only a SESSION is governed. A machine token is idle by design, and idling one out is a silent outage, so API and worker tokens are exempt --- and the parameter that says which a token is defaults to the exempt value, so a caller who forgets it mints a token that behaves as tokens always did. The clocks are epoch columns rather than the text timestamps beside them, because a text \texttt{CURRENT\_TIMESTAMP} formats differently on each dialect and a rule comparing those would be invisible on one and wrong on the other.
+
+An instance sets the policy and a company may TIGHTEN it, never loosen it: the effective value is the stricter of the two per axis. That is deliberately the opposite of branding, where the company's document wins whole --- branding is cosmetic, this is a control, and the instance owns the floor. Enforcement is in \texttt{resolve-token} and nowhere else, the one place a bearer becomes a principal; a lapsed session is revoked with a reason, so the token list can say why it ended and a lapsed session cannot be revived by using it.
+
+The console counts down against the last REQUEST, not against pointer activity. The server measures requests, so a mouse-driven timer would cheerfully show a live session the server had already expired.
 
 \section{The console's policy}
 
@@ -526,11 +548,21 @@ A plugin is a directory with a manifest and an entry module, loaded at boot. It 
 \item \textbf{Job kinds} --- registered from \texttt{init!}, named \texttt{x.<plugin-id>.<name>}. A plugin kind is an ordinary job: the enqueuing team and user, the concurrency cap, quota admission, the org gate, cancellation and the lease all apply, and none of it is inherited from the plugin. A remote kind must supply a validator, since there is no in-process handler to be strict for it.
 \end{itemize}
 
+\section{Where plugins are found, and what happens when one is not}
+
+The built-in directory is always searched; \texttt{TELEMACHUS\_PLUGINS} adds more, as a \texttt{:}-separated list, and a literal \texttt{-} entry drops the built-ins for a deployment that means to ship only its own. It used to name the ONE directory to load, so adding a plugin of your own silently removed the document pipeline and every other shipped one --- an instance that came up looking healthy with its workflows gone.
+
+That shape --- healthy-looking and quietly missing --- is worth naming, because the loader had a second instance of it. A plugin that throws while loading is caught, logged and skipped, which is right: one bad plugin must not stop the server. But it was ONLY logged, one line among sixty, and the instance then served an API with that plugin's tools, workflows, routes and job kinds simply absent. Failures are kept now: a \texttt{failed} list beside the plugin listing, a warning block at boot that says how many and why, and a strict mode that refuses to start at all. Two plugins claiming one id is a failure too, rather than a silent shadow.
+
+A related trap, since it produced exactly this: \texttt{raco make} does not reach a plugin's entry module, because the loader \texttt{dynamic-require}s it. A Racket upgrade therefore leaves stale bytecode under \texttt{plugins/<id>/compiled/} that fails to load --- and before the change above, said so in one line nobody read.
+
 \section{Screens of your own}
 
 A plugin serves its own pages from two directories, and the difference between them is who may read them. \texttt{landing/} is public at \texttt{/beta/bundle/<id>/} and publicly cached --- it is a marketing funnel a prospect is linked to. \texttt{bundle/} is authenticated at \texttt{/api/x/<id>/bundle/}, requires a bearer token, and is answered \texttt{private, no-store}. Customer screens belong in the second; before it existed there was only the first, and serving a signed-in screen set from it would have put customer pages behind a public cache.
 
 Assets ship inside the bundle. The console's policy is same-origin, so a CDN font or script is blocked --- deliberately.
+
+Two things about that authenticated directory are worth knowing before you build on it. Its files are served from where the LOADER found the plugin, not from a fixed path under the checkout: a plugin loaded from elsewhere used to serve its tools and routes perfectly while every page it had came back 404. And a page there cannot simply be opened in a browser, because the token lives in the console's storage and a navigation carries no bearer --- the smoke passed for a year because \texttt{curl} sends a header a browser never will. Opening one means minting a short-lived TICKET with the token you do have; the first response sets it as a cookie scoped to that plugin's bundle path, so the page's own script and stylesheet follow without it trailing through every URL. Not a session cookie issued at sign-in: the JSON API keeps its no-cookie, no-CSRF-surface property, and this one reaches nothing but one plugin's static files.
 
 \section{Wearing the customer's colours}
 
