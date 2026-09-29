@@ -629,16 +629,36 @@
                 #:resource-id [resource-id sql-null] #:result [result "ok"] #:meta [meta sql-null])
   (query-exec conn
     (string-append "INSERT INTO audit_log "
-                   "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    (new-id) actor-type actor-id team-id action resource-type resource-id result meta))
+                   "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta, at_us) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    (new-id) actor-type actor-id team-id action resource-type resource-id result meta (audit-stamp!)))
+
+;; issue #47: the ordering key, and the reason it is not simply a clock reading —
+;; a burst of events lands inside one tick whatever the unit, and then the order
+;; is back to whatever the storage feels like. Microseconds, never repeating
+;; within this process: a later write always sorts after an earlier one, and
+;; across processes the wall clock still puts them in the right order.
+(define audit-clock (make-semaphore 1))
+(define last-audit-us (box 0))
+(define (audit-stamp!)
+  (call-with-semaphore audit-clock
+    (lambda ()
+      (define now (inexact->exact (round (* 1000 (current-inexact-milliseconds)))))
+      (define prev (unbox last-audit-us))
+      (define v (if (> now prev) now (add1 prev)))
+      (set-box! last-audit-us v)
+      v)))
 
 ;; recent audit events for a team (newest first), for the management UI.
 (define (audit-list conn team-id #:limit [lim 50] #:offset [off 0])
   (define (nz x) (if (sql-null? x) 'null x))
   (for/list ([r (in-list (query-rows conn
      (string-append "SELECT id, action, actor_type, actor_id, resource_type, resource_id, result, at "
-                    "FROM audit_log WHERE team_id = ? ORDER BY at DESC, id DESC LIMIT ? OFFSET ?")
+                    ;; `at` first — it is right for rows written before at_us
+                    ;; existed — then the microsecond within that second, then the
+                    ;; id so the order is at least stable when neither can say
+                    ;; (issue #47)
+                    "FROM audit_log WHERE team_id = ? ORDER BY at DESC, at_us DESC, id DESC LIMIT ? OFFSET ?")
      team-id lim off))])
     (hasheq 'id (vector-ref r 0) 'action (vector-ref r 1)
             'actor_type (nz (vector-ref r 2)) 'actor_id (nz (vector-ref r 3))

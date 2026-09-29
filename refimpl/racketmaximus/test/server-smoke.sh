@@ -569,6 +569,34 @@ assert "model roles: set to an executor"       "$(curl -s -X PUT $B/api/model-ro
 assert "model roles: a member cannot set"      "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $BOB" -d '{"roles":{"utility":null}}')" 'Forbidden: settings:manage'
 assert "model roles: cleared"                  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $OP" -d '{"roles":{"utility":null}}')" '"utility":null'
 
+# ---- issue #40: identity headers still work from LOOPBACK (local tooling), and
+# the peer rule that refuses them from anywhere else is unit-tested in
+# test/peer-tests.rkt — a smoke running on the same host cannot be a stranger.
+assert "identity headers work from loopback" "$(curl -s $B/api/whoami -H 'X-Telemachus-User: alice' -H 'X-Telemachus-Team: default')" '"is_operator":true'
+assert "…and no headers is still a 401"      "$(curl -s -o /dev/null -w '%{http_code}' $B/api/whoami)" '401'
+
+# ---- issue #41: bootstrap closed after first use, whatever the caller presents
+assert "bootstrap refuses a second run"      "$(curl -s -X POST $B/api/bootstrap -d '{"username":"mallory","password":"pw-pw-pw1"}')" 'Already initialized'
+
+# ---- issue #43: an authenticated plugin page can be OPENED in a browser
+TKT=$(curl -s -X POST $B/api/x/example-tools/bundle-ticket -H "Authorization: Bearer $OP" -d '{}')
+assert "a bundle ticket is minted"           "$TKT" '"ticket":"'
+assert "…with the url to open"               "$TKT" '"url":"/api/x/example-tools/bundle/?ticket='
+TICKET=$(printf '%s' "$TKT" | grep -oP '"ticket":\s*"\K[^"]+')
+assert "the page opens with the ticket, no bearer" "$(curl -s "$B/api/x/example-tools/bundle/?ticket=$TICKET")" 'Word count'
+assert "…and sets a cookie scoped to that bundle" "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'tmx_bundle='
+assert "…HttpOnly and SameSite=Strict"        "$(curl -s -D- -o /dev/null "$B/api/x/example-tools/bundle/?ticket=$TICKET" | tr -d '\r' | grep -i '^set-cookie:')" 'HttpOnly; SameSite=Strict'
+assert "a sub-resource loads on the cookie alone" "$(curl -s -o /dev/null -w '%{http_code}' -H "Cookie: tmx_bundle=$TICKET" $B/api/x/example-tools/bundle/index.html)" '200'
+assert "a made-up ticket is refused"          "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/example-tools/bundle/?ticket=nope")" '401'
+assert "a ticket for one plugin is not another's" "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/integrator-demo/bundle/?ticket=$TICKET")" '401'
+assert "a bearer still works, as the smoke always did" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/x/example-tools/bundle/ -H "Authorization: Bearer $OP")" '200'
+assert "a ticket for an unknown plugin is a 404" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/x/nope/bundle-ticket -H "Authorization: Bearer $OP" -d '{}')" '404'
+
+# ---- issue #48: a plugin that failed to load is reported, not just logged
+assert "the plugin listing carries a failed list" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"failed":'
+assert "…and it is empty on a healthy instance"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"failed":[]'
+assert "a plugin with a page says so"            "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"bundle":true'
+
 # ---- issue #27: the console runs under a NONCE, not 'unsafe-inline'
 CSPH=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -i '^content-security-policy:')
 assert "the console's CSP carries a nonce"   "$CSPH" "script-src 'self' 'nonce-"

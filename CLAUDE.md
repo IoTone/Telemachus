@@ -930,6 +930,12 @@ switch), and there is no hot reload.
   `dispatch-tool/artifact` (text + the artifact for the event) share the checks.
 - Kinds: document, table, text, link, image. An unknown kind is an error at
   construction — the console switches on it.
+- **An out-of-process tool may answer with STRUCTURE** (issue #46): the protocol's
+  `result` message takes an optional `result` jsexpr beside `text`. Returning only
+  `text` made every such answer a JSON *string* by the time a workflow bound it,
+  so a step needed an in-process shim to parse what the platform had just
+  stringified. The platform never guesses that a string was meant to be JSON — the
+  plugin says so by sending `result`.
 - **A plugin may register a JOB KIND** (issue #21), through `init!` — the
   documented route, not a fourth `(provide …)`. The loader binds the plugin's id
   while `init!` runs, and the kind must be named **`x.<plugin-id>.<name>`**, the
@@ -942,6 +948,18 @@ switch), and there is no hot reload.
   handler to be strict for it. A plugin kind inherits everything from the row
   (team, user, cap, quota admission, org gate, cancel, lease) and nothing from
   the plugin. Worked example: `x.example-tools.word-count`.
+- **An authenticated page needs a TICKET to be opened** (issue #43). The bundle
+  route wants a bearer and a browser navigation carries none, so
+  `POST /api/x/<id>/bundle-ticket` mints a short-lived ticket bound to (principal,
+  plugin); `?ticket=` opens the page and the response sets it as a cookie scoped
+  to `/api/x/<id>/bundle/` so sub-resources load. Deliberately NOT a session
+  cookie issued at sign-in: the JSON API keeps its no-cookie, no-CSRF-surface
+  property. The console links a plugin with a `bundle/` directory from the Usage
+  tab (`pluginOpen`, which opens the window BEFORE awaiting — a popup blocker
+  refuses one opened after).
+- **`query-param`'s default is `""`, and an empty string is TRUE in Racket.** `(or
+  (query-param req 'x) fallback)` therefore never reaches the fallback — which is
+  how every bundle sub-resource 401'd on its cookie the first time.
 - **Two bundle directories, and the difference is who may read them** (issue #20).
   `plugins/<id>/landing/` is PUBLIC at `/beta/bundle/<id>/` (the funnel a prospect
   is linked to, `public, max-age=300`). `plugins/<id>/bundle/` is the
@@ -1172,6 +1190,48 @@ bash test/server-smoke.sh                 # the "session policy:" block, 13 asse
 TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org layer
 ```
 
+## Who may call: the peer gate (issues #40, #41)
+
+- **Identity headers are a LOOPBACK convenience, not a login.** `current-principal`
+  falls back to `X-Telemachus-User` / `-Team` when there is no bearer — and until
+  this gate, an instance bound to a network address handed a full principal to
+  anyone who could reach it, ahead of RBAC, scopes, the org gate and session
+  policy, none of which run before a principal exists. `domain/authz/peer.rkt`
+  owns the rule (`peer-trusted?`), so it is unit-testable without a live server;
+  `TELEMACHUS_TRUSTED_HEADER_PEERS` names a reverse proxy that may assert
+  identity, and nothing is trusted for looking private (10.x is somebody else's
+  network).
+- **`POST /api/bootstrap` is loopback-only too**, or gated by
+  `TELEMACHUS_BOOTSTRAP_SECRET` (`X-Telemachus-Bootstrap`, compared in constant
+  time). Before this, a fresh instance on a LAN belonged to whoever called first.
+  The refusal names both paths — a bare 403 on a fresh instance reads as a broken
+  build.
+- The smokes run on localhost, so they exercise the ALLOWED side; the refusal is
+  pinned in `test/peer-tests.rkt` instead. A smoke on the same host can never be
+  a stranger, which is exactly why the gap survived so long.
+
+## Plugins: directories, pages and failures (issues #44, #45, #48)
+
+- **`TELEMACHUS_PLUGINS` is a `:`-separated LIST, searched after the built-in
+  directory.** It used to name the ONE directory to load, so pointing it at a
+  plugin of your own silently removed doc-pipeline and every other shipped one. A
+  literal `-` entry drops the built-ins for a deployment that means to.
+- **A plugin's pages come from where the loader loaded it** (`plugin-dir`), not
+  from `impl-root/plugins`: a plugin outside the checkout used to serve its tools
+  and routes while 404-ing every page it had. The directory is kept beside the
+  listing, never inside it — the listing is JSON on an API and the server's
+  filesystem layout is nobody's business. The listing does carry `bundle: true/false`.
+- **A plugin that fails to load is REPORTED**: `plugin-failures`, `failed` on
+  `GET /api/plugins`, a `WARNING: N plugin(s) FAILED` block at boot, and
+  `TELEMACHUS_PLUGINS_STRICT=1` to refuse to start. It used to be one log line
+  among sixty, which is how a stale `plugins/*/compiled/*.zo` after the 9.3 bump
+  left `example-tools` missing and the instance "healthy".
+- **Two plugins with one id: the first wins and the second is a failure**, rather
+  than a silent shadow.
+- `raco make server/main.rkt` does NOT reach a plugin's entry module (it is
+  `dynamic-require`d), so a Racket upgrade leaves stale `plugins/*/compiled/`
+  bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump.
+
 ## Secrets at rest (issue #19)
 
 `domain/authz/secretbox.rkt` — AES-256-GCM over libcrypto EVP, the same FFI seam
@@ -1224,6 +1284,21 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
 ```sh
 raco test test/secretbox-tests.rkt        # NIST vectors + the stored-form rules + the three seams
 ```
+
+## The audit log's ordering key (issue #47)
+
+`at` is `CURRENT_TIMESTAMP` — one-second resolution on SQLite — and `id` is a
+random UUID, so entries written in the same second came back in an order unrelated
+to what happened. `audit_log.at_us` (migration `0033-audit-seq`) is epoch
+MICROSECONDS, and `audit-stamp!` bumps it so it strictly increases within the
+process: milliseconds were tried first and a loop of five writes landed in the
+same one. `audit-list` orders `at DESC, at_us DESC, id DESC` — `at` first because
+it is right for rows written before the column existed.
+
+**`test/fold-tests.rkt` builds a half-migrated database** (the world before the
+0022 fold) and runs TODAY'S code against it, so any later migration the code
+depends on has to be in its `also-required` list. A real instance never sees a
+partial schema; that test does.
 
 ## Branding (Admin > Branding)
 

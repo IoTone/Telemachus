@@ -56,7 +56,8 @@
    ;; issue #20: the authenticated counterpart. `bundle/` is reserved by the
    ;; platform under every plugin's prefix, and core routes match before plugin
    ;; ones, so a plugin cannot serve its own screens from a public cached path.
-   (R "GET" "/api/x/:plugin/bundle/*path" 'plugin-bundle #:doc "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache.")
+   (R "POST" "/api/x/:plugin/bundle-ticket" 'plugin-bundle-ticket #:doc "Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path.")
+   (R "GET" "/api/x/:plugin/bundle/*path" 'plugin-bundle #:doc "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.")
    (R "GET" "/beta/template" 'beta-template #:auth 'public #:doc "The Tier-C sandboxed HTML template, localized by the experience overlay.")
 
    ;; ---- instance: config, branding, localization ------------------------------------

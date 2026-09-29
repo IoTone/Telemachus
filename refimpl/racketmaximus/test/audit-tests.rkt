@@ -2,7 +2,7 @@
 
 ;; test/audit-tests.rkt — audit-log surfacing.  raco test test/audit-tests.rkt
 
-(require rackunit db-kit/portable
+(require rackunit racket/list db-kit/portable
          db-kit/migrate
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
@@ -23,3 +23,25 @@
   ;; another team's events are not visible
   (define other (create-team! c #:name "Other" #:slug "other"))
   (check-equal? (length (audit-list c other)) 0))
+
+;; ---- ordering inside one second (issue #47) ----------------------------------
+
+(test-case "entries written in the same second come back newest first"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  ;; ten in a row: on SQLite these all land in the same `at` second, which is
+  ;; exactly the case that used to come back in UUID order — a review decision
+  ;; could read before the assessment that caused it
+  (for ([i (in-range 10)])
+    (audit! c #:action (format "test.event.~a" i) #:team-id tid #:actor-type "user" #:actor-id uid))
+  (define actions (map (lambda (e) (hash-ref e 'action)) (audit-list c tid)))
+  (check-equal? (take actions 10)
+                (for/list ([i (in-range 9 -1 -1)]) (format "test.event.~a" i))
+                "newest first, in the order they were written")
+  ;; the ordering key is stored, not derived at read time
+  ;; bootstrap writes one of its own, so this is the ten plus it
+  (define us (query-list c "SELECT at_us FROM audit_log WHERE team_id = ? ORDER BY at_us" tid))
+  (check-equal? (length us) 11)
+  (check-true (andmap number? us))
+  (check-true (apply < us) "strictly increasing, so a burst inside one tick still orders")
+  (disconnect c))

@@ -14,6 +14,12 @@
   :root{ --bg:#0b1a2b; --panel:#12253a; --panel2:#17304a; --line:#24384f; --fg:#f2ede1;
          --muted:#93a4b8; --accent:#6fa0d1; --accent2:#245e96; --accent3:#2b6ba8;
          --gold:#c9a227; --ok:#8fae52; --bad:#e0725f; --warn:#d9a441; }
+  /* issue #42: an author `display` rule beats the browser's own
+     [hidden]{display:none}, so anything hidden with the attribute AND given a
+     display by a class showed anyway — which is exactly what happened to the
+     inactivity bar, and then again in a downstream page that copied the pattern.
+     One rule, once, rather than a `.thing[hidden]` for every future thing. */
+  [hidden]{display:none !important}
   *{box-sizing:border-box} html,body{margin:0;height:100%}
   body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--font,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif)}
   a{color:var(--accent)} button{font:inherit;cursor:pointer}
@@ -202,6 +208,17 @@ async function loadCatalog(){
 // screen has to render it for someone who has no token yet. Defaults keep the
 // shipped identity, so an untouched instance still has a name.
 S.brand = {title:'Telemachus', tagline:'', logo:'', logoUrl:''};
+// Mint a bundle ticket and open the plugin's page (issue #43). The window is
+// opened FIRST, synchronously: a popup blocker refuses a window opened after an
+// await, and the user's click is what it wants to see.
+async function pluginOpen(id){
+  const w = window.open('', '_blank');
+  const r = await api('/api/x/'+encodeURIComponent(id)+'/bundle-ticket', {method:'POST', body:{}});
+  if(r.ok && r.json && r.json.url){ if(w) w.location = r.json.url; else window.location = r.json.url; }
+  else { if(w) w.close(); toast((r.json&&r.json.error)||'error'); }
+}
+window.pluginOpen = pluginOpen;
+
 async function loadBranding(){
   const r = await api('/api/branding');
   if(r.ok && r.json) S.brand = Object.assign(S.brand, r.json);
@@ -536,7 +553,12 @@ async function usageView(){
       <td>${x.source==='built-in'?'<span class="badge">built-in</span>':`<span class="badge ok">🔌 ${esc(x.source)}</span>`}</td>
       <td>${x.enabled?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td>
       <td>${manage?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleTool((x.name),(!x.enabled)))}">${x.enabled?t('disable'):t('enable')}</button>`:''}</td></tr>`).join('');
-  const plugLine = plugins.length ? `<p class="muted" style="margin:0 0 8px">🔌 ${plugins.map(p=>esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
+  // issue #43: a plugin with a page gets a link. Opening it needs a ticket — the
+  // page is authenticated and a browser navigation carries no bearer — so the
+  // link mints one and opens the URL the server hands back.
+  const plugLine = plugins.length ? `<p class="muted" style="margin:0 0 8px">🔌 ${plugins.map(p=>
+    p.bundle ? `<a href="#" data-h-click="${H((el,ev)=>{pluginOpen(p.id);return false})}">${esc(p.name)}</a> v${esc(p.version)}`
+             : esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
   const oopLine = oops.length ? `<p class="muted" style="margin:0 0 8px">🛡️ sandboxed: ${oops.map(p=>esc(p.name)+' <span class="mono">['+(p.scopes||[]).map(esc).join(', ')+']</span>').join(' · ')}</p>` : '';
   return `<h2>${t('usage')}</h2>
     <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}

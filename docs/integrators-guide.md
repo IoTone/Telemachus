@@ -127,6 +127,19 @@ plugins/acme/bundle/app.js       →  GET /api/x/acme/bundle/app.js
   same-origin: a CDN font or script is blocked. This is deliberate.
 - **`bundle/` is reserved** by the platform under your prefix, and core routes match
   before plugin ones, so do not declare a route there.
+- **Opening a page in a browser needs a ticket.** The route wants a bearer token, and
+  a browser navigation carries none — so mint one and open the URL it hands back:
+
+  ```sh
+  curl -X POST $BASE/api/x/acme/bundle-ticket -H "Authorization: Bearer $TOKEN"
+  # {"ticket":"tk_…","expires_in":1800,"url":"/api/x/acme/bundle/?ticket=tk_…"}
+  ```
+
+  The first response sets that ticket as a cookie scoped to your bundle path, so the
+  page's own script, stylesheet and images load without it in the query string. The
+  console does this for you: a plugin with a `bundle/` directory is a link on the
+  Usage tab. The cookie is `HttpOnly`, `SameSite=Strict` and reaches nothing but that
+  one plugin's static files.
 - The path cannot climb out of the directory, and an unloaded plugin is a 404.
 - **Wear the theme.** Read `GET /api/branding` with the bearer and map the same
   tokens onto your own CSS variables — `plugins/integrator-demo/bundle/index.html`
@@ -219,7 +232,8 @@ silently.
 1. `nix develop`, then `raco make server/main.rkt` — Nix is the toolchain.
 2. Copy `plugins/integrator-demo/` to `plugins/<your-id>/` and rename the id in
    `plugin.json`. **`git add` it**: Nix only sees tracked files.
-3. Set your theme and logo (§2). Check the console and your bundle screen together.
+3. Set your theme and logo (§2). Check the console and your bundle screen together —
+   the console links your page once the plugin has a `bundle/` directory.
 4. Replace the tool, the routes and the job kind with yours. Keep the namespace.
 5. Restart. Confirm the boot log lists your plugin with the counts you expect
    (`… — 1 tool(s), 2 route(s), 1 job kind(s) +init`).

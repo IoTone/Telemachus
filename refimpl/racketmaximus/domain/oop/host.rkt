@@ -15,7 +15,7 @@
 ;;   host→plugin  {"type":"call","id","tool","args"}
 ;;   plugin→host  {"type":"host","id","cap":"notes.create","args":{…}}   (capability request)
 ;;   host→plugin  {"type":"host_result","id","result":{…}} | {"type":"host_error","id","error"}
-;;   plugin→host  {"type":"result","id","text"}
+;;   plugin→host  {"type":"result","id","text"[,"result":<jsexpr>]}
 
 (require (only-in "../../config.rkt" impl-root) json
          racket/string
@@ -103,7 +103,19 @@
                                     (hasheq 'type "host_error" 'id (hash-ref m 'id #f) 'error (hash-ref res 'error))
                                     (hasheq 'type "host_result" 'id (hash-ref m 'id #f) 'result (hash-ref res 'ok))))
               (loop)]
-             [(equal? (hash-ref m 'type #f) "result") (format "~a" (hash-ref m 'text ""))]
+             ;; issue #46: an out-of-process tool may answer with STRUCTURE beside
+             ;; its text. Returning only `text` made every such result a JSON
+             ;; string by the time a workflow saw it, so a later step could not
+             ;; bind `…output.result.status` without an in-process shim whose
+             ;; whole job was to parse what the platform had just stringified.
+             ;; An in-process tool has been able to return a jsexpr for slices;
+             ;; this closes the gap. `text` alone still behaves exactly as before,
+             ;; and the platform never GUESSES that a string was meant to be JSON
+             ;; — the plugin says so by sending `result`.
+             [(equal? (hash-ref m 'type #f) "result")
+              (if (hash-has-key? m 'result)
+                  (hash-ref m 'result)
+                  (format "~a" (hash-ref m 'text "")))]
              [else (loop)])])))))
 
 ;; ---- connect + register -----------------------------------------------------

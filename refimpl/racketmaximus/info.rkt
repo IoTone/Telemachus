@@ -4,8 +4,11 @@
 ;; config.rkt). This is NOT a library to publish — it depends on the
 ;; spin-out-able packages under pkgs/ (cli-kit, db-kit, web-kit).
 ;;
-;; Dev/CI setup:
-;;   raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
+;; Dev/CI setup (inside `nix develop`, which sets PLTCOLLECTS):
+;;   export PLTCOLLECTS="$PWD/pkgs:"     # never `raco pkg install --link` these:
+;;                                       # the collection names are global and a
+;;                                       # link silently wins over PLTCOLLECTS for
+;;                                       # any checkout that forgot to set it.
 ;;   raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt
 ;;   raco exe -o dist/telemachus-<tool> cli/telemachus-<tool>.rkt  # standalone
 

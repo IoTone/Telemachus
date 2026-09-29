@@ -26,10 +26,24 @@
 
 (require json racket/list "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
 
-(provide load-plugins! loaded-plugins plugin-routes)
+(provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures)
 
 (define *loaded* (box '()))
 (define (loaded-plugins) (unbox *loaded*))
+
+;; Where each plugin was loaded FROM (issue #44). Kept beside the listing rather
+;; than inside it: the listing is JSON on `GET /api/plugins`, and a server's
+;; filesystem layout is nobody's business. Anything that serves a plugin's files
+;; asks here instead of rebuilding a path from a constant, which is what made
+;; TELEMACHUS_PLUGINS work for the loader and not for the pages.
+(define *dirs* (make-hash))                       ; plugin id -> its directory
+(define (plugin-dir id) (hash-ref *dirs* id #f))
+
+;; Plugins that did NOT load (issue #48). One bad plugin must not stop the
+;; server — but an instance that is quietly missing a tool, a workflow or a job
+;; kind is worse than one that says so, and a single line among sixty is quiet.
+(define *failed* (box '()))
+(define (plugin-failures) (unbox *failed*))
 
 ;; the routes every plugin contributed, in load order, as plain hashes — the
 ;; server turns them into dispatch entries and the docs CLI into api.md rows
@@ -49,17 +63,34 @@
   (hasheq 'plugin id 'method method 'path path 'perm perm 'handler handler
           'doc (if (and (>= (length r) 5) (string? (list-ref r 4))) (list-ref r 4) "")))
 
-(define (load-plugins! dir #:log [log void])
+;; `dirs` is one directory or a LIST of them, searched in order (issue #45): the
+;; built-in directory and an operator's own, rather than one replacing the other.
+;; A plugin id already loaded from an earlier directory wins, so a local copy
+;; cannot silently shadow a shipped plugin — it is reported as a failure instead.
+(define (load-plugins! dirs #:log [log void])
   (set-box! *loaded* '())
   (set-box! *routes* '())
+  (set-box! *failed* '())
+  (hash-clear! *dirs*)
+  (for ([dir (in-list (if (list? dirs) dirs (list dirs)))])
+    (load-plugin-dir! dir log))
+  (unbox *loaded*))
+
+(define (fail! log where msg)
+  (set-box! *failed* (append (unbox *failed*) (list (hasheq 'plugin where 'error msg))))
+  (log (format "~a: FAILED — ~a" where msg)))
+
+(define (load-plugin-dir! dir log)
   (when (directory-exists? dir)
     (for ([sub (in-list (sort (map path->string (directory-list dir)) string<?))])
       (define pdir (build-path dir sub))
       (define mpath (build-path pdir "plugin.json"))
       (when (and (directory-exists? pdir) (file-exists? mpath))
-        (with-handlers ([exn:fail? (lambda (e) (log (format "~a: failed — ~a" sub (exn-message e))))])
+        (with-handlers ([exn:fail? (lambda (e) (fail! log sub (exn-message e)))])
           (define m (call-with-input-file mpath read-json))
           (define id (hash-ref m 'id sub))
+          (when (hash-has-key? *dirs* id)
+            (error 'plugins "a plugin with id ~a is already loaded from ~a" id (hash-ref *dirs* id)))
           (define entry (build-path pdir (hash-ref m 'entry "main.rkt")))
           ;; A plugin may (provide tools) and/or (provide init!). init! runs with full
           ;; SDK access so a plugin can register anything (tools, an onboarding
@@ -101,11 +132,16 @@
                                   'description (hash-ref m 'description "") 'tools names
                                   'workflows wf-slugs
                                   'job_kinds job-kinds
+                                  ;; issue #43: does this plugin have a page to open?
+                                  ;; A boolean, never the path — the listing is JSON
+                                  ;; on an API and the server's layout is not the
+                                  ;; caller's business.
+                                  'bundle (directory-exists? (build-path pdir "bundle"))
                                   'routes (for/list ([r (in-list routes)])
                                             (string-append (hash-ref r 'method) " " (hash-ref r 'path)))))))
+          (hash-set! *dirs* id pdir)
           (log (format "~a v~a — ~a tool(s)~a~a~a~a" id (hash-ref m 'version "?") (length names)
                        (if (null? wf-slugs) "" (format ", ~a workflow(s)" (length wf-slugs)))
                        (if (null? routes) "" (format ", ~a route(s)" (length routes)))
                        (if (null? job-kinds) "" (format ", ~a job kind(s)" (length job-kinds)))
-                       (if (procedure? init!) " +init" "")))))))
-  (unbox *loaded*))
+                       (if (procedure? init!) " +init" ""))))))))

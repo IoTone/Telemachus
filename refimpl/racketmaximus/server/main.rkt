@@ -74,6 +74,9 @@
          "../domain/ai/executor.rkt"
          "../domain/ai/content.rkt"               ; content parts + response formats (issue #18)
          (only-in "../domain/authz/secretbox.rkt" secrets-enabled? secret-key-id)   ; issue #19
+         (only-in "../domain/authz/crypto.rkt" constant-time=?)   ; the bootstrap secret (issue #41)
+         (only-in "../domain/db/id.rkt" random-token)             ; bundle tickets (issue #43)
+         "../domain/authz/peer.rkt"                               ; who may assert identity (issue #40)
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
          "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
@@ -212,10 +215,18 @@
   (json-response (hasheq 'locale loc 'messages msgs)))
 
 ;; ---- identity ---------------------------------------------------------------
+;; issue #40: the identity headers are honoured only from a peer we trust — see
+;; domain/authz/peer.rkt for what that means and why. A deployment behind a
+;; trusted reverse proxy names it in TELEMACHUS_TRUSTED_HEADER_PEERS.
+(define (header-identity-allowed? req)
+  (define ip (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)))
+  (peer-trusted? ip (parse-peer-allowlist (env* "TELEMACHUS_TRUSTED_HEADER_PEERS"))))
+
 (define (current-principal req)
   (define auth (req-header req #"authorization"))
   (cond
     [(and auth (string-prefix? auth "Bearer ")) (resolve-token db-conn (substring auth 7))]
+    [(not (header-identity-allowed? req)) #f]        ; a remote caller needs a token
     [else
      (define u (req-header req #"x-telemachus-user"))
      (define team (req-header req #"x-telemachus-team"))
@@ -328,13 +339,21 @@
 ;; a path segment safe to interpolate into a filesystem path (no traversal, no slashes)
 (define (safe-seg? s) (and (string? s) (regexp-match? #rx"^[A-Za-z0-9._-]+$" s) (not (string=? s "..")) #t))
 ;; /beta/bundle/<plugin>/<path...> → plugins/<plugin>/landing/<path> (index.html default)
+;; issue #44: the loader honours TELEMACHUS_PLUGINS and these helpers did not —
+;; they rebuilt a path from impl-root, so a plugin loaded from elsewhere served
+;; every one of its pages as a 404 while its tools and routes worked. Ask the
+;; loader where the plugin actually came from.
+(define (plugin-root plugin kind)
+  (define d (and (safe-seg? plugin) (plugin-dir plugin)))
+  (and d (build-path d kind)))
+
 (define (bundle-file-path segs)
   (and (>= (length segs) 3) (equal? (list-ref segs 0) "beta") (equal? (list-ref segs 1) "bundle")
-       (let ([plugin (list-ref segs 2)]
-             [rest (filter (lambda (s) (not (string=? s ""))) (list-tail segs 3))])   ; tolerate trailing slash
-         (and (safe-seg? plugin) (andmap safe-seg? rest)
-              (apply build-path (build-path impl-root "plugins" plugin "landing")
-                     (if (null? rest) '("index.html") rest))))))
+       (let* ([plugin (list-ref segs 2)]
+              [rest (filter (lambda (s) (not (string=? s ""))) (list-tail segs 3))]   ; tolerate trailing slash
+              [root (plugin-root plugin "landing")])
+         (and root (andmap safe-seg? rest)
+              (apply build-path root (if (null? rest) '("index.html") rest))))))
 
 ;; issue #20: /api/x/<plugin>/bundle/<path...> → plugins/<plugin>/bundle/<path>,
 ;; the AUTHENTICATED counterpart of the funnel's public landing bundle. Two rules
@@ -345,14 +364,46 @@
 ;; source. The caller's principal and org are the plugin's API's business
 ;; (/api/x/<id>/… routes see both); the bundle itself is code, one copy for
 ;; everyone, which is why it does not vary by org.
+;; ---- bundle tickets (issue #43) ---------------------------------------------
+;; An authenticated plugin page could not be OPENED. The token lives in
+;; localStorage and there is no cookie, so a browser navigation to
+;; /api/x/<id>/bundle/ sent no credentials and got a 401 — the smoke passed
+;; because curl sends the header a navigation never will.
+;;
+;; The console mints a short-lived TICKET with its bearer and opens the page with
+;; it; the first response sets that ticket as a cookie scoped to this plugin's
+;; bundle path, so the page's own stylesheet, script and images load without the
+;; query string trailing through them. Deliberately NOT a session cookie issued
+;; at sign-in: nothing ambient rides on the JSON API, so the API keeps its
+;; no-cookie, no-CSRF-surface property; this one is HttpOnly, SameSite=Strict and
+;; reaches exactly one plugin's static files.
+(define BUNDLE-TICKET-SECONDS (* 30 60))
+(define bundle-tickets (make-hash))          ; token -> (list plugin user team expiry)
+(define (bundle-ticket-sweep!)
+  (define now (current-seconds))
+  (for ([(k v) (in-hash (hash-copy bundle-tickets))])
+    (when (< (list-ref v 3) now) (hash-remove! bundle-tickets k))))
+(define (bundle-ticket-mint! plugin p)
+  (bundle-ticket-sweep!)
+  (define t (random-token 24))
+  (hash-set! bundle-tickets t (list plugin (principal-user-id p) (principal-team-id p)
+                                    (+ (current-seconds) BUNDLE-TICKET-SECONDS)))
+  t)
+(define (bundle-ticket-valid? t plugin)
+  (define v (and (string? t) (hash-ref bundle-tickets t #f)))
+  (and v (equal? (car v) plugin) (>= (list-ref v 3) (current-seconds)) v))
+;; the cookie the first bundle response sets, so sub-resources carry it
+(define (bundle-cookie-of req)
+  (define h (req-header req #"cookie"))
+  (define m (and (string? h) (regexp-match #px"(?:^|;\\s*)tmx_bundle=([A-Za-z0-9_-]+)" h)))
+  (and m (cadr m)))
+
 (define (plugin-bundle-file-path plugin rest-path)
   (define rest (filter (lambda (s) (not (string=? s "")))
                        (string-split (or rest-path "") "/")))
-  (and (safe-seg? plugin)
-       (for/or ([p (in-list (loaded-plugins))]) (equal? (hash-ref p 'id) plugin))
-       (andmap safe-seg? rest)
-       (apply build-path (build-path impl-root "plugins" plugin "bundle")
-              (if (null? rest) '("index.html") rest))))
+  (define root (plugin-root plugin "bundle"))          ; #f unless the plugin LOADED
+  (and root (andmap safe-seg? rest)
+       (apply build-path root (if (null? rest) '("index.html") rest))))
 
 ;; Server-Sent Events: proc receives an `emit` that pushes one JSON event.
 (define (sse-response proc)
@@ -374,11 +425,27 @@
 (define (ep-health)
   (json-response (hasheq 'ok #t 'multitenant (multitenant?))))
 
+;; issue #41: an un-bootstrapped instance belongs to whoever calls this first, and
+;; on a network address that is a stranger. Bootstrap is an OPERATOR act, so it is
+;; allowed from the box itself; an operator who genuinely cannot reach loopback
+;; sets TELEMACHUS_BOOTSTRAP_SECRET and presents it. The refusal names both paths,
+;; because "403" alone on a fresh instance reads as a broken build.
+(define (bootstrap-allowed? req body)
+  (or (header-identity-allowed? req)
+      (let ([want (env* "TELEMACHUS_BOOTSTRAP_SECRET")]
+            [got (or (let ([h (req-header req #"x-telemachus-bootstrap")]) (and (string? h) h))
+                     (let ([v (hash-ref body 'secret #f)]) (and (string? v) v)))])
+        (and want got (constant-time=? want got)))))
+
 (define (ep-bootstrap req)
   (define body (read-json-body req))
   (define username (hash-ref body 'username #f))
   (cond
     [(saas-mode?) (err "interactive bootstrap is disabled in hosted mode" 403)]
+    [(not (bootstrap-allowed? req body))
+     (err (string-append "bootstrap is allowed from this host only. Run it on the server, "
+                         "or set TELEMACHUS_BOOTSTRAP_SECRET and send it as X-Telemachus-Bootstrap.")
+          403)]
     [(not username) (err "username required" 400)]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
     [else
@@ -2263,7 +2330,9 @@
     (json-response (hasheq 'ok #t 'feature name 'enabled on?)))))
 
 (define (ep-plugins req)
-  (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins))))))
+  (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins)
+                                                    ;; issue #48: what did NOT load
+                                                    'failed (plugin-failures))))))
 
 (define (ep-mcp req)
   (with-auth req (lambda (p) (json-response (hasheq 'servers (mcp-servers))))))
@@ -2346,13 +2415,46 @@
    ;; issue #20: authenticated, and never publicly cached. `Vary: Authorization`
    ;; so no intermediary can hand one principal's request to another.
    'plugin-bundle (lambda (req plugin path)
-                    (with-auth req
-                      (lambda (p)
-                        (define f (plugin-bundle-file-path plugin path))
-                        (if f
-                            (serve-file f #:cache #"private, no-store"
-                                        #:headers (list (make-header #"Vary" #"Authorization")))
-                            (err "not found" 404)))))
+                    ;; a bearer (the console's own fetches, curl, the smoke) OR a
+                    ;; ticket — in the query for the first navigation, in the
+                    ;; cookie for everything the page then loads (issue #43)
+                    ;; query-param's default is "" and an empty string is TRUE in
+                    ;; Racket, so `or` alone would take it and never look at the
+                    ;; cookie — which is how every sub-resource 401'd the first
+                    ;; time this ran.
+                    (define ticket (let ([q (query-param req 'ticket #f)])
+                                     (or (and (string? q) (not (string=? q "")) q)
+                                         (bundle-cookie-of req))))
+                    (define via-ticket (and ticket (bundle-ticket-valid? ticket plugin)))
+                    (define (serve-it set-cookie?)
+                      (define f (plugin-bundle-file-path plugin path))
+                      (if f
+                          (serve-file f #:cache #"private, no-store"
+                                      #:headers (append
+                                                 (list (make-header #"Vary" #"Authorization, Cookie"))
+                                                 (if set-cookie?
+                                                     (list (make-header
+                                                            #"Set-Cookie"
+                                                            (string->bytes/utf-8
+                                                             (format "tmx_bundle=~a; Path=/api/x/~a/bundle/; Max-Age=~a; HttpOnly; SameSite=Strict~a"
+                                                                     ticket plugin BUNDLE-TICKET-SECONDS
+                                                                     (if (tls-on?) "; Secure" "")))))
+                                                     '())))
+                          (err "not found" 404)))
+                    (cond
+                      [via-ticket (serve-it (and (query-param req 'ticket) #t))]
+                      [else (with-auth req (lambda (p) (serve-it #f)))]))
+   'plugin-bundle-ticket (lambda (req plugin)
+                           (with-auth req
+                             (lambda (p)
+                               (cond
+                                 [(not (plugin-root plugin "bundle"))
+                                  (err "no such plugin bundle" 404)]
+                                 [else
+                                  (define t (bundle-ticket-mint! plugin p))
+                                  (json-response
+                                   (hasheq 'ticket t 'expires_in BUNDLE-TICKET-SECONDS
+                                           'url (format "/api/x/~a/bundle/?ticket=~a" plugin t)))]))))
    'beta-template ep-beta-template
    'config ep-config
    'branding-get ep-branding-get 'branding-put ep-branding-put 'branding-logo ep-branding-logo
@@ -2554,8 +2656,18 @@
                   #:plan (or (env* "TELEMACHUS_SEED_PLAN") "trial") #:source "vm"))
     (printf "seed: provisioned ~a — activation token: ~a\n" (env* "TELEMACHUS_SEED_OWNER_EMAIL") tok)
     (flush-output))
-  (define plugins-dir (let ([e (env* "TELEMACHUS_PLUGINS")]) (if e (string->path e) (build-path impl-root "plugins"))))
-  (define plugins (load-plugins! plugins-dir #:log (lambda (s) (printf "  plugin: ~a\n" s))))
+  ;; issue #45: TELEMACHUS_PLUGINS is a LIST, searched after the built-in
+  ;; directory — `:`-separated, like a path variable. It used to name the one
+  ;; directory to load, so pointing it at a plugin of your own silently removed
+  ;; doc-pipeline and every other shipped plugin. A literal `-` entry drops the
+  ;; built-ins, for a deployment that means to ship only its own.
+  (define plugins-dirs
+    (let* ([entries (let ([e (env* "TELEMACHUS_PLUGINS")])
+                      (if e (filter (lambda (x) (not (string=? x ""))) (string-split e ":")) '()))]
+           [builtin? (not (member "-" entries))]
+           [extra (map string->path (filter (lambda (x) (not (string=? x "-"))) entries))])
+      (append (if builtin? (list (build-path impl-root "plugins")) '()) extra)))
+  (define plugins (load-plugins! plugins-dirs #:log (lambda (s) (printf "  plugin: ~a\n" s))))
   (install-plugin-routes!)
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
@@ -2573,7 +2685,21 @@
                             "  time, not against the install. Set TELEMACHUS_DATA_DIR (or\n"
                             "  TELEMACHUS_RS3_ROOT) to an absolute path.")
              r)))
-  (when (pair? plugins) (printf "loaded ~a plugin(s) from ~a\n" (length plugins) plugins-dir))
+  (when (pair? plugins)
+    (printf "loaded ~a plugin(s) from ~a\n" (length plugins)
+            (string-join (map path->string plugins-dirs) ", ")))
+  ;; issue #48: a plugin that did not load is not a line that scrolls past. The
+  ;; server still starts — one bad plugin must not take the instance down — but
+  ;; an operator running with TELEMACHUS_PLUGINS_STRICT=1 has said they would
+  ;; rather not start than start without their plugins.
+  (let ([bad (plugin-failures)])
+    (when (pair? bad)
+      (printf "WARNING: ~a plugin(s) FAILED to load — their tools, workflows, routes and job kinds are MISSING:\n"
+              (length bad))
+      (for ([f (in-list bad)]) (printf "  ~a: ~a\n" (hash-ref f 'plugin) (hash-ref f 'error)))
+      (when (env* "TELEMACHUS_PLUGINS_STRICT")
+        (eprintf "TELEMACHUS_PLUGINS_STRICT is set — refusing to start.\n")
+        (exit 1))))
   (define mcp-config (let ([e (env* "TELEMACHUS_MCP")]) (if e (string->path e) (build-path impl-root "mcp.json"))))
   (define mcps (connect-mcp-servers! mcp-config #:log (lambda (s) (printf "  mcp: ~a\n" s))))
   (when (pair? mcps) (printf "connected ~a MCP server(s)\n" (length mcps)))
