@@ -3,6 +3,8 @@
 [![CI](https://github.com/IoTone/Telemachus/actions/workflows/ci.yml/badge.svg)](https://github.com/IoTone/Telemachus/actions/workflows/ci.yml)
 [![Nightly tour](https://github.com/IoTone/Telemachus/actions/workflows/nightly.yml/badge.svg)](https://github.com/IoTone/Telemachus/actions/workflows/nightly.yml)
 
+**English** · [日本語](README.ja.md)
+
 A **team-oriented, self-hosted, privacy-first platform for hosting AI tools and
 applications.** Local-first, driven primarily by `llama-cpp` / `llama-server`,
 with minimal Python exposure. Open from day one.

@@ -11,6 +11,7 @@ on:
     paths:
       - 'docs/**'
       - 'README.md'
+      - 'README.ja.md'
       - 'CONTRIBUTING.md'
       - 'scripts/build-site.sh'
       - 'scripts/site/**'
