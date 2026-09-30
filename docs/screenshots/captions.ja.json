@@ -1,0 +1,55 @@
+{
+  "_note": "Japanese captions for the committed feature tour. Keyed by screenshot file, hashed against the ENGLISH title+caption in the sibling manifest.json — edit the English and the hash stops matching, which is how a stale translation is found. refresh-screenshots.sh reads this to build README.ja.md and falls back to English, loudly, for anything missing or stale.",
+  "captions": {
+    "01-signin.png": {
+      "title": "サインイン",
+      "caption": "初回表示のリファレンス UI — パスワードと任意の二要素認証、EN / 日本語 の切り替え、そして最初のオペレーターを作成する初回セットアップへの入口。",
+      "hash": "ddbae775dbcd776e7ac14352b9ed45dd1278b2e0"
+    },
+    "02-bootstrap.png": {
+      "title": "初回セットアップ",
+      "caption": "最初のオペレーターを作成する。RBAC-5 により、最初のオーナーはインスタンスのオペレーターとして初期化される — チームのオーナーより上位の、独立した階層である。",
+      "hash": "826f065c9982c778178c7757763777d5b5ad4947"
+    },
+    "03-chat.png": {
+      "title": "ストリーミングチャット",
+      "caption": "ローカルモデル（qwen2.5:7b）からトークン単位で流れてくる応答。チームごとの同時実行ガバナーを通って受け付けられ、AI クォータに対して計量される。",
+      "hash": "a7a60d4656a1bba21d6d47ca610c15022542a968"
+    },
+    "04-agent.png": {
+      "title": "エージェントによるツール利用",
+      "caption": "エージェントが計画を立て、create_note ツール（🔧）を呼び、結果を受け取って回答する — プラグイン、MCP、サンドボックス化ツールにも使われるのと同じレジストリ。",
+      "hash": "aff8ecabcdb04cd7aa2cad8df68fb96a7a4574d5"
+    },
+    "05-notes.png": {
+      "title": "ノート",
+      "caption": "RBAC の土台となる、所有・共有できるリソース — チーム／非公開／共有の公開範囲。ここに見える「Investor demo」ノートは、前のステップでエージェントが作成したもの。",
+      "hash": "777b8ba217ebbdb631210e8cb254e451a503a978"
+    },
+    "06-translate.png": {
+      "title": "翻訳アプリ",
+      "caption": "最初のユーザー向けアプリ：用語を揃えるためのチーム用語集と計量済みの履歴を備えた、EN→JA のリアルタイム翻訳。同じエンジンがロケールカタログ全体も翻訳する（ローカライゼーションの自家消費）。",
+      "hash": "7d74b70a1ff5a5d040ab7555cb1716885ea92d53"
+    },
+    "07-team.png": {
+      "title": "チームと RBAC",
+      "caption": "メンバーとロール（owner / admin / member / viewer）。すべての API 呼び出しは AuthzService を通して認可され、トークンは「発行者の権限 ∩ スコープ」で上限が決まる。",
+      "hash": "1b731f0b2150695340979945cb8f9fc7b2c607cf"
+    },
+    "08-usage.png": {
+      "title": "クォータとツールレジストリ",
+      "caption": "ウィンドウごとの使用量と上限、そして出自のバッジ付きで並ぶエージェントツール：組み込み、🔌 プラグイン、mcp:mock（外部 MCP サーバー）、🛡️ oop:notes-helper（スコープを宣言したプロセス外サンドボックス）。",
+      "hash": "20cd4756085e75513937920c33947ff3a018e97a"
+    },
+    "09-admin.png": {
+      "title": "管理と分散コンピュート",
+      "caption": "オペレーター専用のインスタンス画面。Compute の表にはローカルノード（qwen2.5:7b）と連携エグゼキュータ（🛰️ gpu-sim）が並ぶ — リモートや HPC のコンピュートを差し込む接続点。",
+      "hash": "6bb6455fc41b52d3bd281ad187a90e4ed89bb2b9"
+    },
+    "10-i18n.png": {
+      "title": "端から端までローカライズ",
+      "caption": "ひとつの切り替えで UI 全体が日本語で再描画される（ICU MessageFormat のカタログ、フォールバックチェーン、ソースハッシュによる陳腐化の検出） — ローカライゼーションは後付けではなく中核の一部である。",
+      "hash": "c2dfaff116549fe908576788261e15feeeaffdb4"
+    }
+  }
+}

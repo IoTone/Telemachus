@@ -1,0 +1,55 @@
+{
+  "_note": "Japanese captions for the committed feature tour. Keyed by screenshot file, hashed against the ENGLISH title+caption in the sibling manifest.json — edit the English and the hash stops matching, which is how a stale translation is found. refresh-screenshots.sh reads this to build README.ja.md and falls back to English, loudly, for anything missing or stale.",
+  "captions": {
+    "01-funnel-landing.png": {
+      "title": "ファネルが既定の入口になる",
+      "caption": "ホームのルーティングを beta（TELEMACHUS_HOME=beta）にすると、ルートはログイン画面ではなく公開のベータ用ランディングを配信する。フォームは差し替え可能なオンボーディングプロバイダーから描画され、その文面・項目・判定プロンプトは SDK から変更できる。",
+      "hash": "0a3c8e069dc8bc2d4444e834c29aa1f43e349204"
+    },
+    "02-first-run.png": {
+      "title": "セットアップ：オペレーターを作る",
+      "caption": "スタッフは「チームサインイン」からファネルの裏側にあるチームに入る。新しいインスタンスでは、初回起動でオペレーター／オーナー（RBAC-5）— 届いた見込み客を精査する人 — が初期化され、この流れを所有する内部チームが作られる。",
+      "hash": "9987dc1027a0f55645fd5aaeed9a422d9299e978"
+    },
+    "03-review-empty.png": {
+      "title": "セットアップ：レビュー用の受信箱",
+      "caption": "オーナー専用の Beta タブが見込み客の届く場所。まだ申し込みがないので空である。",
+      "hash": "08162a02e663f3f9fb6249f43329e5529c6fe54d"
+    },
+    "04-funnel-filled.png": {
+      "title": "ファネル：見込み客がアクセスを申請する",
+      "caption": "資格確認の送信 — 役職、会社、住所、電話番号が、LLM の判定に実際の B2B シグナルを与える。ユーザーアカウントではなく見込み客として記録される：パスワードもログインもなく、商談前の精査だけを行う。",
+      "hash": "a82a9815bd5a69dd52ac119a7ca0c1c7581f694e"
+    },
+    "05-funnel-submitted.png": {
+      "title": "送信完了 — 見えない不正利用対策の先で",
+      "caption": "送信時にブラウザーは裏側で proof-of-work を解き、不正利用対策のゲート（レート制限、署名付きの使い捨てチャレンジ、ハニーポット、最小入力時間、頻度上限）を通過する。見込み客にはお礼の言葉だけが見える。",
+      "hash": "8b985550d9be9f25099b8d43a2cd23376438ecbd"
+    },
+    "06-owner-review.png": {
+      "title": "レビュー：見込み客と LLM の判定",
+      "caption": "Beta タブは見込み客ごとに LLM の判定（有効か・100 点満点のスコア・売上規模の推定・理由）と、遮断した不正な試行の件数を並べる。判定は計量されたジョブキューを通して非同期に実行された。",
+      "hash": "82b70aec1a763622437c9dc0bf33ab9fdbe3ed53"
+    },
+    "07-qualified.png": {
+      "title": "承認か辞退か — 精査のみ",
+      "caption": "オーナーは見込み客ごとに承認（または辞退）する。これは内部チームのためにベータ候補を精査する操作であり、顧客アカウントを作ることは決してない。",
+      "hash": "caa23d5b9793a3c030292d673ee1f08af9975654"
+    },
+    "08-onboarding-editor.png": {
+      "title": "外観を変える：コンソールのオンボーディングエディター",
+      "caption": "オーナーは Beta タブからファネルをブランディングする — ロゴ、ヒーローの文面、テーマトークン、詳細ブロック、フォーム項目、判定プロンプト — 申込者が実際に見るものと同じライブプレビュー付きで。下書きを保存し、それから公開する。コードもデプロイも不要で、同じ Tier-A のシェルを設定だけで作り替えられる。",
+      "hash": "60fd275cd4ad45e7a6425c11368c36052d96a708"
+    },
+    "09-tier-c-template.png": {
+      "title": "Tier C：独自の HTML テンプレートを書く",
+      "caption": "ノーコード（Tier A）とバンドルを用意する（Tier B）の中間：オーナーはコンソール上で {{プレースホルダー}} を含む生の HTML を書き、サンドボックス化されたライブプレビューで確認する。公開時にマークアップは無害化され（スクリプト、イベントハンドラー、危険なタグを除去）、隔離された iframe で描画される。送信ボタンは不正利用対策のゲートにあらかじめ接続されている。",
+      "hash": "ee4b63338e68be3837a9efc3dfe3670038580b14"
+    },
+    "10-tier-b-bundle.png": {
+      "title": "Tier B：完全に独自のプラグインバンドル",
+      "caption": "すべてを自分で決めたいチームのために、プラグインは自前のフロントエンドバンドルを出荷できる — 独自のマークアップ、型、レイアウトで、Telemachus の外装はゼロ。/beta-sdk.js を読み込んで Telemachus.beta.submit() を呼ぶので、不正利用対策のゲート（proof-of-work、署名付きチャレンジ、ハニーポット、頻度）は何ひとつ再実装せずにそのまま通る。",
+      "hash": "650516ee1557976324c43c781c97984143ecfa34"
+    }
+  }
+}
