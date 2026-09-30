@@ -45,3 +45,8 @@ result-*
 
 # generated review sheets (scripts/build-l10n-review.py)
 build/
+
+# The book's build intermediates: the assembled Markdown, the generated .tex and
+# the TeX log. KEEP=1 leaves them for reading a LaTeX error, which names a line in
+# the GENERATED file. The PDF and HTML beside the source ARE committed.
+docs/book/.book.*

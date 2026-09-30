@@ -795,43 +795,74 @@ raco test test/kg-tests.rkt        # the mention rule, validation, supersession,
 
 ## The developer e-book (`docs/book/`)
 
-`telemachus-for-developers.tex` is one LaTeX source built two ways by
-`docs/book/build.sh` inside `nix develop`: `tectonic` → the PDF, `pandoc` → a
-single self-contained HTML page (`book.css` inlined). Keep the LaTeX plain —
-sections, lists, `tabular`/`longtable`, `lstlisting` — so pandoc renders the
-same book the PDF is; a custom macro would silently vanish from the HTML.
-Tectonic fetches TeX packages on first run (a 429 from the bundle mirror is a
-retry, not a failure) and caches them under `~/.cache/Tectonic`. The built PDF
-and HTML are committed beside the source; rebuild and commit them together.
+**The source is Markdown, one file per chapter** — `docs/book/en/*.md` — because a
+translator must never have to edit LaTeX (issue #50). `docs/book/build.sh` inside
+`nix develop` assembles those into one intermediate and writes two editions from
+it: `tectonic` → the PDF, `pandoc` → a single self-contained HTML page
+(`book.css` inlined). `bash build.sh` is English; `bash build.sh ja` builds from
+`ja/`. The built PDF and HTML are committed beside the source; rebuild and commit
+them together. The old `telemachus-for-developers.tex` is GONE — do not
+reintroduce a hand-edited `.tex`, it would be a second source of truth for a book
+that now has translations.
 
+- **`chapters.json` is the spine**: the chapter ORDER, each chapter's art stem and
+  its flags (`unnumbered`, `toc_after`). A translated title therefore cannot
+  reorder the book or lose its sketch. Per-language metadata (title, subtitle,
+  author, date) is `<lang>/book.yaml`; a CJK language adds `cjkmainfont` /
+  `cjksansfont`. The LaTeX preamble is `template/book.latex`.
+- **The heading id comes from the ART stem, not from the title** (`# Title {#ch-04-authz}`,
+  injected by build.sh), so the HTML's `h1#<stem>::before` art rules survive
+  translation — pandoc's title-derived ids would change in every language. Two
+  chapters sharing one art stem is refused for that reason.
+- **A missing translated chapter is omitted and LISTED**, so a partial translation
+  still builds a readable book. Tectonic fetches TeX packages on first run (a 429
+  from the bundle mirror is a retry, not a failure), cached under `~/.cache/Tectonic`.
+- **Three checks on a translated chapter**, all of which have caught a real defect:
+  a code span must be ASCII (it names a path or a command; a full-width character
+  or a typographic quote in one otherwise surfaces as `Undefined control sequence`
+  pointing into a deleted intermediate) — that one REFUSES; Cyrillic/Hangul/Arabic/
+  Hebrew/Thai/Devanagari in the prose warns (the machine-assisted `ja` catalog
+  leaked French, Spanish and Chinese, and the first sample chapter here shipped a
+  Russian word); and a chapter carries the **sha1 of the English it was made
+  against** on its first line, so editing the English marks it stale with nothing
+  rewriting a status — same rule as `locales/ja.json` and `captions.ja.json`.
+  `bash build.sh ja --record` stamps them and builds nothing.
+- **`xeCJK`'s default family is FandolSong (Chinese) and it silently DROPS Japanese
+  glyphs** — 権 vanished from 権限 with no error. `template/book.latex` sets
+  `\setCJKmainfont` from `book.yaml`; Noto Serif/Sans CJK JP are in the devShell.
+- Translator-facing instructions and the term list (pinned to the console's own
+  `locales/ja.json`, so the book and the product use the same words) are
+  `docs/book/TRANSLATING.md`.
 - **The character art**: `docs/book/art/telemachus-sketch.svg` is the master
   (hand-authored SVG: ink paths, a `feTurbulence` wobble, construction marks).
   **`art/vignettes.py` generates one scene per chapter** (`ch-NN-*.svg`) from a
   parts library in the master's coordinate space — head, five expressions, bust
   or full figure, arm poses, walking legs, the owl in three poses — plus a
-  per-chapter prop; it also writes `chapter-art.css` (one `h1#<pandoc-id>::before`
-  rule per chapter, SVG data URIs) and `chapters.json`. `art/render.mjs` renders
+  per-chapter prop; it reads `../chapters.json` and writes `chapter-art.css` (one
+  `h1#<stem>::before` rule per chapter, SVG data URIs). `art/render.mjs` renders
   every SVG in the directory to PNG at 3× with the e2e directory's Playwright
   (`node docs/book/art/render.mjs` from the repo root). The PDF picks each
   chapter's PNG via `\chapterart{…}` before the `\chapter`; the HTML gets the
   SVGs through `book.css` + `chapter-art.css`. Change a scene in the generator,
   never in a generated SVG; then regenerate, render, rebuild.
-- **`\ifpdfonly`** guards the title page and the `titlesec` chapter format; pandoc
-  honours TeX conditionals, and `build.sh` flips the switch to false on the copy
-  it hands to pandoc, so the HTML gets `\maketitle` plus the sketch instead.
-- **Adding a chapter is four steps**: the `.tex` (with a `\chapterart{}` before
-  the `\chapter{}`), a scene in `art/vignettes.py` plus its row in `CHAPTERS`
-  (the stem carries the number, so inserting one renames the stems after it —
-  `git rm` the old pair), `python3 art/vignettes.py && node art/render.mjs`, then
-  `bash build.sh`. The HTML edition keys its art off pandoc's heading id, which
-  `vignettes.py` derives from the chapter title in `CHAPTERS` — a title that does
-  not match the `.tex` silently loses its sketch.
+- **Adding a chapter is four steps**: `en/NN-stem.md` (plain Markdown, `# Title`
+  first line), a row in `chapters.json`, a scene in `art/vignettes.py` (the stem
+  carries the number, so inserting one renames the stems after it — `git rm` the
+  old pair), `python3 art/vignettes.py && node art/render.mjs`, then
+  `bash build.sh`. Every translated copy of a chapter you edit goes stale and says
+  so on the next build.
 - **Props live in a 360×300 viewBox under `translate(-30 -40) scale(0.55)`**, so a
   prop's x must stay under ~700 and y between ~80 and ~600 or it is clipped. The
   proven slots: a main block at x 500–700, a held item at x 120–240 / y 150–230,
   and a small item beside the figure at x 364–434.
+- Keep the Markdown plain — headings, lists, pipe tables, fenced code — so pandoc
+  renders the same book in both editions. **Pipe tables, never width-aligned
+  ones**: a CJK edition's column widths do not match the English.
 - `\texttt{}` has no `…`: the typewriter font drops it with a warning and the
   character vanishes from the PDF. Spell it `...` inside code text.
+- `KEEP=1 bash build.sh [lang]` leaves the assembled Markdown, the generated
+  `.tex` and the TeX log (`docs/book/.book.<lang>.*`, gitignored). A LaTeX error
+  names a line in the GENERATED file, so without it there is nothing to read.
 
 ## Localized prose docs (issue #50)
 
@@ -862,8 +893,10 @@ other with a switcher line under the badges.
   **both** `readme.html` (what the landing page links) and `README.html` (what the
   link rewriter produces from a `../README.md` link, which four docs use). The
   Pages link check is what proves both resolve.
-- Still open on #50: the e-book, and a review pass over the `ja` catalog, which
-  sits at 93% with 24 strings missing from other slices.
+- Still open on #50: the e-book's 18 untranslated chapters — the PIPELINE is built (see
+  the e-book section and `docs/book/TRANSLATING.md`; `ja/00-read.md` is the one sample
+  chapter) — and a review pass over the `ja` catalog, which sits at 93% with 24 strings
+  missing from other slices.
 
 ## The published site (GitHub Pages)
 
@@ -1263,7 +1296,6 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
 - `raco make server/main.rkt` does NOT reach a plugin's entry module (it is
   `dynamic-require`d), so a Racket upgrade leaves stale `plugins/*/compiled/`
   bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump.
-
 - **A SYMLINKED plugin directory is OPT-IN: `TELEMACHUS_PLUGINS_LINKS=1`.**
   Symlinking a downstream plugin into `plugins/` is the normal way to develop one,
   and the only way for a plugin that requires Telemachus modules by relative path

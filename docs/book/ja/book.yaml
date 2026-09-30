@@ -1,0 +1,10 @@
+title: "Telemachus 開発者ガイド"
+subtitle: "Racket を軸にした、自分たちのインフラで動かすチーム向け AI プラットフォームの小さな本"
+author: "IoTone, Inc."
+date: "2026年9月 — バージョン 0.3.0"
+cover-caption: "テレマコス、コンセプトスケッチ：巻物を持つ若きイタケ人と、肩に乗るメントールのフクロウ。"
+lang: ja
+# xeCJK's default family is CHINESE (FandolSong): with it a Japanese build drops
+# glyphs and sets shared kanji in Chinese shapes. Name the font.
+cjkmainfont: "Noto Serif CJK JP"
+cjksansfont: "Noto Sans CJK JP"
