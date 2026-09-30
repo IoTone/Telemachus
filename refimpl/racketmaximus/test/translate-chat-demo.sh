@@ -22,6 +22,11 @@
 set -u
 cd "$(dirname "$0")/.."
 export PLTCOLLECTS="$(pwd)/pkgs:"
+# A test run uses the SHIPPED plugin set. These are unset rather than merely
+# unused: a developer working on a downstream plugin exports them in their own
+# shell, and an inherited value would put someone else's plugin — and its load
+# failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
+unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 
 if [ -z "${TELEMACHUS_MODEL_URL:-}" ]; then
   cat >&2 <<'MSG'

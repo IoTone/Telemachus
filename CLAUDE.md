@@ -1264,6 +1264,34 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   `dynamic-require`d), so a Racket upgrade leaves stale `plugins/*/compiled/`
   bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump.
 
+- **A SYMLINKED plugin directory is OPT-IN: `TELEMACHUS_PLUGINS_LINKS=1`.**
+  Symlinking a downstream plugin into `plugins/` is the normal way to develop one,
+  and the only way for a plugin that requires Telemachus modules by relative path
+  (`../../domain/authz/authz.rkt`) to resolve them — `TELEMACHUS_PLUGINS` cannot,
+  because the relative path only lands on `domain/` from two levels under
+  `refimpl/racketmaximus/`. But `plugins/` is inside the checkout, so an
+  always-on link would join every test run and every generated document. Three
+  things now keep a local link from leaking:
+    1. `load-plugins!` takes `#:skip-links?`, and `server/main.rkt` skips links
+       unless `TELEMACHUS_PLUGINS_LINKS` is set.
+    2. `cli/telemachus-docs.rkt` ALWAYS skips them — `docs/reference/` is
+       committed and CI fails on drift, so one developer's link would otherwise
+       write a customer's routes into the repository and break the gate for
+       everyone without it. This was observed: fixing the link's `PLTCOLLECTS` made
+       it load, and the drift gate immediately reported `api.md plugins.md
+       strings.json`.
+    3. All nine server-booting harnesses `unset TELEMACHUS_PLUGINS
+       TELEMACHUS_PLUGINS_LINKS` beside the `export PLTCOLLECTS` line they already
+       had. They are unset rather than merely unused because a developer exports
+       them in their own shell, and `server-smoke.sh` asserts `"failed":[]` — with
+       `PLTCOLLECTS` reset the downstream plugin's own collections are gone, so it
+       fails and the suite fails with it.
+- **A downstream plugin also needs its OWN collections on `PLTCOLLECTS`**, or it
+  fails with `collection not found` while the instance otherwise looks healthy.
+  The devShell sources an optional, gitignored `.env.local` AFTER setting
+  `PLTCOLLECTS`, so it can append; see `.env.local.example`. The plugin's link
+  itself is gitignored — it belongs to its own repository.
+
 ## Secrets at rest (issue #19)
 
 `domain/authz/secretbox.rkt` — AES-256-GCM over libcrypto EVP, the same FFI seam

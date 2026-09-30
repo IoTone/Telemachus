@@ -46,6 +46,11 @@ if [ "$OWN_SERVER" = "1" ]; then
   TMPDATA="$(mktemp -d)"
   cd ../..                                  # -> refimpl/racketmaximus
   export PLTCOLLECTS="$PWD/pkgs:"
+  # A test run uses the SHIPPED plugin set. These are unset rather than merely
+  # unused: a developer working on a downstream plugin exports them in their own
+  # shell, and an inherited value would put someone else's plugin — and its load
+  # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
+  unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
   export TELEMACHUS_DATA_DIR="$TMPDATA"
   export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMPDATA/funnel.db}"
   export TELEMACHUS_BIND=127.0.0.1

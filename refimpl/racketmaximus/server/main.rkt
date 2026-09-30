@@ -2667,7 +2667,19 @@
            [builtin? (not (member "-" entries))]
            [extra (map string->path (filter (lambda (x) (not (string=? x "-"))) entries))])
       (append (if builtin? (list (build-path impl-root "plugins")) '()) extra)))
-  (define plugins (load-plugins! plugins-dirs #:log (lambda (s) (printf "  plugin: ~a\n" s))))
+  ;; A SYMLINKED plugin directory is opt-in (TELEMACHUS_PLUGINS_LINKS=1). Symlinking
+  ;; a downstream plugin into `plugins/` is the normal way to develop one — and the
+  ;; only way for a plugin that requires Telemachus modules by relative path
+  ;; (`../../domain/...`) to resolve them. But `plugins/` is inside the checkout, so
+  ;; without this every test harness boots with that plugin too: `server-smoke.sh`
+  ;; asserts no plugin failed, the harnesses reset `PLTCOLLECTS` (so a downstream
+  ;; plugin's own collections are gone and it DOES fail), and a customer's routes
+  ;; and tools would otherwise show up in the suite's assertions. Opt-in means a
+  ;; local link can never change a test, a generated document or a CI result.
+  (define include-links? (and (env* "TELEMACHUS_PLUGINS_LINKS") #t))
+  (define plugins (load-plugins! plugins-dirs
+                                 #:skip-links? (not include-links?)
+                                 #:log (lambda (s) (printf "  plugin: ~a\n" s))))
   (install-plugin-routes!)
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a

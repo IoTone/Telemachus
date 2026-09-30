@@ -54,7 +54,10 @@
 (define (js-get h k [d 'null]) (if (hash? h) (hash-ref h k d) d))
 
 (define (describe)
-  (load-plugins! (build-path impl-root "plugins"))
+  ;; #:skip-links? — the committed reference describes the COMMITTED tree. A
+  ;; downstream plugin symlinked in for local development is somebody else's, and
+  ;; documenting it here would fail the drift gate everywhere that link is absent.
+  (load-plugins! (build-path impl-root "plugins") #:skip-links? #t)
   (define tools
     (sort
      (for/list ([t (in-list (all-tools))])
