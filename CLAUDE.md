@@ -833,6 +833,38 @@ and HTML are committed beside the source; rebuild and commit them together.
 - `\texttt{}` has no `…`: the typewriter font drops it with a warning and the
   character vanishes from the PDF. Spell it `...` inside code text.
 
+## Localized prose docs (issue #50)
+
+The top-level README ships in Japanese as `README.ja.md`, and the two link to each
+other with a switcher line under the badges.
+
+- **The feature-tour section of BOTH READMEs is generated**, between the
+  `<!-- BEGIN/END FEATURE-TOUR -->` markers, by
+  `refimpl/racketmaximus/test/e2e/refresh-screenshots.sh`. Hand-translating that
+  region would have been silently reverted by the next refresh, which is the
+  whole reason the captions live in a catalog instead.
+- **Japanese captions are `docs/screenshots/captions.ja.json` and
+  `docs/screenshots/beta/captions.ja.json`**, keyed by screenshot filename and
+  carrying a **sha1 of the ENGLISH title + caption** — the same source-hash rule
+  `locales/ja.json` lives by. Edit an English caption in `run-tour.mjs` /
+  `beta-tour.mjs` and the hash stops matching.
+- **A missing or stale caption falls back to English and is REPORTED by name.** A
+  half-translated page that looks finished is worse than an obviously
+  untranslated one; the script prints every fallback and tells you which file to
+  fix.
+- **`README_ONLY=1 bash refimpl/racketmaximus/test/e2e/refresh-screenshots.sh`** is
+  the translator's mode: it rebuilds both READMEs from the committed manifests and
+  caption catalogs with no browser and no image work. Use it after editing a
+  caption catalog. **Do NOT reach for `SKIP_TOURS=1` for translation work** — if a
+  `catalog/` happens to exist it re-promotes every PNG from that possibly stale
+  run, which is 19 changed images that have nothing to do with the translation.
+- The site publishes `README.ja.html`, and the English README is now emitted at
+  **both** `readme.html` (what the landing page links) and `README.html` (what the
+  link rewriter produces from a `../README.md` link, which four docs use). The
+  Pages link check is what proves both resolve.
+- Still open on #50: the e-book, and a review pass over the `ja` catalog, which
+  sits at 93% with 24 strings missing from other slices.
+
 ## The published site (GitHub Pages)
 
 `scripts/build-site.sh` assembles `build/site/` with pandoc — the book (both

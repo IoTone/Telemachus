@@ -54,6 +54,11 @@ cp "$ROOT/docs/book/telemachus-for-developers.pdf"  "$OUT/docs/book/telemachus-f
 
 # ---- the prose pages ---------------------------------------------------------
 page "$ROOT/README.md"        "readme.html"      "Telemachus"
+# Also at the name the link rewriter produces from README.md, so a doc that links
+# ../README.md resolves on the site as it does in a checkout. Same for the
+# Japanese one, which the READMEs link to each other by filename.
+page "$ROOT/README.md"        "README.html"      "Telemachus"
+[ -f "$ROOT/README.ja.md" ] && page "$ROOT/README.ja.md" "README.ja.html" "Telemachus — 日本語"
 page "$ROOT/CONTRIBUTING.md"  "contributing.html" "Contributing"
 
 for f in "$ROOT"/docs/*.md; do
@@ -114,7 +119,7 @@ cat > "$OUT/index.html" <<HTML
   <ul class="cards">
     <li><h3><a href="docs/book/index.html">Telemachus for Developers</a></h3><p>The book: how the platform is built, and the decisions that were expensive to learn. Also as a <a href="docs/book/telemachus-for-developers.pdf">PDF</a>.</p></li>
     <li><h3><a href="docs/integrators-guide.html">Integrator's guide</a></h3><p>Putting your own product on the platform: theme the console, ship tools, serve your own screens and API.</p></li>
-    <li><h3><a href="readme.html">Read me first</a></h3><p>What it is, what runs today, and how to get it running.</p></li>
+    <li><h3><a href="readme.html">Read me first</a></h3><p>What it is, what runs today, and how to get it running. <a href="README.ja.html">日本語</a></p></li>
     <li><h3><a href="docs/reference/README.html">Reference</a></h3><p>Generated from the source: every route, tool, workflow, permission and plugin seam.</p></li>
   </ul>
 
