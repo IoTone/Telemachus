@@ -33,5 +33,20 @@ result
 result-*
 .direnv/
 
+# machine-local devShell settings (sourced by the flake's shellHook)
+.env.local
+!.env.local.example
+
+# A downstream plugin symlinked in for local development. It belongs to its own
+# repository; committing the link would hand every other clone a dangling path,
+# and if the plugin ever loaded it would land in the GENERATED docs/reference/
+# and break the drift gate for everyone without it.
+/refimpl/racketmaximus/plugins/rcnt
+
 # generated review sheets (scripts/build-l10n-review.py)
 build/
+
+# The book's build intermediates: the assembled Markdown, the generated .tex and
+# the TeX log. KEEP=1 leaves them for reading a LaTeX error, which names a line in
+# the GENERATED file. The PDF and HTML beside the source ARE committed.
+docs/book/.book.*

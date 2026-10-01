@@ -16,6 +16,11 @@ set -u
 # find web-kit and the server "never came up".
 cd "$(dirname "$0")/.."
 export PLTCOLLECTS="$(pwd)/pkgs:"
+# A test run uses the SHIPPED plugin set. These are unset rather than merely
+# unused: a developer working on a downstream plugin exports them in their own
+# shell, and an inherited value would put someone else's plugin — and its load
+# failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
+unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 fail=0
 assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1";
   else echo "  FAIL $1 — expected: $3 — got: $(printf '%s' "$2" | tr -d '\000' | head -c 300)"; fail=1; fi; }

@@ -1,0 +1,83 @@
+% docs/book/template/book.latex — the pandoc LaTeX template for the e-book.
+%
+% The book's SOURCE is Markdown, one file per chapter under en/ (and ja/, …), so a
+% translator never edits LaTeX. Everything that used to live in the .tex preamble
+% lives here instead, and build.sh assembles the chapters and calls pandoc with
+% this template. Keep it plain for the same reason the LaTeX was plain: the HTML
+% edition comes from the same Markdown, and a clever macro here would silently
+% have no counterpart there.
+\documentclass[11pt,a4paper]{report}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=2.6cm]{geometry}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{titlesec}
+$if(cjkmainfont)$
+% A CJK edition. xeCJK's DEFAULT family is FandolSong, which is CHINESE: with it a
+% Japanese build drops glyphs outright (権 vanished from 権限 in testing) and sets
+% every shared kanji in Chinese shapes. Name the font explicitly, always.
+\usepackage{xeCJK}
+\setCJKmainfont{$cjkmainfont$}
+$if(cjksansfont)$\setCJKsansfont{$cjksansfont$}$endif$
+$endif$
+
+% Every chapter opens with its own Telemachus sketch. build.sh emits a
+% \chapterart{...} before each chapter from chapters.json, so the art is bound to
+% the chapter's FILE, never to its title — a translated title must not lose it.
+\gdef\currentchapterart{art/telemachus-head.png}
+\newcommand{\chapterart}[1]{\gdef\currentchapterart{#1}}
+\titleformat{\chapter}[display]
+  {\normalfont\bfseries}
+  {\includegraphics[height=3.1cm]{\currentchapterart}\hfill{\Large\chaptertitlename\ \thechapter}}
+  {12pt}{\Huge}
+\titleformat{name=\chapter,numberless}[display]
+  {\normalfont\bfseries}
+  {\includegraphics[height=3.1cm]{\currentchapterart}}
+  {12pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{10pt}{28pt}
+
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black}
+\lstset{basicstyle=\ttfamily\small, breaklines=true, frame=single, framerule=0.3pt,
+        columns=fullflexible, keepspaces=true, showstringspaces=false,
+        backgroundcolor=\color{black!3}}
+\setlength{\parskip}{0.55em}
+\setlength{\parindent}{0pt}
+% Macros PANDOC's own writer emits and normally supplies from its default
+% template. A custom template has to provide them or the build dies on an
+% undefined control sequence — \passthrough wraps every inline code span under
+% --listings, so the very first backticked word breaks it.
+\newcommand{\passthrough}[1]{#1}
+\providecommand{\tightlist}{\setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{array}
+\usepackage{calc}      % longtable minipage widths
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+
+\begin{document}
+\begin{titlepage}
+  \centering
+  \vspace*{1.2cm}
+  {\Huge\bfseries $title$\par}
+  \vspace{0.5em}
+  {\large $subtitle$\par}
+  \vspace{1.4cm}
+  \includegraphics[height=0.52\textheight]{art/telemachus-sketch.png}\par
+  \vspace{1.2cm}
+  {\large $author$\par}
+  \vspace{0.3em}
+  {\large $date$\par}
+  \vfill
+  {\small\itshape $cover-caption$\par}
+\end{titlepage}
+
+$body$
+\end{document}

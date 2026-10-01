@@ -5,6 +5,11 @@
 set -e
 cd "$(dirname "$0")/../.."                 # -> refimpl/racketmaximus (impl root)
 export PLTCOLLECTS="$(pwd)/pkgs:"
+# A test run uses the SHIPPED plugin set. These are unset rather than merely
+# unused: a developer working on a downstream plugin exports them in their own
+# shell, and an inherited value would put someone else's plugin — and its load
+# failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
+unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 : "${E2E_DATA_DIR:=$(mktemp -d)}"
 export TELEMACHUS_DATA_DIR="$E2E_DATA_DIR"
 export DATABASE_URL="sqlite:///$E2E_DATA_DIR/e2e.db"

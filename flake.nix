@@ -48,7 +48,14 @@
             # The single most-repeated line in CLAUDE.md, now automatic. pkgs/{cli-kit,
             # db-kit,web-kit} must win over any linked copies from the old Odysseus tree.
             export PLTCOLLECTS="$PWD/refimpl/racketmaximus/pkgs:"
+            # A machine working on a DOWNSTREAM plugin needs that plugin's own
+            # collections on PLTCOLLECTS, and its path belongs to nobody else. So
+            # source an optional, gitignored .env.local AFTER the line above, which
+            # lets it append rather than replace. No file, no effect — see
+            # .env.local.example.
+            [ -f "$PWD/.env.local" ] && . "$PWD/.env.local"
             echo "telemachus devShell — racket $(racket --version | grep -oE '[0-9]+\.[0-9]+' | head -1), PLTCOLLECTS set"
+            [ -f "$PWD/.env.local" ] && echo "  .env.local sourced"
             echo "  cd refimpl/racketmaximus && raco make server/main.rkt"
           '';
         };

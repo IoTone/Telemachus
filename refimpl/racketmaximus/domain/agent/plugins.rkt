@@ -67,25 +67,36 @@
 ;; built-in directory and an operator's own, rather than one replacing the other.
 ;; A plugin id already loaded from an earlier directory wins, so a local copy
 ;; cannot silently shadow a shipped plugin — it is reported as a failure instead.
-(define (load-plugins! dirs #:log [log void])
+;;
+;; `#:skip-links?` leaves SYMLINKED plugin directories alone. The server wants
+;; them — symlinking a downstream plugin into `plugins/` is how you develop one,
+;; and it is the only way for a plugin that requires Telemachus modules by
+;; relative path (`../../domain/...`) to resolve them at all. The GENERATED
+;; reference must not see them: `docs/reference/` is committed and CI fails on
+;; drift, so one developer's local symlink would otherwise write a customer's
+;; routes and descriptions into the repository and break the gate on every
+;; machine that does not have that link.
+(define (load-plugins! dirs #:log [log void] #:skip-links? [skip-links? #f])
   (set-box! *loaded* '())
   (set-box! *routes* '())
   (set-box! *failed* '())
   (hash-clear! *dirs*)
   (for ([dir (in-list (if (list? dirs) dirs (list dirs)))])
-    (load-plugin-dir! dir log))
+    (load-plugin-dir! dir log skip-links?))
   (unbox *loaded*))
 
 (define (fail! log where msg)
   (set-box! *failed* (append (unbox *failed*) (list (hasheq 'plugin where 'error msg))))
   (log (format "~a: FAILED — ~a" where msg)))
 
-(define (load-plugin-dir! dir log)
+(define (load-plugin-dir! dir log [skip-links? #f])
   (when (directory-exists? dir)
     (for ([sub (in-list (sort (map path->string (directory-list dir)) string<?))])
       (define pdir (build-path dir sub))
       (define mpath (build-path pdir "plugin.json"))
-      (when (and (directory-exists? pdir) (file-exists? mpath))
+      ;; `link-exists?` is asked BEFORE `directory-exists?`, which follows links
+      (when (and (not (and skip-links? (link-exists? pdir)))
+                 (directory-exists? pdir) (file-exists? mpath))
         (with-handlers ([exn:fail? (lambda (e) (fail! log sub (exn-message e)))])
           (define m (call-with-input-file mpath read-json))
           (define id (hash-ref m 'id sub))

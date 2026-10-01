@@ -6,6 +6,11 @@
 set -u
 cd "$(dirname "$0")/.."
 export PLTCOLLECTS="$(pwd)/pkgs:"
+# A test run uses the SHIPPED plugin set. These are unset rather than merely
+# unused: a developer working on a downstream plugin exports them in their own
+# shell, and an inherited value would put someone else's plugin — and its load
+# failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
+unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 export PORT="${PORT:-8845}"; MOCK_PORT="${MOCK_PORT:-8905}"
 port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
 for p in "$PORT" "$MOCK_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done

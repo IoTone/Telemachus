@@ -51,6 +51,17 @@ page() {
 mkdir -p "$OUT/docs/book"
 cp "$ROOT/docs/book/telemachus-for-developers.html" "$OUT/docs/book/index.html"
 cp "$ROOT/docs/book/telemachus-for-developers.pdf"  "$OUT/docs/book/telemachus-for-developers.pdf"
+# Every translated edition the repository carries, published beside the English
+# one. The <lang>/ directories are the source; the built pair is committed.
+for d in "$ROOT"/docs/book/*/; do
+  lang="$(basename "$d")"
+  [ "$lang" = "en" ] && continue
+  [ -f "$d/book.yaml" ] || continue
+  h="$ROOT/docs/book/telemachus-for-developers.$lang.html"
+  p="$ROOT/docs/book/telemachus-for-developers.$lang.pdf"
+  [ -f "$h" ] && cp "$h" "$OUT/docs/book/index.$lang.html"
+  [ -f "$p" ] && cp "$p" "$OUT/docs/book/telemachus-for-developers.$lang.pdf"
+done
 
 # ---- the prose pages ---------------------------------------------------------
 page "$ROOT/README.md"        "readme.html"      "Telemachus"
@@ -117,7 +128,7 @@ cat > "$OUT/index.html" <<HTML
 
   <h2>Start here</h2>
   <ul class="cards">
-    <li><h3><a href="docs/book/index.html">Telemachus for Developers</a></h3><p>The book: how the platform is built, and the decisions that were expensive to learn. Also as a <a href="docs/book/telemachus-for-developers.pdf">PDF</a>.</p></li>
+    <li><h3><a href="docs/book/index.html">Telemachus for Developers</a></h3><p>The book: how the platform is built, and the decisions that were expensive to learn. Also as a <a href="docs/book/telemachus-for-developers.pdf">PDF</a>, or in <a href="docs/book/index.ja.html">日本語</a>.</p></li>
     <li><h3><a href="docs/integrators-guide.html">Integrator's guide</a></h3><p>Putting your own product on the platform: theme the console, ship tools, serve your own screens and API.</p></li>
     <li><h3><a href="readme.html">Read me first</a></h3><p>What it is, what runs today, and how to get it running. <a href="README.ja.html">日本語</a></p></li>
     <li><h3><a href="docs/reference/README.html">Reference</a></h3><p>Generated from the source: every route, tool, workflow, permission and plugin seam.</p></li>

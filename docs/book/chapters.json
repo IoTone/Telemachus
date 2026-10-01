@@ -1,0 +1,99 @@
+[
+  {
+    "file": "00-read",
+    "art": "ch-00-read",
+    "title": "How to read this",
+    "unnumbered": true,
+    "toc_after": true
+  },
+  {
+    "file": "01-what",
+    "art": "ch-01-what",
+    "title": "What Telemachus is"
+  },
+  {
+    "file": "02-running",
+    "art": "ch-02-running",
+    "title": "Getting it running"
+  },
+  {
+    "file": "03-map",
+    "art": "ch-03-map",
+    "title": "A map of the code"
+  },
+  {
+    "file": "04-authz",
+    "art": "ch-04-authz",
+    "title": "The authorization model"
+  },
+  {
+    "file": "05-data",
+    "art": "ch-05-data",
+    "title": "Data and migrations"
+  },
+  {
+    "file": "06-repo",
+    "art": "ch-06-repo",
+    "title": "The document repository"
+  },
+  {
+    "file": "07-tools",
+    "art": "ch-07-tools",
+    "title": "Tools and the agent"
+  },
+  {
+    "file": "08-workflows",
+    "art": "ch-08-workflows",
+    "title": "Workflows"
+  },
+  {
+    "file": "09-pipeline",
+    "art": "ch-09-pipeline",
+    "title": "The document pipeline"
+  },
+  {
+    "file": "10-l10n",
+    "art": "ch-10-l10n",
+    "title": "Localization"
+  },
+  {
+    "file": "11-kg",
+    "art": "ch-11-kg",
+    "title": "The knowledge graph"
+  },
+  {
+    "file": "12-routes",
+    "art": "ch-12-routes",
+    "title": "The route table and the generated reference"
+  },
+  {
+    "file": "13-queue",
+    "art": "ch-13-queue",
+    "title": "The job queue"
+  },
+  {
+    "file": "14-secrets",
+    "art": "ch-14-secrets",
+    "title": "Secrets and the front door"
+  },
+  {
+    "file": "15-extending",
+    "art": "ch-15-extending",
+    "title": "Extending Telemachus"
+  },
+  {
+    "file": "16-tests",
+    "art": "ch-16-tests",
+    "title": "How the project tests"
+  },
+  {
+    "file": "17-operating",
+    "art": "ch-17-operating",
+    "title": "Operating notes"
+  },
+  {
+    "file": "18-contributing",
+    "art": "ch-18-contributing",
+    "title": "Contributing"
+  }
+]
