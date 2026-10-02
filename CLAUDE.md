@@ -291,6 +291,35 @@ approved strings back. Neither is on the request path.
   key that is in no review group.
 - **`localizer-for` goes through `locales-dir`** too, so the runtime and the Manager
   see the same catalogs during a test run.
+- **The CI gate now covers `en.json`'s FRESHNESS and `ja`'s staleness** (Oct 2026).
+  `target-files` deliberately excludes `en.json`, so `locale-report` never had a
+  row for "en" and **`--required en` could never fail** — a forgotten
+  `telemachus-localize extract` was invisible. That is how issue #43's
+  `bundle-ticket` doc string reached `docs/reference/strings.json` and never
+  reached `en.json`: the Manager then imported a base ONE STRING SHORT and
+  reported Japanese as 100% translated while an English-only string shipped.
+  `--required en` now means **the source catalog is current** (`en-report` diffs
+  `en.json` against the catalog the surfaces define); `--required en,ja` is what
+  CI runs, so an edited English string whose Japanese was not updated fails and
+  is named. **An ORPHAN is reported but never blocking**: an orphan only means
+  something when the surface list is COMPLETE, and `nix/telemachus.nix`
+  legitimately gates two surfaces — treating orphans as fatal there reported 528
+  of them and broke `nix build`. `missing` and `changed` are sound under any
+  surface list; those two block.
+- **The export writes keys in `en.json`'s order, not sorted.** It is byte-stable
+  run to run, so a translation diff is minimal — but the committed `ja.json` had
+  once been sorted, so bringing it back under the tool renumbered every line
+  (1,646 insertions for 36 real changes, one time). `ja.json` and `en.json` are
+  key-for-key aligned now, which is what side-by-side review wants. Do not
+  "tidy" a catalog by sorting it.
+- **A human submission is NOT placeholder-checked.** `draft-acceptable?` guards
+  machine drafts only; `l10n-submit!` takes what it is given, so the model is
+  held to a standard the human is not. Check placeholder names AND brace counts
+  by hand when submitting a batch over HTTP.
+- **`POST /api/l10n/review/:id` takes the TRANSLATION id** (not the message id)
+  and the body field is **`decision`**, not `action`. `GET /api/l10n/messages`
+  caps `limit` at 200 — page with `offset` or an id map comes back short and the
+  writes land on the wrong rows.
 - **The server honours `TELEMACHUS_LOCALES`** (as the CLI does) because export
   WRITES into that directory. The smoke and e2e suites point it at a temp copy
   and use the pseudo-locale `qps` for "a locale with no catalog" — a real locale

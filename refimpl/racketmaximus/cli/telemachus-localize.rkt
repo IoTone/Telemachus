@@ -10,6 +10,10 @@
 ;; `check` exits non-zero on bare-literal violations (always) and on missing/stale
 ;; strings for any --required locale — for a pre-commit hook / CI step. Target
 ;; coverage is otherwise advisory (decision LOC-4).
+;;
+;; `--required en` means the SOURCE catalog: en.json must still be the catalog the
+;; surfaces define, i.e. `extract` has been run since the last English edit. It is
+;; not a target locale and never was — see `en-report`.
 
 (require racket/list
          racket/path
@@ -18,6 +22,8 @@
          cli-kit
          "../domain/i18n/lint.rkt"
          "../domain/i18n/catalog.rkt")
+
+(provide en-report en-stale?)
 
 (define (usage)
   (eprintf "usage: telemachus-localize <extract|sync-locale|check|report> …\n")
@@ -96,23 +102,76 @@
                 'locales (locale-report (locales-dir opts) base))
         #:pretty? #t))
 
+;; Is the en.json on disk still the catalog the surfaces define?
+;;
+;; `target-files` deliberately excludes en.json, so `locale-report` never had a row
+;; for "en" and `--required en` could never fail — a forgotten `extract` was
+;; invisible. That is not hypothetical: issue #43 added a route whose doc string
+;; reached docs/reference/strings.json and never reached en.json, so the
+;; Localization Manager imported a base that was one string short and reported a
+;; locale as fully translated while a string it had never seen shipped in English.
+;; `diff` against the surface-derived catalog is exactly the shape of a stale
+;; extract: `missing` are strings the surfaces gained, `changed` are ones whose
+;; English was edited, `removed` are ones no surface defines any more.
+(define (en-report dir base)
+  (define path (build-path dir "en.json"))
+  (cond
+    [(not (catalog-exists? path))
+     (hasheq 'present #f 'missing '() 'changed '() 'removed '())]
+    [else
+     (define-values (missing changed removed) (diff base (read-catalog path)))
+     (hasheq 'present #t 'missing missing 'changed changed 'removed removed)]))
+
+;; `removed` is REPORTED but never blocking: an orphan only means something when
+;; the surface list is complete, and a caller may legitimately check a subset —
+;; nix/telemachus.nix gates two surfaces, which would make every ui.* and doc.*
+;; string in en.json look orphaned (528 of them). `missing` and `changed` are the
+;; two that mean the shipped English is absent or wrong, and they are sound under
+;; any surface list.
+(define (en-stale? r)
+  (or (not (hash-ref r 'present))
+      (pair? (hash-ref r 'missing))
+      (pair? (hash-ref r 'changed))))
+
 (define (cmd-check surface opts)
   (when (null? surface) (usage))
   (define-values (base violations) (scan surface))
   (define required (let ([r (hash-ref opts 'required #f)]) (if r (string-split r ",") '())))
-  (define locales (locale-report (locales-dir opts) base))
+  (define dir (locales-dir opts))
+  (define locales (locale-report dir base))
+  (define en (en-report dir base))
   (define required-broken
     (for/or ([lr (in-list locales)])
       (and (member (hash-ref lr 'locale) required)
            (or (pair? (hash-ref lr 'missing)) (pair? (hash-ref lr 'stale))))))
-  (define blocking (or (pair? violations) (and required-broken #t)))
+  ;; "en" names the SOURCE catalog rather than a target, so requiring it means
+  ;; requiring the extract to be current.
+  (define en-broken (and (member "en" required) (en-stale? en) #t))
+  (define blocking (or (pair? violations) (and required-broken #t) en-broken))
   (for ([v (in-list violations)])
     (eprintf "~a:~a:~a  unlocalized string literal ~s\n"
              (hash-ref v 'file) (hash-ref v 'line) (hash-ref v 'col) (hash-ref v 'text)))
+  (when en-broken
+    (if (hash-ref en 'present)
+        (begin
+          (for ([id (in-list (hash-ref en 'missing))])
+            (eprintf "en.json: MISSING ~a — the surfaces define it\n" id))
+          (for ([id (in-list (hash-ref en 'changed))])
+            (eprintf "en.json: STALE ~a — the English in the surface has changed\n" id))
+          (void))
+        (eprintf "en.json: not found in ~a\n" dir))
+    (eprintf "run: telemachus-localize extract ~a\n" (string-join surface " ")))
+  (for ([lr (in-list locales)])
+    (when (and (member (hash-ref lr 'locale) required)
+               (pair? (hash-ref lr 'stale)))
+      (for ([id (in-list (hash-ref lr 'stale))])
+        (eprintf "~a.json: STALE ~a — the English changed since this was translated\n"
+                 (hash-ref lr 'locale) id))))
   (emit (hasheq 'ok (not blocking)
                 'violations violations
                 'base_messages (hash-count (catalog-messages base))
                 'required required
+                'en en
                 'locales locales)
         #:pretty? #t)
   (exit (if blocking 1 0)))
