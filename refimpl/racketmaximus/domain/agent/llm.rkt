@@ -16,9 +16,12 @@
          "../ai/content.rkt"        ; content->text (issue #18)
          "../tools/convert.rkt")    ; function-call->tool-block
 
-(provide chat-response->assistant-msg openai-llm http-post-json
+(provide chat-response->assistant-msg http-post-json
          stream-deltas->assistant-msg openai-llm-stream
-         sanitize-wire-messages)   ; exported for tests (wire scrub)
+         sanitize-wire-messages    ; exported for tests (wire scrub)
+         read-sse-deltas http-post-stream   ; exported for tests (the idle timeout)
+         (struct-out exn:fail:model-retryable)
+         model-timeout model-idle-timeout model-retries)
 
 ;; Strip app-internal keys before sending messages to a provider. Internal
 ;; annotations like the untrusted-context `metadata` must not hit the wire —
@@ -65,6 +68,54 @@
                         name args))))
   (assistant-msg content (map car pairs) (map cdr pairs)))
 
+;; ---- timeouts and retries ---------------------------------------------------
+;; `http-sendrecv` takes no timeout and nothing wrapped these calls, so a model
+;; endpoint that accepted the connection and never answered hung the calling
+;; thread for ever. In a scheduler job the lease reaper requeues the WORK after
+;; 120s, but the thread stayed stuck holding its team's ai.concurrency slot, so a
+;; flapping endpoint drained the pool while /health still said ok.
+;;
+;; The request runs in a thread under its OWN custodian: on a timeout we shut that
+;; custodian down, which closes the TCP ports the request opened. Killing the
+;; thread alone would leave the socket.
+(define (env-num k default)
+  (define v (getenv k))
+  (define n (and v (string->number (string-trim v))))
+  (if (and (real? n) (> n 0)) n default))
+
+(define (model-timeout)      (env-num "TELEMACHUS_MODEL_TIMEOUT" 120))
+(define (model-idle-timeout) (env-num "TELEMACHUS_MODEL_IDLE_TIMEOUT" 60))
+(define (model-retries)      (inexact->exact (floor (env-num "TELEMACHUS_MODEL_RETRIES" 1))))
+
+;; A failure worth trying again: a timeout, an unreachable endpoint, a stalled
+;; stream. `reason` is for the message and for tests, never for control flow.
+(struct exn:fail:model-retryable exn:fail (reason) #:transparent)
+(define (retryable! reason fmt . args)
+  (raise (exn:fail:model-retryable (apply format fmt args) (current-continuation-marks) reason)))
+
+;; 429 and 5xx are the server saying "later"; a 4xx is OUR malformed request and
+;; retrying it only spends the budget again.
+(define (retryable-code? code) (or (= code 429) (>= code 500)))
+
+;; Run `thunk` with a deadline. Returns its value; raises on timeout. The value
+;; must not hold anything owned by the custodian — the non-streaming path reads
+;; its body to a string first, which is why this is safe there and why the
+;; streaming path manages its own custodian instead.
+(define (call-with-deadline secs who thunk)
+  (define cust (make-custodian))
+  (define ch (make-channel))
+  (define t (parameterize ([current-custodian cust])
+              (thread (lambda ()
+                        (channel-put ch
+                          (with-handlers ([(lambda (_) #t) (lambda (e) (cons 'raise e))])
+                            (cons 'ok (thunk))))))))
+  (define r (sync/timeout secs ch))
+  (custodian-shutdown-all cust)
+  (cond
+    [(not r) (kill-thread t) (retryable! 'timeout "~a: no response within ~as" who secs)]
+    [(eq? (car r) 'raise) (raise (cdr r))]
+    [else (cdr r)]))
+
 ;; ---- impure: HTTP -----------------------------------------------------------
 (define (status-code status) (let ([m (regexp-match #px#"\\b([0-9]{3})\\b" status)])
                                (if m (string->number (bytes->string/utf-8 (cadr m))) 0)))
@@ -74,29 +125,78 @@
   (values (url-host u) (or (url-port u) (if ssl? 443 80)) ssl?
           (string-append "/" (string-join (map path/param-path (url-path u)) "/"))))
 
-;; POST JSON, return (values status-code jsexpr) — non-streaming.
-(define (http-post-json url body-jsexpr headers)
+;; POST JSON, return (values status-code jsexpr) — non-streaming, with a deadline
+;; and a bounded retry. A retry costs tokens, so the default is one.
+(define (http-post-json url body-jsexpr headers
+                        #:timeout [secs (model-timeout)] #:retries [tries (model-retries)])
   (define-values (host port ssl? path) (url-parts url))
-  (define-values (status _hdrs in)
-    (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
-                   #:headers headers #:data (jsexpr->bytes body-jsexpr)))
-  (values (status-code status) (string->jsexpr (port->string in))))
+  (define (once)
+    (call-with-deadline secs 'model
+      (lambda ()
+        (with-handlers ([exn:fail:network?
+                         (lambda (e) (retryable! 'network "model endpoint unreachable: ~a" (exn-message e)))])
+          (define-values (status _hdrs in)
+            (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
+                           #:headers headers #:data (jsexpr->bytes body-jsexpr)))
+          (define code (status-code status))
+          (define body (port->string in))
+          (define j (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr body)))
+          ;; A 200 whose body is not JSON is a proxy or a gateway answering for the
+          ;; model; it used to raise an opaque read error deep in the parser.
+          (when (and (= code 200) (not j))
+            (retryable! 'malformed "model returned HTTP 200 with a body that is not JSON: ~a"
+                        (substring body 0 (min 200 (string-length body)))))
+          (list code (or j (hasheq 'error (substring body 0 (min 400 (string-length body))))))))))
+  (let loop ([left tries] [n 1])
+    (define out
+      (with-handlers ([exn:fail:model-retryable?
+                       (lambda (e) (if (> left 0) 'again (raise e)))])
+        (define r (once))
+        (if (and (> left 0) (retryable-code? (car r))) 'again r)))
+    (cond
+      [(eq? out 'again) (sleep (* 0.5 n)) (loop (sub1 left) (* 2 n))]
+      [else (values (car out) (cadr out))])))
 
-;; POST JSON, return (values status-code body-input-port) — for SSE streaming.
-(define (http-post-stream url body-jsexpr headers)
+;; POST JSON, return (values status-code body-input-port shutdown!) — for SSE.
+;;
+;; The port must outlive this call, so the custodian cannot be shut down here as
+;; the non-streaming path does: the caller gets a `shutdown!` and is responsible
+;; for calling it (openai-llm-stream does, in a dynamic-wind). The deadline
+;; covers connecting and the response HEADERS only — a long generation is
+;; legitimate, and what bounds the body is the IDLE timeout in read-sse-deltas.
+;; A streaming call is never retried: the caller has already been handed tokens
+;; and replaying would duplicate them in front of the reader.
+(define (http-post-stream url body-jsexpr headers #:timeout [secs (model-timeout)])
   (define-values (host port ssl? path) (url-parts url))
-  (define-values (status _hdrs in)
-    (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
-                   #:headers headers #:data (jsexpr->bytes body-jsexpr)))
-  (values (status-code status) in))
+  (define cust (make-custodian))
+  (define ch (make-channel))
+  (define t (parameterize ([current-custodian cust])
+              (thread (lambda ()
+                        (channel-put ch
+                          (with-handlers ([(lambda (_) #t) (lambda (e) (cons 'raise e))])
+                            (define-values (status _hdrs in)
+                              (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
+                                             #:headers headers #:data (jsexpr->bytes body-jsexpr)))
+                            (cons 'ok (list (status-code status) in))))))))
+  (define r (sync/timeout secs ch))
+  (cond
+    [(not r) (custodian-shutdown-all cust) (kill-thread t)
+             (retryable! 'timeout "model: no response headers within ~as" secs)]
+    [(eq? (car r) 'raise) (custodian-shutdown-all cust) (raise (cdr r))]
+    [else (values (car (cdr r)) (cadr (cdr r)) (lambda () (custodian-shutdown-all cust)))]))
 
 ;; ---- streaming -------------------------------------------------------------
 ;; Read an OpenAI SSE stream into the list of `delta` objects, invoking
 ;; on-content with each text chunk (for live output).
-(define (read-sse-deltas in on-content)
+;; #:idle bounds the GAP between events, not the whole stream: a model that is
+;; still emitting may legitimately take minutes, but one that stops mid-answer
+;; used to leave the reader blocked in read-line for ever. Raising here hands the
+;; caller a partial stream and an error, which is what the final SSE event is for.
+(define (read-sse-deltas in on-content #:idle [idle (model-idle-timeout)])
   (let loop ([acc '()])
-    (define line (read-line in 'any))
+    (define line (sync/timeout idle (read-line-evt in 'any)))
     (cond
+      [(not line) (retryable! 'idle "model stopped sending after ~as" idle)]
       [(eof-object? line) (reverse acc)]
       [(string-prefix? line "data:")
        (define payload (string-trim (substring line 5)))
@@ -156,25 +256,10 @@
     (define body (let ([b (hasheq 'model model 'messages (sanitize-wire-messages messages) 'stream #t
                                   'temperature temperature 'tool_choice "auto" 'tools tools)])
                    (if rf (hash-set b 'response_format rf) b)))
-    (define-values (code in) (http-post-stream endpoint body headers))
-    (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
-    (stream-deltas->assistant-msg (read-sse-deltas in on-content))))
-
-;; ---- the #:llm effect ------------------------------------------------------
-;; (openai-llm …) -> (messages -> assistant-msg)
-;; #:temperature defaults to 0: tool *selection* should be deterministic. At the
-;; provider default (~0.7) small local models pick tools flakily; 0 is what
-;; makes tiny local models usable as agents.
-(define (openai-llm #:endpoint endpoint #:model model
-                    #:api-key [api-key #f] #:tools [tools '()]
-                    #:temperature [temperature 0])
-  (define headers
-    (append (list "Content-Type: application/json")
-            (if api-key (list (string-append "Authorization: Bearer " api-key)) '())))
-  (lambda (messages)
-    (define body (hasheq 'model model 'messages (sanitize-wire-messages messages) 'stream #f
-                         'temperature temperature 'tool_choice "auto" 'tools tools))
-    (define-values (code resp) (http-post-json endpoint body headers))
-    (unless (= code 200)
-      (error 'openai-llm "endpoint returned HTTP ~a: ~a" code resp))
-    (chat-response->assistant-msg resp)))
+    (define-values (code in shutdown!) (http-post-stream endpoint body headers))
+    (dynamic-wind
+      void
+      (lambda ()
+        (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
+        (stream-deltas->assistant-msg (read-sse-deltas in on-content)))
+      shutdown!)))

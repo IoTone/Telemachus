@@ -1581,13 +1581,25 @@
 (define (executor-known? name) (or (executor-exists? name) (and (executor-by-name db-conn name) #t)))
 
 ;; ---- executors (slice 66) -----------------------------------------------------------
-;; The env-configured push backends (federation.rkt) and the API-created ones
-;; (the executors table: push, and PULL with a worker token) in one listing.
+;; The env-configured push backends (executors.json) and the API-created ones (the
+;; executors table: push, and PULL with a worker token) in ONE listing, once each.
+;;
+;; A DB push executor lives in both — the row is the record, the registry entry is
+;; how a call resolves it — so concatenating the two listed it twice. The row is
+;; the richer answer (mode, health, org, who created it), so the registry only
+;; contributes what executors.json owns, which has no row at all.
 (define (ep-executors req)
   (with-auth req (lambda (p)
+    (define rows (executor-list db-conn p))
+    (define named (for/list ([e (in-list rows)]) (hash-ref e 'name)))
+    (define from-file
+      (for/list ([e (in-list (list-executors))]
+                 #:when (and (equal? (hash-ref e 'source "config") "config")
+                             (not (member (hash-ref e 'name) named))))
+        e))
     (json-response (hasheq 'local (hasheq 'name "local" 'model (hash-ref (model-info) 'model)
                                           'configured (model-configured?) 'remote #f)
-                           'executors (append (list-executors) (executor-list db-conn p)))))))
+                           'executors (append from-file rows))))))
 
 ;; create: the operator anywhere (org_id optional), an org admin for its own
 ;; company (TEN-2e). A pull executor's worker token is in THIS response and never again.
@@ -1779,25 +1791,44 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
     (require-feature p "agent")
+    (define b (read-json-body req))
+    ;; the agent is routable now (it used to build its own HTTP call, so neither a
+    ;; named backend nor a model role reached it); naming compute stays operator-only,
+    ;; exactly as on /api/ai/chat
+    (define ex (pick-executor b))
+    (when ex (require-perm db-conn p "instance:manage"))
     (cond
-      [(not (agent-configured?))
+      [(and (not ex) (not (agent-configured?)))
        (err "agent mode requires a configured model (set TELEMACHUS_MODEL_URL)" 503)]
+      [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [else
-       (define b (read-json-body req))
        (define prompt (hash-ref b 'prompt ""))
        (define sid (principal-team-id p))
        (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+       ;; ai.tokens.total is admitted here too, as /api/ai/chat already did. The
+       ;; agent used to bill (max (estimate-tokens prompt) 50) — one real run
+       ;; measured 3,810 — so the budget was never reached and the missing check
+       ;; never showed. Now that the count is real, admitting on requests alone
+       ;; would let an over-budget team keep spending.
+       (define tq (tenant-quota-check db-conn p "ai.tokens.total" (estimate-tokens (format "~a" prompt))))
        (cond
          [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
+         [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
          [else
           (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
           (sse-response
            (lambda (emit)
              (with-slot GOV (string-append "team:" sid) (or climit 2)
                (lambda (inflight)
-                 (run-agent-flow db-conn p prompt (lambda (ev) (emit ev)))
+                 (define-values (_result tokens)
+                   (run-agent-flow db-conn p prompt (lambda (ev) (emit ev)) #:executor ex))
                  (tenant-quota-record! db-conn p "ai.requests" 1)
-                 (tenant-quota-record! db-conn p "ai.tokens.total" (max (estimate-tokens prompt) 50))))))])]))))
+                 ;; the provider's own counts, summed over the loop's rounds. This was
+                 ;; (max (estimate-tokens prompt) 50) — a guess — because the agent
+                 ;; discarded `usage`; the estimate stays as a floor for a server that
+                 ;; reports none.
+                 (tenant-quota-record! db-conn p "ai.tokens.total"
+                                       (if (> tokens 0) tokens (max (estimate-tokens prompt) 50)))))))])]))))
 
 (define (ep-usage req)
   (with-auth req (lambda (p)
@@ -2721,6 +2752,15 @@
   (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
   (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
+  ;; The executors table's PUSH rows belong in the same registry. They were only
+  ;; registered at create time, so a restart silently turned a working backend
+  ;; into a name that resolved nowhere. executors.json is loaded first and keeps
+  ;; its names; a clash is reported, never silently overridden.
+  (define-values (dbx dbx-skipped)
+    (load-push-executors! db-conn #:log (lambda (s) (printf "  executor: ~a\n" s))))
+  (when (pair? dbx) (printf "registered ~a push executor(s) from the database\n" (length dbx)))
+  (when (> dbx-skipped 0)
+    (printf "WARNING: ~a push executor(s) in the database were SKIPPED (see above)\n" dbx-skipped))
   ;; slice 66: the first REMOTE kind — the wire run-chat speaks, run by a pull
   ;; worker; a result must carry a reply and a numeric token count
   ;; A worker answers with `reply` (a string) or with `content` — the same parts
@@ -2771,13 +2811,16 @@
       (unless (agent-configured?) (error "agent requires a configured model"))
       (define prompt (format "~a" (hash-ref payload 'prompt "")))
       (define evs (box '()))
-      (run-agent-flow conn p prompt (lambda (ev) (set-box! evs (cons ev (unbox evs)))))
+      (define-values (_result tokens)
+        (run-agent-flow conn p prompt (lambda (ev) (set-box! evs (cons ev (unbox evs))))))
       (define events (reverse (unbox evs)))
       (define done (for/or ([e (in-list events)]) (and (equal? (hash-ref e 'type #f) "done") e)))
       (define tools (for/list ([e (in-list events)] #:when (equal? (hash-ref e 'type #f) "tool")) (hash-ref e 'name "")))
       (define reply (if done (hash-ref done 'reply "") ""))
       (hasheq 'reply reply 'rounds (if done (hash-ref done 'rounds 0) 0)
-              'tools tools 'tokens_used (estimate-tokens prompt reply))))
+              'tools tools
+              ;; real counts from the loop, with the old estimate as a floor
+              'tokens_used (if (> tokens 0) tokens (estimate-tokens prompt reply)))))
 ;; One scheduler job per BATCH of missing strings, so a five-thousand-string draft
 ;; is a queue of small jobs rather than one that runs for an hour and cannot be
 ;; cancelled. Inside a batch the calls are sequential; the governor's concurrency

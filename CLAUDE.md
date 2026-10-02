@@ -1158,6 +1158,94 @@ model. With a role set and no local model, the seam no longer refuses.
 raco test test/roles-tests.rkt
 ```
 
+## AI model access: one path, one registry (Oct 2026)
+
+Three code paths used to build a model request. The agent built its own, so slice
+66's pull executors and slice 67's model roles never reached it, and it metered an
+ESTIMATE because it discarded the provider's `usage`. **`model-exchange` in
+`domain/ai/executor.rkt` is now the only place a model request leaves the
+process** — routing, the deadline, the bounded retry and the status check all live
+there, so a feature that adds one of them cannot reach some callers and miss
+others.
+
+- **Response PARSING is deliberately not shared.** The agent's parser
+  (`parse-agent-response`) takes any registered tool name; `chat-response->assistant-msg`
+  goes through `function-call->tool-block`, which drops anything outside
+  `tool-tags`. Folding them together would silently disable every plugin tool.
+  `openai-llm` is GONE — it had no production caller, and `agent/run.rkt`
+  duplicated it.
+- **The agent is routable and meters real tokens.** `run-agent-flow` takes
+  `#:executor` and returns `(values result tokens)`; `/api/agent` accepts
+  `{"executor": …}` (operator-only, as `/api/ai/chat` already was). A live
+  tool-using run measured **3,810 tokens where the old code billed 50** — so
+  `/api/agent` now also admits on `ai.tokens.total`, which it never did: the
+  under-count meant the budget was never reached and the missing check never
+  showed. **Operator-visible change**: agent runs now exhaust a team's AI budget
+  realistically, and the default is 2,000/day.
+- **A pull executor cannot run the agent** — `infer.chat` carries a reply and a
+  token count, not tool calls — so it is refused BY NAME rather than silently
+  dropping every tool.
+- **A named executor that is not a push backend is REFUSED.** It used to fall
+  through to the local model while the response still reported the executor's
+  name, and with no local model it fell through to the *simulated* upper-cased
+  echo. A misroute that lies about where it ran is the worst shape this can take.
+
+### Timeouts and retries
+
+`http-sendrecv` takes no timeout and nothing wrapped these calls, so an endpoint
+that accepted the connection and never answered hung the calling thread for
+ever. In a scheduler job the lease reaper requeued the WORK after 120s, but the
+thread kept its team's `ai.concurrency` slot — a flapping endpoint drained the
+pool while `/health` still said ok.
+
+- `TELEMACHUS_MODEL_TIMEOUT` (120s) bounds a non-streaming request end to end.
+  `TELEMACHUS_MODEL_IDLE_TIMEOUT` (60s) bounds the **gap between SSE events**, not
+  the stream: a model still emitting may legitimately take minutes.
+  `TELEMACHUS_MODEL_RETRIES` (1) — a retry costs tokens, so the default is one.
+  An unparseable or zero value falls back to the default, never to 0.
+- **The request runs under its own custodian**, and a timeout shuts that custodian
+  down: killing the thread alone would leave the socket open.
+- **Retry on a timeout, an unreachable endpoint, a 429 or a 5xx — never on a 4xx**,
+  which is our own malformed request and would only spend the budget again.
+  **A streaming call is never retried**: the caller has already been handed tokens
+  and replaying would duplicate them in front of the reader.
+- A **200 whose body is not JSON** (a proxy answering for the model) is a named,
+  retryable error instead of an opaque read failure deep in the parser.
+
+### One registry of named backends
+
+The in-memory registry in `domain/exec/federation.rkt` is the single lookup a push
+call resolves through, and it is filled from two places: `executors.json` at boot
+(`source` `'config`) and the `executors` table's push rows (`source` `'db`).
+
+- **DB push rows are loaded at boot** (`load-push-executors!`). They used to be
+  registered only at CREATE time, so a restart silently turned a working backend
+  into a name that resolved nowhere while `executor-known?` still said it existed.
+- **`executors.json` owns its names**: a create that would shadow one is refused,
+  and a clash found at boot is SKIPPED, counted and logged. Overriding the file
+  from the database was the old behaviour and made a name resolve differently
+  before and after a restart.
+- **Retiring a push executor unregisters it immediately.** The row alone left it
+  taking traffic until the next restart.
+- A row whose sealed key will not open is skipped with a named warning rather than
+  raising — one unopenable executor must not stop the instance booting, and the
+  operator who rotated `TELEMACHUS_SECRET_KEY` needs to be told which.
+- `GET /api/executors` lists each executor **once** (the DB row is the richer
+  answer; the registry only contributes what `executors.json` owns) and every row
+  carries `source`.
+
+```sh
+raco test test/model-transport-tests.rkt   # real sockets: a stall, a 503, a 4xx, a stalled stream
+raco test test/model-routing-tests.rkt     # the refusals, the agent's real token counts, restart survival
+```
+
+Still deferred, deliberately: a second wire protocol (OpenAI chat completions is
+what llama.cpp, ollama, vLLM and most gateways speak), per-backend capability
+records, per-org provider credentials, and embeddings. **A team admin can point a
+model role at any executor name**, including another org's, because
+`executor-known?` does not filter by org — routing on `/api/ai/chat` and
+`/api/agent` is operator-only, so this is the one gap left in that area.
+
 ## Tokens, `/health`, security headers, meta tags (issues #11–#13)
 
 - **Tokens expire** (#13). `api_tokens.expires_at` carried nothing for a year;
