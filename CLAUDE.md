@@ -893,10 +893,17 @@ other with a switcher line under the badges.
   **both** `readme.html` (what the landing page links) and `README.html` (what the
   link rewriter produces from a `../README.md` link, which four docs use). The
   Pages link check is what proves both resolve.
+- **The `ja` catalog is COMPLETE and gated** (Oct 2026): 548/548, zero stale,
+  reviewed string by string. The 36 that were outstanding were drafted with the
+  Manager and hand-corrected — 15 of 23 machine drafts needed it, including
+  `nunca` (Spanish) in two strings and `上的文本` / `可能是的` (Chinese) in two
+  more. Twelve were STALE rather than missing, and three of those documented the
+  **pre-#24 worker protocol**: `docs/reference/ja/api.md` told a Japanese reader
+  to post `{result}` with no `claim_token`, which 409s on every write. CI now
+  fails on that class (see the Localization Manager section).
 - Still open on #50: the e-book's 18 untranslated chapters — the PIPELINE is built (see
   the e-book section and `docs/book/TRANSLATING.md`; `ja/00-read.md` is the one sample
-  chapter) — and a review pass over the `ja` catalog, which sits at 93% with 24 strings
-  missing from other slices.
+  chapter).
 
 ## The published site (GitHub Pages)
 

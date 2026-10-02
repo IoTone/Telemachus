@@ -988,8 +988,8 @@
       "hash": "44b342c7a46bbf0734fb7a29be9cfa4d39ff2df0"
     },
     "doc.route.get.api.x.plugin.bundle.path": {
-      "text": "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required and the response is never cached by a shared cache.",
-      "hash": "d3a86b6663cfb8e61e7a53b11462b2062d3dc53e"
+      "text": "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.",
+      "hash": "bf8d94c14199e90c07c97c82400f54b2317e8fea"
     },
     "ui.tools": {
       "text": "Tools",
@@ -1742,6 +1742,10 @@
     "doc.tool.chat_message.text": {
       "text": "What the user said",
       "hash": "bfe8aadc4471ada97ff5ddf135d6d3bb0585636f"
+    },
+    "doc.route.post.api.x.plugin.bundle-ticket": {
+      "text": "Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path.",
+      "hash": "bd43be9e9648a122dad992989775e4fad89ca0e8"
     },
     "doc.route.get.api.x.integrator-demo.eta": {
       "text": "Estimated days for ?lane=.",
