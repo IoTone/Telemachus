@@ -990,6 +990,24 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## Layered operations (proposed, LAY‑1…12)
+
+`docs/design/layered-operations.md` — a gap analysis from a civil-engineering RFE.
+**Nothing is built.** Its value is the boundary it draws: the platform grows
+SEAMS, a domain supplies CONTENT through them, and the test of the design is that
+no civil-engineering requirement needs a core change. The twelve gaps, shortest
+form: a workflow cannot wait for a person (there is no `review` step and no
+`waiting` run status); a decision is not a log line (verdict/rationale/actor/time
+want their own rows); four-eyes exists only inside `l10n-review!`; `repo_objects`
+carries no team-defined metadata; **extraction provenance is lost at ingest and
+cannot be retrofitted without re-processing everything** (the one decision with a
+deadline); an out-of-process plugin can reach only `notes.create` and
+`notes.list`, so a Python OCR or CV pipeline can read and write nothing;
+`extract.rkt`'s `kind-of` is a fixed dispatch, not a registry; **a PDF with no
+text layer is recorded as a successful empty extraction**, indistinguishable from
+a blank page; no executor records whether it can tool-call; and the review queue
+belongs in core while a domain canvas belongs in a plugin bundle.
+
 ## The integrator's guide (`docs/integrators-guide.md`)
 
 The document a downstream team follows to put THEIR product on Telemachus: theme
