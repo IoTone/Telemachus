@@ -43,9 +43,10 @@
   (add-member! conn #:user u #:team team #:role role)
   (values (user-principal conn u team) u))
 
-(define (put! conn p key bytes #:type [ct "application/octet-stream"] #:vis [vis #f])
+(define (put! conn p key bytes #:type [ct "application/octet-stream"] #:vis [vis #f]
+              #:max-bytes [max-bytes #f])
   (repo-put! conn p #:key key #:port (open-input-bytes bytes)
-             #:content-type ct #:filename "f" #:visibility vis))
+             #:content-type ct #:filename "f" #:visibility vis #:max-bytes max-bytes))
 
 (define (read-back conn p id)
   (define-values (o in) (repo-open conn p id))
@@ -468,3 +469,23 @@
     (check-true (blob-exists? "org-cwd-test" d) "blob written from a foreign cwd is findable")
     (check-equal? (port->bytes (blob-get "org-cwd-test" d)) #"hello"))
   (delete-directory/files root))
+
+;; A caller that never passes #:max-bytes gets the old, unbounded behaviour — this
+;; is what let the S3 door (domain/s3/server.rkt) stage an unlimited body to disk
+;; before quota ever got to judge it, since its two upload handlers called
+;; repo-put!/blob-stage! with no limit. This proves the ceiling actually stops an
+;; oversized upload once a caller passes it, which is the whole fix: the S3
+;; handlers now pass (max-upload-bytes) through at both call sites.
+(test-case "repo-put! honours #:max-bytes, and omitting it stays unbounded"
+  (define conn (fresh))
+  (define-values (acme _t) (owner-of conn))
+
+  ;; within the limit: succeeds normally
+  (put! conn acme "small.bin" (make-bytes 100 65) #:max-bytes 10000)
+
+  ;; over the limit: refused before the whole body is staged, not silently truncated
+  (check-exn exn:fail:user?
+             (lambda () (put! conn acme "big.bin" (make-bytes 10000 65) #:max-bytes 100)))
+
+  ;; no limit given at all: the old behaviour, nothing refuses a large body
+  (void (put! conn acme "unbounded.bin" (make-bytes 10000 65))))

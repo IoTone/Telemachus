@@ -6,9 +6,11 @@
 ;; packages under pkgs/; this is the only app-branded shared module.
 
 (require racket/runtime-path
-         db-kit)
+         db-kit
+         (only-in web-kit default-max-body-length))
 
-(provide app-version impl-root data-dir database-url call-with-app-db anchor-path)
+(provide app-version impl-root data-dir database-url call-with-app-db anchor-path
+         max-upload-bytes)
 
 (define app-version "0.1.0")
 
@@ -53,3 +55,15 @@
 ;; Open the app db (relative URLs resolve against the implementation root).
 (define (call-with-app-db proc #:mode [mode 'read/write])
   (call-with-sqlite (sqlite-path (database-url) #:base-dir impl-root) proc #:mode mode))
+
+;; Largest request body / upload the app will accept. web-server's own default is
+;; 1 MiB and it enforces it by DROPPING the connection — no status, no log line —
+;; so a handler's own size check never runs. Deliberate here rather than inherited.
+;; Shared between the servlet's #:max-body-length (server/main.rkt) and every blob
+;; write that can be reached from outside the servlet's own body limit, such as the
+;; S3 door (domain/s3/server.rkt), which is a separate listener with no ceiling of
+;; its own otherwise.
+(define (max-upload-bytes)
+  (define raw (getenv "TELEMACHUS_MAX_UPLOAD"))
+  (define n (and raw (string->number raw)))
+  (if (and n (exact-positive-integer? n)) n default-max-body-length))

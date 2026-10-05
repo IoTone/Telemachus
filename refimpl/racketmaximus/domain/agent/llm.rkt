@@ -125,6 +125,22 @@
   (values (url-host u) (or (url-port u) (if ssl? 443 80)) ssl?
           (string-append "/" (string-join (map path/param-path (url-path u)) "/"))))
 
+;; Both helpers open their OWN connection and close it, rather than calling
+;; http-sendrecv, which abandons the socket under the response port — and
+;; collection does not reclaim it, so every request leaked one descriptor for the
+;; life of the process. Measured (PR #53): ten POSTs went 8 -> 18 descriptors with
+;; http-sendrecv whether or not the response port was closed, and 7 -> 7 with
+;; http-conn-open plus http-conn-close!. A worker long-polling /api/workers/claim
+;; hit its 1024-descriptor limit in about five and a half hours and then failed
+;; every claim with "Too many open files" while the process stayed alive.
+;;
+;; The deadline and the retry are the other half: http-sendrecv also takes no
+;; timeout, so an endpoint that accepted the connection and never answered hung
+;; the calling thread for ever, holding its team's ai.concurrency slot. The two
+;; fixes are complementary — a leaked descriptor and an unbounded wait are
+;; different failures of the same call — so the request runs under a deadline AND
+;; closes its connection on every exit.
+
 ;; POST JSON, return (values status-code jsexpr) — non-streaming, with a deadline
 ;; and a bounded retry. A retry costs tokens, so the default is one.
 (define (http-post-json url body-jsexpr headers
@@ -135,18 +151,29 @@
       (lambda ()
         (with-handlers ([exn:fail:network?
                          (lambda (e) (retryable! 'network "model endpoint unreachable: ~a" (exn-message e)))])
-          (define-values (status _hdrs in)
-            (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
-                           #:headers headers #:data (jsexpr->bytes body-jsexpr)))
-          (define code (status-code status))
-          (define body (port->string in))
-          (define j (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr body)))
-          ;; A 200 whose body is not JSON is a proxy or a gateway answering for the
-          ;; model; it used to raise an opaque read error deep in the parser.
-          (when (and (= code 200) (not j))
-            (retryable! 'malformed "model returned HTTP 200 with a body that is not JSON: ~a"
-                        (substring body 0 (min 200 (string-length body)))))
-          (list code (or j (hasheq 'error (substring body 0 (min 400 (string-length body))))))))))
+          (define hc (http-conn-open host #:ssl? ssl? #:port port))
+          ;; dynamic-wind, so the connection closes however the body exits — a server
+          ;; error, a read failure, or one of the retryable! raises below. On the
+          ;; DEADLINE path the thread is killed instead, and post thunks do not run
+          ;; for a killed thread; the custodian in call-with-deadline is what closes
+          ;; the socket there, because the connection was opened under it.
+          (dynamic-wind
+            void
+            (lambda ()
+              (define-values (status _hdrs in)
+                (http-conn-sendrecv! hc path #:method #"POST"
+                                     #:headers headers #:data (jsexpr->bytes body-jsexpr)))
+              (define code (status-code status))
+              (define body (port->string in))
+              (close-input-port in)
+              (define j (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr body)))
+              ;; A 200 whose body is not JSON is a proxy or a gateway answering for
+              ;; the model; it used to raise an opaque read error deep in the parser.
+              (when (and (= code 200) (not j))
+                (retryable! 'malformed "model returned HTTP 200 with a body that is not JSON: ~a"
+                            (substring body 0 (min 200 (string-length body)))))
+              (list code (or j (hasheq 'error (substring body 0 (min 400 (string-length body)))))))
+            (lambda () (http-conn-close! hc)))))))
   (let loop ([left tries] [n 1])
     (define out
       (with-handlers ([exn:fail:model-retryable?
@@ -159,13 +186,15 @@
 
 ;; POST JSON, return (values status-code body-input-port shutdown!) — for SSE.
 ;;
-;; The port must outlive this call, so the custodian cannot be shut down here as
-;; the non-streaming path does: the caller gets a `shutdown!` and is responsible
-;; for calling it (openai-llm-stream does, in a dynamic-wind). The deadline
-;; covers connecting and the response HEADERS only — a long generation is
-;; legitimate, and what bounds the body is the IDLE timeout in read-sse-deltas.
-;; A streaming call is never retried: the caller has already been handed tokens
-;; and replaying would duplicate them in front of the reader.
+;; A stream's body is read lazily, so the connection cannot be closed here: the
+;; caller gets a `shutdown!` that closes both it and the custodian, and
+;; openai-llm-stream calls it in a dynamic-wind. A connection kept open for a
+;; stream is the one case where the caller owns it.
+;;
+;; The deadline covers connecting and the response HEADERS only — a long
+;; generation is legitimate, and what bounds the body is the IDLE timeout in
+;; read-sse-deltas. A streaming call is never retried: the caller has already been
+;; handed tokens and replaying would duplicate them in front of the reader.
 (define (http-post-stream url body-jsexpr headers #:timeout [secs (model-timeout)])
   (define-values (host port ssl? path) (url-parts url))
   (define cust (make-custodian))
@@ -174,16 +203,25 @@
               (thread (lambda ()
                         (channel-put ch
                           (with-handlers ([(lambda (_) #t) (lambda (e) (cons 'raise e))])
-                            (define-values (status _hdrs in)
-                              (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
-                                             #:headers headers #:data (jsexpr->bytes body-jsexpr)))
-                            (cons 'ok (list (status-code status) in))))))))
+                            (define hc (http-conn-open host #:ssl? ssl? #:port port))
+                            ;; a send that throws has no caller to hand the connection to
+                            (with-handlers ([(lambda (_) #t)
+                                             (lambda (e) (http-conn-close! hc) (raise e))])
+                              (define-values (status _hdrs in)
+                                (http-conn-sendrecv! hc path #:method #"POST"
+                                                     #:headers headers #:data (jsexpr->bytes body-jsexpr)))
+                              (cons 'ok (list (status-code status) in hc)))))))))
   (define r (sync/timeout secs ch))
   (cond
     [(not r) (custodian-shutdown-all cust) (kill-thread t)
              (retryable! 'timeout "model: no response headers within ~as" secs)]
     [(eq? (car r) 'raise) (custodian-shutdown-all cust) (raise (cdr r))]
-    [else (values (car (cdr r)) (cadr (cdr r)) (lambda () (custodian-shutdown-all cust)))]))
+    [else
+     (define got (cdr r))
+     (values (car got) (cadr got)
+             (lambda ()
+               (with-handlers ([(lambda (_) #t) void]) (http-conn-close! (caddr got)))
+               (custodian-shutdown-all cust)))]))
 
 ;; ---- streaming -------------------------------------------------------------
 ;; Read an OpenAI SSE stream into the list of `delta` objects, invoking
@@ -257,9 +295,14 @@
                                   'temperature temperature 'tool_choice "auto" 'tools tools)])
                    (if rf (hash-set b 'response_format rf) b)))
     (define-values (code in shutdown!) (http-post-stream endpoint body headers))
+    ;; The connection is closed on every path, including a non-200 and an exception
+    ;; thrown while the stream is read, for the same reason http-post-json does it:
+    ;; an unclosed one costs a descriptor for the life of the process.
     (dynamic-wind
       void
       (lambda ()
         (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
         (stream-deltas->assistant-msg (read-sse-deltas in on-content)))
-      shutdown!)))
+      (lambda ()
+        (with-handlers ([(lambda (_) #t) void]) (close-input-port in))
+        (shutdown!)))))

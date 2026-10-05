@@ -42,7 +42,7 @@ raco test \
   test/auth-tests.rkt test/notes-tests.rkt test/quota-tests.rkt \
   test/executor-tests.rkt test/agent-tests.rkt test/plugin-tests.rkt \
   test/mcp-tests.rkt test/oop-tests.rkt test/translate-tests.rkt \
-  test/federation-tests.rkt
+  test/federation-tests.rkt test/llm-client-tests.rkt
 
 # 3. HTTP server integration smoke
 bash test/server-smoke.sh
