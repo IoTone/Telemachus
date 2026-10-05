@@ -2878,7 +2878,7 @@
   (define port (listen-port))
   (when tls? (ensure-cert!))
   (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · secrets: ~a · max upload: ~a MiB)\n"
-          (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off")
+          (if tls? "https" "http") ip port (redact-db-url db-url) (kdf-name) (if tls? "on" "off")
           ;; issue #19: say plainly whether a dump of this database is replayable
           (if (secrets-enabled?) (format "sealed (key ~a)" (secret-key-id)) "plaintext")
           (quotient (max-upload-bytes) (* 1024 1024)))
