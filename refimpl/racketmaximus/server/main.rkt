@@ -1073,11 +1073,60 @@
        (set-user-locale! db-conn (principal-user-id p) loc)
        (json-response (hasheq 'ok #t 'locale loc))]))))
 
+;; ---- membership stewardship (issue #54) ----------------------------------------
+(define (ep-member-role req uid)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "members:manage")
+    (define role (fmt (read-json-body req) 'role))
+    (define out (set-member-role! db-conn (principal-team-id p) uid role))
+    (cond
+      [(eq? out 'no-such-member) (err "no such member" 404)]
+      [(eq? out 'unknown-role) (err "unknown role" 400)]
+      [(eq? out 'last-owner) (err "the last owner cannot be demoted" 409)]
+      [else
+       (audit! db-conn #:action "member.role" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid
+               #:meta (jsexpr->string (hasheq 'role role)))
+       (json-response (hasheq 'ok #t 'user_id uid 'role role))]))))
+
+(define (ep-member-remove req uid)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "members:manage")
+    (define out (deactivate-member! db-conn (principal-team-id p) uid))
+    (cond
+      [(eq? out 'no-such-member) (err "no such member" 404)]
+      [(eq? out 'last-owner) (err "the last owner cannot be removed" 409)]
+      [else
+       (audit! db-conn #:action "member.remove" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid
+               #:meta (jsexpr->string (hasheq 'tokens_revoked out)))
+       (json-response (hasheq 'ok #t 'user_id uid 'tokens_revoked out))]))))
+
+(define (ep-admin-password-reset req uid)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define new (hash-ref (read-json-body req) 'new_password #f))
+    (cond
+      [(or (not (string? new)) (< (string-length new) 6)) (err "new_password required (min 6)" 400)]
+      [(not (query-maybe-value db-conn "SELECT id FROM users WHERE id = ?" uid)) (err "no such user" 404)]
+      [else
+       (set-password! db-conn uid new)
+       (define n (revoke-user-sessions! db-conn uid))
+       ;; attributed to the ACTING operator's team: audit-list filters by team, and
+       ;; the operator's trail is where "what did the operator do" is looked for.
+       ;; The target may be in another team entirely.
+       (audit! db-conn #:action "user.password.reset" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p)
+               #:resource-type "user" #:resource-id uid
+               #:meta (jsexpr->string (hasheq 'sessions_revoked n)))
+       (json-response (hasheq 'ok #t 'user_id uid 'sessions_revoked n))]))))
+
 (define (ep-members-list req)
   (with-auth req (lambda (p)
     (define rows (query-rows db-conn
       (string-append "SELECT u.id, u.username, m.role_key FROM memberships m "
-                     "JOIN users u ON u.id = m.user_id WHERE m.team_id = ? ORDER BY u.username")
+                     "JOIN users u ON u.id = m.user_id "
+                     "WHERE m.team_id = ? AND m.status = 'active' ORDER BY u.username")
       (principal-team-id p)))
     (json-response (hasheq 'members (for/list ([r (in-list rows)])
                                       (hasheq 'user_id (vector-ref r 0)
@@ -1389,7 +1438,15 @@
     (cond
       [(or (not cur) (not new)) (err "current_password and new_password required" 400)]
       [(< (string-length new) 6) (err "new password too short (min 6)" 400)]
-      [(change-password! db-conn (principal-user-id p) cur new) (json-response (hasheq 'ok #t))]
+      [(change-password! db-conn (principal-user-id p) cur new)
+       ;; every session the old password could have minted goes, INCLUDING this
+       ;; one: the caller signs in again. Issuing a fresh token here instead would
+       ;; let a narrowly-scoped API token trade itself for a full session.
+       (define n (revoke-user-sessions! db-conn (principal-user-id p)))
+       (audit! db-conn #:action "user.password" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "user" #:resource-id (principal-user-id p)
+               #:meta (jsexpr->string (hasheq 'sessions_revoked n)))
+       (json-response (hasheq 'ok #t 'sessions_revoked n 'signed_out #t))]
       [else (err "current password incorrect" 403)]))))
 
 ;; issue #19: a TOTP seed is the one credential its owner cannot rotate by using
@@ -2561,6 +2618,8 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'member-role ep-member-role 'member-remove ep-member-remove
+   'admin-password-reset ep-admin-password-reset
    'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide
    'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
    'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail

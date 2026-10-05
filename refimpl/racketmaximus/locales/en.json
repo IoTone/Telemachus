@@ -59,6 +59,10 @@
       "text": "Submit translations.",
       "hash": "a1215dd0d6f20b2a3094d0bf3dc04311146ba8b0"
     },
+    "ui.rolechanged": {
+      "text": "Role changed",
+      "hash": "9e0b0c867d8c26a442322ab786ecf4184a8b20ed"
+    },
     "doc.route.get.api.repo-obj.id": {
       "text": "Object metadata with its versions.",
       "hash": "47ddf63dcd09afd8490b700c36942823229ec173"
@@ -163,6 +167,10 @@
       "text": "Extract now",
       "hash": "9dee43b9c3f299103d6cc68724bb51f11ad1a816"
     },
+    "doc.route.post.api.admin.users.id.password": {
+      "text": "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link.",
+      "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
+    },
     "doc.route.post.api.workflows.slug.run": {
       "text": "Start a run with {input}; declared inputs are required and typed. Returns 202 with the run.",
       "hash": "1e305174211be63642083ac5f6d52e3fb3ad453a"
@@ -243,6 +251,14 @@
       "text": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
       "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
     },
+    "doc.tool.doc_extract_fields": {
+      "text": "Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json.",
+      "hash": "84a1d20ebeaf0b0cf22ee9351924534b9f6079f8"
+    },
+    "ui.remove": {
+      "text": "Remove",
+      "hash": "e963907dac5cd5c017869b4c96c18021c9bd058b"
+    },
     "ui.version": {
       "text": "Version",
       "hash": "2da600bf9404843107a9531694f654e5662959e0"
@@ -250,10 +266,6 @@
     "ui.refresh": {
       "text": "Refresh",
       "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
-    },
-    "doc.tool.doc_extract_fields": {
-      "text": "Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json.",
-      "hash": "84a1d20ebeaf0b0cf22ee9351924534b9f6079f8"
     },
     "ui.create": {
       "text": "Create",
@@ -334,6 +346,10 @@
     "ui.source": {
       "text": "Source",
       "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "doc.route.delete.api.members.id": {
+      "text": "Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed.",
+      "hash": "025e74335f8f9af3dcf545fc8a2fa545b6819576"
     },
     "doc.workflow.translate-chat.name": {
       "text": "Translate Chat Workflow",
@@ -656,8 +672,8 @@
       "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
     },
     "doc.route.post.api.password": {
-      "text": "Change the caller's password.",
-      "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
+      "text": "Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone.",
+      "hash": "d0716f80b7d79a77dbf4f1517c2678710e41ebc9"
     },
     "doc.tool.doc_render.format": {
       "text": "Output format: the template's own (default) or \"pdf\" — Markdown and HTML templates only",
@@ -903,6 +919,14 @@
       "text": "Saved",
       "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
     },
+    "doc.tool.translate_text.source": {
+      "text": "Source language code, or auto",
+      "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
+    },
+    "doc.route.patch.api.members.id": {
+      "text": "Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it.",
+      "hash": "d907194c615b7a60f020c98a5eba4bfb9eec603c"
+    },
     "doc.perm.workflows:write": {
       "text": "Publish workflows and manage triggers.",
       "hash": "f981778de4196069299c6a8866294e550bf4c456"
@@ -946,10 +970,6 @@
     "ui.upload": {
       "text": "Upload",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
-    },
-    "doc.tool.translate_text.source": {
-      "text": "Source language code, or auto",
-      "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
     },
     "doc.perm.roles:read": {
       "text": "See the team's roles and what they grant.",
@@ -1043,6 +1063,10 @@
       "text": "Retire an executor: its worker token is revoked and any job it holds returns to the queue.",
       "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
     },
+    "ui.memberremoved": {
+      "text": "Removed",
+      "hash": "b5e77c5c02a90c01b16fea8f21a1083425ebe0e0"
+    },
     "doc.tool.kg_extract": {
       "text": "Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate.",
       "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
@@ -1094,6 +1118,10 @@
     "ui.warnlabel": {
       "text": "Warn before (seconds)",
       "hash": "eceb500f0e1871b1d18159d95db9c3494052ac6a"
+    },
+    "ui.pwsignedout": {
+      "text": "Password changed — every session was signed out. Sign in again.",
+      "hash": "b338cf8a2b9db116c903d7aa328d8b55d7a5f782"
     },
     "doc.route.get.api.ai.model": {
       "text": "Which model is configured (or that the simulated fallback is in use).",
@@ -1422,6 +1450,10 @@
     "ui.repository": {
       "text": "Repository",
       "hash": "312386841084261c610413fa4de8b7505f469407"
+    },
+    "ui.removeconfirm": {
+      "text": "Remove {name} from the team? Their tokens for this team stop working.",
+      "hash": "811218e0dce226f0cfbd039126a12a4dd180e8f9"
     },
     "doc.tool.update_note.id": {
       "text": "The note id",

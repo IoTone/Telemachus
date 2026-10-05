@@ -41,6 +41,8 @@
          grant! revoke!
          audit! audit-list
          set-password! change-password! authenticate enable-2fa! reset-2fa! first-team-for
+         member-role team-owner-count set-member-role! deactivate-member!
+         revoke-user-team-tokens! revoke-user-sessions!
          issue-recovery-codes! recovery-codes-remaining RECOVERY-CODE-COUNT
          user-locale set-user-locale! org-data-reader? org-teams-of)
 
@@ -140,6 +142,81 @@
     "INSERT INTO memberships (id, user_id, team_id, role_key) VALUES (?, ?, ?, ?)"
     mid user-id team-id role-key)
   mid)
+
+;; ---- membership stewardship (issue #54) --------------------------------------
+;; There was no way to change a member's role, and no way to remove one at all,
+;; so a team could be joined and never left. Combined with a password change that
+;; revoked nothing, offboarding somebody was not expressible.
+
+(define (member-role conn team-id user-id)
+  (define v (query-maybe-value conn
+    "SELECT role_key FROM memberships WHERE team_id = ? AND user_id = ? AND status = 'active'"
+    team-id user-id))
+  (and v (not (sql-null? v)) v))
+
+(define (team-owner-count conn team-id)
+  (query-value conn
+    "SELECT COUNT(*) FROM memberships WHERE team_id = ? AND role_key = 'owner' AND status = 'active'"
+    team-id))
+
+;; Revoke a person's tokens FOR ONE TEAM. Removing somebody whose credentials go
+;; on working is not removing them.
+(define (revoke-user-team-tokens! conn user-id team-id)
+  (define n (query-value conn
+    "SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND team_id = ? AND status = 'active'"
+    user-id team-id))
+  (query-exec conn
+    "UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND team_id = ? AND status = 'active'"
+    user-id team-id)
+  n)
+
+;; A password change invalidates every SESSION, across teams — the reason a person
+;; changes a password is that they think it is known, and every session it minted
+;; is then suspect. Machine credentials (api, worker) are deliberately spared:
+;; they are not reachable with the password, they are listed and revocable on
+;; their own, and silently killing a customer's worker because somebody rotated a
+;; password is the worse failure — the same call issue #13's NULL expiry made.
+(define (revoke-user-sessions! conn user-id)
+  (define n (query-value conn
+    "SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND status = 'active' AND kind = ?"
+    user-id SESSION-KIND))
+  (query-exec conn
+    "UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND status = 'active' AND kind = ?"
+    user-id SESSION-KIND)
+  n)
+
+;; A team must always have an owner: a team with none cannot grant anybody the
+;; permission to fix it, and `roles:manage` lives at the team tier. So the last
+;; owner can be neither demoted nor removed.
+;; -> 'no-such-member | 'unknown-role | 'last-owner | the new role
+(define (set-member-role! conn team-id user-id role)
+  (define cur (member-role conn team-id user-id))
+  (cond
+    [(not cur) 'no-such-member]
+    [(not (query-maybe-value conn
+            "SELECT id FROM roles WHERE key = ? AND (team_id IS NULL OR team_id = ?)" role team-id))
+     'unknown-role]
+    [(and (equal? cur "owner") (not (equal? role "owner")) (<= (team-owner-count conn team-id) 1))
+     'last-owner]
+    [else
+     (query-exec conn "UPDATE memberships SET role_key = ? WHERE team_id = ? AND user_id = ?"
+                 role team-id user-id)
+     role]))
+
+;; Deactivate, never delete: the row is the record that this person was on the
+;; team, which an audit needs, and what they own still points at the user. An
+;; inactive membership yields no role, and `user-permissions` returns '() without
+;; one, so the deny is the one that already existed rather than a new code path.
+;; -> 'no-such-member | 'last-owner | the number of tokens revoked
+(define (deactivate-member! conn team-id user-id)
+  (define cur (member-role conn team-id user-id))
+  (cond
+    [(not cur) 'no-such-member]
+    [(and (equal? cur "owner") (<= (team-owner-count conn team-id) 1)) 'last-owner]
+    [else
+     (query-exec conn "UPDATE memberships SET status = 'inactive' WHERE team_id = ? AND user_id = ?"
+                 team-id user-id)
+     (revoke-user-team-tokens! conn user-id team-id)]))
 
 ;; ---- built-in roles + bootstrap --------------------------------------------
 (define (seed-builtin-roles! conn)

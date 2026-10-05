@@ -59,11 +59,13 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/2fa/recovery-codes` | bearer | — | — | 呼び出し元のリカバリコードのうち、未使用のものが何件残っているか。コード自体は返しません。 |
 | DELETE | `/api/2fa` | bearer | — | — | 呼び出し元自身の TOTP を無効化します。古いシードとそのリカバリコードは使えなくなり、再登録が必要です。 |
 | DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。 |
-| POST | `/api/password` | bearer | — | — | 呼び出し元のパスワードを変更します。 |
+| POST | `/api/password` | bearer | — | — | 呼び出し元のパスワードを変更する。古いパスワードで発行され得たセッションは、この呼び出し自身のものも含めてすべて失効するため、再度サインインが必要です。マシン用トークン（api、worker）はそのまま残ります。 |
 | GET | `/api/whoami` | bearer | — | — | 呼び出し元：ユーザー、チーム、オペレーターフラグ、組織、組織ロール、ロケール、権限。 |
 | POST | `/api/profile` | bearer | — | — | 呼び出し元のプロフィール(表示名、ロケール)を更新します。 |
 | POST | `/api/members` | bearer | `members:manage` | — | 呼び出し元のチームに役割を付けてメンバーを追加；新しいメンバーの最初のトークンを返します。 |
 | GET | `/api/members` | bearer | — | — | チームのメンバーと役割 |
+| PATCH | `/api/members/:id` | bearer | `members:manage` | — | メンバーのチームロールを変更する：{role}。最後のオーナーは降格できません — オーナーのいないチームは、それを修正する権限を誰にも付与できないためです。 |
+| DELETE | `/api/members/:id` | bearer | `members:manage` | — | メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。 |
 | GET | `/api/admin/status` | bearer | `instance:manage` | — | インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。 |
 | POST | `/api/orgs` | superadmin | `instance:manage` | — | 会社を作成：org、最初のチーム、所有者。明示的なスラッグは自然キーです（再実行で409エラー） |
 | GET | `/api/orgs` | superadmin | `instance:manage` | — | インスタンス上のすべての組織をリスト表示します。 |
@@ -72,6 +74,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | 組織レベルのクォータを設定；チームはその下に配置されます |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 1つの会社、そのチームとクォータ。 |
 | PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
+| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | — | サインインできなくなったユーザーのパスワードを設定する：{new_password}。そのユーザーのセッションは失効します。リセットリンクを送るメール送信手段がないため、サインインできない人にとって唯一の復帰手段です。 |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
 | GET | `/api/org` | org-admin | `org:read` | — | 呼び出し元の会社 |
 | GET | `/api/org/teams` | org-admin | `org:read` | — | 呼び出し元の会社のチーム。 |

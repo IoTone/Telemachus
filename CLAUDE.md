@@ -990,6 +990,44 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## Offboarding and password hygiene (issue #54, built 5 Oct 2026)
+
+Before this, `/api/members` had only `POST` and `GET`: a team could be joined and
+never left, no role could be changed, and a password change revoked nothing. You
+could not offboard somebody — and the one thing a person does when they think
+their password is known did not help.
+
+- **A password change revokes every SESSION, including the one making the call**,
+  so the caller signs in again. **This is a behaviour change**: `server-smoke.sh`
+  changed alice's password and kept using the same token, and had to re-login —
+  the same shape as enforcing `required` on the funnel's fields.
+  Machine credentials (`api`, `worker`) are deliberately spared: they are not
+  reachable with the password, they are listed and revocable on their own, and
+  killing a customer's worker because somebody rotated a password is the worse
+  failure. A fresh token is NOT issued in exchange — that would let a narrowly
+  scoped API token trade itself for a full `*:*` session.
+- **`DELETE /api/members/:id` deactivates and revokes.** The membership row stays
+  (an audit needs to know the person was there, and what they own still points at
+  the user); `status = 'inactive'` yields no role, and `user-permissions` already
+  returned `'()` without one, so the deny is the path that existed rather than a
+  new one. Their tokens **for that team** are revoked in the same call: removing
+  somebody whose credentials go on working is not removing them.
+- **The last owner can be neither demoted nor removed** (409). A team with no
+  owner cannot grant anybody the permission to fix it.
+- **`POST /api/admin/users/:id/password`** (`instance:manage`) is the way back in
+  for someone locked out — there is no mail transport, so an operator-assisted
+  reset is the honest answer rather than a reset-link flow that cannot be sent.
+- **Every one of these audits**, and the admin reset is attributed to the ACTING
+  operator's team: `audit-list` filters `WHERE team_id = ?`, so an entry with no
+  team is invisible. (`user.2fa.reset` has the same gap and was left alone —
+  noted, not fixed, in this slice.)
+- `GET /api/members` lists only ACTIVE memberships now.
+
+```sh
+raco test test/membership-tests.rkt   # 5 cases: roles, the last owner, revocation
+bash test/server-smoke.sh             # the "== members and passwords ==" block, 21 assertions
+```
+
 ## Human review in a workflow (LAY‑1…3, built 4 Oct 2026)
 
 A workflow can park on a person. `domain/review/review.rkt` owns the decision

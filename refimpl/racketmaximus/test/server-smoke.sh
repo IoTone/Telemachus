@@ -76,8 +76,14 @@ assert "bootstrap msg"   "$BS" 'Created operator alice'
 OP=$(printf '%s' "$BS" | grep -oP '"token":\s*"\K[^"]+')
 assert "login good"      "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" '"token":"tk_'
 assert "login bad pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"nope"}')" 'Authentication required'
-assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret","new_password":"newpass1"}')" '"ok":true'
-assert "login new pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass1"}')" '"token":"tk_'
+# issue #54: a password change now revokes every session it could have minted,
+# INCLUDING the one making the call, so the caller signs in again. This suite used
+# to change the password and keep using the same token.
+assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret","new_password":"newpass1"}')" '"signed_out":true'
+assert "the change revoked the session that made it" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" 'Authentication required'
+NEWLOGIN=$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass1"}')
+assert "login new pw"    "$NEWLOGIN" '"token":"tk_'
+OP=$(printf '%s' "$NEWLOGIN" | grep -oP '"token":\s*"\K[^"]+')
 assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" 'Authentication required'
 assert "whoami operator" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"is_operator":true'
 assert "admin operator"  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
@@ -807,6 +813,75 @@ assert "deciding again is refused"    "$(curl -s -X POST $B/api/reviews/$RVID/de
 assert "the decision is in the audit log" \
   "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'review.approve'
 curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}' >/dev/null  # restore
+
+# ---- identity: offboarding and password hygiene (issue #54) ---------------------
+echo
+echo "== members and passwords =="
+# a user of this block's own, so revoking sessions cannot strip $OP or $BOB
+DN=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"dana","password":"dana-pass-1","role":"member"}')
+DANA=$(printf '%s' "$DN" | grep -oP '"token":\s*"\K[^"]+')
+DANA_ID=$(printf '%s' "$DN" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "dana is a member" "$(curl -s $B/api/members -H "Authorization: Bearer $OP")" '"username":"dana"'
+
+assert "a member may not change roles" \
+  "$(curl -s -X PATCH $B/api/members/$DANA_ID -H "Authorization: Bearer $DANA" -d '{"role":"admin"}')" \
+  'Forbidden: members:manage'
+assert "an unknown role is refused" \
+  "$(curl -s -X PATCH $B/api/members/$DANA_ID -H "Authorization: Bearer $OP" -d '{"role":"wizard"}')" \
+  'unknown role'
+assert "the role changes" \
+  "$(curl -s -X PATCH $B/api/members/$DANA_ID -H "Authorization: Bearer $OP" -d '{"role":"admin"}')" \
+  '"role":"admin"'
+assert "...and the new role is in force" \
+  "$(curl -s $B/api/audit -H "Authorization: Bearer $DANA")" '"audit":'
+
+# the last owner is the one thing that may not go — a team with no owner cannot
+# grant anybody the permission to fix it
+OPID=$(curl -s $B/api/whoami -H "Authorization: Bearer $OP" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "the last owner cannot be demoted" \
+  "$(curl -s -X PATCH $B/api/members/$OPID -H "Authorization: Bearer $OP" -d '{"role":"admin"}')" \
+  'last owner cannot be demoted'
+assert "the last owner cannot be removed" \
+  "$(curl -s -X DELETE $B/api/members/$OPID -H "Authorization: Bearer $OP")" \
+  'last owner cannot be removed'
+
+# removing somebody whose credentials go on working is not removing them
+assert "dana's token works while she is a member" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $DANA")" '"notes":'
+assert "removing her revokes her team tokens" \
+  "$(curl -s -X DELETE $B/api/members/$DANA_ID -H "Authorization: Bearer $OP")" '"tokens_revoked":'
+assert "...her credential stops working" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $DANA")" 'Authentication required'
+assert "...and she is off the member list" \
+  "$(curl -s $B/api/members -H "Authorization: Bearer $OP" | grep -c dana || true)" '0'
+assert "removal is audited" "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'member.remove'
+
+# a password change signs every session out, including the one making the call
+EV=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"eve","password":"eve-pass-111","role":"member"}')
+EVE=$(printf '%s' "$EV" | grep -oP '"token":\s*"\K[^"]+')
+EVE_ID=$(printf '%s' "$EV" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "eve changes her password" \
+  "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $EVE" -d '{"current_password":"eve-pass-111","new_password":"eve-pass-222"}')" \
+  '"signed_out":true'
+assert "...which revoked the session that made the call" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $EVE")" 'Authentication required'
+assert "...and is audited" "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'user.password'
+assert "...and the new password signs in" \
+  "$(curl -s -X POST $B/api/login -d '{"username":"eve","password":"eve-pass-222"}')" '"token":"tk_'
+
+# the way back in for somebody who cannot sign in at all
+assert "a member may not reset another's password" \
+  "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $BOB" -d '{"new_password":"zzz-999"}')" \
+  'Forbidden: instance:manage'
+assert "a short reset is refused" \
+  "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"x"}')" \
+  'min 6'
+assert "an operator resets a locked-out password" \
+  "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"eve-pass-333"}')" \
+  '"ok":true'
+assert "...and the reset password signs in" \
+  "$(curl -s -X POST $B/api/login -d '{"username":"eve","password":"eve-pass-333"}')" '"token":"tk_'
+assert "...and the reset is audited" "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'user.password.reset'
 
 # ---- session policy (issue #38, OWASP idle + absolute timeouts) -----------------
 echo

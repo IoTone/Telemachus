@@ -60,6 +60,10 @@
       "text": "翻訳を提出します。",
       "hash": "a1215dd0d6f20b2a3094d0bf3dc04311146ba8b0"
     },
+    "ui.rolechanged": {
+      "text": "ロールを変更しました",
+      "hash": "9e0b0c867d8c26a442322ab786ecf4184a8b20ed"
+    },
     "doc.route.get.api.repo-obj.id": {
       "text": "バージョン付きのオブジェクトメタデータ",
       "hash": "47ddf63dcd09afd8490b700c36942823229ec173"
@@ -164,6 +168,10 @@
       "text": "今すぐ抽出",
       "hash": "9dee43b9c3f299103d6cc68724bb51f11ad1a816"
     },
+    "doc.route.post.api.admin.users.id.password": {
+      "text": "サインインできなくなったユーザーのパスワードを設定する：{new_password}。そのユーザーのセッションは失効します。リセットリンクを送るメール送信手段がないため、サインインできない人にとって唯一の復帰手段です。",
+      "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
+    },
     "doc.route.post.api.workflows.slug.run": {
       "text": "{input} で実行を開始する；宣言された入力は必須で型付きです。202 と実行を返します。",
       "hash": "1e305174211be63642083ac5f6d52e3fb3ad453a"
@@ -244,6 +252,14 @@
       "text": "チームの一括処理をロールごとにどのエグゼキュータへ送るか（utility：知識グラフとフィールド抽出、翻訳の下書き）、およびインスタンスの既定値。",
       "hash": "79dc79b5e8a6eff3f6ad5dab481a4264815387e4"
     },
+    "doc.tool.doc_extract_fields": {
+      "text": "JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。",
+      "hash": "84a1d20ebeaf0b0cf22ee9351924534b9f6079f8"
+    },
+    "ui.remove": {
+      "text": "削除",
+      "hash": "e963907dac5cd5c017869b4c96c18021c9bd058b"
+    },
     "ui.version": {
       "text": "バージョン",
       "hash": "2da600bf9404843107a9531694f654e5662959e0"
@@ -251,10 +267,6 @@
     "ui.refresh": {
       "text": "更新",
       "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
-    },
-    "doc.tool.doc_extract_fields": {
-      "text": "JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。",
-      "hash": "84a1d20ebeaf0b0cf22ee9351924534b9f6079f8"
     },
     "ui.create": {
       "text": "作成",
@@ -335,6 +347,10 @@
     "ui.source": {
       "text": "ソース",
       "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "doc.route.delete.api.members.id": {
+      "text": "メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。",
+      "hash": "025e74335f8f9af3dcf545fc8a2fa545b6819576"
     },
     "doc.workflow.translate-chat.name": {
       "text": "翻訳チャットワークフロー",
@@ -657,8 +673,8 @@
       "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
     },
     "doc.route.post.api.password": {
-      "text": "呼び出し元のパスワードを変更します。",
-      "hash": "c9b4eda5dafe7d1370733f8f63ea57b8f8067026"
+      "text": "呼び出し元のパスワードを変更する。古いパスワードで発行され得たセッションは、この呼び出し自身のものも含めてすべて失効するため、再度サインインが必要です。マシン用トークン（api、worker）はそのまま残ります。",
+      "hash": "d0716f80b7d79a77dbf4f1517c2678710e41ebc9"
     },
     "doc.tool.doc_render.format": {
       "text": "出力形式：テンプレート自身の形式（既定）または \"pdf\" — Markdown と HTML のテンプレートのみ",
@@ -904,6 +920,14 @@
       "text": "保存しました",
       "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
     },
+    "doc.tool.translate_text.source": {
+      "text": "ソース言語コード、または自動",
+      "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
+    },
+    "doc.route.patch.api.members.id": {
+      "text": "メンバーのチームロールを変更する：{role}。最後のオーナーは降格できません — オーナーのいないチームは、それを修正する権限を誰にも付与できないためです。",
+      "hash": "d907194c615b7a60f020c98a5eba4bfb9eec603c"
+    },
     "doc.perm.workflows:write": {
       "text": "ワークフローを公開し、トリガーを管理します。",
       "hash": "f981778de4196069299c6a8866294e550bf4c456"
@@ -947,10 +971,6 @@
     "ui.upload": {
       "text": "アップロード",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
-    },
-    "doc.tool.translate_text.source": {
-      "text": "ソース言語コード、または自動",
-      "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
     },
     "doc.perm.roles:read": {
       "text": "チームの役割とそれが与えるものを見る",
@@ -1044,6 +1064,10 @@
       "text": "エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。",
       "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
     },
+    "ui.memberremoved": {
+      "text": "削除しました",
+      "hash": "b5e77c5c02a90c01b16fea8f21a1083425ebe0e0"
+    },
     "doc.tool.kg_extract": {
       "text": "1つのリポジトリ文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。検証を通らない返答は拒否します。",
       "hash": "bdd08e5c16c254a3c3febf0e2b56cee8498dd11a"
@@ -1095,6 +1119,10 @@
     "ui.warnlabel": {
       "text": "事前警告（秒）",
       "hash": "eceb500f0e1871b1d18159d95db9c3494052ac6a"
+    },
+    "ui.pwsignedout": {
+      "text": "パスワードを変更しました — すべてのセッションからサインアウトしました。再度サインインしてください。",
+      "hash": "b338cf8a2b9db116c903d7aa328d8b55d7a5f782"
     },
     "doc.route.get.api.ai.model": {
       "text": "設定されているモデル（またはシミュレーションの代替が使われていること）。",
@@ -1423,6 +1451,10 @@
     "ui.repository": {
       "text": "ドキュメント保管庫",
       "hash": "312386841084261c610413fa4de8b7505f469407"
+    },
+    "ui.removeconfirm": {
+      "text": "{name} をチームから削除しますか？このチームに対するトークンは使えなくなります。",
+      "hash": "811218e0dce226f0cfbd039126a12a4dd180e8f9"
     },
     "doc.tool.update_note.id": {
       "text": "ノートの ID",

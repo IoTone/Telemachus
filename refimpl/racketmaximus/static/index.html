@@ -484,8 +484,20 @@ async function doDelNote(id){ const r=await api('/api/notes/'+id,{method:'DELETE
 
 async function teamView(){
   const r=await api('/api/members'); const members=r.ok?r.json.members:[];
-  const rows=members.map(m=>`<tr><td>${esc(m.username)}</td><td><span class="badge">${esc(m.role)}</span></td><td class="mono muted">${esc(m.user_id.slice(0,8))}…</td></tr>`).join('');
   const manage=canManage();
+  const me = S.me ? S.me.user_id : null;
+  const ROLES=['owner','admin','member','viewer'];
+  const rows=members.map(m=>{
+    const own = m.user_id===me;
+    const roleCell = (manage && !own)
+      ? `<select data-h-change="${H((el,ev)=>doSetMemberRole(m.user_id, el.value))}">${
+           ROLES.map(x=>`<option value="${x}"${x===m.role?' selected':''}>${esc(x)}</option>`).join('')}</select>`
+      : `<span class="badge">${esc(m.role)}</span>`;
+    const act = (manage && !own)
+      ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doRemoveMember(m.user_id, m.username))}">${t('remove')}</button>`
+      : '';
+    return `<tr><td>${esc(m.username)}</td><td>${roleCell}</td><td class="mono muted">${esc(m.user_id.slice(0,8))}…</td><td>${act}</td></tr>`;
+  }).join('');
   const tks = manage ? await api('/api/tokens') : {ok:false};
   const tokens = tks.ok ? tks.json.tokens : [];
   const aud = manage ? await api('/api/audit') : {ok:false};
@@ -531,8 +543,20 @@ async function doRevokeToken(id){
 }
 async function doChangePw(){
   const r=await api('/api/password',{method:'POST',body:{current_password:val('pc'),new_password:val('pn')}});
-  if(r.ok){ toast('password updated',true); document.getElementById('pc').value=''; document.getElementById('pn').value=''; }
+  // issue #54: the server revokes every session the old password could have minted,
+  // including this one, so the token in hand is already dead — sign out rather than
+  // let the next request fail with a bare 401.
+  if(r.ok){ toast(t('pwsignedout'),true); logout(); }
   else toast(r.json.error||'error');
+}
+async function doSetMemberRole(uid, role){
+  const r=await api('/api/members/'+uid,{method:'PATCH',body:{role}});
+  if(r.ok){ toast(t('rolechanged'),true); renderTab(); } else toast(r.json.error||'error');
+}
+async function doRemoveMember(uid, name){
+  if(!confirm(t('removeconfirm').replace('{name}', name))) return;
+  const r=await api('/api/members/'+uid,{method:'DELETE'});
+  if(r.ok){ toast(t('memberremoved'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function doAddMember(){ const r=await api('/api/members',{method:'POST',body:{username:val('mu'),password:val('mp'),role:val('mr')}});
   if(r.ok){ toast('added',true); renderTab(); } else toast(r.json.error||'error'); }
