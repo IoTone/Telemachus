@@ -74,21 +74,54 @@
   (values (url-host u) (or (url-port u) (if ssl? 443 80)) ssl?
           (string-append "/" (string-join (map path/param-path (url-path u)) "/"))))
 
-;; POST JSON, return (values status-code jsexpr) — non-streaming.
+;; Both helpers below open their own connection instead of calling http-sendrecv, and close it when
+;; they are done. http-sendrecv abandons the connection without closing the socket underneath the
+;; port, and the socket is not reclaimed by collection either, so every request it makes leaves one
+;; file descriptor open in the process forever.
+;;
+;; Measured against a live server on 2026-09-28, ten POSTs at a time, counting /proc/self/fd:
+;;   http-sendrecv, response port closed ............ 8 -> 18 descriptors
+;;   http-sendrecv, response port left open ......... 8 -> 18 descriptors
+;;   http-conn-open + http-conn-close!, as below .... 7 -> 7  descriptors
+;; Two forced garbage collections changed nothing, so this is a real descriptor leak and not a
+;; collection delay.
+;;
+;; What it costs in production: cli/telemachus-worker.rkt long-polls this same helper, so an idle
+;; worker leaked a descriptor per claim and reached its 1024-descriptor limit in about five and a
+;; half hours. From then on every claim failed with "Too many open files", the process stayed alive,
+;; and nothing recovered it but a container restart. Measured on dev1's worker: 1023 of 1024
+;; descriptors, sixteen hours without claiming a job, and 8 -> 14 -> 22 descriptors over the four
+;; and a half minutes after a restart.
 (define (http-post-json url body-jsexpr headers)
   (define-values (host port ssl? path) (url-parts url))
-  (define-values (status _hdrs in)
-    (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
-                   #:headers headers #:data (jsexpr->bytes body-jsexpr)))
-  (values (status-code status) (string->jsexpr (port->string in))))
+  (define hc (http-conn-open host #:ssl? ssl? #:port port))
+  ;; dynamic-wind, so the connection is closed on the way out however the body exits, including an
+  ;; exception from the server or from reading the response.
+  (dynamic-wind
+    void
+    (lambda ()
+      (define-values (status _hdrs in)
+        (http-conn-sendrecv! hc path #:method #"POST"
+                             #:headers headers #:data (jsexpr->bytes body-jsexpr)))
+      (define body (port->string in))
+      (close-input-port in)
+      (values (status-code status) (string->jsexpr body)))
+    (lambda () (http-conn-close! hc))))
 
-;; POST JSON, return (values status-code body-input-port) — for SSE streaming.
+;; POST JSON, return (values status-code body-input-port connection) — for SSE streaming. The
+;; connection comes back to the caller because the body is read lazily and the socket cannot be
+;; closed until the stream ends; the caller must close both the port and the connection.
 (define (http-post-stream url body-jsexpr headers)
   (define-values (host port ssl? path) (url-parts url))
-  (define-values (status _hdrs in)
-    (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST"
-                   #:headers headers #:data (jsexpr->bytes body-jsexpr)))
-  (values (status-code status) in))
+  (define hc (http-conn-open host #:ssl? ssl? #:port port))
+  ;; A send that throws has no caller to hand the connection to, so close it here. Without this the
+  ;; socket is abandoned exactly as http-sendrecv abandons it, and costs a descriptor for the life
+  ;; of the process.
+  (with-handlers ([(lambda (_) #t) (lambda (e) (http-conn-close! hc) (raise e))])
+    (define-values (status _hdrs in)
+      (http-conn-sendrecv! hc path #:method #"POST"
+                           #:headers headers #:data (jsexpr->bytes body-jsexpr)))
+    (values (status-code status) in hc)))
 
 ;; ---- streaming -------------------------------------------------------------
 ;; Read an OpenAI SSE stream into the list of `delta` objects, invoking
@@ -156,9 +189,18 @@
     (define body (let ([b (hasheq 'model model 'messages (sanitize-wire-messages messages) 'stream #t
                                   'temperature temperature 'tool_choice "auto" 'tools tools)])
                    (if rf (hash-set b 'response_format rf) b)))
-    (define-values (code in) (http-post-stream endpoint body headers))
-    (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
-    (stream-deltas->assistant-msg (read-sse-deltas in on-content))))
+    (define-values (code in hc) (http-post-stream endpoint body headers))
+    ;; The connection is closed on every path, including a non-200 and an exception thrown while
+    ;; the stream is read, for the same reason http-post-json does it: an unclosed one costs a
+    ;; descriptor for the life of the process.
+    (dynamic-wind
+      void
+      (lambda ()
+        (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
+        (stream-deltas->assistant-msg (read-sse-deltas in on-content)))
+      (lambda ()
+        (close-input-port in)
+        (http-conn-close! hc)))))
 
 ;; ---- the #:llm effect ------------------------------------------------------
 ;; (openai-llm …) -> (messages -> assistant-msg)

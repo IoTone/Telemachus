@@ -126,6 +126,19 @@ got=open(t+"/slice.bin","rb").read()
 sys.exit(0 if want==got else 1)
 PY
 
+# ---- the byte ceiling is enforced on the data plane too ---------------------------
+# PutObject reaches the same blob write the JSON upload route uses, so it obeys
+# TELEMACHUS_MAX_UPLOAD (32 MiB unless overridden) rather than staging an unbounded body
+# to disk. s3api put-object is one PUT at any size — `s3 cp` would switch to multipart
+# above 8 MiB, and each PART would be under the ceiling, so it would prove nothing.
+head -c 40000000 /dev/urandom > "$TMP/oversize.bin"
+assert "an oversized PutObject is refused, not staged" \
+  "$($A s3api put-object --bucket default --key oversize.bin --body "$TMP/oversize.bin" 2>&1)" \
+  "upload exceeds the"
+if $A s3 ls s3://default/ 2>&1 | grep -qF "oversize.bin"; then
+  bad "…and the refused object was never created" "still listed"
+else ok "…and the refused object was never created"; fi
+
 # ---- delete ----------------------------------------------------------------------
 $A s3 rm s3://default/tree/3.md >/dev/null 2>&1
 LS2=$($A s3 ls s3://default/tree/ --recursive 2>&1)

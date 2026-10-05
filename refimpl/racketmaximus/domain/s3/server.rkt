@@ -27,7 +27,8 @@
          "../repo/blobs.rkt"
          sha2-kit
          "sigv4.rkt"
-         "creds.rkt")
+         "creds.rkt"
+         (only-in "../../config.rkt" max-upload-bytes))
 
 (provide make-s3-handler s3-region xml-escape)
 
@@ -343,7 +344,8 @@
      (define o (repo-put! conn p #:key key #:port (http-req-body req)
                           #:content-type ct
                           #:filename (car (reverse (string-split key "/")))
-                          #:visibility vis))
+                          #:visibility vis
+                          #:max-bytes (max-upload-bytes)))
      (http-res* 200 (list (cons #"ETag" (string->bytes/utf-8 (etag-of (hash-ref o 'digest))))) #"")]))
 
 ;; DOC-4: the creator sets visibility, in S3's own vocabulary. `public-*` is refused
@@ -493,7 +495,8 @@
     [(not up) (s3-error "NoSuchUpload" 404 #:message "The specified upload does not exist.")]
     [(not part-number) (s3-error "InvalidArgument" 400 #:message "partNumber is required.")]
     [else
-     (define-values (digest size) (blob-stage! (hash-ref up 'org_id) (http-req-body req)))
+     (define-values (digest size) (blob-stage! (hash-ref up 'org_id) (http-req-body req)
+                                                #:max-bytes (max-upload-bytes)))
      (query-exec conn
        (string-append "INSERT INTO repo_upload_parts (id, upload_id, part_number, digest, size) "
                       "VALUES (?, ?, ?, ?, ?) "
