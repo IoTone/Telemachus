@@ -158,6 +158,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/runs` | bearer | `workflows:read` | `workflows` | The team's runs, newest first. |
 | POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | Cancel a run; a step already executing finishes, the next never starts. |
 | GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | One run with its steps, inputs, outputs and errors. |
+| GET | `/api/reviews` | bearer | `reviews:read` | — | The team's review queue, newest first. ?status=pending (the default), decided, canceled or all. |
+| GET | `/api/reviews/:id` | bearer | `reviews:read` | — | One review: what is under review, the checklist to answer, and the decision if it has been made. |
+| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | Decide a review: {verdict: approve\|revise\|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names. |
 | GET | `/api/kg/entities` | bearer | `files:read` | — | Find entities by ?q= and ?type=; only those with a mention the caller can read. |
 | GET | `/api/kg/entities/:id` | bearer | `files:read` | — | One entity with its relations and mentions, each mention filtered by the source document's visibility. |
 | POST | `/api/kg/extract` | bearer | `workflows:run` | `workflows` | Queue the index-knowledge workflow over the team's unextracted documents. |

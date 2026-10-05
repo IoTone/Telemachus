@@ -158,6 +158,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/runs` | bearer | `workflows:read` | `workflows` | チームの実行、新しい順。 |
 | POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | 実行を取消；既に実行中のステップが終了し、次のステップは開始しません。 |
 | GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | 1つの実行とそのステップ、インプット、アウトプット、およびエラー |
+| GET | `/api/reviews` | bearer | `reviews:read` | — | チームのレビューキュー、新しい順。?status=pending（既定）、decided、canceled、all。 |
+| GET | `/api/reviews/:id` | bearer | `reviews:read` | — | 1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。 |
+| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | レビューを判断する：{verdict: approve\|revise\|reject, rationale, answers}。差し戻しと却下には理由が必須です。ダブルチェック指定のレビューは作成者本人を拒否します。待機していた実行は、判定が示す分岐へ進んで再開します。 |
 | GET | `/api/kg/entities` | bearer | `files:read` | — | ?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。 |
 | GET | `/api/kg/entities/:id` | bearer | `files:read` | — | 1つのエンティティとその関係・言及。各言及は元文書の公開範囲でフィルタされます。 |
 | POST | `/api/kg/extract` | bearer | `workflows:run` | `workflows` | チームの未抽出文書をインデックス化するワークフローをキューに追加します。 |

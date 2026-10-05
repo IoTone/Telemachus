@@ -219,6 +219,9 @@
    (R "GET" "/api/runs" 'runs-list #:perm "workflows:read" #:feature "workflows" #:doc "The team's runs, newest first.")
    (R "POST" "/api/runs/:id/cancel" 'run-cancel #:perm "workflows:run" #:feature "workflows" #:doc "Cancel a run; a step already executing finishes, the next never starts.")
    (R "GET" "/api/runs/:id" 'run-get #:perm "workflows:read" #:feature "workflows" #:doc "One run with its steps, inputs, outputs and errors.")
+   (R "GET" "/api/reviews" 'reviews-list #:perm "reviews:read" #:doc "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.")
+   (R "GET" "/api/reviews/:id" 'review-get #:perm "reviews:read" #:doc "One review: what is under review, the checklist to answer, and the decision if it has been made.")
+   (R "POST" "/api/reviews/:id/decide" 'review-decide #:perm "reviews:decide" #:doc "Decide a review: {verdict: approve|revise|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names.")
 
    ;; ---- knowledge graph ---------------------------------------------------------------
    (R "GET" "/api/kg/entities" 'kg-entities #:perm "files:read" #:doc "Find entities by ?q= and ?type=; only those with a mention the caller can read.")

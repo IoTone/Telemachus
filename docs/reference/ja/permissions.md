@@ -40,6 +40,8 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `quota:manage` | team | クォータを設定する。 |
 | `quota:read` | team | クォータを見る。 |
 | `research:use` | team | リサーチ機能を使う。 |
+| `reviews:decide` | team | レビュー待ちの項目を、理由を添えて承認・差し戻し・却下する。 |
+| `reviews:read` | team | チームのレビューキューと、記録済みの判断を見る。 |
 | `roles:manage` | team | チーム役割の作成と編集 |
 | `roles:read` | team | チームの役割とそれが与えるものを見る |
 | `settings:manage` | team | チーム設定：トークン、機能フラグ、ツールの有効化、用語集、シード投入、監査ログ。 |
@@ -62,8 +64,8 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Role | Tier | Grants |
 |---|---|---|
 | Owner (`owner`) | team | `*:*` |
-| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `workflows:read`, `workflows:write`, `workflows:run` |
-| Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `workflows:read`, `workflows:run` |
+| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:write`, `workflows:run` |
+| Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
 | Organization Admin (`org_admin`) | org | `org:read`, `org:manage`, `team:read`, `team:write`, `team:create`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
@@ -105,6 +107,8 @@ Which built-in role covers which permission (wildcards expanded).
 | `quota:manage` | ✓ |  |  |  | ✓ | ✓ |  |
 | `quota:read` | ✓ |  |  | ✓ | ✓ | ✓ |  |
 | `research:use` | ✓ | ✓ | ✓ |  |  |  |  |
+| `reviews:decide` | ✓ | ✓ | ✓ |  |  |  |  |
+| `reviews:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `roles:manage` | ✓ |  |  |  | ✓ | ✓ |  |
 | `roles:read` | ✓ | ✓ |  | ✓ | ✓ | ✓ |  |
 | `settings:manage` | ✓ | ✓ |  |  | ✓ | ✓ |  |

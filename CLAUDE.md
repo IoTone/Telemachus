@@ -990,15 +990,57 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
-## Layered operations (proposed, LAY‑1…12)
+## Human review in a workflow (LAY‑1…3, built 4 Oct 2026)
+
+A workflow can park on a person. `domain/review/review.rkt` owns the decision
+record; `docs/design/layered-operations.md` has the reasoning.
+
+- **A `review` step never becomes a job.** `start-review!` writes the step row
+  `waiting`, opens the review and sets the run `waiting`; nothing is queued, so a
+  parked run holds **no concurrency slot** however long the specialist takes (the
+  smoke asserts the queue is empty while it waits). `flow-advance!` only acts on a
+  `running` run, so "parked" needs no timer and no in-memory queue — the rows are
+  the state, as they already were.
+- **`resume-from-review!` is installed as review.rkt's resume hook**, the same
+  seam shape `repo-put!` uses for triggers, so the review module never learns what
+  a workflow is. The dependency runs one way: run.rkt → review.rkt.
+- **The verdicts are FROZEN** (`REVIEW-VERDICTS` in `spec.rkt`): approve / revise /
+  reject. Same call as the binding sublanguage — the console renders each one, and
+  a spec that invented `escalate` would be a verdict nothing can show. `on` names
+  a step per verdict and `approve` is required; a null branch ends the run.
+- **Four eyes (LAY‑3) generalises `l10n-review!`'s rule.** `author_user_id` NULL
+  means the subject was model-produced — nobody's work — so anyone with
+  `reviews:decide` may decide it, which is the machine-draft case and what lets a
+  one-person team run a pipeline. With `four_eyes: true` the author is the run's
+  initiator, who is then refused (403, not 400: the request is fine, the person is
+  wrong for this item).
+- **A rationale is required for `revise` and `reject`, not for `approve`.**
+  Demanding one for a plain approval buys a field full of "ok"; sending work back
+  is the case Layer 3 has to explain later.
+- **A decided review is terminal.** Deciding again is a 409. A wrong decision
+  wants a superseding record, not a rewrite — the grants table's rule.
+- **`reviews:read` + `reviews:decide` go to MEMBER**, unlike `localization:review`
+  which is an admin act. Reviewing is the specialist's job here; integrity comes
+  from four_eyes, not from the role.
+- Checklist **shape** is validated by `spec.rkt` (it is part of the spec);
+  **answers** are validated at decision time by `review.rkt`. Unknown answer keys
+  are refused rather than dropped.
+- Cancelling a parked run cancels its pending review — no question left hanging.
+- `reviews.run_id` is nullable so a standalone review needs no migration later,
+  but only a run opens one today.
+
+```sh
+raco test test/review-tests.rkt   # 9 cases: parking, all three verdicts, four eyes, cancel
+bash test/server-smoke.sh         # the "== reviews ==" block, 16 assertions
+```
+
+## Layered operations (proposed, LAY‑4…12)
 
 `docs/design/layered-operations.md` — a gap analysis from a civil-engineering RFE.
 **Nothing is built.** Its value is the boundary it draws: the platform grows
 SEAMS, a domain supplies CONTENT through them, and the test of the design is that
-no civil-engineering requirement needs a core change. The twelve gaps, shortest
-form: a workflow cannot wait for a person (there is no `review` step and no
-`waiting` run status); a decision is not a log line (verdict/rationale/actor/time
-want their own rows); four-eyes exists only inside `l10n-review!`; `repo_objects`
+no civil-engineering requirement needs a core change. LAY‑1/‑2/‑3 are built (above); the remaining nine, shortest
+form: `repo_objects`
 carries no team-defined metadata; **extraction provenance is lost at ingest and
 cannot be retrofitted without re-processing everything** (the one decision with a
 deadline); an out-of-process plugin can reach only `notes.create` and

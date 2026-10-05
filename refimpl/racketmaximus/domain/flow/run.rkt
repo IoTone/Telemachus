@@ -25,7 +25,8 @@
          "../sched/scheduler.rkt"
          "../agent/registry.rkt"
          "spec.rkt"
-         "bind.rkt")
+         "bind.rkt"
+         "../review/review.rkt")   ; LAY-1: a step that parks the run for a person
 
 (provide flow-publish! flow-defs flow-def-get flow-def-by-slug
          flow-run-start! flow-run-get flow-runs flow-run-cancel!
@@ -267,6 +268,8 @@
          [(member (hash-ref run 'status) '("done" "error" "canceled")) 'not-cancelable]
          [else
           (require-perm conn p "workflows:run")
+          ;; a parked run leaves no question hanging in somebody's queue
+          (review-cancel-run! conn id)
           (finish! conn id "canceled" #:error "canceled by request")
           #t])))
 
@@ -296,6 +299,7 @@
         [(not (step-ref spec next))
          (finish! conn run-id "error" #:error (format "step '~a' is not in this workflow" next))]
         [(eq? (step-kind (step-ref spec next)) 'map) (start-map! conn run spec next used)]
+        [(eq? (step-kind (step-ref spec next)) 'review) (start-review! conn run spec next used)]
         [else
          (define sid (new-id))
          (query-exec conn
@@ -303,6 +307,67 @@
            sid run-id next used)
          (query-exec conn "UPDATE workflow_runs SET steps_used = ? WHERE id = ?" (add1 used) run-id)
          (enqueue-step! conn run sid)]))))
+
+;; LAY-1: a review does not become a job. The run PARKS — there is nothing to
+;; execute and nobody to wait on but a person, so enqueueing a job that polls
+;; would burn a concurrency slot for however long the specialist takes. A run
+;; that is not `running` is simply not advanced, which is the whole mechanism:
+;; the rows are the state, so a parked run survives a restart for free.
+(define (start-review! conn run spec step-id used)
+  (define run-id (hash-ref run 'id))
+  (define st (step-ref spec step-id))
+  (define subject (resolve-value (hash-ref st 'of) (context-for conn run)))
+  (define srow (new-id))
+  (query-exec conn
+    "INSERT INTO workflow_steps (id, run_id, step_id, seq, status, attempt) VALUES (?, ?, ?, ?, 'waiting', 1)"
+    srow run-id step-id used)
+  (query-exec conn "UPDATE workflow_runs SET steps_used = ? WHERE id = ?" (add1 used) run-id)
+  ;; four_eyes names the run's initiator as the author, so the person who set the
+  ;; work in motion cannot also be the one who waves it through. Without it the
+  ;; subject is model-produced and has no human author at all — the Localization
+  ;; Manager's machine-draft case, where anyone holding the permission may decide.
+  (review-open! conn
+                #:team (hash-ref run 'team_id)
+                #:title (hash-ref st 'title "Review")
+                #:subject (if (or (hash? subject) (list? subject)) subject (hasheq 'value subject))
+                #:run run-id #:step-row srow #:step step-id
+                #:instructions (hash-ref st 'instructions "")
+                #:checklist (hash-ref st 'checklist '())
+                #:four-eyes (hash-ref st 'four_eyes #f)
+                #:author (and (hash-ref st 'four_eyes #f) (hash-ref run 'user_id))
+                #:requested-by (hash-ref run 'user_id))
+  (query-exec conn "UPDATE workflow_runs SET status = 'waiting' WHERE id = ?" run-id))
+
+;; The other half: a decision moves the cursor to the branch its verdict names and
+;; sets the run running again. Installed as review.rkt's resume hook, so that
+;; module never has to know what a workflow is.
+(define (resume-from-review! conn rev)
+  (define run-id (hash-ref rev 'run_id))
+  (define srow (hash-ref rev 'step_row_id))
+  (when (and (string? run-id) (string? srow))
+    (define r (run-row conn run-id))
+    (when r
+      (define run (row->run r))
+      (when (equal? (hash-ref run 'status) "waiting")
+        (define spec (spec-of conn run))
+        (define st (step-ref spec (hash-ref rev 'step_id)))
+        (define verdict (hash-ref rev 'verdict))
+        (define output (hasheq 'result (hasheq 'verdict verdict
+                                               'rationale (hash-ref rev 'rationale "")
+                                               'answers (hash-ref rev 'answers (hasheq))
+                                               'decided_by (hash-ref rev 'decided_by)
+                                               'decided_ms (hash-ref rev 'decided_ms))))
+        (query-exec conn
+          "UPDATE workflow_steps SET status = 'done', output = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
+          (jsexpr->string output) srow)
+        ;; `on` names a step per verdict; a null (or an absent branch) ends the run
+        (define nxt (let ([v (hash-ref (hash-ref st 'on (hasheq)) (string->symbol verdict) 'null)])
+                      (and (string? v) v)))
+        (query-exec conn "UPDATE workflow_runs SET status = 'running', cursor_json = ? WHERE id = ?"
+                    (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq))) run-id)
+        (flow-advance! conn run-id)))))
+
+(set-resume-hook! resume-from-review!)
 
 ;; Fan out: one parent row that stays `running` while N child jobs drain. The
 ;; children are ordinary scheduler jobs, so the team's concurrency cap is the only

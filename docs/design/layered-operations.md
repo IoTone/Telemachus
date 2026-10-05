@@ -1,7 +1,10 @@
 # Layered operations: human review, project metadata, and the plugin boundary
 
-*Proposed 3 Oct 2026 (LAY‑1…12, see [decisions.md](decisions.md)). **Nothing here
-is built.** This document is a gap analysis: it separates what the **platform**
+*Proposed 3 Oct 2026 (LAY‑1…12, see [decisions.md](decisions.md)). **LAY‑1, ‑2 and
+‑3 are BUILT** (4 Oct 2026): the `review` step kind, the `waiting` run status,
+decision records in `domain/review/review.rkt`, generalised four-eyes, `/api/reviews*`
+and the Review tab, with `test/review-tests.rkt` and the smoke's `== reviews ==`
+block. The other nine remain proposals. This document is a gap analysis: it separates what the **platform**
 must grow from what a **domain supplies as plugins and workflows**. It is driven
 by an RFE from a prospective customer — a small civil-engineering and
 disaster-response team in Japan — but the platform gaps it finds are not
@@ -73,7 +76,7 @@ have is more compute architecture than they need. One box runs all of it.
 
 ## The platform gaps
 
-### LAY‑1 — A workflow cannot wait for a person
+### LAY‑1 — A workflow cannot wait for a person  ✅ built
 
 Step kinds are `tool:<name>`, `choice` and `map`. `agent`, `job:` and `flow:` are
 planned. **There is no step that parks a run until a human decides.**
@@ -93,7 +96,15 @@ run status and a `review` step fit that shape rather than fight it — the run
 stops being advanced, and a decision advances it. No new durability story, no
 timer, no in-memory queue.
 
-### LAY‑2 — A decision is not a log line
+*As built:* a review step never becomes a job. `start-review!` writes the step row
+`waiting`, opens the review and parks the run; `resume-from-review!` (installed as
+`review.rkt`'s resume hook, so that module never learns what a workflow is) writes
+the step done, moves the cursor to the branch the verdict names and sets the run
+running again. Nothing is queued while it waits, so a parked run holds no
+concurrency slot however long the specialist takes — pinned by an assertion that
+the job queue is empty. Cancelling a parked run cancels its pending review.
+
+### LAY‑2 — A decision is not a log line  ✅ built
 
 A review produces four things: a **verdict**, a **rationale**, an **actor** and a
 **time**. The audit log carries actor and time, but it is an append-only ordering
@@ -108,7 +119,7 @@ Their Layer 3 requirement — "preservation of decision-making records, includin
 who made each decision, when, and based on what rationale" — is this record, not
 a separate feature.
 
-### LAY‑3 — Four-eyes exists, in exactly one subsystem
+### LAY‑3 — Four-eyes exists, in exactly one subsystem  ✅ built
 
 `l10n-review!` already refuses to let a translator approve their own string, and
 a machine draft has no human author so anyone with the permission may approve it.
@@ -287,12 +298,14 @@ RFE, and both are defects rather than features.
 - **Handwritten and vertical Japanese.** Inspection notes are often both.
   YomiToku handles them; PaddleOCR is weaker on vertical text. Confirm the corpus
   before choosing.
-- **Where the review queue lives for a team that uses no workflows.** A document
-  can be reviewed without a run having produced it; is a standalone review a
-  degenerate one-step run, or its own object?
-- **Whether a decision can be revoked.** An approval that turns out to be wrong
-  wants a superseding record rather than a deletion, which argues for the same
-  "expired rows stay, for the audit trail" rule the grants table already follows.
+- ~~**Where the review queue lives for a team that uses no workflows.**~~ Settled
+  as built: `reviews.run_id` is nullable, so the table already supports a review
+  nothing produced, but only a run opens one today. The standalone path is a
+  later slice, not a schema change.
+- ~~**Whether a decision can be revoked.**~~ Settled as built: a decided review is
+  terminal and deciding again is refused. A decision that turns out to be wrong
+  wants a superseding record, not a rewrite — the same call the grants table makes
+  by keeping expired rows for the trail.
 - **Signed PDFs.** The repository stores bytes byte-identically, so a signature
   survives ingest — but every pipeline output is a *derived* document and carries
   none. If the signed original is the legal record, the distinction has to be

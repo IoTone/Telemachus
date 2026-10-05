@@ -736,6 +736,78 @@ assert "a member may NOT export to disk" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/l10n/export" -H "Authorization: Bearer $BOB" -d '{"locale":"qps"}')" \
   "403"
 
+# ---- reviews (LAY-1..3): a workflow that waits for a person ---------------------
+echo
+echo "== reviews =="
+# create_note is left DISABLED by the tool-activation assertion above; this block
+# needs a tool that runs, and restores the state it found when it is done.
+curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":true}' >/dev/null
+RWF='{"spec":1,"slug":"smoke-review","description":"draft then ask a person",
+      "max_steps":10,"input":{"subject":"string"},"start":"draft",
+      "steps":[
+        {"id":"draft","uses":"tool:create_note",
+         "with":{"title":"${input.subject}","body":"a drafted finding"},"next":"check"},
+        {"id":"check","uses":"review","title":"Check the finding",
+         "instructions":"Confirm it is supported.",
+         "of":"${steps.draft.output.result}",
+         "checklist":[{"key":"method","label":"Technical validity","required":true}],
+         "four_eyes":true,
+         "on":{"approve":"file","revise":"draft","reject":null}},
+        {"id":"file","uses":"tool:create_note","with":{"title":"filed","body":"approved"},"end":true}]}'
+assert "review wf publish" "$(curl -s -X POST $B/api/workflows -H "Authorization: Bearer $OP" -d "$RWF")" '"slug":"smoke-review"'
+RRID=$(curl -s -X POST $B/api/workflows/smoke-review/run -H "Authorization: Bearer $OP" \
+         -d '{"input":{"subject":"levee 7"}}' | grep -oP '"id":"\K[^"]+' | head -1)
+rrun=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  rrun=$(curl -s $B/api/runs/$RRID -H "Authorization: Bearer $OP")
+  printf '%s' "$rrun" | grep -qF '"status":"running"' || break
+  sleep 0.5
+done
+assert "a review step PARKS the run" "$rrun" '"status":"waiting"'
+
+RQ=$(curl -s "$B/api/reviews" -H "Authorization: Bearer $OP")
+assert "the queue carries it"          "$RQ" '"title":"Check the finding"'
+assert "...with its checklist"         "$RQ" '"label":"Technical validity"'
+assert "...and what is under review"   "$RQ" 'Created note'
+RVID=$(printf '%s' "$RQ" | grep -oP '"id":"\K[^"]+' | head -1)
+# a filter that is ignored rather than refused is invisible to a model test
+assert "?status is honoured, not defaulted" \
+  "$(curl -s "$B/api/reviews?status=decided" -H "Authorization: Bearer $OP")" '"reviews":[]'
+
+# a plain member reviews — this is the specialist's job, not a stewardship act
+assert "a member may read the queue" "$(curl -s $B/api/reviews -H "Authorization: Bearer $BOB")" '"title":"Check the finding"'
+assert "a rationale is required to send work back" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"revise"}')" \
+  'rationale is required'
+assert "an unknown verdict is refused" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"escalate"}')" \
+  'verdict must be one of'
+assert "a required checklist answer is demanded" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"approve"}')" \
+  'Technical validity'
+# four eyes: the operator STARTED this run, so the operator may not wave it through
+assert "four eyes refuses the run's own initiator" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $OP" \
+       -d '{"verdict":"approve","answers":{"method":"sound"}}')" \
+  'second pair of eyes'
+assert "...and the run is still parked" "$(curl -s $B/api/runs/$RRID -H "Authorization: Bearer $OP")" '"status":"waiting"'
+
+assert "a colleague decides it" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" \
+       -d '{"verdict":"approve","rationale":"supported by the survey","answers":{"method":"sound"}}')" \
+  '"verdict":"approve"'
+rdone=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  rdone=$(curl -s $B/api/runs/$RRID -H "Authorization: Bearer $OP")
+  printf '%s' "$rdone" | grep -qE '"status":"(waiting|running)"' || break
+  sleep 0.5
+done
+assert "the decision resumed the run" "$rdone" '"status":"done"'
+assert "deciding again is refused"    "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"approve"}')" 'already been decided'
+assert "the decision is in the audit log" \
+  "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'review.approve'
+curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}' >/dev/null  # restore
+
 # ---- session policy (issue #38, OWASP idle + absolute timeouts) -----------------
 echo
 echo "session policy:"

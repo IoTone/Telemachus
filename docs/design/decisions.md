@@ -273,7 +273,7 @@ bootstrap. But operator remains a **distinct tier** — `instance:*` permissions
 teams) are grantable *only* via the operator flag and are **never** part of any team
 role, so an ordinary team owner cannot hold them. `can(instance:*)` ⇔ `is_operator`.
 
-## Layered operations (LAY) — **proposed 3 Oct 2026, not yet decided**, see [layered-operations.md](layered-operations.md)
+## Layered operations (LAY) — proposed 3 Oct 2026; **LAY‑1/‑2/‑3 adopted and built 4 Oct 2026**, see [layered-operations.md](layered-operations.md)
 
 Driven by an RFE from a prospective civil-engineering and disaster-response
 customer. The question each decision answers is *what must the PLATFORM grow* —

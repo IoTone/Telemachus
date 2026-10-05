@@ -369,6 +369,7 @@ function langBtns(){ if(!S.i18n.enabled) return '';
   return av.map(l=>`<button class="${S.lang===l?'active':''}" data-h-click="${H((el,ev)=>setLang((l)))}">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
 function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
+  if(canPerm('reviews:read')) tabs.splice(tabs.indexOf('workflows')+1, 0, 'reviews');
   if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
@@ -957,7 +958,7 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
   el.innerHTML='<p class="muted">…</p>';
-  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html; }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
@@ -1137,6 +1138,59 @@ function jobResultText(j){
   const r=j.result; if(!r||r==='null') return '';
   if(typeof r==='object') return (r.reply||r.result||JSON.stringify(r)).toString().slice(0,70);
   return (''+r).slice(0,70);
+}
+// ---------- reviews (LAY-1..3): the work a workflow parked for a person ----------
+function reviewSubject(v){
+  const s = v.subject;
+  if (s == null) return '';
+  if (typeof s === 'string') return s;
+  // the common shape is {result: …}; show that rather than make a person read JSON
+  if (typeof s === 'object' && !Array.isArray(s) && typeof s.result === 'string') return s.result;
+  try { return JSON.stringify(s, null, 2); } catch(e){ return String(s); }
+}
+function reviewCard(v, open){
+  const checks = (v.checklist||[]).map(c=>`
+    <div style="margin-top:8px"><label>${esc(c.label)}${c.required?' *':''}</label>
+      ${open?`<input id="rvq_${esc(v.id)}_${esc(c.key)}" placeholder="${esc(t('reviewnote'))}">`
+            :`<div class="muted">${esc((v.answers||{})[c.key]||'—')}</div>`}</div>`).join('');
+  const decided = v.status === 'decided';
+  const head = `<div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0">${esc(v.title)}</h3>
+      <span class="muted">${decided?`${esc(t('reviewverdict_'+v.verdict)||v.verdict)}`
+                                   :(v.four_eyes?esc(t('reviewfoureyes')):'')}</span></div>`;
+  const body = `${v.instructions?`<p class="muted">${esc(v.instructions)}</p>`:''}
+      <label>${t('reviewof')}</label>
+      <pre class="mono" style="white-space:pre-wrap;max-height:220px;overflow:auto">${esc(reviewSubject(v))}</pre>
+      ${checks}`;
+  const actions = open ? `
+      <div style="margin-top:10px"><label>${t('rationale')}</label>
+        <textarea id="rvr_${esc(v.id)}" rows="2" placeholder="${esc(t('reviewwhy'))}"></textarea></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" data-h-click="${H((el,ev)=>doDecide(v,'approve'))}">${t('reviewapprove')}</button>
+        <button class="btn ghost" data-h-click="${H((el,ev)=>doDecide(v,'revise'))}">${t('reviewrevise')}</button>
+        <button class="btn ghost" data-h-click="${H((el,ev)=>doDecide(v,'reject'))}">${t('reviewreject')}</button>
+      </div>` : `<div class="muted" style="margin-top:10px">${esc(v.rationale||'')}</div>`;
+  return `<div class="card" style="margin-top:14px">${head}${body}${actions}</div>`;
+}
+async function reviewsView(){
+  const show = S.revShow || 'pending';
+  const r = await api('/api/reviews?status='+encodeURIComponent(show));
+  const items = (r.ok && r.json.reviews) ? r.json.reviews : [];
+  const pick = ['pending','decided'].map(x=>
+    `<button class="btn sm ${show===x?'':'ghost'}" data-h-click="${H((el,ev)=>{S.revShow=x; renderTab();})}">${x==='pending'?t('reviewpending'):t('reviewdecided')}</button>`).join(' ');
+  const list = items.length
+    ? items.map(v=>reviewCard(v, show==='pending')).join('')
+    : `<div class="card" style="margin-top:14px"><p class="muted">${t('reviewnone')}</p></div>`;
+  return `<h2>${t('reviews')}</h2><div class="row">${pick}</div>${list}`;
+}
+async function doDecide(v, verdict){
+  const answers = {};
+  (v.checklist||[]).forEach(c=>{ const e=document.getElementById('rvq_'+v.id+'_'+c.key);
+                                 if(e && e.value.trim()) answers[c.key]=e.value.trim(); });
+  const rt = document.getElementById('rvr_'+v.id);
+  const r = await api('/api/reviews/'+v.id+'/decide',
+                      {method:'POST', body:{verdict, rationale:(rt?rt.value:''), answers}});
+  if(r.ok){ toast(t('reviewrecorded'), true); renderTab(); } else toast(r.json.error||'error');
 }
 async function jobsView(){
   const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];

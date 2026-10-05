@@ -67,6 +67,10 @@
       "text": "Store",
       "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
     },
+    "ui.reviews": {
+      "text": "Review",
+      "hash": "e29a79fe0c349724caeaa1762fa917f5543248ca"
+    },
     "doc.route.post.api.ai.echo": {
       "text": "A metered no-model echo, for exercising quotas.",
       "hash": "861bf88955af70f3bd63f4538436f46a4f899e3e"
@@ -78,6 +82,10 @@
     "ui.draftbudget": {
       "text": "AI budget: about {need} tokens needed, {left} remaining today — raise ai.tokens.total in Usage or the drafts will wait",
       "hash": "5ef886737103f5053cb37b9f30169eac5a50cfa8"
+    },
+    "ui.reviewfoureyes": {
+      "text": "Needs a second reviewer",
+      "hash": "9ad2157e515ec3b5f04474f9664744db7e68433f"
     },
     "doc.perm.team:delete": {
       "text": "Delete a team.",
@@ -198,6 +206,10 @@
     "doc.route.post.api.tokens": {
       "text": "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.",
       "hash": "cebac657ad797c2405bee6e8bd1ac779ba5f6409"
+    },
+    "ui.reviewrevise": {
+      "text": "Send back",
+      "hash": "0aa2a5cc3f18a3fdca8547cbf066e131c1c06469"
     },
     "doc.route.post.api.2fa.enable": {
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.",
@@ -363,6 +375,10 @@
       "text": "Pull the catalogs on disk into the Manager's tables.",
       "hash": "ee1a9aa18b893d69cccefe0369bcdf203aa1ee28"
     },
+    "ui.reviewnone": {
+      "text": "Nothing is waiting for review.",
+      "hash": "81113cde3bd4da1b134ee55e4187faded2a1bccb"
+    },
     "doc.perm.instance:manage": {
       "text": "Instance administration: branding, localization policy, quotas, orgs, metrics.",
       "hash": "336906f62b986937095973b250bdd09c8493001b"
@@ -383,6 +399,10 @@
       "text": "Features",
       "hash": "fc338f87a058158eb824b53705961801516a9460"
     },
+    "ui.reviewnote": {
+      "text": "Your note",
+      "hash": "dcd3b715ebd6e57f48c3f964ec298a3529f00dfc"
+    },
     "doc.route.get.api.jobs": {
       "text": "The team's jobs, newest first.",
       "hash": "2b1247c7a0fb1ca736ef30a6d6ce0649ac55eb2c"
@@ -394,6 +414,10 @@
     "doc.tool.get_usage": {
       "text": "Report the team's current AI usage against its quota.",
       "hash": "e068247f15386c62657ebb749bd6fdd35c0d758a"
+    },
+    "ui.reviewreject": {
+      "text": "Reject",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
     "ui.trigger_types": {
       "text": "Content types (blank = any)",
@@ -655,6 +679,14 @@
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
     },
+    "doc.route.post.api.org.executors": {
+      "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
+      "hash": "218f372f207fb10f594e39772c8cd33624edf803"
+    },
+    "ui.reviewverdict_reject": {
+      "text": "Rejected",
+      "hash": "27eeb7a291bfc566447d9cd928e98caf90f70ee6"
+    },
     "doc.route.delete.api.tokens.id": {
       "text": "Revoke an API token.",
       "hash": "2c46f3380d93d3e842b6c8bfd3d579e611841d94"
@@ -687,10 +719,6 @@
       "text": "History",
       "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
     },
-    "doc.route.post.api.org.executors": {
-      "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
-      "hash": "218f372f207fb10f594e39772c8cd33624edf803"
-    },
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
@@ -710,6 +738,10 @@
     "doc.route.put.api.branding": {
       "text": "Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it.",
       "hash": "238d31f0df21df92e8e0420bffbd7abb2e899177"
+    },
+    "ui.reviewapprove": {
+      "text": "Approve",
+      "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
     "ui.role": {
       "text": "Role",
@@ -762,6 +794,10 @@
     "doc.tool.doc_translate": {
       "text": "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt).",
       "hash": "77333d768a6432e71994ec915f2aa7f7715177bf"
+    },
+    "ui.reviewdecided": {
+      "text": "Decided",
+      "hash": "55615a565dc2dd34ddd31b359d72e7792bfe19ca"
     },
     "ui.size": {
       "text": "Size",
@@ -879,6 +915,10 @@
       "text": "Visibility updated",
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
     },
+    "doc.perm.reviews:decide": {
+      "text": "Approve, send back or reject an item waiting for review, with a rationale.",
+      "hash": "33cb8ffb167170483550825fffce8ed0f6a039e3"
+    },
     "doc.route.get.api.repo": {
       "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).",
       "hash": "de55ec495c07f563596878a403924a739ed59b2f"
@@ -922,6 +962,10 @@
     "doc.route.get.api.search": {
       "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.",
       "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
+    },
+    "ui.reviewwhy": {
+      "text": "Why — required to send work back or reject it",
+      "hash": "6ba15aa63a8a7623c0a7698150e2af3cdff2e66b"
     },
     "ui.nofires": {
       "text": "This trigger has not fired yet.",
@@ -1283,6 +1327,10 @@
       "text": "Turn features on and off for teams.",
       "hash": "3fd875d2a2bc213bb34b68678dc4352354e6861a"
     },
+    "doc.perm.reviews:read": {
+      "text": "See the team's review queue and the decisions already recorded.",
+      "hash": "b9a2936a3b51463412d8340093e3f9f221431016"
+    },
     "doc.route.get.api.org.branding": {
       "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
       "hash": "ed143a926240ffabe318645984be613401b30646"
@@ -1330,6 +1378,10 @@
     "doc.route.put.api.documents.id": {
       "text": "Update a text document's title, body or visibility (a new version).",
       "hash": "3fe2ff530ad25f0415478ddb3b6cf245d43a2000"
+    },
+    "doc.route.post.api.reviews.id.decide": {
+      "text": "Decide a review: {verdict: approve|revise|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names.",
+      "hash": "aa736e77a435924068cf572724003179debfc160"
     },
     "doc.perm.quota:read": {
       "text": "See quotas.",
@@ -1511,9 +1563,17 @@
       "text": "Find entities by ?q= and ?type=; only those with a mention the caller can read.",
       "hash": "5c2bb39d66573cf937e6ed22690d5ceadbc3a831"
     },
+    "ui.reviewof": {
+      "text": "Under review",
+      "hash": "7e3e171a15d4c42296765868f4131af6df1b2400"
+    },
     "ui.sourcetext": {
       "text": "Text to translate",
       "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
+    },
+    "doc.route.get.api.reviews.id": {
+      "text": "One review: what is under review, the checklist to answer, and the decision if it has been made.",
+      "hash": "44c9231850a9e5260431a4baf5ba1c238eab928b"
     },
     "ui.nolimit": {
       "text": "no limit",
@@ -1843,6 +1903,10 @@
       "text": "Signed out for inactivity.",
       "hash": "6c0649c3d468d7e687ffd7719576506f64b0f2a5"
     },
+    "ui.reviewpending": {
+      "text": "Waiting",
+      "hash": "33d30632848d3fd0ed2340adbd7be3e3e8e61010"
+    },
     "ui.addmember": {
       "text": "Add member",
       "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
@@ -1850,6 +1914,10 @@
     "doc.route.post.api.instance.resume": {
       "text": "Hosted mode: resume a suspended tenant.",
       "hash": "2b96e0bd6c952152f27dce21e03f30f906c922d4"
+    },
+    "ui.reviewrecorded": {
+      "text": "Decision recorded",
+      "hash": "71097cf7bca165c70df9a12dfca0ce52f9a89f55"
     },
     "ui.expired": {
       "text": "expired",
@@ -1959,6 +2027,10 @@
       "text": "Tool",
       "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
     },
+    "ui.reviewverdict_revise": {
+      "text": "Sent back",
+      "hash": "784f79a850955807e6a9c2610522ad187f5cf14e"
+    },
     "doc.route.put.api.i18n": {
       "text": "Set the instance default locale and whether users may switch.",
       "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
@@ -2003,13 +2075,17 @@
       "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
     },
-    "doc.tool.shipment_eta.lane": {
-      "text": "Lane, e.g. SIN-LAX",
-      "hash": "4870ab50a6b4deaf0f771dbf8ff7ac99449b6ea0"
+    "ui.reviewverdict_approve": {
+      "text": "Approved",
+      "hash": "41b81eb8db1b97e812a8fc182e3a5b3ce0f3aacb"
     },
     "ui.derivedfrom": {
       "text": "Derived from",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
+    },
+    "doc.tool.shipment_eta.lane": {
+      "text": "Lane, e.g. SIN-LAX",
+      "hash": "4870ab50a6b4deaf0f771dbf8ff7ac99449b6ea0"
     },
     "ui.bxverifying": {
       "text": "Verifying you’re human…",
@@ -2123,6 +2199,14 @@
       "text": "Uploading",
       "hash": "de27240983ef2f1432e07df25dd609712f69a107"
     },
+    "doc.route.get.api.reviews": {
+      "text": "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.",
+      "hash": "0d91dd0215b151859baa579e596907d41f41211a"
+    },
+    "doc.plugin.beta-onboarding": {
+      "text": "A customized beta funnel (founders program) registered via the SDK's init! hook.",
+      "hash": "42373b624500e7a17676cf53acc366340197d2dc"
+    },
     "doc.perm.notes:delete": {
       "text": "Delete notes.",
       "hash": "fe55e03b24dbaafd2872846f5d80257580bc8baa"
@@ -2135,9 +2219,9 @@
       "text": "Translate text into a target language, applying the team glossary.",
       "hash": "6e66e87c1cec75b5d7189cb342fb0b0e273abaa1"
     },
-    "doc.plugin.beta-onboarding": {
-      "text": "A customized beta funnel (founders program) registered via the SDK's init! hook.",
-      "hash": "42373b624500e7a17676cf53acc366340197d2dc"
+    "ui.rationale": {
+      "text": "Reason",
+      "hash": "f219cc0614ae6860f43a3cd84b5cf31fc312cd9d"
     },
     "ui.teamsignin": {
       "text": "Team sign-in",

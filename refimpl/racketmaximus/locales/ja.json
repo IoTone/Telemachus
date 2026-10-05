@@ -68,6 +68,10 @@
       "text": "保管先",
       "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
     },
+    "ui.reviews": {
+      "text": "レビュー",
+      "hash": "e29a79fe0c349724caeaa1762fa917f5543248ca"
+    },
     "doc.route.post.api.ai.echo": {
       "text": "クォータの動作確認用の、モデルを使わない計量付きエコー。",
       "hash": "861bf88955af70f3bd63f4538436f46a4f899e3e"
@@ -79,6 +83,10 @@
     "ui.draftbudget": {
       "text": "AI 予算：約 {need} トークンが必要、本日の残りは {left} — 使用量画面で ai.tokens.total を上げないと下書きは待機します",
       "hash": "5ef886737103f5053cb37b9f30169eac5a50cfa8"
+    },
+    "ui.reviewfoureyes": {
+      "text": "二人目のレビューが必要",
+      "hash": "9ad2157e515ec3b5f04474f9664744db7e68433f"
     },
     "doc.perm.team:delete": {
       "text": "チームを削除します。",
@@ -199,6 +207,10 @@
     "doc.route.post.api.tokens": {
       "text": "API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには \"never\"）を指定；生のトークンは一度だけ表示されます。",
       "hash": "cebac657ad797c2405bee6e8bd1ac779ba5f6409"
+    },
+    "ui.reviewrevise": {
+      "text": "差し戻し",
+      "hash": "0aa2a5cc3f18a3fdca8547cbf066e131c1c06469"
     },
     "doc.route.post.api.2fa.enable": {
       "text": "呼び出し元の TOTP 二要素認証を有効にします。シークレットと単回使用のリカバリコード一組を、一度だけ返します。",
@@ -364,6 +376,10 @@
       "text": "ディスク上のカタログをマネージャーのテーブルに取り込む。",
       "hash": "ee1a9aa18b893d69cccefe0369bcdf203aa1ee28"
     },
+    "ui.reviewnone": {
+      "text": "レビュー待ちの項目はありません。",
+      "hash": "81113cde3bd4da1b134ee55e4187faded2a1bccb"
+    },
     "doc.perm.instance:manage": {
       "text": "インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス",
       "hash": "336906f62b986937095973b250bdd09c8493001b"
@@ -384,6 +400,10 @@
       "text": "機能",
       "hash": "fc338f87a058158eb824b53705961801516a9460"
     },
+    "ui.reviewnote": {
+      "text": "コメント",
+      "hash": "dcd3b715ebd6e57f48c3f964ec298a3529f00dfc"
+    },
     "doc.route.get.api.jobs": {
       "text": "チームのジョブ、最新から",
       "hash": "2b1247c7a0fb1ca736ef30a6d6ce0649ac55eb2c"
@@ -395,6 +415,10 @@
     "doc.tool.get_usage": {
       "text": "チームの現在の AI 使用量をクォータと比べて報告する。",
       "hash": "e068247f15386c62657ebb749bd6fdd35c0d758a"
+    },
+    "ui.reviewreject": {
+      "text": "却下",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
     "ui.trigger_types": {
       "text": "コンテンツタイプ（空白 = 何でも）",
@@ -656,6 +680,14 @@
       "text": "認証の有効期限が切れました。ページを再読み込みしてください。",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
     },
+    "doc.route.post.api.org.executors": {
+      "text": "呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。",
+      "hash": "218f372f207fb10f594e39772c8cd33624edf803"
+    },
+    "ui.reviewverdict_reject": {
+      "text": "却下済み",
+      "hash": "27eeb7a291bfc566447d9cd928e98caf90f70ee6"
+    },
     "doc.route.delete.api.tokens.id": {
       "text": "API トークンを失効させる。",
       "hash": "2c46f3380d93d3e842b6c8bfd3d579e611841d94"
@@ -688,10 +720,6 @@
       "text": "履歴",
       "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
     },
-    "doc.route.post.api.org.executors": {
-      "text": "呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。",
-      "hash": "218f372f207fb10f594e39772c8cd33624edf803"
-    },
     "doc.route.post.api.instance.suspend": {
       "text": "ホストモード：テナントを一時停止（書き込みは402で拒否されます）",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
@@ -711,6 +739,10 @@
     "doc.route.put.api.branding": {
       "text": "インスタンスのタイトル、タグライン、テーマを設定します。不明な、不正な、または WCAG のコントラスト下限を下回るテーマトークンは、その名前を示す 400 になります。",
       "hash": "238d31f0df21df92e8e0420bffbd7abb2e899177"
+    },
+    "ui.reviewapprove": {
+      "text": "承認",
+      "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
     "ui.role": {
       "text": "ロール",
@@ -763,6 +795,10 @@
     "doc.tool.doc_translate": {
       "text": "リポジトリ文書をチーム用語集を適用して翻訳し、結果をその隣に書き出す（ロケールは拡張子の前：report.md -> report.ja.md；PDF のテキストは report.ja.txt になります）。",
       "hash": "77333d768a6432e71994ec915f2aa7f7715177bf"
+    },
+    "ui.reviewdecided": {
+      "text": "判断済み",
+      "hash": "55615a565dc2dd34ddd31b359d72e7792bfe19ca"
     },
     "ui.size": {
       "text": "サイズ",
@@ -880,6 +916,10 @@
       "text": "公開範囲を更新しました",
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
     },
+    "doc.perm.reviews:decide": {
+      "text": "レビュー待ちの項目を、理由を添えて承認・差し戻し・却下する。",
+      "hash": "33cb8ffb167170483550825fffce8ed0f6a039e3"
+    },
     "doc.route.get.api.repo": {
       "text": "?prefix= でリポジトリオブジェクトを一覧する（ページ送り）；?shared=1 は呼び出し元が有効な権限付与を持ち所有していないものだけ；?scope=org は会社内のすべてのチームにわたります（TEN-2h）。",
       "hash": "de55ec495c07f563596878a403924a739ed59b2f"
@@ -923,6 +963,10 @@
     "doc.route.get.api.search": {
       "text": "ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。",
       "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
+    },
+    "ui.reviewwhy": {
+      "text": "理由 — 差し戻しと却下には必須です",
+      "hash": "6ba15aa63a8a7623c0a7698150e2af3cdff2e66b"
     },
     "ui.nofires": {
       "text": "まだトリガーが発動していません。",
@@ -1284,6 +1328,10 @@
       "text": "チームごとに機能をオン／オフにする。",
       "hash": "3fd875d2a2bc213bb34b68678dc4352354e6861a"
     },
+    "doc.perm.reviews:read": {
+      "text": "チームのレビューキューと、記録済みの判断を見る。",
+      "hash": "b9a2936a3b51463412d8340093e3f9f221431016"
+    },
     "doc.route.get.api.org.branding": {
       "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",
       "hash": "ed143a926240ffabe318645984be613401b30646"
@@ -1331,6 +1379,10 @@
     "doc.route.put.api.documents.id": {
       "text": "テキスト文書のタイトル・本文・公開範囲を更新する（新しいバージョン）。",
       "hash": "3fe2ff530ad25f0415478ddb3b6cf245d43a2000"
+    },
+    "doc.route.post.api.reviews.id.decide": {
+      "text": "レビューを判断する：{verdict: approve|revise|reject, rationale, answers}。差し戻しと却下には理由が必須です。ダブルチェック指定のレビューは作成者本人を拒否します。待機していた実行は、判定が示す分岐へ進んで再開します。",
+      "hash": "aa736e77a435924068cf572724003179debfc160"
     },
     "doc.perm.quota:read": {
       "text": "クォータを見る。",
@@ -1512,9 +1564,17 @@
       "text": "?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。",
       "hash": "5c2bb39d66573cf937e6ed22690d5ceadbc3a831"
     },
+    "ui.reviewof": {
+      "text": "レビュー対象",
+      "hash": "7e3e171a15d4c42296765868f4131af6df1b2400"
+    },
     "ui.sourcetext": {
       "text": "翻訳するテキスト",
       "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
+    },
+    "doc.route.get.api.reviews.id": {
+      "text": "1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。",
+      "hash": "44c9231850a9e5260431a4baf5ba1c238eab928b"
     },
     "ui.nolimit": {
       "text": "上限なし",
@@ -1844,6 +1904,10 @@
       "text": "操作がなかったためサインアウトしました。",
       "hash": "6c0649c3d468d7e687ffd7719576506f64b0f2a5"
     },
+    "ui.reviewpending": {
+      "text": "待機中",
+      "hash": "33d30632848d3fd0ed2340adbd7be3e3e8e61010"
+    },
     "ui.addmember": {
       "text": "メンバー追加",
       "hash": "170ad0e32e6f664e85287ebd597594ad1bd5fae6"
@@ -1851,6 +1915,10 @@
     "doc.route.post.api.instance.resume": {
       "text": "ホストモード：一時停止したテナントを再開",
       "hash": "2b96e0bd6c952152f27dce21e03f30f906c922d4"
+    },
+    "ui.reviewrecorded": {
+      "text": "判断を記録しました",
+      "hash": "71097cf7bca165c70df9a12dfca0ce52f9a89f55"
     },
     "ui.expired": {
       "text": "有効期限切れ",
@@ -1960,6 +2028,10 @@
       "text": "ツール",
       "hash": "9a830c714bb2b52b8f817649335855437ebcb701"
     },
+    "ui.reviewverdict_revise": {
+      "text": "差し戻し済み",
+      "hash": "784f79a850955807e6a9c2610522ad187f5cf14e"
+    },
     "doc.route.put.api.i18n": {
       "text": "インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。",
       "hash": "3ceb223bf235f7f52e4001672cb5ed6276472812"
@@ -2004,13 +2076,17 @@
       "text": "会社内のすべてのチームにわたり、チームに公開されたノート・文書・検索結果を読む（TEN-2h）。非公開のものは対象外；書き込み不可；AI 利用不可。org_reader ロールが保持します。",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
     },
-    "doc.tool.shipment_eta.lane": {
-      "text": "レーン（例：SIN-LAX）",
-      "hash": "4870ab50a6b4deaf0f771dbf8ff7ac99449b6ea0"
+    "ui.reviewverdict_approve": {
+      "text": "承認済み",
+      "hash": "41b81eb8db1b97e812a8fc182e3a5b3ce0f3aacb"
     },
     "ui.derivedfrom": {
       "text": "派生元",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
+    },
+    "doc.tool.shipment_eta.lane": {
+      "text": "レーン（例：SIN-LAX）",
+      "hash": "4870ab50a6b4deaf0f771dbf8ff7ac99449b6ea0"
     },
     "ui.bxverifying": {
       "text": "本人確認を行っています…",
@@ -2124,6 +2200,14 @@
       "text": "アップロード中",
       "hash": "de27240983ef2f1432e07df25dd609712f69a107"
     },
+    "doc.route.get.api.reviews": {
+      "text": "チームのレビューキュー、新しい順。?status=pending（既定）、decided、canceled、all。",
+      "hash": "0d91dd0215b151859baa579e596907d41f41211a"
+    },
+    "doc.plugin.beta-onboarding": {
+      "text": "SDK の init! フックで登録された、カスタマイズ済みのベータ申込フロー（founders プログラム）。",
+      "hash": "42373b624500e7a17676cf53acc366340197d2dc"
+    },
     "doc.perm.notes:delete": {
       "text": "ノートを削除",
       "hash": "fe55e03b24dbaafd2872846f5d80257580bc8baa"
@@ -2136,9 +2220,9 @@
       "text": "目標言語にテキストを翻訳し、チーム用語集を使用します。",
       "hash": "6e66e87c1cec75b5d7189cb342fb0b0e273abaa1"
     },
-    "doc.plugin.beta-onboarding": {
-      "text": "SDK の init! フックで登録された、カスタマイズ済みのベータ申込フロー（founders プログラム）。",
-      "hash": "42373b624500e7a17676cf53acc366340197d2dc"
+    "ui.rationale": {
+      "text": "理由",
+      "hash": "f219cc0614ae6860f43a3cd84b5cf31fc312cd9d"
     },
     "ui.teamsignin": {
       "text": "チームサインイン",
