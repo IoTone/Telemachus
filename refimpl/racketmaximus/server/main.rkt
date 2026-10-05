@@ -113,13 +113,8 @@
 ;; (the /api/orgs + /api/org management planes), not the authorization semantics.
 (define (multitenant?) (and (member (or (env* "TELEMACHUS_MULTITENANT") "") '("1" "true" "yes" "on")) #t))
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
-;; Largest request body the transport will accept. web-server's own default is 1 MiB
-;; and it enforces it by DROPPING the connection — no status, no log line — so a
-;; handler's own size check never runs. Deliberate here rather than inherited.
-(define (max-upload-bytes)
-  (define raw (env* "TELEMACHUS_MAX_UPLOAD"))
-  (define n (and raw (string->number raw)))
-  (if (and n (exact-positive-integer? n)) n default-max-body-length))
+;; max-upload-bytes now lives in config.rkt (shared with domain/s3/server.rkt,
+;; which needs the same ceiling and can't require this module back).
 (define default-port 8835)                                     ; "TEL" on a keypad; 8080 is too crowded to squat on
 (define (listen-port)   ; TELEMACHUS_PORT wins, then PORT (the common convention), else the default
   (define raw (or (env* "TELEMACHUS_PORT") (env* "PORT")))
