@@ -196,10 +196,23 @@
   (call-with-semaphore claim-lock
     (lambda ()
       (query-exec conn "UPDATE executors SET last_seen_at = ? WHERE id = ?" (now) (hash-ref ex 'id))
+      ;; issue #54: this used to take the oldest 64 queued jobs of ANY kind and
+      ;; then filter in Racket, so a worker whose jobs sat behind 64 in-process
+      ;; ones saw an empty queue and polled forever against work it could have
+      ;; run. The kind filter belongs in the WHERE clause: the window then holds
+      ;; only candidates, and the limit bounds the scan rather than the answer.
+      (define want-kinds
+        (let ([rk (remote-kinds)])
+          (if (null? kinds) rk (filter (lambda (k) (member k rk)) kinds))))
       (define candidates
-        (query-rows conn
-          (string-append "SELECT id, team_id, kind, requirements, parent_job_id FROM jobs "
-                         "WHERE status = 'queued' ORDER BY priority DESC, created_at ASC LIMIT 64")))
+        (if (null? want-kinds)
+            '()                      ; this worker declares nothing we run remotely
+            (apply query-rows conn
+                   (string-append "SELECT id, team_id, kind, requirements, parent_job_id FROM jobs "
+                                  "WHERE status = 'queued' AND kind IN ("
+                                  (string-join (make-list (length want-kinds) "?") ",")
+                                  ") ORDER BY priority DESC, created_at ASC LIMIT 64")
+                   want-kinds)))
       (for/or ([r (in-list candidates)])
         (define id (vector-ref r 0)) (define team (vector-ref r 1)) (define kind (vector-ref r 2))
         (define req (with-handlers ([exn:fail? (lambda (_) (hasheq))])
@@ -207,9 +220,9 @@
         (define sub? (not (sql-null? (vector-ref r 4))))
         (define want-model (let ([m (hash-ref req 'model #f)]) (and (string? m) m)))
         (define want-exec (let ([e (hash-ref req 'executor #f)]) (and (string? e) e)))
-        (and (remote-kind? kind)
-             (or (null? kinds) (member kind kinds))
-             (or (not want-model) (member want-model models))
+        ;; `remote-kind?` and the caller's `kinds` are both guaranteed by the
+        ;; IN clause above, so what is left is what SQL cannot know
+        (and (or (not want-model) (member want-model models))
              (or (not want-exec) (equal? want-exec (hash-ref ex 'name)))
              ;; the org gate: an org-bound executor never sees another company's job
              (let ([eorg (hash-ref ex 'org_id)])

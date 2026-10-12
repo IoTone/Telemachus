@@ -120,7 +120,16 @@
       (define-values (text reason) (extract-text (open-input-bytes pdf) "application/pdf"))
       (check-false reason)
       (check-true (regexp-match? #rx"confidential roadmap" text)
-                  "pdftotext extracts the words"))
+                  "pdftotext extracts the words")
+      ;; LAY-8: a PDF with a page and NO text layer is a scan. It used to come
+      ;; back as a successful empty extraction — indistinguishable from a blank
+      ;; page — so the object was indexed, never listed again, and the real
+      ;; failure surfaced much later as a schema refusal on an empty document.
+      ;; Scanned paperwork is the normal case for this platform's documents, so
+      ;; this is the one thing that must not read as success.
+      (define-values (blank why) (extract-text (open-input-bytes (minimal-pdf "")) "application/pdf"))
+      (check-false blank "a scan is not an empty document")
+      (check-equal? why 'needs-ocr))
     (let-values ([(text reason) (extract-text (open-input-bytes #"%PDF-1.4") "application/pdf")])
       (check-false text)
       (check-equal? reason 'missing-tool "a missing binary is named, never silent")))

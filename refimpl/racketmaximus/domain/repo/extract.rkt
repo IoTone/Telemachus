@@ -103,10 +103,11 @@
               (string-trim (regexp-replace* #px"\\s+" text " "))))))
 
 ;; port + content type -> (values text-or-#f reason)
-;;   text     extraction worked (possibly empty — an empty PDF is still indexed,
-;;            so the workflow will not retry it forever)
+;;   text     extraction worked (possibly empty for a text format — an empty file
+;;            is still indexed, so the workflow will not retry it forever)
 ;;   #f 'unsupported   no extractor for this type; expected, not an error
 ;;   #f 'missing-tool  pdftotext is not installed; the reason an operator can fix
+;;   #f 'needs-ocr     a PDF with no TEXT LAYER — a scan. See below.
 ;;   #f 'failed        the extractor raised or the subprocess died
 (define (extract-text in content-type)
   (define (cap s) (if (> (string-length s) EXTRACT-CAP) (substring s 0 EXTRACT-CAP) s))
@@ -115,10 +116,21 @@
     [(markup) (values (cap (strip-tags (bytes->text/lossy (port->bytes in)))) #f)]
     [(docx)   (let ([t (extract-docx in)])
                 (if t (values (cap t) #f) (values #f 'failed)))]
+    ;; A PDF that yields NO text has no text layer: it is a scan, or an image
+    ;; wrapped in a page. Reporting that as a successful empty extraction made a
+    ;; scan indistinguishable from a blank page — the row was written, the object
+    ;; was never listed again, and the real failure surfaced much later and much
+    ;; further away, as a schema refusal on an empty document that named nothing.
+    ;; Scanned paperwork is the normal case for the documents this platform is
+    ;; for, so the one thing the extractor must not do is call it success.
     [(pdf)    (cond
                 [(not (pdftotext-available?)) (values #f 'missing-tool)]
-                [else (let ([t (extract-pdf in)])
-                        (if t (values (cap t) #f) (values #f 'failed)))])]
+                [else
+                 (define t (extract-pdf in))
+                 (cond
+                   [(not t) (values #f 'failed)]
+                   [(string=? (string-trim t) "") (values #f 'needs-ocr)]
+                   [else (values (cap t) #f)])])]
     [else (values #f 'unsupported)]))
 
 ;; ---- the index rows -------------------------------------------------------------

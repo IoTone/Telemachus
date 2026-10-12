@@ -1048,6 +1048,25 @@
        "CREATE INDEX idx_reviews_queue ON reviews(team_id, status, requested_ms)"
        "CREATE INDEX idx_reviews_run ON reviews(run_id)"))))
 
+(define m-0035-quota-bigint
+  (migration "0035-quota-bigint"
+    (lambda (conn)
+      ;; issue #54: `limit_value INTEGER` is 64-bit on SQLite and 32-bit on
+      ;; PostgreSQL, so a limit above 2,147,483,647 worked in development and
+      ;; threw a raw SQL error in production — the dialect-divergence class this
+      ;; codebase already watches for (`?` vs `$n`, CURRENT_TIMESTAMP's format).
+      ;;
+      ;; It is not a hypothetical ceiling: `storage.bytes` is a byte count, so any
+      ;; storage quota above 2 GiB crosses it, and that is an ordinary number for
+      ;; a team that keeps scans. Validating the input instead would have refused
+      ;; a legitimate configuration, so the column grows.
+      (case (db-dialect conn)
+        [(postgresql)
+         (exec* conn "ALTER TABLE quota_limits ALTER COLUMN limit_value TYPE BIGINT")]
+        [else
+         ;; SQLite's INTEGER is already up to 8 bytes — nothing to widen.
+         (void)]))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint))

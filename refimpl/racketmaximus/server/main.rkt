@@ -321,7 +321,13 @@
   (hash "html" #"text/html; charset=utf-8" "js" #"application/javascript" "css" #"text/css"
         "json" #"application/json" "svg" #"image/svg+xml" "png" #"image/png"
         "jpg" #"image/jpeg" "jpeg" #"image/jpeg" "gif" #"image/gif" "webp" #"image/webp"
-        "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"))
+        "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"
+        ;; issue #54: an unknown extension becomes application/octet-stream, and every
+        ;; response carries nosniff — so a Tier-B bundle shipping ES modules, a source
+        ;; map or wasm was REFUSED by the browser rather than mistyped. These three are
+        ;; what a modern bundle actually ships.
+        "mjs" #"text/javascript" "map" #"application/json" "wasm" #"application/wasm"
+        "txt" #"text/plain; charset=utf-8" "webmanifest" #"application/manifest+json"))
 (define (ext-of s) (let ([m (regexp-match #rx"\\.([A-Za-z0-9]+)$" s)]) (if m (string-downcase (cadr m)) "")))
 (define (mime-of s) (hash-ref STATIC-MIME (ext-of s) #"application/octet-stream"))
 (define (serve-file path #:cache [cache #"public, max-age=300"] #:headers [extra '()])
@@ -2810,6 +2816,18 @@
   ;; looked completely healthy. Fail here instead, where the message is about the
   ;; configuration and not about a mkdir. Plugins load first because rs3 replaces
   ;; the built-in store and this must check the one that will actually be used.
+  ;; Refuse to serve with a blob store that was ASKED FOR and is not there.
+  ;; `active-blob-store-name` falls back want -> rs3 -> builtin, so a typo in
+  ;; TELEMACHUS_BLOB_STORE quietly wrote every document to local disk while the
+  ;; instance reported healthy — the same shape as the relative root below, and
+  ;; the same answer: fail where the message is about the configuration.
+  (let ([want (env* "TELEMACHUS_BLOB_STORE")])
+    (when (and want (not (string=? want "")) (not (member want (blob-store-names))))
+      (error 'telemachus
+             (string-append "TELEMACHUS_BLOB_STORE names a store that is not registered: ~a\n"
+                            "  registered: ~a\n"
+                            "  Documents would silently go to the local store instead.")
+             want (string-join (blob-store-names) ", "))))
   (let ([r (blob-root)])
     (unless (absolute-path? r)
       (error 'telemachus

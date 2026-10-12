@@ -219,3 +219,21 @@
   (define t2 (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS)))
   (check-false (equal? t1 t2))
   (disconnect c))
+
+;; issue #54: the claim took the oldest 64 queued jobs of ANY kind and filtered in
+;; Racket, so a worker whose job sat behind a wall of in-process ones saw an empty
+;; queue and polled forever against work it could have run.
+(test-case "a remote job behind a wall of local ones is still claimable"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu" #:model "m"))
+  ;; more local jobs than the scan window, queued FIRST so they sort ahead
+  (for ([i (in-range 80)])
+    (enqueue-job! c #:team tid #:user uid #:kind "local.echo" #:payload (hasheq 'x i)))
+  (define remote (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                               #:payload (hasheq 'messages '())))
+  (define got (worker-claim! c (executor-by-token c (hash-ref ex 'token_id))))
+  (check-true (hash? got) "the window bounds the scan, not the answer")
+  (check-equal? (hash-ref got 'id) remote)
+  (disconnect c))

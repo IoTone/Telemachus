@@ -31,7 +31,7 @@
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
          process-one! start-scheduler! set-cap-for! set-admit?! set-record!!
-         remote-kind? remote-kind-validator scheduler-cap-for scheduler-admit? scheduler-record!
+         remote-kind? remote-kinds remote-kind-validator scheduler-cap-for scheduler-admit? scheduler-record!
          set-reaper! current-job
          claim-job! reap-orphans! POOL-LEASE-SECONDS
          current-plugin registered-job-kinds job-kinds-of-plugin plugin-kind-prefix)
@@ -87,6 +87,9 @@
       (hash-set! *remote* kind validate)
       (hash-set! *kinds* kind handler)))
 (define (remote-kind? kind) (hash-has-key? *remote* kind))
+;; every registered remote kind, so a claim can filter in SQL rather than
+;; scan a fixed window and discard what it finds (issue #54)
+(define (remote-kinds) (hash-keys *remote*))
 (define (remote-kind-validator kind) (hash-ref *remote* kind (lambda () (lambda (r) "unknown remote kind"))))
 
 ;; the job a handler is running in, so a nested model call can be enqueued as a

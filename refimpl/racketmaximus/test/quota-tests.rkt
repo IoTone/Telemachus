@@ -48,3 +48,16 @@
   (for-each thread-wait (for/list ([i (in-range 8)]) (thread job)))
   (check-true (<= (unbox max-seen) 2))                 ; never more than the cap ran together
   (check-equal? (governor-inflight g "team:x") 0))     ; all released
+
+;; issue #54: `limit_value INTEGER` is 64-bit on SQLite and 32-bit on PostgreSQL,
+;; so this worked in development and threw a raw SQL error in production. Not a
+;; hypothetical ceiling — `storage.bytes` is a byte count, so any storage quota
+;; above 2 GiB crosses it. Migration 0035 widens the column on PostgreSQL.
+(test-case "a quota above the 32-bit ceiling round-trips on either dialect"
+  (define c (fresh))
+  (define big (+ (expt 2 31) 1000))          ; 2,147,484,648 — a 2 GiB storage cap and change
+  (set-limit! c "team" "t-big" "storage.bytes" big #:window "total")
+  (define-values (lim win) (get-limit c "team" "t-big" "storage.bytes"))
+  (check-equal? lim big "the limit survives the round trip, not just the insert")
+  (check-true (hash-ref (quota-check c "team" "t-big" "storage.bytes" 1000) 'allowed))
+  (disconnect c))

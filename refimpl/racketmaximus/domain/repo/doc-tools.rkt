@@ -147,6 +147,12 @@
      text]
     [(eq? reason 'missing-tool)
      (error 'doc_text "pdftotext is not installed — PDF text extraction needs poppler-utils")]
+    ;; the pipeline's most common real failure, and it used to arrive as an empty
+    ;; document the model was asked to extract fields from
+    [(eq? reason 'needs-ocr)
+     (error 'doc_text
+            "~a has no text layer — it is a scan, and needs OCR before the pipeline can read it"
+            (hash-ref o 'key))]
     ;; unlike indexing, a pipeline on a document it cannot read FAILS: the person
     ;; who uploaded it is waiting for fields, and silence would look like success
     [else (error 'doc_text "cannot read ~a as ~a (~a)" (hash-ref o 'key) (hash-ref o 'content_type) reason)]))

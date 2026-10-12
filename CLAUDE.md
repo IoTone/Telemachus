@@ -990,6 +990,46 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
+## Issue #54's remaining platform defects (built 12 Oct 2026)
+
+- **LAY‑8 — a PDF with no text layer is `'needs-ocr`, not a successful empty
+  extraction.** It used to be indistinguishable from a blank page: the row was
+  written, the object was never listed again, and the real failure surfaced much
+  later as a schema refusal on an empty document that named nothing. Scanned
+  paperwork is the normal case for the documents this platform is for. The
+  indexer's `else` branch already records any reason as processed-with-nothing,
+  so there is no retry loop; `doc_text` refuses by name ("it is a scan, and needs
+  OCR"). This is the prerequisite for any OCR work — without it nothing can tell
+  which documents need it.
+- **A misconfigured `TELEMACHUS_BLOB_STORE` refuses to boot.**
+  `active-blob-store-name` falls back want → rs3 → builtin, so a typo quietly
+  wrote every document to local disk while the instance reported healthy. Checked
+  after plugins load, beside the relative-blob-root refusal, and the message
+  lists what IS registered.
+- **Quota limits are BIGINT** (migration `0035`, PostgreSQL only — SQLite's
+  INTEGER is already 64-bit). `limit_value INTEGER` meant a limit above
+  2,147,483,647 worked in development and threw a raw SQL error in production.
+  Not hypothetical: `storage.bytes` is a byte count, so **any storage quota above
+  2 GiB crossed it**. Validating the input instead would have refused a legitimate
+  configuration.
+- **A worker claim filters by kind in SQL.** It took the oldest 64 queued jobs of
+  ANY kind and filtered in Racket, so a remote job behind a wall of in-process
+  ones was invisible and the worker polled forever against work it could have
+  run. `remote-kinds` (scheduler.rkt) feeds an `IN` clause, so the window bounds
+  the scan rather than the answer. `test/pull-tests.rkt` pins it — and that test
+  FAILS against the old code, which is the only reason it is worth having.
+- **`.mjs`, `.map`, `.wasm`** (plus `.txt`, `.webmanifest`) are in `STATIC-MIME`.
+  An unknown extension becomes `application/octet-stream`, and every response
+  carries `nosniff`, so a Tier‑B bundle shipping ES modules or wasm was REFUSED
+  by the browser rather than mistyped.
+- **The `approve` gate the workflow-engine design named for a year does not
+  exist and must not be built.** `docs/design/workflow-engine.md` specified an
+  `approve` step kind and `POST /api/runs/<id>/approve/<step>` while `spec.rkt`'s
+  own `planned_step_kinds` never listed it — the contradiction issue #54
+  reported. The human gate shipped as **`review`** (LAY‑1…3), wider than that row
+  described and with its own queue rather than a release endpoint. The design doc,
+  its slice plan and decision WF‑5 all say so now.
+
 ## Offboarding and password hygiene (issue #54, built 5 Oct 2026)
 
 Before this, `/api/members` had only `POST` and `GET`: a team could be joined and
