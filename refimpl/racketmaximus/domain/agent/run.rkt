@@ -14,9 +14,9 @@
          "registry.rkt"                 ; tool-by-name, tool-enabled?, enabled-tool-schemas, tool-*
          "tools.rkt"                    ; side effect: registers the built-in tools
          "../authz/authz.rkt"           ; can?, exn:fail:forbidden, principal-*
-         "../ai/executor.rkt")          ; model-url/name/key, model-configured?
-(require (only-in "llm.rkt" http-post-json)
-         (only-in "../ai/content.rkt" content->text))
+         "../ai/executor.rkt"           ; model-exchange, response-tokens, model-configured?
+         "../exec/federation.rkt")      ; executor-exists? — is a name a push backend?
+(require (only-in "../ai/content.rkt" content->text))
 
 (provide run-agent-flow agent-configured? make-exec parse-agent-response dispatch-tool)
 
@@ -29,12 +29,12 @@
 (define (agent-configured?) (model-configured?))
 
 ;; ---- native model adapter (tool-calling) ------------------------------------
-(define wire-keys '(role content name tool_call_id tool_calls))
-(define (sanitize msgs)
-  (for/list ([m (in-list msgs)])
-    (for/fold ([h (hasheq)]) ([k (in-list wire-keys)])
-      (if (hash-has-key? m k) (hash-set h k (hash-ref m k)) h))))
-
+;; The request itself goes through model-exchange, so this module no longer builds
+;; headers, a body or an HTTP call of its own — that duplication is why routing and
+;; real token accounting never reached the agent. What stays here is the PARSER,
+;; which is deliberately more permissive than llm.rkt's: it accepts any registered
+;; tool name, where function-call->tool-block drops anything outside `tool-tags`.
+;; Folding the two together would silently disable every plugin tool.
 (define (raw-call id name args)
   (hasheq 'id id 'type "function" 'function (hasheq 'name name 'arguments args)))
 
@@ -58,15 +58,16 @@
             (raw-call (let ([id (hash-ref tc 'id #f)]) (if (string? id) id (format "call_~a" i))) name args))))
   (assistant-msg content (map car pairs) (map cdr pairs)))
 
-(define (make-llm tools)
-  (define headers
-    (append (list "Content-Type: application/json")
-            (if (model-key) (list (string-append "Authorization: Bearer " (model-key))) '())))
+;; #:temperature 0 — tool SELECTION should be deterministic; at the provider
+;; default small local models pick tools flakily. `usage` accumulates the
+;; provider's own token counts across rounds, which is what the endpoint meters
+;; now instead of estimating from the prompt length.
+(define (make-llm tools executor usage)
   (lambda (messages)
-    (define body (hasheq 'model (model-name) 'messages (sanitize messages)
-                         'tools tools 'tool_choice "auto" 'temperature 0 'stream #f))
-    (define-values (code resp) (http-post-json (model-url) body headers))
-    (unless (= code 200) (error 'agent "model endpoint returned HTTP ~a" code))
+    (define-values (resp _url _mdl)
+      (model-exchange messages #:extras (hasheq 'tools tools 'tool_choice "auto")
+                      #:temperature 0 #:executor executor #:who 'agent))
+    (let ([t (response-tokens resp)]) (when t (set-box! usage (+ (unbox usage) t))))
     (parse-agent-response resp)))
 
 ;; ---- dispatch (registry + enablement + RBAC) --------------------------------
@@ -128,9 +129,21 @@
           [(and (eq? (car (car tx)) 'assistant) (not (string=? (caddr (car tx)) ""))) (caddr (car tx))]
           [else (loop (cdr tx))])))
 
-(define (run-agent-flow conn p user-text on-event #:max-rounds [max-rounds 6])
+;; -> (values agent-result tokens-used)
+;;
+;; #:executor routes the whole loop to a named PUSH backend. A pull executor is
+;; refused by name: its wire is infer.chat, which carries a reply and a token
+;; count — not tool calls — so routing a tool-using turn there would silently
+;; drop every tool.
+(define (run-agent-flow conn p user-text on-event #:max-rounds [max-rounds 6] #:executor [executor #f])
+  (when (and executor (not (executor-exists? executor)))
+    (error 'agent
+           (string-append "the agent runs on a push backend; ~a is not one. A pull executor "
+                          "answers infer.chat, which carries a reply rather than tool calls.")
+           executor))
   (define tools (enabled-tool-schemas conn (principal-team-id p)))
-  (define base-llm (make-llm tools))
+  (define usage (box 0))
+  (define base-llm (make-llm tools executor usage))
   (define llm
     (lambda (msgs)
       (define m (base-llm msgs))
@@ -142,5 +155,6 @@
                             #:llm llm #:exec (make-exec conn p on-event) #:max-rounds max-rounds))
   (on-event (hasheq 'type "done" 'reply (last-assistant-text result)
                     'rounds (agent-result-rounds result)
+                    'tokens_used (unbox usage)
                     'status (symbol->string (agent-result-status result))))
-  result)
+  (values result (unbox usage)))

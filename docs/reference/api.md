@@ -59,11 +59,13 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/2fa/recovery-codes` | bearer | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |
 | DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again. |
 | DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
-| POST | `/api/password` | bearer | — | — | Change the caller's password. |
+| POST | `/api/password` | bearer | — | — | Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone. |
 | GET | `/api/whoami` | bearer | — | — | The caller: user, team, operator flag, org, org role, locale, permissions. |
 | POST | `/api/profile` | bearer | — | — | Update the caller's profile (display name, locale). |
 | POST | `/api/members` | bearer | `members:manage` | — | Add a member to the caller's team with a role; returns the new member's first token. |
 | GET | `/api/members` | bearer | — | — | The team's members and roles. |
+| PATCH | `/api/members/:id` | bearer | `members:manage` | — | Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it. |
+| DELETE | `/api/members/:id` | bearer | `members:manage` | — | Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed. |
 | GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
 | POST | `/api/orgs` | superadmin | `instance:manage` | — | Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run). |
 | GET | `/api/orgs` | superadmin | `instance:manage` | — | List every org on the instance. |
@@ -72,6 +74,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | Set an org-level quota; teams nest beneath it. |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | One company, its teams and quotas. |
 | PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d). |
+| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | — | Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link. |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | Seed Acme and Globex with known dev passwords — demo fixture only. |
 | GET | `/api/org` | org-admin | `org:read` | — | The caller's own company. |
 | GET | `/api/org/teams` | org-admin | `org:read` | — | The teams in the caller's company. |
@@ -158,6 +161,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/runs` | bearer | `workflows:read` | `workflows` | The team's runs, newest first. |
 | POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | Cancel a run; a step already executing finishes, the next never starts. |
 | GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | One run with its steps, inputs, outputs and errors. |
+| GET | `/api/reviews` | bearer | `reviews:read` | — | The team's review queue, newest first. ?status=pending (the default), decided, canceled or all. |
+| GET | `/api/reviews/:id` | bearer | `reviews:read` | — | One review: what is under review, the checklist to answer, and the decision if it has been made. |
+| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | Decide a review: {verdict: approve\|revise\|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names. |
 | GET | `/api/kg/entities` | bearer | `files:read` | — | Find entities by ?q= and ?type=; only those with a mention the caller can read. |
 | GET | `/api/kg/entities/:id` | bearer | `files:read` | — | One entity with its relations and mentions, each mention filtered by the source document's visibility. |
 | POST | `/api/kg/extract` | bearer | `workflows:run` | `workflows` | Queue the index-knowledge workflow over the team's unextracted documents. |

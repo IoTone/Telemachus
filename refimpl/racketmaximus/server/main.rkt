@@ -70,7 +70,8 @@
          (only-in "../domain/kg/kg-tools.rkt")     ; registers its tools
          "../domain/repo/blobs.rkt"               ; …and its content-addressed blob seam
          "../domain/flow/spec.rkt"                ; workflow spec — the public contract (slice 46)
-         "../domain/flow/run.rkt"                 ; …and its interpreter; registers the "flow.step" job kind
+         "../domain/flow/run.rkt"
+         "../domain/review/review.rkt"            ; LAY-1…3: the review queue                 ; …and its interpreter; registers the "flow.step" job kind
          "../domain/ai/executor.rkt"
          "../domain/ai/content.rkt"               ; content parts + response formats (issue #18)
          (only-in "../domain/authz/secretbox.rkt" secrets-enabled? secret-key-id)   ; issue #19
@@ -113,13 +114,8 @@
 ;; (the /api/orgs + /api/org management planes), not the authorization semantics.
 (define (multitenant?) (and (member (or (env* "TELEMACHUS_MULTITENANT") "") '("1" "true" "yes" "on")) #t))
 (define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
-;; Largest request body the transport will accept. web-server's own default is 1 MiB
-;; and it enforces it by DROPPING the connection — no status, no log line — so a
-;; handler's own size check never runs. Deliberate here rather than inherited.
-(define (max-upload-bytes)
-  (define raw (env* "TELEMACHUS_MAX_UPLOAD"))
-  (define n (and raw (string->number raw)))
-  (if (and n (exact-positive-integer? n)) n default-max-body-length))
+;; max-upload-bytes now lives in config.rkt (shared with domain/s3/server.rkt,
+;; which needs the same ceiling and can't require this module back).
 (define default-port 8835)                                     ; "TEL" on a keypad; 8080 is too crowded to squat on
 (define (listen-port)   ; TELEMACHUS_PORT wins, then PORT (the common convention), else the default
   (define raw (or (env* "TELEMACHUS_PORT") (env* "PORT")))
@@ -1077,11 +1073,60 @@
        (set-user-locale! db-conn (principal-user-id p) loc)
        (json-response (hasheq 'ok #t 'locale loc))]))))
 
+;; ---- membership stewardship (issue #54) ----------------------------------------
+(define (ep-member-role req uid)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "members:manage")
+    (define role (fmt (read-json-body req) 'role))
+    (define out (set-member-role! db-conn (principal-team-id p) uid role))
+    (cond
+      [(eq? out 'no-such-member) (err "no such member" 404)]
+      [(eq? out 'unknown-role) (err "unknown role" 400)]
+      [(eq? out 'last-owner) (err "the last owner cannot be demoted" 409)]
+      [else
+       (audit! db-conn #:action "member.role" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid
+               #:meta (jsexpr->string (hasheq 'role role)))
+       (json-response (hasheq 'ok #t 'user_id uid 'role role))]))))
+
+(define (ep-member-remove req uid)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "members:manage")
+    (define out (deactivate-member! db-conn (principal-team-id p) uid))
+    (cond
+      [(eq? out 'no-such-member) (err "no such member" 404)]
+      [(eq? out 'last-owner) (err "the last owner cannot be removed" 409)]
+      [else
+       (audit! db-conn #:action "member.remove" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "user" #:resource-id uid
+               #:meta (jsexpr->string (hasheq 'tokens_revoked out)))
+       (json-response (hasheq 'ok #t 'user_id uid 'tokens_revoked out))]))))
+
+(define (ep-admin-password-reset req uid)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define new (hash-ref (read-json-body req) 'new_password #f))
+    (cond
+      [(or (not (string? new)) (< (string-length new) 6)) (err "new_password required (min 6)" 400)]
+      [(not (query-maybe-value db-conn "SELECT id FROM users WHERE id = ?" uid)) (err "no such user" 404)]
+      [else
+       (set-password! db-conn uid new)
+       (define n (revoke-user-sessions! db-conn uid))
+       ;; attributed to the ACTING operator's team: audit-list filters by team, and
+       ;; the operator's trail is where "what did the operator do" is looked for.
+       ;; The target may be in another team entirely.
+       (audit! db-conn #:action "user.password.reset" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p)
+               #:resource-type "user" #:resource-id uid
+               #:meta (jsexpr->string (hasheq 'sessions_revoked n)))
+       (json-response (hasheq 'ok #t 'user_id uid 'sessions_revoked n))]))))
+
 (define (ep-members-list req)
   (with-auth req (lambda (p)
     (define rows (query-rows db-conn
       (string-append "SELECT u.id, u.username, m.role_key FROM memberships m "
-                     "JOIN users u ON u.id = m.user_id WHERE m.team_id = ? ORDER BY u.username")
+                     "JOIN users u ON u.id = m.user_id "
+                     "WHERE m.team_id = ? AND m.status = 'active' ORDER BY u.username")
       (principal-team-id p)))
     (json-response (hasheq 'members (for/list ([r (in-list rows)])
                                       (hasheq 'user_id (vector-ref r 0)
@@ -1393,7 +1438,15 @@
     (cond
       [(or (not cur) (not new)) (err "current_password and new_password required" 400)]
       [(< (string-length new) 6) (err "new password too short (min 6)" 400)]
-      [(change-password! db-conn (principal-user-id p) cur new) (json-response (hasheq 'ok #t))]
+      [(change-password! db-conn (principal-user-id p) cur new)
+       ;; every session the old password could have minted goes, INCLUDING this
+       ;; one: the caller signs in again. Issuing a fresh token here instead would
+       ;; let a narrowly-scoped API token trade itself for a full session.
+       (define n (revoke-user-sessions! db-conn (principal-user-id p)))
+       (audit! db-conn #:action "user.password" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "user" #:resource-id (principal-user-id p)
+               #:meta (jsexpr->string (hasheq 'sessions_revoked n)))
+       (json-response (hasheq 'ok #t 'sessions_revoked n 'signed_out #t))]
       [else (err "current password incorrect" 403)]))))
 
 ;; issue #19: a TOTP seed is the one credential its owner cannot rotate by using
@@ -1581,13 +1634,25 @@
 (define (executor-known? name) (or (executor-exists? name) (and (executor-by-name db-conn name) #t)))
 
 ;; ---- executors (slice 66) -----------------------------------------------------------
-;; The env-configured push backends (federation.rkt) and the API-created ones
-;; (the executors table: push, and PULL with a worker token) in one listing.
+;; The env-configured push backends (executors.json) and the API-created ones (the
+;; executors table: push, and PULL with a worker token) in ONE listing, once each.
+;;
+;; A DB push executor lives in both — the row is the record, the registry entry is
+;; how a call resolves it — so concatenating the two listed it twice. The row is
+;; the richer answer (mode, health, org, who created it), so the registry only
+;; contributes what executors.json owns, which has no row at all.
 (define (ep-executors req)
   (with-auth req (lambda (p)
+    (define rows (executor-list db-conn p))
+    (define named (for/list ([e (in-list rows)]) (hash-ref e 'name)))
+    (define from-file
+      (for/list ([e (in-list (list-executors))]
+                 #:when (and (equal? (hash-ref e 'source "config") "config")
+                             (not (member (hash-ref e 'name) named))))
+        e))
     (json-response (hasheq 'local (hasheq 'name "local" 'model (hash-ref (model-info) 'model)
                                           'configured (model-configured?) 'remote #f)
-                           'executors (append (list-executors) (executor-list db-conn p)))))))
+                           'executors (append from-file rows))))))
 
 ;; create: the operator anywhere (org_id optional), an org admin for its own
 ;; company (TEN-2e). A pull executor's worker token is in THIS response and never again.
@@ -1779,25 +1844,78 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "chat:use")
     (require-feature p "agent")
+    (define b (read-json-body req))
+    ;; the agent is routable now (it used to build its own HTTP call, so neither a
+    ;; named backend nor a model role reached it); naming compute stays operator-only,
+    ;; exactly as on /api/ai/chat
+    (define ex (pick-executor b))
+    (when ex (require-perm db-conn p "instance:manage"))
     (cond
-      [(not (agent-configured?))
+      [(and (not ex) (not (agent-configured?)))
        (err "agent mode requires a configured model (set TELEMACHUS_MODEL_URL)" 503)]
+      [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [else
-       (define b (read-json-body req))
        (define prompt (hash-ref b 'prompt ""))
        (define sid (principal-team-id p))
        (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+       ;; ai.tokens.total is admitted here too, as /api/ai/chat already did. The
+       ;; agent used to bill (max (estimate-tokens prompt) 50) — one real run
+       ;; measured 3,810 — so the budget was never reached and the missing check
+       ;; never showed. Now that the count is real, admitting on requests alone
+       ;; would let an over-budget team keep spending.
+       (define tq (tenant-quota-check db-conn p "ai.tokens.total" (estimate-tokens (format "~a" prompt))))
        (cond
          [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
+         [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
          [else
           (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
           (sse-response
            (lambda (emit)
              (with-slot GOV (string-append "team:" sid) (or climit 2)
                (lambda (inflight)
-                 (run-agent-flow db-conn p prompt (lambda (ev) (emit ev)))
+                 (define-values (_result tokens)
+                   (run-agent-flow db-conn p prompt (lambda (ev) (emit ev)) #:executor ex))
                  (tenant-quota-record! db-conn p "ai.requests" 1)
-                 (tenant-quota-record! db-conn p "ai.tokens.total" (max (estimate-tokens prompt) 50))))))])]))))
+                 ;; the provider's own counts, summed over the loop's rounds. This was
+                 ;; (max (estimate-tokens prompt) 50) — a guess — because the agent
+                 ;; discarded `usage`; the estimate stays as a floor for a server that
+                 ;; reports none.
+                 (tenant-quota-record! db-conn p "ai.tokens.total"
+                                       (if (> tokens 0) tokens (max (estimate-tokens prompt) 50)))))))])]))))
+
+;; ---- reviews (LAY-1…3) ---------------------------------------------------------
+(define (ep-reviews-list req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "reviews:read")
+    (define st (let ([v (query-param req "status" "pending")]) (if (string=? v "") "pending" v)))
+    (json-response (hasheq 'reviews (review-list db-conn p #:status st)
+                           'pending (review-count-pending db-conn p))))))
+
+(define (ep-review-get req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "reviews:read")
+    (define r (review-get db-conn p id))
+    (if r (json-response r) (err "no such review" 404)))))
+
+(define (ep-review-decide req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "reviews:decide")
+    (define b (read-json-body req))
+    (define verdict (fmt b 'verdict))
+    (define rationale (fmt b 'rationale))
+    (define answers (let ([a (hash-ref b 'answers (hasheq))]) (if (hash? a) a (hasheq))))
+    (define out (review-decide! db-conn p id verdict #:rationale rationale #:answers answers))
+    (cond
+      [(eq? out 'no-such-review) (err "no such review" 404)]
+      [(eq? out 'already-decided) (err "this review has already been decided" 409)]
+      [(eq? out 'bad-verdict) (err (format "verdict must be one of ~a" (string-join REVIEW-VERDICTS ", ")) 400)]
+      ;; 403, not 400: the request is well-formed and the caller holds the
+      ;; permission — they are simply the wrong person for this one item
+      [(eq? out 'needs-another-reviewer)
+       (err "this review needs a second pair of eyes: its author may not decide it" 403)]
+      [(eq? out 'needs-rationale) (err "a rationale is required to send work back or reject it" 400)]
+      [(string? out) (err out 400)]
+      [else (json-response out)]))))
 
 (define (ep-usage req)
   (with-auth req (lambda (p)
@@ -2500,6 +2618,9 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'member-role ep-member-role 'member-remove ep-member-remove
+   'admin-password-reset ep-admin-password-reset
+   'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide
    'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
    'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
@@ -2721,6 +2842,15 @@
   (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
   (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
+  ;; The executors table's PUSH rows belong in the same registry. They were only
+  ;; registered at create time, so a restart silently turned a working backend
+  ;; into a name that resolved nowhere. executors.json is loaded first and keeps
+  ;; its names; a clash is reported, never silently overridden.
+  (define-values (dbx dbx-skipped)
+    (load-push-executors! db-conn #:log (lambda (s) (printf "  executor: ~a\n" s))))
+  (when (pair? dbx) (printf "registered ~a push executor(s) from the database\n" (length dbx)))
+  (when (> dbx-skipped 0)
+    (printf "WARNING: ~a push executor(s) in the database were SKIPPED (see above)\n" dbx-skipped))
   ;; slice 66: the first REMOTE kind — the wire run-chat speaks, run by a pull
   ;; worker; a result must carry a reply and a numeric token count
   ;; A worker answers with `reply` (a string) or with `content` — the same parts
@@ -2771,13 +2901,16 @@
       (unless (agent-configured?) (error "agent requires a configured model"))
       (define prompt (format "~a" (hash-ref payload 'prompt "")))
       (define evs (box '()))
-      (run-agent-flow conn p prompt (lambda (ev) (set-box! evs (cons ev (unbox evs)))))
+      (define-values (_result tokens)
+        (run-agent-flow conn p prompt (lambda (ev) (set-box! evs (cons ev (unbox evs))))))
       (define events (reverse (unbox evs)))
       (define done (for/or ([e (in-list events)]) (and (equal? (hash-ref e 'type #f) "done") e)))
       (define tools (for/list ([e (in-list events)] #:when (equal? (hash-ref e 'type #f) "tool")) (hash-ref e 'name "")))
       (define reply (if done (hash-ref done 'reply "") ""))
       (hasheq 'reply reply 'rounds (if done (hash-ref done 'rounds 0) 0)
-              'tools tools 'tokens_used (estimate-tokens prompt reply))))
+              'tools tools
+              ;; real counts from the loop, with the old estimate as a floor
+              'tokens_used (if (> tokens 0) tokens (estimate-tokens prompt reply)))))
 ;; One scheduler job per BATCH of missing strings, so a five-thousand-string draft
 ;; is a queue of small jobs rather than one that runs for an hour and cannot be
 ;; cancelled. Inside a batch the calls are sequential; the governor's concurrency
@@ -2878,7 +3011,7 @@
   (define port (listen-port))
   (when tls? (ensure-cert!))
   (printf "telemachus server on ~a://~a:~a  (db: ~a · kdf: ~a · tls: ~a · secrets: ~a · max upload: ~a MiB)\n"
-          (if tls? "https" "http") ip port db-url (kdf-name) (if tls? "on" "off")
+          (if tls? "https" "http") ip port (redact-db-url db-url) (kdf-name) (if tls? "on" "off")
           ;; issue #19: say plainly whether a dump of this database is replayable
           (if (secrets-enabled?) (format "sealed (key ~a)" (secret-key-id)) "plaintext")
           (quotient (max-upload-bytes) (* 1024 1024)))

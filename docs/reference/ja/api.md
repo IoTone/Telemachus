@@ -12,13 +12,13 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/activate` | public | — | — | マジックリンク認証画面（ホストモード）のコンソール. |
 | GET | `/health` | public | — | — | 死活確認：{ok, multitenant} のみ — バージョン、KDF、TLS の状態は GET /api/admin/status にあります。 |
 | GET | `/beta-sdk.js` | public | — | — | Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。 |
-| GET | `/beta/bundle/:plugin/*path` | public | — | — | Tier-Bオンボーディングプラグインのバンドルディレクトリからのファイル |
-| POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path. |
-| GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache. |
+| GET | `/beta/bundle/:plugin/*path` | public | — | — | Tier-B オンボーディングプラグインの公開ランディングバンドル（plugins/<id>/landing/）内のファイル。見込み客がサインイン前に見るファネルです。 |
+| POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | このプラグインの認証付きバンドル用に、短命のチケットを発行します。ブラウザでページを開けるようにするためです（issue #43）。最初の応答で、そのバンドルのパスに限定したクッキーとして設定されます。 |
+| GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | 読み込まれたプラグインの認証付きバンドル（plugins/<id>/bundle/）内のファイル。ベアラートークン、または bundle-ticket が発行したチケット（?ticket= か、それが設定するクッキー）が必要で、応答が共有キャッシュに保存されることはありません。 |
 | GET | `/beta/template` | public | — | — | Tier-C のサンドボックス化 HTML テンプレート。体験オーバーレイでローカライズされます。 |
 | GET | `/api/config` | public | — | — | 公開インスタンス設定：ホームモード、マルチテナントフラグ、ローカライゼーションポリシー（既定ロケール、利用可能なロケール、切り替えの可否）。サインイン画面はトークンを持つ前に読み込みます。 |
-| GET | `/api/branding` | public | — | — | タイトル、タグライン、ロゴ。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。 |
-| PUT | `/api/branding` | bearer | `instance:manage` | — | インスタンスのタイトルとキャッチコピーを設定してください。 |
+| GET | `/api/branding` | public | — | — | タイトル、タグライン、ロゴ、テーマトークン。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。 |
+| PUT | `/api/branding` | bearer | `instance:manage` | — | インスタンスのタイトル、タグライン、テーマを設定します。不明な、不正な、または WCAG のコントラスト下限を下回るテーマトークンは、その名前を示す 400 になります。 |
 | GET | `/api/session-policy` | bearer | `instance:manage` | — | インスタンスのセッションタイムアウト（issue #38）：idle_seconds、absolute_seconds、warn_seconds と、出荷時の既定値および許容範囲。 |
 | PUT | `/api/session-policy` | bearer | `instance:manage` | — | インスタンスのセッションタイムアウトを設定する。フィールドに null を指定するとその軸に上限を設けない。会社はこれを厳しくできるが、緩めることはできない。 |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | — | インスタンスロゴをアップロード（マークとワードマークを置き換えます） |
@@ -54,17 +54,19 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/resume` | provision | — | — | ホストモード：一時停止したテナントを再開 |
 | POST | `/api/instance/quota` | provision | — | — | ホストモード：テナントチームのクォータ制限を設定します。 |
 | POST | `/api/login` | public | — | — | ユーザー名とパスワードでサインインする（2FA が有効なら TOTP コードも）。ベアラートークンを返します。 |
-| POST | `/api/2fa/enable` | bearer | — | — | 呼び出し元の TOTP 二要素認証を有効にする；シークレットを一度だけ返します。 |
-| POST | `/api/2fa/recovery-codes` | bearer | — | — | Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26). |
-| GET | `/api/2fa/recovery-codes` | bearer | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |
-| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again. |
-| DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
-| POST | `/api/password` | bearer | — | — | 呼び出し元のパスワードを変更します。 |
+| POST | `/api/2fa/enable` | bearer | — | — | 呼び出し元の TOTP 二要素認証を有効にします。シークレットと単回使用のリカバリコード一組を、一度だけ返します。 |
+| POST | `/api/2fa/recovery-codes` | bearer | — | — | 単回使用のリカバリコードを新しく一組発行し、未使用のものはすべて無効化します。一度だけ返されます（issue #26）。 |
+| GET | `/api/2fa/recovery-codes` | bearer | — | — | 呼び出し元のリカバリコードのうち、未使用のものが何件残っているか。コード自体は返しません。 |
+| DELETE | `/api/2fa` | bearer | — | — | 呼び出し元自身の TOTP を無効化します。古いシードとそのリカバリコードは使えなくなり、再登録が必要です。 |
+| DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。 |
+| POST | `/api/password` | bearer | — | — | 呼び出し元のパスワードを変更する。古いパスワードで発行され得たセッションは、この呼び出し自身のものも含めてすべて失効するため、再度サインインが必要です。マシン用トークン（api、worker）はそのまま残ります。 |
 | GET | `/api/whoami` | bearer | — | — | 呼び出し元：ユーザー、チーム、オペレーターフラグ、組織、組織ロール、ロケール、権限。 |
 | POST | `/api/profile` | bearer | — | — | 呼び出し元のプロフィール(表示名、ロケール)を更新します。 |
 | POST | `/api/members` | bearer | `members:manage` | — | 呼び出し元のチームに役割を付けてメンバーを追加；新しいメンバーの最初のトークンを返します。 |
 | GET | `/api/members` | bearer | — | — | チームのメンバーと役割 |
-| GET | `/api/admin/status` | bearer | `instance:manage` | — | インスタンスの状態：バージョン、KDF、TLS とマルチテナントのフラグ、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。 |
+| PATCH | `/api/members/:id` | bearer | `members:manage` | — | メンバーのチームロールを変更する：{role}。最後のオーナーは降格できません — オーナーのいないチームは、それを修正する権限を誰にも付与できないためです。 |
+| DELETE | `/api/members/:id` | bearer | `members:manage` | — | メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。 |
+| GET | `/api/admin/status` | bearer | `instance:manage` | — | インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。 |
 | POST | `/api/orgs` | superadmin | `instance:manage` | — | 会社を作成：org、最初のチーム、所有者。明示的なスラッグは自然キーです（再実行で409エラー） |
 | GET | `/api/orgs` | superadmin | `instance:manage` | — | インスタンス上のすべての組織をリスト表示します。 |
 | POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | — | 会社（id またはスラッグ）を停止する；その中のすべてのチームが読み取り専用になります。 |
@@ -72,6 +74,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | 組織レベルのクォータを設定；チームはその下に配置されます |
 | GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 1つの会社、そのチームとクォータ。 |
 | PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
+| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | — | サインインできなくなったユーザーのパスワードを設定する：{new_password}。そのユーザーのセッションは失効します。リセットリンクを送るメール送信手段がないため、サインインできない人にとって唯一の復帰手段です。 |
 | POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
 | GET | `/api/org` | org-admin | `org:read` | — | 呼び出し元の会社 |
 | GET | `/api/org/teams` | org-admin | `org:read` | — | 呼び出し元の会社のチーム。 |
@@ -83,7 +86,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PUT | `/api/org/session-policy` | org-admin | `org:manage` | — | 会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。 |
 | DELETE | `/api/org/session-policy` | org-admin | `org:manage` | — | 会社のセッションタイムアウトを取り下げる；そのユーザーはインスタンスのポリシーに戻ります。 |
 | GET | `/api/org/branding` | org-admin | `org:read` | — | 会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。 |
-| PUT | `/api/org/branding` | org-admin | `org:manage` | — | 会社のタイトル・タグライン・ロゴを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。 |
+| PUT | `/api/org/branding` | org-admin | `org:manage` | — | 会社のタイトル・タグライン・ロゴ・テーマを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。テーマトークンはインスタンスの場合とまったく同じように検証され、コントラストの下限で制限されます。 |
 | DELETE | `/api/org/branding` | org-admin | `org:manage` | — | 会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。 |
 | POST | `/api/org/branding/logo` | org-admin | `org:manage` | — | 会社のロゴをアップロードし（base64）、会社のマークにする。 |
 | POST | `/api/notes` | bearer | `notes:write` | — | 公開範囲を指定してノートを作成する。 |
@@ -98,8 +101,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PUT | `/api/notes/:id` | bearer | `notes:write` | — | ノートを更新します。 |
 | DELETE | `/api/notes/:id` | bearer | `notes:delete` | — | ノートを削除します。 |
 | POST | `/api/ai/echo` | bearer | `chat:use` | — | クォータの動作確認用の、モデルを使わない計量付きエコー。 |
-| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | モデルの1ターン。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。 |
-| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | 同じターンを Server-Sent Events で返し、終了時に計量します。 |
+| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text\|json_object\|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。 |
+| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | 同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。 |
 | POST | `/api/agent` | bearer | `chat:use` | `agent` | チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。 |
 | POST | `/api/translate/catalog` | bearer | `chat:use` | `translate` | ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。 |
 | POST | `/api/translate` | bearer | `chat:use` | `translate` | 目標言語にテキストを翻訳し、チーム用語集を使用します。 |
@@ -113,10 +116,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/executors` | bearer | `instance:manage` | — | エグゼキュータを作成する：{name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}。プル型エグゼキュータのワーカートークンはこのレスポンスに含まれ、二度と表示されません。 |
 | DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。 |
 | POST | `/api/org/executors` | org-admin | `org:manage` | — | 呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。 |
-| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | プル型ワーカーが実行可能な次のリモートジョブを取得する：{kinds, models, max_wait}；何もなければ 204。ジョブにはリースが付きます。 |
-| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | このワーカーが保持するジョブのリースを延長する。 |
-| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | 結果を送信する：{result}。現在のリース保持者からのみ受け付け、種別ごとに検証されます。 |
-| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | 失敗を報告する：{error}。現在のリース保持者からのみ受け付けます。 |
+| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | プル型ワーカーが実行可能な次のリモートジョブを取得する：{kinds, models, max_wait}；何もなければ 204。ジョブにはリースと claim_token が付き、以降そのジョブに対する書き込みはすべてこの claim_token を返送する必要があります。 |
+| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。 |
+| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | 結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。 |
+| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | 失敗を報告する：{error, claim_token}。現在のリース保持者、かつその試行からのみ受け付けます。 |
 | GET | `/api/usage` | bearer | — | — | チームのクォータ次元ごとの使用量、上限、残り。 |
 | POST | `/api/quota` | bearer | `instance:manage` | — | 呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。 |
 | GET | `/api/tools` | bearer | — | — | 登録済みのツールとその権限、ソースおよびチーム別に有効化された状態。 |
@@ -158,6 +161,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/runs` | bearer | `workflows:read` | `workflows` | チームの実行、新しい順。 |
 | POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | 実行を取消；既に実行中のステップが終了し、次のステップは開始しません。 |
 | GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | 1つの実行とそのステップ、インプット、アウトプット、およびエラー |
+| GET | `/api/reviews` | bearer | `reviews:read` | — | チームのレビューキュー、新しい順。?status=pending（既定）、decided、canceled、all。 |
+| GET | `/api/reviews/:id` | bearer | `reviews:read` | — | 1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。 |
+| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | レビューを判断する：{verdict: approve\|revise\|reject, rationale, answers}。差し戻しと却下には理由が必須です。ダブルチェック指定のレビューは作成者本人を拒否します。待機していた実行は、判定が示す分岐へ進んで再開します。 |
 | GET | `/api/kg/entities` | bearer | `files:read` | — | ?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。 |
 | GET | `/api/kg/entities/:id` | bearer | `files:read` | — | 1つのエンティティとその関係・言及。各言及は元文書の公開範囲でフィルタされます。 |
 | POST | `/api/kg/extract` | bearer | `workflows:run` | `workflows` | チームの未抽出文書をインデックス化するワークフローをキューに追加します。 |
@@ -178,6 +184,6 @@ Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every on
 |---|---|---|---|---|
 | GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | ?text= の単語数を数える。 |
 | POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | {text} の単語数を数える。 |
-| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for ?lane=. |
-| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for {lane}. |
+| GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | ?lane= で指定したレーンの推定日数。 |
+| POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | {lane} の推定日数。 |
 

@@ -1013,6 +1013,41 @@
        "ALTER TABLE audit_log ADD COLUMN at_us BIGINT"
        "CREATE INDEX idx_audit_team_us ON audit_log(team_id, at_us)"))))
 
+(define m-0034-reviews
+  (migration "0034-reviews"
+    (lambda (conn)
+      (exec* conn
+       (string-append
+        "CREATE TABLE reviews ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  run_id TEXT,"                           ; NULL = a review not produced by a run (LAY-1, not built yet)
+        "  step_row_id TEXT,"                      ; workflow_steps.id — the parked step
+        "  step_id TEXT,"                          ; the step's id in the spec
+        "  title TEXT NOT NULL,"
+        "  instructions TEXT,"
+        "  subject TEXT NOT NULL DEFAULT '{}',"    ; JSON — what is under review
+        "  checklist TEXT NOT NULL DEFAULT '[]',"  ; JSON — the evaluation axes to answer
+        "  four_eyes INTEGER NOT NULL DEFAULT 0,"
+        ;; whose work this is. NULL means nobody's — an AI-produced output has no
+        ;; human author, which is why anyone with the permission may decide it
+        ;; (the Localization Manager's rule for a machine draft, generalised).
+        "  author_user_id TEXT,"
+        "  status TEXT NOT NULL DEFAULT 'pending',"   ; pending | decided | canceled
+        "  verdict TEXT,"                             ; approve | revise | reject
+        "  rationale TEXT,"
+        "  answers TEXT NOT NULL DEFAULT '{}',"       ; JSON — the checklist's answers
+        "  requested_by TEXT,"
+        "  decided_by TEXT,"
+        ;; epoch MILLISECONDS, not CURRENT_TIMESTAMP: that is TEXT whose format
+        ;; differs by dialect, and a queue orders by time (the trap LastModified
+        ;; and the session clocks both set).
+        "  requested_ms BIGINT NOT NULL,"
+        "  decided_ms BIGINT,"
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
+       "CREATE INDEX idx_reviews_queue ON reviews(team_id, status, requested_ms)"
+       "CREATE INDEX idx_reviews_run ON reviews(run_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews))

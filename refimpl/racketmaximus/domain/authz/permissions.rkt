@@ -78,6 +78,7 @@
               "files:read" "files:write" "files:delete" "files:manage"
               "localization:read" "localization:translate" "localization:review"
               "localization:manage"
+              "reviews:read" "reviews:decide"
               "workflows:read" "workflows:write" "workflows:run")
    ;; use AI + own resources
    "member" '("chat:use" "tools:invoke" "research:use"
@@ -90,6 +91,10 @@
               ;; touching a colleague's private one.
               "files:read" "files:write" "files:delete"
               "localization:read" "localization:translate"
+              ;; Reviewing is the specialist's job, not a stewardship act — unlike
+              ;; localization:review, where approving a colleague's translation is
+              ;; an admin act. Integrity here comes from four_eyes, not the role.
+              "reviews:read" "reviews:decide"
               "workflows:read" "workflows:run")
    ;; read team-visible resources; no AI spend, no mutation
    "viewer" '("*:read")
@@ -133,6 +138,8 @@
    "tokens:manage"  "Issue and revoke API tokens for the team."
    "webhooks:manage" "Configure outbound webhooks."
    "settings:manage" "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail."
+   "reviews:read"   "See the team's review queue and the decisions already recorded."
+   "reviews:decide" "Approve, send back or reject an item waiting for review, with a rationale."
    "models:serve"   "Register a model executor for the team."
    "roles:read"     "See the team's roles and what they grant."
    "roles:manage"   "Create and edit team roles."

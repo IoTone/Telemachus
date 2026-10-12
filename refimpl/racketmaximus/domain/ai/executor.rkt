@@ -14,12 +14,13 @@
 ;; the per-team concurrency cap exactly like the simulated job did.
 
 (require racket/string
-         "../agent/llm.rkt"             ; http-post-json
+         "../agent/llm.rkt"             ; http-post-json, sanitize-wire-messages
          "content.rkt"                  ; content->text, response formats (issue #18)
          "../exec/federation.rkt")      ; executor-config — route to a named backend
 
 (provide model-configured? model-info run-chat run-chat-stream parse-chat-response estimate-tokens
-         model-url model-name model-key pull-router)
+         model-url model-name model-key pull-router
+         model-exchange response-tokens)
 
 ;; PULL-5: a named executor that is not a push backend may be a PULL executor. The
 ;; server installs a router (name messages temperature response-format) -> (cons
@@ -38,6 +39,13 @@
           'url (or (model-url) 'null)
           'model (model-name)))
 
+;; total_tokens as the provider reported it, or #f. The agent needs the count
+;; WITHOUT the text: a tool-call-only turn has no readable content, which is
+;; exactly the case parse-chat-response refuses.
+(define (response-tokens resp)
+  (define t (hash-ref (hash-ref resp 'usage (hasheq)) 'total_tokens #f))
+  (and (number? t) t))
+
 (define (estimate-tokens . strs)
   (max 1 (quotient (for/sum ([s (in-list strs)]) (string-length s)) 4)))
 
@@ -53,8 +61,7 @@
         (content->text (hash-ref (hash-ref (car choices) 'message (hasheq)) 'content ""))
         (values "" #f)))
   (when problem (error 'run-chat "the model's reply could not be read as text: ~a" problem))
-  (define t (hash-ref (hash-ref resp 'usage (hasheq)) 'total_tokens #f))
-  (values reply (and (number? t) t)))
+  (values reply (response-tokens resp)))
 
 (define (headers* key)
   (append (list "Content-Type: application/json")
@@ -67,6 +74,42 @@
     [(and name (executor-config name)) => (lambda (c) (values (car c) (cadr c) (caddr c) #t))]
     [else (values (model-url) (model-name) (model-key) (model-configured?))]))
 
+;; model-exchange : the ONE place a model request leaves this process.
+;;
+;; Routing (a named push backend, else the env-configured local node), the
+;; deadline, the bounded retry and the status check all live here, so a feature
+;; that adds one of them cannot reach some callers and miss others. That is not
+;; hypothetical: the agent built its own HTTP call, so slice 66's pull executors
+;; and slice 67's model roles never applied to it, and it metered an ESTIMATE
+;; because it threw the provider's `usage` away.
+;;
+;; Response PARSING is deliberately NOT here. The agent's tool-call parser takes
+;; any registered tool name; the chat parser goes through function-call->tool-block,
+;; which drops anything outside `tool-tags`. Folding them together would silently
+;; disable every plugin tool.
+;;
+;; A named executor that is not a push backend is REFUSED rather than quietly
+;; served by the local model: a misroute that reports the executor's name back to
+;; the caller is the worst shape this can take.
+;;
+;; -> (values jsexpr url model)
+(define (model-exchange messages #:extras [extras (hasheq)] #:temperature [temp 0.7]
+                        #:executor [executor #f] #:who [who 'model])
+  (when (and executor (not (executor-config executor)))
+    (error who "executor ~a is not a push backend, so this call cannot be routed to it" executor))
+  (define-values (url mdl key conf?) (backend executor))
+  (unless conf? (error who "no model configured (set TELEMACHUS_MODEL_URL)"))
+  (define body
+    (for/fold ([b (hasheq 'model mdl 'messages (sanitize-wire-messages messages)
+                          'temperature temp 'stream #f)])
+              ([(k v) (in-hash extras)])
+      (hash-set b k v)))
+  (define-values (code resp) (http-post-json url body (headers* key)))
+  (unless (= code 200)
+    (error who "model endpoint returned HTTP ~a: ~a" code
+           (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
+  (values resp url mdl))
+
 ;; run-chat : content -> (values reply-text tokens-used).  #:executor routes to a
 ;; named federated backend; #f uses the local node.
 ;;
@@ -76,7 +119,7 @@
 ;; ignores the field must not be able to answer a schema request with prose.
 (define (run-chat prompt #:system [system #f] #:temperature [temp 0.7] #:executor [executor #f]
                   #:response-format [rf #f])
-  (define-values (url mdl key conf?) (backend executor))
+  (define-values (_u _m _k conf?) (backend executor))
   (let ([bad (content-problem prompt)]) (when bad (error 'run-chat "~a" bad)))
   (when rf (let ([bad (response-format-problem rf)]) (when bad (error 'run-chat "~a" bad))))
   (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
@@ -90,17 +133,21 @@
       (when problem (error 'run-chat "the reply does not honour response_format: ~a" problem))))
   (cond
     [routed (verify! (car routed)) (values (car routed) (cdr routed))]   ; a pull executor answered
+    ;; A NAMED executor that neither a pull worker nor the push registry owns must
+    ;; not fall through: with a local model it would quietly run there while the
+    ;; response still reported the executor's name, and with no local model it
+    ;; would hand back the simulated upper-cased echo as if a model had answered.
+    [(and executor (not (executor-config executor)))
+     (error 'run-chat "executor ~a is not available: no pull worker answered and it is not a push backend" executor)]
     [(not conf?)
      ;; the simulated fallback cannot honour a schema, and pretending it did would
      ;; hand the caller an upper-cased echo as "conforming JSON"
      (when rf (error 'run-chat "no model configured: response_format cannot be honoured"))
      (values (string-upcase prompt-text) (estimate-tokens prompt-text))]
     [else
-     (define-values (code resp)
-       (http-post-json url (let ([b (hasheq 'model mdl 'messages msgs 'temperature temp 'stream #f)])
-                             (if rf (hash-set b 'response_format rf) b))
-                       (headers* key)))
-     (unless (= code 200) (error 'run-chat "model endpoint returned HTTP ~a" code))
+     (define-values (resp _url _mdl)
+       (model-exchange msgs #:temperature temp #:executor executor #:who 'run-chat
+                       #:extras (if rf (hasheq 'response_format rf) (hasheq))))
      (define-values (reply tokens) (parse-chat-response resp))
      (verify! reply)
      (values reply (or tokens (estimate-tokens prompt-text reply)))]))

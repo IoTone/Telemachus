@@ -1,9 +1,13 @@
 title: "Telemachus 開発者ガイド"
-subtitle: "Racket を軸にした、自分たちのインフラで動かすチーム向け AI プラットフォームの小さな本"
+subtitle: "Racket を軸にした、自分たちのインフラで動かすチーム向け AI プラットフォームの小さな本 — 本日本語版は機械生成の下訳です。ネイティブによる校閲は未了です (machine-drafted; pending native review)"
 author: "IoTone, Inc."
 date: "2026年9月 — バージョン 0.3.0"
 cover-caption: "テレマコス、コンセプトスケッチ：巻物を持つ若きイタケ人と、肩に乗るメントールのフクロウ。"
 lang: ja
+# The machine-drafted notice rides IN the subtitle on purpose: the HTML edition
+# is built with pandoc's default html5 template, which renders $subtitle$ but
+# would silently drop a custom variable, so a notice of its own would appear in
+# the PDF and vanish from the web edition.
 # xeCJK's default family is CHINESE (FandolSong): with it a Japanese build drops
 # glyphs and sets shared kanji in Chinese shapes. Name the font.
 cjkmainfont: "Noto Serif CJK JP"

@@ -120,10 +120,20 @@
                                "Accept: application/json, text/event-stream")
                          (if (unbox session) (list (string-append "Mcp-Session-Id: " (unbox session))) '())
                          extra))
-    (define-values (status rhdrs in)
-      (http-sendrecv host path #:ssl? ssl? #:port port #:method #"POST" #:headers hdrs #:data (jsexpr->bytes obj)))
-    (let ([sid (header-lookup rhdrs "mcp-session-id")]) (when sid (set-box! session sid)))
-    (port->string in))
+    ;; Open and close the connection here, as the LLM client helpers do. http-sendrecv abandons the
+    ;; socket underneath the port and collection does not reclaim it, so every MCP call would leak a
+    ;; descriptor for the life of the process.
+    (define hc (http-conn-open host #:ssl? ssl? #:port port))
+    (dynamic-wind
+      void
+      (lambda ()
+        (define-values (_status rhdrs in)
+          (http-conn-sendrecv! hc path #:method #"POST" #:headers hdrs #:data (jsexpr->bytes obj)))
+        (let ([sid (header-lookup rhdrs "mcp-session-id")]) (when sid (set-box! session sid)))
+        (define body (port->string in))
+        (close-input-port in)
+        body)
+      (lambda () (http-conn-close! hc))))
   (define c (mcp-conn (lambda (obj id secs) (parse-http-body (post obj) id))
                       (lambda (obj) (post obj) (void))
                       void (make-semaphore 1) (box 0)))

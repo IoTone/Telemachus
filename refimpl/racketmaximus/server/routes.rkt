@@ -108,11 +108,13 @@
    (R "GET" "/api/2fa/recovery-codes" '2fa-codes-get #:doc "How many of the caller's recovery codes are still unspent. Never the codes themselves.")
    (R "DELETE" "/api/2fa" '2fa-reset #:doc "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.")
    (R "DELETE" "/api/admin/users/:id/2fa" 'admin-2fa-reset #:perm "instance:manage" #:doc "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.")
-   (R "POST" "/api/password" 'password #:doc "Change the caller's password.")
+   (R "POST" "/api/password" 'password #:doc "Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone.")
    (R "GET" "/api/whoami" 'whoami #:doc "The caller: user, team, operator flag, org, org role, locale, permissions.")
    (R "POST" "/api/profile" 'profile #:doc "Update the caller's profile (display name, locale).")
    (R "POST" "/api/members" 'add-member #:perm "members:manage" #:doc "Add a member to the caller's team with a role; returns the new member's first token.")
    (R "GET" "/api/members" 'members-list #:doc "The team's members and roles.")
+   (R "PATCH" "/api/members/:id" 'member-role #:perm "members:manage" #:doc "Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it.")
+   (R "DELETE" "/api/members/:id" 'member-remove #:perm "members:manage" #:doc "Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed.")
    (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
 
    ;; ---- multi-tenancy: superadmin plane, then org-admin plane ----------------------
@@ -123,6 +125,7 @@
    (R "POST" "/api/orgs/:ref/quota" 'org-quota #:auth 'superadmin #:perm "instance:manage" #:doc "Set an org-level quota; teams nest beneath it.")
    (R "GET" "/api/orgs/:ref" 'org-get #:auth 'superadmin #:perm "instance:manage" #:doc "One company, its teams and quotas.")
    (R "PATCH" "/api/orgs/:ref" 'org-update #:auth 'superadmin #:perm "instance:manage" #:doc "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).")
+   (R "POST" "/api/admin/users/:id/password" 'admin-password-reset #:perm "instance:manage" #:doc "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link.")
    (R "POST" "/api/admin/seed-tenants" 'seed-tenants #:auth 'superadmin #:perm "instance:manage" #:doc "Seed Acme and Globex with known dev passwords — demo fixture only.")
    (R "GET" "/api/org" 'my-org #:auth 'org-admin #:perm "org:read" #:doc "The caller's own company.")
    (R "GET" "/api/org/teams" 'my-org-teams #:auth 'org-admin #:perm "org:read" #:doc "The teams in the caller's company.")
@@ -219,6 +222,9 @@
    (R "GET" "/api/runs" 'runs-list #:perm "workflows:read" #:feature "workflows" #:doc "The team's runs, newest first.")
    (R "POST" "/api/runs/:id/cancel" 'run-cancel #:perm "workflows:run" #:feature "workflows" #:doc "Cancel a run; a step already executing finishes, the next never starts.")
    (R "GET" "/api/runs/:id" 'run-get #:perm "workflows:read" #:feature "workflows" #:doc "One run with its steps, inputs, outputs and errors.")
+   (R "GET" "/api/reviews" 'reviews-list #:perm "reviews:read" #:doc "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.")
+   (R "GET" "/api/reviews/:id" 'review-get #:perm "reviews:read" #:doc "One review: what is under review, the checklist to answer, and the decision if it has been made.")
+   (R "POST" "/api/reviews/:id/decide" 'review-decide #:perm "reviews:decide" #:doc "Decide a review: {verdict: approve|revise|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names.")
 
    ;; ---- knowledge graph ---------------------------------------------------------------
    (R "GET" "/api/kg/entities" 'kg-entities #:perm "files:read" #:doc "Find entities by ?q= and ?type=; only those with a mention the caller can read.")

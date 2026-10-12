@@ -6,7 +6,7 @@
 ;; the full suite, which stays green after the portability sweep.)
 ;; raco test test/dbkit-tests.rkt
 
-(require rackunit db-kit            ; postgres-params
+(require rackunit db-kit            ; postgres-params, redact-db-url
          db-kit/portable)  ; pg-rewrite
 
 (test-case "pg-rewrite: ? -> $n, skipping quoted string literals"
@@ -33,3 +33,17 @@
   (check-equal? (hash-ref q 'server) "localhost")
   (check-equal? (hash-ref q 'port) 5432)
   (check-equal? (hash-ref q 'database) "mydb"))
+
+(test-case "redact-db-url: the password never survives, everything else does"
+  (check-equal? (redact-db-url "postgres://alice:secret@db.example.com:6543/telemachus")
+                "postgres://alice:***@db.example.com:6543/telemachus")
+  (check-equal? (redact-db-url "postgresql://u:p$s#99@host/db")       ; password with odd-but-legal chars
+                "postgresql://u:***@host/db")
+  (check-equal? (redact-db-url "postgres://localhost/mydb")           ; no credentials: unchanged
+                "postgres://localhost/mydb")
+  (check-equal? (redact-db-url "postgres://alice@host/db")            ; user, no password: unchanged
+                "postgres://alice@host/db")
+  (check-equal? (redact-db-url "sqlite:///./data/app.db")             ; not even a network URL
+                "sqlite:///./data/app.db")
+  (check-equal? (redact-db-url "not a url at all, just : and @ chars")  ; malformed input: no crash, no match
+                "not a url at all, just : and @ chars"))

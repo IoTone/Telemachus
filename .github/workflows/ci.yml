@@ -79,7 +79,7 @@ jobs:
       - name: Localization gate
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
-          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json ../../docs/reference/strings.json --required en
+          racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json ../../docs/reference/strings.json --required en,ja
 
   e2e:
     name: E2E feature tour + catalog

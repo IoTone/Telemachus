@@ -29,7 +29,8 @@
          validate-spec spec-schema
          (struct-out exn:fail:spec)
          spec-slug spec-version spec-max-steps spec-steps spec-start
-         step-ref step-kind step-tool-name step-next map-template)
+         step-ref step-kind step-tool-name step-next map-template
+         REVIEW-VERDICTS checklist-problem)
 
 (define SPEC-FORMAT-VERSION 1)
 (define MAX-STEPS-CEILING 1000)
@@ -95,6 +96,7 @@
 (define TOOL-KEYS   '(id uses with next end retry))
 (define CHOICE-KEYS '(id uses when then else))
 (define MAP-KEYS    '(id uses over step next end))
+(define REVIEW-KEYS '(id uses title of instructions checklist four_eyes on))
 (define MAP-STEP-KEYS '(uses with retry))            ; the per-item template: no id, no control
 
 (define (step-kind s)
@@ -102,10 +104,37 @@
   (cond [(and (string? u) (string-prefix? u "tool:")) 'tool]
         [(equal? u "choice") 'choice]
         [(equal? u "map") 'map]
+        [(equal? u "review") 'review]
         [else #f]))
 
 ;; the tool template a `map` applies to each item
 (define (map-template s) (hash-ref s 'step (hasheq)))
+
+;; The verdicts a review may end in. Frozen on purpose, for the same reason the
+;; binding sublanguage is: the console renders each one and a workflow that
+;; invented "escalate" would be a verdict nothing knows how to show.
+(define REVIEW-VERDICTS '("approve" "revise" "reject"))
+
+;; The RFE's "evaluation axes": a short list a reviewer must answer. Deliberately
+;; not a rule engine — the point is to make tacit judgement visible, not automate
+;; it. The spec validates the SHAPE; the answers are checked at decision time.
+(define (checklist-problem cl)
+  (cond
+    [(not (list? cl)) "checklist must be an array"]
+    [(> (length cl) 20) "a checklist may have at most 20 items"]
+    [else
+     (for/or ([item (in-list cl)] [i (in-naturals)])
+       (define (at m) (format "checklist[~a]: ~a" i m))
+       (cond
+         [(not (hash? item)) (at "must be an object")]
+         [(not (and (string? (hash-ref item 'key #f))
+                    (regexp-match? #px"^[a-z0-9_]{1,40}$" (hash-ref item 'key ""))))
+          (at "needs a 'key' of lower-case letters, digits or underscores")]
+         [(not (and (string? (hash-ref item 'label #f))
+                    (not (string=? (hash-ref item 'label "") ""))))
+          (at "needs a non-empty 'label'")]
+         [(not (boolean? (hash-ref item 'required #t))) (at "'required' must be a boolean")]
+         [else #f]))]))
 
 (define (step-tool-name s) (substring (hash-ref s 'uses "") 5))
 
@@ -117,7 +146,7 @@
   (want s 'uses nonempty-string? "a non-empty string" where)
   (define kind (step-kind s))
   (unless kind
-    (bad "~a: unsupported step kind '~a' (this version supports tool:<name> and choice)" where (hash-ref s 'uses)))
+    (bad "~a: unsupported step kind '~a' (this version supports tool:<name>, choice, map and review)" where (hash-ref s 'uses)))
   (case kind
     [(tool)
      (allow! where s TOOL-KEYS)
@@ -163,6 +192,30 @@
      (define end (opt s 'end boolean? "a boolean" where #f))
      (when (and nxt end) (bad "~a: 'next' and 'end' are mutually exclusive" where))
      (when (and nxt (not (member nxt ids))) (bad "~a: 'next' names unknown step '~a'" where nxt))]
+    [(review)
+     ;; A step that parks the run until a person decides (LAY-1). It has no
+     ;; `next`: where it goes depends on the verdict, so `on` carries the branches
+     ;; the way `choice` carries then/else.
+     (allow! where s REVIEW-KEYS)
+     (want s 'title nonempty-string? "a non-empty string" where)
+     (define of (hash-ref s 'of 'missing))
+     (when (eq? of 'missing) (bad "~a: 'of' is required — a review needs something to review" where))
+     (check-bindings! of ids (format "~a.of" where))
+     (opt s 'instructions string? "a string" where "")
+     (opt s 'four_eyes boolean? "a boolean" where #f)
+     (let ([cl (opt s 'checklist list? "an array" where '())])
+       (let ([bad-cl (checklist-problem cl)]) (when bad-cl (bad "~a: ~a" where bad-cl))))
+     (define on (hash-ref s 'on 'missing))
+     (when (eq? on 'missing) (bad "~a: 'on' is required — name a step per verdict" where))
+     (unless (hash? on) (bad "~a: 'on' must be an object" where))
+     (for ([(k v) (in-hash on)])
+       (define verdict (symbol->string k))
+       (unless (member verdict REVIEW-VERDICTS)
+         (bad "~a.on: '~a' is not a verdict (~a)" where verdict (string-join REVIEW-VERDICTS ", ")))
+       (unless (or (eq? v 'null) (and (string? v) (member v ids)))
+         (bad "~a.on.~a: must be a step id in this workflow, or null to end the run" where verdict)))
+     (unless (hash-has-key? on 'approve)
+       (bad "~a.on: 'approve' is required — a review must say where an approval goes" where))]
     [(choice)
      (allow! where s CHOICE-KEYS)
      (define p (hash-ref s 'when 'missing))
@@ -251,7 +304,8 @@
 ;; second implementation (WF-9). Deliberately describes what this build accepts.
 (define (spec-schema)
   (hasheq 'spec SPEC-FORMAT-VERSION
-          'step_kinds '("tool:<name>" "choice" "map")
+          'step_kinds '("tool:<name>" "choice" "map" "review")
+          'review_verdicts REVIEW-VERDICTS
           'planned_step_kinds '("agent" "job:<kind>" "flow:<slug>")
           'unknown_fields "rejected"
           'top_level (for/list ([k (in-list TOP-KEYS)]) (symbol->string k))

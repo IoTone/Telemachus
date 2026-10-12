@@ -291,6 +291,35 @@ approved strings back. Neither is on the request path.
   key that is in no review group.
 - **`localizer-for` goes through `locales-dir`** too, so the runtime and the Manager
   see the same catalogs during a test run.
+- **The CI gate now covers `en.json`'s FRESHNESS and `ja`'s staleness** (Oct 2026).
+  `target-files` deliberately excludes `en.json`, so `locale-report` never had a
+  row for "en" and **`--required en` could never fail** — a forgotten
+  `telemachus-localize extract` was invisible. That is how issue #43's
+  `bundle-ticket` doc string reached `docs/reference/strings.json` and never
+  reached `en.json`: the Manager then imported a base ONE STRING SHORT and
+  reported Japanese as 100% translated while an English-only string shipped.
+  `--required en` now means **the source catalog is current** (`en-report` diffs
+  `en.json` against the catalog the surfaces define); `--required en,ja` is what
+  CI runs, so an edited English string whose Japanese was not updated fails and
+  is named. **An ORPHAN is reported but never blocking**: an orphan only means
+  something when the surface list is COMPLETE, and `nix/telemachus.nix`
+  legitimately gates two surfaces — treating orphans as fatal there reported 528
+  of them and broke `nix build`. `missing` and `changed` are sound under any
+  surface list; those two block.
+- **The export writes keys in `en.json`'s order, not sorted.** It is byte-stable
+  run to run, so a translation diff is minimal — but the committed `ja.json` had
+  once been sorted, so bringing it back under the tool renumbered every line
+  (1,646 insertions for 36 real changes, one time). `ja.json` and `en.json` are
+  key-for-key aligned now, which is what side-by-side review wants. Do not
+  "tidy" a catalog by sorting it.
+- **A human submission is NOT placeholder-checked.** `draft-acceptable?` guards
+  machine drafts only; `l10n-submit!` takes what it is given, so the model is
+  held to a standard the human is not. Check placeholder names AND brace counts
+  by hand when submitting a batch over HTTP.
+- **`POST /api/l10n/review/:id` takes the TRANSLATION id** (not the message id)
+  and the body field is **`decision`**, not `action`. `GET /api/l10n/messages`
+  caps `limit` at 200 — page with `offset` or an id map comes back short and the
+  writes land on the wrong rows.
 - **The server honours `TELEMACHUS_LOCALES`** (as the CLI does) because export
   WRITES into that directory. The smoke and e2e suites point it at a temp copy
   and use the pseudo-locale `qps` for "a locale with no catalog" — a real locale
@@ -893,10 +922,17 @@ other with a switcher line under the badges.
   **both** `readme.html` (what the landing page links) and `README.html` (what the
   link rewriter produces from a `../README.md` link, which four docs use). The
   Pages link check is what proves both resolve.
+- **The `ja` catalog is COMPLETE and gated** (Oct 2026): 548/548, zero stale,
+  reviewed string by string. The 36 that were outstanding were drafted with the
+  Manager and hand-corrected — 15 of 23 machine drafts needed it, including
+  `nunca` (Spanish) in two strings and `上的文本` / `可能是的` (Chinese) in two
+  more. Twelve were STALE rather than missing, and three of those documented the
+  **pre-#24 worker protocol**: `docs/reference/ja/api.md` told a Japanese reader
+  to post `{result}` with no `claim_token`, which 409s on every write. CI now
+  fails on that class (see the Localization Manager section).
 - Still open on #50: the e-book's 18 untranslated chapters — the PIPELINE is built (see
   the e-book section and `docs/book/TRANSLATING.md`; `ja/00-read.md` is the one sample
-  chapter) — and a review pass over the `ja` catalog, which sits at 93% with 24 strings
-  missing from other slices.
+  chapter).
 
 ## The published site (GitHub Pages)
 
@@ -953,6 +989,104 @@ bash test/server-smoke.sh          # includes publish → run → assert over HT
 # needs a live model; refuses to start without one, on purpose:
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
+
+## Offboarding and password hygiene (issue #54, built 5 Oct 2026)
+
+Before this, `/api/members` had only `POST` and `GET`: a team could be joined and
+never left, no role could be changed, and a password change revoked nothing. You
+could not offboard somebody — and the one thing a person does when they think
+their password is known did not help.
+
+- **A password change revokes every SESSION, including the one making the call**,
+  so the caller signs in again. **This is a behaviour change**: `server-smoke.sh`
+  changed alice's password and kept using the same token, and had to re-login —
+  the same shape as enforcing `required` on the funnel's fields.
+  Machine credentials (`api`, `worker`) are deliberately spared: they are not
+  reachable with the password, they are listed and revocable on their own, and
+  killing a customer's worker because somebody rotated a password is the worse
+  failure. A fresh token is NOT issued in exchange — that would let a narrowly
+  scoped API token trade itself for a full `*:*` session.
+- **`DELETE /api/members/:id` deactivates and revokes.** The membership row stays
+  (an audit needs to know the person was there, and what they own still points at
+  the user); `status = 'inactive'` yields no role, and `user-permissions` already
+  returned `'()` without one, so the deny is the path that existed rather than a
+  new one. Their tokens **for that team** are revoked in the same call: removing
+  somebody whose credentials go on working is not removing them.
+- **The last owner can be neither demoted nor removed** (409). A team with no
+  owner cannot grant anybody the permission to fix it.
+- **`POST /api/admin/users/:id/password`** (`instance:manage`) is the way back in
+  for someone locked out — there is no mail transport, so an operator-assisted
+  reset is the honest answer rather than a reset-link flow that cannot be sent.
+- **Every one of these audits**, and the admin reset is attributed to the ACTING
+  operator's team: `audit-list` filters `WHERE team_id = ?`, so an entry with no
+  team is invisible. (`user.2fa.reset` has the same gap and was left alone —
+  noted, not fixed, in this slice.)
+- `GET /api/members` lists only ACTIVE memberships now.
+
+```sh
+raco test test/membership-tests.rkt   # 5 cases: roles, the last owner, revocation
+bash test/server-smoke.sh             # the "== members and passwords ==" block, 21 assertions
+```
+
+## Human review in a workflow (LAY‑1…3, built 4 Oct 2026)
+
+A workflow can park on a person. `domain/review/review.rkt` owns the decision
+record; `docs/design/layered-operations.md` has the reasoning.
+
+- **A `review` step never becomes a job.** `start-review!` writes the step row
+  `waiting`, opens the review and sets the run `waiting`; nothing is queued, so a
+  parked run holds **no concurrency slot** however long the specialist takes (the
+  smoke asserts the queue is empty while it waits). `flow-advance!` only acts on a
+  `running` run, so "parked" needs no timer and no in-memory queue — the rows are
+  the state, as they already were.
+- **`resume-from-review!` is installed as review.rkt's resume hook**, the same
+  seam shape `repo-put!` uses for triggers, so the review module never learns what
+  a workflow is. The dependency runs one way: run.rkt → review.rkt.
+- **The verdicts are FROZEN** (`REVIEW-VERDICTS` in `spec.rkt`): approve / revise /
+  reject. Same call as the binding sublanguage — the console renders each one, and
+  a spec that invented `escalate` would be a verdict nothing can show. `on` names
+  a step per verdict and `approve` is required; a null branch ends the run.
+- **Four eyes (LAY‑3) generalises `l10n-review!`'s rule.** `author_user_id` NULL
+  means the subject was model-produced — nobody's work — so anyone with
+  `reviews:decide` may decide it, which is the machine-draft case and what lets a
+  one-person team run a pipeline. With `four_eyes: true` the author is the run's
+  initiator, who is then refused (403, not 400: the request is fine, the person is
+  wrong for this item).
+- **A rationale is required for `revise` and `reject`, not for `approve`.**
+  Demanding one for a plain approval buys a field full of "ok"; sending work back
+  is the case Layer 3 has to explain later.
+- **A decided review is terminal.** Deciding again is a 409. A wrong decision
+  wants a superseding record, not a rewrite — the grants table's rule.
+- **`reviews:read` + `reviews:decide` go to MEMBER**, unlike `localization:review`
+  which is an admin act. Reviewing is the specialist's job here; integrity comes
+  from four_eyes, not from the role.
+- Checklist **shape** is validated by `spec.rkt` (it is part of the spec);
+  **answers** are validated at decision time by `review.rkt`. Unknown answer keys
+  are refused rather than dropped.
+- Cancelling a parked run cancels its pending review — no question left hanging.
+- `reviews.run_id` is nullable so a standalone review needs no migration later,
+  but only a run opens one today.
+
+```sh
+raco test test/review-tests.rkt   # 9 cases: parking, all three verdicts, four eyes, cancel
+bash test/server-smoke.sh         # the "== reviews ==" block, 16 assertions
+```
+
+## Layered operations (proposed, LAY‑4…12)
+
+`docs/design/layered-operations.md` — a gap analysis from a civil-engineering RFE.
+**Nothing is built.** Its value is the boundary it draws: the platform grows
+SEAMS, a domain supplies CONTENT through them, and the test of the design is that
+no civil-engineering requirement needs a core change. LAY‑1/‑2/‑3 are built (above); the remaining nine, shortest
+form: `repo_objects`
+carries no team-defined metadata; **extraction provenance is lost at ingest and
+cannot be retrofitted without re-processing everything** (the one decision with a
+deadline); an out-of-process plugin can reach only `notes.create` and
+`notes.list`, so a Python OCR or CV pipeline can read and write nothing;
+`extract.rkt`'s `kind-of` is a fixed dispatch, not a registry; **a PDF with no
+text layer is recorded as a successful empty extraction**, indistinguishable from
+a blank page; no executor records whether it can tool-call; and the review queue
+belongs in core while a domain canvas belongs in a plugin bundle.
 
 ## The integrator's guide (`docs/integrators-guide.md`)
 
@@ -1121,6 +1255,94 @@ model. With a role set and no local model, the seam no longer refuses.
 ```sh
 raco test test/roles-tests.rkt
 ```
+
+## AI model access: one path, one registry (Oct 2026)
+
+Three code paths used to build a model request. The agent built its own, so slice
+66's pull executors and slice 67's model roles never reached it, and it metered an
+ESTIMATE because it discarded the provider's `usage`. **`model-exchange` in
+`domain/ai/executor.rkt` is now the only place a model request leaves the
+process** — routing, the deadline, the bounded retry and the status check all live
+there, so a feature that adds one of them cannot reach some callers and miss
+others.
+
+- **Response PARSING is deliberately not shared.** The agent's parser
+  (`parse-agent-response`) takes any registered tool name; `chat-response->assistant-msg`
+  goes through `function-call->tool-block`, which drops anything outside
+  `tool-tags`. Folding them together would silently disable every plugin tool.
+  `openai-llm` is GONE — it had no production caller, and `agent/run.rkt`
+  duplicated it.
+- **The agent is routable and meters real tokens.** `run-agent-flow` takes
+  `#:executor` and returns `(values result tokens)`; `/api/agent` accepts
+  `{"executor": …}` (operator-only, as `/api/ai/chat` already was). A live
+  tool-using run measured **3,810 tokens where the old code billed 50** — so
+  `/api/agent` now also admits on `ai.tokens.total`, which it never did: the
+  under-count meant the budget was never reached and the missing check never
+  showed. **Operator-visible change**: agent runs now exhaust a team's AI budget
+  realistically, and the default is 2,000/day.
+- **A pull executor cannot run the agent** — `infer.chat` carries a reply and a
+  token count, not tool calls — so it is refused BY NAME rather than silently
+  dropping every tool.
+- **A named executor that is not a push backend is REFUSED.** It used to fall
+  through to the local model while the response still reported the executor's
+  name, and with no local model it fell through to the *simulated* upper-cased
+  echo. A misroute that lies about where it ran is the worst shape this can take.
+
+### Timeouts and retries
+
+`http-sendrecv` takes no timeout and nothing wrapped these calls, so an endpoint
+that accepted the connection and never answered hung the calling thread for
+ever. In a scheduler job the lease reaper requeued the WORK after 120s, but the
+thread kept its team's `ai.concurrency` slot — a flapping endpoint drained the
+pool while `/health` still said ok.
+
+- `TELEMACHUS_MODEL_TIMEOUT` (120s) bounds a non-streaming request end to end.
+  `TELEMACHUS_MODEL_IDLE_TIMEOUT` (60s) bounds the **gap between SSE events**, not
+  the stream: a model still emitting may legitimately take minutes.
+  `TELEMACHUS_MODEL_RETRIES` (1) — a retry costs tokens, so the default is one.
+  An unparseable or zero value falls back to the default, never to 0.
+- **The request runs under its own custodian**, and a timeout shuts that custodian
+  down: killing the thread alone would leave the socket open.
+- **Retry on a timeout, an unreachable endpoint, a 429 or a 5xx — never on a 4xx**,
+  which is our own malformed request and would only spend the budget again.
+  **A streaming call is never retried**: the caller has already been handed tokens
+  and replaying would duplicate them in front of the reader.
+- A **200 whose body is not JSON** (a proxy answering for the model) is a named,
+  retryable error instead of an opaque read failure deep in the parser.
+
+### One registry of named backends
+
+The in-memory registry in `domain/exec/federation.rkt` is the single lookup a push
+call resolves through, and it is filled from two places: `executors.json` at boot
+(`source` `'config`) and the `executors` table's push rows (`source` `'db`).
+
+- **DB push rows are loaded at boot** (`load-push-executors!`). They used to be
+  registered only at CREATE time, so a restart silently turned a working backend
+  into a name that resolved nowhere while `executor-known?` still said it existed.
+- **`executors.json` owns its names**: a create that would shadow one is refused,
+  and a clash found at boot is SKIPPED, counted and logged. Overriding the file
+  from the database was the old behaviour and made a name resolve differently
+  before and after a restart.
+- **Retiring a push executor unregisters it immediately.** The row alone left it
+  taking traffic until the next restart.
+- A row whose sealed key will not open is skipped with a named warning rather than
+  raising — one unopenable executor must not stop the instance booting, and the
+  operator who rotated `TELEMACHUS_SECRET_KEY` needs to be told which.
+- `GET /api/executors` lists each executor **once** (the DB row is the richer
+  answer; the registry only contributes what `executors.json` owns) and every row
+  carries `source`.
+
+```sh
+raco test test/model-transport-tests.rkt   # real sockets: a stall, a 503, a 4xx, a stalled stream
+raco test test/model-routing-tests.rkt     # the refusals, the agent's real token counts, restart survival
+```
+
+Still deferred, deliberately: a second wire protocol (OpenAI chat completions is
+what llama.cpp, ollama, vLLM and most gateways speak), per-backend capability
+records, per-org provider credentials, and embeddings. **A team admin can point a
+model role at any executor name**, including another org's, because
+`executor-known?` does not filter by org — routing on `/api/ai/chat` and
+`/api/agent` is operator-only, so this is the one gap left in that area.
 
 ## Tokens, `/health`, security headers, meta tags (issues #11–#13)
 

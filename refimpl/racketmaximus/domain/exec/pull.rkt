@@ -29,6 +29,7 @@
          "federation.rkt")
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
+         load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
          executor-secret executor-context
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER
@@ -54,7 +55,10 @@
 
 (define (row->executor r)
   (define seen (let ([v (vector-ref r 9)]) (and (not (sql-null? v)) v)))
-  (hasheq 'id (vector-ref r 0) 'org_id (nz (vector-ref r 1)) 'name (vector-ref r 2) 'mode (vector-ref r 3)
+  ;; `source` is "db" on every row here, so a client reading GET /api/executors
+  ;; sees the same field on every entry — the config-file entries say "config".
+  (hasheq 'source "db"
+          'id (vector-ref r 0) 'org_id (nz (vector-ref r 1)) 'name (vector-ref r 2) 'mode (vector-ref r 3)
           'url (nz (vector-ref r 4)) 'model (nz (vector-ref r 5))
           'capabilities (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                           (let ([j (string->jsexpr (vector-ref r 6))]) (if (hash? j) j (hasheq))))
@@ -80,6 +84,12 @@
   (when (and (equal? mode "push") (not (string? url))) (raise-user-error 'executors "a push executor needs a url"))
   (when (query-maybe-value conn "SELECT id FROM executors WHERE name = ? AND status <> 'retired'" name)
     (raise-user-error 'executors "an executor named ~a already exists" name))
+  ;; executors.json owns its names. Registering over one would resolve differently
+  ;; before and after a restart, since the file is re-read at boot and this is not.
+  (when (eq? (executor-source name) 'config)
+    (raise-user-error 'executors
+                      "executors.json already defines an executor named ~a; pick another name or remove it from the file"
+                      name))
   (define id (new-id))
   (define-values (raw tid)
     (if (equal? mode "pull")
@@ -93,11 +103,48 @@
     (if key (secret-wrap (executor-context id) key) sql-null)
     (jsexpr->string caps) (or tid sql-null) (principal-user-id p))
   (when (equal? mode "push")
-    (register-executor! name #:url url #:model (or model "local") #:key key))
+    (register-executor! name #:url url #:model (or model "local") #:key key #:source 'db))
   (audit! conn #:action "executor.create" #:actor-type "user" #:actor-id (principal-user-id p)
           #:resource-type "executor" #:resource-id id
           #:meta (jsexpr->string (hasheq 'name name 'mode mode 'org_id (or org-id 'null))))
   (values (row->executor (query-row conn (string-append ESELECT " WHERE id = ?") id)) raw))
+
+;; Put every live PUSH row back into the in-memory registry. Without this a push
+;; executor created through the API worked until the process restarted and then
+;; silently stopped being a backend — `executor-known?` still said it existed and
+;; the chat response still reported its name. Called once at boot, after
+;; connect-executors!, so executors.json keeps its names.
+;;
+;; A row whose sealed key will not open is SKIPPED and reported rather than
+;; raised: one unopenable executor must not stop the instance from starting, and
+;; an operator who rotated TELEMACHUS_SECRET_KEY needs to be told which.
+;; -> (values loaded-names skipped-count)
+(define (load-push-executors! conn #:log [log void])
+  (define rows (query-rows conn (string-append ESELECT " WHERE mode = 'push' AND status <> 'retired' ORDER BY name")))
+  (for/fold ([loaded '()] [skipped 0]) ([r (in-list rows)])
+    (define e (row->executor r))
+    (define name (hash-ref e 'name))
+    (define url (hash-ref e 'url))
+    (cond
+      [(eq? (executor-source name) 'config)
+       (log (format "~a — SKIPPED: executors.json already defines this name" name))
+       (values loaded (add1 skipped))]
+      [(not (string? url))
+       (log (format "~a — SKIPPED: a push executor needs a url" name))
+       (values loaded (add1 skipped))]
+      [else
+       (define key
+         (with-handlers ([exn:fail? (lambda (_) 'unopenable)])
+           (executor-secret conn (hash-ref e 'id))))
+       (cond
+         [(eq? key 'unopenable)
+          (log (format "~a — SKIPPED: its stored key could not be unsealed (did TELEMACHUS_SECRET_KEY change?)" name))
+          (values loaded (add1 skipped))]
+         [else
+          (register-executor! name #:url url
+                              #:model (let ([m (hash-ref e 'model)]) (if (string? m) m "local"))
+                              #:key key #:source 'db)
+          (values (cons name loaded) skipped)])])))
 
 ;; every executor the caller may see: the operator sees all; an org principal
 ;; its own org's and the instance-wide ones
@@ -117,6 +164,9 @@
          (unless (or (principal-is-operator p) (equal? (hash-ref e 'org_id) (principal-org-id p)))
            (raise (exn:fail:forbidden "forbidden: instance:manage" (current-continuation-marks) "instance:manage")))
          (query-exec conn "UPDATE executors SET status = 'retired' WHERE id = ?" id)
+         ;; a push executor serves out of the in-memory registry, so the row alone
+         ;; would leave it taking traffic until the next restart
+         (when (equal? (hash-ref e 'mode) "push") (unregister-executor! (hash-ref e 'name)))
          (when (string? (hash-ref e 'token_id))
            (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" (hash-ref e 'token_id)))
          ;; a job this host holds goes back to the queue right away

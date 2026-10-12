@@ -15,7 +15,7 @@
 
 (provide sqlite-path open-sqlite call-with-sqlite
          sql-or-empty sql-or-null sql->str sql->bool sql->int sqlite-datetime->iso
-         db-connector postgres-params)
+         db-connector postgres-params redact-db-url)
 
 ;; ---- SQL value coercion helpers (shared by DB-backed CLIs) -----------------
 (define (sql-or-empty v) (if (sql-null? v) "" v))         ; NULL -> ""
@@ -66,11 +66,19 @@
                 (lambda () (proc conn))
                 (lambda () (disconnect conn))))
 
+;; A DATABASE_URL carries its password in the clear (scheme://user:PASS@host/db).
+;; Never print or error on the raw string — mask the credential and leave the
+;; rest, so a boot log or an error message never puts a real password on disk.
+;; Works even on a URL that fails to parse otherwise (a plain string replace),
+;; and is a no-op when there's no user:pass@ segment to find.
+(define (redact-db-url url)
+  (regexp-replace #rx"^([a-zA-Z][a-zA-Z0-9+.-]*://[^:/@]*):[^@/]*@" url "\\1:***@"))
+
 ;; ---- backend dispatch: sqlite OR postgres from one DATABASE_URL --------------
 ;; postgres://[user[:pass]@]host[:port]/dbname   (or postgresql://…)
 (define (postgres-params url)
   (define m (regexp-match #rx"^postgres(?:ql)?://(?:([^:@/]+)(?::([^@/]+))?@)?([^:/@]+)(?::([0-9]+))?/(.+)$" url))
-  (unless m (error 'db-connector "malformed postgres URL: ~a" url))
+  (unless m (error 'db-connector "malformed postgres URL: ~a" (redact-db-url url)))
   (hasheq 'user     (or (list-ref m 1) "postgres")
           'password (list-ref m 2)                         ; #f = no password
           'server   (list-ref m 3)
@@ -89,4 +97,4 @@
      (lambda () (postgresql-connect #:user (hash-ref P 'user) #:database (hash-ref P 'database)
                                     #:server (hash-ref P 'server) #:port (hash-ref P 'port)
                                     #:password (hash-ref P 'password)))]
-    [else (error 'db-connector "unsupported DATABASE_URL (need sqlite:/// or postgres://): ~a" url)]))
+    [else (error 'db-connector "unsupported DATABASE_URL (need sqlite:/// or postgres://): ~a" (redact-db-url url))]))

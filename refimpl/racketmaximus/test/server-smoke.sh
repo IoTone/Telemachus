@@ -76,8 +76,14 @@ assert "bootstrap msg"   "$BS" 'Created operator alice'
 OP=$(printf '%s' "$BS" | grep -oP '"token":\s*"\K[^"]+')
 assert "login good"      "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" '"token":"tk_'
 assert "login bad pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"nope"}')" 'Authentication required'
-assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret","new_password":"newpass1"}')" '"ok":true'
-assert "login new pw"    "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass1"}')" '"token":"tk_'
+# issue #54: a password change now revokes every session it could have minted,
+# INCLUDING the one making the call, so the caller signs in again. This suite used
+# to change the password and keep using the same token.
+assert "change pw"       "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $OP" -d '{"current_password":"s3cret","new_password":"newpass1"}')" '"signed_out":true'
+assert "the change revoked the session that made it" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" 'Authentication required'
+NEWLOGIN=$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"newpass1"}')
+assert "login new pw"    "$NEWLOGIN" '"token":"tk_'
+OP=$(printf '%s' "$NEWLOGIN" | grep -oP '"token":\s*"\K[^"]+')
 assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" 'Authentication required'
 assert "whoami operator" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"is_operator":true'
 assert "admin operator"  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
@@ -735,6 +741,147 @@ assert "a member may NOT review" \
 assert "a member may NOT export to disk" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/l10n/export" -H "Authorization: Bearer $BOB" -d '{"locale":"qps"}')" \
   "403"
+
+# ---- reviews (LAY-1..3): a workflow that waits for a person ---------------------
+echo
+echo "== reviews =="
+# create_note is left DISABLED by the tool-activation assertion above; this block
+# needs a tool that runs, and restores the state it found when it is done.
+curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":true}' >/dev/null
+RWF='{"spec":1,"slug":"smoke-review","description":"draft then ask a person",
+      "max_steps":10,"input":{"subject":"string"},"start":"draft",
+      "steps":[
+        {"id":"draft","uses":"tool:create_note",
+         "with":{"title":"${input.subject}","body":"a drafted finding"},"next":"check"},
+        {"id":"check","uses":"review","title":"Check the finding",
+         "instructions":"Confirm it is supported.",
+         "of":"${steps.draft.output.result}",
+         "checklist":[{"key":"method","label":"Technical validity","required":true}],
+         "four_eyes":true,
+         "on":{"approve":"file","revise":"draft","reject":null}},
+        {"id":"file","uses":"tool:create_note","with":{"title":"filed","body":"approved"},"end":true}]}'
+assert "review wf publish" "$(curl -s -X POST $B/api/workflows -H "Authorization: Bearer $OP" -d "$RWF")" '"slug":"smoke-review"'
+RRID=$(curl -s -X POST $B/api/workflows/smoke-review/run -H "Authorization: Bearer $OP" \
+         -d '{"input":{"subject":"levee 7"}}' | grep -oP '"id":"\K[^"]+' | head -1)
+rrun=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  rrun=$(curl -s $B/api/runs/$RRID -H "Authorization: Bearer $OP")
+  printf '%s' "$rrun" | grep -qF '"status":"running"' || break
+  sleep 0.5
+done
+assert "a review step PARKS the run" "$rrun" '"status":"waiting"'
+
+RQ=$(curl -s "$B/api/reviews" -H "Authorization: Bearer $OP")
+assert "the queue carries it"          "$RQ" '"title":"Check the finding"'
+assert "...with its checklist"         "$RQ" '"label":"Technical validity"'
+assert "...and what is under review"   "$RQ" 'Created note'
+RVID=$(printf '%s' "$RQ" | grep -oP '"id":"\K[^"]+' | head -1)
+# a filter that is ignored rather than refused is invisible to a model test
+assert "?status is honoured, not defaulted" \
+  "$(curl -s "$B/api/reviews?status=decided" -H "Authorization: Bearer $OP")" '"reviews":[]'
+
+# a plain member reviews — this is the specialist's job, not a stewardship act
+assert "a member may read the queue" "$(curl -s $B/api/reviews -H "Authorization: Bearer $BOB")" '"title":"Check the finding"'
+assert "a rationale is required to send work back" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"revise"}')" \
+  'rationale is required'
+assert "an unknown verdict is refused" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"escalate"}')" \
+  'verdict must be one of'
+assert "a required checklist answer is demanded" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"approve"}')" \
+  'Technical validity'
+# four eyes: the operator STARTED this run, so the operator may not wave it through
+assert "four eyes refuses the run's own initiator" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $OP" \
+       -d '{"verdict":"approve","answers":{"method":"sound"}}')" \
+  'second pair of eyes'
+assert "...and the run is still parked" "$(curl -s $B/api/runs/$RRID -H "Authorization: Bearer $OP")" '"status":"waiting"'
+
+assert "a colleague decides it" \
+  "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" \
+       -d '{"verdict":"approve","rationale":"supported by the survey","answers":{"method":"sound"}}')" \
+  '"verdict":"approve"'
+rdone=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  rdone=$(curl -s $B/api/runs/$RRID -H "Authorization: Bearer $OP")
+  printf '%s' "$rdone" | grep -qE '"status":"(waiting|running)"' || break
+  sleep 0.5
+done
+assert "the decision resumed the run" "$rdone" '"status":"done"'
+assert "deciding again is refused"    "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"approve"}')" 'already been decided'
+assert "the decision is in the audit log" \
+  "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'review.approve'
+curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}' >/dev/null  # restore
+
+# ---- identity: offboarding and password hygiene (issue #54) ---------------------
+echo
+echo "== members and passwords =="
+# a user of this block's own, so revoking sessions cannot strip $OP or $BOB
+DN=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"dana","password":"dana-pass-1","role":"member"}')
+DANA=$(printf '%s' "$DN" | grep -oP '"token":\s*"\K[^"]+')
+DANA_ID=$(printf '%s' "$DN" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "dana is a member" "$(curl -s $B/api/members -H "Authorization: Bearer $OP")" '"username":"dana"'
+
+assert "a member may not change roles" \
+  "$(curl -s -X PATCH $B/api/members/$DANA_ID -H "Authorization: Bearer $DANA" -d '{"role":"admin"}')" \
+  'Forbidden: members:manage'
+assert "an unknown role is refused" \
+  "$(curl -s -X PATCH $B/api/members/$DANA_ID -H "Authorization: Bearer $OP" -d '{"role":"wizard"}')" \
+  'unknown role'
+assert "the role changes" \
+  "$(curl -s -X PATCH $B/api/members/$DANA_ID -H "Authorization: Bearer $OP" -d '{"role":"admin"}')" \
+  '"role":"admin"'
+assert "...and the new role is in force" \
+  "$(curl -s $B/api/audit -H "Authorization: Bearer $DANA")" '"audit":'
+
+# the last owner is the one thing that may not go — a team with no owner cannot
+# grant anybody the permission to fix it
+OPID=$(curl -s $B/api/whoami -H "Authorization: Bearer $OP" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "the last owner cannot be demoted" \
+  "$(curl -s -X PATCH $B/api/members/$OPID -H "Authorization: Bearer $OP" -d '{"role":"admin"}')" \
+  'last owner cannot be demoted'
+assert "the last owner cannot be removed" \
+  "$(curl -s -X DELETE $B/api/members/$OPID -H "Authorization: Bearer $OP")" \
+  'last owner cannot be removed'
+
+# removing somebody whose credentials go on working is not removing them
+assert "dana's token works while she is a member" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $DANA")" '"notes":'
+assert "removing her revokes her team tokens" \
+  "$(curl -s -X DELETE $B/api/members/$DANA_ID -H "Authorization: Bearer $OP")" '"tokens_revoked":'
+assert "...her credential stops working" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $DANA")" 'Authentication required'
+assert "...and she is off the member list" \
+  "$(curl -s $B/api/members -H "Authorization: Bearer $OP" | grep -c dana || true)" '0'
+assert "removal is audited" "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'member.remove'
+
+# a password change signs every session out, including the one making the call
+EV=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"eve","password":"eve-pass-111","role":"member"}')
+EVE=$(printf '%s' "$EV" | grep -oP '"token":\s*"\K[^"]+')
+EVE_ID=$(printf '%s' "$EV" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "eve changes her password" \
+  "$(curl -s -X POST $B/api/password -H "Authorization: Bearer $EVE" -d '{"current_password":"eve-pass-111","new_password":"eve-pass-222"}')" \
+  '"signed_out":true'
+assert "...which revoked the session that made the call" \
+  "$(curl -s $B/api/notes -H "Authorization: Bearer $EVE")" 'Authentication required'
+assert "...and is audited" "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'user.password'
+assert "...and the new password signs in" \
+  "$(curl -s -X POST $B/api/login -d '{"username":"eve","password":"eve-pass-222"}')" '"token":"tk_'
+
+# the way back in for somebody who cannot sign in at all
+assert "a member may not reset another's password" \
+  "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $BOB" -d '{"new_password":"zzz-999"}')" \
+  'Forbidden: instance:manage'
+assert "a short reset is refused" \
+  "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"x"}')" \
+  'min 6'
+assert "an operator resets a locked-out password" \
+  "$(curl -s -X POST $B/api/admin/users/$EVE_ID/password -H "Authorization: Bearer $OP" -d '{"new_password":"eve-pass-333"}')" \
+  '"ok":true'
+assert "...and the reset password signs in" \
+  "$(curl -s -X POST $B/api/login -d '{"username":"eve","password":"eve-pass-333"}')" '"token":"tk_'
+assert "...and the reset is audited" "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'user.password.reset'
 
 # ---- session policy (issue #38, OWASP idle + absolute timeouts) -----------------
 echo
