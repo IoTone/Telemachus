@@ -1067,6 +1067,25 @@
          ;; SQLite's INTEGER is already up to 8 bytes — nothing to widen.
          (void)]))))
 
+(define m-0036-object-metadata
+  (migration "0036-object-metadata"
+    (lambda (conn)
+      (exec* conn
+       ;; LAY-4: team-defined metadata ON the object. repo_objects carried org,
+       ;; team, owner, visibility and key and nothing a team could define, so
+       ;; project / location / period / status / responsible person had nowhere to
+       ;; live and Layer 3 had nothing to aggregate over. A blob rather than a
+       ;; column per field, for the reason the prospect attributes blob is one:
+       ;; adding a field must not need a migration.
+       "ALTER TABLE repo_objects ADD COLUMN attributes TEXT NOT NULL DEFAULT '{}'"
+       ;; LAY-5: where the text CAME FROM. An extractor that reads a scan knows the
+       ;; page and the region of every run it recovered, and all of it was thrown
+       ;; away at the seam. Keeping it turns review from "source left, output
+       ;; right" into "click the value, jump to the region it came from" — and it
+       ;; cannot be added later without re-processing every document ever ingested,
+       ;; which is why the column exists before any extractor fills it.
+       "ALTER TABLE repo_text ADD COLUMN spans TEXT NOT NULL DEFAULT '[]'"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata))

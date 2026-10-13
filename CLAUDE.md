@@ -1030,6 +1030,63 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   described and with its own queue rather than a release endpoint. The design doc,
   its slice plan and decision WF‑5 all say so now.
 
+## Team-defined object metadata, and where text came from (LAY‑4/‑5, 12 Oct 2026)
+
+Migration `0036-object-metadata` adds both columns at once: `repo_objects.attributes`
+and `repo_text.spans`.
+
+**LAY‑4 — what the team ASSERTS about a document.** `repo_objects` carried org,
+team, owner, visibility and key and nothing a team could define, so project /
+location / period / status had nowhere to live and Layer 3 had nothing to
+aggregate over.
+
+- Definitions are a **team setting** (`repo-fields:<team>`, beside branding in
+  `instance_settings`); values are a **blob** on the object. Adding a field needs
+  no migration — the call the prospect attributes model already made.
+- **The validation vocabulary is literally the funnel's.** `field-problem` moved
+  to `domain/fields/fields.rkt` and `beta.rkt` re-exports it, so there is one
+  implementation rather than two that drift. Still `required` / `digits` /
+  `minlength` / `maxlength` and deliberately **not a regex**.
+- **A key the team has not defined is REFUSED, not stored** — the call an unknown
+  theme token makes. A value nothing can display or filter on is how a team
+  concludes the model is broken.
+- Setting attributes MERGES, so writing one field cannot drop another, and an
+  empty value clears one. `required` is checked on the merged result, so clearing
+  a required field fails.
+- **`?attr=key:value` on `GET /api/repo` is repeatable and applied AFTER the
+  per-row `can?`** — a filter can only narrow what a caller may see, never widen
+  it. `query-params` (plural) exists for this: `query-param` answers with the
+  first value, which is right for a scalar and wrong for a stackable filter.
+- The knowledge graph is NOT a substitute: it extracts what a document *says*,
+  this is what the team *asserts*, and for an inspection record the second is
+  authoritative.
+
+**LAY‑5 — where the extracted text came from.** The one decision with a deadline:
+adding it later means re-processing every document ever ingested.
+
+- **An extractor may answer with two values or three**, the third being spans of
+  `{start, end, page, bbox}`. Provenance is ADDITIVE — `extract-text` still
+  returns two values for every existing caller, `extract-text/spans` returns
+  three, and every plugin extractor written before LAY‑5 keeps working. That
+  arity-tolerance is what stops LAY‑7's contract from breaking.
+- `start`/`end` are character offsets into the text the SAME call returned; the
+  bbox is in the extractor's own page units and the platform carries it without
+  interpreting it, because only the renderer knows whether they are PDF points or
+  image pixels.
+- **A malformed span is dropped and the text is kept.** Provenance is an
+  enrichment; losing a region must never cost a team the document. Spans past
+  `EXTRACT-CAP` are dropped too — they could never resolve.
+- **No built-in fills it yet** (`pdftotext` would need `-bbox-layout`; the reader
+  that will have regions is an OCR plugin). The column exists before anything
+  fills it, which is the whole point — the seam was the expensive half.
+- `GET /api/repo-obj/<id>/spans?at=<offset>` resolves an offset to a region, which
+  is how a reviewer jumps from an extracted value to where it was read.
+
+```sh
+raco test test/object-metadata-tests.rkt   # 10 cases: the vocabulary, the filter, span hygiene
+bash test/server-smoke.sh                  # the "== object metadata ==" block, 11 assertions
+```
+
 ## A plugin can claim a FILE FORMAT (LAY‑7, built 12 Oct 2026)
 
 `kind-of` in `extract.rkt` was a fixed `cond` over text / markup / docx / pdf, so a

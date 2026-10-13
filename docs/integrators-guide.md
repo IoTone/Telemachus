@@ -283,7 +283,7 @@ Four rules the platform holds you to:
 
 | | |
 |---|---|
-| **The contract** | `(in content-type) -> (values text-or-#f reason-or-#f)` |
+| **The contract** | `(in content-type) -> (values text-or-#f reason-or-#f)`, or three values with `spans` third (below) |
 | **The reasons** | `unsupported`, `missing-tool`, `needs-ocr`, `failed` — and nothing else. A fifth would reach `doc_text` as a refusal naming something it cannot explain, so anything else becomes `failed`. |
 | **Failure is contained** | Raising, or answering with the wrong shape, is the same `failed` an in-tree extractor would give. One plugin must not be able to wedge a team's indexing. |
 | **The cap is ours** | Output is truncated to `EXTRACT-CAP`. This feeds a search index, not an archive. |
@@ -291,6 +291,29 @@ Four rules the platform holds you to:
 `needs-ocr` means something specific: the reader ran and found no text, so the
 document is a scan. Report that rather than returning `""` — an empty extraction
 is recorded as a success and the document is never looked at again.
+
+### Reporting where the text came from
+
+An extractor that knows the page and region of what it read — an OCR engine does —
+may answer with a third value: a list of `{start, end, page, bbox}`, where `start`
+and `end` are character offsets into the text it just returned and `bbox` is
+`[x0 y0 x1 y1]` in whatever page units the engine uses. The platform carries them
+and does not interpret them; only the renderer knows whether they are PDF points
+or image pixels.
+
+```racket
+(values text #f (list (hasheq 'start 0 'end 11 'page 1 'bbox '(72 690 180 702))))
+```
+
+This is what turns review from "source on the left, output on the right" into
+*click the extracted value and jump to the region it was read from* — the single
+biggest lever on a reviewer's time. Two values remain entirely valid: provenance
+is additive, and every extractor written before it keeps working.
+
+A malformed span is dropped and the text is kept, because provenance is an
+enrichment and losing a region must never cost a team the document. Spans pointing
+past `EXTRACT-CAP` are dropped too, since they could never resolve.
+`GET /api/repo-obj/<id>/spans?at=<offset>` is the lookup.
 
 Two plugins cannot claim one content type; the second is refused. Re-registering
 your own is fine, because the loader may run twice in one process.

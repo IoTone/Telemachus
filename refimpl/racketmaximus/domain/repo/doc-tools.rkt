@@ -136,14 +136,15 @@
   (define version (opt-arg args 'version))
   (define-values (o in) (repo-open conn p id #:version version))
   (unless in (error 'doc_text "no such document: ~a" id))
-  (define-values (text reason)
+  (define-values (text reason spans)
     (dynamic-wind void
-                  (lambda () (extract-text in (hash-ref o 'content_type)))
+                  (lambda () (extract-text/spans in (hash-ref o 'content_type)))
                   (lambda () (close-input-port in))))
   (cond
     [text
-     ;; the search index gets the text for free when this is the current version
-     (unless version (repo-text-upsert! conn id (hash-ref o 'version_id) text))
+     ;; the search index gets the text for free when this is the current version,
+     ;; and its provenance with it (LAY-5)
+     (unless version (repo-text-upsert! conn id (hash-ref o 'version_id) text #:spans spans))
      text]
     [(eq? reason 'missing-tool)
      (error 'doc_text "pdftotext is not installed — PDF text extraction needs poppler-utils")]

@@ -71,6 +71,10 @@
       "text": "Store",
       "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
     },
+    "doc.route.put.api.repo-fields": {
+      "text": "Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration.",
+      "hash": "ce4457cb6abe71b32b8d7f6805f6e5dfa3fa7277"
+    },
     "ui.reviews": {
       "text": "Review",
       "hash": "e29a79fe0c349724caeaa1762fa917f5543248ca"
@@ -282,6 +286,10 @@
     "doc.workflow.translate-chat": {
       "text": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
       "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
+    },
+    "doc.route.get.api.repo-obj.id.spans": {
+      "text": "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.",
+      "hash": "0ebd28a5c2094a860bb918d4279034df707e56a5"
     },
     "ui.useglossary": {
       "text": "Use glossary",
@@ -575,6 +583,14 @@
       "text": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
     },
+    "doc.route.get.api.repo-fields": {
+      "text": "The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex.",
+      "hash": "3739bcc1b3eff310696351eccabb917b6928aae6"
+    },
+    "authz.bootstrap_done": {
+      "text": "Created operator {user} and team {team}.",
+      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
     "ui.submitjob": {
       "text": "Submit a job",
       "hash": "510341190745d586870fc9862595a371c925fc0f"
@@ -614,10 +630,6 @@
     "ui.enable": {
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
-    },
-    "authz.bootstrap_done": {
-      "text": "Created operator {user} and team {team}.",
-      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
     },
     "ui.link": {
       "text": "Link",
@@ -944,8 +956,8 @@
       "hash": "33cb8ffb167170483550825fffce8ed0f6a039e3"
     },
     "doc.route.get.api.repo": {
-      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).",
-      "hash": "de55ec495c07f563596878a403924a739ed59b2f"
+      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).",
+      "hash": "ba6c59298d0ab709ce62c0d2e0044bedbc4855a2"
     },
     "doc.route.get.activate": {
       "text": "The console, on the magic-link activation screen (hosted mode).",
@@ -2127,6 +2139,14 @@
       "text": "A workflow that extracts text from repository documents into the search index: find what is unindexed, fan out, extract. Re-run it any time; it only touches what changed.",
       "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
     },
+    "doc.route.patch.api.repo-obj.id.attributes": {
+      "text": "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.",
+      "hash": "05eab7375ee33b4ca582a2241d3c87e147b4d0c1"
+    },
+    "ui.notprocessed": {
+      "text": "No workflow has processed this document yet.",
+      "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
+    },
     "doc.route.post.api.orgs.ref.resume": {
       "text": "Resume a suspended company.",
       "hash": "fd7cd74e0a0889ebca0df4ecd0a42fa78193c537"
@@ -2134,10 +2154,6 @@
     "ui.brandclearlogo": {
       "text": "Remove logo",
       "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
-    },
-    "ui.notprocessed": {
-      "text": "No workflow has processed this document yet.",
-      "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
     "doc.route.post.api.org.members": {
       "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",

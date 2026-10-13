@@ -64,13 +64,15 @@
   ;; apply, so a workflow can only ever index what its starter could read
   (define-values (o in) (repo-open conn p id))
   (unless in (error 'repo_extract_text "no such object: ~a" id))
-  (define-values (text reason)
+  ;; LAY-5: the spans come back with the text and are stored with it. An extractor
+  ;; that has none (every built-in, today) returns '() and nothing changes.
+  (define-values (text reason spans)
     (dynamic-wind void
-                  (lambda () (extract-text in (hash-ref o 'content_type)))
+                  (lambda () (extract-text/spans in (hash-ref o 'content_type)))
                   (lambda () (close-input-port in))))
   (cond
     [text
-     (repo-text-upsert! conn id (hash-ref o 'version_id) text)
+     (repo-text-upsert! conn id (hash-ref o 'version_id) text #:spans spans)
      (format "indexed ~a (~a characters)" (hash-ref o 'key) (string-length text))]
     [(eq? reason 'missing-tool)
      ;; a real error, so the step FAILS and the run says why — an operator installs

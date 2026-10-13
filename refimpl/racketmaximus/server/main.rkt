@@ -62,6 +62,7 @@
          "../domain/s3/sigv4.rkt"                 ; …and presigned links (slice 53)
          "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
+         (only-in "../domain/repo/extract.rkt" repo-spans-for spans-covering)   ; LAY-5
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
          (only-in "../domain/repo/doc-tools.rkt")  ; registers the document-pipeline tools (slice 57)
          "../domain/repo/triggers.rkt"            ; upload triggers on repo-put!'s seam (slice 58)
@@ -173,6 +174,15 @@
   (cond [(assq k (url-query (request-uri req)))
          => (lambda (kv) (if (and (cdr kv) (not (string=? (cdr kv) ""))) (cdr kv) default))]
         [else default]))
+
+;; Every value for a repeated key. `query-param` answers with the FIRST, which is
+;; right for a scalar and wrong for a filter you are meant to stack —
+;; ?attr=a:1&attr=b:2 is two conditions, not a last-one-wins.
+(define (query-params req name)
+  (define k (if (symbol? name) name (string->symbol name)))
+  (for/list ([kv (in-list (url-query (request-uri req)))]
+             #:when (and (eq? (car kv) k) (cdr kv) (not (string=? (cdr kv) ""))))
+    (cdr kv)))
 
 (define (read-json-body req)
   (define raw (request-post-data/raw req))
@@ -2100,13 +2110,68 @@
 ;; This is the control plane the S3 front door will NOT replace (DOC-12) — sharing,
 ;; grants and visibility have no expression in the S3 protocol.
 
+
+;; ---- team-defined object metadata (LAY-4) and extraction provenance (LAY-5) -------
+;; ?attr=key:value, repeatable. Split on the FIRST colon only, so a value may
+;; contain one — "location:lat:lon" is a location, not a malformed filter.
+(define (attr-filters req)
+  (for/list ([v (in-list (query-params req 'attr))]
+             #:when (regexp-match? #rx":" v))
+    (let ([i (car (regexp-match-positions #rx":" v))])
+      (cons (substring v 0 (car i)) (substring v (cdr i))))))
+
+(define (ep-repo-fields-get req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (json-response (hasheq 'fields (repo-fields db-conn (principal-team-id p)))))))
+
+(define (ep-repo-fields-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define fs (let ([v (hash-ref (read-json-body req) 'fields '())]) (if (list? v) v '())))
+    (define out (repo-fields-set! db-conn (principal-team-id p) fs))
+    (cond
+      [(string? out) (err out 400)]
+      [else
+       (audit! db-conn #:action "repo.fields" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "repo" #:resource-id "fields")
+       (json-response (hasheq 'fields out))]))))
+
+(define (ep-repo-attributes req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (define a (let ([v (hash-ref (read-json-body req) 'attributes (hasheq))]) (if (hash? v) v (hasheq))))
+    (define out (repo-set-attributes! db-conn p id a))
+    (cond
+      [(eq? out 'no-such-object) (err "no such document" 404)]
+      [(eq? out 'forbidden) (err "forbidden: files:write" 403)]
+      [(string? out) (err out 400)]
+      [else
+       (audit! db-conn #:action "repo.attributes" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "repo" #:resource-id id)
+       (json-response (obj-json out))]))))
+
+(define (ep-repo-spans req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (define o (repo-get db-conn p id))
+    (cond
+      [(not o) (err "no such document" 404)]
+      [else
+       (define all (repo-spans-for db-conn id))
+       (define at (string->number (query-param req 'at "")))
+       (json-response (hasheq 'object_id id
+                              'spans (if at (spans-covering all at) all)
+                              'total (length all)))]))))
+
 (define (obj-json o)
   (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
           'visibility (hash-ref o 'visibility) 'owner_user_id (hash-ref o 'owner_user_id)
           'size (hash-ref o 'size) 'content_type (hash-ref o 'content_type)
           'filename (hash-ref o 'filename) 'version (hash-ref o 'version)
           'digest (hash-ref o 'digest)
-          'created_at (hash-ref o 'created_at) 'updated_at (hash-ref o 'updated_at)))
+          'created_at (hash-ref o 'created_at) 'updated_at (hash-ref o 'updated_at)
+          'attributes (hash-ref o 'attributes (hasheq))))
 
 ;; Uploads land as the raw request body. `request-post-data/raw` buffers it, which is
 ;; why TELEMACHUS_MAX_UPLOAD exists and why DOC-15's listener is the next slice — the
@@ -2133,7 +2198,8 @@
                             #:limit (or (string->number (query-param req 'limit "100")) 100)
                             #:offset (or (string->number (query-param req 'offset "0")) 0)
                             #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))
-                            #:scope (scope-of req)))
+                            #:scope (scope-of req)
+                            #:attrs (attr-filters req)))
     (json-response (hasheq 'objects (map obj-json objs)
                            'usage (repo-usage db-conn p))))))
 
@@ -2630,6 +2696,8 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'repo-fields-get ep-repo-fields-get 'repo-fields-put ep-repo-fields-put
+   'repo-attributes ep-repo-attributes 'repo-spans ep-repo-spans
    'member-role ep-member-role 'member-remove ep-member-remove
    'admin-password-reset ep-admin-password-reset
    'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide

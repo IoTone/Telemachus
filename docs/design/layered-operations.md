@@ -1,11 +1,11 @@
 # Layered operations: human review, project metadata, and the plugin boundary
 
 *Proposed 3 Oct 2026 (LAY‑1…12, see [decisions.md](decisions.md)). **LAY‑1, ‑2 and
-‑3, ‑6 and ‑7 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
+‑3, ‑4, ‑5, ‑6 and ‑7 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
 decision records in `domain/review/review.rkt`, generalised four-eyes, `/api/reviews*`
 and the Review tab, with `test/review-tests.rkt` and the smoke's `== reviews ==`
-block; the repository capabilities for out-of-process plugins; and the extractor
-registry. LAY‑8 landed separately with four other defects from issue #54. The rest
+block; the repository capabilities for out-of-process plugins; the extractor registry;
+team-defined object metadata; and extraction provenance. LAY‑8 landed separately with four other defects from issue #54. The rest
 remain proposals. This document is a gap analysis: it separates what the **platform**
 must grow from what a **domain supplies as plugins and workflows**. It is driven
 by an RFE from a prospective customer — a small civil-engineering and
@@ -132,7 +132,7 @@ Manager.**
 It should be the platform's rule about review generally, not one tab's rule about
 strings.
 
-### LAY‑4 — Objects carry no metadata a team can define
+### LAY‑4 — Objects carry no metadata a team can define  ✅ built
 
 `repo_objects` has `org_id`, `team_id`, `owner_user_id`, `visibility`, `key`,
 version pointers and timestamps. There is no project, no location, no period, no
@@ -153,7 +153,17 @@ The knowledge graph is not a substitute. It extracts what a document *says*;
 this is what the team *asserts*. For an inspection record the second is the
 authoritative one.
 
-### LAY‑5 — Extraction provenance is lost at ingest, and cannot be recovered later
+*As built:* definitions are a team setting (`repo-fields:<team>` in
+`instance_settings`, beside branding) and values are a blob on `repo_objects`, so
+adding a field needs no migration. The validation vocabulary is literally the
+funnel's — `field-problem` moved to `domain/fields/fields.rkt` and both now share
+it, rather than a second implementation drifting. A key the team has not defined
+is REFUSED rather than stored, the call the theme tokens make with an unknown
+token: a value nothing can display or filter on is how a team concludes the model
+is broken. `GET /api/repo?attr=key:value` is repeatable and applied AFTER the
+per-row `can?`, so a filter can only narrow what a caller may see, never widen it.
+
+### LAY‑5 — Extraction provenance is lost at ingest, and cannot be recovered later  ✅ built
 
 **The one decision with a deadline.**
 
@@ -171,6 +181,14 @@ they actually care about.
 If the coordinates are not kept, adding them later means re-processing every
 document that was ever ingested. **This is cheap to design in and expensive to
 retrofit**, which is why it belongs in this document rather than a later slice.
+
+*As built:* an extractor may answer with two values or three, the third being its
+spans — so provenance is additive and every extractor written before it, including
+plugin ones, keeps working. `repo_text.spans` stores them beside the text;
+`GET /api/repo-obj/<id>/spans?at=<offset>` resolves an offset to a region. No
+built-in fills it yet: `pdftotext` would need `-bbox-layout`, and the reader that
+will actually have regions is an OCR plugin. **The column exists before anything
+fills it, which is the entire point** — the seam was the expensive half.
 
 ### LAY‑6 — An out-of-process plugin cannot touch the repository  ✅ built
 

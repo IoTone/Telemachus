@@ -72,6 +72,10 @@
       "text": "保管先",
       "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
     },
+    "doc.route.put.api.repo-fields": {
+      "text": "チームのオブジェクトメタデータ項目を定義する：{fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}。項目の追加にマイグレーションは不要です。",
+      "hash": "ce4457cb6abe71b32b8d7f6805f6e5dfa3fa7277"
+    },
     "ui.reviews": {
       "text": "レビュー",
       "hash": "e29a79fe0c349724caeaa1762fa917f5543248ca"
@@ -283,6 +287,10 @@
     "doc.workflow.translate-chat": {
       "text": "1回チャットし、返答をスペイン語・オランダ語・アイスランド語に展開してから、それぞれを戻す。",
       "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
+    },
+    "doc.route.get.api.repo-obj.id.spans": {
+      "text": "抽出したテキストの出典：各断片のページと領域（LAY-5）。?at=<文字オフセット> を付けると、その位置を含む範囲だけを返します。抽出した値から、それが読み取られた箇所へレビュー担当者が辿るための仕組みです。",
+      "hash": "0ebd28a5c2094a860bb918d4279034df707e56a5"
     },
     "ui.useglossary": {
       "text": "用語集を使用",
@@ -576,6 +584,14 @@
       "text": "アップロードされた文書を処理：テキストを抽出し、JSONスキーマに従って構造化フィールドを取得（適合しない場合は拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳します。すべての出力はソースと共にレポジトリ文書で、元情報が示されます。",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
     },
+    "doc.route.get.api.repo-fields": {
+      "text": "チームのオブジェクトメタデータ項目：ドキュメントに付与できる情報（プロジェクト、場所、期間、ステータスなど）。検証は required / digits / minlength / maxlength のみで、正規表現は使いません。",
+      "hash": "3739bcc1b3eff310696351eccabb917b6928aae6"
+    },
+    "authz.bootstrap_done": {
+      "text": "オペレーター{user}とチーム{team}を作成しました。",
+      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
     "ui.submitjob": {
       "text": "ジョブを送信",
       "hash": "510341190745d586870fc9862595a371c925fc0f"
@@ -615,10 +631,6 @@
     "ui.enable": {
       "text": "有効化",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
-    },
-    "authz.bootstrap_done": {
-      "text": "オペレーター{user}とチーム{team}を作成しました。",
-      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
     },
     "ui.link": {
       "text": "リンク",
@@ -945,8 +957,8 @@
       "hash": "33cb8ffb167170483550825fffce8ed0f6a039e3"
     },
     "doc.route.get.api.repo": {
-      "text": "?prefix= でリポジトリオブジェクトを一覧する（ページ送り）；?shared=1 は呼び出し元が有効な権限付与を持ち所有していないものだけ；?scope=org は会社内のすべてのチームにわたります（TEN-2h）。",
-      "hash": "de55ec495c07f563596878a403924a739ed59b2f"
+      "text": "リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。",
+      "hash": "ba6c59298d0ab709ce62c0d2e0044bedbc4855a2"
     },
     "doc.route.get.activate": {
       "text": "マジックリンク認証画面（ホストモード）のコンソール.",
@@ -2128,6 +2140,14 @@
       "text": "リポジトリの文書からテキストを抽出して検索インデックスに入れるワークフロー：未インデックスのものを見つけ、分散して、それぞれ抽出します。いつでも再実行でき、変更のあったものにしか触れません。",
       "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
     },
+    "doc.route.patch.api.repo-obj.id.attributes": {
+      "text": "ドキュメントにチーム定義のメタデータを設定する：{attributes: {key: value}}。そのドキュメントに対する files:write が必要です。チームが定義していないキーは保存されずに拒否され、空の値は設定を解除します。",
+      "hash": "05eab7375ee33b4ca582a2241d3c87e147b4d0c1"
+    },
+    "ui.notprocessed": {
+      "text": "この文書を処理したワークフローはまだありません。",
+      "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
+    },
     "doc.route.post.api.orgs.ref.resume": {
       "text": "一時停止中の企業を再開します。",
       "hash": "fd7cd74e0a0889ebca0df4ecd0a42fa78193c537"
@@ -2135,10 +2155,6 @@
     "ui.brandclearlogo": {
       "text": "ロゴを削除",
       "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
-    },
-    "ui.notprocessed": {
-      "text": "この文書を処理したワークフローはまだありません。",
-      "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
     "doc.route.post.api.org.members": {
       "text": "呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。",

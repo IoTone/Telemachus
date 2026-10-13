@@ -132,11 +132,15 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/jobs` | bearer | — | — | チームのジョブ、最新から |
 | POST | `/api/jobs/:id/cancel` | bearer | — | — | キューに並んでいるジョブをキャンセル（実行中のジョブは完了します）。 |
 | GET | `/api/jobs/:id` | bearer | — | — | 1つのジョブとその結果またはエラー |
-| GET | `/api/repo` | bearer | `files:read` | — | ?prefix= でリポジトリオブジェクトを一覧する（ページ送り）；?shared=1 は呼び出し元が有効な権限付与を持ち所有していないものだけ；?scope=org は会社内のすべてのチームにわたります（TEN-2h）。 |
+| GET | `/api/repo` | bearer | `files:read` | — | リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。 |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | 組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view\|edit\|manage, expires_at?}。{user_id} は従来どおり view を意味します。 |
 | POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | プリンシパルがそのオブジェクトに持つすべての権限付与を取り消す。 |
 | GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | 1つのプリンシパルにつき1行: 能力、権限、授与者、期限、期限切れ |
 | GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | — | 由来: 文書がどの実行とステップから派生したか |
+| GET | `/api/repo-fields` | bearer | `files:read` | — | チームのオブジェクトメタデータ項目：ドキュメントに付与できる情報（プロジェクト、場所、期間、ステータスなど）。検証は required / digits / minlength / maxlength のみで、正規表現は使いません。 |
+| PUT | `/api/repo-fields` | bearer | `settings:manage` | — | チームのオブジェクトメタデータ項目を定義する：{fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}。項目の追加にマイグレーションは不要です。 |
+| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | — | ドキュメントにチーム定義のメタデータを設定する：{attributes: {key: value}}。そのドキュメントに対する files:write が必要です。チームが定義していないキーは保存されずに拒否され、空の値は設定を解除します。 |
+| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | — | 抽出したテキストの出典：各断片のページと領域（LAY-5）。?at=<文字オフセット> を付けると、その位置を含む範囲だけを返します。抽出した値から、それが読み取られた箇所へレビュー担当者が辿るための仕組みです。 |
 | GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | — | 「処理履歴」：派生した文書、元の文書、そしてこの文書に触れたすべての実行。 |
 | GET | `/api/share-targets` | bearer | `files:read` | — | 文書を誰と共有できるか：チームのメンバーと組織内のチーム。 |
 | POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | — | プライベート、チームまたは共有に設定します。 |

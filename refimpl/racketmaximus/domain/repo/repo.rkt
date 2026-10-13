@@ -17,14 +17,17 @@
 ;; the object id is the stable thing a grant and a URL point at, and history is what
 ;; makes "just re-upload it" safe advice.
 
-(require db-kit/portable
+(require db-kit/portable json
          racket/file racket/port racket/string racket/list racket/date
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../quota/quota.rkt"
+         "../settings/settings.rkt"       ; the team's field definitions live beside branding
+         "../fields/fields.rkt"           ; one validation vocabulary, shared with the funnel
          "blobs.rkt")
 
 (provide repo-put! set-put-hook! set-delete-hook!
+         repo-fields repo-fields-set! repo-set-attributes!
          repo-get repo-open repo-list repo-versions
          repo-set-visibility! repo-delete! repo-usage
          repo-share! repo-unshare! repo-grants
@@ -80,7 +83,7 @@
 ;; ---- rows ---------------------------------------------------------------------
 (define OSELECT
   (string-append "SELECT o.id, o.org_id, o.team_id, o.owner_user_id, o.visibility, o.key, "
-                 "o.current_version_id, o.created_at, o.updated_at, "
+                 "o.current_version_id, o.created_at, o.updated_at, o.attributes, "
                  "v.digest, v.size, v.content_type, v.filename, v.seq, v.created_at "
                  "FROM repo_objects o LEFT JOIN repo_versions v ON v.id = o.current_version_id"))
 
@@ -91,12 +94,79 @@
           'owner_user_id (vector-ref r 3) 'visibility (vector-ref r 4) 'key (vector-ref r 5)
           'version_id (nz (vector-ref r 6))
           'created_at (vector-ref r 7) 'updated_at (vector-ref r 8)
-          'digest (nz (vector-ref r 9))
-          'size (let ([v (vector-ref r 10)]) (if (sql-null? v) 0 v))
-          'content_type (let ([v (vector-ref r 11)]) (if (sql-null? v) "application/octet-stream" v))
-          'filename (let ([v (vector-ref r 12)]) (if (sql-null? v) "" v))
-          'version (let ([v (vector-ref r 13)]) (if (sql-null? v) 0 v))
-          'version_created_at (nz (vector-ref r 14))))
+          ;; LAY-4: the team's own metadata. A blob, so adding a field needs no
+          ;; migration — the call the prospect attributes model already made.
+          'attributes (let ([v (vector-ref r 9)])
+                        (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                          (let ([j (string->jsexpr (if (sql-null? v) "{}" v))])
+                            (if (hash? j) j (hasheq)))))
+          'digest (nz (vector-ref r 10))
+          'size (let ([v (vector-ref r 11)]) (if (sql-null? v) 0 v))
+          'content_type (let ([v (vector-ref r 12)]) (if (sql-null? v) "application/octet-stream" v))
+          'filename (let ([v (vector-ref r 13)]) (if (sql-null? v) "" v))
+          'version (let ([v (vector-ref r 14)]) (if (sql-null? v) 0 v))
+          'version_created_at (nz (vector-ref r 15))))
+
+;; ---- team-defined object metadata (LAY-4) ------------------------------------------
+;; The RFE's "unified project data model": project id, location, period, status,
+;; responsible person. repo_objects carried none of it and offered no way to add
+;; any, so Layer 3 had nothing to aggregate and a damage survey had nowhere to put
+;; the structure it was about.
+;;
+;; The definitions are a TEAM setting and the values are a blob on the object, so
+;; adding a field needs no migration — the same shape the beta funnel's extensible
+;; attributes already proved, down to sharing its validation vocabulary
+;; (domain/fields). The knowledge graph is not a substitute for this: it extracts
+;; what a document SAYS, and this is what the team ASSERTS. For an inspection
+;; record the second is the authoritative one.
+(define (repo-fields-key team) (string-append "repo-fields:" team))
+
+(define (repo-fields conn team)
+  (define doc (setting-ref conn (repo-fields-key team) (hasheq)))
+  (let ([fs (hash-ref doc 'fields '())]) (if (list? fs) fs '())))
+
+;; -> the stored list, or a string naming what is wrong
+(define (repo-fields-set! conn team fields)
+  (cond
+    [(not (list? fields)) "fields must be an array"]
+    [(> (length fields) 40) "a team may define at most 40 fields"]
+    [(for/or ([f (in-list fields)]) (field-def-problem f)) => values]
+    [(let ([ks (for/list ([f (in-list fields)]) (hash-ref f 'key ""))])
+       (and (not (= (length ks) (length (remove-duplicates ks)))) "two fields share a key"))
+     => values]
+    [else
+     (setting-set! conn (repo-fields-key team) (hasheq 'fields fields))
+     fields]))
+
+;; Set an object's attributes, validated against the team's definitions. Values are
+;; strings; a key the team has not defined is REFUSED rather than stored, because a
+;; value nothing can display or filter on is how a team concludes the model is
+;; broken — the same call the theme tokens make with an unknown token.
+;; -> the object, or a string naming the problem
+(define (repo-set-attributes! conn p id attrs)
+  (define o (repo-get conn p id))
+  (cond
+    [(not o) 'no-such-object]
+    [(not (can? conn p "files:write" #:resource (obj->resource o))) 'forbidden]
+    [(not (hash? attrs)) "attributes must be an object"]
+    [else
+     (define defs (repo-fields conn (hash-ref o 'team_id)))
+     (define known (for/list ([f (in-list defs)]) (hash-ref f 'key "")))
+     (define unknown (for/or ([(k v) (in-hash attrs)])
+                       (and (not (member (symbol->string k) known)) (symbol->string k))))
+     (define merged (for/fold ([h (hash-ref o 'attributes)]) ([(k v) (in-hash attrs)])
+                      (if (or (eq? v 'null) (equal? v "")) (hash-remove h k) (hash-set h k (format "~a" v)))))
+     (define bad (field-problem defs (lambda (k) (let ([v (hash-ref merged (string->symbol k) "")])
+                                                   (if (string? v) v (format "~a" v))))))
+     (cond
+       [unknown (format "'~a' is not a field this team has defined" unknown)]
+       [(for/or ([(k v) (in-hash attrs)]) (and (not (or (string? v) (eq? v 'null))) (symbol->string k)))
+        => (lambda (k) (format "attributes.~a must be a string" k))]
+       [bad (format "~a: ~a" (cadr bad) (car bad))]
+       [else
+        (query-exec conn "UPDATE repo_objects SET attributes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+                    (jsexpr->string merged) id)
+        (repo-get conn p id)])]))
 
 (define (obj->resource o)
   (hasheq 'resource_type "repo" 'resource_id (hash-ref o 'id)
@@ -234,7 +304,13 @@
                    #:shared-with-me? [shared? #f]
                    ;; TEN-2h: 'org lists every team in the caller's company; per-row can?
                    ;; still decides, so an org reader gets team-visible objects only
-                   #:scope [scope 'team])
+                   #:scope [scope 'team]
+                   ;; LAY-4: (key . value) pairs an object's attributes must match —
+                   ;; "every survey for levee 7", which is what Layer 3 aggregates
+                   ;; over. Applied in Racket AFTER the per-row can?, so a filter can
+                   ;; never widen what a caller may see, only narrow it. At the
+                   ;; volumes this is for that costs nothing a WHERE clause would save.
+                   #:attrs [attrs '()])
   (require-perm conn p "files:read")
   (define teams
     (if (eq? scope 'org)
@@ -268,8 +344,17 @@
           (string-append (escape-like prefix) "%")
           limit offset)]))
   (for/list ([r (in-list rows)]
-             #:when (can? conn p "files:read" #:resource (obj->resource (row->obj r))))
+             #:when (let ([o (row->obj r)])
+                      (and (can? conn p "files:read" #:resource (obj->resource o))
+                           (attrs-match? o attrs))))
     (row->obj r)))
+
+;; every (key . value) must be present and equal — an object missing the key does
+;; not match, which is what "every survey for levee 7" means
+(define (attrs-match? o attrs)
+  (define a (hash-ref o 'attributes (hasheq)))
+  (for/and ([kv (in-list attrs)])
+    (equal? (hash-ref a (string->symbol (car kv)) #f) (cdr kv))))
 
 ;; `_` and `%` in a user-supplied prefix are wildcards to LIKE; a key containing one
 ;; would otherwise match far more than the caller asked for.

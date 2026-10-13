@@ -551,6 +551,46 @@ assert "index-documents run completed" "$idxs" "done"
 assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
 
+# ---- LAY-4/LAY-5: what a team asserts, and where the text came from ---------------
+echo
+echo "== object metadata =="
+assert "a member may not define the team's fields" \
+  "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $BOB" -d '{"fields":[]}')" \
+  'Forbidden: settings:manage'
+assert "an unknown setting on a field is refused, not dropped" \
+  "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $OP" \
+       -d '{"fields":[{"key":"structure","label":"Structure","pattern":"^x$"}]}')" \
+  'unknown setting'
+assert "the team defines its fields" \
+  "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $OP" \
+       -d '{"fields":[{"key":"structure","label":"Structure","required":true},{"key":"risk","label":"Risk","digits":true,"maxlength":"1"}]}')" \
+  '"key":"structure"'
+printf 'levee seven survey' > /tmp/tmx-smoke-meta.txt
+MOBJ=$(curl -s -X PUT "$B/api/repo/surveys/levee7.txt" -H "Authorization: Bearer $OP" \
+         -H 'Content-Type: text/plain' --data-binary @/tmp/tmx-smoke-meta.txt)
+MID=$(printf '%s' "$MOBJ" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "a key the team never defined is refused" \
+  "$(curl -s -X PATCH $B/api/repo-obj/$MID/attributes -H "Authorization: Bearer $OP" -d '{"attributes":{"depth":"4m"}}')" \
+  'not a field this team has defined'
+assert "the funnel's vocabulary applies here too" \
+  "$(curl -s -X PATCH $B/api/repo-obj/$MID/attributes -H "Authorization: Bearer $OP" -d '{"attributes":{"structure":"levee-7","risk":"high"}}')" \
+  'Risk'
+assert "the document carries what the team asserted" \
+  "$(curl -s -X PATCH $B/api/repo-obj/$MID/attributes -H "Authorization: Bearer $OP" -d '{"attributes":{"structure":"levee-7","risk":"3"}}')" \
+  '"structure":"levee-7"'
+assert "...and the listing can narrow by it" \
+  "$(curl -s "$B/api/repo?attr=structure:levee-7" -H "Authorization: Bearer $OP")" 'surveys/levee7.txt'
+assert "...and a value nothing has is empty" \
+  "$(curl -s "$B/api/repo?attr=structure:bridge-2" -H "Authorization: Bearer $OP" | grep -c 'levee7' || true)" '0'
+assert "stacked filters both apply" \
+  "$(curl -s "$B/api/repo?attr=structure:levee-7&attr=risk:9" -H "Authorization: Bearer $OP" | grep -c 'levee7' || true)" '0'
+# LAY-5: the seam exists before any built-in fills it — a text file has no regions
+assert "provenance answers empty rather than erroring" \
+  "$(curl -s "$B/api/repo-obj/$MID/spans" -H "Authorization: Bearer $OP")" '"total":0'
+assert "an unknown document is a 404" \
+  "$(curl -s "$B/api/repo-obj/nope/spans" -H "Authorization: Bearer $OP")" 'no such document'
+rm -f /tmp/tmx-smoke-meta.txt
+
 # ---- LAY-7: a plugin can claim a FILE FORMAT -------------------------------------
 # RTF is a format the platform has no reader for — an unreadable document is
 # invisible to search. example-tools registers an extractor for it, so the word

@@ -132,11 +132,15 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/jobs` | bearer | — | — | The team's jobs, newest first. |
 | POST | `/api/jobs/:id/cancel` | bearer | — | — | Cancel a queued job (a running one finishes). |
 | GET | `/api/jobs/:id` | bearer | — | — | One job with its result or error. |
-| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h). |
+| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4). |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | Share with a user or a team in the org: {principal_type, principal_id, capability: view\|edit\|manage, expires_at?}. {user_id} still means view. |
 | POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | Revoke every grant a principal holds on the object. |
 | GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | One entry per principal: capability, permissions, granted_by, expiry, expired. |
 | GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | — | Provenance: what the document was derived from, by which run and step. |
+| GET | `/api/repo-fields` | bearer | `files:read` | — | The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex. |
+| PUT | `/api/repo-fields` | bearer | `settings:manage` | — | Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration. |
+| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | — | Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it. |
+| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | — | Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read. |
 | GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | — | "Processed by": derived documents, sources, and every run that touched the document. |
 | GET | `/api/share-targets` | bearer | `files:read` | — | Who a document can be shared with: the team's people and the org's teams. |
 | POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | — | Set private, team or shared. |

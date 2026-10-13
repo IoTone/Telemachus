@@ -21,17 +21,18 @@
 ;; Output is capped: this feeds a LIKE-based search index, not an archive. The cap
 ;; keeps a 400-page PDF from turning every search into a scan of megabytes.
 
-(require racket/port racket/string racket/system racket/file
+(require racket/port racket/string racket/system racket/file json
          file/unzip
          db-kit/portable
          ;; `current-plugin` is the loader's parameter; it lives in the scheduler
          ;; because job-kind ownership needed it first, and both registries read it.
          (only-in "../sched/scheduler.rkt" current-plugin))
 
-(provide extract-text extractable? EXTRACT-CAP EXTRACT-REASONS
+(provide extract-text extract-text/spans extractable? EXTRACT-CAP EXTRACT-REASONS
+         span-problem spans-covering
          strip-tags pdftotext-available?
          register-extractor! unregister-extractor! registered-extractors extractors-of-plugin
-         repo-text-upsert! repo-text-delete! repo-text-for)
+         repo-text-upsert! repo-text-delete! repo-text-for repo-spans-for)
 
 (define EXTRACT-CAP 200000)   ; characters, ~50 printed pages — plenty for search
 
@@ -42,6 +43,56 @@
 ;; — anything else becomes 'failed — because a plugin inventing a fifth would
 ;; reach doc_text as a refusal naming a symbol nothing can explain.
 (define EXTRACT-REASONS '(unsupported missing-tool needs-ocr failed))
+
+;; ---- provenance (LAY-5) ----------------------------------------------------------
+;; Where a run of the extracted text CAME FROM. An extractor that reads a scan
+;; knows the page and the region of every run it recovered; `extract-text` threw
+;; all of it away, and a reviewer was left hunting a number through thirty pages.
+;;
+;; `start`/`end` are character offsets into the text this same call returned, so a
+;; value the model extracted can be traced back to a region without re-reading the
+;; document. The bbox is in the extractor's own page units — the platform does not
+;; interpret it, only carries it, because PDF points and image pixels are both
+;; legitimate and only the renderer knows which.
+;;
+;; This exists before any built-in fills it. Adding it later would mean
+;; re-processing every document ever ingested, which is the whole argument for
+;; spending the column now.
+(define MAX-SPANS 20000)
+
+(define (span-problem sp)
+  (define (num? k) (real? (hash-ref sp k #f)))
+  (cond
+    [(not (hash? sp)) "a span must be an object"]
+    [(not (exact-nonnegative-integer? (hash-ref sp 'start #f))) "a span needs an integer 'start'"]
+    [(not (exact-nonnegative-integer? (hash-ref sp 'end #f))) "a span needs an integer 'end'"]
+    [(> (hash-ref sp 'start) (hash-ref sp 'end)) "a span's 'start' may not exceed its 'end'"]
+    [(not (exact-nonnegative-integer? (hash-ref sp 'page 0))) "'page' must be an integer"]
+    [(let ([b (hash-ref sp 'bbox #f)])
+       (and b (not (and (list? b) (= 4 (length b)) (andmap real? b)))))
+     "'bbox' must be four numbers [x0 y0 x1 y1]"]
+    [else #f]))
+
+;; Keep the well-formed ones and drop the rest rather than refusing the whole
+;; extraction: provenance is an ENRICHMENT, and losing a region must never cost a
+;; team the text itself.
+(define (clean-spans spans)
+  (cond
+    [(not (list? spans)) '()]
+    [else (for/list ([sp (in-list spans)]
+                     [i (in-range MAX-SPANS)]
+                     #:when (and (hash? sp) (not (span-problem sp))))
+            (hasheq 'start (hash-ref sp 'start) 'end (hash-ref sp 'end)
+                    'page (hash-ref sp 'page 0)
+                    'bbox (let ([b (hash-ref sp 'bbox #f)]) (if b b 'null))))]))
+
+;; the spans covering a character offset, in order
+(define (spans-covering spans offset)
+  (for/list ([sp (in-list spans)]
+             #:when (and (hash? sp)
+                         (<= (hash-ref sp 'start 0) offset)
+                         (< offset (max (add1 (hash-ref sp 'start 0)) (hash-ref sp 'end 0)))))
+    sp))
 
 ;; ---- classification ----------------------------------------------------------
 (define TEXTUAL
@@ -166,12 +217,22 @@
 ;;   #f 'missing-tool  pdftotext is not installed; the reason an operator can fix
 ;;   #f 'needs-ocr     a PDF with no TEXT LAYER — a scan. See below.
 ;;   #f 'failed        the extractor raised or the subprocess died
+;; The 2-value form every existing caller uses. Provenance is strictly additive:
+;; doc_text, the indexer and the repo.text capability keep the contract they had.
 (define (extract-text in content-type)
+  (define-values (text reason _spans) (extract-text/spans in content-type))
+  (values text reason))
+
+(define (extract-text/spans in content-type)
   (define (cap s) (if (> (string-length s) EXTRACT-CAP) (substring s 0 EXTRACT-CAP) s))
   (define registered (hash-ref *extractors* (normalize-ct content-type) #f))
   (cond
     [registered (extract-registered (cdr registered) in content-type cap)]
-    [else (extract-built-in in content-type cap)]))
+    [else
+     (define-values (text reason) (extract-built-in in content-type cap))
+     ;; no built-in reports regions yet — pdftotext would need -bbox-layout, and
+     ;; the reader that will actually have them is an OCR plugin
+     (values text reason '())]))
 
 ;; A plugin's extractor is held to the platform's contract, not its own: it is
 ;; wrapped so that raising, or answering with the wrong shape, is the SAME
@@ -179,13 +240,27 @@
 ;; wedge a team's indexing — the rule the index workflow already lives by, where
 ;; an unreadable file is recorded as processed-with-nothing rather than raised.
 ;; The cap is the platform's too, so a plugin cannot put megabytes in the index.
+;; An extractor may answer with two values or three; the third is its spans. Two
+;; is the whole existing world, including every plugin extractor shipped before
+;; provenance existed, so arity-tolerance here is what keeps LAY-7 from breaking.
 (define (extract-registered proc in content-type cap)
-  (with-handlers ([exn:fail? (lambda (_) (values #f 'failed))])
-    (define-values (text reason) (proc in content-type))
+  (with-handlers ([exn:fail? (lambda (_) (values #f 'failed '()))])
+    (define-values (text reason spans)
+      (call-with-values (lambda () (proc in content-type))
+        (case-lambda
+          [(t r) (values t r '())]
+          [(t r sp) (values t r sp)]
+          [_ (values #f 'failed '())])))
     (cond
-      [(string? text) (values (cap text) #f)]
-      [(memq reason EXTRACT-REASONS) (values #f reason)]
-      [else (values #f 'failed)])))
+      [(string? text)
+       ;; the text is capped, so a span pointing past the cut would resolve to
+       ;; nothing — drop those rather than store a reference that cannot land
+       (define capped (cap text))
+       (define limit (string-length capped))
+       (values capped #f
+               (for/list ([sp (in-list (clean-spans spans))] #:when (<= (hash-ref sp 'end) limit)) sp))]
+      [(memq reason EXTRACT-REASONS) (values #f reason '())]
+      [else (values #f 'failed '())])))
 
 (define (extract-built-in in content-type cap)
   (case (kind-of content-type)
@@ -211,14 +286,24 @@
     [else (values #f 'unsupported)]))
 
 ;; ---- the index rows -------------------------------------------------------------
-(define (repo-text-upsert! conn object-id version-id content)
+(define (repo-text-upsert! conn object-id version-id content #:spans [spans '()])
   (query-exec conn
-    (string-append "INSERT INTO repo_text (object_id, version_id, content, extracted_at) "
-                   "VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
+    (string-append "INSERT INTO repo_text (object_id, version_id, content, spans, extracted_at) "
+                   "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) "
                    "ON CONFLICT(object_id) DO UPDATE SET "
                    "version_id = excluded.version_id, content = excluded.content, "
-                   "extracted_at = CURRENT_TIMESTAMP")
-    object-id version-id content))
+                   "spans = excluded.spans, extracted_at = CURRENT_TIMESTAMP")
+    object-id version-id content (jsexpr->string (clean-spans spans))))
+
+;; the stored provenance for an object, or '() — never #f, so a caller that asks
+;; about a document extracted before provenance existed gets an empty answer
+;; rather than a special case
+(define (repo-spans-for conn object-id)
+  (define v (query-maybe-value conn "SELECT spans FROM repo_text WHERE object_id = ?" object-id))
+  (cond
+    [(or (not v) (sql-null? v)) '()]
+    [else (with-handlers ([exn:fail? (lambda (_) '())])
+            (let ([j (string->jsexpr v)]) (if (list? j) j '())))]))
 
 (define (repo-text-delete! conn object-id)
   (query-exec conn "DELETE FROM repo_text WHERE object_id = ?" object-id))

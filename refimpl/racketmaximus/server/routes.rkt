@@ -191,11 +191,15 @@
    (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error.")
 
    ;; ---- document repository -------------------------------------------------------------
-   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).")
+   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).")
    (R "POST" "/api/repo-obj/:id/share" 'repo-share #:perm "files:manage" #:doc "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.")
    (R "POST" "/api/repo-obj/:id/unshare" 'repo-unshare #:perm "files:manage" #:doc "Revoke every grant a principal holds on the object.")
    (R "GET" "/api/repo-obj/:id/grants" 'repo-grants #:perm "files:manage" #:doc "One entry per principal: capability, permissions, granted_by, expiry, expired.")
    (R "GET" "/api/repo-obj/:id/derivations" 'repo-derivations #:perm "files:read" #:doc "Provenance: what the document was derived from, by which run and step.")
+   (R "GET" "/api/repo-fields" 'repo-fields-get #:perm "files:read" #:doc "The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex.")
+   (R "PUT" "/api/repo-fields" 'repo-fields-put #:perm "settings:manage" #:doc "Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration.")
+   (R "PATCH" "/api/repo-obj/:id/attributes" 'repo-attributes #:perm "files:read" #:doc "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.")
+   (R "GET" "/api/repo-obj/:id/spans" 'repo-spans #:perm "files:read" #:doc "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.")
    (R "GET" "/api/repo-obj/:id/processing" 'repo-processing #:perm "files:read" #:doc "\"Processed by\": derived documents, sources, and every run that touched the document.")
    (R "GET" "/api/share-targets" 'share-targets #:perm "files:read" #:doc "Who a document can be shared with: the team's people and the org's teams.")
    (R "POST" "/api/repo-obj/:id/visibility" 'repo-visibility #:perm "files:manage" #:doc "Set private, team or shared.")
