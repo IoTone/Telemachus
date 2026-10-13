@@ -118,10 +118,10 @@
   .bx-ed .sec{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px;font-weight:700}
   .bx-swatches{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .bx-swatches input[type=color]{height:34px;padding:2px}
-  /* Signing in means five sequential API calls (branding, i18n, catalog, whoami,
-     features), so on a real box the sign-in card sits there for a beat and then
-     the shell replaces it. The swap used to be a hard cut; a short fade makes it
-     a transition. Somebody who asked their OS for less motion gets none. */
+  /* Signing in is two rounds of API calls, so on a real box the sign-in card
+     still sits there for a beat and then the shell replaces it. The swap used to
+     be a hard cut; a short fade makes it a transition. Somebody who asked their
+     OS for less motion gets none. */
   @keyframes tmx-fade-in{from{opacity:0}to{opacity:1}}
   .tmx-enter{animation:tmx-fade-in .15s ease-out both}
   @media (prefers-reduced-motion: reduce){ .tmx-enter{animation:none} }
@@ -379,9 +379,9 @@ function authView(){
     </details>
   </div>`;
 }
-// Signing in is five sequential API calls deep (see render), so without this the
-// card sits unchanged and unresponsive for a second or more and the click looks
-// lost — the window is invisible on localhost and obvious on a real box. The
+// Signing in is two rounds of API calls deep (see render), so without this the
+// card sits unchanged and unresponsive while they run and the click looks lost —
+// the window is invisible on localhost and obvious on a real box. The
 // pending state is also the double-submit guard: two doLogin() calls would mint
 // two sessions and race two renders.
 async function doLogin(){
@@ -2097,9 +2097,10 @@ async function doSearch(){
         <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : '<p class="muted">no results</p>';
 }
-// `render` awaits four times (branding, me, config/features). Anything that
-// changes S while one is in flight — logout nulling S.me is the easy one — used
-// to let the stale run resume and paint with the new state half-applied, which
+// `render` awaits at several points (two rounds of fetches, then the tab's own).
+// Anything that changes S while one is in flight — logout nulling S.me is the
+// easy one — used to let the stale run resume and paint with the new state
+// half-applied, which
 // threw "Cannot read properties of null (reading 'is_operator')" out of
 // appShell(). A generation counter makes the older run stand down at each await
 // boundary, so the newest render always wins and no half-render reaches the DOM.
@@ -2118,11 +2119,26 @@ async function render(){
   }
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
-  await loadBranding(); if(stale()) return;
-  await loadI18n();     if(stale()) return;
-  await loadCatalog();  if(stale()) return;
-  await refreshMe();    if(stale()) return;
+  // Two rounds, not five. These three are independent: branding and the instance
+  // config are public, and whoami reads neither. Running them one after another
+  // made every sign-in five sequential round trips — ~2.3s at 300ms each, which
+  // is invisible on localhost and the whole of what made signing in feel slow.
+  //
+  // What is NOT parallelizable, and why the shape is two rounds rather than one:
+  // loadCatalog needs the locale loadI18n resolves (?locale=, not the header),
+  // and /api/features needs the principal refreshMe resolves. The theme still
+  // lands before the first paint, because the whole round is awaited before
+  // anything reaches #app.
+  //
+  // Ordering note: api() sends X-Telemachus-Locale: S.lang, so branding and
+  // whoami now go out with the locale from the PREVIOUS pass. Neither reads it —
+  // branding is operator-authored and whoami is ids, permissions and policy
+  // numbers, with its `locale` field read from the database rather than the
+  // header. Do not move a locale-SENSITIVE call into this round.
+  await Promise.all([loadBranding(), loadI18n(), refreshMe()]);
+  if(stale()) return;
   if(!S.me){
+    await loadCatalog(); if(stale()) return;   // the sign-in screen's own copy
     const cfg = S.cfg ? {ok:true, json:S.cfg} : await api('/api/config');   // loadI18n() already fetched it
     if(stale()) return; S.home = cfg.ok ? cfg.json.home : 'login';
     const atLoginPath = location.pathname.replace(/\/$/,'').endsWith('/login');
@@ -2137,7 +2153,10 @@ async function render(){
     }
     paintAuth(app); return;
   }
-  const fr=await api('/api/features'); if(stale()) return;
+  // round two, signed in: the catalog and the feature list do not depend on each
+  // other, so they go together
+  const [, fr] = await Promise.all([loadCatalog(), api('/api/features')]);
+  if(stale()) return;
   S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
   if(S.features[S.tab]===false) S.tab='team';
   if(!S.me) return;                      // signed out while we were awaiting

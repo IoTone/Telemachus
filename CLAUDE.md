@@ -1739,17 +1739,30 @@ model role at any executor name**, including another org's, because
   login field, mid-sign-in. Paint it through **`paintAuth()`**, which carries
   `lu`/`lp`/`lc`/`bu`/`bp` and the caret across the swap. Never go back to
   `app.innerHTML = authView()` at a call site.
-- **Signing in is FIVE sequential API calls deep** — `loadBranding`, `loadI18n`,
-  `loadCatalog`, `refreshMe`, then `/api/features` — so the card sits there for a
-  beat before the shell replaces it. Invisible on localhost, obvious on a real
-  box (measured ~2.3s at 300ms/call). The button therefore enters a pending state
-  (`ui.signingin`) the instant it is clicked, which is ALSO the double-submit
-  guard: two `doLogin()` calls would mint two sessions and race two renders.
-  `S.signingIn` is cleared in a `finally`, or a throw leaves the button disabled
-  for ever with no way back but a reload. **Parallelizing those calls is the
-  obvious next win and is NOT done** — the ordering is load-bearing (the theme
-  must be applied before the first paint, the locale resolved before the
-  catalog).
+- **`render()` fetches in TWO ROUNDS, and the shape is the dependency graph.**
+  It used to be five sequential calls — `loadBranding`, `loadI18n`,
+  `loadCatalog`, `refreshMe`, `/api/features` — which is invisible on localhost
+  and was the whole of what made signing in feel slow. Round one is
+  `Promise.all([loadBranding(), loadI18n(), refreshMe()])`: all three are
+  independent, branding and the config are public, and whoami reads neither.
+  Round two is what genuinely depends on round one — `loadCatalog` needs the
+  locale `loadI18n` resolves, `/api/features` needs the principal `refreshMe`
+  resolves — so those two go together. Measured at 300ms/call: sign-in 2283ms →
+  1316ms, reload-with-token 1566ms → 633ms.
+  - **Do not move a locale-SENSITIVE call into round one.** `api()` sends
+    `X-Telemachus-Locale: S.lang`, so branding and whoami now go out with the
+    PREVIOUS pass's locale. Neither reads it (branding is operator-authored;
+    whoami is ids, permissions and policy numbers, and its `locale` field comes
+    from the database, not the header) — but the next call added there might.
+  - The theme still lands before the first paint: the whole round is awaited
+    before anything reaches `#app`.
+  - `stale()` is checked once per ROUND now rather than once per call. That is
+    still every await boundary, which is what the generation counter needs.
+- **The button enters a pending state (`ui.signingin`) the instant it is
+  clicked**, because two rounds is still a visible beat on a real box. That is
+  ALSO the double-submit guard: two `doLogin()` calls would mint two sessions and
+  race two renders. `S.signingIn` is cleared in a `finally`, or a throw leaves
+  the button disabled for ever with no way back but a reload.
 - The auth→shell swap and the first paint after the blank window are faded
   (`.tmx-enter`, 150ms), with `@media (prefers-reduced-motion: reduce)` turning
   it off. `fadeIn` forces a reflow before re-adding the class, or a node that
