@@ -1030,6 +1030,42 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   described and with its own queue rather than a release endpoint. The design doc,
   its slice plan and decision WF‑5 all say so now.
 
+## A plugin can claim a FILE FORMAT (LAY‑7, built 12 Oct 2026)
+
+`kind-of` in `extract.rkt` was a fixed `cond` over text / markup / docx / pdf, so a
+plugin could add a tool, a route, a workflow and a job kind — but not a reader.
+
+- **`register-extractor!` from a plugin's `init!`**, keyed by content type, with
+  the ownership rules `register-job-kind!` already had: two plugins cannot claim
+  one type, re-registering your own is fine (the loader may run twice in one
+  process). Ownership comes from `current-plugin`, which lives in the scheduler
+  because job kinds needed it first; both registries read it.
+- **A registration REPLACES the built-in for that type.** That is the point —
+  claiming `application/pdf` is how a local OCR engine takes over from
+  `pdftotext`.
+- **An extractor is IN-PROCESS Racket** with the platform's own contract,
+  `(in content-type) -> (values text-or-#f reason-or-#f)`. Reaching a non-Racket
+  engine is its own business and shelling out is the established way — the
+  built-in PDF reader is a pipe to `pdftotext`. Shipping bytes TO a subprocess is
+  the other seam (LAY‑6's `repo.get`), for a plugin that is a tool, not a reader.
+- **`EXTRACT-REASONS` is a CLOSED vocabulary**: `unsupported` / `missing-tool` /
+  `needs-ocr` / `failed`. `doc_text` branches on two of them for named refusals
+  and the indexer records any of them as processed-with-nothing, so a plugin
+  inventing a fifth would arrive as a refusal naming something nothing explains.
+  Anything else collapses to `failed`.
+- **A plugin that raises, or answers with the wrong shape, is `'failed`** — never
+  an exception. One plugin must not wedge a team's indexing, which is the rule the
+  indexer already lived by for a bad FILE.
+- **The cap stays the platform's** (`EXTRACT-CAP`): this feeds a search index, not
+  an archive.
+- `GET /api/plugins` reports each plugin's `extractors`. Worked example: an RTF
+  reader in `plugins/example-tools/` — RTF because the platform genuinely cannot
+  read it, and an unreadable document is invisible to search.
+
+```sh
+raco test test/extractor-registry-tests.rkt   # 9 cases: replacement, ownership, containment
+```
+
 ## Out-of-process plugins reach the repository (LAY‑6, built 12 Oct 2026)
 
 A sandboxed plugin could reach `notes.create` and `notes.list` and nothing else,

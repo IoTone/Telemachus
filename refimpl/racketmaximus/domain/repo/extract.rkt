@@ -23,13 +23,25 @@
 
 (require racket/port racket/string racket/system racket/file
          file/unzip
-         db-kit/portable)
+         db-kit/portable
+         ;; `current-plugin` is the loader's parameter; it lives in the scheduler
+         ;; because job-kind ownership needed it first, and both registries read it.
+         (only-in "../sched/scheduler.rkt" current-plugin))
 
-(provide extract-text extractable? EXTRACT-CAP
+(provide extract-text extractable? EXTRACT-CAP EXTRACT-REASONS
          strip-tags pdftotext-available?
+         register-extractor! unregister-extractor! registered-extractors extractors-of-plugin
          repo-text-upsert! repo-text-delete! repo-text-for)
 
 (define EXTRACT-CAP 200000)   ; characters, ~50 printed pages — plenty for search
+
+;; The reasons extract-text may give. This is a CONTRACT, not a convenience enum:
+;; `doc_text` branches on 'missing-tool and 'needs-ocr to produce named refusals,
+;; and the indexer records any reason as processed-with-nothing so one bad file
+;; cannot wedge a team's indexing. A registered extractor is held to the same four
+;; — anything else becomes 'failed — because a plugin inventing a fifth would
+;; reach doc_text as a refusal naming a symbol nothing can explain.
+(define EXTRACT-REASONS '(unsupported missing-tool needs-ocr failed))
 
 ;; ---- classification ----------------------------------------------------------
 (define TEXTUAL
@@ -39,6 +51,49 @@
 (define DOCX
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 (define PDF "application/pdf")
+
+;; ---- the extractor registry (LAY-7) ---------------------------------------------
+;; `kind-of` was a fixed cond, so a plugin could add a tool, a route, a workflow
+;; and a job kind — but not a FORMAT. "Model-replaceable architecture" names PDF
+;; extraction and image classification as exactly the parts a deployment expects
+;; to swap, which is the one list this seam did not cover.
+;;
+;; A registered extractor is IN-PROCESS Racket with the same contract extract-text
+;; has: (in content-type) -> (values text-or-#f reason-or-#f). Reaching a
+;; non-Racket engine is the extractor's own business, and shelling out is the
+;; established way here — the built-in PDF reader is a pipe to `pdftotext`, so a
+;; plugin wrapping YomiToku or PaddleOCR is a few lines of Racket around a
+;; subprocess. Shipping bytes TO an out-of-process plugin is the other seam
+;; (LAY-6's repo.get), for a plugin that acts as a tool rather than as a reader.
+;;
+;; A registration REPLACES the built-in for that type — swapping the PDF reader is
+;; the point. Two different plugins claiming one type is refused, the same call
+;; the job-kind registry makes, and re-registering your own is fine because the
+;; loader may run twice in one process.
+(define *extractors* (make-hash))          ; content-type -> (cons owner-plugin-id proc)
+
+(define (normalize-ct content-type)
+  (string-downcase (string-trim (car (string-split (or content-type "") ";")))))
+
+(define (register-extractor! content-type proc)
+  (define ct (normalize-ct content-type))
+  (define pid (current-plugin))
+  (when (string=? ct "") (error 'register-extractor! "a content type is required"))
+  (unless (procedure? proc) (error 'register-extractor! "~a: an extractor must be a procedure" ct))
+  (define owner (let ([e (hash-ref *extractors* ct #f)]) (and e (car e))))
+  (when (and owner (not (equal? owner pid)))
+    (error 'register-extractor! "content type ~s is already claimed by plugin ~a" ct owner))
+  (hash-set! *extractors* ct (cons pid proc)))
+
+(define (unregister-extractor! content-type) (hash-remove! *extractors* (normalize-ct content-type)))
+
+;; content-type -> owner plugin id (or #f for one registered outside a plugin)
+(define (registered-extractors)
+  (for/list ([ct (in-list (sort (hash-keys *extractors*) string<?))])
+    (cons ct (car (hash-ref *extractors* ct)))))
+
+(define (extractors-of-plugin id)
+  (sort (for/list ([(ct e) (in-hash *extractors*)] #:when (equal? (car e) id)) ct) string<?))
 
 (define (kind-of content-type)
   (define ct (string-downcase (car (string-split (or content-type "") ";"))))
@@ -50,7 +105,9 @@
     [(string=? ct PDF) 'pdf]
     [else #f]))
 
-(define (extractable? content-type) (and (kind-of content-type) #t))
+(define (extractable? content-type)
+  (or (hash-has-key? *extractors* (normalize-ct content-type))
+      (and (kind-of content-type) #t)))
 
 ;; ---- the extractors ------------------------------------------------------------
 (define (bytes->text/lossy bs)
@@ -111,6 +168,26 @@
 ;;   #f 'failed        the extractor raised or the subprocess died
 (define (extract-text in content-type)
   (define (cap s) (if (> (string-length s) EXTRACT-CAP) (substring s 0 EXTRACT-CAP) s))
+  (define registered (hash-ref *extractors* (normalize-ct content-type) #f))
+  (cond
+    [registered (extract-registered (cdr registered) in content-type cap)]
+    [else (extract-built-in in content-type cap)]))
+
+;; A plugin's extractor is held to the platform's contract, not its own: it is
+;; wrapped so that raising, or answering with the wrong shape, is the SAME
+;; `'failed` an in-tree extractor would produce. One plugin must not be able to
+;; wedge a team's indexing — the rule the index workflow already lives by, where
+;; an unreadable file is recorded as processed-with-nothing rather than raised.
+;; The cap is the platform's too, so a plugin cannot put megabytes in the index.
+(define (extract-registered proc in content-type cap)
+  (with-handlers ([exn:fail? (lambda (_) (values #f 'failed))])
+    (define-values (text reason) (proc in content-type))
+    (cond
+      [(string? text) (values (cap text) #f)]
+      [(memq reason EXTRACT-REASONS) (values #f reason)]
+      [else (values #f 'failed)])))
+
+(define (extract-built-in in content-type cap)
   (case (kind-of content-type)
     [(text)   (values (cap (bytes->text/lossy (port->bytes in))) #f)]
     [(markup) (values (cap (strip-tags (bytes->text/lossy (port->bytes in)))) #f)]

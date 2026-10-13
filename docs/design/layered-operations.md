@@ -1,11 +1,12 @@
 # Layered operations: human review, project metadata, and the plugin boundary
 
 *Proposed 3 Oct 2026 (LAY‑1…12, see [decisions.md](decisions.md)). **LAY‑1, ‑2 and
-‑3 and ‑6 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
+‑3, ‑6 and ‑7 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
 decision records in `domain/review/review.rkt`, generalised four-eyes, `/api/reviews*`
 and the Review tab, with `test/review-tests.rkt` and the smoke's `== reviews ==`
-block; and the repository capabilities for out-of-process plugins. LAY‑8 landed
-separately with four other defects from issue #54. The rest remain proposals. This document is a gap analysis: it separates what the **platform**
+block; the repository capabilities for out-of-process plugins; and the extractor
+registry. LAY‑8 landed separately with four other defects from issue #54. The rest
+remain proposals. This document is a gap analysis: it separates what the **platform**
 must grow from what a **domain supplies as plugins and workflows**. It is driven
 by an RFE from a prospective customer — a small civil-engineering and
 disaster-response team in Japan — but the platform gaps it finds are not
@@ -198,7 +199,7 @@ should not have to match on an error string to find its own branch. `GET
 /api/plugins` now lists sandboxed plugins and the scopes each declared, which was
 not observable at all. Worked example: `oop-plugins/doc-reader/`.
 
-### LAY‑7 — Extractors are a fixed dispatch, not a registry
+### LAY‑7 — Extractors are a fixed dispatch, not a registry  ✅ built
 
 `kind-of` in `extract.rkt` is a `cond` over content types: text, markup, docx,
 pdf. A plugin can add tools, routes, job kinds and workflows — but **cannot add
@@ -209,6 +210,28 @@ exactly the list this seam does not cover.
 With a registry, Japanese OCR, EXIF reading and keyframe sampling are all the
 same kind of object: a plugin that claims a content type and returns text plus
 metadata plus (LAY‑5) provenance.
+
+*As built:* `register-extractor!` keyed by content type, with the ownership rules
+the job-kind registry already had — two plugins cannot claim one type, and
+re-registering your own is fine because the loader may run twice. A registration
+REPLACES the built-in for that type, which is how a local OCR engine takes over
+`application/pdf`. An extractor is in-process Racket and reaches a non-Racket
+engine by shelling out, exactly as the built-in PDF reader pipes to `pdftotext`.
+
+Three things the platform holds a plugin to, each because the alternative
+regresses something that already works: the reason vocabulary is CLOSED to
+`unsupported` / `missing-tool` / `needs-ocr` / `failed`, because `doc_text`
+branches on two of them to produce named refusals and a fifth would arrive as a
+refusal naming nothing; a plugin that raises or answers with the wrong shape
+becomes the same `failed` an in-tree extractor gives, because one plugin must not
+wedge a team's indexing; and the cap stays `EXTRACT-CAP`, because this feeds a
+search index rather than an archive. `GET /api/plugins` reports each plugin's
+claimed types. Worked example: an RTF reader in `plugins/example-tools/`.
+
+What this does NOT do is let an out-of-process plugin BE an extractor — the
+registry is called where the bytes are, with a port. A Python engine is reached
+by shelling out from a small Racket extractor, and LAY‑6 covers the other
+direction, where a plugin acts as a tool and asks for the bytes itself.
 
 ### LAY‑8 — A scanned page is indistinguishable from a blank one  ✅ built
 

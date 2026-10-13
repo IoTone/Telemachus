@@ -6,8 +6,9 @@
 ;;   (conn principal args) -> string.
 ;; This whole file is the extension contract.
 
-(require racket/string
-         (only-in "../../domain/sched/scheduler.rkt" register-job-kind!))
+(require racket/string racket/port
+         (only-in "../../domain/sched/scheduler.rkt" register-job-kind!)
+         (only-in "../../domain/repo/extract.rkt" register-extractor!))
 
 (provide tools routes init!)
 
@@ -60,5 +61,36 @@
   (define text (let ([v (hash-ref payload 'text "")]) (if (string? v) v "")))
   (hasheq 'words (length (string-split text))))
 
+;; ---- an EXTRACTOR (LAY-7) --------------------------------------------------------
+;; The platform reads text, markup, DOCX and PDF. A deployment that needs another
+;; format — or a better reader for one it already has — registers an extractor for
+;; a content type and the search index, doc_text and the whole document pipeline
+;; pick it up with no other change. Registering a type the platform already reads
+;; REPLACES its reader, which is how a local OCR engine takes over application/pdf.
+;;
+;; The contract is the platform's own: (in content-type) -> (values text-or-#f
+;; reason-or-#f), where a reason is one of unsupported / missing-tool / needs-ocr
+;; / failed. Reaching a non-Racket engine is this procedure's own business —
+;; the built-in PDF reader is a pipe to `pdftotext`, and a real OCR plugin would
+;; shell out to YomiToku or PaddleOCR the same way.
+;;
+;; RTF is the demonstration because the platform genuinely cannot read it: an
+;; unreadable document is invisible to search, which is the gap a format plugin
+;; closes.
+(define (extract-rtf in content-type)
+  (define raw (port->string in))
+  (cond
+    [(not (string-prefix? (string-trim raw) "{\\rtf")) (values #f 'failed)]
+    [else
+     ;; Good enough for an index, which is all this is — not a parser. A control
+     ;; word becomes a SPACE rather than nothing: in RTF the space after one is a
+     ;; delimiter, so `inspected\b0 today` is correctly two adjacent words, and
+     ;; deleting the control word outright would index "inspectedtoday", which
+     ;; matches neither search term.
+     (define no-controls (regexp-replace* #px"\\\\[a-zA-Z]+-?[0-9]*[ ]?" raw " "))
+     (define no-braces (regexp-replace* #px"[{}]" no-controls " "))
+     (values (string-trim (regexp-replace* #px"\\s+" no-braces " ")) #f)]))
+
 (define (init!)
-  (register-job-kind! "x.example-tools.word-count" word-count-job))
+  (register-job-kind! "x.example-tools.word-count" word-count-job)
+  (register-extractor! "application/rtf" extract-rtf))

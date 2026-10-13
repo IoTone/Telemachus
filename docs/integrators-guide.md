@@ -252,6 +252,51 @@ the scan case, and files the text back derived from the original. `GET /api/plug
 lists sandboxed plugins under `sandboxed` with the scopes each declared, which is
 how an operator audits who holds `files:write`.
 
+## 7c. Teach it a file format
+
+The platform reads text, markup, DOCX and PDF. Everything else is `unsupported` —
+invisible to search, and a hard stop for the document pipeline. A plugin can claim
+a content type and the whole chain picks it up: the search index, `doc_text`, and
+every workflow built on them, with no other change.
+
+```racket
+(require (only-in "../../domain/repo/extract.rkt" register-extractor!))
+
+(define (extract-rtf in content-type)
+  ...)                                   ; -> (values text-or-#f reason-or-#f)
+
+(define (init!)
+  (register-extractor! "application/rtf" extract-rtf))
+```
+
+**Registering a type the platform already reads REPLACES its reader.** That is the
+point, not a side effect: claiming `application/pdf` is how a local OCR engine
+takes over from `pdftotext`.
+
+An extractor is in-process Racket, and reaching a non-Racket engine is its own
+business — the built-in PDF reader is a pipe to `pdftotext`, so a plugin wrapping
+YomiToku or PaddleOCR is a few lines of Racket around a subprocess. (Shipping
+bytes *to* an out-of-process plugin is the other seam, §7b, for a plugin that acts
+as a tool rather than as a reader.)
+
+Four rules the platform holds you to:
+
+| | |
+|---|---|
+| **The contract** | `(in content-type) -> (values text-or-#f reason-or-#f)` |
+| **The reasons** | `unsupported`, `missing-tool`, `needs-ocr`, `failed` — and nothing else. A fifth would reach `doc_text` as a refusal naming something it cannot explain, so anything else becomes `failed`. |
+| **Failure is contained** | Raising, or answering with the wrong shape, is the same `failed` an in-tree extractor would give. One plugin must not be able to wedge a team's indexing. |
+| **The cap is ours** | Output is truncated to `EXTRACT-CAP`. This feeds a search index, not an archive. |
+
+`needs-ocr` means something specific: the reader ran and found no text, so the
+document is a scan. Report that rather than returning `""` — an empty extraction
+is recorded as a success and the document is never looked at again.
+
+Two plugins cannot claim one content type; the second is refused. Re-registering
+your own is fine, because the loader may run twice in one process.
+`GET /api/plugins` lists each plugin's `extractors`, so an operator can see who
+reads what. `plugins/example-tools/` ships an RTF reader as the worked example.
+
 ## 8. The worked example
 
 `plugins/integrator-demo/` is the whole of the above in one directory, and it is the

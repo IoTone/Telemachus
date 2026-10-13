@@ -551,6 +551,31 @@ assert "index-documents run completed" "$idxs" "done"
 assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
 
+# ---- LAY-7: a plugin can claim a FILE FORMAT -------------------------------------
+# RTF is a format the platform has no reader for — an unreadable document is
+# invisible to search. example-tools registers an extractor for it, so the word
+# "aqueduct", which appears ONLY inside the RTF control codes, has to come back
+# through the plugin's reader, the index and search, over HTTP.
+assert "the plugin's claimed format is in the reference" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"extractors":["application/rtf"]'
+printf '{\\rtf1\\ansi The \\b aqueduct\\b0 survey is filed.}' > /tmp/tmx-smoke-rtf.rtf
+curl -s -X PUT "$B/api/repo/surveys/report.rtf" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/rtf' --data-binary @/tmp/tmx-smoke-rtf.rtf >/dev/null
+assert "not searchable before indexing" \
+  "$(curl -s "$B/api/search?q=aqueduct" -H "Authorization: Bearer $OP" | grep -c '"type":"file"' || true)" "0"
+RTFRUN=$(curl -s -X POST $B/api/workflows/index-documents/run -H "Authorization: Bearer $OP" -d '{}')
+RTFID=$(printf '%s' "$RTFRUN" | grep -oP '"id":"\K[^"]+' | head -1)
+rtfs=""
+for i in $(seq 1 40); do
+  rtfs=$(curl -s "$B/api/runs/$RTFID" -H "Authorization: Bearer $OP" | grep -oP '"status":"\K[^"]+' | head -1)
+  case "$rtfs" in done|error|canceled) break;; esac
+  sleep 0.5
+done
+assert "the indexing run completed" "$rtfs" "done"
+assert "a format only a PLUGIN can read is searchable" \
+  "$(curl -s "$B/api/search?q=aqueduct" -H "Authorization: Bearer $OP")" 'surveys/report.rtf'
+rm -f /tmp/tmx-smoke-rtf.rtf
+
 # ---- slice 61: the knowledge graph — the surface exists, and extraction refuses to
 # run on the fallback model (the mention rule and the pipeline are unit-tested;
 # the whole flow over HTTP is in test/doc-pipeline-smoke.sh against a scripted model)

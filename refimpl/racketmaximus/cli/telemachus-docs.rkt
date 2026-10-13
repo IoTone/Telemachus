@@ -105,6 +105,10 @@
                     ;; from the loader but this projection dropped the key, so the
                     ;; column rendered "—" for a plugin that has one
                     'job_kinds (sort (hash-ref p 'job_kinds '()) string<?)
+                    ;; LAY-7: the content types this plugin claims a reader for.
+                    ;; Projected explicitly for the same reason job_kinds is —
+                    ;; a key dropped here renders as "—" for a plugin that has one.
+                    'extractors (sort (hash-ref p 'extractors '()) string<?)
                     'routes (sort (hash-ref p 'routes '()) string<?)))
           string<? #:key (lambda (p) (hash-ref p 'id))))
   ;; the plugins' authenticated routes, in api.md beside the core ones
@@ -386,13 +390,14 @@
    "(`id`, `name`, `version`, `description`, `entry`) and an entry module. Plugins run "
    "in-process with platform privileges; placing one in the directory is the consent.\n\n"
    "## Loaded plugins\n\n"
-   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Job kinds" "Description")
+   (table '("Plugin" "Version" "Tools" "Workflows" "Routes" "Job kinds" "Formats" "Description")
           (for/list ([p (in-list plugins)])
             (list (string-append (hash-ref p 'name) " (" (code (hash-ref p 'id)) ")") (hash-ref p 'version)
                   (let ([t (hash-ref p 'tools)]) (if (null? t) "—" (string-join (map code t) ", ")))
                   (let ([w (hash-ref p 'workflows)]) (if (null? w) "—" (string-join (map code w) ", ")))
                   (let ([r (hash-ref p 'routes '())]) (if (null? r) "—" (string-join (map code r) ", ")))
                   (let ([k (hash-ref p 'job_kinds '())]) (if (null? k) "—" (string-join (map code k) ", ")))
+                  (let ([x (hash-ref p 'extractors '())]) (if (null? x) "—" (string-join (map code x) ", ")))
                   (L (string-append "doc.plugin." (hash-ref p 'id)) (hash-ref p 'description)))))
    "\n## The seams a plugin may fill\n\n"
    "| Seam | How | Where it lands |\n|---|---|---|\n"
@@ -400,6 +405,7 @@
    "| Workflows | `(provide workflows)` — specs from `define-workflow`, or `workflows/*.json` | validated like an API-published spec; materialized into a team on first lookup |\n"
    "| HTTP routes | `(provide routes)` — a list of `(method path permission handler doc)`; the handler is `(conn principal args) -> jsexpr` with `args` = `{params, query, body}` | mounted at `/api/x/<plugin>/<path>`, always authenticated, permission checked first; listed in [api.md](api.md) |\n"
    "| Job kinds | `(provide init!)` calling `register-job-kind!`; the kind must be named `x.<plugin-id>.<name>` | the same queue as core kinds: per-team cap, quota admission, the org gate, cancel and the lease |\n"
+   "| Formats | `(provide init!)` calling `register-extractor!` with a content type | the search index, `doc_text` and every workflow over them. Claiming a type the platform already reads REPLACES its reader — that is how a local OCR engine takes over `application/pdf` |\n"
    "| Anything else | `(provide init!)` — runs with full SDK access at load | e.g. `register-blob-store!` (the `rs3` local store), `register-onboarding!` (a beta funnel experience) |\n"
    "| A beta funnel bundle | a `landing/` directory, served PUBLICLY at `/beta/bundle/<id>/` | a Tier-B custom frontend over `window.Telemachus.beta`, for prospects who have no token |\n"
    "| Authenticated screens | a `bundle/` directory, served at `/api/x/<id>/bundle/` | a bearer token is required and the response is `private, no-store`; assets must ship in the bundle (the CSP is same-origin) |\n\n"
