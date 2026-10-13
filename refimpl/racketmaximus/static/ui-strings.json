@@ -263,5 +263,6 @@
   "ui.welcome": "Welcome — finish setting up your account.",
   "ui.willversion": "This path exists — uploading saves a new version and keeps its current visibility",
   "ui.workflow": "Workflow",
-  "ui.workflows": "Workflows"
+  "ui.workflows": "Workflows",
+  "ui.signingin": "Signing in…"
 }

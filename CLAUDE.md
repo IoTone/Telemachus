@@ -1731,6 +1731,34 @@ model role at any executor name**, including another org's, because
   asset id when set. Same procedural `regexp-replace*` rule as the title — a
   string replacement would expand `&`.
 
+## The sign-in screen: a repaint must not be empty
+
+- **`authView()`'s inputs are always EMPTY, and the sign-in screen DOES get
+  repainted while signed out.** `setLang()` and `applyBrand()` both call
+  `render()`, so switching language after typing a username wiped it — an empty
+  login field, mid-sign-in. Paint it through **`paintAuth()`**, which carries
+  `lu`/`lp`/`lc`/`bu`/`bp` and the caret across the swap. Never go back to
+  `app.innerHTML = authView()` at a call site.
+- **Signing in is FIVE sequential API calls deep** — `loadBranding`, `loadI18n`,
+  `loadCatalog`, `refreshMe`, then `/api/features` — so the card sits there for a
+  beat before the shell replaces it. Invisible on localhost, obvious on a real
+  box (measured ~2.3s at 300ms/call). The button therefore enters a pending state
+  (`ui.signingin`) the instant it is clicked, which is ALSO the double-submit
+  guard: two `doLogin()` calls would mint two sessions and race two renders.
+  `S.signingIn` is cleared in a `finally`, or a throw leaves the button disabled
+  for ever with no way back but a reload. **Parallelizing those calls is the
+  obvious next win and is NOT done** — the ordering is load-bearing (the theme
+  must be applied before the first paint, the locale resolved before the
+  catalog).
+- The auth→shell swap and the first paint after the blank window are faded
+  (`.tmx-enter`, 150ms), with `@media (prefers-reduced-motion: reduce)` turning
+  it off. `fadeIn` forces a reflow before re-adding the class, or a node that
+  already carries it keeps the finished animation and nothing fades.
+- **A browser test that switches language on the sign-in screen must put
+  `localStorage.tmx_lang` back.** A stored choice legitimately wins over the
+  instance default, so leaving one set silently broke the gate's later "console
+  repaints in Japanese" assertion — the failure appears in an unrelated step.
+
 ## Session timeouts (issue #38, slice 70)
 
 `domain/authz/session-policy.rkt` — an **idle** timeout and an **absolute** cap,

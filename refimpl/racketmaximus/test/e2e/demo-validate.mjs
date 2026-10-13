@@ -146,6 +146,28 @@ try {
   ok('GET /api/branding is public (no token yet)', brandApi.ok, `status ${brandApi.status}`);
   eq('default branding title', brandApi.json && brandApi.json.title, 'Telemachus');
 
+  // A repaint of the sign-in screen must not throw away what has been typed.
+  // authView()'s inputs are always empty and switching language calls render(),
+  // so this wiped the username — an empty login field, mid-sign-in. Fails
+  // against the code before paintAuth().
+  const langs = await page.locator('.langtog button').count();
+  if (langs > 1) {
+    // Switching writes localStorage.tmx_lang, and a stored choice legitimately
+    // WINS over the instance default — which would silently break step 8b's
+    // "console repaints in Japanese". So put the key back exactly as it was and
+    // reload, leaving no trace of this check.
+    const before = await page.evaluate(() => localStorage.getItem('tmx_lang'));
+    await page.fill('#lu', 'typed-before-switch');
+    await page.locator('.langtog button').last().click();
+    await page.waitForTimeout(1200);
+    eq('switching language keeps what was typed into the sign-in form',
+       await page.inputValue('#lu'), 'typed-before-switch');
+    await page.evaluate((v) => { if (v === null) localStorage.removeItem('tmx_lang');
+                                 else localStorage.setItem('tmx_lang', v); }, before);
+    await page.goto(BASE + '/login', { waitUntil: 'networkidle', timeout: 30000 });
+    await page.waitForSelector('#lu', { timeout: 20000 });
+  }
+
   // ── 2. get into the console: bootstrap (fresh) or sign in (live) ────────────
   step(SIGN_IN ? 'sign in' : 'first-run bootstrap');
   if (SIGN_IN) {

@@ -2067,6 +2067,14 @@
       "text": "Workflows",
       "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
     },
+    "ui.signingin": {
+      "text": "Signing in…",
+      "hash": "c66b2adcc5fc9f594be38f098d54c7b610e46e57"
+    },
+    "ui.term": {
+      "text": "Term",
+      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
     "doc.tool.list_notes": {
       "text": "List the current user's notes (title and visibility).",
       "hash": "4f1bac788f076a7c3d361dd1dff2b3150e25f62c"
@@ -2186,10 +2194,6 @@
     "doc.tool.kg_extract.object": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
-    },
-    "ui.term": {
-      "text": "Term",
-      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
     },
     "doc.perm.webhooks:manage": {
       "text": "Configure outbound webhooks.",
