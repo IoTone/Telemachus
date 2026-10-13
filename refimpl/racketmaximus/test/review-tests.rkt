@@ -192,3 +192,82 @@
   (define out (review-decide! c p (hash-ref rev 'id) "approve" #:answers (hasheq 'method "sound")))
   (check-equal? (hash-ref (hash-ref out 'answers) 'method) "sound")
   (disconnect c))
+
+;; ---- LAY-11: the decision chain ----------------------------------------------
+;; What it detects: a record altered in place, or removed from the middle. What it
+;; does NOT: a rewrite by anyone who can write the table, who can recompute every
+;; link after the row they changed. The claim is narrow on purpose — the same
+;; shape as secrets at rest defending a dump rather than a host.
+(test-case "each decision links to the one before it, and the chain verifies"
+  (define c (fresh)) (define p (owner-of c))
+  (for ([i (in-range 3)])
+    (start! c p (spec-with))
+    (define rev (first (pending-of c p)))
+    (review-decide! c p (hash-ref rev 'id) "approve")
+    (drain! c))
+  (define decided (review-list c p #:status "decided"))
+  (check-equal? (length decided) 3)
+  (check-true (andmap (lambda (r) (string? (hash-ref r 'hash))) decided) "every decision is hashed")
+  ;; oldest has no predecessor; the rest chain
+  (define in-order (sort decided < #:key (lambda (r) (hash-ref r 'requested_ms))))
+  (check-equal? (hash-ref (first in-order) 'prev_hash) 'null)
+  (check-equal? (hash-ref (second in-order) 'prev_hash) (hash-ref (first in-order) 'hash))
+  (define v (review-verify c p))
+  (check-true (hash-ref v 'ok))
+  (check-equal? (hash-ref v 'checked) 3)
+  (disconnect c))
+
+(test-case "a record altered in place breaks the chain, and verify names it"
+  (define c (fresh)) (define p (owner-of c))
+  (for ([i (in-range 3)])
+    (start! c p (spec-with))
+    (review-decide! c p (hash-ref (first (pending-of c p)) 'id) "approve")
+    (drain! c))
+  (check-true (hash-ref (review-verify c p) 'ok))
+  ;; somebody edits a rationale after the fact — the thing an audit is for
+  (define target (second (sort (review-list c p #:status "decided") < #:key (lambda (r) (hash-ref r 'requested_ms)))))
+  (query-exec c "UPDATE reviews SET rationale = ? WHERE id = ?" "actually it was fine" (hash-ref target 'id))
+  (define v (review-verify c p))
+  (check-false (hash-ref v 'ok))
+  (check-equal? (hash-ref v 'broken_at) (hash-ref target 'id) "it names the FIRST break, not just that one exists")
+  (disconnect c))
+
+(test-case "a decision removed from the middle breaks the chain too"
+  (define c (fresh)) (define p (owner-of c))
+  (for ([i (in-range 3)])
+    (start! c p (spec-with))
+    (review-decide! c p (hash-ref (first (pending-of c p)) 'id) "approve")
+    (drain! c))
+  (define in-order (sort (review-list c p #:status "decided") < #:key (lambda (r) (hash-ref r 'requested_ms))))
+  (query-exec c "DELETE FROM reviews WHERE id = ?" (hash-ref (second in-order) 'id))
+  (define v (review-verify c p))
+  (check-false (hash-ref v 'ok) "the survivor's prev_hash points at a record that is gone")
+  (disconnect c))
+
+;; ---- LAY-10: the accuracy signal is a query -----------------------------------
+(test-case "accuracy per workflow and step comes out of decisions already made"
+  (define c (fresh)) (define p (owner-of c))
+  ;; two approvals and one rejection on the same step
+  (for ([verdict (in-list '("approve" "approve" "reject"))])
+    (start! c p (spec-with))
+    (define rev (first (pending-of c p)))
+    (review-decide! c p (hash-ref rev 'id) verdict #:rationale "because")
+    (drain! c))
+  (define rows (review-stats c p))
+  (check-equal? (length rows) 1 "one row per (workflow, step)")
+  (define r (first rows))
+  (check-equal? (hash-ref r 'workflow) "inspect")
+  (check-equal? (hash-ref r 'step) "check")
+  (check-equal? (hash-ref r 'approved) 2)
+  (check-equal? (hash-ref r 'rejected) 1)
+  (check-equal? (hash-ref r 'decided) 3)
+  ;; the number the RFE actually asks for: how often the specialist let it stand
+  ;; an inexact real, not an exact rational: jsexpr? accepts exact INTEGERS and
+  ;; inexact reals, so 667/1000 would serialize fine in a test and throw in
+  ;; write-json on the way out of the endpoint
+  (check-equal? (hash-ref r 'approval_rate) 0.667)
+  (check-true (jsexpr? (hasheq 'rate (hash-ref r 'approval_rate))) "the report must survive write-json")
+  (check-true (>= (hash-ref r 'mean_decision_ms) 0))
+  ;; a window that excludes everything reports nothing, rather than everything
+  (check-equal? (review-stats c p #:since (+ (current-inexact-milliseconds) 100000)) '())
+  (disconnect c))

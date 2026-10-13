@@ -1907,6 +1907,19 @@
     (json-response (hasheq 'reviews (review-list db-conn p #:status st)
                            'pending (review-count-pending db-conn p))))))
 
+
+(define (ep-review-stats req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "reviews:read")
+    (define since (string->number (query-param req 'since "")))
+    (json-response (hasheq 'stats (review-stats db-conn p #:since since)
+                           'since (or since 0))))))
+
+(define (ep-review-verify req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "audit:read")
+    (json-response (review-verify db-conn p)))))
+
 (define (ep-review-get req id)
   (with-auth req (lambda (p)
     (require-perm db-conn p "reviews:read")
@@ -2701,6 +2714,7 @@
    'member-role ep-member-role 'member-remove ep-member-remove
    'admin-password-reset ep-admin-password-reset
    'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide
+   'review-stats ep-review-stats 'review-verify ep-review-verify
    'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
    'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list

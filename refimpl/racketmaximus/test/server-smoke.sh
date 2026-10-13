@@ -875,6 +875,20 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 assert "the decision resumed the run" "$rdone" '"status":"done"'
 assert "deciding again is refused"    "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"approve"}')" 'already been decided'
+# LAY-10/LAY-11: the signal and the evidence, over the decision just made.
+# /api/reviews/stats must not be swallowed by /api/reviews/:id — literal paths
+# come first in the table, and a 'no such review' here would mean they do not.
+RSTATS=$(curl -s "$B/api/reviews/stats" -H "Authorization: Bearer $OP")
+assert "the accuracy report is a query, not a subsystem" "$RSTATS" '"workflow":"smoke-review"'
+assert "...reporting the step that was reviewed"        "$RSTATS" '"step":"check"'
+assert "...and how often the output stood"              "$RSTATS" '"approval_rate"'
+assert "a member may read it"                           "$(curl -s "$B/api/reviews/stats" -H "Authorization: Bearer $BOB")" '"stats":'
+RVERIFY=$(curl -s "$B/api/reviews/verify" -H "Authorization: Bearer $OP")
+assert "the decision chain verifies"       "$RVERIFY" '"ok":true'
+assert "...having actually checked a link" "$RVERIFY" '"checked":1'
+assert "verifying the chain is an auditor's act, not a reviewer's" \
+  "$(curl -s "$B/api/reviews/verify" -H "Authorization: Bearer $BOB")" 'Forbidden: audit:read'
+
 assert "the decision is in the audit log" \
   "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'review.approve'
 curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}' >/dev/null  # restore

@@ -166,6 +166,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | 実行を取消；既に実行中のステップが終了し、次のステップは開始しません。 |
 | GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | 1つの実行とそのステップ、インプット、アウトプット、およびエラー |
 | GET | `/api/reviews` | bearer | `reviews:read` | — | チームのレビューキュー、新しい順。?status=pending（既定）、decided、canceled、all。 |
+| GET | `/api/reviews/stats` | bearer | `reviews:read` | — | AI の出力をレビュー担当者がそのまま承認した割合：ワークフローとステップごとの承認・差し戻し・却下の件数と、判断までの平均時間。別個の評価システムではなく、すでに記録済みの判断に対する集計です。?since=<エポックミリ秒> で期間を絞れます。 |
+| GET | `/api/reviews/verify` | bearer | `audit:read` | — | チームの判断チェーンを再計算して検証し、保存されたハッシュが内容と一致しない最初の判断を示します。records の改ざんや中間の削除は検出しますが、テーブルに書き込める者による書き換えは検出できません（以降のリンクを再計算できるため）。それには外部のアンカーが必要です。 |
 | GET | `/api/reviews/:id` | bearer | `reviews:read` | — | 1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。 |
 | POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | レビューを判断する：{verdict: approve\|revise\|reject, rationale, answers}。差し戻しと却下には理由が必須です。ダブルチェック指定のレビューは作成者本人を拒否します。待機していた実行は、判定が示す分岐へ進んで再開します。 |
 | GET | `/api/kg/entities` | bearer | `files:read` | — | ?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。 |

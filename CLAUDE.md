@@ -1033,6 +1033,60 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   described and with its own queue rather than a release endpoint. The design doc,
   its slice plan and decision WF‑5 all say so now.
 
+## Capability records, the accuracy report, the decision chain (LAY‑9…12)
+
+Built 12 Oct 2026. **All twelve LAY items are now built**, each with its limits
+written down in `docs/design/layered-operations.md` rather than implied.
+
+**LAY‑9 — what a backend can actually do.** The capability document a pull
+executor already carried for claim matching (`{kinds, models}`) is the same place
+a push backend declares `tools` and `json_schema` — one document, not a second
+mechanism. `model-exchange` takes `#:needs` and refuses **by name** before the
+request leaves the process; `run-chat` asks for `json_schema` only when a format
+was requested, the agent always asks for `tools`.
+
+- **An undeclared capability is UNKNOWN and unknown is PERMISSIVE.** Only an
+  explicit `false` refuses, so nothing that works today starts failing.
+- **The local model declares its own** via `TELEMACHUS_MODEL_CAPS`
+  (`"tools=false,json_schema=true"`). It has no executor row and is the path most
+  calls take — without it the operator who most needs the warning gets none.
+
+**LAY‑10 — the accuracy signal is a query.** `GET /api/reviews/stats` groups the
+decisions LAY‑2 already records by workflow and step: approved / revised /
+rejected, the approval rate, the mean time to decide.
+
+- **Not per model, and the reason matters.** `jobs.executor_id` IS recorded — but
+  only when a WORKER claims; the pool's in-process jobs leave it NULL. A
+  per-model breakdown would cover the pull-executed subset *while looking
+  complete*. The fix is to keep the model `model-exchange` already resolves and
+  returns as its third value, which both call sites discard.
+- `approval_rate` is an **inexact real**: `jsexpr?` takes exact integers and
+  inexact reals, so an exact rational would pass a test and throw in `write-json`.
+
+**LAY‑11 — the decision chain.** Each decision hashes its fields plus the previous
+decision's hash, per team; `GET /api/reviews/verify` names the first break.
+
+- **The canonical form is an ordered LIST, never a hash** — `hasheq` iteration
+  order is not stable across processes, the trap `json-out` sorts to avoid.
+- **State the claim narrowly.** It detects a record altered in place or removed
+  from the middle. It does **NOT** detect a rewrite by anyone who can write the
+  table, who can recompute every link after it — and that is the party an audit
+  most defends against. Same shape as secrets at rest defending a DUMP and not a
+  HOST. Closing it needs an external anchor; not built.
+
+**LAY‑12 — where review appears.** Satisfied by LAY‑1…3 (the queue is a core,
+permission-gated tab) and LAY‑6 (the canvas is an authenticated plugin bundle).
+**This does not mean manual annotation is done** — annotation STORAGE was its own
+item and nothing stores a region yet.
+
+- Route order: `/api/reviews/stats` and `/verify` sit **above** `/api/reviews/:id`
+  in the table, or the pattern swallows them. First match wins in list order.
+
+```sh
+raco test test/review-tests.rkt test/model-routing-tests.rkt   # the chain, the report, the refusals
+bash test/server-smoke.sh                                       # 7 more assertions in the reviews block
+```
+
 ## Team-defined object metadata, and where text came from (LAY‑4/‑5, 12 Oct 2026)
 
 Migration `0036-object-metadata` adds both columns at once: `repo_objects.attributes`

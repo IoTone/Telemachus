@@ -336,6 +336,14 @@
       "text": "同じ組織からのお申し込みが多数あります。直接お問い合わせください。",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
+    "ui.l10nhint": {
+      "text": "製品の翻訳。AIが下訳を作り、人が承認します。未レビューのものは製品に入りません。",
+      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
+    },
+    "doc.route.get.api.reviews.stats": {
+      "text": "AI の出力をレビュー担当者がそのまま承認した割合：ワークフローとステップごとの承認・差し戻し・却下の件数と、判断までの平均時間。別個の評価システムではなく、すでに記録済みの判断に対する集計です。?since=<エポックミリ秒> で期間を絞れます。",
+      "hash": "bbb9fa1bd8d56749050fd3a56e8c196483c7405c"
+    },
     "doc.route.get.api.runs": {
       "text": "チームの実行、新しい順。",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
@@ -343,10 +351,6 @@
     "doc.workflow.index-knowledge.name": {
       "text": "知識のインデックス作成",
       "hash": "25914663dfac64e6314732a7e89badcc8c3ff7b0"
-    },
-    "ui.l10nhint": {
-      "text": "製品の翻訳。AIが下訳を作り、人が承認します。未レビューのものは製品に入りません。",
-      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
     },
     "ui.newversion": {
       "text": "新しいバージョンとして保存しました",
@@ -707,6 +711,10 @@
     "beta.challenge_expired": {
       "text": "認証の有効期限が切れました。ページを再読み込みしてください。",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "doc.route.get.api.reviews.verify": {
+      "text": "チームの判断チェーンを再計算して検証し、保存されたハッシュが内容と一致しない最初の判断を示します。records の改ざんや中間の削除は検出しますが、テーブルに書き込める者による書き換えは検出できません（以降のリンクを再計算できるため）。それには外部のアンカーが必要です。",
+      "hash": "7e89fc4333a119c5feb8a67edc48ac81f10fa2b5"
     },
     "doc.route.post.api.org.executors": {
       "text": "呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。",

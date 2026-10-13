@@ -125,6 +125,8 @@
   "doc.route.get.api.repo-obj.id.spans": "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.",
   "doc.route.get.api.reviews": "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.",
   "doc.route.get.api.reviews.id": "One review: what is under review, the checklist to answer, and the decision if it has been made.",
+  "doc.route.get.api.reviews.stats": "How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window.",
+  "doc.route.get.api.reviews.verify": "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.",
   "doc.route.get.api.runs": "The team's runs, newest first.",
   "doc.route.get.api.runs.id": "One run with its steps, inputs, outputs and errors.",
   "doc.route.get.api.s3.credentials": "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.",

@@ -33,11 +33,47 @@
 (define (model-name) (or (env "TELEMACHUS_MODEL") "local"))
 (define (model-key)  (env "TELEMACHUS_MODEL_KEY"))
 
+;; What the ENV-CONFIGURED local model can do (LAY-9). The named backends keep
+;; their capability document on the executor row; the local model has no row, and
+;; it is the path most calls take — so without this the operator who most needs
+;; the warning is the one who gets none. That operator is not hypothetical: the
+;; failure this feature exists to catch is pointing TELEMACHUS_MODEL at a model
+;; that cannot tool-call, and Japanese models of a given size lead on general
+;; benchmarks while lagging specifically on function-calling.
+;;
+;;   TELEMACHUS_MODEL_CAPS="tools=false,json_schema=true"
+;;
+;; Unset, or a key left out, means UNKNOWN — and unknown is permissive, so
+;; nothing that works today starts failing.
+(define (model-caps)
+  (define raw (env "TELEMACHUS_MODEL_CAPS"))
+  (cond
+    [(not raw) (hasheq)]
+    [else
+     (for/fold ([h (hasheq)]) ([part (in-list (string-split raw ","))])
+       (define kv (string-split (string-trim part) "="))
+       (cond
+         [(= 2 (length kv))
+          (define v (string-downcase (string-trim (cadr kv))))
+          (hash-set h (string->symbol (string-trim (car kv)))
+                    (cond [(member v '("true" "yes" "1")) #t]
+                          [(member v '("false" "no" "0")) #f]
+                          [else 'unknown]))]
+         [else h]))]))
+
+(define (local-capability-refusal needs)
+  (define caps (model-caps))
+  (for/or ([k (in-list needs)])
+    (and (eq? (hash-ref caps k 'unknown) #f)
+         (format "the configured model (~a) declares it cannot do ~a — see TELEMACHUS_MODEL_CAPS"
+                 (model-name) k))))
+
 (define (model-configured?) (and (model-url) #t))
 (define (model-info)
   (hasheq 'configured (model-configured?)
           'url (or (model-url) 'null)
-          'model (model-name)))
+          'model (model-name)
+          'capabilities (model-caps)))
 
 ;; total_tokens as the provider reported it, or #f. The agent needs the count
 ;; WITHOUT the text: a tool-call-only turn has no readable content, which is
@@ -94,9 +130,20 @@
 ;;
 ;; -> (values jsexpr url model)
 (define (model-exchange messages #:extras [extras (hasheq)] #:temperature [temp 0.7]
-                        #:executor [executor #f] #:who [who 'model])
+                        #:executor [executor #f] #:who [who 'model]
+                        ;; LAY-9: what this call REQUIRES of the backend —
+                        ;; '(tools), '(json_schema). A backend that declares it
+                        ;; cannot do one is refused BY NAME here, instead of the
+                        ;; provider answering an opaque 400 three layers down.
+                        ;; An undeclared capability is unknown, and unknown is
+                        ;; allowed: nothing that works today starts failing.
+                        #:needs [needs '()])
   (when (and executor (not (executor-config executor)))
     (error who "executor ~a is not a push backend, so this call cannot be routed to it" executor))
+  ;; the named backend's document, or the local model's environment — the local
+  ;; path is checked too, because it is the one most calls take
+  (let ([bad (if executor (capability-refusal executor needs) (local-capability-refusal needs))])
+    (when bad (error who "~a" bad)))
   (define-values (url mdl key conf?) (backend executor))
   (unless conf? (error who "no model configured (set TELEMACHUS_MODEL_URL)"))
   (define body
@@ -147,6 +194,7 @@
     [else
      (define-values (resp _url _mdl)
        (model-exchange msgs #:temperature temp #:executor executor #:who 'run-chat
+                       #:needs (if rf '(json_schema) '())
                        #:extras (if rf (hasheq 'response_format rf) (hasheq))))
      (define-values (reply tokens) (parse-chat-response resp))
      (verify! reply)

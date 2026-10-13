@@ -24,15 +24,17 @@
 (require json)
 
 (provide register-executor! unregister-executor! list-executors
-         executor-config executor-exists? executor-source connect-executors!)
+         executor-config executor-exists? executor-source executor-caps
+         capability-refusal connect-executors!)
 
-(struct ex (name url model key source) #:transparent)
+(struct ex (name url model key source caps) #:transparent)
 (define *execs* (box '()))
 
 (define (find name) (for/or ([e (in-list (unbox *execs*))]) (and (string=? (ex-name e) name) e)))
 
-(define (register-executor! name #:url url #:model [model "local"] #:key [key #f] #:source [source 'config])
-  (set-box! *execs* (cons (ex name url model key source)
+(define (register-executor! name #:url url #:model [model "local"] #:key [key #f] #:source [source 'config]
+                           #:caps [caps (hasheq)])
+  (set-box! *execs* (cons (ex name url model key source (if (hash? caps) caps (hasheq)))
                           (filter (lambda (e) (not (string=? (ex-name e) name))) (unbox *execs*)))))
 
 ;; Retiring a push executor must stop it serving NOW. Without this it kept taking
@@ -46,6 +48,24 @@
 ;; 'config (executors.json) | 'db (the executors table) | #f
 (define (executor-source name) (let ([e (find name)]) (and e (ex-source e))))
 
+;; ---- what a backend can actually do (LAY-9) --------------------------------------
+;; The capability document a pull executor already carried for claim matching
+;; ({kinds, models}) is the same place a PUSH backend says whether it can do tool
+;; calls or honour a JSON schema. One document, not a second mechanism.
+;;
+;; An ABSENT capability means UNKNOWN, and unknown is permissive: nothing that
+;; works today may start failing because nobody has filled the field in yet. Only
+;; an explicit `false` refuses, which makes declaring one an act with a
+;; consequence rather than paperwork.
+(define (executor-caps name) (let ([e (find name)]) (if e (ex-caps e) (hasheq))))
+
+;; -> #f, or a sentence naming what this backend cannot do
+(define (capability-refusal name needs)
+  (define caps (executor-caps name))
+  (for/or ([k (in-list needs)])
+    (and (eq? (hash-ref caps k 'unknown) #f)
+         (format "executor ~a declares it cannot do ~a" name k))))
+
 ;; -> (list url model key) or #f
 (define (executor-config name) (let ([e (find name)]) (and e (list (ex-url e) (ex-model e) (ex-key e)))))
 
@@ -53,7 +73,7 @@
 (define (list-executors)
   (for/list ([e (in-list (reverse (unbox *execs*)))])
     (hasheq 'name (ex-name e) 'url (ex-url e) 'model (ex-model e) 'remote #t
-            'source (symbol->string (ex-source e)))))
+            'source (symbol->string (ex-source e)) 'capabilities (ex-caps e))))
 
 (define (connect-executors! path #:log [log void])
   (when (file-exists? path)
@@ -64,6 +84,7 @@
       (register-executor! name #:url (format "~a" (hash-ref e 'url))
                           #:model (format "~a" (hash-ref e 'model "local"))
                           #:key (let ([k (hash-ref e 'key #f)]) (and k (format "~a" k)))
-                          #:source 'config)
+                          #:source 'config
+                          #:caps (let ([c (hash-ref e 'capabilities #f)]) (if (hash? c) c (hasheq))))
       (log (format "~a — ~a" name (hash-ref e 'url)))))
   (list-executors))

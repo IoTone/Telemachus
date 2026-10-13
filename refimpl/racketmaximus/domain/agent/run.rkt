@@ -66,7 +66,12 @@
   (lambda (messages)
     (define-values (resp _url _mdl)
       (model-exchange messages #:extras (hasheq 'tools tools 'tool_choice "auto")
-                      #:temperature 0 #:executor executor #:who 'agent))
+                      #:temperature 0 #:executor executor #:who 'agent
+                      ;; the agent IS tool calling — a backend that cannot do it
+                      ;; produces a turn with no tool calls and a plausible
+                      ;; sentence, which looks like the model declining rather
+                      ;; than like a misconfiguration
+                      #:needs '(tools)))
     (let ([t (response-tokens resp)]) (when t (set-box! usage (+ (unbox usage) t))))
     (parse-agent-response resp)))
 

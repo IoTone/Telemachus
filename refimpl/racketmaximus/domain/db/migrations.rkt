@@ -1086,6 +1086,24 @@
        ;; which is why the column exists before any extractor fills it.
        "ALTER TABLE repo_text ADD COLUMN spans TEXT NOT NULL DEFAULT '[]'"))))
 
+(define m-0037-review-chain
+  (migration "0037-review-chain"
+    (lambda (conn)
+      (exec* conn
+       ;; LAY-11: tamper-EVIDENCE on the decision record. The audit log is
+       ;; append-only by convention and ordered to the microsecond, but nothing
+       ;; proved a row had not been edited afterwards, and for an administrative
+       ;; audit that is the difference between a record and evidence.
+       ;;
+       ;; Each decision hashes its own fields together with the previous
+       ;; decision's hash, per team, so altering one breaks every link after it.
+       ;; Rows decided before this migration have NULL and are simply outside the
+       ;; chain — the chain starts where it starts rather than claiming to cover
+       ;; history it cannot vouch for.
+       "ALTER TABLE reviews ADD COLUMN prev_hash TEXT"
+       "ALTER TABLE reviews ADD COLUMN hash TEXT"
+       "CREATE INDEX idx_reviews_chain ON reviews(team_id, decided_ms)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain))

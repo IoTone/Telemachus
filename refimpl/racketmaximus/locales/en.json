@@ -335,6 +335,14 @@
       "text": "too many requests from your organization — please reach out directly",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
+    "ui.l10nhint": {
+      "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
+      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
+    },
+    "doc.route.get.api.reviews.stats": {
+      "text": "How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window.",
+      "hash": "bbb9fa1bd8d56749050fd3a56e8c196483c7405c"
+    },
     "doc.route.get.api.runs": {
       "text": "The team's runs, newest first.",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
@@ -342,10 +350,6 @@
     "doc.workflow.index-knowledge.name": {
       "text": "Index Knowledge",
       "hash": "25914663dfac64e6314732a7e89badcc8c3ff7b0"
-    },
-    "ui.l10nhint": {
-      "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
-      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
     },
     "ui.newversion": {
       "text": "Saved as a new version",
@@ -706,6 +710,10 @@
     "beta.challenge_expired": {
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "doc.route.get.api.reviews.verify": {
+      "text": "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.",
+      "hash": "7e89fc4333a119c5feb8a67edc48ac81f10fa2b5"
     },
     "doc.route.post.api.org.executors": {
       "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",

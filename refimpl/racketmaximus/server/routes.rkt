@@ -227,6 +227,10 @@
    (R "POST" "/api/runs/:id/cancel" 'run-cancel #:perm "workflows:run" #:feature "workflows" #:doc "Cancel a run; a step already executing finishes, the next never starts.")
    (R "GET" "/api/runs/:id" 'run-get #:perm "workflows:read" #:feature "workflows" #:doc "One run with its steps, inputs, outputs and errors.")
    (R "GET" "/api/reviews" 'reviews-list #:perm "reviews:read" #:doc "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.")
+   ;; literal paths BEFORE the :id pattern — first match wins in list order, and
+   ;; /api/reviews/:id would otherwise swallow both of these
+   (R "GET" "/api/reviews/stats" 'review-stats #:perm "reviews:read" #:doc "How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window.")
+   (R "GET" "/api/reviews/verify" 'review-verify #:perm "audit:read" #:doc "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.")
    (R "GET" "/api/reviews/:id" 'review-get #:perm "reviews:read" #:doc "One review: what is under review, the checklist to answer, and the decision if it has been made.")
    (R "POST" "/api/reviews/:id/decide" 'review-decide #:perm "reviews:decide" #:doc "Decide a review: {verdict: approve|revise|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names.")
 

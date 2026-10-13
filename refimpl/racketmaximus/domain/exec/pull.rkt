@@ -103,7 +103,7 @@
     (if key (secret-wrap (executor-context id) key) sql-null)
     (jsexpr->string caps) (or tid sql-null) (principal-user-id p))
   (when (equal? mode "push")
-    (register-executor! name #:url url #:model (or model "local") #:key key #:source 'db))
+    (register-executor! name #:url url #:model (or model "local") #:key key #:source 'db #:caps caps))
   (audit! conn #:action "executor.create" #:actor-type "user" #:actor-id (principal-user-id p)
           #:resource-type "executor" #:resource-id id
           #:meta (jsexpr->string (hasheq 'name name 'mode mode 'org_id (or org-id 'null))))
@@ -143,7 +143,12 @@
          [else
           (register-executor! name #:url url
                               #:model (let ([m (hash-ref e 'model)]) (if (string? m) m "local"))
-                              #:key key #:source 'db)
+                              #:key key #:source 'db
+                              ;; LAY-9: the same capability document the claim
+                              ;; matcher reads also says whether this backend can
+                              ;; do tool calls or honour a JSON schema
+                              #:caps (let ([c (hash-ref e 'capabilities (hasheq))])
+                                       (if (hash? c) c (hasheq))))
           (values (cons name loaded) skipped)])])))
 
 ;; every executor the caller may see: the operator sees all; an org principal

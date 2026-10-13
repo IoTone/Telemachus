@@ -1,11 +1,14 @@
 # Layered operations: human review, project metadata, and the plugin boundary
 
 *Proposed 3 Oct 2026 (LAY‑1…12, see [decisions.md](decisions.md)). **LAY‑1, ‑2 and
-‑3, ‑4, ‑5, ‑6 and ‑7 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
+‑1…‑12 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
 decision records in `domain/review/review.rkt`, generalised four-eyes, `/api/reviews*`
 and the Review tab, with `test/review-tests.rkt` and the smoke's `== reviews ==`
 block; the repository capabilities for out-of-process plugins; the extractor registry;
-team-defined object metadata; and extraction provenance. LAY‑8 landed separately with four other defects from issue #54. The rest
+team-defined object metadata; extraction provenance; capability records;
+the accuracy report; the decision chain; and the review-surface split. **All twelve
+are now built**, with the limits each carries written down below rather than
+implied. LAY‑8 landed separately with four other defects from issue #54. The rest
 remain proposals. This document is a gap analysis: it separates what the **platform**
 must grow from what a **domain supplies as plugins and workflows**. It is driven
 by an RFE from a prospective customer — a small civil-engineering and
@@ -264,7 +267,7 @@ reason alongside the existing `'missing-tool` and `'unsupported` — and it shou
 land **before** any OCR work, because without it nobody can tell which documents
 need OCR.
 
-### LAY‑9 — Nothing records whether a model can do what a workflow asks
+### LAY‑9 — Nothing records whether a model can do what a workflow asks  ✅ built
 
 Nothing stores whether a backend supports tool calls or honours `json_schema`;
 it is discovered as a runtime failure. The platform already carries a scar from
@@ -277,7 +280,24 @@ Japan, Aug 2025) — and function-calling is exactly what the agent and the
 schema-extraction pipeline depend on. Choosing a Japanese model is therefore not
 a drop-in swap, and the platform should be able to say so before a run fails.
 
-### LAY‑10 — The accuracy signal is a report, not a system
+
+*As built:* the capability document a pull executor already carried for claim
+matching (`{kinds, models}`) is the same place a push backend declares `tools` and
+`json_schema`. One document, not a second mechanism. `model-exchange` takes
+`#:needs` and refuses BY NAME before the request leaves the process; `run-chat`
+asks for `json_schema` only when a format was requested, and the agent always asks
+for `tools`.
+
+**An undeclared capability is UNKNOWN, and unknown is permissive** — nothing that
+works today starts failing because nobody has filled a field in. Only an explicit
+`false` refuses, which makes declaring one an act with a consequence.
+
+The local model declares its own through `TELEMACHUS_MODEL_CAPS`
+(`"tools=false,json_schema=true"`). That path has no executor row and is the one
+most calls take, so without it the operator who most needs the warning — the one
+who pointed `TELEMACHUS_MODEL` at a model that cannot tool-call — would have got
+none.
+### LAY‑10 — The accuracy signal is a report, not a system  ✅ built
 
 Their Layer 2 "essential challenge" is *establishing a framework to determine the
 reliability and acceptable scope of AI-generated outputs* — which sounds like an
@@ -292,7 +312,19 @@ The same rows are a supervised dataset: approved / revision-required / rejected,
 each with a rationale, is what fine-tuning a domain model needs. This is the
 strongest argument for building LAY‑1 and LAY‑2 first — they pay three times.
 
-### LAY‑11 — Decision records are not tamper-evident
+
+*As built:* `GET /api/reviews/stats` groups decisions by workflow and step —
+approved / revised / rejected, the approval rate, and the mean time to a decision.
+A query over rows the team produced anyway.
+
+**Not per model, and the reason shapes the follow-up.** `jobs.executor_id` *is*
+recorded, but only when a worker claims the job; the pool's in-process jobs on the
+local model leave it NULL. A per-model breakdown would therefore cover the
+pull-executed subset while looking complete, which is worse than not offering one.
+The fix is not "start recording executors" — it is to keep the model
+`model-exchange` already resolves and returns as its third value, which both call
+sites currently discard.
+### LAY‑11 — Decision records are not tamper-evident  ✅ built
 
 They preserve decisions for administrative and internal audit. The audit log is
 append-only by convention and ordered to the microsecond, but nothing proves a
@@ -303,7 +335,23 @@ The platform already content-addresses blobs by SHA‑256 and has HMAC in
 primitives, and for government-facing defensibility it is the difference between
 a record and evidence.
 
-### LAY‑12 — A review queue is core; an annotation canvas is not
+
+*As built:* each decision hashes its own fields together with the previous
+decision's hash, per team; `GET /api/reviews/verify` walks the chain and names the
+first break. The canonical form is an ordered LIST, never a hash, because `hasheq`
+iteration order is not stable across processes — the trap `json-out` sorts to
+avoid.
+
+**State the claim narrowly.** The chain detects a record altered in place, or
+removed from the middle. It does **not** detect a rewrite by anyone who can write
+the table, because they can recompute every link after the row they changed — and
+that is the party an administrative audit is most meant to defend against. This is
+the same shape as secrets at rest, which defends a DUMP and not a HOST, and which
+is written down that way because the old note in `creds.rkt` had overclaimed in
+exactly this direction. Closing the gap needs an EXTERNAL anchor: publishing the
+head hash somewhere the database's owner does not control. That is a deployment
+decision, and it is not built.
+### LAY‑12 — A review queue is core; an annotation canvas is not  ✅ built
 
 A plugin cannot add a tab to the console. That is a known, documented gap, and
 this RFE presses on it from both sides at once:
@@ -319,6 +367,16 @@ this RFE presses on it from both sides at once:
 The platform owes the queue, the decision record and the storage. It does not owe
 a crack-width widget.
 
+
+*Satisfied by LAY‑1…3 and LAY‑6 rather than by separate work:* the queue landed as
+a core, permission-gated console tab, and the canvas side is the authenticated
+plugin bundle. The gap LAY‑12 named — a plugin cannot add a tab — was resolved by
+the split rather than by closing it.
+
+**This does not mean the manual-annotation path is done.** Annotation STORAGE — a
+label, a comment, an optional region, an author — was its own item in the build
+order and nothing stores a region yet. LAY‑12 was about WHERE review appears, not
+about what an annotation is.
 ---
 
 ## Deliberately not now
