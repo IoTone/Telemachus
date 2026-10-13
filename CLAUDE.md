@@ -130,7 +130,10 @@ The experience document's `fields` list IS the form — turning a field off mean
 removing it from the list, adding one means adding it. Two things used to make that
 untrue and are now fixed (ONB‑9):
 
-- **`required` is enforced from the config** (`field-problem` in `domain/beta/beta.rkt`).
+- **`required` is enforced from the config** (`field-problem`, which lives in
+  `domain/fields/fields.rkt` since LAY‑4 and is re-exported from `beta.rkt` —
+  the repository's object metadata uses the same vocabulary, so there is one
+  implementation rather than two that drift).
   It used to render a `*` and nothing checked it.
 - **An unconfigured field is never demanded.** A hardcoded rule required `name`
   whatever the form showed, so removing `name` gave a funnel nobody could submit.
