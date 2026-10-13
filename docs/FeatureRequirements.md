@@ -88,6 +88,10 @@ Legend: `[x]` built · `[~]` partial, see note · `[ ]` not started
       separate surface: binary documents of any format, team access control with
       creator-set visibility, content search across extracted text.
       Design: [`design/document-repository.md`](design/document-repository.md).
+      **A research *report* — the cited Think → Search → Extract → Synthesize loop
+      of `odysseus-Features.md` §1.2 — is NOT built**, and `research:use` is
+      granted to three roles while nothing reads it. Proposed as RSCH‑1…5 in
+      [`design/decisions.md`](design/decisions.md).
 - [x] **Document translation** — console tab with team history and a per-language
       glossary; meters AI spend through the usual quotas. Impl `domain/apps/translate.rkt`.
 - [x] **Document Search** — notes + repo objects by key, filename and **extracted
