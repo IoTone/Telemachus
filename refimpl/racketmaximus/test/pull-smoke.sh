@@ -113,6 +113,45 @@ assert "…with the wrong token too"           "$(curl -s -o /dev/null -w '%{htt
 assert "…and with the right one it is 200"   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$CJID/heartbeat -H "Authorization: Bearer $WT" -d "{\"claim_token\":\"$FENCE\"}")" '200'
 assert "a result without the token is 409"   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$CJID/complete -H "Authorization: Bearer $WT" -d '{"result":{"reply":"x","tokens_used":1}}')" '409'
 assert "…and with it, the job completes"     "$(curl -s -X POST $B/api/workers/jobs/$CJID/complete -H "Authorization: Bearer $WT" -d "{\"claim_token\":\"$FENCE\",\"result\":{\"reply\":\"fenced\",\"tokens_used\":1}}")" '"ok":true'
+echo
+echo "== 5. SCHED-8: cancelling a RUNNING remote job, and PULL-9's job-bound read =="
+# a document, and a job whose payload NAMES it
+DOC=$(curl -s -X PUT "$B/api/repo/scans/levee.txt?filename=levee.txt" \
+        -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' \
+        --data-binary 'levee 7 looks sound')
+DOCID=$(printf '%s' "$DOC" | jq_ 'd["id"]')
+OTHER=$(curl -s -X PUT "$B/api/repo/scans/other.txt?filename=other.txt" \
+        -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' --data-binary 'not this one')
+OTHERID=$(printf '%s' "$OTHER" | jq_ 'd["id"]')
+DJ=$(P /api/jobs "{\"kind\":\"infer.chat\",\"payload\":{\"messages\":[{\"role\":\"user\",\"content\":\"read it\"}],\"object_id\":\"$DOCID\"}}")
+DJID=$(printf '%s' "$DJ" | jq_ 'd["id"]')
+DCLAIM=$(curl -s -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"],"max_wait":2}')
+DFENCE=$(printf '%s' "$DCLAIM" | jq_ 'd["claim_token"]')
+W(){ curl -s -X POST "$B/api/workers/jobs/$DJID/$1" -H "Authorization: Bearer $WT" -d "$2"; }
+WC(){ curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/workers/jobs/$DJID/$1" -H "Authorization: Bearer $WT" -d "$2"; }
+# the three halves of PULL-9's fence
+assert "a worker reads the document ITS job names" \
+  "$(W document "{\"claim_token\":\"$DFENCE\",\"object\":\"$DOCID\"}")" '"key":"scans/levee.txt"'
+assert "…as text, for a worker that wants words" \
+  "$(W document "{\"claim_token\":\"$DFENCE\",\"object\":\"$DOCID\",\"as\":\"text\"}")" 'levee 7 looks sound'
+assert "…but not one the job does not name" \
+  "$(W document "{\"claim_token\":\"$DFENCE\",\"object\":\"$OTHERID\"}")" 'not named by this job'
+assert "…and not without the attempt's token" \
+  "$(WC document "{\"claim_token\":\"nope\",\"object\":\"$DOCID\"}")" '409'
+assert "…and a user token is not a worker"  \
+  "$(curl -s -X POST $B/api/workers/jobs/$DJID/document -H "Authorization: Bearer $TOK" -d '{}')" 'not bound to an executor'
+# cancel it while the worker holds it
+assert "the owner cancels a RUNNING job"    "$(P /api/jobs/$DJID/cancel)" '"status":"canceling"'
+assert "…the heartbeat tells the worker to stop" "$(W heartbeat "{\"claim_token\":\"$DFENCE\"}")" 'was canceled'
+assert "…and it still holds its slot while it drains" "$(G /api/jobs/$DJID)" '"status":"canceling"'
+assert "…and it can no longer read documents" \
+  "$(WC document "{\"claim_token\":\"$DFENCE\",\"object\":\"$DOCID\"}")" '409'
+assert "…posting the result settles it instead of landing it" \
+  "$(W fail "{\"claim_token\":\"$DFENCE\",\"error\":\"canceled\"}")" 'was canceled'
+assert "…so the job is canceled, with no result"  "$(G /api/jobs/$DJID)" '"status":"canceled"'
+assert "cancelling a finished job is a 409" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/jobs/$DJID/cancel -H "Authorization: Bearer $TOK")" '409'
+
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'
 assert "…and the worker token is dead" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{}')" '401'
 assert "…and the executor is retired" "$(G /api/executors)" '"status":"retired"'

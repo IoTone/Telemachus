@@ -120,6 +120,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。 |
 | POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | 結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。 |
 | POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | 失敗を報告する：{error, claim_token}。現在のリース保持者、かつその試行からのみ受け付けます。 |
+| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | — | このジョブが指定したドキュメントを読む：{object, claim_token, version?, as?}。新しい認可コードは不要で、条件は3つ — 呼び出し元がこの試行を保持していること、オブジェクト ID がそのジョブ自身のペイロードに現れること、そして読み取りがそのジョブのユーザーとして行われること（公開範囲・付与・組織ゲートがすべて適用されます）。`as: "bytes"`（base64、上限は TELEMACHUS_MAX_UPLOAD）または `as: "text"` で、スキャンの場合は {text: null, reason: "needs-ocr"} を返します。 |
 | GET | `/api/usage` | bearer | — | — | チームのクォータ次元ごとの使用量、上限、残り。 |
 | POST | `/api/quota` | bearer | `instance:manage` | — | 呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。 |
 | GET | `/api/tools` | bearer | — | — | 登録済みのツールとその権限、ソースおよびチーム別に有効化された状態。 |
@@ -130,7 +131,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/audit` | bearer | `settings:manage` | — | チームの最近の監査イベント。 |
 | POST | `/api/jobs` | bearer | `chat:use` | — | 登録された種類のスケジューラジョブをキューイングします。 |
 | GET | `/api/jobs` | bearer | — | — | チームのジョブ、最新から |
-| POST | `/api/jobs/:id/cancel` | bearer | — | — | キューに並んでいるジョブをキャンセル（実行中のジョブは完了します）。 |
+| POST | `/api/jobs/:id/cancel` | bearer | — | — | ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。 |
 | GET | `/api/jobs/:id` | bearer | — | — | 1つのジョブとその結果またはエラー |
 | GET | `/api/repo` | bearer | `files:read` | — | リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。 |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | 組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view\|edit\|manage, expires_at?}。{user_id} は従来どおり view を意味します。 |

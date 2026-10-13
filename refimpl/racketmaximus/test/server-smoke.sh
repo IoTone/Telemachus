@@ -324,6 +324,19 @@ QJ=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"cha
 QJID=$(printf '%s' "$QJ" | grep -oP '"id":"\K[^"]+')
 sleep 1.5
 assert "job quota-gated" "$(curl -s $B/api/jobs/$QJID -H "Authorization: Bearer $OP")" '"status":"queued"'
+# SCHED-8: who may cancel. A job's OWNER may always stop their own work; stopping
+# SOMEBODY ELSE'S needs jobs:cancel, which a plain member does not hold. The team is
+# still over its token budget here, so these jobs stay queued and can be cancelled.
+BJ=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $BOB" -d '{"kind":"chat","payload":{"prompt":"bob owns this"}}')
+BJID=$(printf '%s' "$BJ" | grep -oP '"id":"\K[^"]+')
+assert "cancel: a member cannot cancel the operator's job" \
+  "$(curl -s -X POST $B/api/jobs/$QJID/cancel -H "Authorization: Bearer $BOB")" 'forbidden: jobs:cancel'
+assert "cancel: …but may always cancel their own" \
+  "$(curl -s -X POST $B/api/jobs/$BJID/cancel -H "Authorization: Bearer $BOB")" '"status":"canceled"'
+assert "cancel: an admin may cancel somebody else's" \
+  "$(curl -s -X POST $B/api/jobs/$QJID/cancel -H "Authorization: Bearer $OP")" '"status":"canceled"'
+assert "cancel: an unknown job is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/jobs/00000000-0000-0000-0000-000000000000/cancel -H "Authorization: Bearer $OP")" '404'
 assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP")" '"users"'
 assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
 

@@ -791,6 +791,10 @@
       "text": "Revoked",
       "hash": "85f17ac049c4218273f708cd24197325bd4369b9"
     },
+    "doc.perm.jobs:cancel": {
+      "text": "Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first.",
+      "hash": "6125caf549aa3233fcdb41a561c9828c5b120c12"
+    },
     "ui.loctoggle": {
       "text": "Let people choose their language",
       "hash": "f727a2857c4b05748fe85e72f82a53c4b5f42a4e"
@@ -1591,6 +1595,10 @@
       "text": "The teams in the caller's company.",
       "hash": "7138c15c403d14dc29ff02593fa0f27f089cd859"
     },
+    "doc.route.post.api.workers.jobs.id.document": {
+      "text": "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.",
+      "hash": "8fe2695a70c21864bd58de5827005ddcaed241f1"
+    },
     "doc.route.get.beta.template": {
       "text": "The Tier-C sandboxed HTML template, localized by the experience overlay.",
       "hash": "905e073cb8d041696017518f64247b9392c4fd97"
@@ -1636,8 +1644,8 @@
       "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
     },
     "doc.route.post.api.jobs.id.cancel": {
-      "text": "Cancel a queued job (a running one finishes).",
-      "hash": "227ebe818250c89494c01d47fa7b9bef3ef81852"
+      "text": "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.",
+      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
     },
     "ui.localize": {
       "text": "Localize",
@@ -1692,8 +1700,8 @@
       "hash": "21cb174e21ed16c1c221a45bb425838fcd7e8690"
     },
     "doc.perm.roles:manage": {
-      "text": "Create and edit team roles.",
-      "hash": "0aea9032d70ee3ea8b424466b95567563af8697a"
+      "text": "Reserved for team-defined roles, which are not in v1 — the four built-in roles are the vocabulary. Granted, but nothing reads it yet.",
+      "hash": "99fb1d888f50eddc875ac09015b6b03b174c8a3d"
     },
     "doc.route.post.api.repo-obj.id.presign": {
       "text": "A time-boxed presigned S3 URL, signed with the caller's own newest S3 key.",

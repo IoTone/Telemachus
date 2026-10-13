@@ -520,6 +520,13 @@ Any format in, byte-identical out, with the creator setting visibility. See
 
 - `domain/repo/repo.rkt` is the ownable resource; **`can?` governs it with no new
   authorization code** — same `team_id`/`owner_user_id`/`visibility` triple as notes.
+- **`repo-get` RAISES on a permission failure while `repo-open` answers `#f` for
+  a MISS.** Any caller that reads a document has to handle both, or a forbidden
+  read surfaces as a 500 instead of a refusal. It has caught two callers already
+  (LAY‑6's out-of-process `repo.*` capabilities, PULL‑9's worker read), which is
+  why the note lives here rather than beside either of them. Where the two
+  outcomes should be INDISTINGUISHABLE — "does not exist or is not yours" as one
+  answer, the knowledge graph's rule — collapse them deliberately and say so.
 - Bytes live in a **content-addressed** store keyed by SHA-256, never in the DB.
   `domain/repo/blobs.rkt` is the seam; `plugins/rs3/` is the local filesystem one
   (`TELEMACHUS_BLOB_STORE`, default `rs3`). **The store is never handed a principal**
@@ -1033,6 +1040,89 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   described and with its own queue rather than a release endpoint. The design doc,
   its slice plan and decision WF‑5 all say so now.
 
+## Cancelling running work, a run-time ceiling, worker reads (issue #54's four questions)
+
+Built 12 Oct 2026 — SCHED‑8, SCHED‑9, PULL‑9, RBAC‑5b in `docs/design/decisions.md`.
+
+- **A running job is cancellable, and the status that makes it safe is
+  `canceling`.** `status` was doing two jobs at once: "is this work live" (the
+  per-team cap counts it) and "may its result land" (`finish!` guards on
+  `running`). Cancellation needs those to diverge, so a running job goes to
+  `canceling` — `finish!` still names `running` alone, so the handler's answer
+  matches no row and is discarded, while the cap counts `running` + `canceling`
+  (`LIVE-IN`, used by BOTH claim paths). Flipping straight to `canceled` would
+  have been a **quota-evasion path**: cancel N running jobs in a loop and the
+  team gets N draining handlers plus N freshly claimed ones, with the cap
+  reading as satisfied throughout. `settle-canceling!` frees the slot when the
+  handler actually returns — guarded on the attempt's `claim_token`, so a
+  reaped-and-re-claimed job is left alone.
+- **Nothing is preempted, and the reason is specific.** Killing the handler
+  thread would leave the SHARED db connection in an undefined state and could
+  wedge the whole pool. The cooperative half is `job-canceled?`, for a handler
+  that runs in steps; it is an optimization (CPU and tokens), never a
+  correctness requirement, because the result is fenced out either way.
+- **Who may cancel: owner-ok OR `jobs:cancel`.** A job's owner may always stop
+  their own work, queued or running — the person whose team budget a runaway run
+  is burning is exactly the person who should be able to stop it, and it is the
+  rule notes and documents already live by. `jobs:cancel` (admin, and owner by
+  `*:*`) is for stopping SOMEBODY ELSE's. The route stays ungated in
+  `routes.rkt` and the finer check is in the handler, as the repo routes do.
+- **A remote worker learns it was cancelled from its HEARTBEAT** — there is no
+  handler to return, so that is the only channel back. `holder-check` answers
+  `'canceled`, which is a 409 naming it, and the holder/token are checked FIRST
+  so a stranger can never learn that somebody's job was cancelled. Posting to
+  `/complete` or `/fail` afterwards is what SETTLES the row, which is how the
+  slot comes back without waiting the lease out. `queued`/`done`/`error` still
+  answer `'not-running` exactly as before — a pinned smoke assertion depends on
+  it. **The reference worker now reads the heartbeat's status** and stops; it
+  used to discard the response entirely, so a third-party worker needs the same
+  change to honour a cancel.
+- **The reaper SETTLES an expired `canceling` row, never re-queues it.**
+  Cancellation is final, and re-running work somebody stopped is the one outcome
+  nobody asked for. `reap-orphans!` does the same for a NULL-lease one.
+- **SCHED‑9's ceiling is enforced in the LEASE REFRESHER, not in the reaper** —
+  the plan recorded in `decisions.md` said the reaper and was wrong: that sweep
+  only ever sees an EXPIRED lease, and an overrunning job's lease is being
+  refreshed every 40 seconds, so the reaper could never see it. Past the ceiling
+  `lease-tick!` flips the job to `canceling` with a reason naming the knob and
+  STOPS refreshing; the reaper then settles it. This is the one case where a slot
+  is freed before the work provably stopped — a handler that ignored both the
+  ceiling and `job-canceled?` has proven it will not stop, and holding its slot
+  for ever is the worse failure.
+- `TELEMACHUS_MAX_JOB_SECONDS` defaults to **1800**, `never` disables it, and an
+  unparseable or non-positive value falls back to the default — **never to 0**,
+  which would cancel every job the instant it started.
+- **The clock is `jobs.started_epoch` (migration `0038`), stamped in
+  `claim-job!`.** `started_at` is TEXT `CURRENT_TIMESTAMP`, whose format differs
+  by dialect — the trap `LastModified` and the session clocks both set. It goes
+  in `claim-job!` because that is the ONE claim both paths make (issue #17); a
+  second claim path appearing later would leave the column NULL and the ceiling
+  would quietly stop applying to those jobs, so `test/scheduler-tests.rkt`
+  asserts every claim stamps it.
+- **`lease-tick!` is exported because the loop sleeps 40 seconds**: the
+  interesting behaviour is what one tick DECIDES, not when it happens.
+- **PULL‑9: a worker reads the documents ITS OWN job names.**
+  `POST /api/workers/jobs/:id/document` — three conditions and no new
+  authorization code: the caller holds this attempt (`claim_token`), the object
+  id appears in **that job's own payload** (checked over every string value in
+  it, because the payload's shape is the kind's business), and the read happens
+  **as the job's own user**, so `can?` decides. A `forbidden` and a miss collapse
+  to ONE answer, as in the knowledge graph. `as: "bytes"` (base64, capped at
+  `TELEMACHUS_MAX_UPLOAD` — a worker is not a way past the front door's ceiling)
+  or `as: "text"`, where a scan answers `{text: null, reason: "needs-ocr"}`
+  rather than erroring, since that is the branch an OCR worker exists to take.
+- **`audit!` takes `#:resource-type`/`#:resource-id`, not `#:target-*`.** The
+  wrong keyword compiles fine and fails at the call.
+- **RBAC‑5b: custom team roles are not in v1**, and `roles:manage`'s description
+  says so — it is granted and nothing reads it. A permission with nothing behind
+  it reads as an unfinished feature unless the text says otherwise.
+
+```sh
+raco test test/scheduler-tests.rkt test/pull-tests.rkt   # 25 cases: the cap property, the ceiling, the fence
+bash test/pull-smoke.sh                                   # section 5, 13 assertions over HTTP
+bash test/server-smoke.sh                                 # the four "cancel:" assertions
+```
+
 ## Capability records, the accuracy report, the decision chain (LAY‑9…12)
 
 Built 12 Oct 2026. **All twelve LAY items are now built**, each with its limits
@@ -1300,21 +1390,18 @@ raco test test/review-tests.rkt   # 9 cases: parking, all three verdicts, four e
 bash test/server-smoke.sh         # the "== reviews ==" block, 16 assertions
 ```
 
-## Layered operations (proposed, LAY‑4…12)
+## Layered operations (LAY‑1…12) — all built
 
 `docs/design/layered-operations.md` — a gap analysis from a civil-engineering RFE.
-**Nothing is built.** Its value is the boundary it draws: the platform grows
+**All twelve are built**; each one's sections above carry the detail, and each
+one's LIMITS are written down in the design doc rather than implied. What this
+document is still worth reading for is the boundary it draws: the platform grows
 SEAMS, a domain supplies CONTENT through them, and the test of the design is that
-no civil-engineering requirement needs a core change. LAY‑1/‑2/‑3 are built (above); the remaining nine, shortest
-form: `repo_objects`
-carries no team-defined metadata; **extraction provenance is lost at ingest and
-cannot be retrofitted without re-processing everything** (the one decision with a
-deadline); an out-of-process plugin can reach only `notes.create` and
-`notes.list`, so a Python OCR or CV pipeline can read and write nothing;
-`extract.rkt`'s `kind-of` is a fixed dispatch, not a registry; **a PDF with no
-text layer is recorded as a successful empty extraction**, indistinguishable from
-a blank page; no executor records whether it can tool-call; and the review queue
-belongs in core while a domain canvas belongs in a plugin bundle.
+no civil-engineering requirement needs a core change.
+
+One thing it named is deliberately NOT built and must not be: the `approve` step
+kind (see the issue #54 section). And LAY‑12 does not mean manual annotation is
+done — annotation STORAGE was its own item and nothing stores a region yet.
 
 ## The integrator's guide (`docs/integrators-guide.md`)
 
@@ -1455,7 +1542,12 @@ migration `0028-executors`; `/api/executors`, `/api/org/executors`,
   **Wire change**: `POST /api/workers/claim` returns `claim_token` and
   `/api/workers/jobs/:id/{heartbeat,complete,fail}` require it — a worker that
   drops it gets a 409, so a third-party worker must be updated in lockstep with
-  the server.
+  the server. **SCHED‑8 added a second obligation to that same wire**: a worker
+  must READ its heartbeat's status and stop when it is no longer 200. One that
+  ignores it runs to completion after a cancel and then cannot land its result,
+  which from the operator's side looks like a silent failure rather than a
+  cancellation. The reference worker (`cli/telemachus-worker.rkt`) discarded the
+  heartbeat response entirely until then.
 - Executor health is derived: never-seen / active / stale (3× lease) / retired.
   Retire revokes the token and requeues a held job.
 - **`notes-list` now requires `notes:read` up front** (found by this slice's

@@ -68,10 +68,34 @@
   ;; with the result, so a run whose lease lapsed cannot complete the attempt that
   ;; replaced it. A worker that drops it will be refused with 409.
   (define token (let ([t (hash-ref job 'claim_token #f)]) (if (string? t) t 'null)))
-  ;; heartbeat at a third of the lease while the job runs
-  (define beat (thread (lambda () (let loop () (sleep (max 1 (quotient lease 3)))
-                                    (post (format "/api/workers/jobs/~a/heartbeat" id) (hasheq 'claim_token token)) (loop)))))
-  (with-handlers ([exn:fail? (lambda (e)
+  ;; Heartbeat at a third of the lease while the job runs — and READ the answer.
+  ;; A 409 means this attempt is no longer ours to finish: the lease lapsed and
+  ;; somebody re-claimed it, or the job was canceled (SCHED-8). Either way the
+  ;; right move is to stop, because the result can no longer land. The beat
+  ;; thread breaks the thread doing the work; the handler below posts /fail,
+  ;; which is what lets the server settle the row at once instead of waiting the
+  ;; lease out. A worker in another language does the same thing: stop when the
+  ;; heartbeat stops saying 200.
+  (define worker-thd (current-thread))
+  (define stopped (box #f))
+  (define beat (thread (lambda ()
+                         (let loop ()
+                           (sleep (max 1 (quotient lease 3)))
+                           (define-values (code resp)
+                             (post (format "/api/workers/jobs/~a/heartbeat" id) (hasheq 'claim_token token)))
+                           (cond
+                             [(= code 200) (loop)]
+                             [else
+                              (set-box! stopped (let ([e (and (hash? resp) (hash-ref resp 'error #f))])
+                                                  (if (string? e) e (format "heartbeat refused (HTTP ~a)" code))))
+                              (break-thread worker-thd)])))))
+  (with-handlers ([exn:break? (lambda (_)
+                                (kill-thread beat)
+                                (define why (or (unbox stopped) "interrupted"))
+                                (post (format "/api/workers/jobs/~a/fail" id)
+                                      (hasheq 'error why 'claim_token token))
+                                (printf "job ~a (~a): STOPPED — ~a\n" id kind why))]
+                  [exn:fail? (lambda (e)
                                (kill-thread beat)
                                (post (format "/api/workers/jobs/~a/fail" id)
                                      (hasheq 'error (exn-message e) 'claim_token token))

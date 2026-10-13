@@ -175,6 +175,7 @@
    (R "POST" "/api/workers/jobs/:id/heartbeat" 'worker-heartbeat #:perm "jobs:execute" #:doc "Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409.")
    (R "POST" "/api/workers/jobs/:id/complete" 'worker-complete #:perm "jobs:execute" #:doc "Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind.")
    (R "POST" "/api/workers/jobs/:id/fail" 'worker-fail #:perm "jobs:execute" #:doc "Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt.")
+   (R "POST" "/api/workers/jobs/:id/document" 'worker-document #:perm "jobs:execute" #:doc "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.")
 
    ;; ---- quotas, tools, tokens, search, audit, jobs -------------------------------------
    (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit and remaining.")
@@ -187,7 +188,7 @@
    (R "GET" "/api/audit" 'audit #:perm "settings:manage" #:doc "The team's recent audit events.")
    (R "POST" "/api/jobs" 'jobs-create #:perm "chat:use" #:doc "Enqueue a scheduler job of a registered kind.")
    (R "GET" "/api/jobs" 'jobs-list #:doc "The team's jobs, newest first.")
-   (R "POST" "/api/jobs/:id/cancel" 'job-cancel #:doc "Cancel a queued job (a running one finishes).")
+   (R "POST" "/api/jobs/:id/cancel" 'job-cancel #:doc "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.")
    (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error.")
 
    ;; ---- document repository -------------------------------------------------------------

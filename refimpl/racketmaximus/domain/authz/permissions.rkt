@@ -79,6 +79,7 @@
               "localization:read" "localization:translate" "localization:review"
               "localization:manage"
               "reviews:read" "reviews:decide"
+              "jobs:cancel"
               "workflows:read" "workflows:write" "workflows:run")
    ;; use AI + own resources
    "member" '("chat:use" "tools:invoke" "research:use"
@@ -138,11 +139,18 @@
    "tokens:manage"  "Issue and revoke API tokens for the team."
    "webhooks:manage" "Configure outbound webhooks."
    "settings:manage" "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail."
+   ;; SCHED-8. Cancelling a QUEUED job needs no permission — an owner may always
+   ;; stop their own — but stopping work already RUNNING is a different act: it
+   ;; discards a result somebody is waiting for, and may cut a tool call in half.
+   "jobs:cancel"    "Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first."
    "reviews:read"   "See the team's review queue and the decisions already recorded."
    "reviews:decide" "Approve, send back or reject an item waiting for review, with a rationale."
    "models:serve"   "Register a model executor for the team."
    "roles:read"     "See the team's roles and what they grant."
-   "roles:manage"   "Create and edit team roles."
+;; RBAC-5b (decided 12 Oct 2026): team-defined roles are NOT in v1. The
+   ;; permission exists and is granted; nothing consumes it. Said plainly so it
+   ;; reads as a deliberate omission rather than an unfinished feature.
+   "roles:manage"   "Reserved for team-defined roles, which are not in v1 — the four built-in roles are the vocabulary. Granted, but nothing reads it yet."
    "audit:read"     "Read the audit trail."
    "chat:use"       "Talk to the model: chat, the agent, translation, AI tools. Metered."
    "tools:invoke"   "Call tools from the agent or a workflow step; each tool then checks its own permission."

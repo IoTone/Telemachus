@@ -1104,6 +1104,17 @@
        "ALTER TABLE reviews ADD COLUMN hash TEXT"
        "CREATE INDEX idx_reviews_chain ON reviews(team_id, decided_ms)"))))
 
+(define m-0038-job-runtime
+  (migration "0038-job-runtime"
+    (lambda (conn)
+      ;; SCHED-9: the platform caps how long a job may run, and the cap needs a
+      ;; comparable start time. `started_at` is TEXT CURRENT_TIMESTAMP, whose
+      ;; format differs by dialect (SQLite `2026-08-21 04:16:09`, Postgres
+      ;; `…225696-07`), so comparing against it would be invisible on one and
+      ;; wrong on the other — the trap LastModified, the session clocks and
+      ;; review-stats' ?since all set. Epoch seconds, like lease_until beside it.
+      (exec* conn "ALTER TABLE jobs ADD COLUMN started_epoch BIGINT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime))

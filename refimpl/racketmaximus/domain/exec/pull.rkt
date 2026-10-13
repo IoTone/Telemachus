@@ -25,12 +25,17 @@
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
          (only-in "../ai/content.rkt" content->text)
+         (only-in "../repo/repo.rkt" repo-open)
+         (only-in "../repo/extract.rkt" extract-text)
+         (only-in "../../config.rkt" max-upload-bytes)
+         racket/port net/base64
          (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
          "federation.rkt")
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
+         worker-document
          executor-secret executor-context
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER
          pull-dispatch!)
@@ -232,7 +237,9 @@
              ;; the org gate: an org-bound executor never sees another company's job
              (let ([eorg (hash-ref ex 'org_id)])
                (or (eq? eorg 'null) (equal? eorg (team-org conn team))))
-             (or sub? (< (query-value conn "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND status = 'running'" team)
+             ;; LIVE-IN, not `status='running'`: a job being canceled still has a
+             ;; worker on it and still spends the team's budget (SCHED-8).
+             (or sub? (< (query-value conn (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) team)
                          ((scheduler-cap-for) team)))
              ((scheduler-admit?) conn team)
              ;; the same conditional claim the pool makes: the update names the
@@ -252,7 +259,13 @@
                               'lease_until lease 'lease_seconds LEASE-SECONDS)))))))))
 
 ;; is this job held by this executor, on THIS attempt, and still running?
-;;   -> 'ok | 'not-holder | 'not-running | 'not-found
+;;   -> 'ok | 'canceled | 'not-holder | 'not-running | 'not-found
+;;
+;; 'canceled is how a REMOTE worker learns it was stopped (SCHED-8). There is no
+;; handler to return here, so the heartbeat is the only channel back: a worker
+;; whose heartbeat says `canceled` stops and drops its result. The holder and the
+;; token are checked FIRST, so the verdict only ever goes to the worker actually
+;; running the job.
 ;;
 ;; The token is what makes "this attempt" answerable (issue #24). Without it, an
 ;; executor whose lease lapsed mid-run — and which then re-claimed the same job —
@@ -261,11 +274,17 @@
 ;; one, which every claim since 0031 does.
 (define (holder-check conn ex job-id [token #f])
   (define r (query-maybe-row conn "SELECT executor_id, status, claim_token FROM jobs WHERE id = ?" job-id))
+  (define st (vector-ref r 1))
+  (define stopping? (and (member st '("canceling" "canceled")) #t))
   (cond [(not r) 'not-found]
-        [(not (equal? (vector-ref r 1) "running")) 'not-running]
+        ;; queued / done / error answer 'not-running exactly as they always have;
+        ;; only the two cancellation states are held back for the holder check,
+        ;; so a stranger can never learn that somebody's job was canceled.
+        [(and (not stopping?) (not (equal? st "running"))) 'not-running]
         [(not (equal? (vector-ref r 0) (hash-ref ex 'id))) 'not-holder]
         [(let ([ct (vector-ref r 2)])
            (and (not (sql-null? ct)) (not (equal? ct token)))) 'not-holder]
+        [stopping? 'canceled]
         [else 'ok]))
 
 (define (worker-heartbeat! conn ex job-id #:token [token #f])
@@ -283,6 +302,10 @@
 (define (worker-complete! conn ex job-id result #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
+    ;; the worker has stopped — that is what this call proves — so the slot is
+    ;; genuinely free now and the row can settle. The result is discarded: it
+    ;; answers a question the caller withdrew.
+    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (define kind (query-value conn "SELECT kind FROM jobs WHERE id = ?" job-id))
@@ -304,12 +327,86 @@
 (define (worker-fail! conn ex job-id message #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
+    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
                                      "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                  (format "executor ~a: ~a" (hash-ref ex 'name) message) job-id)
      'ok]))
+
+;; ---- PULL-9: a worker reads the documents ITS OWN job names ------------------
+;;
+;; A pull executor runs the work but could read nothing: `infer.chat` carries
+;; messages, so an OCR or CV job on a GPU box had no way to get at the bytes. The
+;; fence is three conditions, and it adds NO authorization code — the same move
+;; repo-put! made with its hook:
+;;
+;;   1. the caller is the current holder of THIS attempt (`holder-check`, so the
+;;      claim_token must match — a lapsed attempt reads nothing);
+;;   2. the object is REFERENCED BY THAT JOB'S PAYLOAD. A worker token is not a
+;;      key to the team's repository; it opens the documents the job it is
+;;      running is about, and nothing else. The payload's shape is the kind's
+;;      business, so the check is over every string value in it rather than a
+;;      fixed field name;
+;;   3. the read happens as the JOB'S OWN USER, so `can?` decides exactly as it
+;;      would for that person on the request path — visibility, grants, the org
+;;      gate and token scopes included.
+;;
+;; `as` is "bytes" (base64, capped at TELEMACHUS_MAX_UPLOAD like every other
+;; inline read) or "text" (the extractor's answer, with a scan reported as a
+;; REASON beside a null text rather than as an error — the branch an OCR worker
+;; exists to take).
+
+;; every string anywhere in a jsexpr, so a kind may name its documents under any
+;; key or nest them in a list without this needing to know the shape
+(define (jsexpr-strings x)
+  (cond [(string? x) (list x)]
+        [(list? x) (append-map jsexpr-strings x)]
+        [(hash? x) (append-map jsexpr-strings (hash-values x))]
+        [else '()]))
+
+(define (worker-document conn ex job-id object-id #:token [token #f]
+                         #:version [version #f] #:as [as "bytes"])
+  (define v (holder-check conn ex job-id token))
+  (cond
+    [(not (eq? v 'ok)) v]
+    [(string=? object-id "") 'no-object]
+    [else
+     (define r (query-row conn "SELECT team_id, user_id, payload FROM jobs WHERE id = ?" job-id))
+     (define payload (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                       (string->jsexpr (vector-ref r 2))))
+     (cond
+       [(not (member object-id (jsexpr-strings payload))) 'not-in-job]
+       [else
+        (define p (user-principal conn (vector-ref r 1) (vector-ref r 0)))
+        ;; `can?` refuses by RAISING (repo-get), while a missing row answers #f.
+        ;; Both collapse to the same verdict here on purpose: "does not exist or
+        ;; is not yours to read" is one answer, as it is in the knowledge graph.
+        (define-values (o in)
+          (with-handlers ([exn:fail? (lambda (_) (values #f #f))])
+            (repo-open conn p object-id #:version version)))
+        (cond
+          [(not in) 'no-such-document]
+          [(equal? as "text")
+           (define-values (text reason)
+             (dynamic-wind void
+                           (lambda () (extract-text in (hash-ref o 'content_type)))
+                           (lambda () (close-input-port in))))
+           (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
+                   'content_type (hash-ref o 'content_type)
+                   'text (or text 'null)
+                   'reason (if reason (symbol->string reason) 'null))]
+          [else
+           (define bs (dynamic-wind void (lambda () (port->bytes in)) (lambda () (close-input-port in))))
+           (if (> (bytes-length bs) (max-upload-bytes))
+               'too-large
+               (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
+                       'content_type (hash-ref o 'content_type)
+                       'filename (hash-ref o 'filename "")
+                       'version_id (hash-ref o 'version_id)
+                       'size (bytes-length bs)
+                       'bytes_b64 (bytes->string/utf-8 (base64-encode bs #""))))])])]))
 
 ;; an expired lease returns the job to the queue with attempt+1; past MAX-ATTEMPTS
 ;; it fails with the reason. Called from the scheduler's idle tick and by tests.
@@ -320,6 +417,13 @@
   ;; the scheduler's reap-orphans!.)
   (define expired (query-rows conn
     "SELECT id, attempt FROM jobs WHERE status = 'running' AND lease_until < ?" (now)))
+  ;; A CANCELING job whose lease lapsed is settled, never re-queued: the holder is
+  ;; gone (or ignored its cancellation past SCHED-9's ceiling), and re-running work
+  ;; somebody stopped is the one outcome nobody asked for. This is also what frees
+  ;; the slot of a handler that hung — see with-lease in the scheduler.
+  (define stopping (query-list conn
+    "SELECT id FROM jobs WHERE status = 'canceling' AND lease_until IS NOT NULL AND lease_until < ?" (now)))
+  (for ([id (in-list stopping)]) (settle-canceling! conn id))
   (for ([r (in-list expired)])
     (define id (vector-ref r 0)) (define attempt (vector-ref r 1))
     (if (< attempt MAX-ATTEMPTS)
@@ -330,7 +434,7 @@
           (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, lease_until = NULL, "
                          "claim_token = NULL, finished_at = CURRENT_TIMESTAMP WHERE id = ?")
           (format "no executor completed it in ~a attempts (leases expired)" MAX-ATTEMPTS) id)))
-  (length expired))
+  (+ (length expired) (length stopping)))
 
 ;; ---- routing a synchronous model call to a pull executor (PULL-5) --------------------
 ;; Enqueue an infer.chat sub-job and wait for a worker to complete it. Bounded:

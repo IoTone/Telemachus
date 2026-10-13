@@ -1747,7 +1747,16 @@
   (case v
     [(ok) (json-response (hasheq 'ok #t 'id job-id))]
     [(not-holder) (err "not the lease holder of this job" 409)]
+    ;; SCHED-8: a remote worker has no handler to return, so the heartbeat is the
+    ;; only channel back. A 409 here means "stop and drop the result" — and
+    ;; posting to /complete or /fail afterwards is what settles the row, which is
+    ;; what frees the team's concurrency slot without waiting out the lease.
+    [(canceled) (err "the job was canceled — stop work and discard the result" 409)]
     [(not-running) (err "the job is not running" 409)]
+    [(no-object) (err "an object id is required" 400)]
+    [(not-in-job) (err "that document is not named by this job's payload" 403)]
+    [(no-such-document) (err "no such document, or not one this job's user may read" 404)]
+    [(too-large) (err "document is over the inline-read ceiling (TELEMACHUS_MAX_UPLOAD)" 413)]
     [else (err "not found" 404)]))
 ;; issue #24: every write about a claimed job carries the attempt's claim_token,
 ;; which the claim response handed the worker. A worker that sends none is refused
@@ -1762,6 +1771,22 @@
     (define b (read-json-body req))
     (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))
                                       #:token (claim-token-of b)) id))))
+;; PULL-9: a worker reads a document ITS OWN job names. The fence is in
+;; pull.rkt (holder + claim_token, the object must appear in that job's payload,
+;; and the read happens as the job's own user so `can?` decides); this is just
+;; the wire. `as: "text"` asks the extractor instead of the bytes, and a scan
+;; comes back as {text: null, reason: "needs-ocr"} — an ANSWER, since that is the
+;; branch an OCR worker exists to take.
+(define (ep-worker-document req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (define v (worker-document db-conn ex id
+                               (let ([o (hash-ref b 'object #f)]) (if (string? o) o ""))
+                               #:token (claim-token-of b)
+                               #:version (let ([x (hash-ref b 'version #f)]) (and (string? x) x))
+                               #:as (let ([a (hash-ref b 'as #f)]) (if (string? a) a "bytes"))))
+    (if (hash? v) (json-response v) (worker-verdict v id)))))
+
 (define (ep-worker-fail req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
@@ -2107,13 +2132,33 @@
     (define j (get-job db-conn id (principal-team-id p)))
     (if j (json-response j) (err "not found" 404)))))
 
+;; SCHED-8. A job's OWNER may stop their own work, queued or running — the same
+;; owner-ok rule notes and documents live by, and the person whose team budget a
+;; runaway run is burning is exactly the person who should be able to stop it.
+;; Stopping SOMEBODY ELSE's job is the stewardship act, and that needs
+;; `jobs:cancel` (admin and owner by role). A running job goes to `canceling`:
+;; its result is fenced out at once, and it stops holding its team's concurrency
+;; slot when the handler actually returns.
 (define (ep-job-cancel req id)
   (with-auth req (lambda (p)
-    (define r (cancel-job! db-conn id (principal-team-id p)))
+    (define team (principal-team-id p))
+    (define owner (query-maybe-value db-conn "SELECT user_id FROM jobs WHERE id = ? AND team_id = ?" id team))
     (cond
-      [(eq? r #t) (json-response (hasheq 'ok #t 'id id 'status "canceled"))]
-      [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
-      [else (err "not found" 404)]))))
+      [(not owner) (err "not found" 404)]
+      [(and (not (equal? owner (principal-user-id p)))
+            (not (can? db-conn p "jobs:cancel")))
+       (err "forbidden: jobs:cancel (you may always cancel your own job)" 403)]
+      [else
+       (define r (cancel-job! db-conn id team))
+       (cond
+         [(eq? r #t)
+          (define st (query-maybe-value db-conn "SELECT status FROM jobs WHERE id = ?" id))
+          (audit! db-conn #:action "job.cancel" #:actor-type "user" #:actor-id (principal-user-id p)
+                  #:team-id team #:resource-type "job" #:resource-id id)
+          (json-response (hasheq 'ok #t 'id id 'status (or st "canceled")))]
+         [(eq? r 'canceling) (json-response (hasheq 'ok #t 'id id 'status "canceling"))]
+         [(eq? r 'not-cancelable) (err "the job has already finished — nothing to cancel" 409)]
+         [else (err "not found" 404)])]))))
 
 ;; ---- document repository (slices 49-50) --------------------------------------
 ;; The data plane is deliberately NOT JSON: a document is bytes, and base64 inside a
@@ -2721,6 +2766,7 @@
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
+   'worker-document ep-worker-document
    'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants
    'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign

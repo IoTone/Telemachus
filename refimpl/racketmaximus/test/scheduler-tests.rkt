@@ -143,3 +143,127 @@
   (check-equal? (reap-orphans! c) 1)
   (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" orphan) "queued")
   (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" live) "running"))   ; a live lease is untouched
+
+;; ---- SCHED-8: cancelling a job that is already RUNNING ----------------------
+
+(test-case "a cancelled RUNNING job keeps its concurrency slot until the handler stops"
+  ;; The property the whole `canceling` status exists for. Flipping a running job
+  ;; straight to `canceled` would drop it out of the per-team cap count while its
+  ;; handler was still holding a thread and still spending tokens — cancel N jobs
+  ;; in a loop and the team gets N draining handlers plus N freshly claimed ones,
+  ;; with the cap reading as satisfied throughout.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define live-count (box -1))
+  (define saw (box 'nothing))
+  (register-job-kind! "cancels-itself"
+    (lambda (conn p payload)
+      (define id (hash-ref (current-job) 'id))
+      (set-box! saw (cancel-job! conn id tid))
+      ;; still inside the handler: the work is live, so the cap must still see it
+      (set-box! live-count
+                (query-value conn (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) tid))
+      (hasheq 'finished "anyway")))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "cancels-itself"))
+  (process-one! c)
+  (check-equal? (unbox saw) #t)                       ; a running job IS cancelable
+  (check-equal? (unbox live-count) 1)                 ; and still counted while it drains
+  (define g (get-job c j tid))
+  (check-equal? (hash-ref g 'status) "canceled")      ; settled once the handler returned
+  (check-equal? (hash-ref g 'result) 'null)           ; its answer was discarded, not stored
+  ;; and NOW the slot is free
+  (check-equal? (query-value c (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) tid) 0))
+
+(test-case "cancel is reported honestly at every stage"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok2" (lambda (conn p pl) (hasheq 'ok #t)))
+  (check-false (cancel-job! c (new-id) tid))                     ; no such job
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "ok2"))
+  (define tok (claim-job! c j #:lease (+ (current-seconds) 300))) ; now running
+  (check-equal? (cancel-job! c j tid) #t)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "canceling")
+  (check-equal? (cancel-job! c j tid) 'canceling)                ; already on its way out
+  (check-true (job-canceled? c j))
+  ;; the attempt's result can no longer land
+  (check-false (finish! c j "done" #:result "{}" #:token tok))
+  (check-true (settle-canceling! c j tok))
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "canceled")
+  (check-equal? (cancel-job! c j tid) 'not-cancelable)           ; terminal
+  (check-false (settle-canceling! c j tok)))                     ; and settling again is a no-op
+
+(test-case "settle-canceling! is fenced by the attempt's claim token"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok3" (lambda (conn p pl) (hasheq 'ok #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "ok3"))
+  (define tok (claim-job! c j #:lease (+ (current-seconds) 300)))
+  (check-equal? (cancel-job! c j tid) #t)
+  (check-false (settle-canceling! c j "some-other-attempt"))     ; not this attempt's to settle
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "canceling")
+  (check-true (settle-canceling! c j tok)))
+
+;; ---- SCHED-9: the wall-clock ceiling ----------------------------------------
+
+(test-case "every claim stamps started_epoch, which the ceiling is measured against"
+  ;; There is ONE claim path (issue #17) and both the pool and a pull worker go
+  ;; through it. A second one appearing later would leave this column NULL and
+  ;; the ceiling would quietly stop applying to those jobs — hence the assertion.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok4" (lambda (conn p pl) (hasheq 'ok #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "ok4"))
+  (check-true (sql-null? (query-value c "SELECT started_epoch FROM jobs WHERE id = ?" j)))
+  (define before (current-seconds))
+  (void (claim-job! c j #:lease (+ (current-seconds) 300)))
+  (define se (query-value c "SELECT started_epoch FROM jobs WHERE id = ?" j))
+  (check-false (sql-null? se))
+  (check-true (>= se before))
+  ;; and the pool's own claim stamps it too
+  (define j2 (enqueue-job! c #:team tid #:user uid #:kind "ok4"))
+  (process-one! c)
+  (check-false (sql-null? (query-value c "SELECT started_epoch FROM jobs WHERE id = ?" j2))))
+
+(test-case "the ceiling is configurable, and never silently zero"
+  (define old (getenv "TELEMACHUS_MAX_JOB_SECONDS"))
+  (define (cap v) (void (putenv "TELEMACHUS_MAX_JOB_SECONDS" v)))
+  (cap "") (check-equal? (max-job-seconds) 1800)        ; unset → the shipped default
+  (cap "60") (check-equal? (max-job-seconds) 60)
+  (cap " 90 ") (check-equal? (max-job-seconds) 90)
+  (cap "never") (check-false (max-job-seconds))          ; explicitly off
+  (cap "NEVER") (check-false (max-job-seconds))
+  (cap "nonsense") (check-equal? (max-job-seconds) 1800) ; never a surprise 0, which would
+  (cap "0") (check-equal? (max-job-seconds) 1800)        ; cancel every job as it started
+  (cap "-5") (check-equal? (max-job-seconds) 1800)
+  (void (if old (putenv "TELEMACHUS_MAX_JOB_SECONDS" old) (putenv "TELEMACHUS_MAX_JOB_SECONDS" ""))))
+
+(test-case "a tick past the ceiling cancels the job; before it, it extends the lease"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok5" (lambda (conn p pl) (hasheq 'ok #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "ok5"))
+  (define tok (claim-job! c j #:lease (+ (current-seconds) 5)))
+  ;; within the ceiling: the lease moves forward and the job stays running
+  (check-equal? (lease-tick! c j tok (+ (current-seconds) 300)) 'refreshed)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "running")
+  (check-true (> (query-value c "SELECT lease_until FROM jobs WHERE id = ?" j) (+ (current-seconds) 60)))
+  ;; a stale attempt's tick neither times the job out nor extends its lease
+  (check-equal? (lease-tick! c j "stale-attempt" (- (current-seconds) 1)) 'timed-out)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "running")
+  ;; past the ceiling: canceling, with a reason that names the knob
+  (check-equal? (lease-tick! c j tok (- (current-seconds) 1)) 'timed-out)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "canceling")
+  (check-regexp-match #rx"TELEMACHUS_MAX_JOB_SECONDS"
+                      (query-value c "SELECT error FROM jobs WHERE id = ?" j))
+  ;; "no limit" never times anything out
+  (check-equal? (lease-tick! c j tok #f) 'refreshed))
+
+(test-case "reap-orphans! settles a canceling job rather than re-queuing it"
+  ;; Re-running work somebody stopped is the one outcome nobody asked for.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define stopping (new-id))
+  (query-exec c "INSERT INTO jobs (id,team_id,user_id,kind,status) VALUES (?,?,?,?,'canceling')"
+              stopping tid uid "ok")
+  (check-equal? (reap-orphans! c) 1)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" stopping) "canceled"))
