@@ -1030,6 +1030,44 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   described and with its own queue rather than a release endpoint. The design doc,
   its slice plan and decision WF‑5 all say so now.
 
+## Out-of-process plugins reach the repository (LAY‑6, built 12 Oct 2026)
+
+A sandboxed plugin could reach `notes.create` and `notes.list` and nothing else,
+so a Python OCR or CV pipeline could read no bytes and write no result — while an
+in-process Racket tool read blobs freely. **The asymmetry was the bug**, and every
+domain pipeline the platform is for is out-of-process.
+
+- `repo.get` (`files:read`), `repo.text` (`files:read`), `repo.put` (`files:write`)
+  in `domain/oop/host.rkt`, behind the same **double gate** the notes capabilities
+  use: the plugin must have DECLARED the scope and the caller must hold the
+  permission. Neither half alone.
+- **Bytes are base64 over the existing pipe.** Not a path — that would couple a
+  plugin to the local store and leak its layout, and the blob store is
+  deliberately never handed a principal. Not a presigned URL — that needs the S3
+  listener and a second credential. Capped at `TELEMACHUS_MAX_UPLOAD`: a plugin is
+  not a way past the limit the front door enforces.
+- **`repo.text` reports a scan as an ANSWER**, `{text: null, reason: "needs-ocr"}`,
+  not an error — that is the branch an OCR plugin exists to take, and it should
+  not have to match on an error string to find it. (The `'needs-ocr` reason itself
+  is LAY‑8.)
+- **`repo.put` with `derived_from`** passes the source's visibility to `repo-put!`
+  and THEN inherits the grants — do not reorder — and sets `#:derived?` so an
+  opted-in trigger cannot fire on the plugin's own output.
+- **`GET /api/plugins` gained a `sandboxed` key** with each plugin's declared
+  scopes. They were absent entirely, so after granting repository access there was
+  no way to audit who holds `files:write`. Kept as its own key because
+  `loaded-plugins` is what `docs/reference/` is generated from.
+- **`raco make` exiting 0 does not mean the module loads.** A definition that
+  references a helper defined *below* it compiles and then dies at module init
+  with "cannot reference an identifier before its definition". Load the module,
+  don't just build it.
+- Worked example: `oop-plugins/doc-reader/`, registered in `oop.json`. The
+  capability table is documented in `docs/integrators-guide.md` §7b.
+
+```sh
+raco test test/oop-tests.rkt   # 8 cases: the double gate, provenance, the ceiling, end to end
+```
+
 ## Offboarding and password hygiene (issue #54, built 5 Oct 2026)
 
 Before this, `/api/members` had only `POST` and `GET`: a team could be joined and

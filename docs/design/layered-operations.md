@@ -1,10 +1,11 @@
 # Layered operations: human review, project metadata, and the plugin boundary
 
 *Proposed 3 Oct 2026 (LAY‑1…12, see [decisions.md](decisions.md)). **LAY‑1, ‑2 and
-‑3 are BUILT** (4 Oct 2026): the `review` step kind, the `waiting` run status,
+‑3 and ‑6 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
 decision records in `domain/review/review.rkt`, generalised four-eyes, `/api/reviews*`
 and the Review tab, with `test/review-tests.rkt` and the smoke's `== reviews ==`
-block. The other nine remain proposals. This document is a gap analysis: it separates what the **platform**
+block; and the repository capabilities for out-of-process plugins. LAY‑8 landed
+separately with four other defects from issue #54. The rest remain proposals. This document is a gap analysis: it separates what the **platform**
 must grow from what a **domain supplies as plugins and workflows**. It is driven
 by an RFE from a prospective customer — a small civil-engineering and
 disaster-response team in Japan — but the platform gaps it finds are not
@@ -170,7 +171,7 @@ If the coordinates are not kept, adding them later means re-processing every
 document that was ever ingested. **This is cheap to design in and expensive to
 retrofit**, which is why it belongs in this document rather than a later slice.
 
-### LAY‑6 — An out-of-process plugin cannot touch the repository
+### LAY‑6 — An out-of-process plugin cannot touch the repository  ✅ built
 
 The out-of-process host exposes exactly two capabilities: `notes.create` and
 `notes.list`. A plugin can be handed JSON arguments and can return structured
@@ -185,6 +186,18 @@ already go through.
 Note that an **in-process** Racket tool has no such problem (`doc-tools.rkt`
 reads blobs freely). The asymmetry is the bug.
 
+*As built:* `repo.get`, `repo.text` and `repo.put` behind the same double gate the
+two notes capabilities already went through. Bytes travel base64 over the existing
+pipe rather than as a path (which would couple a plugin to the local store and
+leak its layout) or a presigned URL (which would need the S3 listener and a second
+credential), capped at the same `TELEMACHUS_MAX_UPLOAD` the front door enforces.
+`repo.put` with `derived_from` inherits the source's visibility and grants and
+writes the derivation row, in that order. `repo.text` reports a scan as
+`reason: "needs-ocr"` beside a null text rather than as an error — an OCR plugin
+should not have to match on an error string to find its own branch. `GET
+/api/plugins` now lists sandboxed plugins and the scopes each declared, which was
+not observable at all. Worked example: `oop-plugins/doc-reader/`.
+
 ### LAY‑7 — Extractors are a fixed dispatch, not a registry
 
 `kind-of` in `extract.rkt` is a `cond` over content types: text, markup, docx,
@@ -197,7 +210,7 @@ With a registry, Japanese OCR, EXIF reading and keyframe sampling are all the
 same kind of object: a plugin that claims a content type and returns text plus
 metadata plus (LAY‑5) provenance.
 
-### LAY‑8 — A scanned page is indistinguishable from a blank one
+### LAY‑8 — A scanned page is indistinguishable from a blank one  ✅ built
 
 A PDF with no text layer extracts to empty text and is recorded as **successfully
 indexed** — the code says so outright: *"possibly empty — an empty PDF is still

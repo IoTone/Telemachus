@@ -814,6 +814,18 @@ assert "the decision is in the audit log" \
   "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'review.approve'
 curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}' >/dev/null  # restore
 
+# ---- LAY-6: an out-of-process plugin can reach the repository --------------------
+# It could reach notes.create and notes.list and nothing else, so a Python OCR or
+# CV pipeline could read no bytes and write no result — while an in-process Racket
+# tool read blobs freely. doc-reader is the worked example: no database handle, it
+# asks the host for repo.text and repo.put.
+assert "the out-of-process reader registered" \
+  "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'oop__doc-reader__read_document'
+assert "...listed as sandboxed, with the scopes it declared" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"name":"doc-reader"'
+assert "...and the declared scope is visible to an operator" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'files:write'
+
 # ---- identity: offboarding and password hygiene (issue #54) ---------------------
 echo
 echo "== members and passwords =="

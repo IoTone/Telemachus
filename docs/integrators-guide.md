@@ -200,6 +200,58 @@ through one anti-abuse gate, and the funnel's fields, copy, theme and translatio
 live in an experience document an operator edits in Admin → Beta. See
 [design/beta-onboarding-experience.md](design/beta-onboarding-experience.md).
 
+## 7b. Ship a tool that is not Racket
+
+A plugin that is not written in Racket runs as a **subprocess** and speaks
+newline-delimited JSON over stdio. It has no database handle and no platform
+imports. To do anything on the platform it asks the host for a **capability**,
+and the host runs it only if the plugin DECLARED the scope in its manifest **and**
+the calling user holds the matching RBAC permission. Both halves, every call.
+
+Register it in `oop.json` (or `TELEMACHUS_OOP`):
+
+```json
+{ "plugins": [ { "name": "ocr", "command": "python3", "args": ["oop-plugins/ocr/main.py"] } ] }
+```
+
+The capabilities a plugin may ask for:
+
+| Capability | Needs | Does |
+|---|---|---|
+| `notes.create` / `notes.list` | `notes:write` / `notes:read` | the team's notes |
+| `repo.get` | `files:read` | a document's bytes, base64, with its content type and version |
+| `repo.text` | `files:read` | its extracted text — see the scan case below |
+| `repo.put` | `files:write` | write a document; with `derived_from` it inherits the source's visibility and grants and records the provenance |
+
+Bytes travel **base64 over the pipe**, not as a filesystem path or a URL. A path
+would couple your plugin to the local store and leak its layout — the blob store
+is never handed a principal, only a namespace and a digest, so a backend has no
+authorization to get wrong. The ceiling on an inline read or write is the same
+`TELEMACHUS_MAX_UPLOAD` the HTTP front door enforces: a plugin is not a way past
+a limit.
+
+**`repo.text` answers "this is a scan" rather than failing.** A PDF with no text
+layer comes back as `text: null` with `reason: "needs-ocr"` — an *answer*, because
+it is precisely the branch an OCR plugin exists to take, and a plugin should not
+have to match on an error string to find it.
+
+```python
+r = host("repo.text", {"object": object_id})
+if r.get("reason") == "needs-ocr":
+    text = my_ocr(host("repo.get", {"object": object_id})["bytes_b64"])
+    host("repo.put", {"key": r["key"] + ".ocr.txt", "content_type": "text/plain",
+                      "bytes_b64": b64(text), "derived_from": object_id})
+```
+
+`derived_from` matters: the output is private from its first byte, inherits the
+source's sharing, and `GET /api/repo-obj/<id>/processing` can answer where it came
+from. Without it you have written an orphan.
+
+`oop-plugins/doc-reader/` is the worked example — it reads a document, branches on
+the scan case, and files the text back derived from the original. `GET /api/plugins`
+lists sandboxed plugins under `sandboxed` with the scopes each declared, which is
+how an operator audits who holds `files:write`.
+
 ## 8. The worked example
 
 `plugins/integrator-demo/` is the whole of the above in one directory, and it is the

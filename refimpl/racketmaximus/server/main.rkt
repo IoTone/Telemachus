@@ -2453,8 +2453,14 @@
             #:team-id (principal-team-id p) #:resource-type "feature" #:resource-id name)
     (json-response (hasheq 'ok #t 'feature name 'enabled on?)))))
 
+;; `sandboxed` lists the out-of-process plugins WITH THE SCOPES THEY DECLARED.
+;; They were absent entirely, so after granting one repository access there was no
+;; way to see which plugins hold it — and the declared scope is half of the double
+;; gate. Kept as its own key: `loaded-plugins` is what docs/reference is generated
+;; from, and an in-process plugin and a subprocess are not the same kind of thing.
 (define (ep-plugins req)
-  (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins)
+  (with-auth req (lambda (p) (json-response (hasheq 'sandboxed (loaded-oop-plugins)
+                                                    'plugins (loaded-plugins)
                                                     ;; issue #48: what did NOT load
                                                     'failed (plugin-failures))))))
 
