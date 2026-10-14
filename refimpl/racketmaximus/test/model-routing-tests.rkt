@@ -75,6 +75,24 @@
   (check-equal? reply "HELLO")
   (check-true (> tokens 0)))
 
+(test-case "issue #64: the echo is ANSWERABLE — one seam, asked by two callers"
+  ;; The echo keeps the platform demoable and stays. Being SILENT about it was
+  ;; the defect: a caller got a plausible-looking reply from a model that was
+  ;; never called. `chat-simulated?` reads the same `backend` decision run-chat
+  ;; makes, so the endpoint explaining and the call deciding cannot drift.
+  (check-true (chat-simulated?) "no model, no executor — the echo answers")
+  ;; A NAMED executor is never simulated: either a pull worker answers it, or
+  ;; run-chat refuses it by name (the case above). It must never report as an
+  ;; echo, which would send an operator looking for a missing model instead of a
+  ;; missing backend.
+  (check-false (chat-simulated? "ghost-box"))
+  ;; …and with a push backend registered there is a real endpoint behind it
+  (register-executor! "sim-probe" #:url "http://127.0.0.1:1/v1/chat/completions" #:model "m")
+  (check-false (chat-simulated? "sim-probe"))
+  ;; it is PURE: the job listing's hold reason taught us an endpoint will call
+  ;; this on every read, so asking twice must not change anything
+  (check-true (chat-simulated?)))
+
 (test-case "the AGENT is routable, and meters the provider's own token counts"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "root"))

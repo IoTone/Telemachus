@@ -147,6 +147,8 @@
   "ui.prompt": "Prompt",
   "ui.pwsignedout": "Password changed — every session was signed out. Sign in again.",
   "ui.qualify": "Qualify",
+  "ui.simulated": "simulated \u2014 no model is configured",
+  "ui.simulatedwhy": "TELEMACHUS_MODEL_URL is unset, so this reply is a deterministic echo of your prompt rather than a model's answer.",
   "ui.rationale": "Reason",
   "ui.recent": "Recent",
   "ui.refresh": "Refresh",

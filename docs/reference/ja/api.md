@@ -101,8 +101,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PUT | `/api/notes/:id` | bearer | `notes:write` | — | ノートを更新します。 |
 | DELETE | `/api/notes/:id` | bearer | `notes:delete` | — | ノートを削除します。 |
 | POST | `/api/ai/echo` | bearer | `chat:use` | — | クォータの動作確認用の、モデルを使わない計量付きエコー。 |
-| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text\|json_object\|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。 |
-| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | 同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。 |
+| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text\|json_object\|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。 |
+| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | 同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。モデルが一切応答していない場合は `simulated: true` が入ります。 |
 | POST | `/api/agent` | bearer | `chat:use` | `agent` | チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。 |
 | POST | `/api/translate/catalog` | bearer | `chat:use` | `translate` | ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。 |
 | POST | `/api/translate` | bearer | `chat:use` | `translate` | 目標言語にテキストを翻訳し、チーム用語集を使用します。 |

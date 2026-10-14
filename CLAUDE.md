@@ -81,8 +81,15 @@ racket server/main.rkt
 ```
 
 - **`TELEMACHUS_MODEL_URL` is required for real model calls** — without it `run-chat`
-  silently uses a *simulated* uppercase-echo fallback (a real gotcha: the LLM judge/agent
-  will look "broken" — no model was ever called).
+  uses a *simulated* uppercase-echo fallback. It is no longer SILENT about it
+  (issue #64): the boot line warns, `/api/ai/chat` and the stream's final event
+  carry **`simulated: true`** (the key is absent on a real call), and the console
+  marks the reply. `chat-simulated?` in `executor.rkt` is the one seam that
+  decides — read it, never re-derive it from `model-configured?`, or the endpoint
+  will report "real" for a call the echo answered. A NAMED executor is never
+  simulated: a pull worker answers it or `run-chat` refuses it by name. The doc
+  tools, the knowledge graph and `/api/agent` still refuse outright, because an
+  echo is useless to them.
 - The server **caches `static/index.html` at startup** — restart to pick up UI edits.
 - Local model: ollama on `:11434`, `qwen2.5:7b` (tool-calling works; avoid qwen3.5
   "reasoning" models — the answer lands in a `reasoning` field). Warm it before e2e.

@@ -579,6 +579,10 @@
       "text": "Not shared with anyone.",
       "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
     },
+    "ui.simulatedwhy": {
+      "text": "TELEMACHUS_MODEL_URL is unset, so this reply is a deterministic echo of your prompt rather than a model's answer.",
+      "hash": "490ef95053c12b82ccd44c2b73db4715c12e78af"
+    },
     "greeting.hello": {
       "text": "Hello, {name}!",
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
@@ -1284,8 +1288,8 @@
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
     },
     "doc.route.post.api.ai.chat.stream": {
-      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it.",
-      "hash": "b7e4ec3d446974eff8f49c3c7d506b4ceb5fbb4d"
+      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all.",
+      "hash": "7e6e370303b6bcfec2968ccb380941f0555c1c91"
     },
     "doc.route.post.api.workers.state": {
       "text": "A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone.",
@@ -1750,6 +1754,10 @@
     "ui.thcontrasthint": {
       "text": "Readers may not be able to see this text. The server refuses a theme below the minimum.",
       "hash": "931f620bbf6a582ae8b0d682fcec3c2206887dd4"
+    },
+    "ui.simulated": {
+      "text": "simulated — no model is configured",
+      "hash": "524b30e930284e1befb775feee162556fe8365c1"
     },
     "ui.notriggers": {
       "text": "No triggers yet.",
@@ -2272,8 +2280,8 @@
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
     },
     "doc.route.post.api.ai.chat": {
-      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage.",
-      "hash": "0d0991ea659a2a58c2bb9bfd143226414dd66378"
+      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TELEMACHUS_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call.",
+      "hash": "8b8b362cda5740cc3c15fe5d8d6c92278b0eac32"
     },
     "doc.route.post.api.l10n.draft": {
       "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",

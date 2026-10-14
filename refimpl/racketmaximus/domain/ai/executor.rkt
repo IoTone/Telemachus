@@ -18,7 +18,7 @@
          "content.rkt"                  ; content->text, response formats (issue #18)
          "../exec/federation.rkt")      ; executor-config — route to a named backend
 
-(provide model-configured? model-info run-chat run-chat-stream parse-chat-response estimate-tokens
+(provide model-configured? model-info chat-simulated? run-chat run-chat-stream parse-chat-response estimate-tokens
          model-url model-name model-key pull-router
          model-exchange response-tokens)
 
@@ -102,6 +102,24 @@
 (define (headers* key)
   (append (list "Content-Type: application/json")
           (if key (list (string-append "Authorization: Bearer " key)) '())))
+
+;; Would this call be answered by the SIMULATED echo rather than by a model?
+;; (issue #64) The echo exists so the platform is demoable with nothing running,
+;; and that is worth keeping — but a caller got a plausible-looking reply with
+;; nothing saying no model was ever called, which is the gotcha that keeps being
+;; rediscovered as "the judge is broken".
+;;
+;; This is the SAME decision `run-chat` makes, read from the same `backend` seam,
+;; because one policy now has two askers: the call, which must decide, and the
+;; endpoint, which must explain. Two implementations would drift — the shape
+;; QUOTA-3 settled for a held job's reason. It is PURE and cheap, so an endpoint
+;; may ask it on every request.
+;;
+;; A NAMED executor is never simulated: a pull worker answers it, or `run-chat`
+;; refuses it by name. Only the unnamed local path can fall through to the echo.
+(define (chat-simulated? [executor #f])
+  (define-values (_u _m _k conf?) (backend executor))
+  (and (not conf?) (not executor)))
 
 ;; resolve a backend: a named federated executor, else the env-configured local.
 ;; -> (values url model key configured?)

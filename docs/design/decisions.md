@@ -345,6 +345,34 @@ wrong is worth more than a plan edited to look right:
 - `TelemachusMigration.md` said "this document stays in this repo" meaning
   Odysseus. It lives here; the sentence survived the move.
 
+## The simulated echo says it is simulated (MODEL‑1) — **decided and BUILT 14 Oct 2026** (issue #64)
+
+With `TELEMACHUS_MODEL_URL` unset, `run-chat` falls back to a deterministic
+upper-cased echo of the prompt. The fallback is right — the platform is demoable
+with nothing running — but it was **silent**, so a caller got a plausible-looking
+reply from a model that was never called. It is the gotcha `CLAUDE.md` has warned
+about for a year and it keeps being rediscovered from the other end, as "the
+judge is broken".
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| 🔑 **MODEL‑1a** | Refuse, or mark? | **Keep the echo and MARK it** · vs refuse outright, as the document tools do · vs an env var to opt in | The echo has a job: `e2e/validate.sh`, `server-smoke.sh` and a first look at a fresh checkout all run with no model, and refusing would make the console's chat tab dead on arrival for exactly the person evaluating the product. The callers that already refuse are the ones where an echo is *useless* — the doc tools' schema would fail on it anyway, the knowledge-graph extractor's snippet check would reject it, the agent has no tool calls to parse. Chat is the one place the echo is still a demo rather than a lie, provided it admits what it is. |
+| **MODEL‑1b** | Who decides | **`chat-simulated?` in `executor.rkt`, reading the same `backend` seam `run-chat` decided with** · vs each endpoint testing `model-configured?` itself | One policy, two askers — the call, which must decide, and the endpoint, which must explain. Two implementations drift, and the drift would be invisible: the endpoint would report "real" for a call the echo answered. Exactly the shape QUOTA‑3 settled for a held job's reason. It is PURE, so an endpoint may ask on every request. |
+| **MODEL‑1c** | A named executor | **Never simulated** | A named executor is answered by a pull worker or refused by name. Reporting it as an echo would send an operator looking for a missing model when what is missing is a backend — and "a misroute that lies about where it ran is the worst shape this can take" is already the rule here. |
+| **MODEL‑1d** | The shape on the wire | **`simulated: true`, and the key is ABSENT on a real call** · vs `simulated: false` | QUOTA‑3's rule again: a field that is there only when it says something. It also means a client written before this cannot read a missing key as a claim. |
+| **MODEL‑1e** | Where else it is said | **At BOOT, and in the console beside the reply** · vs the response alone | The operator standing in front of a fresh instance is the one who most needs to know, and they are not reading JSON — so the boot line warns, in the shape the plugin failures already use. The console shows it on the reply's meta line as well as the model badge, because the badge is in the tab header and a reader scrolling a transcript is not looking at it. |
+
+The badge was not quite silent: `chatView` already rendered `· simulated` when
+`GET /api/ai/model` said `configured: false`. It was the **one console string
+that never reached the catalogs** — hardcoded English, so a Japanese operator
+read exactly the word that mattered most in the language they had not chosen.
+`ui.simulated` and `ui.simulatedwhy` now carry it.
+
+Deliberately NOT changed: a simulated call still **meters** `estimate-tokens`
+against the team's budget. Billing for work no model did is arguable, but the
+demo's quota behaviour is the thing the Usage tab is being demonstrated with,
+and a second decision does not belong inside this one.
+
 ## A worker says whether it is taking work (PULL‑11) — **decided and BUILT 14 Oct 2026** (issue #58)
 
 The last open item from #54. Executor health was derived from `last_seen_at`
