@@ -311,6 +311,32 @@ rewritten to look right.
 | **PULL‑9** | What a worker may read | **Job-bound document reads** · vs no-data isolation (today) | A worker sees only its payload now. Job-bound means it may read the objects **its own claimed job references**, and nothing else — the fence is the job's own inputs, and the credential is the `claim_token` it already carries, so the read dies when the claim does. This is what lets an OCR or CV worker fetch the file it was given instead of having bytes pushed through the payload. It is a real widening of what a worker host can see: today a compromised worker learns nothing, afterwards it learns the documents it was handed.  **Built** as `POST /api/workers/jobs/:id/document`, with a **third** condition beside the two recorded: the read happens as the JOB'S OWN USER, so `can?` decides exactly as it would for that person — visibility, grants and the org gate included, and no new authorization code. A document the job's user cannot see is invisible to the worker running that job, and "does not exist" and "not yours" are one answer, as in the knowledge graph. `as: "bytes"` (base64, capped at `TELEMACHUS_MAX_UPLOAD` — a worker is not a way past the ceiling the front door enforces) or `as: "text"`, where a scan answers `{text: null, reason: "needs-ocr"}` rather than erroring, since that is the branch an OCR worker exists to take. |
 | **RBAC‑5b** | Custom team roles | **Not in v1** · vs ship them now | Closes the question. `roles:manage` exists as a permission with nothing behind it, which is the kind of thing that reads as an unfinished feature rather than a deliberate omission — say so where the permission is described. The four built-in roles stay the vocabulary.  **Built**: `roles:manage`'s description now says it is reserved for team-defined roles, which are not in v1, and that nothing reads it yet — a deliberate omission rather than an unfinished feature. |
 
+## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
+
+Deferring an over-budget team's jobs is right and stays. Being **silent** about
+it was the defect: the queue stopped with nothing `running`, nothing in the audit
+log and no reason on the job, which is indistinguishable from a hang. The
+operating notes' own warning that "a batch extraction stops after the first jobs
+and looks like a hang" was being read as a bug report rather than as a budget.
+
+| # | Decision | Recommendation · alternatives | What it implies |
+|---|---|---|---|
+| **QUOTA‑3** | A held job says which limit holds it | **Derive the reason; record the deferral once per window** · vs a column on `jobs` · vs failing the job | The reason is **DERIVED, never stored**. A column would be a second copy of a decision the next tick re-makes: raise the budget and the row would still say "quota" for a job about to run, which is worse than saying nothing — the same rule `missing`/`stale` live by in the Localization Manager, and the same reason executor health is computed rather than written down. It also means no migration. The admission seam therefore answers with a REASON instead of a boolean (`#:hold-reason` on `start-scheduler!`, `*hold-reason*`, `scheduler-hold-reason`), because one policy now has two askers — the claim, which must decide, and `GET /api/jobs`, which must explain. A boolean check plus a separate "why is this queued" reader would be two implementations of one policy, and they would drift. The seam must stay PURE: the job listing calls it on every read, so the audit entry is a second hook (`#:on-hold`) that fires only where a claim was really deferred. **The order mirrors `claim-next!`** — the concurrency cap before the budget — so a team that is both at its cap and over its budget is told about the cap, the one that clears on its own. **`waiting` is ABSENT, never `{"reason":"worker"}`,** when nothing is holding the job: the platform cannot know whether a worker for a remote kind exists, and a reason nothing stands behind is how a reader stops trusting the field. **The audit entry is once per window per (scope, subject, dimension)**, deduped by asking the audit log itself (`at_us >= the window's start`) rather than a table of its own — the log is already the record, a second store could disagree with it, and an in-memory set would forget on restart and re-announce what the operator has read. A sliding or unbounded window has no start, so those are floored at one entry an hour instead of pretending a boundary exists. `team_id` on the entry is the DEFERRED job's team even when the ORG's budget is what holds it, because `audit-list` filters by team and an entry carrying the org would be invisible to exactly the people whose work stopped. |
+
+**`resets_at` is asked of the database, not computed in Racket.** `window-bounds`
+in `quota.rkt` issues the dialect's own query because the answer must agree with
+`window-clause`, which does not mean the same thing on both backends: SQLite's
+`date('now')` is UTC while PostgreSQL's `CURRENT_DATE` follows the server's
+timezone. The two smokes report boundaries seven hours apart on the same day for
+that reason, and each is right about its own dialect — a reset time computed in
+Racket would have been right on one and hours out on the other. Making the two
+dialects agree on what a "day" is would be a separate change with a migration's
+worth of consequences for every existing ledger row.
+
+**A sliding window deliberately answers nothing.** `"minute"` loses its oldest
+second of usage every second, so there is no instant at which the budget resets;
+naming one would be a worse answer than naming none. `"total"` never resets.
+
 ## Research, bring-your-own-key, data-policy routing (RSCH / BYOK / ZDR) — **proposed 13 Oct 2026**
 
 Three questions raised while testing. **None of the three is built.** They are

@@ -12,6 +12,14 @@
       "text": "勤務先のメールアドレスをご利用ください。",
       "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
     },
+    "ui.quotaheldorg": {
+      "text": "このチームの所属会社が {dimension} の割り当てを使い切りました（{limit} のうち {used}）。キュー内のジョブは失敗したのではなく待機しており、期間がリセットされると再開します。",
+      "hash": "c278db3a6c6604c5e8583793f3419c1b22b54bce"
+    },
+    "doc.route.post.api.l10n.export": {
+      "text": "ロケールの承認済み文字列を locales/<locale>.json に書き戻す。承認済みが何もないロケールは拒否します。",
+      "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
+    },
     "doc.perm.team:write": {
       "text": "会社のチーム名を変更します。",
       "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
@@ -111,10 +119,6 @@
     "doc.workflow.index-documents": {
       "text": "リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
-    },
-    "doc.route.post.api.l10n.export": {
-      "text": "ロケールの承認済み文字列を locales/<locale>.json に書き戻す。承認済みが何もないロケールは拒否します。",
-      "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
     },
     "doc.route.post.api.beta.experience.publish": {
       "text": "保存済みの下書きを公開する；以後は環境変数で投入された既定値より優先されます。",
@@ -404,13 +408,17 @@
       "text": "ディスク上のカタログをマネージャーのテーブルに取り込む。",
       "hash": "ee1a9aa18b893d69cccefe0369bcdf203aa1ee28"
     },
-    "ui.reviewnone": {
-      "text": "レビュー待ちの項目はありません。",
-      "hash": "81113cde3bd4da1b134ee55e4187faded2a1bccb"
+    "ui.heldbycap": {
+      "text": "保留：チームの同時実行上限 {limit}",
+      "hash": "c7f70588d8511f2d99f19ba0d557e50eaf20bd2f"
     },
     "doc.perm.instance:manage": {
       "text": "インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス",
       "hash": "336906f62b986937095973b250bdd09c8493001b"
+    },
+    "ui.reviewnone": {
+      "text": "レビュー待ちの項目はありません。",
+      "hash": "81113cde3bd4da1b134ee55e4187faded2a1bccb"
     },
     "ui.noothers": {
       "text": "このチームに他のメンバーがいません。",
@@ -433,8 +441,8 @@
       "hash": "dcd3b715ebd6e57f48c3f964ec298a3529f00dfc"
     },
     "doc.route.get.api.jobs": {
-      "text": "チームのジョブ、最新から",
-      "hash": "2b1247c7a0fb1ca736ef30a6d6ce0649ac55eb2c"
+      "text": "チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: \"quota\"|\"concurrency\", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。",
+      "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
     },
     "ui.bxthanks": {
       "text": "ありがとうございます — お申し込みを確認しています。",
@@ -656,6 +664,10 @@
       "text": "対象言語コード、例えばes、nl、is",
       "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
     },
+    "ui.resets": {
+      "text": "リセット",
+      "hash": "da1a3c80185a86b58790c77e17145fc737ff37b5"
+    },
     "beta.email_invalid": {
       "text": "有効なメールアドレスを入力してください。",
       "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
@@ -687,6 +699,10 @@
     "ui.del": {
       "text": "削除",
       "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
+    },
+    "ui.quotaheldteam": {
+      "text": "このチームは {dimension} の割り当てを使い切りました（{limit} のうち {used}）。キュー内のジョブは失敗したのではなく待機しており、期間がリセットされると再開します。",
+      "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
     },
     "doc.route.post.api.password": {
       "text": "呼び出し元のパスワードを変更する。古いパスワードで発行され得たセッションは、この呼び出し自身のものも含めてすべて失効するため、再度サインインが必要です。マシン用トークン（api、worker）はそのまま残ります。",
@@ -1308,6 +1324,10 @@
       "text": "モデルと対話する：チャット、エージェント、翻訳、AIツール。従量制。",
       "hash": "828cc8ee6dd6bf4ce22bcc5de9a585f9cd02b63f"
     },
+    "ui.quotaheldtitle": {
+      "text": "予算により処理が一時停止しています",
+      "hash": "9f7fd9b635a7534b53af9a169cb1579259318514"
+    },
     "doc.tool.doc_translate.run": {
       "text": "ワークフロー実行 ID（由来の記録用）。",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
@@ -1440,6 +1460,10 @@
       "text": "クォータを見る。",
       "hash": "fb2e9e15c807d3a4e1c48139107fc7b18f522f21"
     },
+    "ui.quotaraiseop": {
+      "text": "下の設定で引き上げられます。",
+      "hash": "fcf24e7c78cf03fabbab4d6d138fc343406ee1b9"
+    },
     "doc.perm.org:read": {
       "text": "会社、そのチーム、メンバー、監査ログを見る。",
       "hash": "05279417b614668317d0b96f13b779958ddfcdda"
@@ -1507,6 +1531,10 @@
     "doc.route.get.api.glossary": {
       "text": "チーム用語集.",
       "hash": "7986293803bb2029e37ce2d2f2e2c213446c48c7"
+    },
+    "ui.quotaresets": {
+      "text": "{when} に再開します。",
+      "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
     },
     "http.unauthorized": {
       "text": "認証が必要です。",
@@ -1644,6 +1672,10 @@
       "text": "キー",
       "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
     },
+    "ui.quotaraiseask": {
+      "text": "オペレーターが引き上げられます。",
+      "hash": "5a5414bdc24f0f0ed674ea06fec55db68b668ef3"
+    },
     "doc.route.post.api.jobs.id.cancel": {
       "text": "ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。",
       "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
@@ -1725,8 +1757,8 @@
       "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
     },
     "doc.route.get.api.jobs.id": {
-      "text": "1つのジョブとその結果またはエラー",
-      "hash": "fe32c2dd94dd14a9e9e3c2737fa9398ac5636134"
+      "text": "1件のジョブと、その結果またはエラー。プラットフォームが保留している場合は `waiting` も含みます（GET /api/jobs を参照）。",
+      "hash": "2e572acb3d944828286221241530d36698f6ee9d"
     },
     "ui.sessionsec": {
       "text": "セッションのセキュリティ",
@@ -1897,8 +1929,8 @@
       "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
     },
     "doc.route.get.api.usage": {
-      "text": "チームのクォータ次元ごとの使用量、上限、残り。",
-      "hash": "17724760ce302a6beba0cc1dcdbdcdcdf7694b07"
+      "text": "チームのクォータ指標を、使用量・上限・残量・期間のリセット時刻とともに返す。さらに `held` が、現在このチームのキュー内ジョブを保留している上限を示します（保留がなければ null）。",
+      "hash": "b5c7dd8312bd5396d1cd31a129b79b6deb5a3def"
     },
     "doc.route.get.api.plugins": {
       "text": "読み込まれたプラグインと、そのツールおよびワークフロー。",
@@ -2307,6 +2339,10 @@
     "ui.chpw": {
       "text": "パスワードの変更",
       "hash": "88dee350141b934bd32db882794a951a7a40d898"
+    },
+    "ui.heldbyquota": {
+      "text": "保留：{dimension} の予算",
+      "hash": "f2afcef162808b1a6720bb9cd2b948aea93b14d3"
     },
     "ui.dimension": {
       "text": "指標",

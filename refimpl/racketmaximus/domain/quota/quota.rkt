@@ -7,7 +7,8 @@
 
 (require db-kit/portable "../db/id.rkt")
 
-(provide set-limit! get-limit quota-used quota-check quota-record! default-policy!)
+(provide set-limit! get-limit quota-used quota-check quota-record! default-policy!
+         window-bounds window-resets-at)
 
 (define (set-limit! conn subject-type subject-id dimension limit #:window [window "day"])
   (query-exec conn
@@ -34,6 +35,41 @@
      (if (eq? dialect 'postgresql) "at::timestamptz >= NOW() - interval '60 seconds'"
          "at >= datetime('now','-60 seconds')")]
     [else "1 = 1"]))
+
+;; When the current window started, and when it next starts over, as epoch seconds
+;; — (values #f #f) when the window is not a calendar one (issue #55, part 4: a
+;; client cannot say "work resumes at…" without this).
+;;
+;; Asked of the DATABASE, in the same terms `window-clause` filters by, because
+;; the two must never disagree: SQLite's `date('now')` is UTC while PostgreSQL's
+;; CURRENT_DATE follows the server's own timezone, so a boundary computed in
+;; Racket would be right on one dialect and hours out on the other.
+;;
+;; "minute" deliberately answers nothing. It is a SLIDING window — the oldest
+;; second of usage falls out of it every second — so there is no instant at which
+;; the budget resets, and naming one would be a worse answer than naming none.
+;; "total" never resets.
+(define (window-bounds conn window)
+  (cond
+    [(equal? window "day")
+     (define-values (q0 q1)
+       (if (eq? (db-dialect conn) 'postgresql)
+           ;; CURRENT_DATE is a date; the ::timestamptz cast reads it in the
+           ;; session's timezone, which is the same calendar day `at::date =
+           ;; CURRENT_DATE` compares against.
+           (values "SELECT EXTRACT(EPOCH FROM CURRENT_DATE::timestamptz)"
+                   "SELECT EXTRACT(EPOCH FROM (CURRENT_DATE + interval '1 day')::timestamptz)")
+           (values "SELECT CAST(strftime('%s', date('now')) AS INTEGER)"
+                   "SELECT CAST(strftime('%s', date('now','+1 day')) AS INTEGER)")))
+     (values (epoch-of conn q0) (epoch-of conn q1))]
+    [else (values #f #f)]))
+
+(define (epoch-of conn q) (inexact->exact (floor (query-value conn q))))
+
+;; just the far edge, which is the one a client shows
+(define (window-resets-at conn window)
+  (define-values (_start end) (window-bounds conn window))
+  end)
 
 (define (quota-used conn subject-type subject-id dimension window)
   (query-value conn

@@ -1123,6 +1123,62 @@ bash test/pull-smoke.sh                                   # section 5, 13 assert
 bash test/server-smoke.sh                                 # the four "cancel:" assertions
 ```
 
+## A deferred job says why (issue #55, built 14 Oct 2026)
+
+An over-budget team's jobs stay `queued` — right, and until now invisible.
+Decision QUOTA‑3 in `docs/design/decisions.md`.
+
+- **The admission seam answers with a REASON, not a boolean.** `#:hold-reason` on
+  `start-scheduler!` (`*hold-reason*`, `scheduler-hold-reason`) returns `#f` to
+  admit or a hash to defer-and-explain, because one policy now has two askers:
+  the claim, which must decide, and `GET /api/jobs`, which must explain. Two
+  implementations of one policy would drift. **It must stay PURE** — the job
+  listing calls it on every read — so the audit entry is a SECOND hook,
+  `#:on-hold`, fired only where a claim was really deferred. `set-admit?!` and
+  `scheduler-admit?` are gone; a caller passing `#:admit?` now gets an
+  unknown-keyword error, which is the point.
+- **`waiting` on a job is DERIVED, never stored.** A column would be a second
+  copy of a decision the next tick re-makes — raise the budget and the row would
+  still say "quota" for a job about to run. Same rule as `missing`/`stale` in the
+  Localization Manager and executor health. No migration.
+- **The order mirrors `claim-next!`**: the concurrency cap before the budget, so
+  a team that is both at its cap and over its budget is told about the cap — the
+  one that clears on its own.
+- **The key is ABSENT, never `{"reason":"worker"}`,** when nothing holds the job.
+  Nothing here can know whether a worker for a remote kind exists, and a reason
+  nothing stands behind is how a reader stops trusting the field.
+- `job-waiting` computes the reason **once per listing**, not per row: the answer
+  is a property of the team. A sub-job is cap-exempt at claim, so it is asked
+  with `#:sub? #t`.
+- **The audit entry is once per window per (scope, subject, dimension)**, deduped
+  by asking the AUDIT LOG (`at_us >= the window's start`) rather than a table of
+  its own — the log is already the record, and an in-memory set would forget on
+  restart and re-announce what the operator has read. Every pool tick re-tries
+  every queued job, so a per-claim entry writes dozens in seconds. `team_id` is
+  the DEFERRED job's team even when the ORG's budget holds it: `audit-list`
+  filters by team.
+- **`resets_at` is asked of the DATABASE** (`window-bounds` in `quota.rkt`),
+  because it must agree with `window-clause`, and the two dialects do not mean
+  the same thing by "day": SQLite's `date('now')` is UTC, PostgreSQL's
+  `CURRENT_DATE` follows the server's timezone. The two smoke runs report
+  boundaries **seven hours apart** on the same day and each is right about its
+  own dialect — a value computed in Racket would be right on one and hours out on
+  the other. Not on the admission path: `quota-check` is unchanged, and the two
+  reporting sites (`GET /api/usage`, the hold reason) pay for it.
+- **A sliding window answers nothing.** `"minute"` loses its oldest second every
+  second, so there is no instant at which it resets; `"total"` never does. Both
+  answer `null`, and the console only renders the sentence when the server named
+  a boundary.
+- Console: the Usage tab carries the ⏸ card (`quotaHeldCard`, from `held` on
+  `GET /api/usage`) and a "Resets" column; the Jobs tab badges a held job
+  (`jobWaitBadge`). An ORG-tier limit is not the team operator's to raise, so the
+  card does not promise it.
+
+```sh
+raco test test/scheduler-tests.rkt   # the reason, the cap-before-budget order, the report
+bash test/server-smoke.sh            # 8 assertions after "job quota-gated"
+```
+
 ## Capability records, the accuracy report, the decision chain (LAY‑9…12)
 
 Built 12 Oct 2026. **All twelve LAY items are now built**, each with its limits

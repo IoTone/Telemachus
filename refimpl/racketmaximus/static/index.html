@@ -610,13 +610,34 @@ async function doAddMember(){ const r=await api('/api/members',{method:'POST',bo
 
 function canManage(){ if(!S.me) return false; if(S.me.is_operator) return true;
   return (S.me.permissions||[]).some(p=>p==='*:*'||p==='settings:manage'||p==='*:manage'); }
+// issue #55: a budget that has stopped the team's queued work says so HERE,
+// where the limits are, naming the dimension and who can raise it. Without it an
+// over-budget team sees jobs sitting in `queued` and reads it as a hang — which
+// is exactly how it was read.
+function quotaHeldCard(held){
+  if(!held) return '';
+  const fill = (k)=>t(k).replace('{dimension}', esc(held.dimension||''))
+                        .replace('{used}', esc(String(held.used)))
+                        .replace('{limit}', esc(String(held.limit)));
+  const body = held.scope==='org' ? fill('quotaheldorg') : fill('quotaheldteam');
+  // resets_at is epoch SECONDS and absent for a sliding window, so the sentence
+  // is only added when the server actually named a boundary
+  const when = held.resets_at ? ' '+t('quotaresets').replace('{when}',
+                 esc(new Date(held.resets_at*1000).toLocaleString())) : '';
+  // an org-tier limit is not the team operator's to raise, so do not promise it
+  const who = (S.me && S.me.is_operator && held.scope!=='org') ? t('quotaraiseop') : t('quotaraiseask');
+  return `<div class="card" style="border-color:var(--warn,#c9a227);margin-bottom:14px">
+      <h3>⏸ ${t('quotaheldtitle')}</h3><p style="margin:0">${body}${when} ${who}</p></div>`;
+}
 async function usageView(){
   const r=await api('/api/usage'); const q=r.ok?r.json.quota:[];
+  const held=r.ok?r.json.held:null;
   const tr=await api('/api/tools'); const tools=tr.ok?tr.json.tools:[];
   const pr=await api('/api/plugins'); const plugins=pr.ok?pr.json.plugins:[];
   const op=await api('/api/oop'); const oops=op.ok?op.json.plugins:[];
   const manage=canManage();
-  const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td></tr>`).join('');
+  const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td>
+      <td class="muted">${d.resets_at?esc(new Date(d.resets_at*1000).toLocaleString()):'—'}</td></tr>`).join('');
   const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${t('setquota')}</h3>
       <div class="row"><div><label>${t('dimension')}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
       <div><label>${t('limit')}</label><input id="ql" value="50"></div></div>
@@ -633,7 +654,8 @@ async function usageView(){
              : esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
   const oopLine = oops.length ? `<p class="muted" style="margin:0 0 8px">🛡️ sandboxed: ${oops.map(p=>esc(p.name)+' <span class="mono">['+(p.scopes||[]).map(esc).join(', ')+']</span>').join(' · ')}</p>` : '';
   return `<h2>${t('usage')}</h2>
-    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
+    ${quotaHeldCard(held)}
+    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th><th>${t('resets')}</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
     <div class="card" style="margin-top:14px"><h3>${t('tools')} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
       ${plugLine}${oopLine}
       <table><thead><tr><th>${t('tool')}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>`;
@@ -1263,9 +1285,19 @@ async function doDecide(v, verdict){
                       {method:'POST', body:{verdict, rationale:(rt?rt.value:''), answers}});
   if(r.ok){ toast(t('reviewrecorded'), true); renderTab(); } else toast(r.json.error||'error');
 }
+// a queued job the platform is holding says so beside its status (issue #55).
+// `waiting` is ABSENT when nothing holds it — it is then simply waiting for a
+// free worker, and a badge claiming otherwise would be an invention.
+function jobWaitBadge(j){
+  const w=j.waiting; if(!w) return '';
+  const txt = w.reason==='concurrency'
+    ? t('heldbycap').replace('{limit}', esc(String(w.limit)))
+    : t('heldbyquota').replace('{dimension}', esc(w.dimension||''));
+  return ` <span class="badge op">${txt}</span>`;
+}
 async function jobsView(){
   const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
-  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
+  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
   return `<h2>${t('jobs')}</h2>
     <div class="card"><h3>${t('submitjob')}</h3>
       <div class="row" style="align-items:end">

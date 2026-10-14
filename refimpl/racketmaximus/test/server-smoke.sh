@@ -324,6 +324,34 @@ QJ=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"cha
 QJID=$(printf '%s' "$QJ" | grep -oP '"id":"\K[^"]+')
 sleep 1.5
 assert "job quota-gated" "$(curl -s $B/api/jobs/$QJID -H "Authorization: Bearer $OP")" '"status":"queued"'
+# issue #55: deferring is right, being silent about it was not. The held job says
+# WHICH limit holds it, the usage report says the same without reading the queue,
+# and the audit log carries one entry per window rather than one per tick.
+QJ_ONE=$(curl -s $B/api/jobs/$QJID -H "Authorization: Bearer $OP")
+assert "held job names the reason"     "$QJ_ONE" '"reason":"quota"'
+assert "held job names the dimension"  "$QJ_ONE" '"dimension":"ai.tokens.total"'
+assert "held job names the scope"      "$QJ_ONE" '"scope":"team"'
+assert "the listing says so too" "$(curl -s $B/api/jobs -H "Authorization: Bearer $OP")" '"waiting"'
+U55=$(curl -s $B/api/usage -H "Authorization: Bearer $OP")
+assert "usage reports the hold"        "$U55" '"held":{'
+# the reset time is the one field a client renders as a clock, so prove it is a
+# real epoch rather than the null a window with no boundary answers with
+RESET=$(printf '%s' "$QJ_ONE" | grep -oP '"resets_at":\K[0-9]+' | head -1)
+if [ -n "$RESET" ] && [ "$RESET" -gt 1700000000 ]; then
+  echo "  ok   held job says when it resumes ($RESET)"
+else
+  echo "  FAIL held job says when it resumes — expected an epoch, got: ${RESET:-null}"; fail=1
+fi
+assert "quota.exhausted is audited" \
+  "$(curl -s "$B/api/audit?limit=50" -H "Authorization: Bearer $OP")" 'quota.exhausted'
+# ONCE per window, not once per tick: the pool re-tries this queued job every
+# 200ms, so a per-claim entry would have written dozens by now
+AUDN=$(curl -s "$B/api/audit?limit=200" -H "Authorization: Bearer $OP" | grep -o 'quota.exhausted' | wc -l | tr -d ' ')
+if [ "$AUDN" -le 2 ]; then
+  echo "  ok   quota.exhausted is deduped per window ($AUDN entr(y|ies))"
+else
+  echo "  FAIL quota.exhausted is deduped per window — expected <= 2, got: $AUDN"; fail=1
+fi
 # SCHED-8: who may cancel. A job's OWNER may always stop their own work; stopping
 # SOMEBODY ELSE'S needs jobs:cancel, which a plain member does not hold. The team is
 # still over its token budget here, so these jobs stay queued and can be cancelled.

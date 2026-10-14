@@ -241,7 +241,13 @@
              ;; worker on it and still spends the team's budget (SCHED-8).
              (or sub? (< (query-value conn (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) team)
                          ((scheduler-cap-for) team)))
-             ((scheduler-admit?) conn team)
+             ;; the quota gate, and the deferral is recorded (issue #55) — a
+             ;; worker that polls an over-budget team's queue for ever otherwise
+             ;; looks like a queue with no work in it
+             (let ([hold ((scheduler-hold-reason) conn team)])
+               (cond
+                 [hold ((scheduler-on-hold) conn team id hold) #f]
+                 [else #t]))
              ;; the same conditional claim the pool makes: the update names the
              ;; row it expects and is believed only when RETURNING hands one back,
              ;; so two workers scanning the same queue never both get this job.

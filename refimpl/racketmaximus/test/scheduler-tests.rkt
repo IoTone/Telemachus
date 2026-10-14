@@ -5,6 +5,7 @@
 
 (require rackunit db-kit/portable
          db-kit/migrate
+         racket/list          ; findf
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt"
@@ -61,23 +62,73 @@
   (check-equal? (process-one! c) jq)           ; cap raised → the queued job is claimed
   (set-cap-for! (lambda (_) 2)))               ; restore default
 
-(test-case "quota hooks: admit? defers an over-budget team, record! bills the run"
+(test-case "quota hooks: a hold reason defers an over-budget team, record! bills the run"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (register-job-kind! "meter" (lambda (conn p pl) (hasheq 'tokens_used 7)))
   (define j (enqueue-job! c #:team tid #:user uid #:kind "meter"))
-  ;; admit? #f → the job stays queued (deferred), not run
-  (set-admit?! (lambda (conn team) #f))
+  ;; a reason → the job stays queued (deferred), not run
+  (define held (hasheq 'reason "quota" 'scope "team" 'dimension "ai.tokens.total" 'window "day"))
+  (set-hold-reason! (lambda (conn team) held))
   (check-false (process-one! c))
   (check-equal? (hash-ref (get-job c j tid) 'status) "queued")
-  ;; admit? #t + record! captures the billed tokens
+  ;; #f + record! captures the billed tokens
   (define billed (box 0))
-  (set-admit?! (lambda (conn team) #t))
+  (set-hold-reason! (lambda (conn team) #f))
   (set-record!! (lambda (conn team result) (set-box! billed (+ (unbox billed) (hash-ref result 'tokens_used 0)))))
   (check-equal? (process-one! c) j)
   (check-equal? (hash-ref (get-job c j tid) 'status) "done")
   (check-equal? (unbox billed) 7)
-  (set-admit?! (lambda (conn team) #t)) (set-record!! (lambda (conn team result) (void))))   ; restore defaults
+  (set-record!! (lambda (conn team result) (void))))   ; restore defaults
+
+;; ---- issue #55: a deferred job says WHY, and the deferral is reported --------
+
+(test-case "a queued job carries the reason it is held, and only while it is held"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok55" (lambda (conn p pl) (hasheq)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "ok55"))
+  ;; nothing holding it: the key is ABSENT, not a reason nothing can stand behind
+  (set-hold-reason! (lambda (conn team) #f))
+  (set-cap-for! (lambda (_) 2))
+  (check-false (hash-has-key? (get-job c j tid) 'waiting))
+  ;; the budget holds it
+  (set-hold-reason! (lambda (conn team)
+                      (hasheq 'reason "quota" 'scope "team" 'dimension "ai.tokens.total" 'window "day")))
+  (define w (hash-ref (get-job c j tid) 'waiting))
+  (check-equal? (hash-ref w 'reason) "quota")
+  (check-equal? (hash-ref w 'dimension) "ai.tokens.total")
+  ;; the listing answers the same way
+  (define lj (findf (lambda (x) (equal? (hash-ref x 'id) j)) (list-jobs c tid)))
+  (check-equal? (hash-ref (hash-ref lj 'waiting) 'reason) "quota")
+  ;; the CAP is checked before the budget, as claim-next! checks it, so a team
+  ;; that is both at its cap and over budget is told about the cap — the one that
+  ;; clears on its own
+  (query-exec c "INSERT INTO jobs (id,team_id,user_id,kind,status) VALUES (?,?,?,?,'running')" (new-id) tid uid "ok55")
+  (set-cap-for! (lambda (_) 1))
+  (check-equal? (hash-ref (hash-ref (get-job c j tid) 'waiting) 'reason) "concurrency")
+  ;; a RUNNING job never carries one
+  (check-false (hash-has-key?
+                (findf (lambda (x) (equal? (hash-ref x 'status) "running")) (list-jobs c tid))
+                'waiting))
+  (set-cap-for! (lambda (_) 2))
+  (set-hold-reason! (lambda (conn team) #f)))
+
+(test-case "the deferral is reported once per held claim, with the job it held"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "ok55b" (lambda (conn p pl) (hasheq)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "ok55b"))
+  (define seen (box '()))
+  (set-hold-reason! (lambda (conn team) (hasheq 'reason "quota" 'dimension "ai.requests")))
+  (set-on-hold! (lambda (conn team id reason) (set-box! seen (cons (cons id (hash-ref reason 'dimension)) (unbox seen)))))
+  (check-false (process-one! c))
+  (check-equal? (unbox seen) (list (cons j "ai.requests")))
+  ;; admitted again → nothing reported
+  (set-hold-reason! (lambda (conn team) #f))
+  (check-equal? (process-one! c) j)
+  (check-equal? (length (unbox seen)) 1)
+  (set-on-hold! (lambda (conn team id reason) (void))))
 
 ;; ---- the claim is conditional, and a claimed job is leased (issue #17) --------
 

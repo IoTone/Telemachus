@@ -46,8 +46,10 @@
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
          job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-STATUSES LIVE-IN
-         process-one! start-scheduler! set-cap-for! set-admit?! set-record!!
-         remote-kind? remote-kinds remote-kind-validator scheduler-cap-for scheduler-admit? scheduler-record!
+         process-one! start-scheduler! set-cap-for! set-hold-reason! set-on-hold! set-record!!
+         remote-kind? remote-kinds remote-kind-validator
+         scheduler-cap-for scheduler-hold-reason scheduler-on-hold scheduler-record!
+         team-hold job-waiting
          set-reaper! current-job
          claim-job! finish! reap-orphans! POOL-LEASE-SECONDS
          current-plugin registered-job-kinds job-kinds-of-plugin plugin-kind-prefix)
@@ -121,6 +123,47 @@
     id team user kind (jsexpr->string payload) pri (jsexpr->string req) (or parent sql-null))
   id)
 
+;; Why is this team's next job still queued? (issue #55)
+;;
+;; DERIVED, never stored. A reason written onto the row would be a second copy of
+;; a decision the next tick re-makes: raise the budget and the row would still
+;; say "quota" for a job about to run, which is worse than saying nothing. The
+;; one implementation is the admission policy itself (`*hold-reason*`), asked the
+;; same question the claim asks.
+;;
+;; The order mirrors `claim-next!` — the concurrency cap is checked before the
+;; budget — so a team that is both at its cap and over its budget is told about
+;; the cap, which is the one that clears on its own.
+;;
+;; `#f` means nothing in the platform is holding the job: it is admissible and
+;; waiting only for a free worker, or, for a remote kind, for a worker to come
+;; and claim it. That is why `waiting` is then ABSENT rather than
+;; `{"reason":"worker"}` — nothing here can know whether a worker for that kind
+;; exists, and inventing a reason is how a reader stops trusting the field.
+(define (team-hold conn team #:sub? [sub? #f])
+  (define running (query-value conn (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) team))
+  (define cap ((unbox *cap-for*) team))
+  (cond
+    ;; a sub-job is cap-exempt at claim, so the cap is not what holds it
+    [(and (not sub?) (>= running cap))
+     (hasheq 'reason "concurrency" 'running running 'limit cap)]
+    [else ((unbox *hold-reason*) conn team)]))
+
+;; attach that reason to the QUEUED jobs of a listing. Computed ONCE: the answer
+;; is a property of the team, not of the job, and a per-row call would run the
+;; whole admission check fifty times for one page.
+(define (job-waiting conn team jobs)
+  (define queued (filter (lambda (j) (equal? (hash-ref j 'status) "queued")) jobs))
+  (cond
+    [(null? queued) jobs]
+    [else
+     (define plain (team-hold conn team))
+     (define sub (team-hold conn team #:sub? #t))
+     (for/list ([j (in-list jobs)])
+       (define h (and (equal? (hash-ref j 'status) "queued")
+                      (if (eq? (hash-ref j 'parent_job_id) 'null) plain sub)))
+       (if h (hash-set j 'waiting h) j))]))
+
 (define (row->job r)
   (hasheq 'id (vr r 0) 'kind (vr r 1) 'status (vr r 2) 'priority (vr r 3)
           'result (let ([x (vr r 4)]) (if (sql-null? x) 'null (with-handlers ([exn:fail? (lambda (_) x)]) (string->jsexpr x))))
@@ -132,11 +175,12 @@
 
 (define (get-job conn id team)
   (define r (query-maybe-row conn (string-append JSELECT " WHERE id = ? AND team_id = ?") id team))
-  (and r (row->job r)))
+  (and r (car (job-waiting conn team (list (row->job r))))))
 
 (define (list-jobs conn team #:limit [lim 50])
-  (for/list ([r (in-list (query-rows conn (string-append JSELECT " WHERE team_id = ? ORDER BY created_at DESC LIMIT ?") team lim))])
-    (row->job r)))
+  (job-waiting conn team
+    (for/list ([r (in-list (query-rows conn (string-append JSELECT " WHERE team_id = ? ORDER BY created_at DESC LIMIT ?") team lim))])
+      (row->job r))))
 
 ;; The statuses in which a job's work is LIVE — it holds a thread (or a remote
 ;; worker) and may still be spending the team's budget. The per-team concurrency
@@ -208,16 +252,28 @@
 (define (set-cap-for! f) (set-box! *cap-for* f))
 
 ;; quota metering hooks (injected by the server; decoupled from the quota service).
-;;   admit?  : (conn team) -> bool   — checked at claim; an over-budget team's jobs
-;;                                     stay queued (deferred) rather than failing.
+;;   hold-reason : (conn team) -> #f | jsexpr   — checked at claim. #f admits; a
+;;        hash DEFERS the job (it stays queued rather than failing) and SAYS WHY.
+;;   on-hold : (conn team job-id reason) -> void — called when a claim is
+;;        actually deferred, so the deferral can be recorded (issue #55).
 ;;   record! : (conn team result) -> void  — bills usage after a successful run.
-(define *admit?* (box (lambda (_conn _team) #t)))
+;;
+;; `hold-reason` answers with the reason rather than a boolean because the same
+;; question has two askers: the claim, which must decide, and `GET /api/jobs`,
+;; which must explain. A boolean admission check plus a separate "why is this
+;; queued" reader would be two implementations of one policy, and they would
+;; drift — so the policy is asked once, here, and both callers read its answer.
+;; It must stay PURE: the job listing calls it on every read.
+(define *hold-reason* (box (lambda (_conn _team) #f)))
+(define *on-hold* (box (lambda (_conn _team _id _reason) (void))))
 (define *record!* (box (lambda (_conn _team _result) (void))))
-(define (set-admit?! f) (set-box! *admit?* f))
+(define (set-hold-reason! f) (set-box! *hold-reason* f))
+(define (set-on-hold! f) (set-box! *on-hold* f))
 (define (set-record!! f) (set-box! *record!* f))
 ;; the same policies, for the pull worker's claim path (domain/exec/pull.rkt)
 (define (scheduler-cap-for) (unbox *cap-for*))
-(define (scheduler-admit?) (unbox *admit?*))
+(define (scheduler-hold-reason) (unbox *hold-reason*))
+(define (scheduler-on-hold) (unbox *on-hold*))
 (define (scheduler-record!) (unbox *record!*))
 ;; the lease reaper, installed by the pull module; runs on the pool's idle tick
 (define *reaper* (box (lambda (_conn) 0)))
@@ -364,7 +420,13 @@
         (and (not (remote-kind? (vector-ref r 2)))                 ; a pull worker's, not the pool's
              ;; a sub-job of an admitted parent is exempt from the cap — the parent holds the slot
              (or (not (sql-null? (vector-ref r 3))) (< running (cap-for team)))
-             ((unbox *admit?*) conn team)             ; quota gate — over-budget teams defer
+             ;; quota gate — over-budget teams defer, and the deferral is RECORDED
+             ;; rather than silent (issue #55): a queue that stops with nothing
+             ;; running and nothing logged is indistinguishable from a hang.
+             (let ([hold ((unbox *hold-reason*) conn team)])
+               (cond
+                 [hold ((unbox *on-hold*) conn team id hold) #f]
+                 [else #t]))
              ;; believed only if the conditional update actually took the row; the
              ;; token it returns fences every later write about this attempt
              (let ([token (claim-job! conn id #:lease (+ (now) POOL-LEASE-SECONDS))])
@@ -411,9 +473,11 @@
 
 ;; ---- the bounded worker pool ------------------------------------------------
 (define *run* (box #f))
-(define (start-scheduler! conn #:workers [n 2] #:idle [idle 0.2] #:cap-for [cf #f] #:admit? [adm #f] #:record! [rec #f])
+(define (start-scheduler! conn #:workers [n 2] #:idle [idle 0.2] #:cap-for [cf #f]
+                          #:hold-reason [hold #f] #:on-hold [onhold #f] #:record! [rec #f])
   (when cf (set-cap-for! cf))
-  (when adm (set-admit?! adm))
+  (when hold (set-hold-reason! hold))
+  (when onhold (set-on-hold! onhold))
   (when rec (set-record!! rec))
   (reap-orphans! conn)          ; jobs left `running` by a process that is gone
   (set-box! *run* #t)

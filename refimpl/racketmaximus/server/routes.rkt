@@ -178,7 +178,7 @@
    (R "POST" "/api/workers/jobs/:id/document" 'worker-document #:perm "jobs:execute" #:doc "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.")
 
    ;; ---- quotas, tools, tokens, search, audit, jobs -------------------------------------
-   (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit and remaining.")
+   (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).")
    (R "POST" "/api/quota" 'quota-set #:perm "instance:manage" #:doc "Set a quota limit for the caller's team (dimension, limit, window).")
    (R "GET" "/api/tools" 'tools-list #:doc "Every registered tool with its permission, source and per-team enabled state.")
    (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
@@ -187,9 +187,9 @@
    (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.")
    (R "GET" "/api/audit" 'audit #:perm "settings:manage" #:doc "The team's recent audit events.")
    (R "POST" "/api/jobs" 'jobs-create #:perm "chat:use" #:doc "Enqueue a scheduler job of a registered kind.")
-   (R "GET" "/api/jobs" 'jobs-list #:doc "The team's jobs, newest first.")
+   (R "GET" "/api/jobs" 'jobs-list #:doc "The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: \"quota\"|\"concurrency\", …}; the key is absent when nothing holds it and it is waiting only for a free worker.")
    (R "POST" "/api/jobs/:id/cancel" 'job-cancel #:doc "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.")
-   (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error.")
+   (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs).")
 
    ;; ---- document repository -------------------------------------------------------------
    (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).")
