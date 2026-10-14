@@ -1199,6 +1199,34 @@ raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, t
 bash test/s3-smoke.sh                  # the live multipart path, with the real aws CLI
 ```
 
+## The beta judge's verdict is validated (JUDGE‑6, 14 Oct 2026)
+
+From the issue #31 exploration (decisions JUDGE‑1…6 in
+`docs/design/decisions.md`): the prospect judge was the ONE judgment call in the
+platform that did not go through `domain/tools/jsonschema.rkt`.
+
+- `VERDICT-SCHEMA` in `beta.rkt` goes through `validate-json`, the same validator
+  DWF‑5's extraction uses. A model answering `"score": "high"` used to be scored
+  0 and **silently reject the prospect**; it is now a refusal naming the path.
+- **`parse-verdict` answers three distinct things** — the verdict (a hash), a
+  LIST of problem strings, or `#f` for no object at all — because the caller says
+  something different about each: nothing to read, read but malformed, usable. A
+  caller that only asks `(hash? …)` still behaves correctly; one that treats a
+  truthy answer as a verdict will now get a list.
+- **The schema is OPEN** (`additionalProperties`), unlike the pipeline's closed
+  object: the judge prompt is operator-authored and an operator may legitimately
+  ask for a field we do not know about.
+- **`valid` and `score` are both required, and that is a behaviour change.** A
+  judge prompt producing only a score used to yield a verdict the decide path read
+  as invalid — a silent rejection — and now yields a named refusal. One existing
+  case in `test/beta-tests.rkt` was missing `valid` incidentally (it is about
+  braces inside strings) and had to gain it.
+
+**The rest of #31 is design, not code.** JEV cannot be self-hosted, so it cannot
+be the first backend of anything here; the recommendation is a typed-judgment
+SEAM with a local backend (a chat model behind a closed schema) and JEV as a
+plugin. Read the decision block before anyone writes an integration.
+
 ## A deferred job says why (issue #55, built 14 Oct 2026)
 
 An over-budget team's jobs stay `queued` — right, and until now invisible.

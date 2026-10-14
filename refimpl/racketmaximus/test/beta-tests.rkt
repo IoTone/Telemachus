@@ -91,10 +91,32 @@
   (check-equal? (hash-ref (parse-verdict "{\"valid\": false, \"score\": 0,}") 'valid) #f)
   ;; a brace-y blob after the real object must not corrupt the parse
   (check-equal? (hash-ref (parse-verdict "{\"valid\": true, \"score\": 42}\n\nNote: use {placeholder} next time") 'score) 42)
-  ;; a brace inside a string is not a nesting level
-  (check-equal? (hash-ref (parse-verdict "{\"reasoning\": \"looks like a {test} account\", \"score\": 10}") 'score) 10)
+  ;; a brace inside a string is not a nesting level. (`valid` is in this input
+  ;; because JUDGE-6 made it required; the case is about the brace, and it was
+  ;; only incidentally missing before.)
+  (check-equal? (hash-ref (parse-verdict "{\"valid\": true, \"reasoning\": \"looks like a {test} account\", \"score\": 10}") 'score) 10)
   ;; no object at all → #f (handler falls back)
   (check-false (parse-verdict "I cannot produce JSON.")))
+
+;; JUDGE-6: the verdict goes through the pipeline's validator, so a reply that
+;; parses but does not conform is REFUSED BY NAME rather than scored 0 and
+;; silently rejecting a prospect.
+(test-case "parse-verdict validates the shape, and names what was wrong"
+  ;; a wrong TYPE is the case that used to pass straight through
+  (define bad (parse-verdict "{\"valid\": true, \"score\": \"high\"}"))
+  (check-true (list? bad))
+  (check-true (for/or ([p (in-list bad)]) (regexp-match? #rx"score" p))
+              "the refusal names the offending path")
+  ;; a MISSING required field is refused too
+  (check-true (list? (parse-verdict "{\"reasoning\": \"no numbers here\"}")))
+  ;; an operator's judge prompt may ask for fields we do not know about: the
+  ;; schema is OPEN, so an extra key is not a refusal
+  (define extra (parse-verdict "{\"valid\": true, \"score\": 50, \"segment\": \"enterprise\"}"))
+  (check-true (hash? extra))
+  (check-equal? (hash-ref extra 'segment) "enterprise")
+  ;; the three answers stay distinct — verdict, problems, nothing to read
+  (check-true (hash? (parse-verdict "{\"valid\": false, \"score\": 0}")))
+  (check-false (parse-verdict "no json here at all")))
 
 (test-case "onboarding provider registry (SDK seam)"
   (define cfg (onboarding-config))

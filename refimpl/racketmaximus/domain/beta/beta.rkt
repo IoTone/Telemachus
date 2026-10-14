@@ -11,6 +11,9 @@
          "../db/id.rkt"
          "../authz/authz.rkt")
 (require "../fields/fields.rkt")   ; field-problem — one vocabulary, shared with the repository
+;; the judge verdict goes through the SAME validator the pipeline's extraction
+;; uses, so "did the model honour the shape" has one answer here too (JUDGE-6)
+(require (only-in "../tools/jsonschema.rkt" validate-json))
 
 (provide ;; prospects
          prospect-create! prospect-list prospect-get prospect-decide! set-prospect-judge!
@@ -22,7 +25,7 @@
          ;; onboarding provider registry (SDK seam)
          register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names
          ;; judge-reply parsing (robust against small-model formatting)
-         parse-verdict)
+         parse-verdict VERDICT-SCHEMA)
 
 ;; ---- onboarding provider registry -------------------------------------------
 (define *providers* (box (hash)))
@@ -82,15 +85,44 @@
            [else (walk (add1 j) depth #f #f)]))]
       [else (scan (add1 i))])))
 
+;; The shape a judge reply has to have. This is the SAME validator the document
+;; pipeline's extraction uses (`domain/tools/jsonschema.rkt`, decision DWF-5), and
+;; using it here was decision JUDGE-6 in docs/design/decisions.md: the prospect
+;; judge was the one judgment call in the platform that did not. It found the
+;; outermost object, stripped trailing commas, and handed back whatever was
+;; inside — so a model answering `"score": "high"` produced a verdict that
+;; scored 0 and silently rejected a prospect, where the pipeline would have
+;; refused by path and retried. Open (`additionalProperties`), unlike the
+;; pipeline's closed object: the judge prompt is operator-authored and an
+;; operator may legitimately ask for a field we do not know about.
+;;
+;; `valid` and `score` are both REQUIRED, and that is a behaviour change: a judge
+;; prompt that produced only a score used to yield a verdict the decide path read
+;; as invalid, i.e. a SILENT rejection of the prospect. Naming the refusal is the
+;; point — the same call enforcing `required` on the funnel's own fields made.
+(define VERDICT-SCHEMA
+  (hasheq 'type "object"
+          'additionalProperties #t
+          'required '("valid" "score")
+          'properties (hasheq 'valid (hasheq 'type "boolean")
+                              'score (hasheq 'type "number")
+                              'revenue_estimate (hasheq 'type "string")
+                              'reasoning (hasheq 'type "string"))))
+
 ;; Parse a judge reply into a verdict hash, tolerating fences, prose, and a
-;; trailing comma before } or ]. Returns #f if no usable object is found.
+;; trailing comma before } or ]. Returns the verdict, or a LIST of problem
+;; strings naming what was wrong with it, or #f if there was no object at all.
+;; The three answers are distinct because the caller says something different
+;; about each: nothing to read, read but malformed, or usable.
 (define (parse-verdict reply)
   (define blob (first-json-object reply))
   (and blob
        (with-handlers ([exn:fail? (lambda (_) #f)])
          (define cleaned (regexp-replace* #px",\\s*([}\\]])" blob "\\1"))
          (define v (string->jsexpr cleaned))
-         (and (hash? v) v))))
+         (and (hash? v)
+              (let ([problems (validate-json VERDICT-SCHEMA v)])
+                (if (null? problems) v problems))))))
 
 (define DEFAULT-PROVIDER
   (hasheq 'name "beta"

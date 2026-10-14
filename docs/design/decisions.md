@@ -381,6 +381,54 @@ worth of consequences for every existing ledger row.
 second of usage every second, so there is no instant at which the budget resets;
 naming one would be a worse answer than naming none. `"total"` never resets.
 
+## Typed judgments, and TypeSafe AI's JEV (JUDGE) — **explored 14 Oct 2026** (issue #31)
+
+Issue #31 asked whether to use TypeSafe AI's JEV, a hosted "System One" decision
+model (`POST https://api.typesafe.ai/v1/systemone`). **Only JUDGE‑6 is built** —
+the one item that turned out to be a defect rather than a design question. The
+recommendation on the rest is deliberately not "integrate it" or "do not": it is
+that the platform is missing a *seam*, that JEV is a good second backend for that
+seam, and that it cannot be the first one.
+
+What it is, from its own documentation: you send a `state` (a string, object or
+array) and a map of typed `questions`, and get back one answer per question, keyed
+by your own question ids. Three types, and the shape is the whole product —
+`noul` (a yes/no question answered 0..1), `choice` (one of up to 255 options, with
+the full probability distribution), and `score` (an ordered rubric of 2–10 levels,
+answered as a probability-weighted value). `choice` and `score` also carry a
+`confidence` 0..1, and the response carries `usage` as input and output token
+counts. It is not autoregressive and it is not a chat model: it cannot write a
+translation, fill a schema or drive the agent loop.
+
+**The finding that matters is that we already sell ourselves this guarantee.**
+`domain/tools/jsonschema.rkt` plus "refuse rather than flag" is how this platform
+gets a typed answer out of an untyped model: ask for a closed schema, validate,
+refuse by path (`$.total: expected number, got string`), retry once. JEV moves
+that guarantee from our side of the wire to the provider's. So the real question
+is not "shall we call this API" but "is a **typed judgment** a first-class call in
+this platform, distinct from a chat completion" — and the answer is yes, because
+we make such calls already and each one reimplements the typing by hand.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **JUDGE‑1** | A typed-judgment seam | **Define one — `judge`, taking a state and typed questions, answering bounded values with a confidence** · vs keep hand-rolling each judgment · vs call JEV directly from the one caller that wants it | The platform makes judgment calls in at least three places and types each one differently: the beta prospect judge, LAY‑2's review decisions, and any triage that would route a document to a workflow. A seam makes the local backend and a hosted one interchangeable, which is the contract-first tenet applied to a call we are already making. It is the move `domain/repo/blobs.rkt` made for bytes and `register-extractor!` made for file formats. |
+| 🔑 **JUDGE‑2** | The FIRST backend is local | **A chat model behind a closed JSON schema, in core, with no network dependency** · vs JEV first · vs nothing until JEV ships | JEV is proprietary, API-only and **cannot be self-hosted** — no Hugging Face weights, no on-premises option, the model runs on TypeSafe's infrastructure in the United States with no documented EU region. Making it the first backend would put a hosted third party on the critical path of a product whose tenets are clean MIT, self-hosted and privacy-first, and whose buyers chose it to avoid exactly that. The local backend also costs almost nothing to write: `jsonschema.rkt` validates, `outer-json` tolerates a fence, `response_format` already rides to the provider, and `content.rkt` already refuses a reply that cannot be read. |
+| **JUDGE‑3** | Where JEV lives | **A plugin that registers a tool and, if it earns it, a second judge backend** · vs a second wire inside `model-exchange` · vs a push executor row | `model-exchange` is now the ONE place a model request leaves the process, and it speaks OpenAI chat-completions; "a second wire protocol" is recorded as deliberately deferred. JEV is a second wire — but it is also not a *chat* call, so it does not belong behind that seam at all. A plugin registering a tool is the shape the platform already has for a deployment-specific backend (RSCH‑1 made the same call for a search backend), it keeps a proprietary dependency out of a clean-MIT core, and `GET /api/plugins` then reports who holds it. |
+| 🔑 **JUDGE‑4** | Egress and data policy | **Off by default, per-team feature flag, and the state that leaves is named in the audit entry** · vs on wherever configured | A judgment's `state` is the document's text. Sending it to `api.typesafe.ai` is a third-country transfer for an EU tenant, zero data retention is reported as an **enterprise-only** option, and the public documentation names no SOC 2. This is milder than RSCH‑3 — the endpoint is operator-configured, not model-chosen, so it is not an SSRF surface — but it is the same question the model URL already asks, and the honest answer is the one the tenet gives: it is an operator's choice, made explicitly, never a default. Multi-tenant instances need it per org, because one tenant's data-policy agreement is not another's. |
+| **JUDGE‑5** | Metering | **Bill `usage.input_tokens + usage.output_tokens` against `ai.tokens.total`, like every other model call** · vs a dimension of its own | The response carries both counts, so the real number is available — which is more than the agent had before the executor work, where an estimate of 50 stood in for a measured 3,810. Output tokens are reported as unmetered by the vendor and input at a published per-million rate; bill both to us anyway, because the budget dimension is about what a team spent OUR platform's attention on, and a free output is still a call that happened. |
+| **JUDGE‑6** | The beta judge should go through the validator regardless | **Yes, and this is worth doing whether or not JEV is ever called** · vs leaving it | `parse-verdict` in `domain/beta/beta.rkt` was a hand-rolled lenient parser — it found the outermost `{…}`, stripped trailing commas and handed back whatever was inside — and its caller fell back to `{valid: #f, score: 0, reasoning: "judge output not parseable"}`. It was the one judgment call in the platform that did **not** go through `domain/tools/jsonschema.rkt`, so a model answering `"score": "high"` was scored 0 and silently rejected a prospect, where the document pipeline would have refused by path. **BUILT 14 Oct 2026**, the one piece of this exploration that was a defect rather than a design: `VERDICT-SCHEMA` goes through the same validator, and `parse-verdict` now answers three distinct things — the verdict, a LIST of problems, or `#f` for no object at all — because the caller says something different about each. The refusal names the path. The schema is deliberately **open** (`additionalProperties`), unlike the pipeline's closed object: the judge prompt is operator-authored and an operator may legitimately ask for a field we do not know about. `valid` and `score` are both required, and **that is a behaviour change**: a judge prompt producing only a score used to yield a verdict the decide path read as invalid — a silent rejection — and now yields a named refusal. Same call as enforcing `required` on the funnel's own fields. |
+
+**What this does NOT justify.** JEV cannot replace the model seam: it generates
+nothing. It cannot replace `draft-acceptable?`, which counts braces and compares
+placeholder names and is right to be deterministic — a model asked whether a
+translation is good is a worse check than arithmetic on the string. And it cannot
+replace `validate-extraction`, whose rule is that a snippet be a verbatim
+substring of the text; that is a fact about two strings, not a judgment.
+
+**Before anyone commits to a number**: access is reported as waitlisted early
+access with no free tier, and the retention, residency and rate-limit figures in
+circulation disagree with each other. Read the live pricing page and the DPA.
+
 ## Research, bring-your-own-key, data-policy routing (RSCH / BYOK / ZDR) — **proposed 13 Oct 2026**
 
 Three questions raised while testing. **None of the three is built.** They are

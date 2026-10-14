@@ -3222,9 +3222,21 @@
              (format "~a: ~a" (hash-ref f 'label (hash-ref f 'key "")) (prospect-field pr (hash-ref f 'key "")))))
          (define detail (string-append (string-join lines "\n") "\n\nAnti-abuse signals: " sig))
          (define-values (reply tokens) (run-chat detail #:system (experience-judge-system conn (principal-team-id p))))
+         ;; JUDGE-6: the verdict is validated, and the refusal says WHY. A flat
+         ;; "not parseable" read the same whether the model answered prose or
+         ;; answered `"score": "high"` — and the second is an operator's judge
+         ;; prompt to fix, not a model to replace. `parse-verdict` answers with
+         ;; the verdict, a list of problems, or #f for no object at all.
+         (define parsed (parse-verdict reply))
          (define verdict
-           (or (parse-verdict reply)
-               (hasheq 'valid #f 'score 0 'revenue_estimate "unknown" 'reasoning "judge output not parseable")))
+           (cond
+             [(hash? parsed) parsed]
+             [(list? parsed)
+              (hasheq 'valid #f 'score 0 'revenue_estimate "unknown"
+                      'reasoning (string-append "judge output did not match the expected shape: "
+                                                (string-join parsed "; ")))]
+             [else (hasheq 'valid #f 'score 0 'revenue_estimate "unknown"
+                           'reasoning "judge output was not a JSON object")]))
          (set-prospect-judge! conn pid verdict)
          (hasheq 'prospect_id pid 'verdict verdict 'tokens_used tokens)])))
   (void (start-scheduler! db-conn #:workers 2
