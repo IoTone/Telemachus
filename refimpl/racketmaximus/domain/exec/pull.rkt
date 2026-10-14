@@ -35,15 +35,28 @@
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
-         worker-document
+         worker-document worker-report-state!
          executor-secret executor-context
-         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER
+         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
          pull-dispatch!)
 
 (define LEASE-SECONDS 120)      ; a worker heartbeats every LEASE/3
 (define MAX-ATTEMPTS 3)         ; lease expiries before the job fails for good
 (define STALE-AFTER (* 3 LEASE-SECONDS))
 (define (now) (current-seconds))
+
+;; What a worker may say about itself (issue #58). A CLOSED vocabulary, like
+;; EXTRACT-REASONS and REVIEW-VERDICTS: an operator console switches on these,
+;; so a worker inventing a fifth would arrive as a state nothing can explain.
+;;
+;;   ready   — polling, with capacity for another job
+;;   busy    — alive and at its own capacity; do not read the silence as a fault
+;;   paused  — alive and deliberately NOT taking work (an operator drained it)
+;;
+;; `draining` was considered and left out: the job rows already say what a
+;; paused worker is still finishing, so it would be a state the database can
+;; already answer.
+(define WORKER-STATES '("ready" "busy" "paused"))
 (define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- executors --------------------------------------------------------------------
@@ -54,12 +67,52 @@
   (let ([v (query-maybe-value conn "SELECT secret_key FROM executors WHERE id = ?" id)])
     (and v (not (sql-null? v)) (secret-unwrap (executor-context id) v))))
 
+;; Every worker call is a sign of life, and may carry a state. A call that names
+;; no state leaves the stored one ALONE rather than overwriting it with a guess:
+;; a worker written against the old wire must keep reading as "never reported",
+;; not flip to `ready` on each poll.
+(define (touch-executor! conn ex [state #f])
+  (cond
+    [state
+     (query-exec conn "UPDATE executors SET last_seen_at = ?, worker_state = ?, state_epoch = ? WHERE id = ?"
+                 (now) state (now) (hash-ref ex 'id))]
+    [else
+     (query-exec conn "UPDATE executors SET last_seen_at = ? WHERE id = ?" (now) (hash-ref ex 'id))]))
+
+;; the one channel a worker with NO job can use. A paused host is the case the
+;; claim loop cannot report: it has stopped claiming, and it holds no job to
+;; heartbeat, so without this it would simply go stale — which is the gap this
+;; whole issue is about.
+(define (worker-report-state! conn ex state)
+  (unless (member state WORKER-STATES)
+    (raise-user-error 'workers (string-append "state must be one of " (string-join WORKER-STATES ", "))))
+  (touch-executor! conn ex state)
+  state)
+
 (define ESELECT
-  (string-append "SELECT id, org_id, name, mode, url, model, capabilities, token_id, status, last_seen_at, created_at, created_by "
+  (string-append "SELECT id, org_id, name, mode, url, model, capabilities, token_id, status, last_seen_at, created_at, created_by, "
+                 "worker_state, state_epoch "
                  "FROM executors"))
 
 (define (row->executor r)
   (define seen (let ([v (vector-ref r 9)]) (and (not (sql-null? v)) v)))
+  ;; health is DERIVED: a pull worker that has not been heard from is stale
+  (define status (cond [(equal? (vector-ref r 8) "retired") "retired"]
+                       [(not (equal? (vector-ref r 3) "pull")) "active"]
+                       [(not seen) "never-seen"]
+                       [(> (- (now) seen) STALE-AFTER) "stale"]
+                       [else "active"]))
+  ;; What the worker SAID (issue #58), kept as its own key beside the derived
+  ;; liveness rather than folded into `status`: the two answer different
+  ;; questions and a paused host is alive and refusing. Nothing that switches on
+  ;; `status` changes behaviour.
+  ;;
+  ;; A state is reported only while the row is otherwise live. A worker that
+  ;; said `ready` an hour ago and then vanished is STALE, and repeating its last
+  ;; word would be a claim nothing stands behind — the rule QUOTA-3 settled for
+  ;; a held job's reason, where the key is ABSENT rather than guessed.
+  (define said (let ([v (vector-ref r 12)]) (and (not (sql-null? v)) (member v WORKER-STATES) v)))
+  (define fresh? (member status '("active")))
   ;; `source` is "db" on every row here, so a client reading GET /api/executors
   ;; sees the same field on every entry — the config-file entries say "config".
   (hasheq 'source "db"
@@ -68,12 +121,9 @@
           'capabilities (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                           (let ([j (string->jsexpr (vector-ref r 6))]) (if (hash? j) j (hasheq))))
           'token_id (nz (vector-ref r 7))
-          ;; health is DERIVED: a pull worker that has not been heard from is stale
-          'status (cond [(equal? (vector-ref r 8) "retired") "retired"]
-                        [(not (equal? (vector-ref r 3) "pull")) "active"]
-                        [(not seen) "never-seen"]
-                        [(> (- (now) seen) STALE-AFTER) "stale"]
-                        [else "active"])
+          'status status
+          'worker_state (if (and said fresh?) said 'null)
+          'state_at (let ([v (vector-ref r 13)]) (if (or (sql-null? v) (not (and said fresh?))) 'null v))
           'last_seen_at (or seen 'null) 'created_at (format "~a" (vector-ref r 10))
           'created_by (nz (vector-ref r 11))))
 
@@ -202,10 +252,10 @@
 ;; sub-job spawned inside an admitted parent is exempt from the cap — its parent
 ;; holds the slot). Offered only inside the executor's org, or anywhere for an
 ;; instance-wide executor.
-(define (worker-claim! conn ex #:kinds [kinds '()] #:models [models '()])
+(define (worker-claim! conn ex #:kinds [kinds '()] #:models [models '()] #:state [state #f])
   (call-with-semaphore claim-lock
     (lambda ()
-      (query-exec conn "UPDATE executors SET last_seen_at = ? WHERE id = ?" (now) (hash-ref ex 'id))
+      (touch-executor! conn ex state)
       ;; issue #54: this used to take the oldest 64 queued jobs of ANY kind and
       ;; then filter in Racket, so a worker whose jobs sat behind 64 in-process
       ;; ones saw an empty queue and polled forever against work it could have
@@ -300,13 +350,13 @@
         [stopping? 'canceled]
         [else 'ok]))
 
-(define (worker-heartbeat! conn ex job-id #:token [token #f])
+(define (worker-heartbeat! conn ex job-id #:token [token #f] #:state [state #f])
   (define v (holder-check conn ex job-id token))
   (cond
     [(eq? v 'ok)
      (define lease (+ (now) LEASE-SECONDS))
      (query-exec conn "UPDATE jobs SET lease_until = ? WHERE id = ?" lease job-id)
-     (query-exec conn "UPDATE executors SET last_seen_at = ? WHERE id = ?" (now) (hash-ref ex 'id))
+     (touch-executor! conn ex state)
      lease]
     [else v]))
 

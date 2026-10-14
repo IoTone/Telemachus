@@ -355,3 +355,63 @@
   (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
   (define fence2 (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j2))
   (check-true (hash? (worker-document c ex j2 (hash-ref secret 'id) #:token fence2))))
+
+;; ---- issue #58: a worker says whether it is taking work ----------------------
+(define (ex-named c p name)
+  (findf (lambda (e) (equal? (hash-ref e 'name) name)) (executor-list c p)))
+
+(test-case "worker state: reported, closed, and never asserted for a stale box"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c alice #:name "gpu" #:model "m"))
+
+  ;; Nothing reported yet. The key is 'null rather than a guessed "ready": an
+  ;; executor that has never spoken reads exactly as it did before migration
+  ;; 0040, so a worker written against the old wire is not called paused for its
+  ;; silence.
+  (check-equal? (hash-ref (ex-named c alice "gpu") 'worker_state) 'null)
+  (check-equal? (hash-ref (ex-named c alice "gpu") 'state_at) 'null)
+  (check-equal? (hash-ref (ex-named c alice "gpu") 'status) "never-seen")
+
+  ;; the standalone report — the one channel a worker with NO job can use
+  (check-equal? (worker-report-state! c ex "paused") "paused")
+  (define e1 (ex-named c alice "gpu"))
+  (check-equal? (hash-ref e1 'worker_state) "paused")
+  (check-true (number? (hash-ref e1 'state_at)))
+  ;; liveness and willingness are SEPARATE questions: a paused worker is alive
+  ;; and refusing, and `status` must keep saying so
+  (check-equal? (hash-ref e1 'status) "active")
+
+  ;; the vocabulary is closed
+  (check-exn exn:fail:user? (lambda () (worker-report-state! c ex "draining")))
+  (check-equal? (hash-ref (ex-named c alice "gpu") 'worker_state) "paused"
+                "a refused report leaves the stored state alone")
+
+  ;; a claim may carry one, so the normal loop needs no second request
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m") #:state "ready"))
+  (check-equal? (hash-ref (ex-named c alice "gpu") 'worker_state) "ready")
+
+  ;; a call that names NO state leaves the stored one alone rather than
+  ;; overwriting it with a guess
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (check-equal? (hash-ref (ex-named c alice "gpu") 'worker_state) "ready")
+
+  ;; …and the heartbeat carries one too
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define claimed (worker-claim! c ex #:kinds '("infer.chat") #:models '("m") #:state "ready"))
+  (check-true (hash? claimed))
+  (check-true (number? (worker-heartbeat! c ex (hash-ref claimed 'id)
+                                          #:token (hash-ref claimed 'claim_token) #:state "busy")))
+  (check-equal? (hash-ref (ex-named c alice "gpu") 'worker_state) "busy")
+
+  ;; A state is a claim about NOW. Once the row goes stale the last word is
+  ;; withdrawn rather than repeated — the rule QUOTA-3 settled for a held job's
+  ;; reason, where the key is absent rather than guessed.
+  (query-exec c "UPDATE executors SET last_seen_at = ? WHERE id = ?"
+              (- (current-seconds) (* 4 LEASE-SECONDS)) (hash-ref ex 'id))
+  (define e2 (ex-named c alice "gpu"))
+  (check-equal? (hash-ref e2 'status) "stale")
+  (check-equal? (hash-ref e2 'worker_state) 'null
+                "a worker that said busy an hour ago and vanished is stale, not busy")
+  (check-equal? (hash-ref e2 'state_at) 'null))

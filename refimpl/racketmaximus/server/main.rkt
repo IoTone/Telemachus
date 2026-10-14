@@ -1802,9 +1802,15 @@
     (define b (read-json-body req))
     (define (strs k) (let ([v (hash-ref b k '())]) (if (and (list? v) (andmap string? v)) v '())))
     (define max-wait (let ([w (hash-ref b 'max_wait 0)]) (if (real? w) (min 25 (max 0 w)) 0)))
+    ;; issue #58: a claim may carry what the worker is doing, so the common loop
+    ;; reports its state without a second request. An unknown value is IGNORED
+    ;; here rather than refused — a claim is the call that fetches work, and
+    ;; failing it over a cosmetic field would stop the queue. /api/workers/state
+    ;; is the call that refuses, because there the state IS the request.
+    (define state (let ([v (hash-ref b 'state #f)]) (and (member v WORKER-STATES) v)))
     ;; long-poll: try, then wait a little and try again until max_wait is spent
     (let loop ([waited 0])
-      (define job (worker-claim! db-conn ex #:kinds (strs 'kinds) #:models (strs 'models)))
+      (define job (worker-claim! db-conn ex #:kinds (strs 'kinds) #:models (strs 'models) #:state state))
       (cond
         [job (json-response job)]
         [(>= waited max-wait) (json-response (hasheq 'job 'null) #:code 204)]
@@ -1830,8 +1836,20 @@
 (define (claim-token-of b) (let ([v (hash-ref b 'claim_token #f)]) (and (string? v) v)))
 (define (ep-worker-heartbeat req id)
   (with-worker req (lambda (p ex)
-    (define v (worker-heartbeat! db-conn ex id #:token (claim-token-of (read-json-body req))))
+    (define b (read-json-body req))
+    (define state (let ([v (hash-ref b 'state #f)]) (and (member v WORKER-STATES) v)))
+    (define v (worker-heartbeat! db-conn ex id #:token (claim-token-of b) #:state state))
     (if (number? v) (json-response (hasheq 'ok #t 'id id 'lease_until v)) (worker-verdict v id)))))
+
+;; issue #58: the standalone report, for a worker that holds no job. Unlike the
+;; claim, this one REFUSES an unknown state (400) — the vocabulary is closed, and
+;; here the state is the whole request rather than a field riding along with it.
+(define (ep-worker-state req)
+  (with-worker req (lambda (p ex)
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define st (worker-report-state! db-conn ex (let ([v (hash-ref (read-json-body req) 'state #f)])
+                                                    (if (string? v) v ""))))
+      (json-response (hasheq 'ok #t 'state st))))))
 (define (ep-worker-complete req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
@@ -2833,7 +2851,7 @@
    'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide
    'review-stats ep-review-stats 'review-verify ep-review-verify
    'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
-   'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
+   'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit

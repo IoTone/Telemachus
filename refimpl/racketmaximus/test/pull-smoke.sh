@@ -152,6 +152,31 @@ assert "…so the job is canceled, with no result"  "$(G /api/jobs/$DJID)" '"sta
 assert "cancelling a finished job is a 409" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/jobs/$DJID/cancel -H "Authorization: Bearer $TOK")" '409'
 
+echo
+echo "== 6. issue #58: the worker says whether it is taking work =="
+WS(){ curl -s -X POST $B/api/workers/state -H "Authorization: Bearer $WT" -d "$1"; }
+# The one channel a worker with NO job can use: a drained host has stopped
+# claiming and holds nothing to heartbeat, so its silence would otherwise be
+# indistinguishable from a crash.
+assert "a worker reports paused"             "$(WS '{"state":"paused"}')" '"state":"paused"'
+assert "…and GET /api/executors says so"     "$(G /api/executors)" '"worker_state":"paused"'
+# Liveness and willingness are separate questions, and a paused worker is alive
+# and refusing — `status` must keep answering the first one.
+assert "…while status still says active"     "$(G /api/executors)" '"status":"active"'
+# The vocabulary is closed. Here the state IS the request, so an unknown one is
+# refused; on a claim it is ignored, because failing the call that fetches work
+# over a cosmetic field would stop the queue.
+assert "an unknown state is refused"         "$(WS '{"state":"draining"}')" 'state must be one of'
+assert "…and the stored state is unchanged"  "$(G /api/executors)" '"worker_state":"paused"'
+assert "a claim may carry the state instead" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"],"state":"ready"}')" '204'
+assert "…which reports without a second request" "$(G /api/executors)" '"worker_state":"ready"'
+assert "an unknown state on a CLAIM is ignored, not refused" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"],"state":"wat"}')" '204'
+assert "…leaving the last good state in place" "$(G /api/executors)" '"worker_state":"ready"'
+assert "a user token is not a worker here"   "$(curl -s -X POST $B/api/workers/state -H "Authorization: Bearer $TOK" -d '{"state":"ready"}')" 'not bound to an executor'
+
+echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'
 assert "…and the worker token is dead" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{}')" '401'
 assert "…and the executor is retired" "$(G /api/executors)" '"status":"retired"'

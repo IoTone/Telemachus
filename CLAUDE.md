@@ -1203,13 +1203,56 @@ Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
 - **Plugin-contributed catalogs stay unbuilt** (LOC‑6) and `localization.md` says
   so now. `locales/*.json` is the shipping artifact *because* CI gates it; a
   catalog loaded from a plugin directory would carry none of that.
-- Still open deliberately: a worker cannot report **ready/paused** (executor
-  health is derived from `last_seen_at`, so a busy box looks idle) — a wire change
-  on both sides, its own slice.
+- ~~A worker cannot report ready/paused.~~ **Built as PULL‑11** — see below.
+  Still open: #59 (purge a finished job's payload), #60 (worker-token expiry with
+  a rotation overlap), #61 (a releasable claim that does not spend an attempt),
+  #62 (writable derived objects from a worker result).
 
 ```sh
 raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, the refund
 bash test/s3-smoke.sh                  # the live multipart path, with the real aws CLI
+```
+
+## A worker says whether it is taking work (PULL‑11, issue #58)
+
+Built 14 Oct 2026 — the last open item from #54. Executor health was derived
+from `last_seen_at` alone, so a busy box, a drained one and a crashed one were
+indistinguishable.
+
+- **`worker_state` is a SECOND column, not a better `status`** (migration
+  `0040-executor-state`, plus `state_epoch`). `status` answers "is this host
+  alive", which only the platform can know; `worker_state` answers "is it taking
+  work", which only the worker can. A paused host is **alive and refusing**.
+  Folding them is the mistake SCHED‑8 had to undo on `jobs.status`, which
+  answered "is this live" and "may its result land" at once and could not
+  express a cancellation until they diverged. Nothing that switches on `status`
+  changed.
+- **`WORKER-STATES` is CLOSED**: `ready` / `busy` / `paused`, like
+  `EXTRACT-REASONS` and `REVIEW-VERDICTS`. `draining` was left out — the job rows
+  already say what a paused worker is still finishing.
+- **`POST /api/workers/state` is the authoritative channel**, and `state` is also
+  accepted on claim and heartbeat so the normal loop needs no extra request. The
+  claim alone cannot carry `paused`, which is the whole point: a drained worker
+  has stopped claiming and holds no job to heartbeat, so it would just go stale.
+- **A call that names no state leaves the stored one ALONE.** No backfill, no
+  default: a third-party worker written against the old wire keeps reading as
+  "never reported" rather than asserting `ready` on every poll.
+- **An unknown state is refused on `/api/workers/state` (400) and IGNORED on a
+  claim.** Asymmetric on purpose — on the state endpoint the state IS the
+  request; on a claim it rides along with the call that fetches work, and failing
+  that over a cosmetic field would stop the queue.
+- **A stale row's reported state is WITHDRAWN, not repeated.** `worker_state` and
+  `state_at` are `null` unless `status` is `active`: a worker that said `busy` an
+  hour ago and vanished is stale, and a field a reader learns to distrust is
+  worse than no field. Same rule as QUOTA‑3's absent hold reason.
+- The reference worker reports `ready` on each claim, `busy` on each heartbeat,
+  and `paused` from a **plumber flush** on the way out — best-effort, because a
+  host being torn down may have no network left and failing the shutdown over a
+  status update is the worse failure.
+
+```sh
+raco test test/pull-tests.rkt   # the closed vocabulary, silence, the stale withdrawal
+bash test/pull-smoke.sh         # section 6, 10 assertions over HTTP
 ```
 
 ## The beta judge's verdict is validated (JUDGE‑6, 14 Oct 2026)

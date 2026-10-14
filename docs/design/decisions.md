@@ -345,14 +345,43 @@ wrong is worth more than a plan edited to look right:
 - `TelemachusMigration.md` said "this document stays in this repo" meaning
   Odysseus. It lives here; the sentence survived the move.
 
-**Still open after this, deliberately.** A worker cannot report that it is READY
-or PAUSED — executor health is derived from `last_seen_at`, so a busy or paused
-box looks idle. That is a wire change on both sides (a worker state the claim
-loop reports and the executor row records) and belongs in its own slice, not
-bolted onto a defect sweep. Also unbuilt: a purge for finished jobs' payloads
-and results, worker-token expiry with a rotation overlap, a releasable claim
-that does not spend an attempt, and writable derived objects from a worker
-result — all four were questions on #54 rather than defects, and each needs a
+## A worker says whether it is taking work (PULL‑11) — **decided and BUILT 14 Oct 2026** (issue #58)
+
+The last open item from #54. Executor health was derived from `last_seen_at`
+alone — never-seen / active / stale / retired — so a box that was busy, or that
+an operator had deliberately drained before maintenance, looked exactly like an
+idle one, and a crashed worker looked exactly like a paused one.
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| 🔑 **PULL‑11a** | Reported state vs derived health | **A SECOND column, `executors.worker_state`, beside the derived `status` — not a better answer in the same field** · vs letting a reported state override `status` · vs widening the `status` vocabulary | They answer different questions. `status` asks "is this host alive", which only the platform can know, and `worker_state` asks "is it taking work", which only the worker can. A paused host is **alive and refusing**, and both halves of that are worth saying. Folding the two into one field is precisely the mistake SCHED‑8 had to undo on `jobs.status`, which was answering "is this work live" and "may its result land" at once and could not express a cancellation until they diverged. Keeping `status` untouched also means nothing that switches on it changes behaviour. |
+| **PULL‑11b** | The vocabulary | **Closed: `ready` / `busy` / `paused`** · vs free text · vs adding `draining` | A closed vocabulary for the reason `EXTRACT-REASONS` and `REVIEW-VERDICTS` are closed: an operator surface switches on these, so a worker inventing a fifth would arrive as a state nothing can explain. `draining` was considered and left out — the job rows already say what a paused worker is still finishing, so it would be a state the database can already answer. |
+| **PULL‑11c** | Where it is reported | **`POST /api/workers/state` as the authoritative channel, AND an optional `state` on claim and heartbeat** · vs the claim alone · vs the dedicated endpoint alone | The claim alone cannot carry `paused`, which is the whole point of the issue: a drained worker has stopped claiming and holds no job to heartbeat, so it would simply go stale. The dedicated endpoint alone would double a busy worker's request count for a field that fits on a call it already makes every poll. Both, then — one mechanism with a convenience, not two mechanisms. |
+| **PULL‑11d** | Silence | **A call that names no state leaves the stored one ALONE** · vs defaulting a claim to `ready` | A third-party worker written against the old wire must keep reading as "never reported". Defaulting a claim to `ready` would make every such worker assert something it never said, and a worker that is in fact paused and polling occasionally would be reported as ready. |
+| 🔑 **PULL‑11e** | A stale worker's last word | **Withdrawn, not repeated: `worker_state` is `null` unless the row is otherwise live** · vs reporting the last state with its timestamp and letting the client judge | A worker that said `busy` an hour ago and then vanished is **stale**, not busy. Repeating its last word is a claim nothing stands behind, which is the rule QUOTA‑3 settled for a held job's reason — the key is absent rather than guessed, because a field a reader learns to distrust is worse than no field. The timestamp is dropped with it for the same reason. |
+| **PULL‑11f** | An unknown state | **Refused on `/api/workers/state` (400), IGNORED on a claim** · vs refusing both · vs ignoring both | Asymmetric on purpose. On the state endpoint the state *is* the request, so there is nothing to do but refuse. On a claim it is a field riding along with the call that fetches work, and failing that call over a cosmetic field would stop the queue — the kind of refusal that turns a reporting nicety into an outage. |
+
+Migration `0040-executor-state` adds `worker_state TEXT` and `state_epoch
+BIGINT`, nullable, with **no backfill** — an executor that has never reported
+reads exactly as it did before. Epoch seconds beside `last_seen_at`, which is
+already epoch; the TEXT `CURRENT_TIMESTAMP` columns on this table differ by
+dialect, the trap migrations 0038 and 0039 both name, and this value is compared
+against a staleness horizon.
+
+The reference worker (`cli/telemachus-worker.rkt`) reports `ready` on each
+claim, `busy` on each heartbeat, and `paused` from a plumber flush on the way
+out — a worker stopped by Ctrl‑C, a `systemd` stop or a drain before maintenance
+otherwise just goes quiet, and quiet is what a crashed one looks like. That last
+report is **best-effort**: a host being torn down may have no network left, and
+failing the shutdown over a status update would be the worse failure.
+
+**Still open after this, deliberately.** ~~A worker cannot report that it is
+READY or PAUSED.~~ **Built as PULL‑11 (issue #58), above** — it was a wire change
+on both sides and got its own slice rather than being bolted onto a defect
+sweep. Still unbuilt: a purge for finished jobs' payloads and results (#59),
+worker-token expiry with a rotation overlap (#60), a releasable claim that does
+not spend an attempt (#61), and writable derived objects from a worker result
+(#62) — all four were questions on #54 rather than defects, and each needs a
 decision of its own before code.
 
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
