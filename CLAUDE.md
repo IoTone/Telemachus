@@ -868,7 +868,26 @@ that now has translations.
   `bash build.sh ja --record` stamps them and builds nothing.
 - **`xeCJK`'s default family is FandolSong (Chinese) and it silently DROPS Japanese
   glyphs** — 権 vanished from 権限 with no error. `template/book.latex` sets
-  `\setCJKmainfont` from `book.yaml`; Noto Serif/Sans CJK JP are in the devShell.
+  `\setCJKmainfont` from `book.yaml`.
+- **The CJK fonts ARE in the devShell now; they were not, and this note said they
+  were.** Two separate problems sat behind one error message
+  (`The font "Noto Serif CJK JP" cannot be found`). First, `flake.nix` never
+  listed them. Second, adding them is not enough: **tectonic resolves fonts
+  through Core Text on macOS, not fontconfig**, so a devShell font is invisible to
+  it however much `fc-list` can see — and nixpkgs now ships Noto CJK as
+  **variable-font collections** (`NotoSerifCJK-VF.otf.ttc`) whose family name
+  XeTeX cannot resolve at all, by name or by face index. So the devShell takes the
+  `-static` packages, and `build.sh` resolves them to a DIRECTORY and the template
+  loads the faces **by path**: `[Path=…, Extension=.ttc, FontIndex=0]`, where
+  index 0 is the JP face (1 KR, 2 SC, 3 TC, 4 HK — the wrong index is the same
+  failure xeCJK's Chinese default produces, silently). `BoldFont` is named
+  explicitly, because a face loaded by path gives fontspec no family to search and
+  every heading would otherwise be a faux-bold smear. Serif and sans are resolved
+  SEPARATELY: one directory for both built fine and was a trap, since fontspec
+  loads a face lazily and no chapter has a sans CJK glyph yet.
+  `TELEMACHUS_CJK_DIR` overrides the search; with no directory found the template
+  falls back to the family name, which is what works on a box with the fonts
+  installed system-wide.
 - Translator-facing instructions and the term list (pinned to the console's own
   `locales/ja.json`, so the book and the product use the same words) are
   `docs/book/TRANSLATING.md`.
@@ -940,9 +959,13 @@ other with a switcher line under the badges.
   **pre-#24 worker protocol**: `docs/reference/ja/api.md` told a Japanese reader
   to post `{result}` with no `claim_token`, which 409s on every write. CI now
   fails on that class (see the Localization Manager section).
-- Still open on #50: the e-book's 18 untranslated chapters — the PIPELINE is built (see
-  the e-book section and `docs/book/TRANSLATING.md`; `ja/00-read.md` is the one sample
-  chapter).
+- **#50 is complete: all 19 e-book chapters are translated** (14 Oct 2026), stamped
+  against the English they were made against, and both `ja` editions are committed.
+  The title page says what the edition IS — machine-translated, pending native
+  review, English authoritative — rather than implying more than was done. The
+  sample chapter `ja/00-read.md` was also one paragraph SHORT of its English: the
+  source-hash rule catches a stale translation and cannot see an incomplete one, so
+  a chapter copied across needs reading to the end.
 
 ## The published site (GitHub Pages)
 

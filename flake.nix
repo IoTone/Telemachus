@@ -42,9 +42,28 @@
             nodejs_24       # the Playwright e2e tours (browser NOT included — see below)
             tectonic        # the developer e-book: docs/book/*.tex -> PDF (fetches TeX packages on first run)
             pandoc          # …and the same source -> a single-page HTML e-book
+            # The book's CJK editions. xeCJK resolves these BY NAME through
+            # fontconfig, so the packages alone are not enough — FONTCONFIG_FILE
+            # below is what makes them findable. CLAUDE.md and TRANSLATING.md both
+            # said these were in the devShell while they were not, so `build.sh ja`
+            # died with `The font "Noto Serif CJK JP" cannot be found` on any box
+            # that had not installed them by hand.
+            # STATIC faces, not the default variable-font collections: nixpkgs now
+            # ships `NotoSerifCJK-VF.otf.ttc`, and XeTeX resolves neither the family
+            # name nor a face index inside one, so the build died on a font that
+            # fontconfig could see perfectly well.
+            noto-fonts-cjk-serif-static
+            noto-fonts-cjk-sans-static
             jq
           ];
           shellHook = ''
+            # xeCJK asks fontconfig for "Noto Serif CJK JP" by name, and a bare
+            # `nix develop` inherits whatever fontconfig the host happens to have —
+            # which on a machine with no system-wide Noto CJK is a config that
+            # cannot see the packages above. This pins a config that can.
+            export FONTCONFIG_FILE="${pkgs.makeFontsConf {
+              fontDirectories = [ pkgs.noto-fonts-cjk-serif-static pkgs.noto-fonts-cjk-sans-static ];
+            }}"
             # The single most-repeated line in CLAUDE.md, now automatic. pkgs/{cli-kit,
             # db-kit,web-kit} must win over any linked copies from the old Odysseus tree.
             export PLTCOLLECTS="$PWD/refimpl/racketmaximus/pkgs:"
