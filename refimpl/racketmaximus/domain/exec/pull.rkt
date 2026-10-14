@@ -254,14 +254,21 @@
              (let* ([lease (+ (now) LEASE-SECONDS)]
                     [token (claim-job! conn id #:lease lease #:executor (hash-ref ex 'id))])
                (and token
-                    (let ([row (query-row conn "SELECT id, kind, payload, team_id FROM jobs WHERE id = ?" id)])
+                    (let ([row (query-row conn "SELECT id, kind, payload, team_id, attempt FROM jobs WHERE id = ?" id)])
                       ;; claim_token fences this attempt (issue #24): the worker sends
                       ;; it back on every heartbeat and on the result, so a previous
                       ;; attempt that is still alive cannot complete this one — not
                       ;; even when the same executor re-claimed it.
+                      ;; `attempt` and `max_attempts` so a worker can tell it is on
+                      ;; its LAST try (issue #54): a job that will not be re-queued
+                      ;; deserves a different decision from one that will — retry a
+                      ;; flaky model call now, or fail loudly with the reason, and
+                      ;; do not spend an hour on something about to be retried
+                      ;; anyway. `attempt` is 0 on a first claim.
                       (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
                               'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vector-ref row 2)))
                               'claim_token token
+                              'attempt (vector-ref row 4) 'max_attempts MAX-ATTEMPTS
                               'lease_until lease 'lease_seconds LEASE-SECONDS)))))))))
 
 ;; is this job held by this executor, on THIS attempt, and still running?

@@ -106,12 +106,28 @@ diff -r "$TMP/tree" "$TMP/tree2" >/dev/null 2>&1 && ok "sync down reproduces the
   || bad "sync down reproduces the tree" "trees differ"
 
 # ---- multipart: aws switches to it above 8 MiB, so this is not optional ----------
+storage_used(){ curl -s "$B/api/repo" -H "Authorization: Bearer $TOK" | python3 -c "
+import json,sys
+print((json.load(sys.stdin).get('usage') or {}).get('used', -1))" 2>/dev/null; }
+USED_BEFORE=$(storage_used)
 head -c 30000000 /dev/urandom > "$TMP/big.bin"
 $A s3 cp "$TMP/big.bin" s3://default/big.bin >/dev/null 2>&1
 assert "multipart upload lands" "$($A s3 ls s3://default/ 2>&1)" "30000000 big.bin"
 $A s3 cp s3://default/big.bin "$TMP/big-back.bin" >/dev/null 2>&1
 cmp -s "$TMP/big.bin" "$TMP/big-back.bin" && ok "30 MB multipart round-trips byte-identically" \
   || bad "30 MB multipart round-trips byte-identically" "bytes differ"
+
+# issue #54 / S3-8: the parts were CHARGED as they arrived and REFUNDED at
+# Complete, so the team is left holding the object's size and not twice it. The
+# DELTA, because the bucket already holds the objects the sections above wrote —
+# a double charge here would be invisible in every other assertion.
+USED_AFTER=$(storage_used)
+DELTA=$(( USED_AFTER - USED_BEFORE ))
+if [ "$DELTA" = "30000000" ]; then
+  ok "the completed multipart is charged ONCE (+30000000 bytes)"
+else
+  bad "the completed multipart is charged ONCE" "expected +30000000, got +$DELTA"
+fi
 
 # A large download is fetched as PARALLEL RANGED GETs. A server that ignores Range
 # returns the whole object for each one and the client writes a corrupt file while

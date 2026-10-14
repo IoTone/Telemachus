@@ -275,7 +275,10 @@
 (define (scheduler-hold-reason) (unbox *hold-reason*))
 (define (scheduler-on-hold) (unbox *on-hold*))
 (define (scheduler-record!) (unbox *record!*))
-;; the lease reaper, installed by the pull module; runs on the pool's idle tick
+;; the lease reaper, installed by the pull module. It runs on EVERY pool tick,
+;; not only an idle one (issue #54: the comment and the design both said idle,
+;; so a reader planned against a delay that is not there) — an expired lease
+;; is noticed within one tick of the pool doing anything at all.
 (define *reaper* (box (lambda (_conn) 0)))
 (define (set-reaper! f) (set-box! *reaper* f))
 

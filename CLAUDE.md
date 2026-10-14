@@ -1123,6 +1123,59 @@ bash test/pull-smoke.sh                                   # section 5, 13 assert
 bash test/server-smoke.sh                                 # the four "cancel:" assertions
 ```
 
+## Issue #54's last items: abandoned uploads, staged bytes, attempts (14 Oct 2026)
+
+Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
+
+- **An abandoned multipart upload is reaped** (`reap-uploads!` in
+  `domain/s3/server.rkt`), seven days by default, `TELEMACHUS_UPLOAD_REAP_HOURS`
+  (`never` disables; a nonsense or non-positive value falls back to the default,
+  **never to 0**, which would reap an upload as its first part landed).
+  Migration `0039-upload-age` adds `created_epoch` to `repo_uploads` AND
+  `repo_upload_parts` — `created_at` is TEXT `CURRENT_TIMESTAMP` and differs by
+  dialect, the trap migration 0038 names.
+- **The clock is the NEWEST PART, not the create time.** A 2 GB upload over a bad
+  link legitimately takes hours; reaping one that is still making progress would
+  be a new bug in place of the old one. An upload that never sent a part falls
+  back to its create time.
+- **The sweep rides the pool's reaper seam, not the S3 listener.** `set-reaper!`
+  stays ONE seam: main.rkt installs a lambda that runs `reap-leases!` every tick
+  and `reap-uploads!` every ten minutes. It is deliberately not in the listener,
+  which is **off by default** — an instance that staged parts and then turned it
+  off would otherwise hold those bytes for ever.
+- **Staged parts are CHARGED against `storage.bytes` on arrival and refunded in
+  `drop-upload!`.** Charging only at Complete left the quota walkable by a client
+  that never completes: `TELEMACHUS_MAX_UPLOAD` caps ONE part and nothing caps
+  their number. `drop-upload!` is the one place an upload stops existing, so
+  Complete, Abort and the reaper all refund and no path can forget; at Complete
+  the refund lands AFTER `repo-put!` charged the assembled object, so the steady
+  state equals a single-shot PUT. **`repo-usage` therefore exceeds the sum of the
+  listing while an upload is in flight** — true, since the bytes are there, and
+  visible, which a bypass is not.
+- `release-blob!` was extracted from `drop-upload!`: a blob is deleted only when
+  no part row and no version row in that ORG still point at it. A part refused on
+  quota releases its staged blob through the same check — never `blob-delete!`
+  directly, which would drop bytes another upload or object shares.
+- **The claim response carries `attempt` and `max_attempts`** so a worker can tell
+  it is on its last try. `attempt` is 0 on a first claim.
+- `org-quota` and `org-usage` now include **`storage.bytes`**, which `repo-put!`
+  has been enforcing at the org tier all along: an operator could set a company
+  storage cap, see it nowhere and conclude it had not taken.
+- **The lease reaper runs on EVERY pool tick**, not the idle one. The code comment
+  and `pull-executors.md` both said idle, so a reader planned against a delay that
+  is not there.
+- **Plugin-contributed catalogs stay unbuilt** (LOC‑6) and `localization.md` says
+  so now. `locales/*.json` is the shipping artifact *because* CI gates it; a
+  catalog loaded from a plugin directory would carry none of that.
+- Still open deliberately: a worker cannot report **ready/paused** (executor
+  health is derived from `last_seen_at`, so a busy box looks idle) — a wire change
+  on both sides, its own slice.
+
+```sh
+raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, the refund
+bash test/s3-smoke.sh                  # the live multipart path, with the real aws CLI
+```
+
 ## A deferred job says why (issue #55, built 14 Oct 2026)
 
 An over-budget team's jobs stay `queued` — right, and until now invisible.

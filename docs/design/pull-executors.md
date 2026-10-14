@@ -175,8 +175,11 @@ Model routing:
   request path) and waits, polling every 250 ms up to 300 s. Without the
   exemption two parents at a cap of 2 would each wait for a sub-job nothing
   could claim — a deadlock until the leases expired.
-- **The reaper runs on the pool's idle tick** (`set-reaper!`), so an expired
-  lease is noticed within a worker's idle interval; tests call it directly.
+- **The reaper runs on EVERY pool tick** (`set-reaper!`), not only an idle one,
+  so an expired lease is noticed within one tick of the pool doing anything at
+  all; tests call it directly. (This document and the code comment both said
+  "the idle tick" until issue #54 — a reader planned against a delay that is
+  not there.)
 - **Health is derived**, not stored: `never-seen`, `active`, `stale` (no claim or
   heartbeat for 3 × the lease), `retired`.
 - The `executors` table holds API-created executors (push or pull); the

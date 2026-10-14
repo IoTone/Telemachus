@@ -157,8 +157,11 @@ advisory (LOC‑4) — the English is required, the rest is coverage.
 3. ✅ **`render`** for the four generated pages; commit `docs/reference/`; add the
    drift gate to CI.
 4. ✅ **`strings.json`** + the `doc.` namespace (249 messages, in `en.json`);
-   `render --locale` works from the catalogs. *Drafting `ja` with the Manager
-   is a run of the tool, not code — it has not been done yet.*
+   `render --locale` works from the catalogs. **`ja` was drafted with the Manager
+   on 15 Sep 2026** (257 machine drafts, 142 corrected by hand — the 7B model
+   mixes in French/Spanish/Chinese fragments and leaves English words, so every
+   draft was reviewed) and `docs/reference/ja/` is committed. Re-render it after
+   drafting more.
 5. ✅ `sdk.md` and `plugins.md` as narrative-plus-tables.
 
 ## As built

@@ -3092,7 +3092,26 @@
                         => (lambda (p) (string-append "result.content: " p))]
                        [(not (number? (hash-ref r 'tokens_used #f))) "result.tokens_used must be a number"]
                        [else #f])))
-  (set-reaper! reap-leases!)
+  ;; The pool's per-tick maintenance. `set-reaper!` is ONE seam and stays one:
+  ;; the lease reaper every tick (an expired lease must be noticed promptly), and
+  ;; the abandoned-upload reaper on a long interval beside it (issue #54), since
+  ;; a seven-day horizon does not need a scan five times a second. Keeping it
+  ;; here rather than inside the S3 listener matters: the listener is OFF by
+  ;; default, and an instance that staged parts and then turned it off would
+  ;; otherwise hold those bytes for ever.
+  (define last-upload-sweep (box 0))
+  (define UPLOAD-SWEEP-EVERY 600)
+  (set-reaper!
+   (lambda (conn)
+     (define n (reap-leases! conn))
+     (when (> (- (current-seconds) (unbox last-upload-sweep)) UPLOAD-SWEEP-EVERY)
+       (set-box! last-upload-sweep (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "upload reaper: ~a\n" (exn-message e)))])
+         (define dropped (reap-uploads! conn))
+         (when (> dropped 0)
+           (printf "reaped ~a abandoned multipart upload(s)\n" dropped))))
+     n))
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker
   (set-box! pull-router

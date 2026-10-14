@@ -311,6 +311,50 @@ rewritten to look right.
 | **PULL‑9** | What a worker may read | **Job-bound document reads** · vs no-data isolation (today) | A worker sees only its payload now. Job-bound means it may read the objects **its own claimed job references**, and nothing else — the fence is the job's own inputs, and the credential is the `claim_token` it already carries, so the read dies when the claim does. This is what lets an OCR or CV worker fetch the file it was given instead of having bytes pushed through the payload. It is a real widening of what a worker host can see: today a compromised worker learns nothing, afterwards it learns the documents it was handed.  **Built** as `POST /api/workers/jobs/:id/document`, with a **third** condition beside the two recorded: the read happens as the JOB'S OWN USER, so `can?` decides exactly as it would for that person — visibility, grants and the org gate included, and no new authorization code. A document the job's user cannot see is invisible to the worker running that job, and "does not exist" and "not yours" are one answer, as in the knowledge graph. `as: "bytes"` (base64, capped at `TELEMACHUS_MAX_UPLOAD` — a worker is not a way past the ceiling the front door enforces) or `as: "text"`, where a scan answers `{text: null, reason: "needs-ocr"}` rather than erroring, since that is the branch an OCR worker exists to take. |
 | **RBAC‑5b** | Custom team roles | **Not in v1** · vs ship them now | Closes the question. `roles:manage` exists as a permission with nothing behind it, which is the kind of thing that reads as an unfinished feature rather than a deliberate omission — say so where the permission is described. The four built-in roles stay the vocabulary.  **Built**: `roles:manage`'s description now says it is reserved for team-defined roles, which are not in v1, and that nothing reads it yet — a deliberate omission rather than an unfinished feature. |
 
+## Issue #54's remaining items — **decided and BUILT 14 Oct 2026**
+
+What was left on issue #54 after the 12 Oct batch: three defects, two questions
+it raised about them, and seven documents that disagreed with the code.
+
+| # | Decision | Recommendation · alternatives | What it implies |
+|---|---|---|---|
+| **S3‑7** | An abandoned multipart upload is reaped | **Seven days, clocked on the NEWEST PART** · vs never (today) · vs a fixed age from Create | Nothing collected the rows or the blobs a disconnected client left behind, so the bytes were invisible to the team and never reclaimed. The horizon is generous because a 2 GB upload over a bad link legitimately takes hours, and the clock is the newest part's arrival rather than the create time — reaping an upload that is still making progress would be a new bug in place of the old one. The sweep rides the pool's existing per-tick reaper seam (throttled to ten minutes; a seven-day horizon does not need a scan five times a second) and NOT the S3 listener, which is off by default: an instance that staged parts and then turned the listener off would otherwise hold those bytes for ever. `TELEMACHUS_UPLOAD_REAP_HOURS`, `never` to disable, and an unparseable or non-positive value falls back to the default rather than to 0 — which would reap an upload the instant its first part landed. Each reap is audited (`repo.upload.reaped`), because "where did my upload go" needs an answer. |
+| **S3‑8** | Staged parts are charged from the first part | **Charge on arrival, refund when the upload goes away** · vs charge only at Complete (today) | Charging only at Complete leaves the quota **walkable by a client that never completes**: `TELEMACHUS_MAX_UPLOAD` caps one part and nothing caps their number, so an unbounded amount of disk could be staged under a satisfied quota. The honest reading is that `storage.bytes` is a gauge over bytes the platform is HOLDING, and it is holding them. The refund lives in `drop-upload!` — the one place an upload stops existing, so Complete, Abort and the reaper all get it and no path can forget — and at Complete it lands after `repo-put!` has charged the assembled object, so the steady state is exactly what a single-shot PUT leaves. The cost is that `repo-usage` exceeds the sum of the listing while an upload is in flight. That is true, visible, and better than a bypass. |
+| **PULL‑10** | A worker learns which attempt it is on | **`attempt` + `max_attempts` on the claim** · vs leaving it to the worker's own bookkeeping | A job that will not be re-queued deserves a different decision from one that will: retry a flaky model call now rather than failing, or fail loudly with the reason rather than spending an hour on work about to be retried anyway. The worker could not tell. Both fields ride on the claim response, which is where every other fact about the attempt already is. |
+| **LOC‑6** | Plugin-contributed catalogs | **Not built, and the document is corrected** · vs adding the loader hook | `docs/design/localization.md` promised a plugin ships its own namespaced catalog; the loader reads none and `GET /api/i18n/catalog` keeps only `ui.`-prefixed keys, so one could not shadow a core string even if loaded. Leave it. `locales/*.json` is the shipping artifact *because* `telemachus-localize check` gates it in CI, and a catalog loaded from a plugin directory would carry none of that — a half-translated plugin would then look exactly like a half-translated product. A plugin that needs its own strings ships them in its own bundle. If this is ever built, the gate comes with it. |
+
+**Seven documents disagreed with the code and now do not.** Each correction says
+what changed rather than quietly rewriting history, because a plan that was
+wrong is worth more than a plan edited to look right:
+
+- `pull-executors.md` and `scheduler.rkt`'s own comment both said the reaper runs
+  on the pool's **idle** tick. It runs on **every** tick, so a reader was
+  planning against a delay that is not there.
+- The multi-tenancy runbook said model endpoints are instance-wide. **Org-bound
+  executors exist** (`POST /api/org/executors`, and the org gate in the claim);
+  what is still instance-wide is the *credential* and the routing, which is the
+  open BYOK half.
+- `rbac-and-teams.md` described one implicit org. The **org tier is built**.
+- `saas-onboarding.md` opened on the cross-legal-entity non-goal that TEN‑2
+  **reversed**; one instance per tenant is now a choice, not a constraint.
+- `document-repository.md` said secrets are stored in the clear and DOC‑3's
+  sealing was withdrawn. Issue #19 **re-reversed that**: the withdrawal's
+  argument defends a HOST and the threat is a DUMP.
+- `documentation-generation.md` said the Japanese reference had not been
+  drafted. It was, on 15 Sep 2026, and it is committed.
+- `TelemachusMigration.md` said "this document stays in this repo" meaning
+  Odysseus. It lives here; the sentence survived the move.
+
+**Still open after this, deliberately.** A worker cannot report that it is READY
+or PAUSED — executor health is derived from `last_seen_at`, so a busy or paused
+box looks idle. That is a wire change on both sides (a worker state the claim
+loop reports and the executor row records) and belongs in its own slice, not
+bolted onto a defect sweep. Also unbuilt: a purge for finished jobs' payloads
+and results, worker-token expiry with a rotation overlap, a releasable claim
+that does not spend an attempt, and writable derived objects from a worker
+result — all four were questions on #54 rather than defects, and each needs a
+decision of its own before code.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about

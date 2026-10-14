@@ -1115,6 +1115,32 @@
       ;; review-stats' ?since all set. Epoch seconds, like lease_until beside it.
       (exec* conn "ALTER TABLE jobs ADD COLUMN started_epoch BIGINT"))))
 
+(define m-0039-upload-age
+  (migration "0039-upload-age"
+    (lambda (conn)
+      ;; An abandoned multipart upload is reapable now (issue #54), and reaping
+      ;; needs an age. `created_at` on both tables is TEXT CURRENT_TIMESTAMP,
+      ;; whose format differs by dialect, so an age computed from it would be
+      ;; invisible on SQLite and wrong on PostgreSQL — the same trap migration
+      ;; 0038 names. Epoch seconds.
+      ;;
+      ;; TWO columns, because the clock that matters is the LAST PART's arrival,
+      ;; not the create time: a 2 GB upload over a bad link legitimately takes
+      ;; hours, and reaping one that is still making progress would be a new bug
+      ;; in place of the old one. The create time is the fallback for an upload
+      ;; that never sent a part at all.
+      (exec* conn "ALTER TABLE repo_uploads ADD COLUMN created_epoch BIGINT")
+      (exec* conn "ALTER TABLE repo_upload_parts ADD COLUMN created_epoch BIGINT")
+      ;; Rows that predate this column have no age the reaper can trust, so they
+      ;; are stamped NOW rather than left NULL: an upload in flight across the
+      ;; upgrade gets a fresh clock (it may be reaped one horizon late, which is
+      ;; harmless) instead of being read as infinitely old and dropped from under
+      ;; a client that is still sending parts.
+      (query-exec conn "UPDATE repo_uploads SET created_epoch = ? WHERE created_epoch IS NULL"
+                  (current-seconds))
+      (query-exec conn "UPDATE repo_upload_parts SET created_epoch = ? WHERE created_epoch IS NULL"
+                  (current-seconds)))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age))

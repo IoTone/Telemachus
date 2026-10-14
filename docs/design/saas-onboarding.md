@@ -8,9 +8,15 @@ first-run bootstrap; this doc is the **hosted** path and the piece a control pla
 needs to automate it.
 
 This is the "hosted multitenant offering" the [tenancy decision](README.md#tenancy-decided)
-defers to: cross-legal-entity multitenancy on a *shared* instance is a non-goal, so
-the hosted answer is **one isolated instance per tenant**. Seeding a lone owner is
-therefore not a special mode — it is simply what a freshly provisioned instance is.
+deferred to, and it was written while cross-legal-entity multitenancy on a *shared*
+instance was still a non-goal. **That was reversed** by decision TEN‑2 — several
+companies on one instance is built, off by default
+(`TELEMACHUS_MULTITENANT=1`, see [multi-tenancy.md](multi-tenancy.md)) — so the
+hosted answer is now a choice rather than a constraint: one isolated instance per
+tenant, or one instance with an org per tenant. Everything below still describes
+the per-instance path, which remains the right answer when tenants must not share
+a process, a database or an inference endpoint. Seeding a lone owner is not a
+special mode either way — it is simply what a freshly provisioned instance is.
 
 ## What this is — and is NOT
 

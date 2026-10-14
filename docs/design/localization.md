@@ -31,8 +31,16 @@ Everything user-facing goes through the catalog, not just the UI:
 - **Agent tool descriptions and schemas** (the model-facing text) — so a localized
   deployment can present tools in the operator's language.
 - **Documentation** (see *Documentation* below).
-- **Plugin-contributed catalogs** — the SDK already lists *localizations* as an
-  extension type; a plugin ships its own namespaced catalog and target-locale files.
+- **Plugin-contributed catalogs** — *not built, and deliberately not (issue #54
+  asked which way this should go).* The loader reads no plugin catalog, and
+  `GET /api/i18n/catalog` keeps only `ui.`-prefixed keys, so a plugin could not
+  shadow a core string even if one were loaded. The reason to leave it that way:
+  `locales/*.json` is the shipping artifact precisely because
+  `telemachus-localize check` gates it in CI, and a catalog loaded out of a
+  plugin directory would carry none of that — a half-translated plugin would
+  then look exactly like a half-translated product. A plugin that needs its own
+  strings ships them in its own bundle, which it already serves itself. If this
+  is ever built, the gate has to come with it.
 
 ## Message model
 

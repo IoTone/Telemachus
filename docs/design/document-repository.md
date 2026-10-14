@@ -622,11 +622,16 @@ wrong answer rather than a crash.
 scopes; the endpoint passed its own list, silently shadowing it, so widening the
 default did nothing until the endpoint stopped repeating it.
 
-**Secrets are stored in the clear, and DOC‑3's "encrypt with `TELEMACHUS_SECRET_KEY`"
-is withdrawn.** Encrypting with a key that lives in the environment of the same
-process, on the same host, reading the same database moves the secret from one file
-an attacker already has to another. `users.totp_secret` is recoverable for the same
-reason. What actually bounds a leaked access key is its scope list. This is stated in
+**Secrets are stored in the clear — and this was REVERSED by issue #19, which
+sealed them after all.** The argument below is kept because it is half right and
+the half it gets wrong is worth naming: encrypting with a key from the same
+process's environment defends nothing against someone running as the server. What
+it does defend is a **DUMP** — a backup, a replica, a volume snapshot — which
+travels without the environment, and that is the case that actually happens.
+`repo_credentials.secret_key`, `executors.secret_key` and `users.totp_secret` are
+sealed now (`domain/authz/secretbox.rkt`, AES‑256‑GCM, `enc:v1:…`, no key
+configured = plaintext and that is still supported); scope lists remain what
+bounds a leaked access key in use. The original reasoning follows. This is stated in
 the module rather than implied.
 
 ## What building 53 changed

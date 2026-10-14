@@ -25,12 +25,13 @@
          "../authz/authz.rkt"
          "../repo/repo.rkt"
          "../repo/blobs.rkt"
+         (only-in "../quota/quota.rkt" quota-check quota-record!)
          sha2-kit
          "sigv4.rkt"
          "creds.rkt"
          (only-in "../../config.rkt" max-upload-bytes))
 
-(provide make-s3-handler s3-region xml-escape)
+(provide make-s3-handler s3-region xml-escape reap-uploads! upload-reap-seconds)
 
 (define (s3-region) (or (getenv "TELEMACHUS_S3_REGION") "us-east-1"))
 (define MAX-KEYS-DEFAULT 1000)
@@ -463,12 +464,12 @@
     [else
      (define uid (new-id))
      (query-exec conn
-       (string-append "INSERT INTO repo_uploads (id, org_id, team_id, user_id, key, content_type, visibility) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?)")
+       (string-append "INSERT INTO repo_uploads (id, org_id, team_id, user_id, key, content_type, visibility, created_epoch) "
+                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
        uid (or (team-org conn (principal-team-id p)) (principal-org-id p))
        (principal-team-id p) (principal-user-id p) key
        (or (req-header req "content-type") "application/octet-stream")
-       (or vis sql-null))
+       (or vis sql-null) (current-seconds))
      (xml-res 200 (el "InitiateMultipartUploadResult"
                       (el "Bucket" (xml-escape bucket))
                       (el "Key" (xml-escape key))
@@ -497,13 +498,45 @@
     [else
      (define-values (digest size) (blob-stage! (hash-ref up 'org_id) (http-req-body req)
                                                 #:max-bytes (max-upload-bytes)))
-     (query-exec conn
-       (string-append "INSERT INTO repo_upload_parts (id, upload_id, part_number, digest, size) "
-                      "VALUES (?, ?, ?, ?, ?) "
-                      "ON CONFLICT(upload_id, part_number) DO UPDATE SET "
-                      "digest = excluded.digest, size = excluded.size")
-       (new-id) upload-id part-number digest size)
-     (http-res* 200 (list (cons #"ETag" (string->bytes/utf-8 (etag-of digest)))) #"")]))
+     ;; A retried part REPLACES, so what the team is newly holding is the delta.
+     (define prior-size
+       (let ([v (query-maybe-value conn
+                  "SELECT size FROM repo_upload_parts WHERE upload_id = ? AND part_number = ?"
+                  upload-id part-number)])
+         (if (and v (not (sql-null? v))) v 0)))
+     (define delta (- size prior-size))
+     ;; Staged parts are CHARGED against storage.bytes as they arrive, and
+     ;; refunded when the upload goes away (issue #54). The alternative —
+     ;; charging only at Complete — leaves the quota walkable by a client that
+     ;; simply never completes: `max-upload-bytes` caps ONE part, nothing caps
+     ;; their number, so an unbounded amount of disk could be staged under a
+     ;; satisfied quota. The cost of charging is that `repo-usage` exceeds the
+     ;; sum of the listing while an upload is in flight, which is true — the
+     ;; bytes are there — and visible, which a bypass is not.
+     (define adm (quota-check conn "team" (hash-ref up 'team_id) STORAGE-DIMENSION delta))
+     (cond
+       [(not (hash-ref adm 'allowed))
+        (release-blob! conn (hash-ref up 'org_id) digest)
+        (s3-error "EntityTooLarge" 400
+                  #:message (format "storage quota exceeded: ~a of ~a bytes used"
+                                    (hash-ref adm 'used) (hash-ref adm 'limit)))]
+       [else
+        (query-exec conn
+          (string-append "INSERT INTO repo_upload_parts (id, upload_id, part_number, digest, size, created_epoch) "
+                         "VALUES (?, ?, ?, ?, ?, ?) "
+                         "ON CONFLICT(upload_id, part_number) DO UPDATE SET "
+                         "digest = excluded.digest, size = excluded.size, "
+                         "created_epoch = excluded.created_epoch")
+          (new-id) upload-id part-number digest size (current-seconds))
+        (charge-storage! conn up delta)
+        (http-res* 200 (list (cons #"ETag" (string->bytes/utf-8 (etag-of digest)))) #"")])]))
+
+;; both tiers, as repo-put! bills them
+(define (charge-storage! conn up amount)
+  (unless (zero? amount)
+    (quota-record! conn "team" (hash-ref up 'team_id) STORAGE-DIMENSION amount)
+    (let ([org (team-org conn (hash-ref up 'team_id))])
+      (when org (quota-record! conn "org" org STORAGE-DIMENSION amount)))))
 
 ;; Complete assembles the parts IN THE ORDER THE CLIENT NAMES, not the order they
 ;; arrived — they arrive concurrently and out of order. `input-port-append` chains the
@@ -560,18 +593,76 @@
 ;; Same org-scoped refcount as repo-delete!, for the same reason (DOC-6).
 (define (drop-upload! conn up)
   (define org (hash-ref up 'org_id))
-  (define parts (query-rows conn "SELECT digest FROM repo_upload_parts WHERE upload_id = ?"
+  (define parts (query-rows conn "SELECT digest, size FROM repo_upload_parts WHERE upload_id = ?"
                             (hash-ref up 'id)))
+  (define staged (for/sum ([r (in-list parts)]) (vector-ref r 1)))
   (query-exec conn "DELETE FROM repo_upload_parts WHERE upload_id = ?" (hash-ref up 'id))
   (query-exec conn "DELETE FROM repo_uploads WHERE id = ?" (hash-ref up 'id))
-  (for ([r (in-list parts)])
-    (define d (vector-ref r 0))
-    (define still-a-part (query-value conn
-      "SELECT COUNT(*) FROM repo_upload_parts WHERE digest = ?" d))
-    (define still-a-version (query-value conn
-      (string-append "SELECT COUNT(*) FROM repo_versions v JOIN repo_objects o ON o.id = v.object_id "
-                     "WHERE v.digest = ? AND o.org_id = ?") d org))
-    (when (and (zero? still-a-part) (zero? still-a-version)) (blob-delete! org d))))
+  ;; refund what the parts were charged. This is the ONE place an upload stops
+  ;; existing — Complete, Abort and the reaper all come through here — so the
+  ;; charge in op-upload-part cannot be left dangling by a path that forgot.
+  ;; At Complete the refund lands AFTER repo-put! has charged the assembled
+  ;; object, so the steady state is exactly what a single-shot PUT leaves.
+  (charge-storage! conn up (- staged))
+  (for ([r (in-list parts)]) (release-blob! conn org (vector-ref r 0))))
+
+;; Delete a blob only if nothing points at it any more: another in-flight
+;; upload's part, or a finished object's version. Org-scoped, as repo-delete!
+;; is, because global dedup across tenants is an existence oracle (DOC-6).
+(define (release-blob! conn org d)
+  (define still-a-part (query-value conn
+    "SELECT COUNT(*) FROM repo_upload_parts WHERE digest = ?" d))
+  (define still-a-version (query-value conn
+    (string-append "SELECT COUNT(*) FROM repo_versions v JOIN repo_objects o ON o.id = v.object_id "
+                   "WHERE v.digest = ? AND o.org_id = ?") d org))
+  (when (and (zero? still-a-part) (zero? still-a-version)) (blob-delete! org d)))
+
+;; ---- reaping an abandoned upload (issue #54) ------------------------------------
+;; A client that disconnects mid-multipart leaves rows and blobs behind. Nothing
+;; collected them, so the bytes were invisible to the team and never reclaimed.
+;;
+;; The horizon is generous on purpose: a 2 GB upload over a bad link legitimately
+;; takes hours, and the clock is the NEWEST PART's arrival rather than the create
+;; time, so an upload that is still making progress is never reaped out from
+;; under the client sending it. Seven days matches the lifecycle rule AWS's own
+;; guidance suggests for incomplete multipart uploads.
+(define UPLOAD-REAP-DEFAULT (* 7 24 3600))
+(define (upload-reap-seconds)
+  (define v (getenv "TELEMACHUS_UPLOAD_REAP_HOURS"))
+  (define t (and v (string-trim v)))
+  (cond
+    [(and t (string-ci=? t "never")) #f]
+    [else
+     (define n (and t (string->number t)))
+     ;; an unparseable or non-positive value falls back to the default, never to
+     ;; 0 — which would reap an upload the moment its first part landed
+     (if (and (real? n) (> n 0)) (inexact->exact (floor (* n 3600))) UPLOAD-REAP-DEFAULT)]))
+
+;; → the number of uploads dropped. Safe to call repeatedly; nothing in flight.
+(define (reap-uploads! conn)
+  (define horizon (upload-reap-seconds))
+  (cond
+    [(not horizon) 0]
+    [else
+     (define cutoff (- (current-seconds) horizon))
+     (define ids (query-list conn
+       (string-append
+        "SELECT u.id FROM repo_uploads u WHERE "
+        ;; the newest part's arrival, falling back to the create time for an
+        ;; upload that never sent one
+        "COALESCE((SELECT MAX(p.created_epoch) FROM repo_upload_parts p WHERE p.upload_id = u.id), "
+        "         u.created_epoch) < ?")
+       cutoff))
+     (for ([id (in-list ids)])
+       (define r (query-maybe-row conn
+         "SELECT id, org_id, team_id FROM repo_uploads WHERE id = ?" id))
+       (when r
+         (drop-upload! conn (hasheq 'id (vector-ref r 0) 'org_id (vector-ref r 1)
+                                    'team_id (vector-ref r 2)))
+         (audit! conn #:action "repo.upload.reaped" #:actor-type "system"
+                 #:team-id (vector-ref r 2)
+                 #:resource-type "upload" #:resource-id id)))
+     (length ids)]))
 
 ;; ---- routing ---------------------------------------------------------------------
 ;; Sub-resources we do not implement are matched FIRST and answered NotImplemented, so
