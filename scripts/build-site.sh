@@ -63,6 +63,16 @@ for d in "$ROOT"/docs/book/*/; do
   [ -f "$p" ] && cp "$p" "$OUT/docs/book/telemachus-for-developers.$lang.pdf"
 done
 
+# ---- the tour screenshots ----------------------------------------------------
+# The READMEs' feature tour points at docs/screenshots/*.png with repository-
+# relative paths, so publishing the directory is what makes them resolve on the
+# site — the same "mirror the repository's layout" rule the pages follow. Without
+# this the link filter sent each image to a GitHub blob URL, which serves an HTML
+# page, and every screenshot in the published tour was a broken image.
+mkdir -p "$OUT/docs/screenshots/beta"
+cp "$ROOT"/docs/screenshots/*.png      "$OUT/docs/screenshots/"
+cp "$ROOT"/docs/screenshots/beta/*.png "$OUT/docs/screenshots/beta/"
+
 # ---- the prose pages ---------------------------------------------------------
 page "$ROOT/README.md"        "readme.html"      "Telemachus"
 # Also at the name the link rewriter produces from README.md, so a doc that links
