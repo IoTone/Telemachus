@@ -98,6 +98,19 @@ node build-catalog.mjs beta "<title>" "<subtitle>" "<footer>"   # → catalog/be
 - Use **plain Playwright** (`import { chromium } from '@playwright/test'`) — the
   `@playwright/test` *runner* hangs in this env (buffered, zero output).
 - Launch chromium with `['--no-sandbox','--disable-dev-shm-usage']`.
+- **A harness that drives a real model must raise its own AI budget first.** The
+  shipped `ai.tokens.total` default is 2,000/day, and since the model-access
+  consolidation `/api/agent` both admits on that dimension and meters the
+  PROVIDER's token count — a tool-using run costs thousands where it used to bill
+  50. So one agent step exhausts a fresh team's whole day, and every model-backed
+  step after it is refused. `demo-validate.mjs`, `doc-pipeline-smoke.sh` and
+  `pull-smoke.sh` all `POST /api/quota {"dimension":"ai.tokens.total","limit":
+  1000000,"window":"day"}` for this reason; `run-tour.mjs` did not, and the
+  2026-10-14 refresh caught it only because the tour asserts on the translation —
+  it was one assertion away from committing a screenshot of a "quota exceeded"
+  toast as the Translation app. Assert the raise, so a silent refusal cannot
+  return. The same default is what stalls a downstream batch after its first
+  document, so treat "it worked and then stopped" as a budget question first.
 
 ## Environment constraints (this sandbox)
 

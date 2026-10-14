@@ -62,6 +62,25 @@ try {
   await page.waitForSelector('nav.tabs', { timeout: 15000 });
   assert(await page.locator('nav.tabs').isVisible(), 'signed in — app shell visible');
 
+  // The tour drives a REAL model through chat, the agent and translation, and
+  // since the model-access consolidation the agent meters the PROVIDER's own
+  // token count — a tool-using run costs thousands where it used to bill ~50.
+  // On the shipped 2,000/day default the budget is gone by the translate step,
+  // which then photographs a "quota exceeded" toast instead of a translation.
+  // Every other model-driving harness already raises this (demo-validate.mjs,
+  // doc-pipeline-smoke.sh, pull-smoke.sh); the tour was the one that did not.
+  log('budget');
+  const budgetOk = await page.evaluate(async () => {
+    const tok = localStorage.getItem('tmx_token');
+    const res = await fetch('/api/quota', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
+      body: JSON.stringify({ dimension: 'ai.tokens.total', limit: 1000000, window: 'day' })
+    });
+    return res.ok;
+  });
+  assert(budgetOk, 'AI budget raised for the tour');
+
   // 3 — streaming chat
   log('chat'); await go(page, 'chat', '#cp');
   await page.fill('#cp', 'In one sentence, what is Telemachus?');
