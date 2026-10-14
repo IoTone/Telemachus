@@ -87,6 +87,12 @@ done
 for f in "$ROOT"/docs/ops/*.md; do
   b="$(basename "$f" .md)"; page "$f" "docs/ops/$b.html" "Runbook — $b"
 done
+for f in "$ROOT"/docs/emacs/*.md; do
+  [ -e "$f" ] || continue
+  b="$(basename "$f" .md)"
+  t="$(sed -n 's/^# //p' "$f" | head -1)"; [ -n "$t" ] || t="$b"
+  page "$f" "docs/emacs/$b.html" "$t"
+done
 for f in "$ROOT"/docs/design/*.md; do
   b="$(basename "$f" .md)"; page "$f" "docs/design/$b.html" "Design — $b"
 done
@@ -132,6 +138,7 @@ cat > "$OUT/index.html" <<HTML
     <li><h3><a href="docs/integrators-guide.html">Integrator's guide</a></h3><p>Putting your own product on the platform: theme the console, ship tools, serve your own screens and API.</p></li>
     <li><h3><a href="readme.html">Read me first</a></h3><p>What it is, what runs today, and how to get it running. <a href="README.ja.html">日本語</a></p></li>
     <li><h3><a href="docs/reference/README.html">Reference</a></h3><p>Generated from the source: every route, tool, workflow, permission and plugin seam.</p></li>
+    <li><h3><a href="docs/emacs/README.html">Editing in Emacs</a></h3><p>A live Racket REPL over this tree: Geiser and racket-mode, their keys, and the two things that bite on this repo.</p></li>
   </ul>
 
   <h2>Reference</h2>

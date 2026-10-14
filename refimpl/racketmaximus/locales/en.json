@@ -11,6 +11,14 @@
       "text": "please use a work email address",
       "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
     },
+    "ui.quotaheldorg": {
+      "text": "This team's company has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
+      "hash": "c278db3a6c6604c5e8583793f3419c1b22b54bce"
+    },
+    "doc.route.post.api.l10n.export": {
+      "text": "Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved.",
+      "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
+    },
     "doc.perm.team:write": {
       "text": "Rename a team in the company.",
       "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
@@ -71,6 +79,10 @@
       "text": "Store",
       "hash": "0d8a7046c8d39d9cbd86abcdfb704b161a601f9e"
     },
+    "doc.route.put.api.repo-fields": {
+      "text": "Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration.",
+      "hash": "ce4457cb6abe71b32b8d7f6805f6e5dfa3fa7277"
+    },
     "ui.reviews": {
       "text": "Review",
       "hash": "e29a79fe0c349724caeaa1762fa917f5543248ca"
@@ -106,10 +118,6 @@
     "doc.workflow.index-documents": {
       "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
-    },
-    "doc.route.post.api.l10n.export": {
-      "text": "Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved.",
-      "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
     },
     "doc.route.post.api.beta.experience.publish": {
       "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
@@ -283,6 +291,10 @@
       "text": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
       "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
     },
+    "doc.route.get.api.repo-obj.id.spans": {
+      "text": "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.",
+      "hash": "0ebd28a5c2094a860bb918d4279034df707e56a5"
+    },
     "ui.useglossary": {
       "text": "Use glossary",
       "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
@@ -327,6 +339,14 @@
       "text": "too many requests from your organization — please reach out directly",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
+    "ui.l10nhint": {
+      "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
+      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
+    },
+    "doc.route.get.api.reviews.stats": {
+      "text": "How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window.",
+      "hash": "bbb9fa1bd8d56749050fd3a56e8c196483c7405c"
+    },
     "doc.route.get.api.runs": {
       "text": "The team's runs, newest first.",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
@@ -334,10 +354,6 @@
     "doc.workflow.index-knowledge.name": {
       "text": "Index Knowledge",
       "hash": "25914663dfac64e6314732a7e89badcc8c3ff7b0"
-    },
-    "ui.l10nhint": {
-      "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
-      "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
     },
     "ui.newversion": {
       "text": "Saved as a new version",
@@ -391,13 +407,17 @@
       "text": "Pull the catalogs on disk into the Manager's tables.",
       "hash": "ee1a9aa18b893d69cccefe0369bcdf203aa1ee28"
     },
-    "ui.reviewnone": {
-      "text": "Nothing is waiting for review.",
-      "hash": "81113cde3bd4da1b134ee55e4187faded2a1bccb"
+    "ui.heldbycap": {
+      "text": "held: team at {limit} concurrent",
+      "hash": "c7f70588d8511f2d99f19ba0d557e50eaf20bd2f"
     },
     "doc.perm.instance:manage": {
       "text": "Instance administration: branding, localization policy, quotas, orgs, metrics.",
       "hash": "336906f62b986937095973b250bdd09c8493001b"
+    },
+    "ui.reviewnone": {
+      "text": "Nothing is waiting for review.",
+      "hash": "81113cde3bd4da1b134ee55e4187faded2a1bccb"
     },
     "ui.noothers": {
       "text": "No one else on this team",
@@ -420,8 +440,8 @@
       "hash": "dcd3b715ebd6e57f48c3f964ec298a3529f00dfc"
     },
     "doc.route.get.api.jobs": {
-      "text": "The team's jobs, newest first.",
-      "hash": "2b1247c7a0fb1ca736ef30a6d6ce0649ac55eb2c"
+      "text": "The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: \"quota\"|\"concurrency\", …}; the key is absent when nothing holds it and it is waiting only for a free worker.",
+      "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
     },
     "ui.bxthanks": {
       "text": "Thanks — your request is in review.",
@@ -575,6 +595,14 @@
       "text": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
     },
+    "doc.route.get.api.repo-fields": {
+      "text": "The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex.",
+      "hash": "3739bcc1b3eff310696351eccabb917b6928aae6"
+    },
+    "authz.bootstrap_done": {
+      "text": "Created operator {user} and team {team}.",
+      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
     "ui.submitjob": {
       "text": "Submit a job",
       "hash": "510341190745d586870fc9862595a371c925fc0f"
@@ -615,10 +643,6 @@
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
-    "authz.bootstrap_done": {
-      "text": "Created operator {user} and team {team}.",
-      "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
-    },
     "ui.link": {
       "text": "Link",
       "hash": "d0517071aa376e797705058bbad4b658954b9930"
@@ -638,6 +662,10 @@
     "doc.tool.translate_text.target": {
       "text": "Target language code, e.g. es, nl, is",
       "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
+    },
+    "ui.resets": {
+      "text": "Resets",
+      "hash": "da1a3c80185a86b58790c77e17145fc737ff37b5"
     },
     "beta.email_invalid": {
       "text": "a valid email is required",
@@ -671,6 +699,10 @@
       "text": "Delete",
       "hash": "f6fdbe48dc54dd86f63097a03bd24094dedd713a"
     },
+    "ui.quotaheldteam": {
+      "text": "This team has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
+      "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
+    },
     "doc.route.post.api.password": {
       "text": "Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone.",
       "hash": "d0716f80b7d79a77dbf4f1517c2678710e41ebc9"
@@ -694,6 +726,10 @@
     "beta.challenge_expired": {
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "doc.route.get.api.reviews.verify": {
+      "text": "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.",
+      "hash": "7e89fc4333a119c5feb8a67edc48ac81f10fa2b5"
     },
     "doc.route.post.api.org.executors": {
       "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
@@ -770,6 +806,10 @@
     "ui.revoked": {
       "text": "Revoked",
       "hash": "85f17ac049c4218273f708cd24197325bd4369b9"
+    },
+    "doc.perm.jobs:cancel": {
+      "text": "Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first.",
+      "hash": "6125caf549aa3233fcdb41a561c9828c5b120c12"
     },
     "ui.loctoggle": {
       "text": "Let people choose their language",
@@ -944,8 +984,8 @@
       "hash": "33cb8ffb167170483550825fffce8ed0f6a039e3"
     },
     "doc.route.get.api.repo": {
-      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).",
-      "hash": "de55ec495c07f563596878a403924a739ed59b2f"
+      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).",
+      "hash": "ba6c59298d0ab709ce62c0d2e0044bedbc4855a2"
     },
     "doc.route.get.activate": {
       "text": "The console, on the magic-link activation screen (hosted mode).",
@@ -1283,6 +1323,10 @@
       "text": "Talk to the model: chat, the agent, translation, AI tools. Metered.",
       "hash": "828cc8ee6dd6bf4ce22bcc5de9a585f9cd02b63f"
     },
+    "ui.quotaheldtitle": {
+      "text": "Work is paused by a budget",
+      "hash": "9f7fd9b635a7534b53af9a169cb1579259318514"
+    },
     "doc.tool.doc_translate.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
@@ -1415,6 +1459,10 @@
       "text": "See quotas.",
       "hash": "fb2e9e15c807d3a4e1c48139107fc7b18f522f21"
     },
+    "ui.quotaraiseop": {
+      "text": "You can raise it below.",
+      "hash": "fcf24e7c78cf03fabbab4d6d138fc343406ee1b9"
+    },
     "doc.perm.org:read": {
       "text": "See the company, its teams, members and audit trail.",
       "hash": "05279417b614668317d0b96f13b779958ddfcdda"
@@ -1482,6 +1530,10 @@
     "doc.route.get.api.glossary": {
       "text": "The team glossary.",
       "hash": "7986293803bb2029e37ce2d2f2e2c213446c48c7"
+    },
+    "ui.quotaresets": {
+      "text": "Resumes {when}.",
+      "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
     },
     "http.unauthorized": {
       "text": "Authentication required.",
@@ -1571,6 +1623,10 @@
       "text": "The teams in the caller's company.",
       "hash": "7138c15c403d14dc29ff02593fa0f27f089cd859"
     },
+    "doc.route.post.api.workers.jobs.id.document": {
+      "text": "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.",
+      "hash": "8fe2695a70c21864bd58de5827005ddcaed241f1"
+    },
     "doc.route.get.beta.template": {
       "text": "The Tier-C sandboxed HTML template, localized by the experience overlay.",
       "hash": "905e073cb8d041696017518f64247b9392c4fd97"
@@ -1615,9 +1671,13 @@
       "text": "Key",
       "hash": "c67dd20ee842986086a0a915ddc2a279490130ed"
     },
+    "ui.quotaraiseask": {
+      "text": "An operator can raise it.",
+      "hash": "5a5414bdc24f0f0ed674ea06fec55db68b668ef3"
+    },
     "doc.route.post.api.jobs.id.cancel": {
-      "text": "Cancel a queued job (a running one finishes).",
-      "hash": "227ebe818250c89494c01d47fa7b9bef3ef81852"
+      "text": "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.",
+      "hash": "04ae85238b4668c1a2d014a249527a78fa1a7a28"
     },
     "ui.localize": {
       "text": "Localize",
@@ -1672,8 +1732,8 @@
       "hash": "21cb174e21ed16c1c221a45bb425838fcd7e8690"
     },
     "doc.perm.roles:manage": {
-      "text": "Create and edit team roles.",
-      "hash": "0aea9032d70ee3ea8b424466b95567563af8697a"
+      "text": "Reserved for team-defined roles, which are not in v1 — the four built-in roles are the vocabulary. Granted, but nothing reads it yet.",
+      "hash": "99fb1d888f50eddc875ac09015b6b03b174c8a3d"
     },
     "doc.route.post.api.repo-obj.id.presign": {
       "text": "A time-boxed presigned S3 URL, signed with the caller's own newest S3 key.",
@@ -1696,8 +1756,8 @@
       "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
     },
     "doc.route.get.api.jobs.id": {
-      "text": "One job with its result or error.",
-      "hash": "fe32c2dd94dd14a9e9e3c2737fa9398ac5636134"
+      "text": "One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs).",
+      "hash": "2e572acb3d944828286221241530d36698f6ee9d"
     },
     "ui.sessionsec": {
       "text": "Session security",
@@ -1868,8 +1928,8 @@
       "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
     },
     "doc.route.get.api.usage": {
-      "text": "The team's quota dimensions with used, limit and remaining.",
-      "hash": "17724760ce302a6beba0cc1dcdbdcdcdf7694b07"
+      "text": "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).",
+      "hash": "b5c7dd8312bd5396d1cd31a129b79b6deb5a3def"
     },
     "doc.route.get.api.plugins": {
       "text": "The loaded plugins with their tools and workflows.",
@@ -2039,6 +2099,14 @@
       "text": "Workflows",
       "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
     },
+    "ui.signingin": {
+      "text": "Signing in…",
+      "hash": "c66b2adcc5fc9f594be38f098d54c7b610e46e57"
+    },
+    "ui.term": {
+      "text": "Term",
+      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
     "doc.tool.list_notes": {
       "text": "List the current user's notes (title and visibility).",
       "hash": "4f1bac788f076a7c3d361dd1dff2b3150e25f62c"
@@ -2127,6 +2195,14 @@
       "text": "A workflow that extracts text from repository documents into the search index: find what is unindexed, fan out, extract. Re-run it any time; it only touches what changed.",
       "hash": "d08d63795f44a20053f6f918b103c58a95685c87"
     },
+    "doc.route.patch.api.repo-obj.id.attributes": {
+      "text": "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.",
+      "hash": "05eab7375ee33b4ca582a2241d3c87e147b4d0c1"
+    },
+    "ui.notprocessed": {
+      "text": "No workflow has processed this document yet.",
+      "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
+    },
     "doc.route.post.api.orgs.ref.resume": {
       "text": "Resume a suspended company.",
       "hash": "fd7cd74e0a0889ebca0df4ecd0a42fa78193c537"
@@ -2134,10 +2210,6 @@
     "ui.brandclearlogo": {
       "text": "Remove logo",
       "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
-    },
-    "ui.notprocessed": {
-      "text": "No workflow has processed this document yet.",
-      "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
     "doc.route.post.api.org.members": {
       "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
@@ -2154,10 +2226,6 @@
     "doc.tool.kg_extract.object": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
-    },
-    "ui.term": {
-      "text": "Term",
-      "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
     },
     "doc.perm.webhooks:manage": {
       "text": "Configure outbound webhooks.",
@@ -2270,6 +2338,10 @@
     "ui.chpw": {
       "text": "Change your password",
       "hash": "88dee350141b934bd32db882794a951a7a40d898"
+    },
+    "ui.heldbyquota": {
+      "text": "held: {dimension} budget",
+      "hash": "f2afcef162808b1a6720bb9cd2b948aea93b14d3"
     },
     "ui.dimension": {
       "text": "Dimension",

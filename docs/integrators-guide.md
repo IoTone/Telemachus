@@ -200,6 +200,126 @@ through one anti-abuse gate, and the funnel's fields, copy, theme and translatio
 live in an experience document an operator edits in Admin → Beta. See
 [design/beta-onboarding-experience.md](design/beta-onboarding-experience.md).
 
+## 7b. Ship a tool that is not Racket
+
+A plugin that is not written in Racket runs as a **subprocess** and speaks
+newline-delimited JSON over stdio. It has no database handle and no platform
+imports. To do anything on the platform it asks the host for a **capability**,
+and the host runs it only if the plugin DECLARED the scope in its manifest **and**
+the calling user holds the matching RBAC permission. Both halves, every call.
+
+Register it in `oop.json` (or `TELEMACHUS_OOP`):
+
+```json
+{ "plugins": [ { "name": "ocr", "command": "python3", "args": ["oop-plugins/ocr/main.py"] } ] }
+```
+
+The capabilities a plugin may ask for:
+
+| Capability | Needs | Does |
+|---|---|---|
+| `notes.create` / `notes.list` | `notes:write` / `notes:read` | the team's notes |
+| `repo.get` | `files:read` | a document's bytes, base64, with its content type and version |
+| `repo.text` | `files:read` | its extracted text — see the scan case below |
+| `repo.put` | `files:write` | write a document; with `derived_from` it inherits the source's visibility and grants and records the provenance |
+
+Bytes travel **base64 over the pipe**, not as a filesystem path or a URL. A path
+would couple your plugin to the local store and leak its layout — the blob store
+is never handed a principal, only a namespace and a digest, so a backend has no
+authorization to get wrong. The ceiling on an inline read or write is the same
+`TELEMACHUS_MAX_UPLOAD` the HTTP front door enforces: a plugin is not a way past
+a limit.
+
+**`repo.text` answers "this is a scan" rather than failing.** A PDF with no text
+layer comes back as `text: null` with `reason: "needs-ocr"` — an *answer*, because
+it is precisely the branch an OCR plugin exists to take, and a plugin should not
+have to match on an error string to find it.
+
+```python
+r = host("repo.text", {"object": object_id})
+if r.get("reason") == "needs-ocr":
+    text = my_ocr(host("repo.get", {"object": object_id})["bytes_b64"])
+    host("repo.put", {"key": r["key"] + ".ocr.txt", "content_type": "text/plain",
+                      "bytes_b64": b64(text), "derived_from": object_id})
+```
+
+`derived_from` matters: the output is private from its first byte, inherits the
+source's sharing, and `GET /api/repo-obj/<id>/processing` can answer where it came
+from. Without it you have written an orphan.
+
+`oop-plugins/doc-reader/` is the worked example — it reads a document, branches on
+the scan case, and files the text back derived from the original. `GET /api/plugins`
+lists sandboxed plugins under `sandboxed` with the scopes each declared, which is
+how an operator audits who holds `files:write`.
+
+## 7c. Teach it a file format
+
+The platform reads text, markup, DOCX and PDF. Everything else is `unsupported` —
+invisible to search, and a hard stop for the document pipeline. A plugin can claim
+a content type and the whole chain picks it up: the search index, `doc_text`, and
+every workflow built on them, with no other change.
+
+```racket
+(require (only-in "../../domain/repo/extract.rkt" register-extractor!))
+
+(define (extract-rtf in content-type)
+  ...)                                   ; -> (values text-or-#f reason-or-#f)
+
+(define (init!)
+  (register-extractor! "application/rtf" extract-rtf))
+```
+
+**Registering a type the platform already reads REPLACES its reader.** That is the
+point, not a side effect: claiming `application/pdf` is how a local OCR engine
+takes over from `pdftotext`.
+
+An extractor is in-process Racket, and reaching a non-Racket engine is its own
+business — the built-in PDF reader is a pipe to `pdftotext`, so a plugin wrapping
+YomiToku or PaddleOCR is a few lines of Racket around a subprocess. (Shipping
+bytes *to* an out-of-process plugin is the other seam, §7b, for a plugin that acts
+as a tool rather than as a reader.)
+
+Four rules the platform holds you to:
+
+| | |
+|---|---|
+| **The contract** | `(in content-type) -> (values text-or-#f reason-or-#f)`, or three values with `spans` third (below) |
+| **The reasons** | `unsupported`, `missing-tool`, `needs-ocr`, `failed` — and nothing else. A fifth would reach `doc_text` as a refusal naming something it cannot explain, so anything else becomes `failed`. |
+| **Failure is contained** | Raising, or answering with the wrong shape, is the same `failed` an in-tree extractor would give. One plugin must not be able to wedge a team's indexing. |
+| **The cap is ours** | Output is truncated to `EXTRACT-CAP`. This feeds a search index, not an archive. |
+
+`needs-ocr` means something specific: the reader ran and found no text, so the
+document is a scan. Report that rather than returning `""` — an empty extraction
+is recorded as a success and the document is never looked at again.
+
+### Reporting where the text came from
+
+An extractor that knows the page and region of what it read — an OCR engine does —
+may answer with a third value: a list of `{start, end, page, bbox}`, where `start`
+and `end` are character offsets into the text it just returned and `bbox` is
+`[x0 y0 x1 y1]` in whatever page units the engine uses. The platform carries them
+and does not interpret them; only the renderer knows whether they are PDF points
+or image pixels.
+
+```racket
+(values text #f (list (hasheq 'start 0 'end 11 'page 1 'bbox '(72 690 180 702))))
+```
+
+This is what turns review from "source on the left, output on the right" into
+*click the extracted value and jump to the region it was read from* — the single
+biggest lever on a reviewer's time. Two values remain entirely valid: provenance
+is additive, and every extractor written before it keeps working.
+
+A malformed span is dropped and the text is kept, because provenance is an
+enrichment and losing a region must never cost a team the document. Spans pointing
+past `EXTRACT-CAP` are dropped too, since they could never resolve.
+`GET /api/repo-obj/<id>/spans?at=<offset>` is the lookup.
+
+Two plugins cannot claim one content type; the second is refused. Re-registering
+your own is fine, because the loader may run twice in one process.
+`GET /api/plugins` lists each plugin's `extractors`, so an operator can see who
+reads what. `plugins/example-tools/` ships an RTF reader as the worked example.
+
 ## 8. The worked example
 
 `plugins/integrator-demo/` is the whole of the above in one directory, and it is the

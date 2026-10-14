@@ -175,3 +175,59 @@
   (check-equal? (hash-ref row 'source) "db")
   (check-false (hash-has-key? row 'key))
   (unregister-executor! "shown"))
+
+;; ---- LAY-9: what a backend can actually do -------------------------------------
+;; Japanese models of a given size lead on general benchmarks and lag specifically
+;; on function-calling (Nejumi Leaderboard4), which is exactly what the agent and
+;; the schema-extraction pipeline depend on. Discovering that as a provider 400
+;; three layers down is the failure this replaces.
+
+(test-case "an undeclared capability is UNKNOWN, and unknown is allowed"
+  ;; nothing that works today may start failing because nobody filled in a field
+  (register-executor! "quiet" #:url "http://127.0.0.1:8949/v1" #:model "m" #:source 'config)
+  (check-false (capability-refusal "quiet" '(tools json_schema)))
+  (check-equal? (executor-caps "quiet") (hasheq))
+  (unregister-executor! "quiet"))
+
+(test-case "a backend that declares it cannot tool-call is refused BY NAME"
+  (register-executor! "no-tools" #:url "http://127.0.0.1:8949/v1" #:model "jp-7b" #:source 'config
+                      #:caps (hasheq 'tools #f 'json_schema #t))
+  (check-true (regexp-match? #rx"cannot do tools" (capability-refusal "no-tools" '(tools))))
+  (check-false (capability-refusal "no-tools" '(json_schema)) "what it CAN do is not refused")
+  ;; and the refusal happens before the request leaves the process
+  (check-exn #rx"cannot do tools"
+             (lambda () (model-exchange (list (hasheq 'role "user" 'content "hi"))
+                                        #:executor "no-tools" #:needs '(tools))))
+  (unregister-executor! "no-tools"))
+
+(test-case "run-chat asks for json_schema only when a format was requested"
+  (register-executor! "no-schema" #:url "http://127.0.0.1:8949/v1" #:model "m" #:source 'config
+                      #:caps (hasheq 'json_schema #f))
+  (check-exn #rx"cannot do json_schema"
+             (lambda () (run-chat "hi" #:executor "no-schema"
+                                  #:response-format (hasheq 'type "json_object"))))
+  ;; a plain chat needs nothing of it, so the declaration is irrelevant and the
+  ;; call proceeds to fail on the unreachable endpoint instead
+  (check-exn #rx"unreachable|HTTP|timed out"
+             (lambda () (run-chat "hi" #:executor "no-schema")))
+  (unregister-executor! "no-schema"))
+
+(test-case "the LOCAL model can declare its capabilities too — the path most calls take"
+  ;; the named backends keep a document on their row; the env-configured model has
+  ;; no row, and without this the operator who most needs the warning gets none
+  (define old (getenv "TELEMACHUS_MODEL_CAPS"))
+  (putenv "TELEMACHUS_MODEL_CAPS" "tools=false,json_schema=true")
+  (check-exn #rx"declares it cannot do tools"
+             (lambda () (model-exchange (list (hasheq 'role "user" 'content "hi")) #:needs '(tools))))
+  (check-equal? (hash-ref (model-info) 'capabilities) (hasheq 'tools #f 'json_schema #t))
+  (putenv "TELEMACHUS_MODEL_CAPS" "")
+  (check-equal? (hash-ref (model-info) 'capabilities) (hasheq) "unset is unknown, not false")
+  (void (if old (putenv "TELEMACHUS_MODEL_CAPS" old) (putenv "TELEMACHUS_MODEL_CAPS" ""))))
+
+(test-case "the listing carries the capability document, and still never leaks a key"
+  (register-executor! "shown2" #:url "http://x/v1" #:model "m" #:key "sk-secret" #:source 'db
+                      #:caps (hasheq 'tools #t))
+  (define row (for/or ([e (in-list (list-executors))]) (and (equal? (hash-ref e 'name) "shown2") e)))
+  (check-equal? (hash-ref row 'capabilities) (hasheq 'tools #t))
+  (check-false (hash-has-key? row 'key))
+  (unregister-executor! "shown2"))

@@ -120,7 +120,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409. |
 | POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind. |
 | POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt. |
-| GET | `/api/usage` | bearer | — | — | The team's quota dimensions with used, limit and remaining. |
+| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | — | Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: "bytes"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: "text"`, where a scan answers {text: null, reason: "needs-ocr"}. |
+| GET | `/api/usage` | bearer | — | — | The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is). |
 | POST | `/api/quota` | bearer | `instance:manage` | — | Set a quota limit for the caller's team (dimension, limit, window). |
 | GET | `/api/tools` | bearer | — | — | Every registered tool with its permission, source and per-team enabled state. |
 | POST | `/api/tokens` | bearer | `settings:manage` | — | Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; "never" for a long-lived machine token); the raw token is shown once. |
@@ -129,14 +130,18 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/search` | bearer | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader. |
 | GET | `/api/audit` | bearer | `settings:manage` | — | The team's recent audit events. |
 | POST | `/api/jobs` | bearer | `chat:use` | — | Enqueue a scheduler job of a registered kind. |
-| GET | `/api/jobs` | bearer | — | — | The team's jobs, newest first. |
-| POST | `/api/jobs/:id/cancel` | bearer | — | — | Cancel a queued job (a running one finishes). |
-| GET | `/api/jobs/:id` | bearer | — | — | One job with its result or error. |
-| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h). |
+| GET | `/api/jobs` | bearer | — | — | The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: "quota"\|"concurrency", …}; the key is absent when nothing holds it and it is waiting only for a free worker. |
+| POST | `/api/jobs/:id/cancel` | bearer | — | — | Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops. |
+| GET | `/api/jobs/:id` | bearer | — | — | One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs). |
+| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4). |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | Share with a user or a team in the org: {principal_type, principal_id, capability: view\|edit\|manage, expires_at?}. {user_id} still means view. |
 | POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | Revoke every grant a principal holds on the object. |
 | GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | One entry per principal: capability, permissions, granted_by, expiry, expired. |
 | GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | — | Provenance: what the document was derived from, by which run and step. |
+| GET | `/api/repo-fields` | bearer | `files:read` | — | The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex. |
+| PUT | `/api/repo-fields` | bearer | `settings:manage` | — | Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration. |
+| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | — | Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it. |
+| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | — | Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read. |
 | GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | — | "Processed by": derived documents, sources, and every run that touched the document. |
 | GET | `/api/share-targets` | bearer | `files:read` | — | Who a document can be shared with: the team's people and the org's teams. |
 | POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | — | Set private, team or shared. |
@@ -162,6 +167,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | Cancel a run; a step already executing finishes, the next never starts. |
 | GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | One run with its steps, inputs, outputs and errors. |
 | GET | `/api/reviews` | bearer | `reviews:read` | — | The team's review queue, newest first. ?status=pending (the default), decided, canceled or all. |
+| GET | `/api/reviews/stats` | bearer | `reviews:read` | — | How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window. |
+| GET | `/api/reviews/verify` | bearer | `audit:read` | — | Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor. |
 | GET | `/api/reviews/:id` | bearer | `reviews:read` | — | One review: what is under review, the checklist to answer, and the decision if it has been made. |
 | POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | Decide a review: {verdict: approve\|revise\|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names. |
 | GET | `/api/kg/entities` | bearer | `files:read` | — | Find entities by ?q= and ?type=; only those with a mention the caller can read. |

@@ -302,13 +302,25 @@
 (define (set-org-limit! conn org-id dimension limit #:window [w "day"])
   (set-limit! conn "org" org-id dimension limit #:window w))
 
+;; Every dimension the ORG TIER actually enforces, so the read can confirm the
+;; write. `storage.bytes` was missing from both lists while `repo-put!` has been
+;; refusing an over-limit upload at the org tier all along (issue #54): an
+;; operator could set a company storage cap, see it nowhere, and reasonably
+;; conclude it had not taken. A limit that is enforced and not reported is worse
+;; than one that is neither.
+(define ORG-DIMENSIONS '("ai.requests" "ai.tokens.total" "ai.concurrency" "storage.bytes"))
+
 (define (org-quota conn org-id)
-  (for/list ([dim (in-list '("ai.requests" "ai.tokens.total" "ai.concurrency"))])
+  (for/list ([dim (in-list ORG-DIMENSIONS)])
     (define-values (lim w) (get-limit conn "org" org-id dim))
     (hasheq 'dimension dim 'limit (or lim 'null) 'window (or w 'null))))
 
+;; `ai.concurrency` is a limit the governor reads rather than a metered budget —
+;; there is no ledger to sum for it — so usage covers the three that are metered.
+;; `storage.bytes` is a GAUGE: its window is "total", which `quota-check` takes
+;; from the stored limit, so nothing special is needed here.
 (define (org-usage conn org-id)
-  (for/list ([dim (in-list '("ai.requests" "ai.tokens.total"))])
+  (for/list ([dim (in-list '("ai.requests" "ai.tokens.total" "storage.bytes"))])
     (hash-set (quota-check conn "org" org-id dim 0) 'dimension dim)))
 
 ;; Admission requires BOTH to pass: a team under its own limit but inside a

@@ -1048,6 +1048,99 @@
        "CREATE INDEX idx_reviews_queue ON reviews(team_id, status, requested_ms)"
        "CREATE INDEX idx_reviews_run ON reviews(run_id)"))))
 
+(define m-0035-quota-bigint
+  (migration "0035-quota-bigint"
+    (lambda (conn)
+      ;; issue #54: `limit_value INTEGER` is 64-bit on SQLite and 32-bit on
+      ;; PostgreSQL, so a limit above 2,147,483,647 worked in development and
+      ;; threw a raw SQL error in production — the dialect-divergence class this
+      ;; codebase already watches for (`?` vs `$n`, CURRENT_TIMESTAMP's format).
+      ;;
+      ;; It is not a hypothetical ceiling: `storage.bytes` is a byte count, so any
+      ;; storage quota above 2 GiB crosses it, and that is an ordinary number for
+      ;; a team that keeps scans. Validating the input instead would have refused
+      ;; a legitimate configuration, so the column grows.
+      (case (db-dialect conn)
+        [(postgresql)
+         (exec* conn "ALTER TABLE quota_limits ALTER COLUMN limit_value TYPE BIGINT")]
+        [else
+         ;; SQLite's INTEGER is already up to 8 bytes — nothing to widen.
+         (void)]))))
+
+(define m-0036-object-metadata
+  (migration "0036-object-metadata"
+    (lambda (conn)
+      (exec* conn
+       ;; LAY-4: team-defined metadata ON the object. repo_objects carried org,
+       ;; team, owner, visibility and key and nothing a team could define, so
+       ;; project / location / period / status / responsible person had nowhere to
+       ;; live and Layer 3 had nothing to aggregate over. A blob rather than a
+       ;; column per field, for the reason the prospect attributes blob is one:
+       ;; adding a field must not need a migration.
+       "ALTER TABLE repo_objects ADD COLUMN attributes TEXT NOT NULL DEFAULT '{}'"
+       ;; LAY-5: where the text CAME FROM. An extractor that reads a scan knows the
+       ;; page and the region of every run it recovered, and all of it was thrown
+       ;; away at the seam. Keeping it turns review from "source left, output
+       ;; right" into "click the value, jump to the region it came from" — and it
+       ;; cannot be added later without re-processing every document ever ingested,
+       ;; which is why the column exists before any extractor fills it.
+       "ALTER TABLE repo_text ADD COLUMN spans TEXT NOT NULL DEFAULT '[]'"))))
+
+(define m-0037-review-chain
+  (migration "0037-review-chain"
+    (lambda (conn)
+      (exec* conn
+       ;; LAY-11: tamper-EVIDENCE on the decision record. The audit log is
+       ;; append-only by convention and ordered to the microsecond, but nothing
+       ;; proved a row had not been edited afterwards, and for an administrative
+       ;; audit that is the difference between a record and evidence.
+       ;;
+       ;; Each decision hashes its own fields together with the previous
+       ;; decision's hash, per team, so altering one breaks every link after it.
+       ;; Rows decided before this migration have NULL and are simply outside the
+       ;; chain — the chain starts where it starts rather than claiming to cover
+       ;; history it cannot vouch for.
+       "ALTER TABLE reviews ADD COLUMN prev_hash TEXT"
+       "ALTER TABLE reviews ADD COLUMN hash TEXT"
+       "CREATE INDEX idx_reviews_chain ON reviews(team_id, decided_ms)"))))
+
+(define m-0038-job-runtime
+  (migration "0038-job-runtime"
+    (lambda (conn)
+      ;; SCHED-9: the platform caps how long a job may run, and the cap needs a
+      ;; comparable start time. `started_at` is TEXT CURRENT_TIMESTAMP, whose
+      ;; format differs by dialect (SQLite `2026-08-21 04:16:09`, Postgres
+      ;; `…225696-07`), so comparing against it would be invisible on one and
+      ;; wrong on the other — the trap LastModified, the session clocks and
+      ;; review-stats' ?since all set. Epoch seconds, like lease_until beside it.
+      (exec* conn "ALTER TABLE jobs ADD COLUMN started_epoch BIGINT"))))
+
+(define m-0039-upload-age
+  (migration "0039-upload-age"
+    (lambda (conn)
+      ;; An abandoned multipart upload is reapable now (issue #54), and reaping
+      ;; needs an age. `created_at` on both tables is TEXT CURRENT_TIMESTAMP,
+      ;; whose format differs by dialect, so an age computed from it would be
+      ;; invisible on SQLite and wrong on PostgreSQL — the same trap migration
+      ;; 0038 names. Epoch seconds.
+      ;;
+      ;; TWO columns, because the clock that matters is the LAST PART's arrival,
+      ;; not the create time: a 2 GB upload over a bad link legitimately takes
+      ;; hours, and reaping one that is still making progress would be a new bug
+      ;; in place of the old one. The create time is the fallback for an upload
+      ;; that never sent a part at all.
+      (exec* conn "ALTER TABLE repo_uploads ADD COLUMN created_epoch BIGINT")
+      (exec* conn "ALTER TABLE repo_upload_parts ADD COLUMN created_epoch BIGINT")
+      ;; Rows that predate this column have no age the reaper can trust, so they
+      ;; are stamped NOW rather than left NULL: an upload in flight across the
+      ;; upgrade gets a fresh clock (it may be reaped one horizon late, which is
+      ;; harmless) instead of being read as infinitely old and dropped from under
+      ;; a client that is still sending parts.
+      (query-exec conn "UPDATE repo_uploads SET created_epoch = ? WHERE created_epoch IS NULL"
+                  (current-seconds))
+      (query-exec conn "UPDATE repo_upload_parts SET created_epoch = ? WHERE created_epoch IS NULL"
+                  (current-seconds)))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
-                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews))
+                             m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age))

@@ -118,6 +118,13 @@
   .bx-ed .sec{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 6px;font-weight:700}
   .bx-swatches{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .bx-swatches input[type=color]{height:34px;padding:2px}
+  /* Signing in is two rounds of API calls, so on a real box the sign-in card
+     still sits there for a beat and then the shell replaces it. The swap used to
+     be a hard cut; a short fade makes it a transition. Somebody who asked their
+     OS for less motion gets none. */
+  @keyframes tmx-fade-in{from{opacity:0}to{opacity:1}}
+  .tmx-enter{animation:tmx-fade-in .15s ease-out both}
+  @media (prefers-reduced-motion: reduce){ .tmx-enter{animation:none} }
 </style>
 </head>
 <body>
@@ -328,6 +335,28 @@ function logout(){ S.token=null; localStorage.removeItem('tmx_token'); S.me=null
 const val = id => document.getElementById(id).value.trim();
 
 // ---------- auth ----------
+// authView()'s inputs are always EMPTY, so any repaint of the sign-in screen
+// throws away what has been typed into it — and the screen does get repainted
+// while signed out: switching language calls render(), and so does an operator
+// saving branding. Switching language after typing a username wiped it, which is
+// the "empty login field" this exists to stop. Carry the values across the swap,
+// and the caret with them, or focus jumps back to the top of the form.
+function paintAuth(app){
+  const ids=['lu','lp','lc','bu','bp'];
+  const keep=ids.map(id=>{ const e=document.getElementById(id); return [id, e?e.value:null]; });
+  const had=document.activeElement && document.activeElement.id;
+  const sel=(()=>{ const e=document.activeElement;
+    try{ return e && typeof e.selectionStart==='number' ? [e.selectionStart,e.selectionEnd] : null; }
+    catch(_){ return null; } })();
+  app.innerHTML=authView();
+  for(const [id,v] of keep){ if(v!=null){ const e=document.getElementById(id); if(e) e.value=v; } }
+  if(had){ const e=document.getElementById(had);
+    if(e){ e.focus(); if(sel){ try{ e.setSelectionRange(sel[0],sel[1]); }catch(_){} } } }
+  fadeIn(app);
+}
+// Restart the animation on a node that may already carry the class — without the
+// reflow the browser keeps the finished animation and nothing fades.
+function fadeIn(el){ el.classList.remove('tmx-enter'); void el.offsetWidth; el.classList.add('tmx-enter'); }
 function authView(){
   return `<div class="auth">
     <h1 class="brand">${brandLockup(38)}</h1>
@@ -338,7 +367,7 @@ function authView(){
       <label>${t('user')}</label><input id="lu" autofocus>
       <label>${t('pass')}</label><input id="lp" type="password">
       <label>${t('code')}</label><input id="lc">
-      <button class="btn" style="width:100%" data-h-click="${H((el,ev)=>doLogin())}">${t('signin')}</button>
+      <button class="btn" style="width:100%" id="lbtn" data-h-click="${H((el,ev)=>doLogin())}">${t('signin')}</button>
     </div>
     <details class="card" style="margin-top:14px">
       <summary style="cursor:pointer" class="muted">${t('firstrun')}</summary>
@@ -350,10 +379,28 @@ function authView(){
     </details>
   </div>`;
 }
+// Signing in is two rounds of API calls deep (see render), so without this the
+// card sits unchanged and unresponsive while they run and the click looks lost —
+// the window is invisible on localhost and obvious on a real box. The
+// pending state is also the double-submit guard: two doLogin() calls would mint
+// two sessions and race two renders.
 async function doLogin(){
+  if(S.signingIn) return;
   const body={username:val('lu'),password:val('lp')}; const c=val('lc'); if(c) body.code=c;
-  const r=await api('/api/login',{method:'POST',body});
-  if(r.ok){ setTok(r.json.token); render(); } else toast(r.json.error||'login failed');
+  S.signingIn=true; const btn=document.getElementById('lbtn');
+  if(btn){ btn.disabled=true; btn.textContent=t('signingin'); }
+  try{
+    const r=await api('/api/login',{method:'POST',body});
+    if(r.ok){ setTok(r.json.token); await render(); }
+    else {
+      if(btn){ btn.disabled=false; btn.textContent=t('signin'); }
+      toast(r.json.error||'login failed');
+    }
+  } finally {
+    // in a `finally` because a throw anywhere above would otherwise leave the
+    // flag set and the button disabled for ever, with no way back but a reload
+    S.signingIn=false;
+  }
 }
 async function doBootstrap(){
   const r=await api('/api/bootstrap',{method:'POST',body:{username:val('bu'),password:val('bp')}});
@@ -563,13 +610,34 @@ async function doAddMember(){ const r=await api('/api/members',{method:'POST',bo
 
 function canManage(){ if(!S.me) return false; if(S.me.is_operator) return true;
   return (S.me.permissions||[]).some(p=>p==='*:*'||p==='settings:manage'||p==='*:manage'); }
+// issue #55: a budget that has stopped the team's queued work says so HERE,
+// where the limits are, naming the dimension and who can raise it. Without it an
+// over-budget team sees jobs sitting in `queued` and reads it as a hang — which
+// is exactly how it was read.
+function quotaHeldCard(held){
+  if(!held) return '';
+  const fill = (k)=>t(k).replace('{dimension}', esc(held.dimension||''))
+                        .replace('{used}', esc(String(held.used)))
+                        .replace('{limit}', esc(String(held.limit)));
+  const body = held.scope==='org' ? fill('quotaheldorg') : fill('quotaheldteam');
+  // resets_at is epoch SECONDS and absent for a sliding window, so the sentence
+  // is only added when the server actually named a boundary
+  const when = held.resets_at ? ' '+t('quotaresets').replace('{when}',
+                 esc(new Date(held.resets_at*1000).toLocaleString())) : '';
+  // an org-tier limit is not the team operator's to raise, so do not promise it
+  const who = (S.me && S.me.is_operator && held.scope!=='org') ? t('quotaraiseop') : t('quotaraiseask');
+  return `<div class="card" style="border-color:var(--warn,#c9a227);margin-bottom:14px">
+      <h3>⏸ ${t('quotaheldtitle')}</h3><p style="margin:0">${body}${when} ${who}</p></div>`;
+}
 async function usageView(){
   const r=await api('/api/usage'); const q=r.ok?r.json.quota:[];
+  const held=r.ok?r.json.held:null;
   const tr=await api('/api/tools'); const tools=tr.ok?tr.json.tools:[];
   const pr=await api('/api/plugins'); const plugins=pr.ok?pr.json.plugins:[];
   const op=await api('/api/oop'); const oops=op.ok?op.json.plugins:[];
   const manage=canManage();
-  const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td></tr>`).join('');
+  const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td>
+      <td class="muted">${d.resets_at?esc(new Date(d.resets_at*1000).toLocaleString()):'—'}</td></tr>`).join('');
   const opForm = S.me.is_operator ? `<div class="card" style="margin-top:14px"><h3>${t('setquota')}</h3>
       <div class="row"><div><label>${t('dimension')}</label><select id="qd"><option>ai.tokens.total</option><option>ai.requests</option><option>ai.concurrency</option></select></div>
       <div><label>${t('limit')}</label><input id="ql" value="50"></div></div>
@@ -586,7 +654,8 @@ async function usageView(){
              : esc(p.name)+' v'+esc(p.version)).join(', ')}</p>` : '';
   const oopLine = oops.length ? `<p class="muted" style="margin:0 0 8px">🛡️ sandboxed: ${oops.map(p=>esc(p.name)+' <span class="mono">['+(p.scopes||[]).map(esc).join(', ')+']</span>').join(' · ')}</p>` : '';
   return `<h2>${t('usage')}</h2>
-    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
+    ${quotaHeldCard(held)}
+    <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th><th>${t('resets')}</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
     <div class="card" style="margin-top:14px"><h3>${t('tools')} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
       ${plugLine}${oopLine}
       <table><thead><tr><th>${t('tool')}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>`;
@@ -1216,9 +1285,19 @@ async function doDecide(v, verdict){
                       {method:'POST', body:{verdict, rationale:(rt?rt.value:''), answers}});
   if(r.ok){ toast(t('reviewrecorded'), true); renderTab(); } else toast(r.json.error||'error');
 }
+// a queued job the platform is holding says so beside its status (issue #55).
+// `waiting` is ABSENT when nothing holds it — it is then simply waiting for a
+// free worker, and a badge claiming otherwise would be an invention.
+function jobWaitBadge(j){
+  const w=j.waiting; if(!w) return '';
+  const txt = w.reason==='concurrency'
+    ? t('heldbycap').replace('{limit}', esc(String(w.limit)))
+    : t('heldbyquota').replace('{dimension}', esc(w.dimension||''));
+  return ` <span class="badge op">${txt}</span>`;
+}
 async function jobsView(){
   const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
-  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${j.status==='queued'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
+  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
   return `<h2>${t('jobs')}</h2>
     <div class="card"><h3>${t('submitjob')}</h3>
       <div class="row" style="align-items:end">
@@ -2050,9 +2129,10 @@ async function doSearch(){
         <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : '<p class="muted">no results</p>';
 }
-// `render` awaits four times (branding, me, config/features). Anything that
-// changes S while one is in flight — logout nulling S.me is the easy one — used
-// to let the stale run resume and paint with the new state half-applied, which
+// `render` awaits at several points (two rounds of fetches, then the tab's own).
+// Anything that changes S while one is in flight — logout nulling S.me is the
+// easy one — used to let the stale run resume and paint with the new state
+// half-applied, which
 // threw "Cannot read properties of null (reading 'is_operator')" out of
 // appShell(). A generation counter makes the older run stand down at each await
 // boundary, so the newest render always wins and no half-render reaches the DOM.
@@ -2071,11 +2151,26 @@ async function render(){
   }
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
-  await loadBranding(); if(stale()) return;
-  await loadI18n();     if(stale()) return;
-  await loadCatalog();  if(stale()) return;
-  await refreshMe();    if(stale()) return;
+  // Two rounds, not five. These three are independent: branding and the instance
+  // config are public, and whoami reads neither. Running them one after another
+  // made every sign-in five sequential round trips — ~2.3s at 300ms each, which
+  // is invisible on localhost and the whole of what made signing in feel slow.
+  //
+  // What is NOT parallelizable, and why the shape is two rounds rather than one:
+  // loadCatalog needs the locale loadI18n resolves (?locale=, not the header),
+  // and /api/features needs the principal refreshMe resolves. The theme still
+  // lands before the first paint, because the whole round is awaited before
+  // anything reaches #app.
+  //
+  // Ordering note: api() sends X-Telemachus-Locale: S.lang, so branding and
+  // whoami now go out with the locale from the PREVIOUS pass. Neither reads it —
+  // branding is operator-authored and whoami is ids, permissions and policy
+  // numbers, with its `locale` field read from the database rather than the
+  // header. Do not move a locale-SENSITIVE call into this round.
+  await Promise.all([loadBranding(), loadI18n(), refreshMe()]);
+  if(stale()) return;
   if(!S.me){
+    await loadCatalog(); if(stale()) return;   // the sign-in screen's own copy
     const cfg = S.cfg ? {ok:true, json:S.cfg} : await api('/api/config');   // loadI18n() already fetched it
     if(stale()) return; S.home = cfg.ok ? cfg.json.home : 'login';
     const atLoginPath = location.pathname.replace(/\/$/,'').endsWith('/login');
@@ -2088,13 +2183,19 @@ async function render(){
       const bx=await betaLandingView(); if(stale()) return;
       app.innerHTML=bx; return;                                                 // Tier-A: built-in themeable shell
     }
-    app.innerHTML=authView(); return;
+    paintAuth(app); return;
   }
-  const fr=await api('/api/features'); if(stale()) return;
+  // round two, signed in: the catalog and the feature list do not depend on each
+  // other, so they go together
+  const [, fr] = await Promise.all([loadCatalog(), api('/api/features')]);
+  if(stale()) return;
   S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
   if(S.features[S.tab]===false) S.tab='team';
   if(!S.me) return;                      // signed out while we were awaiting
-  app.innerHTML=appShell(); renderTab(); }
+  const wasAuth=!!document.getElementById('lu');
+  app.innerHTML=appShell();
+  if(wasAuth) fadeIn(app);                // sign-in → shell is a transition, not a cut
+  renderTab(); }
 window.localizeView=localizeView; window.l10nSetLocale=l10nSetLocale; window.l10nFilter=l10nFilter;
 window.l10nPage=l10nPage; window.l10nSave=l10nSave; window.l10nReview=l10nReview;
 window.l10nImport=l10nImport; window.l10nDraft=l10nDraft; window.l10nExport=l10nExport;

@@ -324,6 +324,47 @@ QJ=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"cha
 QJID=$(printf '%s' "$QJ" | grep -oP '"id":"\K[^"]+')
 sleep 1.5
 assert "job quota-gated" "$(curl -s $B/api/jobs/$QJID -H "Authorization: Bearer $OP")" '"status":"queued"'
+# issue #55: deferring is right, being silent about it was not. The held job says
+# WHICH limit holds it, the usage report says the same without reading the queue,
+# and the audit log carries one entry per window rather than one per tick.
+QJ_ONE=$(curl -s $B/api/jobs/$QJID -H "Authorization: Bearer $OP")
+assert "held job names the reason"     "$QJ_ONE" '"reason":"quota"'
+assert "held job names the dimension"  "$QJ_ONE" '"dimension":"ai.tokens.total"'
+assert "held job names the scope"      "$QJ_ONE" '"scope":"team"'
+assert "the listing says so too" "$(curl -s $B/api/jobs -H "Authorization: Bearer $OP")" '"waiting"'
+U55=$(curl -s $B/api/usage -H "Authorization: Bearer $OP")
+assert "usage reports the hold"        "$U55" '"held":{'
+# the reset time is the one field a client renders as a clock, so prove it is a
+# real epoch rather than the null a window with no boundary answers with
+RESET=$(printf '%s' "$QJ_ONE" | grep -oP '"resets_at":\K[0-9]+' | head -1)
+if [ -n "$RESET" ] && [ "$RESET" -gt 1700000000 ]; then
+  echo "  ok   held job says when it resumes ($RESET)"
+else
+  echo "  FAIL held job says when it resumes — expected an epoch, got: ${RESET:-null}"; fail=1
+fi
+assert "quota.exhausted is audited" \
+  "$(curl -s "$B/api/audit?limit=50" -H "Authorization: Bearer $OP")" 'quota.exhausted'
+# ONCE per window, not once per tick: the pool re-tries this queued job every
+# 200ms, so a per-claim entry would have written dozens by now
+AUDN=$(curl -s "$B/api/audit?limit=200" -H "Authorization: Bearer $OP" | grep -o 'quota.exhausted' | wc -l | tr -d ' ')
+if [ "$AUDN" -le 2 ]; then
+  echo "  ok   quota.exhausted is deduped per window ($AUDN entr(y|ies))"
+else
+  echo "  FAIL quota.exhausted is deduped per window — expected <= 2, got: $AUDN"; fail=1
+fi
+# SCHED-8: who may cancel. A job's OWNER may always stop their own work; stopping
+# SOMEBODY ELSE'S needs jobs:cancel, which a plain member does not hold. The team is
+# still over its token budget here, so these jobs stay queued and can be cancelled.
+BJ=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $BOB" -d '{"kind":"chat","payload":{"prompt":"bob owns this"}}')
+BJID=$(printf '%s' "$BJ" | grep -oP '"id":"\K[^"]+')
+assert "cancel: a member cannot cancel the operator's job" \
+  "$(curl -s -X POST $B/api/jobs/$QJID/cancel -H "Authorization: Bearer $BOB")" 'forbidden: jobs:cancel'
+assert "cancel: …but may always cancel their own" \
+  "$(curl -s -X POST $B/api/jobs/$BJID/cancel -H "Authorization: Bearer $BOB")" '"status":"canceled"'
+assert "cancel: an admin may cancel somebody else's" \
+  "$(curl -s -X POST $B/api/jobs/$QJID/cancel -H "Authorization: Bearer $OP")" '"status":"canceled"'
+assert "cancel: an unknown job is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/jobs/00000000-0000-0000-0000-000000000000/cancel -H "Authorization: Bearer $OP")" '404'
 assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP")" '"users"'
 assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
 
@@ -550,6 +591,71 @@ done
 assert "index-documents run completed" "$idxs" "done"
 assert "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
+
+# ---- LAY-4/LAY-5: what a team asserts, and where the text came from ---------------
+echo
+echo "== object metadata =="
+assert "a member may not define the team's fields" \
+  "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $BOB" -d '{"fields":[]}')" \
+  'Forbidden: settings:manage'
+assert "an unknown setting on a field is refused, not dropped" \
+  "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $OP" \
+       -d '{"fields":[{"key":"structure","label":"Structure","pattern":"^x$"}]}')" \
+  'unknown setting'
+assert "the team defines its fields" \
+  "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $OP" \
+       -d '{"fields":[{"key":"structure","label":"Structure","required":true},{"key":"risk","label":"Risk","digits":true,"maxlength":"1"}]}')" \
+  '"key":"structure"'
+printf 'levee seven survey' > /tmp/tmx-smoke-meta.txt
+MOBJ=$(curl -s -X PUT "$B/api/repo/surveys/levee7.txt" -H "Authorization: Bearer $OP" \
+         -H 'Content-Type: text/plain' --data-binary @/tmp/tmx-smoke-meta.txt)
+MID=$(printf '%s' "$MOBJ" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "a key the team never defined is refused" \
+  "$(curl -s -X PATCH $B/api/repo-obj/$MID/attributes -H "Authorization: Bearer $OP" -d '{"attributes":{"depth":"4m"}}')" \
+  'not a field this team has defined'
+assert "the funnel's vocabulary applies here too" \
+  "$(curl -s -X PATCH $B/api/repo-obj/$MID/attributes -H "Authorization: Bearer $OP" -d '{"attributes":{"structure":"levee-7","risk":"high"}}')" \
+  'Risk'
+assert "the document carries what the team asserted" \
+  "$(curl -s -X PATCH $B/api/repo-obj/$MID/attributes -H "Authorization: Bearer $OP" -d '{"attributes":{"structure":"levee-7","risk":"3"}}')" \
+  '"structure":"levee-7"'
+assert "...and the listing can narrow by it" \
+  "$(curl -s "$B/api/repo?attr=structure:levee-7" -H "Authorization: Bearer $OP")" 'surveys/levee7.txt'
+assert "...and a value nothing has is empty" \
+  "$(curl -s "$B/api/repo?attr=structure:bridge-2" -H "Authorization: Bearer $OP" | grep -c 'levee7' || true)" '0'
+assert "stacked filters both apply" \
+  "$(curl -s "$B/api/repo?attr=structure:levee-7&attr=risk:9" -H "Authorization: Bearer $OP" | grep -c 'levee7' || true)" '0'
+# LAY-5: the seam exists before any built-in fills it — a text file has no regions
+assert "provenance answers empty rather than erroring" \
+  "$(curl -s "$B/api/repo-obj/$MID/spans" -H "Authorization: Bearer $OP")" '"total":0'
+assert "an unknown document is a 404" \
+  "$(curl -s "$B/api/repo-obj/nope/spans" -H "Authorization: Bearer $OP")" 'no such document'
+rm -f /tmp/tmx-smoke-meta.txt
+
+# ---- LAY-7: a plugin can claim a FILE FORMAT -------------------------------------
+# RTF is a format the platform has no reader for — an unreadable document is
+# invisible to search. example-tools registers an extractor for it, so the word
+# "aqueduct", which appears ONLY inside the RTF control codes, has to come back
+# through the plugin's reader, the index and search, over HTTP.
+assert "the plugin's claimed format is in the reference" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"extractors":["application/rtf"]'
+printf '{\\rtf1\\ansi The \\b aqueduct\\b0 survey is filed.}' > /tmp/tmx-smoke-rtf.rtf
+curl -s -X PUT "$B/api/repo/surveys/report.rtf" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/rtf' --data-binary @/tmp/tmx-smoke-rtf.rtf >/dev/null
+assert "not searchable before indexing" \
+  "$(curl -s "$B/api/search?q=aqueduct" -H "Authorization: Bearer $OP" | grep -c '"type":"file"' || true)" "0"
+RTFRUN=$(curl -s -X POST $B/api/workflows/index-documents/run -H "Authorization: Bearer $OP" -d '{}')
+RTFID=$(printf '%s' "$RTFRUN" | grep -oP '"id":"\K[^"]+' | head -1)
+rtfs=""
+for i in $(seq 1 40); do
+  rtfs=$(curl -s "$B/api/runs/$RTFID" -H "Authorization: Bearer $OP" | grep -oP '"status":"\K[^"]+' | head -1)
+  case "$rtfs" in done|error|canceled) break;; esac
+  sleep 0.5
+done
+assert "the indexing run completed" "$rtfs" "done"
+assert "a format only a PLUGIN can read is searchable" \
+  "$(curl -s "$B/api/search?q=aqueduct" -H "Authorization: Bearer $OP")" 'surveys/report.rtf'
+rm -f /tmp/tmx-smoke-rtf.rtf
 
 # ---- slice 61: the knowledge graph — the surface exists, and extraction refuses to
 # run on the fallback model (the mention rule and the pipeline are unit-tested;
@@ -810,9 +916,35 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 assert "the decision resumed the run" "$rdone" '"status":"done"'
 assert "deciding again is refused"    "$(curl -s -X POST $B/api/reviews/$RVID/decide -H "Authorization: Bearer $BOB" -d '{"verdict":"approve"}')" 'already been decided'
+# LAY-10/LAY-11: the signal and the evidence, over the decision just made.
+# /api/reviews/stats must not be swallowed by /api/reviews/:id — literal paths
+# come first in the table, and a 'no such review' here would mean they do not.
+RSTATS=$(curl -s "$B/api/reviews/stats" -H "Authorization: Bearer $OP")
+assert "the accuracy report is a query, not a subsystem" "$RSTATS" '"workflow":"smoke-review"'
+assert "...reporting the step that was reviewed"        "$RSTATS" '"step":"check"'
+assert "...and how often the output stood"              "$RSTATS" '"approval_rate"'
+assert "a member may read it"                           "$(curl -s "$B/api/reviews/stats" -H "Authorization: Bearer $BOB")" '"stats":'
+RVERIFY=$(curl -s "$B/api/reviews/verify" -H "Authorization: Bearer $OP")
+assert "the decision chain verifies"       "$RVERIFY" '"ok":true'
+assert "...having actually checked a link" "$RVERIFY" '"checked":1'
+assert "verifying the chain is an auditor's act, not a reviewer's" \
+  "$(curl -s "$B/api/reviews/verify" -H "Authorization: Bearer $BOB")" 'Forbidden: audit:read'
+
 assert "the decision is in the audit log" \
   "$(curl -s "$B/api/audit?limit=5" -H "Authorization: Bearer $OP")" 'review.approve'
 curl -s -X POST $B/api/tools/create_note -H "Authorization: Bearer $OP" -d '{"enabled":false}' >/dev/null  # restore
+
+# ---- LAY-6: an out-of-process plugin can reach the repository --------------------
+# It could reach notes.create and notes.list and nothing else, so a Python OCR or
+# CV pipeline could read no bytes and write no result — while an in-process Racket
+# tool read blobs freely. doc-reader is the worked example: no database handle, it
+# asks the host for repo.text and repo.put.
+assert "the out-of-process reader registered" \
+  "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'oop__doc-reader__read_document'
+assert "...listed as sandboxed, with the scopes it declared" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"name":"doc-reader"'
+assert "...and the declared scope is visible to an operator" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'files:write'
 
 # ---- identity: offboarding and password hygiene (issue #54) ---------------------
 echo

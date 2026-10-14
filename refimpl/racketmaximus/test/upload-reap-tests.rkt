@@ -1,0 +1,110 @@
+#lang racket/base
+
+;; test/upload-reap-tests.rkt — issue #54: an abandoned multipart upload is
+;; reaped, and its staged bytes are charged and refunded.
+;;   raco test test/upload-reap-tests.rkt
+;;
+;; What this has to prove:
+;;   1. an upload whose newest PART is older than the horizon is dropped — rows,
+;;      blobs and the storage charge with it
+;;   2. one still making progress is NOT, however old the upload row is
+;;   3. `never` disables the sweep, and a nonsense horizon falls back to the
+;;      default rather than to 0 (which would reap on arrival)
+
+(require rackunit db-kit/portable
+         racket/file racket/port
+         db-kit/migrate
+         "../domain/db/migrations.rkt"
+         "db-fixture.rkt"
+         "../domain/authz/authz.rkt"
+         "../domain/db/id.rkt"
+         "../domain/quota/quota.rkt"
+         "../domain/repo/blobs.rkt"
+         "../domain/repo/repo.rkt"
+         "../domain/s3/server.rkt")
+
+(define BLOB-ROOT (make-temporary-file "telemachus-reap-~a" 'directory))
+(current-blob-root BLOB-ROOT)
+
+(define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
+
+;; Stage an upload with one part, as op-create-multipart + op-upload-part would,
+;; and charge it the way the live path does — the reaper's job is the refund, so
+;; the test has to put a real charge there to refund.
+(define (stage! c team org #:age-part [age-part 0] #:age-upload [age-upload 0] #:bytes [bytes #"a part"])
+  (define uid (new-id))
+  (define now (current-seconds))
+  (query-exec c (string-append "INSERT INTO repo_uploads (id, org_id, team_id, user_id, key, "
+                               "content_type, created_epoch) VALUES (?, ?, ?, ?, ?, ?, ?)")
+              uid org team "u1" "big.bin" "application/octet-stream" (- now age-upload))
+  (define-values (d _size) (blob-stage! org (open-input-bytes bytes)))
+  (query-exec c (string-append "INSERT INTO repo_upload_parts (id, upload_id, part_number, digest, "
+                               "size, created_epoch) VALUES (?, ?, ?, ?, ?, ?)")
+              (new-id) uid 1 d (bytes-length bytes) (- now age-part))
+  (quota-record! c "team" team "storage.bytes" (bytes-length bytes))
+  (values uid d))
+
+(define (uploads c) (query-value c "SELECT COUNT(*) FROM repo_uploads"))
+(define (parts c)   (query-value c "SELECT COUNT(*) FROM repo_upload_parts"))
+
+(test-case "an upload older than the horizon is reaped: rows, blob and charge"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define org "org-reap")
+  (define-values (up d) (stage! c tid org #:age-part (* 8 24 3600) #:age-upload (* 8 24 3600)))
+  (check-equal? (uploads c) 1)
+  (check-equal? (quota-used c "team" tid "storage.bytes" "total") 6)
+  (check-true (blob-exists? org d))
+  (check-equal? (reap-uploads! c) 1)
+  (check-equal? (uploads c) 0)
+  (check-equal? (parts c) 0)
+  ;; the gauge goes back to zero — a reaped upload must not leave a team
+  ;; permanently charged for bytes nobody can see or delete
+  (check-equal? (quota-used c "team" tid "storage.bytes" "total") 0)
+  (check-false (blob-exists? org d))
+  ;; and it is auditable: "where did my upload go" has an answer
+  (check-true (for/or ([e (in-list (audit-list c tid))])
+                (equal? (hash-ref e 'action) "repo.upload.reaped"))))
+
+(test-case "an upload still making progress is never reaped"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  ;; the upload ROW is ancient — a 2 GB transfer over a bad link — but a part
+  ;; landed a minute ago. The clock is the part, not the create time.
+  (define-values (up d) (stage! c tid "org-slow" #:age-part 60 #:age-upload (* 30 24 3600)))
+  (check-equal? (reap-uploads! c) 0)
+  (check-equal? (uploads c) 1))
+
+(test-case "an upload that never sent a part falls back to its create time"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (query-exec c (string-append "INSERT INTO repo_uploads (id, org_id, team_id, user_id, key, "
+                               "content_type, created_epoch) VALUES (?, ?, ?, ?, ?, ?, ?)")
+              (new-id) "org-empty" tid "u1" "never-sent.bin" "application/octet-stream"
+              (- (current-seconds) (* 8 24 3600)))
+  (check-equal? (reap-uploads! c) 1)
+  (check-equal? (uploads c) 0))
+
+(test-case "the horizon: never disables it, and nonsense falls back, never to 0"
+  (define default (upload-reap-seconds))
+  (check-equal? default (* 7 24 3600))
+  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "never")
+  (check-false (upload-reap-seconds))
+  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "2")
+  (check-equal? (upload-reap-seconds) 7200)
+  ;; 0 would reap an upload the instant its first part landed
+  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "0")
+  (check-equal? (upload-reap-seconds) default)
+  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "soon")
+  (check-equal? (upload-reap-seconds) default)
+  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" ""))
+
+(test-case "never means nothing is swept, however old"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define-values (up d) (stage! c tid "org-never" #:age-part (* 90 24 3600) #:age-upload (* 90 24 3600)))
+  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "never")
+  (check-equal? (reap-uploads! c) 0)
+  (check-equal? (uploads c) 1)
+  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "")
+  (check-equal? (reap-uploads! c) 1))

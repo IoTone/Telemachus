@@ -130,7 +130,10 @@ The experience document's `fields` list IS the form — turning a field off mean
 removing it from the list, adding one means adding it. Two things used to make that
 untrue and are now fixed (ONB‑9):
 
-- **`required` is enforced from the config** (`field-problem` in `domain/beta/beta.rkt`).
+- **`required` is enforced from the config** (`field-problem`, which lives in
+  `domain/fields/fields.rkt` since LAY‑4 and is re-exported from `beta.rkt` —
+  the repository's object metadata uses the same vocabulary, so there is one
+  implementation rather than two that drift).
   It used to render a `*` and nothing checked it.
 - **An unconfigured field is never demanded.** A hardcoded rule required `name`
   whatever the form showed, so removing `name` gave a funnel nobody could submit.
@@ -517,6 +520,13 @@ Any format in, byte-identical out, with the creator setting visibility. See
 
 - `domain/repo/repo.rkt` is the ownable resource; **`can?` governs it with no new
   authorization code** — same `team_id`/`owner_user_id`/`visibility` triple as notes.
+- **`repo-get` RAISES on a permission failure while `repo-open` answers `#f` for
+  a MISS.** Any caller that reads a document has to handle both, or a forbidden
+  read surfaces as a 500 instead of a refusal. It has caught two callers already
+  (LAY‑6's out-of-process `repo.*` capabilities, PULL‑9's worker read), which is
+  why the note lives here rather than beside either of them. Where the two
+  outcomes should be INDISTINGUISHABLE — "does not exist or is not yours" as one
+  answer, the knowledge graph's rule — collapse them deliberately and say so.
 - Bytes live in a **content-addressed** store keyed by SHA-256, never in the DB.
   `domain/repo/blobs.rkt` is the seam; `plugins/rs3/` is the local filesystem one
   (`TELEMACHUS_BLOB_STORE`, default `rs3`). **The store is never handed a principal**
@@ -858,7 +868,26 @@ that now has translations.
   `bash build.sh ja --record` stamps them and builds nothing.
 - **`xeCJK`'s default family is FandolSong (Chinese) and it silently DROPS Japanese
   glyphs** — 権 vanished from 権限 with no error. `template/book.latex` sets
-  `\setCJKmainfont` from `book.yaml`; Noto Serif/Sans CJK JP are in the devShell.
+  `\setCJKmainfont` from `book.yaml`.
+- **The CJK fonts ARE in the devShell now; they were not, and this note said they
+  were.** Two separate problems sat behind one error message
+  (`The font "Noto Serif CJK JP" cannot be found`). First, `flake.nix` never
+  listed them. Second, adding them is not enough: **tectonic resolves fonts
+  through Core Text on macOS, not fontconfig**, so a devShell font is invisible to
+  it however much `fc-list` can see — and nixpkgs now ships Noto CJK as
+  **variable-font collections** (`NotoSerifCJK-VF.otf.ttc`) whose family name
+  XeTeX cannot resolve at all, by name or by face index. So the devShell takes the
+  `-static` packages, and `build.sh` resolves them to a DIRECTORY and the template
+  loads the faces **by path**: `[Path=…, Extension=.ttc, FontIndex=0]`, where
+  index 0 is the JP face (1 KR, 2 SC, 3 TC, 4 HK — the wrong index is the same
+  failure xeCJK's Chinese default produces, silently). `BoldFont` is named
+  explicitly, because a face loaded by path gives fontspec no family to search and
+  every heading would otherwise be a faux-bold smear. Serif and sans are resolved
+  SEPARATELY: one directory for both built fine and was a trap, since fontspec
+  loads a face lazily and no chapter has a sans CJK glyph yet.
+  `TELEMACHUS_CJK_DIR` overrides the search; with no directory found the template
+  falls back to the family name, which is what works on a box with the fonts
+  installed system-wide.
 - Translator-facing instructions and the term list (pinned to the console's own
   `locales/ja.json`, so the book and the product use the same words) are
   `docs/book/TRANSLATING.md`.
@@ -930,9 +959,13 @@ other with a switcher line under the badges.
   **pre-#24 worker protocol**: `docs/reference/ja/api.md` told a Japanese reader
   to post `{result}` with no `claim_token`, which 409s on every write. CI now
   fails on that class (see the Localization Manager section).
-- Still open on #50: the e-book's 18 untranslated chapters — the PIPELINE is built (see
-  the e-book section and `docs/book/TRANSLATING.md`; `ja/00-read.md` is the one sample
-  chapter).
+- **#50 is complete: all 19 e-book chapters are translated** (14 Oct 2026), stamped
+  against the English they were made against, and both `ja` editions are committed.
+  The title page says what the edition IS — machine-translated, pending native
+  review, English authoritative — rather than implying more than was done. The
+  sample chapter `ja/00-read.md` was also one paragraph SHORT of its English: the
+  source-hash rule catches a stale translation and cannot see an incomplete one, so
+  a chapter copied across needs reading to the end.
 
 ## The published site (GitHub Pages)
 
@@ -988,6 +1021,451 @@ raco test test/flow-tests.rkt      # 20 cases, no server
 bash test/server-smoke.sh          # includes publish → run → assert over HTTP
 # needs a live model; refuses to start without one, on purpose:
 TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
+```
+
+## Issue #54's remaining platform defects (built 12 Oct 2026)
+
+- **LAY‑8 — a PDF with no text layer is `'needs-ocr`, not a successful empty
+  extraction.** It used to be indistinguishable from a blank page: the row was
+  written, the object was never listed again, and the real failure surfaced much
+  later as a schema refusal on an empty document that named nothing. Scanned
+  paperwork is the normal case for the documents this platform is for. The
+  indexer's `else` branch already records any reason as processed-with-nothing,
+  so there is no retry loop; `doc_text` refuses by name ("it is a scan, and needs
+  OCR"). This is the prerequisite for any OCR work — without it nothing can tell
+  which documents need it.
+- **A misconfigured `TELEMACHUS_BLOB_STORE` refuses to boot.**
+  `active-blob-store-name` falls back want → rs3 → builtin, so a typo quietly
+  wrote every document to local disk while the instance reported healthy. Checked
+  after plugins load, beside the relative-blob-root refusal, and the message
+  lists what IS registered.
+- **Quota limits are BIGINT** (migration `0035`, PostgreSQL only — SQLite's
+  INTEGER is already 64-bit). `limit_value INTEGER` meant a limit above
+  2,147,483,647 worked in development and threw a raw SQL error in production.
+  Not hypothetical: `storage.bytes` is a byte count, so **any storage quota above
+  2 GiB crossed it**. Validating the input instead would have refused a legitimate
+  configuration.
+- **A worker claim filters by kind in SQL.** It took the oldest 64 queued jobs of
+  ANY kind and filtered in Racket, so a remote job behind a wall of in-process
+  ones was invisible and the worker polled forever against work it could have
+  run. `remote-kinds` (scheduler.rkt) feeds an `IN` clause, so the window bounds
+  the scan rather than the answer. `test/pull-tests.rkt` pins it — and that test
+  FAILS against the old code, which is the only reason it is worth having.
+- **`.mjs`, `.map`, `.wasm`** (plus `.txt`, `.webmanifest`) are in `STATIC-MIME`.
+  An unknown extension becomes `application/octet-stream`, and every response
+  carries `nosniff`, so a Tier‑B bundle shipping ES modules or wasm was REFUSED
+  by the browser rather than mistyped.
+- **The `approve` gate the workflow-engine design named for a year does not
+  exist and must not be built.** `docs/design/workflow-engine.md` specified an
+  `approve` step kind and `POST /api/runs/<id>/approve/<step>` while `spec.rkt`'s
+  own `planned_step_kinds` never listed it — the contradiction issue #54
+  reported. The human gate shipped as **`review`** (LAY‑1…3), wider than that row
+  described and with its own queue rather than a release endpoint. The design doc,
+  its slice plan and decision WF‑5 all say so now.
+
+## Cancelling running work, a run-time ceiling, worker reads (issue #54's four questions)
+
+Built 12 Oct 2026 — SCHED‑8, SCHED‑9, PULL‑9, RBAC‑5b in `docs/design/decisions.md`.
+
+- **A running job is cancellable, and the status that makes it safe is
+  `canceling`.** `status` was doing two jobs at once: "is this work live" (the
+  per-team cap counts it) and "may its result land" (`finish!` guards on
+  `running`). Cancellation needs those to diverge, so a running job goes to
+  `canceling` — `finish!` still names `running` alone, so the handler's answer
+  matches no row and is discarded, while the cap counts `running` + `canceling`
+  (`LIVE-IN`, used by BOTH claim paths). Flipping straight to `canceled` would
+  have been a **quota-evasion path**: cancel N running jobs in a loop and the
+  team gets N draining handlers plus N freshly claimed ones, with the cap
+  reading as satisfied throughout. `settle-canceling!` frees the slot when the
+  handler actually returns — guarded on the attempt's `claim_token`, so a
+  reaped-and-re-claimed job is left alone.
+- **Nothing is preempted, and the reason is specific.** Killing the handler
+  thread would leave the SHARED db connection in an undefined state and could
+  wedge the whole pool. The cooperative half is `job-canceled?`, for a handler
+  that runs in steps; it is an optimization (CPU and tokens), never a
+  correctness requirement, because the result is fenced out either way.
+- **Who may cancel: owner-ok OR `jobs:cancel`.** A job's owner may always stop
+  their own work, queued or running — the person whose team budget a runaway run
+  is burning is exactly the person who should be able to stop it, and it is the
+  rule notes and documents already live by. `jobs:cancel` (admin, and owner by
+  `*:*`) is for stopping SOMEBODY ELSE's. The route stays ungated in
+  `routes.rkt` and the finer check is in the handler, as the repo routes do.
+- **A remote worker learns it was cancelled from its HEARTBEAT** — there is no
+  handler to return, so that is the only channel back. `holder-check` answers
+  `'canceled`, which is a 409 naming it, and the holder/token are checked FIRST
+  so a stranger can never learn that somebody's job was cancelled. Posting to
+  `/complete` or `/fail` afterwards is what SETTLES the row, which is how the
+  slot comes back without waiting the lease out. `queued`/`done`/`error` still
+  answer `'not-running` exactly as before — a pinned smoke assertion depends on
+  it. **The reference worker now reads the heartbeat's status** and stops; it
+  used to discard the response entirely, so a third-party worker needs the same
+  change to honour a cancel.
+- **The reaper SETTLES an expired `canceling` row, never re-queues it.**
+  Cancellation is final, and re-running work somebody stopped is the one outcome
+  nobody asked for. `reap-orphans!` does the same for a NULL-lease one.
+- **SCHED‑9's ceiling is enforced in the LEASE REFRESHER, not in the reaper** —
+  the plan recorded in `decisions.md` said the reaper and was wrong: that sweep
+  only ever sees an EXPIRED lease, and an overrunning job's lease is being
+  refreshed every 40 seconds, so the reaper could never see it. Past the ceiling
+  `lease-tick!` flips the job to `canceling` with a reason naming the knob and
+  STOPS refreshing; the reaper then settles it. This is the one case where a slot
+  is freed before the work provably stopped — a handler that ignored both the
+  ceiling and `job-canceled?` has proven it will not stop, and holding its slot
+  for ever is the worse failure.
+- `TELEMACHUS_MAX_JOB_SECONDS` defaults to **1800**, `never` disables it, and an
+  unparseable or non-positive value falls back to the default — **never to 0**,
+  which would cancel every job the instant it started.
+- **The clock is `jobs.started_epoch` (migration `0038`), stamped in
+  `claim-job!`.** `started_at` is TEXT `CURRENT_TIMESTAMP`, whose format differs
+  by dialect — the trap `LastModified` and the session clocks both set. It goes
+  in `claim-job!` because that is the ONE claim both paths make (issue #17); a
+  second claim path appearing later would leave the column NULL and the ceiling
+  would quietly stop applying to those jobs, so `test/scheduler-tests.rkt`
+  asserts every claim stamps it.
+- **`lease-tick!` is exported because the loop sleeps 40 seconds**: the
+  interesting behaviour is what one tick DECIDES, not when it happens.
+- **PULL‑9: a worker reads the documents ITS OWN job names.**
+  `POST /api/workers/jobs/:id/document` — three conditions and no new
+  authorization code: the caller holds this attempt (`claim_token`), the object
+  id appears in **that job's own payload** (checked over every string value in
+  it, because the payload's shape is the kind's business), and the read happens
+  **as the job's own user**, so `can?` decides. A `forbidden` and a miss collapse
+  to ONE answer, as in the knowledge graph. `as: "bytes"` (base64, capped at
+  `TELEMACHUS_MAX_UPLOAD` — a worker is not a way past the front door's ceiling)
+  or `as: "text"`, where a scan answers `{text: null, reason: "needs-ocr"}`
+  rather than erroring, since that is the branch an OCR worker exists to take.
+- **`audit!` takes `#:resource-type`/`#:resource-id`, not `#:target-*`.** The
+  wrong keyword compiles fine and fails at the call.
+- **RBAC‑5b: custom team roles are not in v1**, and `roles:manage`'s description
+  says so — it is granted and nothing reads it. A permission with nothing behind
+  it reads as an unfinished feature unless the text says otherwise.
+
+```sh
+raco test test/scheduler-tests.rkt test/pull-tests.rkt   # 25 cases: the cap property, the ceiling, the fence
+bash test/pull-smoke.sh                                   # section 5, 13 assertions over HTTP
+bash test/server-smoke.sh                                 # the four "cancel:" assertions
+```
+
+## Issue #54's last items: abandoned uploads, staged bytes, attempts (14 Oct 2026)
+
+Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
+
+- **An abandoned multipart upload is reaped** (`reap-uploads!` in
+  `domain/s3/server.rkt`), seven days by default, `TELEMACHUS_UPLOAD_REAP_HOURS`
+  (`never` disables; a nonsense or non-positive value falls back to the default,
+  **never to 0**, which would reap an upload as its first part landed).
+  Migration `0039-upload-age` adds `created_epoch` to `repo_uploads` AND
+  `repo_upload_parts` — `created_at` is TEXT `CURRENT_TIMESTAMP` and differs by
+  dialect, the trap migration 0038 names.
+- **The clock is the NEWEST PART, not the create time.** A 2 GB upload over a bad
+  link legitimately takes hours; reaping one that is still making progress would
+  be a new bug in place of the old one. An upload that never sent a part falls
+  back to its create time.
+- **The sweep rides the pool's reaper seam, not the S3 listener.** `set-reaper!`
+  stays ONE seam: main.rkt installs a lambda that runs `reap-leases!` every tick
+  and `reap-uploads!` every ten minutes. It is deliberately not in the listener,
+  which is **off by default** — an instance that staged parts and then turned it
+  off would otherwise hold those bytes for ever.
+- **Staged parts are CHARGED against `storage.bytes` on arrival and refunded in
+  `drop-upload!`.** Charging only at Complete left the quota walkable by a client
+  that never completes: `TELEMACHUS_MAX_UPLOAD` caps ONE part and nothing caps
+  their number. `drop-upload!` is the one place an upload stops existing, so
+  Complete, Abort and the reaper all refund and no path can forget; at Complete
+  the refund lands AFTER `repo-put!` charged the assembled object, so the steady
+  state equals a single-shot PUT. **`repo-usage` therefore exceeds the sum of the
+  listing while an upload is in flight** — true, since the bytes are there, and
+  visible, which a bypass is not.
+- `release-blob!` was extracted from `drop-upload!`: a blob is deleted only when
+  no part row and no version row in that ORG still point at it. A part refused on
+  quota releases its staged blob through the same check — never `blob-delete!`
+  directly, which would drop bytes another upload or object shares.
+- **The claim response carries `attempt` and `max_attempts`** so a worker can tell
+  it is on its last try. `attempt` is 0 on a first claim.
+- `org-quota` and `org-usage` now include **`storage.bytes`**, which `repo-put!`
+  has been enforcing at the org tier all along: an operator could set a company
+  storage cap, see it nowhere and conclude it had not taken.
+- **The lease reaper runs on EVERY pool tick**, not the idle one. The code comment
+  and `pull-executors.md` both said idle, so a reader planned against a delay that
+  is not there.
+- **Plugin-contributed catalogs stay unbuilt** (LOC‑6) and `localization.md` says
+  so now. `locales/*.json` is the shipping artifact *because* CI gates it; a
+  catalog loaded from a plugin directory would carry none of that.
+- Still open deliberately: a worker cannot report **ready/paused** (executor
+  health is derived from `last_seen_at`, so a busy box looks idle) — a wire change
+  on both sides, its own slice.
+
+```sh
+raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, the refund
+bash test/s3-smoke.sh                  # the live multipart path, with the real aws CLI
+```
+
+## The beta judge's verdict is validated (JUDGE‑6, 14 Oct 2026)
+
+From the issue #31 exploration (decisions JUDGE‑1…6 in
+`docs/design/decisions.md`): the prospect judge was the ONE judgment call in the
+platform that did not go through `domain/tools/jsonschema.rkt`.
+
+- `VERDICT-SCHEMA` in `beta.rkt` goes through `validate-json`, the same validator
+  DWF‑5's extraction uses. A model answering `"score": "high"` used to be scored
+  0 and **silently reject the prospect**; it is now a refusal naming the path.
+- **`parse-verdict` answers three distinct things** — the verdict (a hash), a
+  LIST of problem strings, or `#f` for no object at all — because the caller says
+  something different about each: nothing to read, read but malformed, usable. A
+  caller that only asks `(hash? …)` still behaves correctly; one that treats a
+  truthy answer as a verdict will now get a list.
+- **The schema is OPEN** (`additionalProperties`), unlike the pipeline's closed
+  object: the judge prompt is operator-authored and an operator may legitimately
+  ask for a field we do not know about.
+- **`valid` and `score` are both required, and that is a behaviour change.** A
+  judge prompt producing only a score used to yield a verdict the decide path read
+  as invalid — a silent rejection — and now yields a named refusal. One existing
+  case in `test/beta-tests.rkt` was missing `valid` incidentally (it is about
+  braces inside strings) and had to gain it.
+
+**The rest of #31 is design, not code.** JEV cannot be self-hosted, so it cannot
+be the first backend of anything here; the recommendation is a typed-judgment
+SEAM with a local backend (a chat model behind a closed schema) and JEV as a
+plugin. Read the decision block before anyone writes an integration.
+
+## A deferred job says why (issue #55, built 14 Oct 2026)
+
+An over-budget team's jobs stay `queued` — right, and until now invisible.
+Decision QUOTA‑3 in `docs/design/decisions.md`.
+
+- **The admission seam answers with a REASON, not a boolean.** `#:hold-reason` on
+  `start-scheduler!` (`*hold-reason*`, `scheduler-hold-reason`) returns `#f` to
+  admit or a hash to defer-and-explain, because one policy now has two askers:
+  the claim, which must decide, and `GET /api/jobs`, which must explain. Two
+  implementations of one policy would drift. **It must stay PURE** — the job
+  listing calls it on every read — so the audit entry is a SECOND hook,
+  `#:on-hold`, fired only where a claim was really deferred. `set-admit?!` and
+  `scheduler-admit?` are gone; a caller passing `#:admit?` now gets an
+  unknown-keyword error, which is the point.
+- **`waiting` on a job is DERIVED, never stored.** A column would be a second
+  copy of a decision the next tick re-makes — raise the budget and the row would
+  still say "quota" for a job about to run. Same rule as `missing`/`stale` in the
+  Localization Manager and executor health. No migration.
+- **The order mirrors `claim-next!`**: the concurrency cap before the budget, so
+  a team that is both at its cap and over its budget is told about the cap — the
+  one that clears on its own.
+- **The key is ABSENT, never `{"reason":"worker"}`,** when nothing holds the job.
+  Nothing here can know whether a worker for a remote kind exists, and a reason
+  nothing stands behind is how a reader stops trusting the field.
+- `job-waiting` computes the reason **once per listing**, not per row: the answer
+  is a property of the team. A sub-job is cap-exempt at claim, so it is asked
+  with `#:sub? #t`.
+- **The audit entry is once per window per (scope, subject, dimension)**, deduped
+  by asking the AUDIT LOG (`at_us >= the window's start`) rather than a table of
+  its own — the log is already the record, and an in-memory set would forget on
+  restart and re-announce what the operator has read. Every pool tick re-tries
+  every queued job, so a per-claim entry writes dozens in seconds. `team_id` is
+  the DEFERRED job's team even when the ORG's budget holds it: `audit-list`
+  filters by team.
+- **`resets_at` is asked of the DATABASE** (`window-bounds` in `quota.rkt`),
+  because it must agree with `window-clause`, and the two dialects do not mean
+  the same thing by "day": SQLite's `date('now')` is UTC, PostgreSQL's
+  `CURRENT_DATE` follows the server's timezone. The two smoke runs report
+  boundaries **seven hours apart** on the same day and each is right about its
+  own dialect — a value computed in Racket would be right on one and hours out on
+  the other. Not on the admission path: `quota-check` is unchanged, and the two
+  reporting sites (`GET /api/usage`, the hold reason) pay for it.
+- **A sliding window answers nothing.** `"minute"` loses its oldest second every
+  second, so there is no instant at which it resets; `"total"` never does. Both
+  answer `null`, and the console only renders the sentence when the server named
+  a boundary.
+- Console: the Usage tab carries the ⏸ card (`quotaHeldCard`, from `held` on
+  `GET /api/usage`) and a "Resets" column; the Jobs tab badges a held job
+  (`jobWaitBadge`). An ORG-tier limit is not the team operator's to raise, so the
+  card does not promise it.
+
+```sh
+raco test test/scheduler-tests.rkt   # the reason, the cap-before-budget order, the report
+bash test/server-smoke.sh            # 8 assertions after "job quota-gated"
+```
+
+## Capability records, the accuracy report, the decision chain (LAY‑9…12)
+
+Built 12 Oct 2026. **All twelve LAY items are now built**, each with its limits
+written down in `docs/design/layered-operations.md` rather than implied.
+
+**LAY‑9 — what a backend can actually do.** The capability document a pull
+executor already carried for claim matching (`{kinds, models}`) is the same place
+a push backend declares `tools` and `json_schema` — one document, not a second
+mechanism. `model-exchange` takes `#:needs` and refuses **by name** before the
+request leaves the process; `run-chat` asks for `json_schema` only when a format
+was requested, the agent always asks for `tools`.
+
+- **An undeclared capability is UNKNOWN and unknown is PERMISSIVE.** Only an
+  explicit `false` refuses, so nothing that works today starts failing.
+- **The local model declares its own** via `TELEMACHUS_MODEL_CAPS`
+  (`"tools=false,json_schema=true"`). It has no executor row and is the path most
+  calls take — without it the operator who most needs the warning gets none.
+
+**LAY‑10 — the accuracy signal is a query.** `GET /api/reviews/stats` groups the
+decisions LAY‑2 already records by workflow and step: approved / revised /
+rejected, the approval rate, the mean time to decide.
+
+- **Not per model, and the reason matters.** `jobs.executor_id` IS recorded — but
+  only when a WORKER claims; the pool's in-process jobs leave it NULL. A
+  per-model breakdown would cover the pull-executed subset *while looking
+  complete*. The fix is to keep the model `model-exchange` already resolves and
+  returns as its third value, which both call sites discard.
+- `approval_rate` is an **inexact real**: `jsexpr?` takes exact integers and
+  inexact reals, so an exact rational would pass a test and throw in `write-json`.
+
+**LAY‑11 — the decision chain.** Each decision hashes its fields plus the previous
+decision's hash, per team; `GET /api/reviews/verify` names the first break.
+
+- **The canonical form is an ordered LIST, never a hash** — `hasheq` iteration
+  order is not stable across processes, the trap `json-out` sorts to avoid.
+- **State the claim narrowly.** It detects a record altered in place or removed
+  from the middle. It does **NOT** detect a rewrite by anyone who can write the
+  table, who can recompute every link after it — and that is the party an audit
+  most defends against. Same shape as secrets at rest defending a DUMP and not a
+  HOST. Closing it needs an external anchor; not built.
+
+**LAY‑12 — where review appears.** Satisfied by LAY‑1…3 (the queue is a core,
+permission-gated tab) and LAY‑6 (the canvas is an authenticated plugin bundle).
+**This does not mean manual annotation is done** — annotation STORAGE was its own
+item and nothing stores a region yet.
+
+- Route order: `/api/reviews/stats` and `/verify` sit **above** `/api/reviews/:id`
+  in the table, or the pattern swallows them. First match wins in list order.
+
+```sh
+raco test test/review-tests.rkt test/model-routing-tests.rkt   # the chain, the report, the refusals
+bash test/server-smoke.sh                                       # 7 more assertions in the reviews block
+```
+
+## Team-defined object metadata, and where text came from (LAY‑4/‑5, 12 Oct 2026)
+
+Migration `0036-object-metadata` adds both columns at once: `repo_objects.attributes`
+and `repo_text.spans`.
+
+**LAY‑4 — what the team ASSERTS about a document.** `repo_objects` carried org,
+team, owner, visibility and key and nothing a team could define, so project /
+location / period / status had nowhere to live and Layer 3 had nothing to
+aggregate over.
+
+- Definitions are a **team setting** (`repo-fields:<team>`, beside branding in
+  `instance_settings`); values are a **blob** on the object. Adding a field needs
+  no migration — the call the prospect attributes model already made.
+- **The validation vocabulary is literally the funnel's.** `field-problem` moved
+  to `domain/fields/fields.rkt` and `beta.rkt` re-exports it, so there is one
+  implementation rather than two that drift. Still `required` / `digits` /
+  `minlength` / `maxlength` and deliberately **not a regex**.
+- **A key the team has not defined is REFUSED, not stored** — the call an unknown
+  theme token makes. A value nothing can display or filter on is how a team
+  concludes the model is broken.
+- Setting attributes MERGES, so writing one field cannot drop another, and an
+  empty value clears one. `required` is checked on the merged result, so clearing
+  a required field fails.
+- **`?attr=key:value` on `GET /api/repo` is repeatable and applied AFTER the
+  per-row `can?`** — a filter can only narrow what a caller may see, never widen
+  it. `query-params` (plural) exists for this: `query-param` answers with the
+  first value, which is right for a scalar and wrong for a stackable filter.
+- The knowledge graph is NOT a substitute: it extracts what a document *says*,
+  this is what the team *asserts*, and for an inspection record the second is
+  authoritative.
+
+**LAY‑5 — where the extracted text came from.** The one decision with a deadline:
+adding it later means re-processing every document ever ingested.
+
+- **An extractor may answer with two values or three**, the third being spans of
+  `{start, end, page, bbox}`. Provenance is ADDITIVE — `extract-text` still
+  returns two values for every existing caller, `extract-text/spans` returns
+  three, and every plugin extractor written before LAY‑5 keeps working. That
+  arity-tolerance is what stops LAY‑7's contract from breaking.
+- `start`/`end` are character offsets into the text the SAME call returned; the
+  bbox is in the extractor's own page units and the platform carries it without
+  interpreting it, because only the renderer knows whether they are PDF points or
+  image pixels.
+- **A malformed span is dropped and the text is kept.** Provenance is an
+  enrichment; losing a region must never cost a team the document. Spans past
+  `EXTRACT-CAP` are dropped too — they could never resolve.
+- **No built-in fills it yet** (`pdftotext` would need `-bbox-layout`; the reader
+  that will have regions is an OCR plugin). The column exists before anything
+  fills it, which is the whole point — the seam was the expensive half.
+- `GET /api/repo-obj/<id>/spans?at=<offset>` resolves an offset to a region, which
+  is how a reviewer jumps from an extracted value to where it was read.
+
+```sh
+raco test test/object-metadata-tests.rkt   # 10 cases: the vocabulary, the filter, span hygiene
+bash test/server-smoke.sh                  # the "== object metadata ==" block, 11 assertions
+```
+
+## A plugin can claim a FILE FORMAT (LAY‑7, built 12 Oct 2026)
+
+`kind-of` in `extract.rkt` was a fixed `cond` over text / markup / docx / pdf, so a
+plugin could add a tool, a route, a workflow and a job kind — but not a reader.
+
+- **`register-extractor!` from a plugin's `init!`**, keyed by content type, with
+  the ownership rules `register-job-kind!` already had: two plugins cannot claim
+  one type, re-registering your own is fine (the loader may run twice in one
+  process). Ownership comes from `current-plugin`, which lives in the scheduler
+  because job kinds needed it first; both registries read it.
+- **A registration REPLACES the built-in for that type.** That is the point —
+  claiming `application/pdf` is how a local OCR engine takes over from
+  `pdftotext`.
+- **An extractor is IN-PROCESS Racket** with the platform's own contract,
+  `(in content-type) -> (values text-or-#f reason-or-#f)`. Reaching a non-Racket
+  engine is its own business and shelling out is the established way — the
+  built-in PDF reader is a pipe to `pdftotext`. Shipping bytes TO a subprocess is
+  the other seam (LAY‑6's `repo.get`), for a plugin that is a tool, not a reader.
+- **`EXTRACT-REASONS` is a CLOSED vocabulary**: `unsupported` / `missing-tool` /
+  `needs-ocr` / `failed`. `doc_text` branches on two of them for named refusals
+  and the indexer records any of them as processed-with-nothing, so a plugin
+  inventing a fifth would arrive as a refusal naming something nothing explains.
+  Anything else collapses to `failed`.
+- **A plugin that raises, or answers with the wrong shape, is `'failed`** — never
+  an exception. One plugin must not wedge a team's indexing, which is the rule the
+  indexer already lived by for a bad FILE.
+- **The cap stays the platform's** (`EXTRACT-CAP`): this feeds a search index, not
+  an archive.
+- `GET /api/plugins` reports each plugin's `extractors`. Worked example: an RTF
+  reader in `plugins/example-tools/` — RTF because the platform genuinely cannot
+  read it, and an unreadable document is invisible to search.
+
+```sh
+raco test test/extractor-registry-tests.rkt   # 9 cases: replacement, ownership, containment
+```
+
+## Out-of-process plugins reach the repository (LAY‑6, built 12 Oct 2026)
+
+A sandboxed plugin could reach `notes.create` and `notes.list` and nothing else,
+so a Python OCR or CV pipeline could read no bytes and write no result — while an
+in-process Racket tool read blobs freely. **The asymmetry was the bug**, and every
+domain pipeline the platform is for is out-of-process.
+
+- `repo.get` (`files:read`), `repo.text` (`files:read`), `repo.put` (`files:write`)
+  in `domain/oop/host.rkt`, behind the same **double gate** the notes capabilities
+  use: the plugin must have DECLARED the scope and the caller must hold the
+  permission. Neither half alone.
+- **Bytes are base64 over the existing pipe.** Not a path — that would couple a
+  plugin to the local store and leak its layout, and the blob store is
+  deliberately never handed a principal. Not a presigned URL — that needs the S3
+  listener and a second credential. Capped at `TELEMACHUS_MAX_UPLOAD`: a plugin is
+  not a way past the limit the front door enforces.
+- **`repo.text` reports a scan as an ANSWER**, `{text: null, reason: "needs-ocr"}`,
+  not an error — that is the branch an OCR plugin exists to take, and it should
+  not have to match on an error string to find it. (The `'needs-ocr` reason itself
+  is LAY‑8.)
+- **`repo.put` with `derived_from`** passes the source's visibility to `repo-put!`
+  and THEN inherits the grants — do not reorder — and sets `#:derived?` so an
+  opted-in trigger cannot fire on the plugin's own output.
+- **`GET /api/plugins` gained a `sandboxed` key** with each plugin's declared
+  scopes. They were absent entirely, so after granting repository access there was
+  no way to audit who holds `files:write`. Kept as its own key because
+  `loaded-plugins` is what `docs/reference/` is generated from.
+- **`raco make` exiting 0 does not mean the module loads.** A definition that
+  references a helper defined *below* it compiles and then dies at module init
+  with "cannot reference an identifier before its definition". Load the module,
+  don't just build it.
+- Worked example: `oop-plugins/doc-reader/`, registered in `oop.json`. The
+  capability table is documented in `docs/integrators-guide.md` §7b.
+
+```sh
+raco test test/oop-tests.rkt   # 8 cases: the double gate, provenance, the ceiling, end to end
 ```
 
 ## Offboarding and password hygiene (issue #54, built 5 Oct 2026)
@@ -1072,21 +1550,18 @@ raco test test/review-tests.rkt   # 9 cases: parking, all three verdicts, four e
 bash test/server-smoke.sh         # the "== reviews ==" block, 16 assertions
 ```
 
-## Layered operations (proposed, LAY‑4…12)
+## Layered operations (LAY‑1…12) — all built
 
 `docs/design/layered-operations.md` — a gap analysis from a civil-engineering RFE.
-**Nothing is built.** Its value is the boundary it draws: the platform grows
+**All twelve are built**; each one's sections above carry the detail, and each
+one's LIMITS are written down in the design doc rather than implied. What this
+document is still worth reading for is the boundary it draws: the platform grows
 SEAMS, a domain supplies CONTENT through them, and the test of the design is that
-no civil-engineering requirement needs a core change. LAY‑1/‑2/‑3 are built (above); the remaining nine, shortest
-form: `repo_objects`
-carries no team-defined metadata; **extraction provenance is lost at ingest and
-cannot be retrofitted without re-processing everything** (the one decision with a
-deadline); an out-of-process plugin can reach only `notes.create` and
-`notes.list`, so a Python OCR or CV pipeline can read and write nothing;
-`extract.rkt`'s `kind-of` is a fixed dispatch, not a registry; **a PDF with no
-text layer is recorded as a successful empty extraction**, indistinguishable from
-a blank page; no executor records whether it can tool-call; and the review queue
-belongs in core while a domain canvas belongs in a plugin bundle.
+no civil-engineering requirement needs a core change.
+
+One thing it named is deliberately NOT built and must not be: the `approve` step
+kind (see the issue #54 section). And LAY‑12 does not mean manual annotation is
+done — annotation STORAGE was its own item and nothing stores a region yet.
 
 ## The integrator's guide (`docs/integrators-guide.md`)
 
@@ -1227,7 +1702,12 @@ migration `0028-executors`; `/api/executors`, `/api/org/executors`,
   **Wire change**: `POST /api/workers/claim` returns `claim_token` and
   `/api/workers/jobs/:id/{heartbeat,complete,fail}` require it — a worker that
   drops it gets a 409, so a third-party worker must be updated in lockstep with
-  the server.
+  the server. **SCHED‑8 added a second obligation to that same wire**: a worker
+  must READ its heartbeat's status and stop when it is no longer 200. One that
+  ignores it runs to completion after a cancel and then cannot land its result,
+  which from the operator's side looks like a silent failure rather than a
+  cancellation. The reference worker (`cli/telemachus-worker.rkt`) discarded the
+  heartbeat response entirely until then.
 - Executor health is derived: never-seen / active / stale (3× lease) / retired.
   Retire revokes the token and requeues a held job.
 - **`notes-list` now requires `notes:read` up front** (found by this slice's
@@ -1410,6 +1890,47 @@ model role at any executor name**, including another org's, because
   set (whitespace-normalized), else a product default; `og:image` = the logo
   asset id when set. Same procedural `regexp-replace*` rule as the title — a
   string replacement would expand `&`.
+
+## The sign-in screen: a repaint must not be empty
+
+- **`authView()`'s inputs are always EMPTY, and the sign-in screen DOES get
+  repainted while signed out.** `setLang()` and `applyBrand()` both call
+  `render()`, so switching language after typing a username wiped it — an empty
+  login field, mid-sign-in. Paint it through **`paintAuth()`**, which carries
+  `lu`/`lp`/`lc`/`bu`/`bp` and the caret across the swap. Never go back to
+  `app.innerHTML = authView()` at a call site.
+- **`render()` fetches in TWO ROUNDS, and the shape is the dependency graph.**
+  It used to be five sequential calls — `loadBranding`, `loadI18n`,
+  `loadCatalog`, `refreshMe`, `/api/features` — which is invisible on localhost
+  and was the whole of what made signing in feel slow. Round one is
+  `Promise.all([loadBranding(), loadI18n(), refreshMe()])`: all three are
+  independent, branding and the config are public, and whoami reads neither.
+  Round two is what genuinely depends on round one — `loadCatalog` needs the
+  locale `loadI18n` resolves, `/api/features` needs the principal `refreshMe`
+  resolves — so those two go together. Measured at 300ms/call: sign-in 2283ms →
+  1316ms, reload-with-token 1566ms → 633ms.
+  - **Do not move a locale-SENSITIVE call into round one.** `api()` sends
+    `X-Telemachus-Locale: S.lang`, so branding and whoami now go out with the
+    PREVIOUS pass's locale. Neither reads it (branding is operator-authored;
+    whoami is ids, permissions and policy numbers, and its `locale` field comes
+    from the database, not the header) — but the next call added there might.
+  - The theme still lands before the first paint: the whole round is awaited
+    before anything reaches `#app`.
+  - `stale()` is checked once per ROUND now rather than once per call. That is
+    still every await boundary, which is what the generation counter needs.
+- **The button enters a pending state (`ui.signingin`) the instant it is
+  clicked**, because two rounds is still a visible beat on a real box. That is
+  ALSO the double-submit guard: two `doLogin()` calls would mint two sessions and
+  race two renders. `S.signingIn` is cleared in a `finally`, or a throw leaves
+  the button disabled for ever with no way back but a reload.
+- The auth→shell swap and the first paint after the blank window are faded
+  (`.tmx-enter`, 150ms), with `@media (prefers-reduced-motion: reduce)` turning
+  it off. `fadeIn` forces a reflow before re-adding the class, or a node that
+  already carries it keeps the finished animation and nothing fades.
+- **A browser test that switches language on the sign-in screen must put
+  `localStorage.tmx_lang` back.** A stored choice legitimately wins over the
+  instance default, so leaving one set silently broke the gate's later "console
+  repaints in Japanese" assertion — the failure appears in an unrelated step.
 
 ## Session timeouts (issue #38, slice 70)
 

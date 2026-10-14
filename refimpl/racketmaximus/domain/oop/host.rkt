@@ -17,13 +17,16 @@
 ;;   host→plugin  {"type":"host_result","id","result":{…}} | {"type":"host_error","id","error"}
 ;;   plugin→host  {"type":"result","id","text"[,"result":<jsexpr>]}
 
-(require (only-in "../../config.rkt" impl-root) json
+(require (only-in "../../config.rkt" impl-root max-upload-bytes) json
          racket/string
          racket/port
          racket/system
+         net/base64
          "../agent/registry.rkt"
          "../authz/authz.rkt"
-         "../notes/notes.rkt")
+         "../notes/notes.rkt"
+         "../repo/repo.rkt"
+         (only-in "../repo/extract.rkt" extract-text))
 
 (provide (struct-out oop-plugin)
          connect-oop-plugins! loaded-oop-plugins
@@ -52,12 +55,104 @@
            (hasheq 'notes (for/list ([n (in-list (notes-list conn p))])
                             (hasheq 'id (hash-ref n 'id) 'title (hash-ref n 'title) 'visibility (hash-ref n 'visibility))))))))
 
-(define (capability-names) (sort (hash-keys capabilities) string<?))
+;; ---- the repository capabilities (LAY-6) --------------------------------------
+;; An out-of-process plugin could reach `notes.create` and `notes.list` and
+;; nothing else, so a Python OCR or image-classification pipeline could read no
+;; bytes and write no result — while an IN-PROCESS Racket tool read blobs freely.
+;; The asymmetry was the bug: every domain pipeline this platform is for is
+;; out-of-process.
+;;
+;; Bytes travel BASE64 over the existing pipe rather than as a path or a URL. A
+;; path would couple the plugin to the local store and leak its layout — the blob
+;; store is deliberately never handed a principal, only a namespace and a digest,
+;; so a backend has no authorization to get wrong. A presigned URL would need the
+;; S3 listener running and a second credential. The pipe already carries the
+;; double gate, and at the document volumes this is for the inflation is paid once.
+;;
+;; The ceiling is the SAME one an HTTP upload has: a plugin must not be a way to
+;; move something past a limit the front door enforces.
+(define (b64 bs) (bytes->string/utf-8 (base64-encode bs #"")))
+(define (unb64 s) (base64-decode (string->bytes/utf-8 s)))
+
+(define (cap-object conn p args)
+  (define id (jget args 'object))
+  (when (string=? id "") (error 'repo "an object id is required"))
+  (define-values (o in) (repo-open conn p id #:version (let ([v (jget args 'version)])
+                                                         (and (not (string=? v "")) v))))
+  (unless in (error 'repo "no such document, or not yours to read: ~a" id))
+  (values o in))
+
+(define repo-capabilities
+  (hash
+   "repo.get"
+   (cons "files:read"
+         (lambda (conn p args)
+           (define-values (o in) (cap-object conn p args))
+           (define bs (dynamic-wind void (lambda () (port->bytes in)) (lambda () (close-input-port in))))
+           (when (> (bytes-length bs) (max-upload-bytes))
+             (error 'repo "document is ~a bytes, over the ~a-byte ceiling for an inline read"
+                    (bytes-length bs) (max-upload-bytes)))
+           (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
+                   'content_type (hash-ref o 'content_type) 'filename (hash-ref o 'filename "")
+                   'version_id (hash-ref o 'version_id) 'size (bytes-length bs)
+                   'bytes_b64 (b64 bs))))
+   "repo.text"
+   (cons "files:read"
+         (lambda (conn p args)
+           (define-values (o in) (cap-object conn p args))
+           (define-values (text reason)
+             (dynamic-wind void
+                           (lambda () (extract-text in (hash-ref o 'content_type)))
+                           (lambda () (close-input-port in))))
+           ;; "this PDF is a scan" is a legitimate ANSWER to "what is the text",
+           ;; not a failure — and it is precisely the branch an OCR plugin exists
+           ;; to take. A plugin should not have to match on an error string to
+           ;; find it, so the reason comes back beside a null text.
+           (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
+                   'content_type (hash-ref o 'content_type)
+                   'text (or text 'null)
+                   'reason (if reason (symbol->string reason) 'null))))
+   "repo.put"
+   (cons "files:write"
+         (lambda (conn p args)
+           (define key (jget args 'key))
+           (define b64s (jget args 'bytes_b64))
+           (when (string=? key "") (error 'repo "a key is required"))
+           (when (string=? b64s "") (error 'repo "bytes_b64 is required"))
+           (define bs (with-handlers ([exn:fail? (lambda (_) (error 'repo "bytes_b64 is not valid base64"))])
+                        (unb64 b64s)))
+           (when (> (bytes-length bs) (max-upload-bytes))
+             (error 'repo "~a bytes, over the ~a-byte ceiling" (bytes-length bs) (max-upload-bytes)))
+           (define from (let ([v (jget args 'derived_from)]) (and (not (string=? v "")) v)))
+           (define src (and from (repo-get conn p from)))
+           (when (and from (not src)) (error 'repo "derived_from names no document you can read: ~a" from))
+           ;; A derived document is PRIVATE FROM ITS FIRST BYTE: repo-put! takes the
+           ;; source's visibility, and only then does repo-inherit! copy the grants
+           ;; and write the derivation row. Do not reorder those.
+           ;; #:derived? keeps an opted-in trigger from firing on this plugin's own
+           ;; output, which is the loop that bit the pipeline once already.
+           (define o (repo-put! conn p #:key key #:port (open-input-bytes bs)
+                                #:content-type (let ([c (jget args 'content_type)])
+                                                 (if (string=? c "") "application/octet-stream" c))
+                                #:filename (let ([f (jget args 'filename)])
+                                             (if (string=? f "") key f))
+                                #:visibility (and src (hash-ref src 'visibility))
+                                #:max-bytes (max-upload-bytes)
+                                #:derived? (and src #t)))
+           (when src (repo-inherit! conn p #:source (hash-ref src 'id) #:target (hash-ref o 'id)))
+           (hasheq 'object_id (hash-ref o 'id) 'version_id (hash-ref o 'version_id)
+                   'key (hash-ref o 'key) 'version (hash-ref o 'version)
+                   'derived_from (if src (hash-ref src 'id) 'null))))))
+
+(define capability-table
+  (for/fold ([h capabilities]) ([(k v) (in-hash repo-capabilities)]) (hash-set h k v)))
+
+(define (capability-names) (sort (hash-keys capability-table) string<?))
 
 ;; run a capability with the double gate (declared scope ∩ user RBAC).
 ;; returns (hasheq 'ok result) or (hasheq 'error reason)
 (define (run-capability scopes conn principal cap args)
-  (define entry (hash-ref capabilities cap #f))
+  (define entry (hash-ref capability-table cap #f))
   (cond
     [(not entry) (hasheq 'error (format "unknown capability: ~a" cap))]
     [(not (member (car entry) scopes)) (hasheq 'error (format "plugin not granted scope: ~a" (car entry)))]

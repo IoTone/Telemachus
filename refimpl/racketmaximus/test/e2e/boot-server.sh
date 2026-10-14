@@ -10,6 +10,13 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
 unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+# Refuse a port somebody else is on. Playwright's webServer polls for readiness
+# and would happily attach to a FOREIGN server, running the tour against an
+# instance this script did not boot.
+if [ -n "${PORT:-}" ] && bash -c "exec 3<>/dev/tcp/127.0.0.1/$PORT" >/dev/null 2>&1; then
+  echo "port $PORT is already in use — set PORT=<free port>" >&2
+  exit 1
+fi
 : "${E2E_DATA_DIR:=$(mktemp -d)}"
 export TELEMACHUS_DATA_DIR="$E2E_DATA_DIR"
 export DATABASE_URL="sqlite:///$E2E_DATA_DIR/e2e.db"

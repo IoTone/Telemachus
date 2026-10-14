@@ -397,10 +397,17 @@ Worth knowing before you promise it to a customer:
   any host. A company that has set none wears the instance's. The org admin sets
   the copy (`PUT /api/org/branding`); only you assign hostnames, so a company can
   never claim another's, or the instance's.
-- **Model endpoints are instance-wide** (TEN‑2e, open). Executors are configured
-  per instance, so a company cannot bring its own inference endpoint or key. Every
-  org's traffic goes to `TELEMACHUS_MODEL_URL`; the isolation between them is the
-  quota nesting, not a separate model.
+- **An executor may be org-bound, but model ROUTING is still instance-wide**
+  (TEN‑2e, partly built). `POST /api/org/executors` registers an executor that
+  belongs to one company, and the org gate in the pull claim means such an
+  executor never sees another company's job. What a company still cannot do is
+  bring its own *credential* or point its own traffic at its own endpoint:
+  `TELEMACHUS_MODEL_URL` is the default for everyone, a model ROLE is a team
+  setting that `executor-known?` does not filter by org, and routing on
+  `/api/ai/chat` and `/api/agent` is operator-only. Per-org provider credentials
+  are the open half (see the BYOK decision in
+  [decisions.md](../design/decisions.md)); for traffic that must not share an
+  endpoint, one instance per tenant remains the answer.
 - **A user belongs to exactly one org** (TEN‑2c, decided). A consultant working for
   two customers needs two accounts with two emails. This is a non-goal, not a gap —
   cross-org membership would reintroduce the ambiguity the gate exists to remove.

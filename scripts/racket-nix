@@ -1,0 +1,21 @@
+#!/bin/sh
+# scripts/racket-nix — Racket as this project's toolchain defines it, for an
+# editor REPL (Geiser's `geiser-racket-binary`, racket-mode's `racket-program`)
+# or for a one-off from the shell. See docs/emacs/README.md.
+#
+# Two things it gets right that a system Racket does not:
+#
+#   * the VERSION the flake pins. The compiled/*.zo files in this tree are
+#     version-stamped, so another Racket refuses them outright
+#     ("version mismatch, expected ..., found ...").
+#   * PLTCOLLECTS, so `(require db-kit/portable)` and the other pkgs/ libraries
+#     resolve. It is set explicitly rather than left to the devShell's hook,
+#     because that hook derives it from $PWD and a REPL may start anywhere.
+#
+# The caller's working directory is deliberately left alone: an editor starts a
+# REPL in the directory of the file being edited, and relative requires in that
+# file should keep meaning what they say.
+set -eu
+REPO=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec nix develop "$REPO" --command \
+     env PLTCOLLECTS="$REPO/refimpl/racketmaximus/pkgs:" racket "$@"

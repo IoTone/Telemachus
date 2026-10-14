@@ -62,6 +62,7 @@
          "../domain/s3/sigv4.rkt"                 ; …and presigned links (slice 53)
          "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
+         (only-in "../domain/repo/extract.rkt" repo-spans-for spans-covering)   ; LAY-5
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
          (only-in "../domain/repo/doc-tools.rkt")  ; registers the document-pipeline tools (slice 57)
          "../domain/repo/triggers.rkt"            ; upload triggers on repo-put!'s seam (slice 58)
@@ -173,6 +174,15 @@
   (cond [(assq k (url-query (request-uri req)))
          => (lambda (kv) (if (and (cdr kv) (not (string=? (cdr kv) ""))) (cdr kv) default))]
         [else default]))
+
+;; Every value for a repeated key. `query-param` answers with the FIRST, which is
+;; right for a scalar and wrong for a filter you are meant to stack —
+;; ?attr=a:1&attr=b:2 is two conditions, not a last-one-wins.
+(define (query-params req name)
+  (define k (if (symbol? name) name (string->symbol name)))
+  (for/list ([kv (in-list (url-query (request-uri req)))]
+             #:when (and (eq? (car kv) k) (cdr kv) (not (string=? (cdr kv) ""))))
+    (cdr kv)))
 
 (define (read-json-body req)
   (define raw (request-post-data/raw req))
@@ -321,7 +331,13 @@
   (hash "html" #"text/html; charset=utf-8" "js" #"application/javascript" "css" #"text/css"
         "json" #"application/json" "svg" #"image/svg+xml" "png" #"image/png"
         "jpg" #"image/jpeg" "jpeg" #"image/jpeg" "gif" #"image/gif" "webp" #"image/webp"
-        "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"))
+        "ico" #"image/x-icon" "woff2" #"font/woff2" "woff" #"font/woff" "ttf" #"font/ttf" "otf" #"font/otf"
+        ;; issue #54: an unknown extension becomes application/octet-stream, and every
+        ;; response carries nosniff — so a Tier-B bundle shipping ES modules, a source
+        ;; map or wasm was REFUSED by the browser rather than mistyped. These three are
+        ;; what a modern bundle actually ships.
+        "mjs" #"text/javascript" "map" #"application/json" "wasm" #"application/wasm"
+        "txt" #"text/plain; charset=utf-8" "webmanifest" #"application/manifest+json"))
 (define (ext-of s) (let ([m (regexp-match #rx"\\.([A-Za-z0-9]+)$" s)]) (if m (string-downcase (cadr m)) "")))
 (define (mime-of s) (hash-ref STATIC-MIME (ext-of s) #"application/octet-stream"))
 (define (serve-file path #:cache [cache #"public, max-age=300"] #:headers [extra '()])
@@ -1591,8 +1607,74 @@
   (json-response (hasheq 'error "quota exceeded" 'dimension dim
                          'subject (hash-ref d 'subject "team")   ; which tier refused: team | org
                          'used (hash-ref d 'used) 'limit (hash-ref d 'limit)
-                         'window (hash-ref d 'window))
+                         'window (hash-ref d 'window)
+                         ;; "come back then" rather than "come back later" (issue #55)
+                         'resets_at (or (window-resets-at db-conn (hash-ref d 'window)) 'null))
                  #:code 429))
+
+;; ---- issue #55: a deferred job says which limit holds it --------------------
+;; An over-budget team's jobs stay `queued` — the right behaviour, and until now
+;; an invisible one. A queue that stops with nothing running, nothing in the
+;; audit log and no reason on the job is indistinguishable from a hang, and the
+;; operating notes' warning that "a batch extraction stops after the first jobs
+;; and looks like a hang" was being read as a bug report rather than as a budget.
+;;
+;; WHICH limit, in the order the admission check applies them: the team's own
+;; dimensions first, then the company's, and the first that refuses is the
+;; answer, because that is the one somebody has to raise. `amount 1` is the
+;; probe the admission itself makes — is there room for one more unit at all.
+(define QUOTA-HOLD-DIMS '("ai.requests" "ai.tokens.total"))
+
+;; PURE, deliberately: the job listing calls this on every read (`team-hold` in
+;; scheduler.rkt). The audit entry is `note-deferred!`'s business, and fires only
+;; where a claim was really deferred.
+(define (quota-hold-reason conn team)
+  (define org (team-org conn team))
+  (or (quota-hold-at conn "team" team)
+      (and org (quota-hold-at conn "org" org))))
+
+(define (quota-hold-at conn scope subject)
+  (for/or ([dim (in-list QUOTA-HOLD-DIMS)])
+    (define d (quota-check conn scope subject dim 1))
+    (and (not (hash-ref d 'allowed))
+         (hasheq 'reason "quota" 'scope scope 'dimension dim
+                 'used (hash-ref d 'used) 'limit (hash-ref d 'limit)
+                 'window (hash-ref d 'window)
+                 ;; when work resumes, which is the whole question a held team has
+                 'resets_at (or (window-resets-at conn (hash-ref d 'window)) 'null)))))
+
+;; ONE audit entry per window per (scope, subject, dimension) — not one per
+;; deferred claim. Every pool tick re-tries every queued job, so a team that is
+;; over budget for an hour would otherwise write thousands of identical rows and
+;; bury the one entry that matters.
+;;
+;; The dedup asks the AUDIT LOG, not a table of its own and not an in-memory set:
+;; the log is already the record, a second store is a second thing that can
+;; disagree with it, and an in-memory one would forget on restart and re-announce
+;; what the operator has already read. `at_us` is epoch microseconds (issue #47),
+;; so "within this window" is one indexed comparison.
+;;
+;; A sliding or unbounded window ("minute", "total") has no start, so there is
+;; nothing to be once-per; those are floored at one entry an hour instead, which
+;; keeps the log readable without inventing a boundary that does not exist.
+(define NOTE-FLOOR-SECONDS 3600)
+
+;; `team-id` is the DEFERRED job's team even when the ORG's budget is what holds
+;; it, because `audit-list` filters by team: an entry carrying the org instead
+;; would be invisible to exactly the people whose work stopped.
+(define (note-deferred! conn team job-id reason)
+  (when (equal? (hash-ref reason 'reason #f) "quota")
+    (define rid (format "~a:~a:~a" (hash-ref reason 'scope) team (hash-ref reason 'dimension)))
+    (define-values (start _end) (window-bounds conn (hash-ref reason 'window)))
+    (define horizon (* 1000000 (or start (- (current-seconds) NOTE-FLOOR-SECONDS))))
+    (define seen (query-value conn
+      "SELECT COUNT(*) FROM audit_log WHERE action = ? AND resource_id = ? AND at_us >= ?"
+      "quota.exhausted" rid horizon))
+    (when (zero? seen)
+      (audit! conn #:action "quota.exhausted" #:actor-type "system"
+              #:team-id team #:resource-type "quota" #:resource-id rid
+              #:result "deferred"
+              #:meta (jsexpr->string (hash-set reason 'job_id job-id))))))
 
 (define (ep-ai-echo req)
   (with-auth req (lambda (p)
@@ -1731,7 +1813,16 @@
   (case v
     [(ok) (json-response (hasheq 'ok #t 'id job-id))]
     [(not-holder) (err "not the lease holder of this job" 409)]
+    ;; SCHED-8: a remote worker has no handler to return, so the heartbeat is the
+    ;; only channel back. A 409 here means "stop and drop the result" — and
+    ;; posting to /complete or /fail afterwards is what settles the row, which is
+    ;; what frees the team's concurrency slot without waiting out the lease.
+    [(canceled) (err "the job was canceled — stop work and discard the result" 409)]
     [(not-running) (err "the job is not running" 409)]
+    [(no-object) (err "an object id is required" 400)]
+    [(not-in-job) (err "that document is not named by this job's payload" 403)]
+    [(no-such-document) (err "no such document, or not one this job's user may read" 404)]
+    [(too-large) (err "document is over the inline-read ceiling (TELEMACHUS_MAX_UPLOAD)" 413)]
     [else (err "not found" 404)]))
 ;; issue #24: every write about a claimed job carries the attempt's claim_token,
 ;; which the claim response handed the worker. A worker that sends none is refused
@@ -1746,6 +1837,22 @@
     (define b (read-json-body req))
     (worker-verdict (worker-complete! db-conn ex id (hash-ref b 'result (hasheq))
                                       #:token (claim-token-of b)) id))))
+;; PULL-9: a worker reads a document ITS OWN job names. The fence is in
+;; pull.rkt (holder + claim_token, the object must appear in that job's payload,
+;; and the read happens as the job's own user so `can?` decides); this is just
+;; the wire. `as: "text"` asks the extractor instead of the bytes, and a scan
+;; comes back as {text: null, reason: "needs-ocr"} — an ANSWER, since that is the
+;; branch an OCR worker exists to take.
+(define (ep-worker-document req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (define v (worker-document db-conn ex id
+                               (let ([o (hash-ref b 'object #f)]) (if (string? o) o ""))
+                               #:token (claim-token-of b)
+                               #:version (let ([x (hash-ref b 'version #f)]) (and (string? x) x))
+                               #:as (let ([a (hash-ref b 'as #f)]) (if (string? a) a "bytes"))))
+    (if (hash? v) (json-response v) (worker-verdict v id)))))
+
 (define (ep-worker-fail req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
@@ -1891,6 +1998,19 @@
     (json-response (hasheq 'reviews (review-list db-conn p #:status st)
                            'pending (review-count-pending db-conn p))))))
 
+
+(define (ep-review-stats req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "reviews:read")
+    (define since (string->number (query-param req 'since "")))
+    (json-response (hasheq 'stats (review-stats db-conn p #:since since)
+                           'since (or since 0))))))
+
+(define (ep-review-verify req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "audit:read")
+    (json-response (review-verify db-conn p)))))
+
 (define (ep-review-get req id)
   (with-auth req (lambda (p)
     (require-perm db-conn p "reviews:read")
@@ -1922,10 +2042,16 @@
     (define sid (principal-team-id p))
     (json-response
      (hasheq 'team_id sid
+             ;; `held` is the same answer `GET /api/jobs` puts on a queued job, so
+             ;; the Usage tab can say why work has stopped without reading the
+             ;; queue — and `resets_at` is when it starts again (issue #55).
+             'held (or (quota-hold-reason db-conn sid) 'null)
              'quota (for/list ([dim (in-list '("ai.tokens.total" "ai.requests" "ai.concurrency"))])
                       (define d (quota-check db-conn "team" sid dim 0))
                       (hasheq 'dimension dim 'used (hash-ref d 'used)
-                              'limit (hash-ref d 'limit) 'remaining (hash-ref d 'remaining))))))))
+                              'limit (hash-ref d 'limit) 'remaining (hash-ref d 'remaining)
+                              'window (hash-ref d 'window)
+                              'resets_at (or (window-resets-at db-conn (hash-ref d 'window)) 'null))))))))
 
 ;; plugin tool management (per-team activate/deactivate)
 (define (ep-tools-list req)
@@ -2078,13 +2204,33 @@
     (define j (get-job db-conn id (principal-team-id p)))
     (if j (json-response j) (err "not found" 404)))))
 
+;; SCHED-8. A job's OWNER may stop their own work, queued or running — the same
+;; owner-ok rule notes and documents live by, and the person whose team budget a
+;; runaway run is burning is exactly the person who should be able to stop it.
+;; Stopping SOMEBODY ELSE's job is the stewardship act, and that needs
+;; `jobs:cancel` (admin and owner by role). A running job goes to `canceling`:
+;; its result is fenced out at once, and it stops holding its team's concurrency
+;; slot when the handler actually returns.
 (define (ep-job-cancel req id)
   (with-auth req (lambda (p)
-    (define r (cancel-job! db-conn id (principal-team-id p)))
+    (define team (principal-team-id p))
+    (define owner (query-maybe-value db-conn "SELECT user_id FROM jobs WHERE id = ? AND team_id = ?" id team))
     (cond
-      [(eq? r #t) (json-response (hasheq 'ok #t 'id id 'status "canceled"))]
-      [(eq? r 'not-cancelable) (err "job already running or finished — cannot cancel" 409)]
-      [else (err "not found" 404)]))))
+      [(not owner) (err "not found" 404)]
+      [(and (not (equal? owner (principal-user-id p)))
+            (not (can? db-conn p "jobs:cancel")))
+       (err "forbidden: jobs:cancel (you may always cancel your own job)" 403)]
+      [else
+       (define r (cancel-job! db-conn id team))
+       (cond
+         [(eq? r #t)
+          (define st (query-maybe-value db-conn "SELECT status FROM jobs WHERE id = ?" id))
+          (audit! db-conn #:action "job.cancel" #:actor-type "user" #:actor-id (principal-user-id p)
+                  #:team-id team #:resource-type "job" #:resource-id id)
+          (json-response (hasheq 'ok #t 'id id 'status (or st "canceled")))]
+         [(eq? r 'canceling) (json-response (hasheq 'ok #t 'id id 'status "canceling"))]
+         [(eq? r 'not-cancelable) (err "the job has already finished — nothing to cancel" 409)]
+         [else (err "not found" 404)])]))))
 
 ;; ---- document repository (slices 49-50) --------------------------------------
 ;; The data plane is deliberately NOT JSON: a document is bytes, and base64 inside a
@@ -2094,13 +2240,68 @@
 ;; This is the control plane the S3 front door will NOT replace (DOC-12) — sharing,
 ;; grants and visibility have no expression in the S3 protocol.
 
+
+;; ---- team-defined object metadata (LAY-4) and extraction provenance (LAY-5) -------
+;; ?attr=key:value, repeatable. Split on the FIRST colon only, so a value may
+;; contain one — "location:lat:lon" is a location, not a malformed filter.
+(define (attr-filters req)
+  (for/list ([v (in-list (query-params req 'attr))]
+             #:when (regexp-match? #rx":" v))
+    (let ([i (car (regexp-match-positions #rx":" v))])
+      (cons (substring v 0 (car i)) (substring v (cdr i))))))
+
+(define (ep-repo-fields-get req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (json-response (hasheq 'fields (repo-fields db-conn (principal-team-id p)))))))
+
+(define (ep-repo-fields-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define fs (let ([v (hash-ref (read-json-body req) 'fields '())]) (if (list? v) v '())))
+    (define out (repo-fields-set! db-conn (principal-team-id p) fs))
+    (cond
+      [(string? out) (err out 400)]
+      [else
+       (audit! db-conn #:action "repo.fields" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "repo" #:resource-id "fields")
+       (json-response (hasheq 'fields out))]))))
+
+(define (ep-repo-attributes req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (define a (let ([v (hash-ref (read-json-body req) 'attributes (hasheq))]) (if (hash? v) v (hasheq))))
+    (define out (repo-set-attributes! db-conn p id a))
+    (cond
+      [(eq? out 'no-such-object) (err "no such document" 404)]
+      [(eq? out 'forbidden) (err "forbidden: files:write" 403)]
+      [(string? out) (err out 400)]
+      [else
+       (audit! db-conn #:action "repo.attributes" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "repo" #:resource-id id)
+       (json-response (obj-json out))]))))
+
+(define (ep-repo-spans req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (define o (repo-get db-conn p id))
+    (cond
+      [(not o) (err "no such document" 404)]
+      [else
+       (define all (repo-spans-for db-conn id))
+       (define at (string->number (query-param req 'at "")))
+       (json-response (hasheq 'object_id id
+                              'spans (if at (spans-covering all at) all)
+                              'total (length all)))]))))
+
 (define (obj-json o)
   (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)
           'visibility (hash-ref o 'visibility) 'owner_user_id (hash-ref o 'owner_user_id)
           'size (hash-ref o 'size) 'content_type (hash-ref o 'content_type)
           'filename (hash-ref o 'filename) 'version (hash-ref o 'version)
           'digest (hash-ref o 'digest)
-          'created_at (hash-ref o 'created_at) 'updated_at (hash-ref o 'updated_at)))
+          'created_at (hash-ref o 'created_at) 'updated_at (hash-ref o 'updated_at)
+          'attributes (hash-ref o 'attributes (hasheq))))
 
 ;; Uploads land as the raw request body. `request-post-data/raw` buffers it, which is
 ;; why TELEMACHUS_MAX_UPLOAD exists and why DOC-15's listener is the next slice — the
@@ -2127,7 +2328,8 @@
                             #:limit (or (string->number (query-param req 'limit "100")) 100)
                             #:offset (or (string->number (query-param req 'offset "0")) 0)
                             #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))
-                            #:scope (scope-of req)))
+                            #:scope (scope-of req)
+                            #:attrs (attr-filters req)))
     (json-response (hasheq 'objects (map obj-json objs)
                            'usage (repo-usage db-conn p))))))
 
@@ -2447,8 +2649,14 @@
             #:team-id (principal-team-id p) #:resource-type "feature" #:resource-id name)
     (json-response (hasheq 'ok #t 'feature name 'enabled on?)))))
 
+;; `sandboxed` lists the out-of-process plugins WITH THE SCOPES THEY DECLARED.
+;; They were absent entirely, so after granting one repository access there was no
+;; way to see which plugins hold it — and the declared scope is half of the double
+;; gate. Kept as its own key: `loaded-plugins` is what docs/reference is generated
+;; from, and an in-process plugin and a subprocess are not the same kind of thing.
 (define (ep-plugins req)
-  (with-auth req (lambda (p) (json-response (hasheq 'plugins (loaded-plugins)
+  (with-auth req (lambda (p) (json-response (hasheq 'sandboxed (loaded-oop-plugins)
+                                                    'plugins (loaded-plugins)
                                                     ;; issue #48: what did NOT load
                                                     'failed (plugin-failures))))))
 
@@ -2618,15 +2826,19 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'repo-fields-get ep-repo-fields-get 'repo-fields-put ep-repo-fields-put
+   'repo-attributes ep-repo-attributes 'repo-spans ep-repo-spans
    'member-role ep-member-role 'member-remove ep-member-remove
    'admin-password-reset ep-admin-password-reset
    'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide
+   'review-stats ep-review-stats 'review-verify ep-review-verify
    'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
    'worker-claim ep-worker-claim 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
+   'worker-document ep-worker-document
    'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants
    'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign
@@ -2810,6 +3022,18 @@
   ;; looked completely healthy. Fail here instead, where the message is about the
   ;; configuration and not about a mkdir. Plugins load first because rs3 replaces
   ;; the built-in store and this must check the one that will actually be used.
+  ;; Refuse to serve with a blob store that was ASKED FOR and is not there.
+  ;; `active-blob-store-name` falls back want -> rs3 -> builtin, so a typo in
+  ;; TELEMACHUS_BLOB_STORE quietly wrote every document to local disk while the
+  ;; instance reported healthy — the same shape as the relative root below, and
+  ;; the same answer: fail where the message is about the configuration.
+  (let ([want (env* "TELEMACHUS_BLOB_STORE")])
+    (when (and want (not (string=? want "")) (not (member want (blob-store-names))))
+      (error 'telemachus
+             (string-append "TELEMACHUS_BLOB_STORE names a store that is not registered: ~a\n"
+                            "  registered: ~a\n"
+                            "  Documents would silently go to the local store instead.")
+             want (string-join (blob-store-names) ", "))))
   (let ([r (blob-root)])
     (unless (absolute-path? r)
       (error 'telemachus
@@ -2868,7 +3092,26 @@
                         => (lambda (p) (string-append "result.content: " p))]
                        [(not (number? (hash-ref r 'tokens_used #f))) "result.tokens_used must be a number"]
                        [else #f])))
-  (set-reaper! reap-leases!)
+  ;; The pool's per-tick maintenance. `set-reaper!` is ONE seam and stays one:
+  ;; the lease reaper every tick (an expired lease must be noticed promptly), and
+  ;; the abandoned-upload reaper on a long interval beside it (issue #54), since
+  ;; a seven-day horizon does not need a scan five times a second. Keeping it
+  ;; here rather than inside the S3 listener matters: the listener is OFF by
+  ;; default, and an instance that staged parts and then turned it off would
+  ;; otherwise hold those bytes for ever.
+  (define last-upload-sweep (box 0))
+  (define UPLOAD-SWEEP-EVERY 600)
+  (set-reaper!
+   (lambda (conn)
+     (define n (reap-leases! conn))
+     (when (> (- (current-seconds) (unbox last-upload-sweep)) UPLOAD-SWEEP-EVERY)
+       (set-box! last-upload-sweep (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "upload reaper: ~a\n" (exn-message e)))])
+         (define dropped (reap-uploads! conn))
+         (when (> dropped 0)
+           (printf "reaped ~a abandoned multipart upload(s)\n" dropped))))
+     n))
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker
   (set-box! pull-router
@@ -2979,23 +3222,31 @@
              (format "~a: ~a" (hash-ref f 'label (hash-ref f 'key "")) (prospect-field pr (hash-ref f 'key "")))))
          (define detail (string-append (string-join lines "\n") "\n\nAnti-abuse signals: " sig))
          (define-values (reply tokens) (run-chat detail #:system (experience-judge-system conn (principal-team-id p))))
+         ;; JUDGE-6: the verdict is validated, and the refusal says WHY. A flat
+         ;; "not parseable" read the same whether the model answered prose or
+         ;; answered `"score": "high"` — and the second is an operator's judge
+         ;; prompt to fix, not a model to replace. `parse-verdict` answers with
+         ;; the verdict, a list of problems, or #f for no object at all.
+         (define parsed (parse-verdict reply))
          (define verdict
-           (or (parse-verdict reply)
-               (hasheq 'valid #f 'score 0 'revenue_estimate "unknown" 'reasoning "judge output not parseable")))
+           (cond
+             [(hash? parsed) parsed]
+             [(list? parsed)
+              (hasheq 'valid #f 'score 0 'revenue_estimate "unknown"
+                      'reasoning (string-append "judge output did not match the expected shape: "
+                                                (string-join parsed "; ")))]
+             [else (hasheq 'valid #f 'score 0 'revenue_estimate "unknown"
+                           'reasoning "judge output was not a JSON object")]))
          (set-prospect-judge! conn pid verdict)
          (hasheq 'prospect_id pid 'verdict verdict 'tokens_used tokens)])))
   (void (start-scheduler! db-conn #:workers 2
                           #:cap-for (lambda (team)
                                       (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))
                                       (or lim 2))         ; per-team fairness: cap = the team's ai.concurrency
-                          #:admit? (lambda (conn team)    ; over-budget teams defer, not bypass
-                                     (define org (team-org conn team))
-                                     (and (hash-ref (quota-check conn "team" team "ai.requests" 1) 'allowed)
-                                          (hash-ref (quota-check conn "team" team "ai.tokens.total" 1) 'allowed)
-                                          ;; ...and the COMPANY it belongs to must also be under its cap
-                                          (or (not org)
-                                              (and (hash-ref (quota-check conn "org" org "ai.requests" 1) 'allowed)
-                                                   (hash-ref (quota-check conn "org" org "ai.tokens.total" 1) 'allowed)))))
+                          ;; over-budget teams defer, not bypass — and the
+                          ;; deferral names the limit that holds them (issue #55)
+                          #:hold-reason quota-hold-reason
+                          #:on-hold note-deferred!
                           #:record! (lambda (conn team result)   ; bill the run at both tiers
                                       (define toks (let ([t (and (hash? result) (hash-ref result 'tokens_used #f))])
                                                      (if (number? t) t 0)))

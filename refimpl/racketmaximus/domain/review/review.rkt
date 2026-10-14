@@ -27,11 +27,13 @@
          racket/list
          json
          "../db/id.rkt"
+         (only-in sha2-kit sha256-hex)
          "../authz/authz.rkt"                        ; principal-*, audit!
          (only-in "../flow/spec.rkt" REVIEW-VERDICTS))  ; one frozen vocabulary
 
 (provide review-open! review-list review-get review-decide! review-cancel-run!
-         set-resume-hook! review-count-pending answers-problem)
+         set-resume-hook! review-count-pending answers-problem
+         review-verify review-stats)
 
 (define (now-ms) (inexact->exact (floor (current-inexact-milliseconds))))
 (define (nz v) (if (sql-null? v) #f v))
@@ -47,7 +49,7 @@
   (string-append
    "SELECT id, team_id, run_id, step_row_id, step_id, title, instructions, subject, checklist, "
    "       four_eyes, author_user_id, status, verdict, rationale, answers, requested_by, decided_by, "
-   "       requested_ms, decided_ms "
+   "       requested_ms, decided_ms, hash, prev_hash "
    "FROM reviews"))
 
 (define (row->review r)
@@ -68,7 +70,9 @@
           'requested_by (or (nz (vector-ref r 15)) 'null)
           'decided_by (or (nz (vector-ref r 16)) 'null)
           'requested_ms (vector-ref r 17)
-          'decided_ms (or (nz (vector-ref r 18)) 'null)))
+          'decided_ms (or (nz (vector-ref r 18)) 'null)
+          'hash (or (nz (vector-ref r 19)) 'null)
+          'prev_hash (or (nz (vector-ref r 20)) 'null)))
 
 ;; ---- validation --------------------------------------------------------------
 ;; Unknown keys are refused rather than dropped, the same call the workflow spec
@@ -130,6 +134,132 @@
   (query-value conn "SELECT COUNT(*) FROM reviews WHERE team_id = ? AND status = 'pending'"
                (principal-team-id p)))
 
+;; ---- the decision chain (LAY-11) ----------------------------------------------
+;; WHAT THIS DETECTS, AND WHAT IT DOES NOT. Each decision hashes its own fields
+;; together with the previous decision's hash, so a row altered in place, or
+;; removed from the middle, breaks every link after it and `review-verify` names
+;; the first break.
+;;
+;; It does NOT detect a rewrite by anyone who can write this table: they can
+;; recompute every link after the row they changed, and the chain will verify.
+;; That is the party an administrative audit is most meant to defend against, so
+;; the claim is deliberately narrow — the same shape as secrets at rest, which
+;; defends a DUMP and not a HOST, and which is written down that way because the
+;; old note in creds.rkt had overclaimed in exactly this direction.
+;;
+;; What would close that gap is an EXTERNAL anchor: periodically publishing the
+;; head hash somewhere the database's owner does not control. That is a
+;; deployment decision rather than a schema one, and it is not built.
+;; The canonical form is an ordered LIST, never a hash: `hasheq` iteration order
+;; is not stable across processes, so hashing a hash would make the chain disagree
+;; with itself on a different machine. The docs generator learned this the same
+;; way, which is why `json-out` sorts.
+;;
+;; The chain is per TEAM because a team is the isolation boundary — one team's
+;; history should not be able to invalidate another's, and a verification answer
+;; is about a team's own records.
+(define (chain-hash rev prev)
+  (sha256-hex
+   (string->bytes/utf-8
+    (jsexpr->string
+     (list "telemachus.review.v1"
+           (hash-ref rev 'id)
+           (hash-ref rev 'team_id)
+           (let ([v (hash-ref rev 'run_id)]) (if (string? v) v ""))
+           (let ([v (hash-ref rev 'step_id)]) (if (string? v) v ""))
+           (hash-ref rev 'title "")
+           (jsexpr->string (hash-ref rev 'subject (hasheq)))
+           (let ([v (hash-ref rev 'verdict)]) (if (string? v) v ""))
+           (hash-ref rev 'rationale "")
+           (jsexpr->string (hash-ref rev 'answers (hasheq)))
+           (let ([v (hash-ref rev 'decided_by)]) (if (string? v) v ""))
+           (let ([v (hash-ref rev 'decided_ms)]) (if (number? v) v 0))
+           (or prev ""))))))
+
+(define (last-chain-hash conn team)
+  (define v (query-maybe-value conn
+    (string-append "SELECT hash FROM reviews WHERE team_id = ? AND status = 'decided' AND hash IS NOT NULL "
+                   "ORDER BY decided_ms DESC, id DESC LIMIT 1")
+    team))
+  (and v (not (sql-null? v)) v))
+
+;; Walk a team's chain in decision order and recompute it. -> (hasheq ok, checked,
+;; broken_at) where broken_at names the FIRST decision whose stored hash does not
+;; match what its contents and its predecessor imply.
+(define (review-verify conn p)
+  (define team (principal-team-id p))
+  (define rows (query-rows conn
+    (string-append RSELECT " WHERE team_id = ? AND status = 'decided' AND hash IS NOT NULL "
+                   "ORDER BY decided_ms ASC, id ASC") team))
+  (let loop ([rs rows] [prev #f] [n 0])
+    (cond
+      [(null? rs) (hasheq 'ok #t 'checked n 'broken_at 'null)]
+      [else
+       (define rev (row->review (car rs)))
+       (define stored (let ([v (vector-ref (car rs) 19)]) (and (not (sql-null? v)) v)))
+       (define want (chain-hash rev prev))
+       (if (equal? stored want)
+           (loop (cdr rs) stored (add1 n))
+           (hasheq 'ok #f 'checked n 'broken_at (hash-ref rev 'id)))])))
+
+;; ---- the accuracy signal (LAY-10) ---------------------------------------------
+;; Their "framework to determine the reliability of AI-generated outputs" sounds
+;; like an evaluation platform and is a QUERY: every reviewed output already
+;; carries a verdict, so accuracy per workflow and per step is a group-by over
+;; decisions the team made anyway.
+;;
+;; NOT per model, and the reason matters for the follow-up. `jobs.executor_id`
+;; IS recorded — `claim-job!` writes it — but only when a WORKER claims the job;
+;; the pool's in-process jobs on the local model leave it NULL. So a per-model
+;; breakdown would cover the pull-executed subset while looking complete, which is
+;; worse than not offering one. The fix is not "start recording executors": it is
+;; to keep the model `model-exchange` already RESOLVES and returns as its third
+;; value, which both call sites currently discard. That is a small hole in a known
+;; place, and it is the follow-up that would earn this column.
+(define (review-stats conn p #:since [since #f])
+  (define team (principal-team-id p))
+  ;; `decided_ms` is BIGINT, and PostgreSQL refuses an inexact real for one while
+  ;; SQLite takes it — so a caller passing ?since=1.5, or any arithmetic on
+  ;; current-inexact-milliseconds, worked in development and threw a raw SQL error
+  ;; in production. The same dialect divergence the quota ceiling had. Coerce here,
+  ;; where the value meets the query, rather than trusting every caller.
+  (define from
+    (let ([n (and (real? since) since)])
+      (if n (inexact->exact (floor n)) 0)))
+  (define rows
+    (query-rows conn
+      (string-append
+       "SELECT COALESCE(d.slug, ''), COALESCE(r.step_id, ''), r.verdict, COUNT(*), "
+       "       AVG(CASE WHEN r.decided_ms IS NULL THEN NULL ELSE r.decided_ms - r.requested_ms END) "
+       "FROM reviews r "
+       "LEFT JOIN workflow_runs run ON run.id = r.run_id "
+       "LEFT JOIN workflow_defs d ON d.id = run.def_id "
+       "WHERE r.team_id = ? AND r.status = 'decided' AND r.decided_ms >= ? "
+       "GROUP BY COALESCE(d.slug, ''), COALESCE(r.step_id, ''), r.verdict")
+      team from))
+  ;; fold the per-verdict rows into one row per (workflow, step)
+  (define acc (make-hash))
+  (for ([r (in-list rows)])
+    (define k (cons (vector-ref r 0) (vector-ref r 1)))
+    (define cur (hash-ref acc k (lambda () (hasheq 'approve 0 'revise 0 'reject 0 'ms 0 'n 0))))
+    (define verdict (string->symbol (vector-ref r 2)))
+    (define n (vector-ref r 3))
+    (define ms (let ([v (vector-ref r 4)]) (if (or (sql-null? v) (not v)) 0 (inexact->exact (round (* 1.0 v))))))
+    (hash-set! acc k (hash-set* cur verdict (+ (hash-ref cur verdict 0) n)
+                                'n (+ (hash-ref cur 'n) n)
+                                'ms (+ (hash-ref cur 'ms) (* ms n)))))
+  (for/list ([k (in-list (sort (hash-keys acc) (lambda (a b) (string<? (string-append (car a) (cdr a))
+                                                                      (string-append (car b) (cdr b))))))])
+    (define v (hash-ref acc k))
+    (define n (hash-ref v 'n))
+    (hasheq 'workflow (car k) 'step (cdr k)
+            'approved (hash-ref v 'approve) 'revised (hash-ref v 'revise) 'rejected (hash-ref v 'reject)
+            'decided n
+            ;; the number the RFE actually wants: how often the specialist let the
+            ;; AI's output stand
+            'approval_rate (if (zero? n) 0 (/ (round (* 1000.0 (/ (hash-ref v 'approve) n))) 1000))
+            'mean_decision_ms (if (zero? n) 0 (quotient (hash-ref v 'ms) n)))))
+
 ;; ---- deciding ----------------------------------------------------------------
 ;; A decided review is terminal: deciding again is refused rather than overwriting.
 ;; A decision that turns out to be wrong wants a superseding record, not a rewrite
@@ -154,10 +284,18 @@
      'needs-rationale]
     [(answers-problem (hash-ref rev 'checklist) answers) => values]
     [else
+     (define ms (now-ms))
      (query-exec conn
        (string-append "UPDATE reviews SET status = 'decided', verdict = ?, rationale = ?, answers = ?, "
                       "decided_by = ?, decided_ms = ? WHERE id = ? AND status = 'pending'")
-       verdict (or rationale "") (jsexpr->string answers) who (now-ms) id)
+       verdict (or rationale "") (jsexpr->string answers) who ms id)
+     ;; LAY-11: link it into the team's chain, AFTER the decision is stored — the
+     ;; hash describes a decision that has already been recorded, never one that
+     ;; might still fail to write.
+     (define prev (last-chain-hash conn (hash-ref rev 'team_id)))
+     (define decided (review-get conn p id))
+     (query-exec conn "UPDATE reviews SET prev_hash = ?, hash = ? WHERE id = ?"
+                 (or prev sql-null) (chain-hash decided prev) id)
      (define out (review-get conn p id))
      (audit! conn #:action (format "review.~a" verdict) #:actor-type "user" #:actor-id who
              #:team-id (hash-ref rev 'team_id)

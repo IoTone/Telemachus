@@ -8,8 +8,12 @@ on, and the **authorization** every feature checks.
 ## Principals
 
 - **User** — a human account (login, password/2FA). May belong to many teams.
-- **Team** — the tenancy boundary. Owns resources; carries quota policy. The
-  deployment is one implicit org containing teams (see index's tenancy decision).
+- **Team** — the tenancy boundary. Owns resources; carries quota policy.
+  *(Written when the deployment was one implicit org. The **org** tier is built —
+  `TELEMACHUS_MULTITENANT=1`, decision TEN‑2, see
+  [multi-tenancy.md](multi-tenancy.md): orgs sit above teams, isolation is step 0
+  of `can?`, `teams.slug` is unique per org, and org quotas nest above team
+  quotas. Single-tenant instances still behave exactly as described here.)*
 - **Membership** — a `(user, team, role)` edge. A user's rights in a team come
   from their role there; the same user can be Admin in one team, Viewer in another.
 - **Service principal / API token** — a non-human actor issued *by a user, within

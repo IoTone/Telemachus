@@ -20,6 +20,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:write` | team | Upload documents and new versions. |
 | `instance:*` | instance | Everything at the instance tier; the operator (superadmin). |
 | `instance:manage` | instance | Instance administration: branding, localization policy, quotas, orgs, metrics. |
+| `jobs:cancel` | team | Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first. |
 | `jobs:execute` | team | Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run. |
 | `localization:manage` | team | Import and export catalogs, queue AI drafts, discard machine drafts. |
 | `localization:read` | team | See the Localization Manager's coverage and messages. |
@@ -42,7 +43,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `research:use` | team | Use the research surfaces. |
 | `reviews:decide` | team | Approve, send back or reject an item waiting for review, with a rationale. |
 | `reviews:read` | team | See the team's review queue and the decisions already recorded. |
-| `roles:manage` | team | Create and edit team roles. |
+| `roles:manage` | team | Reserved for team-defined roles, which are not in v1 — the four built-in roles are the vocabulary. Granted, but nothing reads it yet. |
 | `roles:read` | team | See the team's roles and what they grant. |
 | `settings:manage` | team | Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail. |
 | `tasks:delete` | team | Delete tasks. |
@@ -64,7 +65,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Role | Tier | Grants |
 |---|---|---|
 | Owner (`owner`) | team | `*:*` |
-| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:write`, `workflows:run` |
+| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `workflows:read`, `workflows:write`, `workflows:run` |
 | Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
@@ -88,6 +89,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `files:write` | ✓ | ✓ | ✓ |  |  |  |  |
 | `instance:manage` |  |  |  |  |  |  |  |
+| `jobs:cancel` | ✓ | ✓ |  |  |  |  |  |
 | `jobs:execute` | ✓ |  |  |  |  |  |  |
 | `localization:manage` | ✓ | ✓ |  |  |  |  |  |
 | `localization:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |

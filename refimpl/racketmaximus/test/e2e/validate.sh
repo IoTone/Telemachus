@@ -31,6 +31,26 @@ OWN_SERVER=1
 
 PORT="${PORT:-8899}"
 export BASE_URL="${BASE_URL:-http://127.0.0.1:$PORT}"
+
+# Refuse a port somebody else is on, exactly as the five smoke suites do.
+# Without this the readiness loop below is unsound: its first `curl /health`
+# succeeds against the FOREIGN server and breaks out before the `kill -0` on our
+# own ever runs, so the whole gate asserts against an instance it did not boot
+# and did not seed. It would mostly fail rather than pass falsely — bootstrap is
+# first-run-only — but "mostly" is not a property a gate should have. Two Claude
+# sessions on one box made this reachable.
+port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
+if [ "$OWN_SERVER" = "1" ]; then
+  if port_busy "$PORT"; then
+    echo "port $PORT is already in use — set PORT=<free port>, or pass --no-server to test a live box" >&2
+    exit 1
+  fi
+  # the scripted mock lands at PORT+100 unless told otherwise
+  if port_busy "${MOCK_PORT:-$((PORT+100))}"; then
+    echo "mock-model port ${MOCK_PORT:-$((PORT+100))} is already in use — set MOCK_PORT=<free port>" >&2
+    exit 1
+  fi
+fi
 SRV_PID=""
 MOCK_PID=""
 

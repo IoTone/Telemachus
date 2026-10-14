@@ -1,10 +1,15 @@
 # Layered operations: human review, project metadata, and the plugin boundary
 
 *Proposed 3 Oct 2026 (LAY‑1…12, see [decisions.md](decisions.md)). **LAY‑1, ‑2 and
-‑3 are BUILT** (4 Oct 2026): the `review` step kind, the `waiting` run status,
+‑1…‑12 are BUILT** (4–12 Oct 2026): the `review` step kind, the `waiting` run status,
 decision records in `domain/review/review.rkt`, generalised four-eyes, `/api/reviews*`
 and the Review tab, with `test/review-tests.rkt` and the smoke's `== reviews ==`
-block. The other nine remain proposals. This document is a gap analysis: it separates what the **platform**
+block; the repository capabilities for out-of-process plugins; the extractor registry;
+team-defined object metadata; extraction provenance; capability records;
+the accuracy report; the decision chain; and the review-surface split. **All twelve
+are now built**, with the limits each carries written down below rather than
+implied. LAY‑8 landed separately with four other defects from issue #54. The rest
+remain proposals. This document is a gap analysis: it separates what the **platform**
 must grow from what a **domain supplies as plugins and workflows**. It is driven
 by an RFE from a prospective customer — a small civil-engineering and
 disaster-response team in Japan — but the platform gaps it finds are not
@@ -130,7 +135,7 @@ Manager.**
 It should be the platform's rule about review generally, not one tab's rule about
 strings.
 
-### LAY‑4 — Objects carry no metadata a team can define
+### LAY‑4 — Objects carry no metadata a team can define  ✅ built
 
 `repo_objects` has `org_id`, `team_id`, `owner_user_id`, `visibility`, `key`,
 version pointers and timestamps. There is no project, no location, no period, no
@@ -151,7 +156,17 @@ The knowledge graph is not a substitute. It extracts what a document *says*;
 this is what the team *asserts*. For an inspection record the second is the
 authoritative one.
 
-### LAY‑5 — Extraction provenance is lost at ingest, and cannot be recovered later
+*As built:* definitions are a team setting (`repo-fields:<team>` in
+`instance_settings`, beside branding) and values are a blob on `repo_objects`, so
+adding a field needs no migration. The validation vocabulary is literally the
+funnel's — `field-problem` moved to `domain/fields/fields.rkt` and both now share
+it, rather than a second implementation drifting. A key the team has not defined
+is REFUSED rather than stored, the call the theme tokens make with an unknown
+token: a value nothing can display or filter on is how a team concludes the model
+is broken. `GET /api/repo?attr=key:value` is repeatable and applied AFTER the
+per-row `can?`, so a filter can only narrow what a caller may see, never widen it.
+
+### LAY‑5 — Extraction provenance is lost at ingest, and cannot be recovered later  ✅ built
 
 **The one decision with a deadline.**
 
@@ -170,7 +185,15 @@ If the coordinates are not kept, adding them later means re-processing every
 document that was ever ingested. **This is cheap to design in and expensive to
 retrofit**, which is why it belongs in this document rather than a later slice.
 
-### LAY‑6 — An out-of-process plugin cannot touch the repository
+*As built:* an extractor may answer with two values or three, the third being its
+spans — so provenance is additive and every extractor written before it, including
+plugin ones, keeps working. `repo_text.spans` stores them beside the text;
+`GET /api/repo-obj/<id>/spans?at=<offset>` resolves an offset to a region. No
+built-in fills it yet: `pdftotext` would need `-bbox-layout`, and the reader that
+will actually have regions is an OCR plugin. **The column exists before anything
+fills it, which is the entire point** — the seam was the expensive half.
+
+### LAY‑6 — An out-of-process plugin cannot touch the repository  ✅ built
 
 The out-of-process host exposes exactly two capabilities: `notes.create` and
 `notes.list`. A plugin can be handed JSON arguments and can return structured
@@ -185,7 +208,19 @@ already go through.
 Note that an **in-process** Racket tool has no such problem (`doc-tools.rkt`
 reads blobs freely). The asymmetry is the bug.
 
-### LAY‑7 — Extractors are a fixed dispatch, not a registry
+*As built:* `repo.get`, `repo.text` and `repo.put` behind the same double gate the
+two notes capabilities already went through. Bytes travel base64 over the existing
+pipe rather than as a path (which would couple a plugin to the local store and
+leak its layout) or a presigned URL (which would need the S3 listener and a second
+credential), capped at the same `TELEMACHUS_MAX_UPLOAD` the front door enforces.
+`repo.put` with `derived_from` inherits the source's visibility and grants and
+writes the derivation row, in that order. `repo.text` reports a scan as
+`reason: "needs-ocr"` beside a null text rather than as an error — an OCR plugin
+should not have to match on an error string to find its own branch. `GET
+/api/plugins` now lists sandboxed plugins and the scopes each declared, which was
+not observable at all. Worked example: `oop-plugins/doc-reader/`.
+
+### LAY‑7 — Extractors are a fixed dispatch, not a registry  ✅ built
 
 `kind-of` in `extract.rkt` is a `cond` over content types: text, markup, docx,
 pdf. A plugin can add tools, routes, job kinds and workflows — but **cannot add
@@ -197,7 +232,29 @@ With a registry, Japanese OCR, EXIF reading and keyframe sampling are all the
 same kind of object: a plugin that claims a content type and returns text plus
 metadata plus (LAY‑5) provenance.
 
-### LAY‑8 — A scanned page is indistinguishable from a blank one
+*As built:* `register-extractor!` keyed by content type, with the ownership rules
+the job-kind registry already had — two plugins cannot claim one type, and
+re-registering your own is fine because the loader may run twice. A registration
+REPLACES the built-in for that type, which is how a local OCR engine takes over
+`application/pdf`. An extractor is in-process Racket and reaches a non-Racket
+engine by shelling out, exactly as the built-in PDF reader pipes to `pdftotext`.
+
+Three things the platform holds a plugin to, each because the alternative
+regresses something that already works: the reason vocabulary is CLOSED to
+`unsupported` / `missing-tool` / `needs-ocr` / `failed`, because `doc_text`
+branches on two of them to produce named refusals and a fifth would arrive as a
+refusal naming nothing; a plugin that raises or answers with the wrong shape
+becomes the same `failed` an in-tree extractor gives, because one plugin must not
+wedge a team's indexing; and the cap stays `EXTRACT-CAP`, because this feeds a
+search index rather than an archive. `GET /api/plugins` reports each plugin's
+claimed types. Worked example: an RTF reader in `plugins/example-tools/`.
+
+What this does NOT do is let an out-of-process plugin BE an extractor — the
+registry is called where the bytes are, with a port. A Python engine is reached
+by shelling out from a small Racket extractor, and LAY‑6 covers the other
+direction, where a plugin acts as a tool and asks for the bytes itself.
+
+### LAY‑8 — A scanned page is indistinguishable from a blank one  ✅ built
 
 A PDF with no text layer extracts to empty text and is recorded as **successfully
 indexed** — the code says so outright: *"possibly empty — an empty PDF is still
@@ -210,7 +267,7 @@ reason alongside the existing `'missing-tool` and `'unsupported` — and it shou
 land **before** any OCR work, because without it nobody can tell which documents
 need OCR.
 
-### LAY‑9 — Nothing records whether a model can do what a workflow asks
+### LAY‑9 — Nothing records whether a model can do what a workflow asks  ✅ built
 
 Nothing stores whether a backend supports tool calls or honours `json_schema`;
 it is discovered as a runtime failure. The platform already carries a scar from
@@ -223,7 +280,24 @@ Japan, Aug 2025) — and function-calling is exactly what the agent and the
 schema-extraction pipeline depend on. Choosing a Japanese model is therefore not
 a drop-in swap, and the platform should be able to say so before a run fails.
 
-### LAY‑10 — The accuracy signal is a report, not a system
+
+*As built:* the capability document a pull executor already carried for claim
+matching (`{kinds, models}`) is the same place a push backend declares `tools` and
+`json_schema`. One document, not a second mechanism. `model-exchange` takes
+`#:needs` and refuses BY NAME before the request leaves the process; `run-chat`
+asks for `json_schema` only when a format was requested, and the agent always asks
+for `tools`.
+
+**An undeclared capability is UNKNOWN, and unknown is permissive** — nothing that
+works today starts failing because nobody has filled a field in. Only an explicit
+`false` refuses, which makes declaring one an act with a consequence.
+
+The local model declares its own through `TELEMACHUS_MODEL_CAPS`
+(`"tools=false,json_schema=true"`). That path has no executor row and is the one
+most calls take, so without it the operator who most needs the warning — the one
+who pointed `TELEMACHUS_MODEL` at a model that cannot tool-call — would have got
+none.
+### LAY‑10 — The accuracy signal is a report, not a system  ✅ built
 
 Their Layer 2 "essential challenge" is *establishing a framework to determine the
 reliability and acceptable scope of AI-generated outputs* — which sounds like an
@@ -238,7 +312,19 @@ The same rows are a supervised dataset: approved / revision-required / rejected,
 each with a rationale, is what fine-tuning a domain model needs. This is the
 strongest argument for building LAY‑1 and LAY‑2 first — they pay three times.
 
-### LAY‑11 — Decision records are not tamper-evident
+
+*As built:* `GET /api/reviews/stats` groups decisions by workflow and step —
+approved / revised / rejected, the approval rate, and the mean time to a decision.
+A query over rows the team produced anyway.
+
+**Not per model, and the reason shapes the follow-up.** `jobs.executor_id` *is*
+recorded, but only when a worker claims the job; the pool's in-process jobs on the
+local model leave it NULL. A per-model breakdown would therefore cover the
+pull-executed subset while looking complete, which is worse than not offering one.
+The fix is not "start recording executors" — it is to keep the model
+`model-exchange` already resolves and returns as its third value, which both call
+sites currently discard.
+### LAY‑11 — Decision records are not tamper-evident  ✅ built
 
 They preserve decisions for administrative and internal audit. The audit log is
 append-only by convention and ordered to the microsecond, but nothing proves a
@@ -249,7 +335,23 @@ The platform already content-addresses blobs by SHA‑256 and has HMAC in
 primitives, and for government-facing defensibility it is the difference between
 a record and evidence.
 
-### LAY‑12 — A review queue is core; an annotation canvas is not
+
+*As built:* each decision hashes its own fields together with the previous
+decision's hash, per team; `GET /api/reviews/verify` walks the chain and names the
+first break. The canonical form is an ordered LIST, never a hash, because `hasheq`
+iteration order is not stable across processes — the trap `json-out` sorts to
+avoid.
+
+**State the claim narrowly.** The chain detects a record altered in place, or
+removed from the middle. It does **not** detect a rewrite by anyone who can write
+the table, because they can recompute every link after the row they changed — and
+that is the party an administrative audit is most meant to defend against. This is
+the same shape as secrets at rest, which defends a DUMP and not a HOST, and which
+is written down that way because the old note in `creds.rkt` had overclaimed in
+exactly this direction. Closing the gap needs an EXTERNAL anchor: publishing the
+head hash somewhere the database's owner does not control. That is a deployment
+decision, and it is not built.
+### LAY‑12 — A review queue is core; an annotation canvas is not  ✅ built
 
 A plugin cannot add a tab to the console. That is a known, documented gap, and
 this RFE presses on it from both sides at once:
@@ -265,6 +367,16 @@ this RFE presses on it from both sides at once:
 The platform owes the queue, the decision record and the storage. It does not owe
 a crack-width widget.
 
+
+*Satisfied by LAY‑1…3 and LAY‑6 rather than by separate work:* the queue landed as
+a core, permission-gated console tab, and the canvas side is the authenticated
+plugin bundle. The gap LAY‑12 named — a plugin cannot add a tab — was resolved by
+the split rather than by closing it.
+
+**This does not mean the manual-annotation path is done.** Annotation STORAGE — a
+label, a comment, an optional region, an author — was its own item in the build
+order and nothing stores a region yet. LAY‑12 was about WHERE review appears, not
+about what an annotation is.
 ---
 
 ## Deliberately not now

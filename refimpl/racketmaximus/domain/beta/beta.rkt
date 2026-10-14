@@ -10,6 +10,10 @@
          json
          "../db/id.rkt"
          "../authz/authz.rkt")
+(require "../fields/fields.rkt")   ; field-problem — one vocabulary, shared with the repository
+;; the judge verdict goes through the SAME validator the pipeline's extraction
+;; uses, so "did the model honour the shape" has one answer here too (JUDGE-6)
+(require (only-in "../tools/jsonschema.rkt" validate-json))
 
 (provide ;; prospects
          prospect-create! prospect-list prospect-get prospect-decide! set-prospect-judge!
@@ -17,11 +21,11 @@
          ;; extensible model: reserved (typed) keys vs. the attributes blob
          reserved-field-keys reserved-field? prospect-field
          ;; per-field validation, driven by the experience document
-         structural-field? field-problem
+         structural-field? field-problem   ; field-problem now lives in domain/fields
          ;; onboarding provider registry (SDK seam)
          register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names
          ;; judge-reply parsing (robust against small-model formatting)
-         parse-verdict)
+         parse-verdict VERDICT-SCHEMA)
 
 ;; ---- onboarding provider registry -------------------------------------------
 (define *providers* (box (hash)))
@@ -81,15 +85,44 @@
            [else (walk (add1 j) depth #f #f)]))]
       [else (scan (add1 i))])))
 
+;; The shape a judge reply has to have. This is the SAME validator the document
+;; pipeline's extraction uses (`domain/tools/jsonschema.rkt`, decision DWF-5), and
+;; using it here was decision JUDGE-6 in docs/design/decisions.md: the prospect
+;; judge was the one judgment call in the platform that did not. It found the
+;; outermost object, stripped trailing commas, and handed back whatever was
+;; inside — so a model answering `"score": "high"` produced a verdict that
+;; scored 0 and silently rejected a prospect, where the pipeline would have
+;; refused by path and retried. Open (`additionalProperties`), unlike the
+;; pipeline's closed object: the judge prompt is operator-authored and an
+;; operator may legitimately ask for a field we do not know about.
+;;
+;; `valid` and `score` are both REQUIRED, and that is a behaviour change: a judge
+;; prompt that produced only a score used to yield a verdict the decide path read
+;; as invalid, i.e. a SILENT rejection of the prospect. Naming the refusal is the
+;; point — the same call enforcing `required` on the funnel's own fields made.
+(define VERDICT-SCHEMA
+  (hasheq 'type "object"
+          'additionalProperties #t
+          'required '("valid" "score")
+          'properties (hasheq 'valid (hasheq 'type "boolean")
+                              'score (hasheq 'type "number")
+                              'revenue_estimate (hasheq 'type "string")
+                              'reasoning (hasheq 'type "string"))))
+
 ;; Parse a judge reply into a verdict hash, tolerating fences, prose, and a
-;; trailing comma before } or ]. Returns #f if no usable object is found.
+;; trailing comma before } or ]. Returns the verdict, or a LIST of problem
+;; strings naming what was wrong with it, or #f if there was no object at all.
+;; The three answers are distinct because the caller says something different
+;; about each: nothing to read, read but malformed, or usable.
 (define (parse-verdict reply)
   (define blob (first-json-object reply))
   (and blob
        (with-handlers ([exn:fail? (lambda (_) #f)])
          (define cleaned (regexp-replace* #px",\\s*([}\\]])" blob "\\1"))
          (define v (string->jsexpr cleaned))
-         (and (hash? v) v))))
+         (and (hash? v)
+              (let ([problems (validate-json VERDICT-SCHEMA v)])
+                (if (null? problems) v problems))))))
 
 (define DEFAULT-PROVIDER
   (hasheq 'name "beta"
@@ -187,33 +220,6 @@
 ;; call the workflow binding sublanguage makes (frozen, no eval, "write a tool" as
 ;; the escape hatch). These four cover the shapes a signup form actually needs —
 ;; a 13-digit 法人番号 is `digits` + min/max 13 — and each is trivially bounded.
-(define (field-problem fields body-ref)
-  (for/or ([f (in-list fields)])
-    (define k (hash-ref f 'key ""))
-    (define label (let ([l (hash-ref f 'label #f)]) (if (and (string? l) (not (string=? l ""))) l k)))
-    (define v (body-ref k))
-    ;; Accept 13 and "13" alike. A hand-written TELEMACHUS_ONBOARDING_FILE will
-    ;; sooner or later quote a number, and silently ignoring the constraint is a
-    ;; far worse failure than accepting it.
-    (define (num key)
-      (define n (hash-ref f key #f))
-      (define i (cond [(exact-integer? n) n]
-                      [(and (string? n) (regexp-match? #px"^[0-9]+$" n)) (string->number n)]
-                      [else #f]))
-      (and i (positive? i) i))
-    (cond
-      [(string=? v "")
-       ;; an empty optional field is simply not answered — never an error
-       (and (eq? (hash-ref f 'required #f) #t) (list 'required label #f))]
-      [(and (eq? (hash-ref f 'digits #f) #t)
-            (not (regexp-match? #px"^[0-9]+$" v)))
-       (list 'digits label #f)]
-      [(and (num 'minlength) (< (string-length v) (num 'minlength)))
-       (list 'too-short label (num 'minlength))]
-      [(and (num 'maxlength) (> (string-length v) (num 'maxlength)))
-       (list 'too-long label (num 'maxlength))]
-      [else #f])))
-
 ;; Value of any configured field on a prospect hash — from its typed column if
 ;; reserved, else from the parsed attributes blob. Always returns a string. key: string.
 (define (prospect-field pr key)

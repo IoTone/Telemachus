@@ -263,5 +263,15 @@
   "ui.welcome": "Welcome — finish setting up your account.",
   "ui.willversion": "This path exists — uploading saves a new version and keeps its current visibility",
   "ui.workflow": "Workflow",
-  "ui.workflows": "Workflows"
+  "ui.workflows": "Workflows",
+  "ui.signingin": "Signing in…",
+  "ui.quotaheldtitle": "Work is paused by a budget",
+  "ui.quotaheldteam": "This team has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
+  "ui.quotaheldorg": "This team's company has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
+  "ui.quotaresets": "Resumes {when}.",
+  "ui.quotaraiseop": "You can raise it below.",
+  "ui.quotaraiseask": "An operator can raise it.",
+  "ui.resets": "Resets",
+  "ui.heldbyquota": "held: {dimension} budget",
+  "ui.heldbycap": "held: team at {limit} concurrent"
 }

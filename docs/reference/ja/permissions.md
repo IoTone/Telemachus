@@ -20,6 +20,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:write` | team | ドキュメントと新バージョンをアップロードします。 |
 | `instance:*` | instance | インスタンス層のすべて；オペレーター（スーパー管理者）。 |
 | `instance:manage` | instance | インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス |
+| `jobs:cancel` | team | すでに実行中のジョブをキャンセルする（キュー内のジョブに限りません）。キャンセルは協調的で、ジョブは次のステップ境界で停止し、先に完了した場合でもその結果は破棄されます。 |
 | `jobs:execute` | team | プル型エグゼキュータに提供されたジョブの取得・ハートビート・完了・失敗報告。ワーカートークンのみが保持し、1つのエグゼキュータに紐づきます；チームのデータには届かず、実行も開始しません。 |
 | `localization:manage` | team | カタログのインポートとエクスポート、AIドラフトのキュー管理、機械ドラフトの破棄 |
 | `localization:read` | team | ローカライゼーションマネージャーのカバレッジとメッセージを見る。 |
@@ -42,7 +43,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `research:use` | team | リサーチ機能を使う。 |
 | `reviews:decide` | team | レビュー待ちの項目を、理由を添えて承認・差し戻し・却下する。 |
 | `reviews:read` | team | チームのレビューキューと、記録済みの判断を見る。 |
-| `roles:manage` | team | チーム役割の作成と編集 |
+| `roles:manage` | team | チーム定義の役割のための予約。v1 には含まれません — 組み込みの4つの役割が語彙です。付与されますが、まだ参照されていません。 |
 | `roles:read` | team | チームの役割とそれが与えるものを見る |
 | `settings:manage` | team | チーム設定：トークン、機能フラグ、ツールの有効化、用語集、シード投入、監査ログ。 |
 | `tasks:delete` | team | タスクを削除します。 |
@@ -64,7 +65,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Role | Tier | Grants |
 |---|---|---|
 | Owner (`owner`) | team | `*:*` |
-| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:write`, `workflows:run` |
+| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `workflows:read`, `workflows:write`, `workflows:run` |
 | Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
@@ -88,6 +89,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `files:write` | ✓ | ✓ | ✓ |  |  |  |  |
 | `instance:manage` |  |  |  |  |  |  |  |
+| `jobs:cancel` | ✓ | ✓ |  |  |  |  |  |
 | `jobs:execute` | ✓ |  |  |  |  |  |  |
 | `localization:manage` | ✓ | ✓ |  |  |  |  |  |
 | `localization:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |

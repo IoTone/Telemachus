@@ -248,5 +248,8 @@ Owner-authored docs may move (rebranded); anything crediting/borrowing does not.
 - [ ] Author Telemachus's own `LICENSE` (done), `SECURITY`/`THREAT_MODEL`, and
       `ACKNOWLEDGMENTS` fresh.
 
-*This document is Odysseus-side; it stays in this repo. Telemachus's own
-requirements live in `../telemachus/docs/FeatureRequirements.md`.*
+*This document is Odysseus-side in subject — it is about what may be carried
+over — but it lives in the TELEMACHUS repository, here at
+`docs/TelemachusMigration.md`. (It said "this repo" when it sat in Odysseus; the
+sentence survived the move.) Telemachus's own requirements are
+[FeatureRequirements.md](FeatureRequirements.md), beside it.*

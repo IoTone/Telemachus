@@ -19,8 +19,13 @@
          "../domain/authz/authz.rkt"
          "../domain/orgs/orgs.rkt"
          "../domain/sched/scheduler.rkt"
-         "../domain/exec/pull.rkt")
+         "../domain/exec/pull.rkt"
+         "../domain/repo/repo.rkt"
+         (only-in "../domain/repo/blobs.rkt" current-blob-root)
+         racket/file net/base64)
 
+;; blobs go to a temp dir, never the checkout's data/
+(current-blob-root (make-temporary-file "tmx-pull-blobs-~a" 'directory))
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
 (register-job-kind! "infer.chat" #f #:remote? #t
@@ -219,3 +224,134 @@
   (define t2 (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS)))
   (check-false (equal? t1 t2))
   (disconnect c))
+
+;; issue #54: the claim took the oldest 64 queued jobs of ANY kind and filtered in
+;; Racket, so a worker whose job sat behind a wall of in-process ones saw an empty
+;; queue and polled forever against work it could have run.
+(test-case "a remote job behind a wall of local ones is still claimable"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu" #:model "m"))
+  ;; more local jobs than the scan window, queued FIRST so they sort ahead
+  (for ([i (in-range 80)])
+    (enqueue-job! c #:team tid #:user uid #:kind "local.echo" #:payload (hasheq 'x i)))
+  (define remote (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                               #:payload (hasheq 'messages '())))
+  (define got (worker-claim! c (executor-by-token c (hash-ref ex 'token_id))))
+  (check-true (hash? got) "the window bounds the scan, not the answer")
+  (check-equal? (hash-ref got 'id) remote)
+  (disconnect c))
+
+;; ---- SCHED-8 on the remote path: a worker learns it was canceled ------------
+
+(test-case "a canceled remote job tells its worker to stop, and settles when it does"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define claimed (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (hash-ref claimed 'claim_token))
+  (check-true (number? (worker-heartbeat! c ex j #:token fence)))
+  ;; somebody cancels it while the worker is working
+  (check-equal? (cancel-job! c j tid) #t)
+  ;; the heartbeat is the only channel back to a remote worker — this is the signal
+  (check-equal? (worker-heartbeat! c ex j #:token fence) 'canceled)
+  ;; …and the cap still counts the job, because the worker has not stopped yet
+  (check-equal? (query-value c (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) tid) 1)
+  ;; a worker that honours it posts /fail (or /complete); either settles the row,
+  ;; which is what frees the slot without waiting the lease out
+  (check-equal? (worker-fail! c ex j "canceled" #:token fence) 'canceled)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "canceled")
+  (check-equal? (query-value c (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) tid) 0))
+
+(test-case "a canceled job's lease lapsing settles it; it is never re-queued"
+  ;; This is also what frees the slot of a handler that hung past SCHED-9's ceiling.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (check-equal? (cancel-job! c j tid) #t)
+  (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j)
+  (check-equal? (reap-leases! c) 1)
+  (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "canceled"
+                "cancellation is final — re-running stopped work is what nobody asked for")
+  (check-equal? (query-value c "SELECT attempt FROM jobs WHERE id = ?" j) 1
+                "…and its attempt was not bumped, which a re-queue would have done"))
+
+;; ---- PULL-9: a worker reads the documents ITS OWN job names -----------------
+
+(test-case "worker-document: holder, job-bound, and read as the job's own user"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c alice #:name "ocr-box" #:model "m"))
+  (define-values (other other-tok) (executor-create! c alice #:name "elsewhere" #:model "m"))
+  (define doc (repo-put! c alice #:key "scans/levee.txt" #:port (open-input-string "levee 7 looks sound")
+                         #:content-type "text/plain" #:filename "levee.txt"))
+  (define unrelated (repo-put! c alice #:key "scans/other.txt" #:port (open-input-string "not this one")
+                               #:content-type "text/plain" #:filename "other.txt"))
+  ;; a job that NAMES the document
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                          #:payload (hasheq 'messages '() 'object_id (hash-ref doc 'id))))
+  (define claimed (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (hash-ref claimed 'claim_token))
+
+  ;; the bytes come back, byte-identical
+  (define got (worker-document c ex j (hash-ref doc 'id) #:token fence))
+  (check-true (hash? got) (format "~a" got))
+  (check-equal? (bytes->string/utf-8 (base64-decode (string->bytes/utf-8 (hash-ref got 'bytes_b64))))
+                "levee 7 looks sound")
+  (check-equal? (hash-ref got 'key) "scans/levee.txt")
+  ;; and the extracted text, for a worker that wants words rather than bytes
+  (define txt (worker-document c ex j (hash-ref doc 'id) #:token fence #:as "text"))
+  (check-equal? (hash-ref txt 'text) "levee 7 looks sound")
+  (check-equal? (hash-ref txt 'reason) 'null)
+
+  ;; the three halves of the fence
+  (check-equal? (worker-document c ex j (hash-ref unrelated 'id) #:token fence) 'not-in-job
+                "a worker token is not a key to the team's repository")
+  (check-equal? (worker-document c ex j (hash-ref doc 'id) #:token "stale") 'not-holder)
+  (check-equal? (worker-document c other j (hash-ref doc 'id) #:token fence) 'not-holder)
+  (check-equal? (worker-document c ex j "" #:token fence) 'no-object)
+  (check-equal? (worker-document c ex j (hash-ref doc 'id) #:token fence #:version "nope") 'no-such-document)
+
+  ;; a job that names nothing reads nothing
+  (define j2 (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define claimed2 (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (check-equal? (worker-document c ex j2 (hash-ref doc 'id) #:token (hash-ref claimed2 'claim_token))
+                'not-in-job)
+  ;; and a finished job reads nothing either — the fence is the ATTEMPT, not the team
+  (void (worker-complete! c ex j2 (hasheq 'reply "x" 'tokens_used 1) #:token (hash-ref claimed2 'claim_token)))
+  (check-equal? (worker-document c ex j2 (hash-ref doc 'id) #:token (hash-ref claimed2 'claim_token))
+                'not-running))
+
+(test-case "worker-document reads as the JOB'S user, so can? decides"
+  ;; The read adds no authorization code: a document the job's user cannot see is
+  ;; invisible to the worker running that user's job.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define bob (create-user! c #:username "bob"))
+  (void (add-member! c #:team tid #:user bob #:role "member"))
+  (define bobp (user-principal c bob tid))
+  (define-values (ex tok) (executor-create! c alice #:name "gpu" #:model "m"))
+  ;; alice's PRIVATE document — private from colleagues, not just from strangers
+  (define secret (repo-put! c alice #:key "private/plan.txt" #:port (open-input-string "the plan")
+                            #:content-type "text/plain" #:visibility "private"))
+  ;; a job of BOB'S that names it
+  (define j (enqueue-job! c #:team tid #:user bob #:kind "infer.chat"
+                          #:payload (hasheq 'messages '() 'object_id (hash-ref secret 'id))))
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j))
+  (check-equal? (worker-document c ex j (hash-ref secret 'id) #:token fence) 'no-such-document
+                "naming a document in a payload does not grant access to it")
+  ;; the same document, in a job of alice's own, does come back
+  (define j2 (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                           #:payload (hasheq 'messages '() 'object_id (hash-ref secret 'id))))
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence2 (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j2))
+  (check-true (hash? (worker-document c ex j2 (hash-ref secret 'id) #:token fence2))))

@@ -78,7 +78,7 @@ compiles to it. The canvas is a renderer of it. The runtime is the scheduler.**
                     │                                   scheduler job "flow.step"
   canvas editor    ─┘                                           │
   (later, MIT)                                                  ▼
-                                              tool  │  job kind  │  agent  │  approve
+                                              tool  │  job kind  │  agent  │  review
                                                               │
                                     can? ▸ ORG GATE ▸ quota ▸ audit_log
 ```
@@ -120,12 +120,22 @@ the identical move, one level up.
 | `agent` | Run the agent loop with a prompt, a context binding and a tool allowlist | `run-agent-flow` |
 | `choice` | Branch on a frozen predicate | interpreter |
 | `map` | Fan out over a list; bounded by the team's existing concurrency cap. `over` is a list or a reference to one; `step` is a tool template run per item with `${item}` / `${index}` bound. Children are real jobs (`<map>#<i>`) under one parent row, which aggregates `{results: […]}` in `over` order. | scheduler claim logic |
-| `approve` | Park the run until a principal holding a named permission approves | `can?` + `audit_log` |
+| `review` | Park the run until a person decides: approve / revise / reject, with a rationale, an optional checklist and optional four-eyes. **Built** as LAY‑1…3 — see [layered-operations.md](layered-operations.md). Supersedes the `approve` gate this table used to name. | `can?` + `reviews` + `audit_log` |
 | `flow:<slug>` | Call a sub-workflow, depth-capped | interpreter |
 
-`approve` looks like scope creep and is not: a parked run is what people actually
-mean by "workflow", and it is nearly free once runs are durable rows rather than
-live threads.
+A human gate looks like scope creep and is not: a parked run is what people
+actually mean by "workflow", and it is nearly free once runs are durable rows
+rather than live threads. That held exactly — `flow-advance!` only acts on a
+`running` run, so "parked" needed no timer and no in-memory queue.
+
+It shipped as **`review`** rather than the `approve` named here, and wider than
+this row described: a verdict out of a frozen set, a rationale, an evaluation
+checklist, and four-eyes. The endpoint is not `POST /api/runs/<id>/approve/<step>`
+either — a queue of waiting work is the thing a reviewer needs, so decisions are
+their own rows and their own surface (`/api/reviews*`). **Do not build the
+`approve` gate**: this document named it for a year while `spec.rkt`'s own
+`planned_step_kinds` never listed it, which is how it came to be reported as a
+contradiction (issue #54).
 
 ### The binding sublanguage — deliberately frozen (WF‑2)
 
@@ -231,7 +241,9 @@ recommended authoring surface, and it does not get its own tutorial.
 | `POST /api/workflows/<slug>/run` | `workflows:run` | Start a run with an input object; returns a run id |
 | `GET /api/runs/<id>` | `workflows:read` | Run status plus every step's status, timing and error |
 | `POST /api/runs/<id>/cancel` | `workflows:run` | Cancel queued steps; running ones finish |
-| `POST /api/runs/<id>/approve/<step>` | the step's own permission | Release a parked `approve` gate; writes to `audit_log` *(slice 48)* |
+| `GET /api/reviews` | `reviews:read` | The team's review queue — what a `review` step is waiting on |
+| `GET /api/reviews/<id>` | `reviews:read` | One review: the subject, the checklist, the decision if made |
+| `POST /api/reviews/<id>/decide` | `reviews:decide` | Approve / revise / reject with a rationale; the parked run resumes down the branch the verdict names; writes to `audit_log` |
 | `GET /api/runs` | `workflows:read` | The team's recent runs |
 
 ### What "public contract" commits us to (WF‑9)
@@ -341,8 +353,8 @@ over-build. It is not, because a handler cannot:
 |---|---|---|
 | **46** ✅ | `define-workflow` macro *and* the spec it emits + the single strict validator + `advance` interpreter + the `flow.step` job kind + `tool`/`choice` steps + tables + endpoints + `/schema` + tests | **Done.** `domain/flow/{bind,spec,dsl,run}.rkt`, migration `0017-workflows`, `test/flow-tests.rkt` (15 cases, incl. a run resumed by a second process against the same file database and a cross-org refusal) |
 | **47** ✅ | `map` + the plugin `workflows` export and `workflows/*.json` loader + `users.locale` + the Translate Chat demo plugin. *(`agent`, `job:` and `flow:` step kinds deferred — nothing needed them yet.)* | **Done.** `plugins/translate-chat/` ships a three-step workflow with two chained fan-outs; `test/translate-chat-demo.sh` drives it against a live model |
-| **48** ✅ | The **Workflows tab**: definitions, a run form generated from the spec's `input`, a polling run view with the fan-out nested, cancel, and the team's run history + the `workflows` feature gate + `test/e2e/workflow-tour.mjs`. *(Mermaid DAG and the `approve` gate deferred to 49.)* | **Done.** `static/index.html`; the tab is a pure client of the endpoints slice 46 already shipped — no new engine code |
-| **49** | Mermaid DAG of the spec and of a run + the `approve` gate + audit events | A parked run is visible, approvable, and the approval is in `audit_log` |
+| **48** ✅ | The **Workflows tab**: definitions, a run form generated from the spec's `input`, a polling run view with the fan-out nested, cancel, and the team's run history + the `workflows` feature gate + `test/e2e/workflow-tour.mjs`. *(Mermaid DAG and the human gate deferred to 49; the gate landed instead as the `review` step, LAY‑1…3, Oct 2026.)* | **Done.** `static/index.html`; the tab is a pure client of the endpoints slice 46 already shipped — no new engine code |
+| **49** | Mermaid DAG of the spec and of a run | The human gate half of this slice is **done** — the `review` step, the queue and the decision record (LAY‑1…3), with the decision in `audit_log`. The DAG is still open. |
 | **50** | *Optional.* Canvas editor round-tripping the spec | Only if someone asks to drag a box |
 
 Slice 46 is the only irreversible commitment, and it ships the Racket authoring
@@ -357,7 +369,7 @@ and each can be dropped without stranding the one before it.
 | WF‑2 | Binding sublanguage **frozen**: references + a fixed predicate set, no evaluation | ✅ decided |
 | WF‑3 | Borrow CNCF Serverless Workflow **vocabulary** as a documented subset; claim no conformance | ✅ decided |
 | WF‑4 | Durability unit is **one scheduler job per step** | ✅ decided |
-| WF‑5 | Human `approve` gate lands in v1 (slice 48) | ✅ decided |
+| WF‑5 | A human gate lands in v1 | ✅ decided; **built Oct 2026 as the `review` step** (LAY‑1…3), not as the `approve` gate originally sketched — a verdict, a rationale, a checklist and four-eyes, with its own queue rather than a release endpoint |
 | WF‑6 | Visual interface is **read-only** at v1; editor deferred | ✅ decided |
 | WF‑7 | New `workflows:{read,write,run}`; org admins get `read` only, per TEN‑2a | ✅ decided |
 | WF‑8 | Plugin steps run in process with platform privileges, as tools do | ✅ decided — out of scope; revisit as hardening |

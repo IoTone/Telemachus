@@ -142,10 +142,49 @@ PY
 # A --record run rewrites the translated chapters and builds nothing.
 if [ -n "$RECORD" ]; then exit 0; fi
 
+# ---- the CJK font, by FILE when the family name will not resolve -------------
+# book.yaml names a FAMILY ("Noto Serif CJK JP") because that is what a
+# translator can read and what works where the font is installed system-wide.
+# It is not enough everywhere: tectonic finds fonts through Core Text on macOS
+# (not fontconfig, so a devShell font is invisible to it), and nixpkgs now ships
+# Noto CJK as VARIABLE-font collections whose family name XeTeX cannot resolve at
+# all. So if the family is not already resolvable, fall back to loading the
+# STATIC face by path — `[Path=…, Extension=.ttc, FontIndex=0]`, where index 0 is
+# the JP face of the collection (1 is KR, 2 SC, 3 TC, 4 HK; picking the wrong one
+# sets every shared kanji in another language's shapes, which is the same failure
+# xeCJK's Chinese default produces).
+#
+# TELEMACHUS_CJK_DIR overrides the search for a deployment that keeps its fonts
+# somewhere of its own.
+# Serif and sans are SEPARATE packages, so each is resolved on its own. Using one
+# directory for both built fine and was a trap: fontspec loads a face lazily, so a
+# sans path that does not exist goes unnoticed until the first sans CJK glyph —
+# which no chapter has yet.
+cjk_args=""
+cjk_dir_for() {   # $1 = a file that must be in the directory
+  if [ -n "${TELEMACHUS_CJK_DIR:-}" ] && [ -f "$TELEMACHUS_CJK_DIR/$1" ]; then
+    echo "$TELEMACHUS_CJK_DIR"; return
+  fi
+  command -v fc-list >/dev/null 2>&1 || return 0
+  d=$(fc-list : file 2>/dev/null | sed 's/: *$//' | grep -m1 "/$1$" || true)
+  [ -n "$d" ] && dirname "$d"
+}
+if grep -q '^cjkmainfont:' "$LANG_DIR/book.yaml" 2>/dev/null; then
+  SERIF_DIR="$(cjk_dir_for NotoSerifCJK-Regular.ttc || true)"
+  SANS_DIR="$(cjk_dir_for NotoSansCJK-Regular.ttc || true)"
+  # Both or neither: a half-resolved pair would load the serif by path and leave
+  # the sans to a family lookup that is exactly what did not work.
+  if [ -n "$SERIF_DIR" ] && [ -n "$SANS_DIR" ]; then
+    cjk_args="--metadata=cjkserifdir=$SERIF_DIR --metadata=cjksansdir=$SANS_DIR"
+    echo "  CJK fonts: loaded by path from the store"
+  fi
+fi
+
 # ---- the PDF -----------------------------------------------------------------
 pandoc "$ASSEMBLED" --metadata-file="$LANG_DIR/book.yaml" \
   --from markdown --to latex --template=template/book.latex \
   --top-level-division=chapter --listings --resource-path=. \
+  $cjk_args \
   -o "$TEXFILE"
 tectonic --keep-logs -o . "$TEXFILE" >/dev/null
 mv ".book.$LANG_DIR.pdf" "$OUT.pdf"

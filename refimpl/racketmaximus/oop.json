@@ -1,5 +1,18 @@
 {
   "plugins": [
-    { "name": "notes-helper", "command": "racket", "args": ["oop-plugins/notes-helper/main.rkt"] }
+    {
+      "name": "notes-helper",
+      "command": "racket",
+      "args": [
+        "oop-plugins/notes-helper/main.rkt"
+      ]
+    },
+    {
+      "name": "doc-reader",
+      "command": "racket",
+      "args": [
+        "oop-plugins/doc-reader/main.rkt"
+      ]
+    }
   ]
 }

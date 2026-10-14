@@ -175,9 +175,10 @@
    (R "POST" "/api/workers/jobs/:id/heartbeat" 'worker-heartbeat #:perm "jobs:execute" #:doc "Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409.")
    (R "POST" "/api/workers/jobs/:id/complete" 'worker-complete #:perm "jobs:execute" #:doc "Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind.")
    (R "POST" "/api/workers/jobs/:id/fail" 'worker-fail #:perm "jobs:execute" #:doc "Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt.")
+   (R "POST" "/api/workers/jobs/:id/document" 'worker-document #:perm "jobs:execute" #:doc "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.")
 
    ;; ---- quotas, tools, tokens, search, audit, jobs -------------------------------------
-   (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit and remaining.")
+   (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).")
    (R "POST" "/api/quota" 'quota-set #:perm "instance:manage" #:doc "Set a quota limit for the caller's team (dimension, limit, window).")
    (R "GET" "/api/tools" 'tools-list #:doc "Every registered tool with its permission, source and per-team enabled state.")
    (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
@@ -186,16 +187,20 @@
    (R "GET" "/api/search" 'search #:feature "search" #:doc "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.")
    (R "GET" "/api/audit" 'audit #:perm "settings:manage" #:doc "The team's recent audit events.")
    (R "POST" "/api/jobs" 'jobs-create #:perm "chat:use" #:doc "Enqueue a scheduler job of a registered kind.")
-   (R "GET" "/api/jobs" 'jobs-list #:doc "The team's jobs, newest first.")
-   (R "POST" "/api/jobs/:id/cancel" 'job-cancel #:doc "Cancel a queued job (a running one finishes).")
-   (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error.")
+   (R "GET" "/api/jobs" 'jobs-list #:doc "The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: \"quota\"|\"concurrency\", …}; the key is absent when nothing holds it and it is waiting only for a free worker.")
+   (R "POST" "/api/jobs/:id/cancel" 'job-cancel #:doc "Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops.")
+   (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs).")
 
    ;; ---- document repository -------------------------------------------------------------
-   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h).")
+   (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).")
    (R "POST" "/api/repo-obj/:id/share" 'repo-share #:perm "files:manage" #:doc "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.")
    (R "POST" "/api/repo-obj/:id/unshare" 'repo-unshare #:perm "files:manage" #:doc "Revoke every grant a principal holds on the object.")
    (R "GET" "/api/repo-obj/:id/grants" 'repo-grants #:perm "files:manage" #:doc "One entry per principal: capability, permissions, granted_by, expiry, expired.")
    (R "GET" "/api/repo-obj/:id/derivations" 'repo-derivations #:perm "files:read" #:doc "Provenance: what the document was derived from, by which run and step.")
+   (R "GET" "/api/repo-fields" 'repo-fields-get #:perm "files:read" #:doc "The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex.")
+   (R "PUT" "/api/repo-fields" 'repo-fields-put #:perm "settings:manage" #:doc "Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration.")
+   (R "PATCH" "/api/repo-obj/:id/attributes" 'repo-attributes #:perm "files:read" #:doc "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.")
+   (R "GET" "/api/repo-obj/:id/spans" 'repo-spans #:perm "files:read" #:doc "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.")
    (R "GET" "/api/repo-obj/:id/processing" 'repo-processing #:perm "files:read" #:doc "\"Processed by\": derived documents, sources, and every run that touched the document.")
    (R "GET" "/api/share-targets" 'share-targets #:perm "files:read" #:doc "Who a document can be shared with: the team's people and the org's teams.")
    (R "POST" "/api/repo-obj/:id/visibility" 'repo-visibility #:perm "files:manage" #:doc "Set private, team or shared.")
@@ -223,6 +228,10 @@
    (R "POST" "/api/runs/:id/cancel" 'run-cancel #:perm "workflows:run" #:feature "workflows" #:doc "Cancel a run; a step already executing finishes, the next never starts.")
    (R "GET" "/api/runs/:id" 'run-get #:perm "workflows:read" #:feature "workflows" #:doc "One run with its steps, inputs, outputs and errors.")
    (R "GET" "/api/reviews" 'reviews-list #:perm "reviews:read" #:doc "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.")
+   ;; literal paths BEFORE the :id pattern — first match wins in list order, and
+   ;; /api/reviews/:id would otherwise swallow both of these
+   (R "GET" "/api/reviews/stats" 'review-stats #:perm "reviews:read" #:doc "How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window.")
+   (R "GET" "/api/reviews/verify" 'review-verify #:perm "audit:read" #:doc "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.")
    (R "GET" "/api/reviews/:id" 'review-get #:perm "reviews:read" #:doc "One review: what is under review, the checklist to answer, and the decision if it has been made.")
    (R "POST" "/api/reviews/:id/decide" 'review-decide #:perm "reviews:decide" #:doc "Decide a review: {verdict: approve|revise|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names.")
 

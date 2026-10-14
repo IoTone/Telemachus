@@ -24,8 +24,22 @@ $if(cjkmainfont)$
 % Japanese build drops glyphs outright (権 vanished from 権限 in testing) and sets
 % every shared kanji in Chinese shapes. Name the font explicitly, always.
 \usepackage{xeCJK}
+$if(cjkserifdir)$
+% build.sh resolved the fonts to directories, so load the STATIC faces by path.
+% FontIndex=0 is the JP face of each collection (1 KR, 2 SC, 3 TC, 4 HK) — see
+% build.sh for why that is not a detail to leave to chance. BoldFont is named
+% explicitly: loading a face by path gives fontspec no family to search, so
+% without it every chapter heading would be a faux-bold smear of the regular.
+\setCJKmainfont{NotoSerifCJK-Regular}[
+  Path=$cjkserifdir$/, Extension=.ttc, FontIndex=0,
+  BoldFont=NotoSerifCJK-Bold]
+\setCJKsansfont{NotoSansCJK-Regular}[
+  Path=$cjksansdir$/, Extension=.ttc, FontIndex=0,
+  BoldFont=NotoSansCJK-Bold]
+$else$
 \setCJKmainfont{$cjkmainfont$}
 $if(cjksansfont)$\setCJKsansfont{$cjksansfont$}$endif$
+$endif$
 $endif$
 
 % Every chapter opens with its own Telemachus sketch. build.sh emits a

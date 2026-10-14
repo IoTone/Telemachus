@@ -120,7 +120,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。 |
 | POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | 結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。 |
 | POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | 失敗を報告する：{error, claim_token}。現在のリース保持者、かつその試行からのみ受け付けます。 |
-| GET | `/api/usage` | bearer | — | — | チームのクォータ次元ごとの使用量、上限、残り。 |
+| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | — | このジョブが指定したドキュメントを読む：{object, claim_token, version?, as?}。新しい認可コードは不要で、条件は3つ — 呼び出し元がこの試行を保持していること、オブジェクト ID がそのジョブ自身のペイロードに現れること、そして読み取りがそのジョブのユーザーとして行われること（公開範囲・付与・組織ゲートがすべて適用されます）。`as: "bytes"`（base64、上限は TELEMACHUS_MAX_UPLOAD）または `as: "text"` で、スキャンの場合は {text: null, reason: "needs-ocr"} を返します。 |
+| GET | `/api/usage` | bearer | — | — | チームのクォータ指標を、使用量・上限・残量・期間のリセット時刻とともに返す。さらに `held` が、現在このチームのキュー内ジョブを保留している上限を示します（保留がなければ null）。 |
 | POST | `/api/quota` | bearer | `instance:manage` | — | 呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。 |
 | GET | `/api/tools` | bearer | — | — | 登録済みのツールとその権限、ソースおよびチーム別に有効化された状態。 |
 | POST | `/api/tokens` | bearer | `settings:manage` | — | API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには "never"）を指定；生のトークンは一度だけ表示されます。 |
@@ -129,14 +130,18 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/search` | bearer | — | `search` | ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。 |
 | GET | `/api/audit` | bearer | `settings:manage` | — | チームの最近の監査イベント。 |
 | POST | `/api/jobs` | bearer | `chat:use` | — | 登録された種類のスケジューラジョブをキューイングします。 |
-| GET | `/api/jobs` | bearer | — | — | チームのジョブ、最新から |
-| POST | `/api/jobs/:id/cancel` | bearer | — | — | キューに並んでいるジョブをキャンセル（実行中のジョブは完了します）。 |
-| GET | `/api/jobs/:id` | bearer | — | — | 1つのジョブとその結果またはエラー |
-| GET | `/api/repo` | bearer | `files:read` | — | ?prefix= でリポジトリオブジェクトを一覧する（ページ送り）；?shared=1 は呼び出し元が有効な権限付与を持ち所有していないものだけ；?scope=org は会社内のすべてのチームにわたります（TEN-2h）。 |
+| GET | `/api/jobs` | bearer | — | — | チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: "quota"\|"concurrency", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。 |
+| POST | `/api/jobs/:id/cancel` | bearer | — | — | ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。 |
+| GET | `/api/jobs/:id` | bearer | — | — | 1件のジョブと、その結果またはエラー。プラットフォームが保留している場合は `waiting` も含みます（GET /api/jobs を参照）。 |
+| GET | `/api/repo` | bearer | `files:read` | — | リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。 |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | 組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view\|edit\|manage, expires_at?}。{user_id} は従来どおり view を意味します。 |
 | POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | プリンシパルがそのオブジェクトに持つすべての権限付与を取り消す。 |
 | GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | 1つのプリンシパルにつき1行: 能力、権限、授与者、期限、期限切れ |
 | GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | — | 由来: 文書がどの実行とステップから派生したか |
+| GET | `/api/repo-fields` | bearer | `files:read` | — | チームのオブジェクトメタデータ項目：ドキュメントに付与できる情報（プロジェクト、場所、期間、ステータスなど）。検証は required / digits / minlength / maxlength のみで、正規表現は使いません。 |
+| PUT | `/api/repo-fields` | bearer | `settings:manage` | — | チームのオブジェクトメタデータ項目を定義する：{fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}。項目の追加にマイグレーションは不要です。 |
+| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | — | ドキュメントにチーム定義のメタデータを設定する：{attributes: {key: value}}。そのドキュメントに対する files:write が必要です。チームが定義していないキーは保存されずに拒否され、空の値は設定を解除します。 |
+| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | — | 抽出したテキストの出典：各断片のページと領域（LAY-5）。?at=<文字オフセット> を付けると、その位置を含む範囲だけを返します。抽出した値から、それが読み取られた箇所へレビュー担当者が辿るための仕組みです。 |
 | GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | — | 「処理履歴」：派生した文書、元の文書、そしてこの文書に触れたすべての実行。 |
 | GET | `/api/share-targets` | bearer | `files:read` | — | 文書を誰と共有できるか：チームのメンバーと組織内のチーム。 |
 | POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | — | プライベート、チームまたは共有に設定します。 |
@@ -162,6 +167,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | 実行を取消；既に実行中のステップが終了し、次のステップは開始しません。 |
 | GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | 1つの実行とそのステップ、インプット、アウトプット、およびエラー |
 | GET | `/api/reviews` | bearer | `reviews:read` | — | チームのレビューキュー、新しい順。?status=pending（既定）、decided、canceled、all。 |
+| GET | `/api/reviews/stats` | bearer | `reviews:read` | — | AI の出力をレビュー担当者がそのまま承認した割合：ワークフローとステップごとの承認・差し戻し・却下の件数と、判断までの平均時間。別個の評価システムではなく、すでに記録済みの判断に対する集計です。?since=<エポックミリ秒> で期間を絞れます。 |
+| GET | `/api/reviews/verify` | bearer | `audit:read` | — | チームの判断チェーンを再計算して検証し、保存されたハッシュが内容と一致しない最初の判断を示します。records の改ざんや中間の削除は検出しますが、テーブルに書き込める者による書き換えは検出できません（以降のリンクを再計算できるため）。それには外部のアンカーが必要です。 |
 | GET | `/api/reviews/:id` | bearer | `reviews:read` | — | 1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。 |
 | POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | レビューを判断する：{verdict: approve\|revise\|reject, rationale, answers}。差し戻しと却下には理由が必須です。ダブルチェック指定のレビューは作成者本人を拒否します。待機していた実行は、判定が示す分岐へ進んで再開します。 |
 | GET | `/api/kg/entities` | bearer | `files:read` | — | ?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。 |

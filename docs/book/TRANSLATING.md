@@ -20,6 +20,9 @@ docs/book/
 
 1. Copy an English chapter across and translate the prose:
    `cp en/04-authz.md ja/04-authz.md`
+   Read it to the end before you stamp it. The source-hash rule below catches a
+   translation that has gone STALE; nothing catches one that is simply
+   incomplete, and the first sample chapter here shipped a paragraph short.
 2. Build the edition. Missing chapters are **omitted and listed**, so a partial
    translation always produces a readable book:
    ```sh
@@ -112,7 +115,10 @@ normalized to *usted* for the same reason — a tool talking to a stranger.
 
 1. `mkdir docs/book/<lang>` and write `<lang>/book.yaml`. Copy `ja/book.yaml` and
    translate the fields. A CJK language needs the two font lines it carries;
-   those fonts are in the Nix devShell.
+   the fonts are in the Nix devShell, and `build.sh` loads them by path because
+   tectonic does not consult fontconfig on macOS — see the CJK note in
+   `CLAUDE.md` if a build ever says a font "cannot be found" that `fc-list`
+   clearly has.
 2. Translate chapters into `<lang>/`.
 3. `bash docs/book/build.sh <lang>`.
 

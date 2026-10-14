@@ -24,7 +24,7 @@
 ;; extensions). Installing one — placing it in the plugins dir — IS the consent.
 ;; Sandboxed/out-of-process plugins are future hardening (see THREAT model).
 
-(require json racket/list "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
+(require (only-in "../repo/extract.rkt" extractors-of-plugin) json racket/list "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
 
 (provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures)
 
@@ -143,6 +143,11 @@
                                   'description (hash-ref m 'description "") 'tools names
                                   'workflows wf-slugs
                                   'job_kinds job-kinds
+                                  ;; LAY-7: which content types this plugin claims
+                                  ;; an extractor for. Reported for the same reason
+                                  ;; job kinds are — an operator should be able to
+                                  ;; see who reads which format before trusting it.
+                                  'extractors (extractors-of-plugin id)
                                   ;; issue #43: does this plugin have a page to open?
                                   ;; A boolean, never the path — the listing is JSON
                                   ;; on an API and the server's layout is not the
