@@ -82,7 +82,11 @@
                          (let loop ()
                            (sleep (max 1 (quotient lease 3)))
                            (define-values (code resp)
-                             (post (format "/api/workers/jobs/~a/heartbeat" id) (hasheq 'claim_token token)))
+                             ;; `state` rides on the heartbeat (issue #58), so an
+                             ;; operator reading GET /api/executors sees "busy"
+                             ;; rather than inferring it from a timestamp
+                             (post (format "/api/workers/jobs/~a/heartbeat" id)
+                                   (hasheq 'claim_token token 'state "busy")))
                            (cond
                              [(= code 200) (loop)]
                              [else
@@ -110,10 +114,25 @@
     (printf "job ~a (~a): ~a\n" id kind (if (= code 200) "done" (format "complete refused (HTTP ~a)" code)))))
 
 (printf "telemachus-worker → ~a  models ~a  kinds infer.chat\n" BASE (if (null? MODELS) "(any)" (string-join MODELS ",")))
+
+;; Say so on the way out (issue #58). A worker that is stopped — Ctrl-C, a
+;; systemd stop, a drain before maintenance — otherwise just goes quiet, and
+;; quiet is what a CRASHED worker looks like. One request turns an operator's
+;; guess into a fact; it is best-effort, because a host being torn down may have
+;; no network left and failing the shutdown over that would be worse.
+(define (report-paused!)
+  (with-handlers ([exn:fail? void])
+    (post "/api/workers/state" (hasheq 'state "paused"))
+    (printf "telemachus-worker: reported paused\n")))
+(plumber-add-flush! (current-plumber) (lambda (_) (report-paused!)))
+
 (let loop ()
   (define-values (code resp)
     (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq 'error (exn-message e))))])
-      (post "/api/workers/claim" (hasheq 'kinds '("infer.chat") 'models MODELS 'max_wait 20))))
+      (post "/api/workers/claim" (hasheq 'kinds '("infer.chat") 'models MODELS 'max_wait 20
+                                         ;; about to long-poll, so by definition
+                                         ;; there is capacity for another job
+                                         'state "ready"))))
   (cond
     [(and (= code 200) (hash? resp) (string? (hash-ref resp 'id #f))) (run-job resp)]
     [(= code 204) (void)]

@@ -111,6 +111,8 @@ executors  + mode        text not null default 'push'     -- push | pull
            + token_id    text null                        -- the worker token (pull only)
            + capabilities text not null default '{}'      -- {kinds:[…], models:[…]}
            + last_seen_at, status                         -- health from heartbeats
+           + worker_state text null                       -- PULL-11: ready|busy|paused, as REPORTED
+           + state_epoch  bigint null                     -- when it said so (epoch seconds)
 jobs       + executor_id  text null                       -- who holds it
            + lease_until  bigint null                     -- epoch seconds; null for in-process
            + attempt      integer not null default 1
@@ -156,7 +158,8 @@ Model routing:
    the scripted mock model, a chat routed through it end to end.
 4. TEN‑2e: `POST /api/org/executors` for an org admin; the org gate on offers.
 5. Admin › Compute lists pull executors with health; a worker that stops
-   heartbeating goes `stale`.
+   heartbeating goes `stale`, and one that reported `paused` is shown as
+   deliberately drained rather than guessed at.
 
 ## As built
 
@@ -182,12 +185,25 @@ Model routing:
   not there.)
 - **Health is derived**, not stored: `never-seen`, `active`, `stale` (no claim or
   heartbeat for 3 × the lease), `retired`.
+- **What the worker SAYS is a second question** (PULL-11, issue #58).
+  `worker_state` is `ready` / `busy` / `paused`, a closed vocabulary, reported by
+  the worker and kept beside the derived `status` rather than folded into it: a
+  paused host is **alive and refusing**, and `status` keeps answering only "is it
+  alive". `POST /api/workers/state` is the authoritative channel — a drained
+  worker has stopped claiming and holds no job to heartbeat, so without it the
+  only thing left to read is a silence that looks like a crash — and `state` is
+  accepted on claim and heartbeat so the normal loop needs no extra request. A
+  call that names no state leaves the stored one alone, so a worker written
+  against the old wire still reads as "never reported"; once the row goes
+  **stale** the reported state is withdrawn rather than repeated.
 - The `executors` table holds API-created executors (push or pull); the
   `TELEMACHUS_EXECUTORS` push entries stay in memory as before, and the two are
   merged in `GET /api/executors`. Retiring a pull executor revokes its token and
   returns any job it holds to the queue.
 - The reference worker's only job kind is `infer.chat`; a worker written in
-  another language needs the four calls and nothing else.
+  another language needs the four calls and nothing else. It reports `ready` on
+  each claim, `busy` on each heartbeat and `paused` on the way out, the last
+  best-effort — a host being torn down may have no network left.
 
 ## Decisions (confirmed 15 Sep 2026)
 

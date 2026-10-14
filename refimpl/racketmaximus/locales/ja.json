@@ -1288,6 +1288,10 @@
       "text": "同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。",
       "hash": "b7e4ec3d446974eff8f49c3c7d506b4ceb5fbb4d"
     },
+    "doc.route.post.api.workers.state": {
+      "text": "プル型ワーカーが自分の状態を報告する：{state} — ready、busy、paused のいずれか。ジョブを保持していないワーカーが使える唯一の経路です：停止中のホストは取得を止めており、ハートビートを送るジョブも持たないため、これが無ければその沈黙を障害と区別できません。`state` は claim とハートビートでも受け付けるので、通常のループに追加のリクエストは不要です。state を指定しない呼び出しは、保存済みの状態をそのまま残します。",
+      "hash": "192c06e57bc1c4015dbf99a2a27a832647f1edcd"
+    },
     "ui.brandthemereset": {
       "text": "テーマをリセット",
       "hash": "d8726c4de543a6d05fd3b09750488193ab6c3572"

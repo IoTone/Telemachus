@@ -1287,6 +1287,10 @@
       "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it.",
       "hash": "b7e4ec3d446974eff8f49c3c7d506b4ceb5fbb4d"
     },
+    "doc.route.post.api.workers.state": {
+      "text": "A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone.",
+      "hash": "192c06e57bc1c4015dbf99a2a27a832647f1edcd"
+    },
     "ui.brandthemereset": {
       "text": "Reset theme",
       "hash": "d8726c4de543a6d05fd3b09750488193ab6c3572"
