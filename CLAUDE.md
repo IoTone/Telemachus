@@ -1212,9 +1212,9 @@ Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
   catalog loaded from a plugin directory would carry none of that.
 - ~~A worker cannot report ready/paused.~~ **Built as PULL‑11** — see below.
   ~~A releasable claim that does not spend an attempt.~~ **Built as PULL‑12**
-  (#61). Still open: #59 (purge a finished job's payload), #60 (worker-token
-  expiry with a rotation overlap), #62 (writable derived objects from a worker
-  result).
+  (#61). ~~Writable derived objects from a worker result.~~ **Built as PULL‑13**
+  (#62) — see below. Still open: #59 (purge a finished job's payload), #60
+  (worker-token expiry with a rotation overlap).
 
 ```sh
 raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, the refund
@@ -1261,6 +1261,39 @@ indistinguishable.
 ```sh
 raco test test/pull-tests.rkt   # the closed vocabulary, silence, the stale withdrawal
 bash test/pull-smoke.sh         # section 6, 10 assertions over HTTP
+```
+
+## A worker writes back a derived document (PULL‑13, issue #62)
+
+Built 15 Oct 2026 — the write counterpart of PULL‑9, and LAY‑6's asymmetry closed
+for remote workers. `POST /api/workers/jobs/:id/derive`; `worker-derive!` in
+`domain/exec/pull.rkt`; decision block PULL‑13 in `docs/design/decisions.md`.
+
+- **There is no standalone put.** `source` must appear in the job's own payload —
+  the derivation IS the warrant for the write. A worker token is not a key to the
+  team's repository, for a write exactly as PULL‑9 said for the read.
+- **The write happens as the JOB'S user**: `can?` (files:write), the storage
+  quotas and the org gate decide, no new authorization code. A refusal from the
+  write itself (an invalid key, a quota) comes back VERBATIM as the 403 — the
+  target is the worker's own new object, not somebody's secret. A forbidden
+  SOURCE and a missing one stay one answer (`no-such-document`), as in the read.
+- **`derive!`'s rule to the letter**: `repo-put!` takes the source's visibility,
+  THEN `repo-inherit!` copies the grants and writes the derivation row — never
+  reorder — and `#:derived?` is set so an opted-in trigger cannot fire on a
+  worker's own output.
+- Bytes are base64 on the existing wire, capped at `TELEMACHUS_MAX_UPLOAD` — a
+  worker is not a way past the front door's ceiling. Too big for that is what the
+  S3 listener is for.
+- Audited `job.document.derived` (actor the executor, team the job's): the
+  derivation row cannot say a MACHINE wrote the document, or which one.
+- The fence is the attempt (lease + `claim_token`), and a `canceling` job writes
+  nothing — SCHED‑8's rule for results, applied to outputs.
+- This is JUDGE‑8's missing half: a `judge.typed` worker can write its verdict
+  back as a document beside the material it judged.
+
+```sh
+raco test test/pull-tests.rkt   # the fence, the anchor, inheritance, can?
+bash test/pull-smoke.sh         # section 8b, 7 assertions over HTTP
 ```
 
 ## The worker fleet, seen (FLEET‑2, issue #70)

@@ -25,7 +25,7 @@
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
          (only-in "../ai/content.rkt" content->text)
-         (only-in "../repo/repo.rkt" repo-open)
+         (only-in "../repo/repo.rkt" repo-open repo-get repo-put! repo-inherit!)
          (only-in "../repo/extract.rkt" extract-text)
          (only-in "../../config.rkt" max-upload-bytes)
          racket/port net/base64
@@ -35,7 +35,7 @@
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! worker-release! reap-leases!
-         worker-document worker-report-state! executor-set-admin-state!
+         worker-document worker-derive! worker-report-state! executor-set-admin-state!
          executor-can-run? executor-secret executor-context
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES ADMIN-STATES
          RELEASE-REASONS MAX-RELEASES RELEASE-BACKOFF
@@ -660,6 +660,80 @@
                        'version_id (hash-ref o 'version_id)
                        'size (bytes-length bs)
                        'bytes_b64 (bytes->string/utf-8 (base64-encode bs #""))))])])]))
+
+;; issue #62: the WRITE counterpart of PULL-9. A worker puts a document DERIVED
+;; from one its own job names — the text layer an OCR box produced, the verdict a
+;; judge host decided — and the asymmetry LAY-6 closed for out-of-process plugins
+;; closes here for remote workers. Same three conditions as the read, and the
+;; same "no new authorization code":
+;;
+;;   1. the caller holds THIS attempt (lease + claim_token);
+;;   2. `source` appears in the job's own payload. The derivation is the whole
+;;      warrant for the write — a worker token is not a key to the team's
+;;      repository, and an output anchored to nothing would be exactly that.
+;;      There is deliberately no standalone put;
+;;   3. the write happens as the JOB'S OWN USER, so `can?` (files:write), the
+;;      storage quotas and the org gate all decide as they would for that person.
+;;
+;; The output follows derive!'s rule to the letter: repo-put! takes the SOURCE's
+;; visibility, and only then does repo-inherit! copy the grants and write the
+;; derivation row — never reorder those — and #:derived? is set so an opted-in
+;; trigger cannot fire on a worker's own output, the loop that bit the pipeline
+;; once already. Bytes ride base64 over the existing wire, capped at
+;; TELEMACHUS_MAX_UPLOAD: a worker is not a way past the front door's ceiling.
+(define (worker-derive! conn ex job-id #:token [token #f]
+                        #:source [source-id ""] #:key [key ""] #:bytes-b64 [b64s ""]
+                        #:content-type [ct ""] #:filename [fn ""])
+  (define v (holder-check conn ex job-id token))
+  (cond
+    [(not (eq? v 'ok)) v]
+    [(string=? source-id "") 'no-source]
+    [(string=? key "") 'no-key]
+    [(string=? b64s "") 'no-bytes]
+    [else
+     (define bs (with-handlers ([exn:fail? (lambda (_) #f)])
+                  (base64-decode (string->bytes/utf-8 b64s))))
+     (cond
+       [(or (not bs) (zero? (bytes-length bs))) 'bad-bytes]
+       [(> (bytes-length bs) (max-upload-bytes)) 'too-large]
+       [else
+        (define r (query-row conn "SELECT team_id, user_id, payload FROM jobs WHERE id = ?" job-id))
+        (define payload (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                          (string->jsexpr (vector-ref r 2))))
+        (cond
+          [(not (member source-id (jsexpr-strings payload))) 'not-in-job]
+          [else
+           (define p (user-principal conn (vector-ref r 1) (vector-ref r 0)))
+           ;; as in the read: a forbidden source and a missing one collapse to ONE
+           ;; answer, so a payload id can never be used as an existence oracle
+           (define src (with-handlers ([exn:fail? (lambda (_) #f)])
+                         (repo-get conn p source-id)))
+           (cond
+             [(not src) 'no-such-document]
+             [else
+              ;; a refusal from the write itself — files:write, an invalid key, a
+              ;; storage quota — is the JOB USER's refusal and comes back verbatim:
+              ;; the worker needs to know why, and the target is its own new object,
+              ;; not somebody's secret
+              (with-handlers ([exn:fail? (lambda (e) (cons 'refused (exn-message e)))])
+                (define o (repo-put! conn p #:key key #:port (open-input-bytes bs)
+                                     #:content-type (if (string=? ct "") "application/octet-stream" ct)
+                                     #:filename (if (string=? fn "") key fn)
+                                     #:visibility (hash-ref src 'visibility)
+                                     #:max-bytes (max-upload-bytes)
+                                     #:derived? #t))
+                (repo-inherit! conn p #:source (hash-ref src 'id) #:target (hash-ref o 'id))
+                (audit! conn #:action "job.document.derived" #:actor-type "executor"
+                        #:actor-id (hash-ref ex 'id) #:team-id (vector-ref r 0)
+                        #:resource-type "repo_object" #:resource-id (hash-ref o 'id)
+                        #:meta (jsexpr->string (hasheq 'job_id job-id
+                                                       'executor (hash-ref ex 'name "")
+                                                       'source source-id
+                                                       'key (hash-ref o 'key))))
+                (hasheq 'ok #t
+                        'object_id (hash-ref o 'id) 'version_id (hash-ref o 'version_id)
+                        'key (hash-ref o 'key) 'version (hash-ref o 'version)
+                        'derived_from (hash-ref src 'id)))])])])]))
 
 ;; an expired lease returns the job to the queue with attempt+1; past MAX-ATTEMPTS
 ;; it fails with the reason. Called from the scheduler's idle tick and by tests.

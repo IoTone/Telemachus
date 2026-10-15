@@ -1882,6 +1882,10 @@
     [(not-in-job) (err "that document is not named by this job's payload" 403)]
     [(no-such-document) (err "no such document, or not one this job's user may read" 404)]
     [(too-large) (err "document is over the inline-read ceiling (TELEMACHUS_MAX_UPLOAD)" 413)]
+    [(no-source) (err "a source object id is required — a worker's output must derive from a document its job names" 400)]
+    [(no-key) (err "a key is required" 400)]
+    [(no-bytes) (err "bytes_b64 is required" 400)]
+    [(bad-bytes) (err "bytes_b64 is not valid base64" 400)]
     [else (err "not found" 404)]))
 ;; issue #24: every write about a claimed job carries the attempt's claim_token,
 ;; which the claim response handed the worker. A worker that sends none is refused
@@ -1923,6 +1927,20 @@
                                #:version (let ([x (hash-ref b 'version #f)]) (and (string? x) x))
                                #:as (let ([a (hash-ref b 'as #f)]) (if (string? a) a "bytes"))))
     (if (hash? v) (json-response v) (worker-verdict v id)))))
+
+;; issue #62: the write counterpart. The fence and the derive rule are in
+;; pull.rkt; a refusal from the write itself (files:write, an invalid key, a
+;; storage quota) is the JOB USER's refusal and comes back verbatim as a 403.
+(define (ep-worker-derive req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (define (s k) (let ([v (hash-ref b k #f)]) (if (string? v) v "")))
+    (define v (worker-derive! db-conn ex id #:token (claim-token-of b)
+                              #:source (s 'source) #:key (s 'key) #:bytes-b64 (s 'bytes_b64)
+                              #:content-type (s 'content_type) #:filename (s 'filename)))
+    (cond [(hash? v) (json-response v)]
+          [(and (pair? v) (eq? (car v) 'refused)) (err (cdr v) 403)]
+          [else (worker-verdict v id)]))))
 
 (define (ep-worker-fail req id)
   (with-worker req (lambda (p ex)
@@ -2939,6 +2957,7 @@
    'search ep-search 'audit ep-audit
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
    'worker-document ep-worker-document
+   'worker-derive ep-worker-derive
    'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants
    'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign

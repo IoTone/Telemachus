@@ -556,6 +556,32 @@ its in-flight job comes back un-charged, and another worker takes it at once.
 **A third-party worker needs no change.** `release` is a new endpoint; a worker
 that never calls it behaves exactly as before.
 
+## A worker writes a derived document (PULL‑13) — **decided and BUILT 15 Oct 2026** (issue #62)
+
+The write counterpart of PULL‑9, and the asymmetry LAY‑6 closed for out-of-process
+plugins, closed for remote workers: an OCR or CV worker could read the bytes its
+job named and had nowhere to put the text layer or the annotated page it produced.
+Its only channel back was the job's `result` — a jsexpr the kind validates, not a
+document anything can search, share or run a pipeline on.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **PULL‑13a** | What warrants the write | **The output must DERIVE from a document the job's payload names — there is no standalone put** · vs any write the job's user could make | A worker token is not a key to the team's repository; it opens the documents the job it is running is about. PULL‑9 drew that line for the read, and a write anchored to nothing would erase it: the warrant for `files:write` here is the derivation itself. A kind that genuinely needs a free-standing write is a kind whose handler should run in-process or as an out-of-process plugin (LAY‑6), where the scope was declared. |
+| 🔑 **PULL‑13b** | Who the write belongs to | **The job's own user, with `can?`, the storage quotas and the org gate deciding** · vs the executor as a principal | PULL‑9's rule, unchanged: no new authorization code. The worker acts for the person whose job it runs, so a viewer's job cannot write where a viewer could not, and the bytes are charged to the right team's `storage.bytes`. An executor-as-principal would need its own grants, its own quota subject and its own org story — three new mechanisms to misalign. |
+| 🔑 **PULL‑13c** | What the output inherits | **`derive!`'s rule to the letter: the source's visibility at `repo-put!`, THEN `repo-inherit!` copies grants and writes the derivation row** · vs team-visible output · vs no inheritance | A private scan's text layer must be private from its first byte — inheritance after a visible write is a window, and DSH‑5 already decided the order. The derivation row is also the provenance `object-processing` reads, so a worker's output shows up beside a pipeline's in "Processed by". |
+| **PULL‑13d** | Triggers on the output | **`#:derived?` is set, so an opted-in trigger never fires on a worker's own output** · vs letting it fire | The loop that bit the pipeline once already (DWF‑3): a trigger on `text/plain` firing on the OCR text it caused. `fire_on_derived` still means what it means — OTHER pipelines' outputs. |
+| **PULL‑13e** | How refusals come back | **A refusal from the write itself (files:write, an invalid key, a storage quota) comes back VERBATIM; a forbidden source and a missing one stay ONE answer** · vs collapsing everything · vs naming everything | Two different questions. The source is somebody's existing document, so "does not exist" and "not yours" must stay indistinguishable or the payload becomes an existence oracle — PULL‑9's rule. The target is the worker's own new object, and a worker that cannot tell a quota from a typo'd key retries the unretryable. |
+| **PULL‑13f** | The ceiling | **Bytes ride base64 on the existing wire, capped at `TELEMACHUS_MAX_UPLOAD`** · vs multipart · vs a presigned URL | LAY‑6's call, for LAY‑6's reasons: a worker is not a way past the front door's ceiling, a path would couple it to the blob store's layout, and a presigned URL needs the S3 listener and a second credential. An output too large for the inline wire is what the S3 listener is FOR — the job's user can hold an S3 key. |
+| **PULL‑13g** | Visibility of the act | **Audited: `job.document.derived`, actor the executor, team the job's** · vs the derivation row alone | The derivation row says the document came from the source; it does not say a MACHINE wrote it, or which one. FLEET‑1's rule: the audit entry carries the job, the executor and the key, filed under the job's team so the people whose repository grew can see why. |
+
+**The fence is the attempt**, as everywhere on this wire: lease + `claim_token`,
+checked first, and a `canceling` job writes nothing — a canceled job's outputs
+must not land, which is the same rule SCHED‑8 set for its result.
+
+**This is JUDGE‑8's missing half**: a `judge.typed` worker can now write the
+verdict back as a document beside the material it judged, inheriting its
+visibility, before anyone builds the judge itself.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about
