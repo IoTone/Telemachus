@@ -47,6 +47,10 @@
       "text": "Steward a document: change visibility, share and revoke. Owners hold it by owner-ok; a manage grant delegates it for one document.",
       "hash": "5f8597154d7cc35b56f411ca771924735caa2302"
     },
+    "ui.wkidle": {
+      "text": "idle",
+      "hash": "1adbcc344b317c2f3bd64fdac273f8b0dc410cdf"
+    },
     "doc.route.post.api.repo-obj.id.unshare": {
       "text": "Revoke every grant a principal holds on the object.",
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
@@ -83,6 +87,10 @@
       "text": "Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration.",
       "hash": "ce4457cb6abe71b32b8d7f6805f6e5dfa3fa7277"
     },
+    "ui.workershint": {
+      "text": "the hosts that come and claim work",
+      "hash": "908daf7804b4f9ebac0142fd35dce4c1fe0ed188"
+    },
     "ui.reviews": {
       "text": "Review",
       "hash": "e29a79fe0c349724caeaa1762fa917f5543248ca"
@@ -94,6 +102,18 @@
     "doc.route.post.api.branding.logo": {
       "text": "Upload the instance logo (replaces the mark and the wordmark).",
       "hash": "1d6aae8e5cb67d9c8b9623ac227d9a18295f46db"
+    },
+    "ui.wkholding": {
+      "text": "holding",
+      "hash": "329bb6c3b55346c25bd3f35339f2942b972a5966"
+    },
+    "ui.kg_mentions": {
+      "text": "mentions",
+      "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
+    },
+    "doc.route.post.api.executors.id.resume": {
+      "text": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
+      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
     "ui.draftbudget": {
       "text": "AI budget: about {need} tokens needed, {left} remaining today — raise ai.tokens.total in Usage or the drafts will wait",
@@ -122,10 +142,6 @@
     "doc.route.post.api.beta.experience.publish": {
       "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
       "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
-    },
-    "ui.kg_mentions": {
-      "text": "mentions",
-      "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
     },
     "doc.route.post.api.members": {
       "text": "Add a member to the caller's team with a role; returns the new member's first token.",
@@ -199,6 +215,10 @@
       "text": "Copied",
       "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
     },
+    "ui.wkresumedok": {
+      "text": "Back in rotation",
+      "hash": "0654fd8c4e356e508ed93b2250c5b0d9714ec6a7"
+    },
     "doc.tool.repo_extract_text.id": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
@@ -231,6 +251,14 @@
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.",
       "hash": "a23ae826a41c12acc5e93a274177b49fc2f65a41"
     },
+    "doc.tool.word_count.text": {
+      "text": "The text to count words in",
+      "hash": "9f6ee81cda8dc3daf6b0a143f188de3f949664b0"
+    },
+    "ui.qsubhint": {
+      "text": "A sub-job: another job is waiting on this one, so it is exempt from the team's concurrency cap — its parent already holds a slot.",
+      "hash": "7d8d12ba572f48a24f7f38ce8131c8d0af1eb9a5"
+    },
     "doc.tool.doc_extract_fields.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
@@ -238,10 +266,6 @@
     "http.already_initialized": {
       "text": "Already initialized.",
       "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
-    },
-    "doc.tool.word_count.text": {
-      "text": "The text to count words in",
-      "hash": "9f6ee81cda8dc3daf6b0a143f188de3f949664b0"
     },
     "ui.kg_alltypes": {
       "text": "any type",
@@ -303,6 +327,10 @@
       "text": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",
       "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
     },
+    "ui.qage": {
+      "text": "waiting",
+      "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
+    },
     "ui.prompt": {
       "text": "Prompt",
       "hash": "a817d7eb8e0f1dab755ab5203a082e5c3c094fce"
@@ -362,6 +390,10 @@
     "ui.source": {
       "text": "Source",
       "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "ui.wklease": {
+      "text": "lease",
+      "hash": "3b509b4fe253b562f28c95ab0c8fd686a1c4c4fc"
     },
     "doc.route.delete.api.members.id": {
       "text": "Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed.",
@@ -463,6 +495,10 @@
       "text": "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
     },
+    "ui.wkheldhint": {
+      "text": "The platform is holding this job: it is admissible work waiting on a limit, not a failure, and it starts on its own when the limit clears.",
+      "hash": "e005612afd8302da9676fc5a8c52dfafd076436c"
+    },
     "ui.objects": {
       "text": "Documents",
       "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
@@ -559,6 +595,10 @@
       "text": "Run workflow…",
       "hash": "48e95b8cd7e8597a1a0079c7013822562a36f1b7"
     },
+    "ui.qattempt": {
+      "text": "try",
+      "hash": "3240aa0fe3ca15051680641a59e8d7b61c286b23"
+    },
     "doc.tool.update_note": {
       "text": "Update a note's title and/or body by id.",
       "hash": "44491022a8c823f95545b85549b446db8e969998"
@@ -591,6 +631,10 @@
       "text": "S3 access keys",
       "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
     },
+    "ui.wklastseen": {
+      "text": "last seen",
+      "hash": "34070b8506d76fea3faf86d7e87fff38fa8d907c"
+    },
     "ui.l10ncoverage": {
       "text": "Coverage",
       "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
@@ -606,6 +650,14 @@
     "authz.bootstrap_done": {
       "text": "Created operator {user} and team {team}.",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "ui.queue": {
+      "text": "Queue",
+      "hash": "d325fcd919384f395c02751e03d2cd0288b98cca"
+    },
+    "ui.link": {
+      "text": "Link",
+      "hash": "d0517071aa376e797705058bbad4b658954b9930"
     },
     "ui.submitjob": {
       "text": "Submit a job",
@@ -647,10 +699,6 @@
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
-    "ui.link": {
-      "text": "Link",
-      "hash": "d0517071aa376e797705058bbad4b658954b9930"
-    },
     "doc.route.get.api.translate": {
       "text": "The team's translation history.",
       "hash": "328c612fc6be4758174e7ae79ba5afd7b9517217"
@@ -667,6 +715,14 @@
       "text": "Target language code, e.g. es, nl, is",
       "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
     },
+    "ui.thbg": {
+      "text": "Background",
+      "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
+    },
+    "ui.wkconfig": {
+      "text": "from file",
+      "hash": "9b86f93c66562c2612bd5a911294e5d3d931fa4c"
+    },
     "ui.resets": {
       "text": "Resets",
       "hash": "da1a3c80185a86b58790c77e17145fc737ff37b5"
@@ -675,6 +731,10 @@
       "text": "a valid email is required",
       "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
     },
+    "ui.wkgotit": {
+      "text": "Got it",
+      "hash": "5b8027fa0e819719a62305a6b15f3f1c10769f7f"
+    },
     "ui.updated": {
       "text": "Updated",
       "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
@@ -682,6 +742,14 @@
     "doc.tool.doc_translate.locale": {
       "text": "Target language code, e.g. ja, nl, es-419",
       "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
+    },
+    "ui.fires": {
+      "text": "History",
+      "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
+    },
+    "ui.wkreports": {
+      "text": "reports",
+      "hash": "0b7ec688eeb9119f72f32b5b0f62681af8cde1a4"
     },
     "doc.perm.files:delete": {
       "text": "Delete repository documents.",
@@ -719,13 +787,21 @@
       "text": "Output format: the template's own (default) or \"pdf\" — Markdown and HTML templates only",
       "hash": "1b790d813f9ab8fbf2f32e9abd208f4c76f44e05"
     },
-    "doc.tool.doc_extract_fields.step": {
-      "text": "The workflow step id, for provenance",
-      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    "ui.wkdrain": {
+      "text": "Drain",
+      "hash": "4e4369e733c095a308c9f110fad31b6a36951fae"
+    },
+    "ui.wkdrained": {
+      "text": "drained",
+      "hash": "07320a06fb6a2b9c7ad4da376fe4d599d42b0331"
     },
     "ui.noruns": {
       "text": "No runs yet.",
       "hash": "7a8b1c283d427ac045b0fa7629bbaf611736e8e3"
+    },
+    "doc.tool.doc_extract_fields.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "ui.uploaded": {
       "text": "Uploaded",
@@ -742,6 +818,10 @@
     "doc.route.post.api.org.executors": {
       "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
       "hash": "218f372f207fb10f594e39772c8cd33624edf803"
+    },
+    "ui.qnoworker": {
+      "text": "no worker",
+      "hash": "27386d4385bbc993141aca01b7448f6b259e700a"
     },
     "ui.reviewverdict_reject": {
       "text": "Rejected",
@@ -767,17 +847,9 @@
       "text": "Drop the company's session timeouts; its users fall back to the instance policy.",
       "hash": "31f74f2824b4a25e07c1aa68ac60f5ae9f5d1ea2"
     },
-    "ui.thbg": {
-      "text": "Background",
-      "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
-    },
     "ui.l10nall": {
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
-    },
-    "ui.fires": {
-      "text": "History",
-      "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
     },
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
@@ -798,6 +870,10 @@
     "doc.route.put.api.branding": {
       "text": "Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it.",
       "hash": "238d31f0df21df92e8e0420bffbd7abb2e899177"
+    },
+    "ui.wkleasehint": {
+      "text": "Time left before the platform assumes this host is gone and returns the job to the queue. The worker extends it with every heartbeat.",
+      "hash": "3b2100aee49efef4beab9dbebb3815fe3c33d88c"
     },
     "ui.reviewapprove": {
       "text": "Approve",
@@ -839,6 +915,10 @@
       "text": "2FA code (if enabled)",
       "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
     },
+    "ui.qdrainorder": {
+      "text": "in the order a free worker will take them",
+      "hash": "636f3dcb0d102e0fcb13aa1df70f89f56132fb29"
+    },
     "doc.route.get.api.beta.asset.id": {
       "text": "Serve one onboarding asset. Public: the funnel and the branding logo load it without a token.",
       "hash": "fac8d41e29fc24770c6447eb425859743bafbc89"
@@ -879,6 +959,14 @@
       "text": "First run — create the first operator",
       "hash": "da6847a10e476c38e1e6115bc9b1a6009437adba"
     },
+    "ui.locavail": {
+      "text": "Shipped in this build",
+      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
+    },
+    "doc.route.post.api.workers.jobs.id.release": {
+      "text": "Hand a job back WITHOUT spending an attempt (issue #61): {claim_token, reason?} — busy, unsupported or shutdown; anything else is recorded as `other` rather than refused, since the worker has already said it cannot run the job. It goes straight back to the queue and any other worker may take it at once, while the releasing executor is not offered it again for 30 seconds — the bound on a release loop, which the untouched attempt counter cannot provide. Past 10 releases the job fails instead, naming the hosts that let it go: work no worker will run needs a person.",
+      "hash": "98c4b195379deac9e9579d8106256baf1f1d4caa"
+    },
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
       "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
@@ -895,13 +983,13 @@
       "text": "One note.",
       "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
     },
-    "ui.locavail": {
-      "text": "Shipped in this build",
-      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
-    },
     "doc.route.post.api.orgs": {
       "text": "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).",
       "hash": "42771b6fee9b1756ecf03cfe50df23b762abae38"
+    },
+    "ui.wkqueued": {
+      "text": "queued for workers",
+      "hash": "e1123cdf2dd36125a8fa154f155699892d47698c"
     },
     "ui.cap_manage": {
       "text": "manage",
@@ -943,13 +1031,17 @@
       "text": "One entry per principal: capability, permissions, granted_by, expiry, expired.",
       "hash": "7cef4b0996d8ecb5227457be4b77a314da1104a4"
     },
-    "ui.translate": {
-      "text": "Translate",
-      "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    "ui.wkdrainhint": {
+      "text": "Taking no new work, by your instruction. It keeps its token and goes on reporting, so you can see it is still there.",
+      "hash": "d58d627bc1814ecd18d76bff9258645723c687f0"
     },
     "ui.usage": {
       "text": "Usage",
       "hash": "0bb18642b70b9f8a9c12ccf39487328f306b8e19"
+    },
+    "ui.translate": {
+      "text": "Translate",
+      "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
     },
     "ui.abslabel": {
       "text": "Maximum session (hours)",
@@ -1059,6 +1151,10 @@
       "text": "Forbidden: {perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
     },
+    "doc.route.post.api.executors.id.drain": {
+      "text": "Take a pull executor out of rotation (FLEET-3): it is offered no new work and keeps its token, so it goes on polling and heartbeating and stays visibly alive. Reversible, unlike a retire, which revokes the token. A job it already holds is left running — stopping work in flight is what cancel is for.",
+      "hash": "263309ad0763809eff362ddeaa035f0451173328"
+    },
     "ui.sharedwith": {
       "text": "Shared with",
       "hash": "6203f44916a227ea2b0c8ec936b090f9d57e31ee"
@@ -1071,13 +1167,17 @@
       "text": "Find an entity",
       "hash": "5ad82ac25c9a7f7dd60bda8cee0b53bcbb7b97cc"
     },
-    "doc.perm.files:write": {
-      "text": "Upload documents and new versions.",
-      "hash": "e5297c6ea126b16479b1f9c5061614283b0a5e65"
+    "ui.wkadd": {
+      "text": "Add a worker",
+      "hash": "f50304c09acf1f4e4ec034fd10fb990f952ed2d4"
     },
     "ui.operator": {
       "text": "operator",
       "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
+    },
+    "doc.perm.files:write": {
+      "text": "Upload documents and new versions.",
+      "hash": "e5297c6ea126b16479b1f9c5061614283b0a5e65"
     },
     "doc.perm.team:create": {
       "text": "Create a team in the company.",
@@ -1159,6 +1259,10 @@
       "text": "Disable",
       "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
     },
+    "ui.wkconfigured": {
+      "text": "configured",
+      "hash": "3be9f957f29f905f10f7b652cab1c95ba8a2c205"
+    },
     "ui.confirmpw": {
       "text": "Confirm password",
       "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
@@ -1186,6 +1290,10 @@
     "doc.route.options.api.beta.signup": {
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "ui.wkcreated": {
+      "text": "Worker created — copy its token now",
+      "hash": "2d2c2cefc85e8b0a3d5c1f4c72c2c9d192e573b5"
     },
     "doc.route.delete.api.repo-obj.id": {
       "text": "Delete an object (blobs are released when no other version references them).",
@@ -1343,6 +1451,14 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.get.api.org.branding": {
+      "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
+      "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "ui.qshowing": {
+      "text": "{from}–{to} of {total}",
+      "hash": "1d79d3c3f0867cec319181decf537a23d774d2b6"
+    },
     "doc.route.post.api.tools.name": {
       "text": "Enable or disable a tool for the team.",
       "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
@@ -1375,6 +1491,10 @@
       "text": "Delete a text document.",
       "hash": "f500abea97efc00a4a244e22ffe02227348e511b"
     },
+    "ui.wknamereq": {
+      "text": "A worker needs a name",
+      "hash": "9bf95dc2013c42b48eee010b6bddd5e357e92dd1"
+    },
     "ui.kg_none": {
       "text": "No entities match. Index documents first, then extract.",
       "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
@@ -1399,6 +1519,10 @@
       "text": "The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health.",
       "hash": "0f04e37ff8172fa65a013f7e48e9af6fa319c0f8"
     },
+    "ui.wkunclaimablewhy": {
+      "text": "nothing in the fleet matches these — check a worker's models, or start one",
+      "hash": "8d290c253e4a7c135c4e2c9f0ea1936dd830c74e"
+    },
     "ui.bytrigger": {
       "text": "trigger",
       "hash": "63d62d4aee9a5d4fe8539e53a9e3d05ffc210c9b"
@@ -1415,9 +1539,17 @@
       "text": "See the team's review queue and the decisions already recorded.",
       "hash": "b9a2936a3b51463412d8340093e3f9f221431016"
     },
-    "doc.route.get.api.org.branding": {
-      "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
-      "hash": "ed143a926240ffabe318645984be613401b30646"
+    "ui.wkstale": {
+      "text": "stale",
+      "hash": "a4e976a3d3fc6d0b40453de216fbbe2e9aaecdc4"
+    },
+    "ui.activate": {
+      "text": "Activate account",
+      "hash": "b9186563deea94527f03558a5ec059806d363c49"
+    },
+    "ui.wkactive": {
+      "text": "active",
+      "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
     "ui.search": {
       "text": "Search",
@@ -1431,13 +1563,17 @@
       "text": "Copy",
       "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
     },
-    "ui.activate": {
-      "text": "Activate account",
-      "hash": "b9186563deea94527f03558a5ec059806d363c49"
-    },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
+    },
+    "ui.wkresume": {
+      "text": "Resume",
+      "hash": "b3bd0b5a70497bec4a02b7eb1cb0d4f37eb71a2a"
+    },
+    "doc.route.get.api.admin.queue": {
+      "text": "The queue, job by job, across every team (FLEET-4): each row's age, attempt, holder, lease countdown, and — for a queued one — why the platform is holding it (`waiting`, the same reason GET /api/jobs gives) and whether any live worker can run it at all (`runnable`). Filters `kind`, `status`, `executor`, `team`; pages with `limit` (max 200) and `offset`; `total` is the count for the filter. Asked for `status=queued` the list is the claim's own order, so position 1 really is next — `order` says which ordering you got. It carries no payload and no result: a queue is managed by kind, age, team and holder, and this read crosses every team on the instance.",
+      "hash": "b83d488c8da62ed3334ddfa5ad9218a6fb91eea2"
     },
     "doc.tool.doc_render": {
       "text": "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is \"pdf\" (a Markdown or HTML template, converted with pandoc and tectonic).",
@@ -1454,6 +1590,26 @@
     "doc.route.get.api.beta.assets": {
       "text": "List the team's onboarding assets.",
       "hash": "20267ee4b84d7009da89c1736bcffcc39db17a42"
+    },
+    "ui.wktoken": {
+      "text": "worker token — shown once",
+      "hash": "9acc8acb71039219d6d109fcea4f14ba824ddafc"
+    },
+    "beta.verify_failed": {
+      "text": "verification failed — reload the page",
+      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
+    },
+    "ui.wklocalhint": {
+      "text": "the model this instance calls itself, in process — it claims nothing and cannot be drained",
+      "hash": "86c4c4eb2c336125df1fcb5739eadf5cbd38b723"
+    },
+    "ui.qkind": {
+      "text": "kind",
+      "hash": "0ef25ae00f40c8471ee44b720036abcc25e96cee"
+    },
+    "doc.perm.org:read": {
+      "text": "See the company, its teams, members and audit trail.",
+      "hash": "05279417b614668317d0b96f13b779958ddfcdda"
     },
     "doc.route.post.api.admin.seed-tenants": {
       "text": "Seed Acme and Globex with known dev passwords — demo fixture only.",
@@ -1475,10 +1631,6 @@
       "text": "You can raise it below.",
       "hash": "fcf24e7c78cf03fabbab4d6d138fc343406ee1b9"
     },
-    "doc.perm.org:read": {
-      "text": "See the company, its teams, members and audit trail.",
-      "hash": "05279417b614668317d0b96f13b779958ddfcdda"
-    },
     "notes.saved": {
       "text": "Note saved.",
       "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
@@ -1494,6 +1646,10 @@
     "doc.route.get.api.org.session-policy": {
       "text": "The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied.",
       "hash": "5c0202597a8e09cba5a7be8019aa70cc95b12960"
+    },
+    "ui.wknone": {
+      "text": "No workers yet. A worker is a machine that asks for jobs instead of waiting to be called, which is how inference runs on a box of its own.",
+      "hash": "53b0b75a64144d923a38f4048d4cf8c4baf42130"
     },
     "ui.capability": {
       "text": "Can",
@@ -1527,6 +1683,10 @@
       "text": "Revoke",
       "hash": "0be720759ff04d13c5706881d5d227a2621f91a6"
     },
+    "ui.wkwindow": {
+      "text": "24h",
+      "hash": "0277959611310976682872bcb5d6423aa581a202"
+    },
     "ui.logout": {
       "text": "Sign out",
       "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
@@ -1551,9 +1711,17 @@
       "text": "Authentication required.",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
+    "ui.wkunclaimable": {
+      "text": "no worker can run",
+      "hash": "a857f59c856ab5b3b401c3e20f5a599694377503"
+    },
     "doc.plugin.rs3": {
       "text": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
       "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
+    },
+    "ui.wkoldest": {
+      "text": "oldest wait",
+      "hash": "cc4efe854cfcc0888cf273842d580e8d78d05956"
     },
     "ui.draftqueued": {
       "text": "Queued {n} strings in {b} batch(es) — they land as “machine” for review",
@@ -1563,13 +1731,13 @@
       "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
       "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
     },
+    "ui.wklocal": {
+      "text": "local",
+      "hash": "939bb46a04c3640c8c427e92b1b557e882e2d2a0"
+    },
     "doc.route.get.api.workflows": {
       "text": "The team's workflow definitions, plugin-contributed ones materialized on first look.",
       "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
-    },
-    "beta.verify_failed": {
-      "text": "verification failed — reload the page",
-      "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
     },
     "ui.addtrigger": {
       "text": "Add trigger",
@@ -1647,6 +1815,14 @@
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "ui.qrecentorder": {
+      "text": "newest first",
+      "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
+    },
+    "doc.perm.research:use": {
+      "text": "Use the research surfaces.",
+      "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
+    },
     "ui.thfont": {
       "text": "Font",
       "hash": "b97c4d4cddf23ec47395af460f9e28df2a0f9b04"
@@ -1666,6 +1842,10 @@
     "ui.reviewof": {
       "text": "Under review",
       "hash": "7e3e171a15d4c42296765868f4131af6df1b2400"
+    },
+    "ui.wkhealth": {
+      "text": "health",
+      "hash": "834b34f16f451e00f268dd5c8c81d16e3c020275"
     },
     "ui.sourcetext": {
       "text": "Text to translate",
@@ -1723,13 +1903,13 @@
       "text": "The template document's object id or key",
       "hash": "af52889b1f6ef204aecd17b5f6775b46587791f8"
     },
+    "ui.wkpaused": {
+      "text": "paused",
+      "hash": "11b1b5ec9167678979a0e6e703210380431292a8"
+    },
     "doc.route.options.api.beta.config": {
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
-    },
-    "doc.perm.research:use": {
-      "text": "Use the research surfaces.",
-      "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
     },
     "doc.perm.notes:write": {
       "text": "Create and edit notes.",
@@ -1975,6 +2155,10 @@
       "text": "Share notes one does not own.",
       "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
     },
+    "ui.wkwindowhint": {
+      "text": "Finished, failed, and leases that expired on this host in the last 24 hours. An expiry means the host stopped answering while it held a job; the job went back to the queue.",
+      "hash": "4ef5c224df2afcfd1006f4e8d1cfda09af18fdbc"
+    },
     "ui.l10nsource": {
       "text": "English",
       "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
@@ -2115,6 +2299,14 @@
       "text": "Workflows",
       "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
     },
+    "doc.tool.kg_extract.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "ui.wkretireconfirm": {
+      "text": "Retire {name}? Its worker token is revoked for good and any job it is holding goes back to the queue. To take it out of rotation for a while, drain it instead.",
+      "hash": "bc19355c997cb1ed7a6b083c2784e3544d5dd4e7"
+    },
     "ui.signingin": {
       "text": "Signing in…",
       "hash": "c66b2adcc5fc9f594be38f098d54c7b610e46e57"
@@ -2131,13 +2323,17 @@
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
-    "doc.tool.doc_render.data": {
-      "text": "The data to fill in, e.g. the extracted fields",
-      "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
+    "ui.qempty": {
+      "text": "Nothing in the queue.",
+      "hash": "40996f618a89348d223f7e1c58562e5f21a17a92"
     },
     "doc.perm.instance:*": {
       "text": "Everything at the instance tier; the operator (superadmin).",
       "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
+    },
+    "doc.tool.doc_render.data": {
+      "text": "The data to fill in, e.g. the extracted fields",
+      "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
     },
     "ui.tool": {
       "text": "Tool",
@@ -2163,6 +2359,22 @@
       "text": "File",
       "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
     },
+    "doc.route.post.api.notes.id.share": {
+      "text": "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.",
+      "hash": "0d2759fa361a325bf38191358c553fe0a8002de5"
+    },
+    "ui.wkretire": {
+      "text": "Retire",
+      "hash": "c9714c15af397514e267a29a83a2669dfe33365a"
+    },
+    "ui.wktokenhint": {
+      "text": "Copy it now. It is not stored anywhere you can read it again; if it is lost, retire this worker and add another.",
+      "hash": "925a07646bf14ebbdc4c79aa7721890a308b7cab"
+    },
+    "ui.runs": {
+      "text": "Runs",
+      "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
+    },
     "doc.route.post.api.instance.quota": {
       "text": "Hosted mode: set a quota limit for the tenant's team.",
       "hash": "bf7f950d26b1d684525c5d31a52a0a5d4d6b8eff"
@@ -2187,6 +2399,10 @@
       "text": "Name",
       "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
     },
+    "ui.wkunclaimablehint": {
+      "text": "Queued jobs that no live worker's declared models or kinds match. A job merely waiting for its team's AI budget is NOT counted here — the Jobs tab says so on the job itself.",
+      "hash": "167138294324197d2e1fc09e884b409989383bc7"
+    },
     "doc.perm.org:read-data": {
       "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
@@ -2198,6 +2414,10 @@
     "ui.derivedfrom": {
       "text": "Derived from",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
+    },
+    "ui.wkdrainedok": {
+      "text": "Drained — it will take no new work",
+      "hash": "246fc76ae576b20edd7a5e8812a3377eb2d86556"
     },
     "doc.tool.shipment_eta.lane": {
       "text": "Lane, e.g. SIN-LAX",
@@ -2219,6 +2439,14 @@
       "text": "No workflow has processed this document yet.",
       "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
+    "doc.route.post.api.org.members": {
+      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
+      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
+    },
+    "ui.wkconfighint": {
+      "text": "Declared in executors.json, which owns its names — this instance reads the file at boot. It cannot be drained or retired from here; edit the file and restart.",
+      "hash": "d5d932cb85c95519ae589645b8d35d59e2b8df96"
+    },
     "doc.route.post.api.orgs.ref.resume": {
       "text": "Resume a suspended company.",
       "hash": "fd7cd74e0a0889ebca0df4ecd0a42fa78193c537"
@@ -2226,10 +2454,6 @@
     "ui.brandclearlogo": {
       "text": "Remove logo",
       "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
-    },
-    "doc.route.post.api.org.members": {
-      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
-      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
     },
     "ui.target": {
       "text": "Target language",
@@ -2239,10 +2463,6 @@
       "text": "Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's.",
       "hash": "23fd5bd1c7e8fee805e5dd4078b9fd51b7cf2030"
     },
-    "doc.tool.kg_extract.object": {
-      "text": "The repository object id",
-      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
-    },
     "doc.perm.webhooks:manage": {
       "text": "Configure outbound webhooks.",
       "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
@@ -2251,17 +2471,13 @@
       "text": "Team AI platform — reference implementation",
       "hash": "376a8698238975b4eeda809c249ad17e73944eda"
     },
-    "doc.route.post.api.notes.id.share": {
-      "text": "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.",
-      "hash": "0d2759fa361a325bf38191358c553fe0a8002de5"
-    },
-    "ui.runs": {
-      "text": "Runs",
-      "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
-    },
     "ui.details": {
       "text": "Details",
       "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
+    },
+    "ui.wktokenph": {
+      "text": "the token above",
+      "hash": "6c5eea7d641d807896857c89deba0ca6ac4f3601"
     },
     "doc.route.post.api.runs.id.cancel": {
       "text": "Cancel a run; a step already executing finishes, the next never starts.",
@@ -2347,6 +2563,10 @@
       "text": "Entity",
       "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
     },
+    "ui.workers": {
+      "text": "Workers",
+      "hash": "b6ef3acd0f91c0c6e2a6bad2692c8aa84dfc4c73"
+    },
     "doc.route.put.api.repo.key": {
       "text": "Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here.",
       "hash": "784e7b58fcc81205c89dbf99ed8044ef8f8fa28f"
@@ -2371,6 +2591,10 @@
       "text": "The console.",
       "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
     },
+    "ui.wkaddhint": {
+      "text": "Creates the worker token this host signs in with. The token is shown once, here, and never again.",
+      "hash": "941270892ca682b26a07e164797fc6522ebc43f2"
+    },
     "ui.reject": {
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
@@ -2391,9 +2615,17 @@
       "text": "Shared",
       "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
     },
+    "ui.wkunreportedhint": {
+      "text": "This worker has never said what it is doing. It was written against an older protocol, or it has not claimed yet — not a fault.",
+      "hash": "3b3ff5a8019733c73cc6f9496176e19394352d2f"
+    },
     "ui.bxtouch": {
       "text": "We’ll be in touch.",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "ui.qsub": {
+      "text": "sub",
+      "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
     },
     "doc.route.get.api.org": {
       "text": "The caller's own company.",

@@ -202,9 +202,75 @@ assert "…and neither can a stranger" \
   "$(curl -s -o /dev/null -w '%{http_code}' $B/api/admin/workers)" '401'
 
 echo
+echo "== 6b. issue #61: a worker hands a job back without spending an attempt =="
+RJ=$(P /api/jobs '{"kind":"infer.chat","payload":{"messages":[{"role":"user","content":"release me"}]}}')
+RJID=$(printf '%s' "$RJ" | jq_ 'd["id"]')
+RCL=$(curl -s -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"]}')
+RFENCE=$(printf '%s' "$RCL" | jq_ 'd["claim_token"]')
+RATT=$(printf '%s' "$RCL" | jq_ 'd["attempt"]')
+WR(){ curl -s -X POST $B/api/workers/jobs/$RJID/release -H "Authorization: Bearer $WT" -d "$1"; }
+# Fenced exactly like complete and fail: a stale token tells a stranger nothing.
+assert "a release needs the attempt's token" "$(WR '{"claim_token":"nope"}')" 'not the lease holder'
+assert "release"                            "$(WR "{\"claim_token\":\"$RFENCE\",\"reason\":\"unsupported\"}")" '"ok":true'
+assert "…the job is queued again"           "$(G /api/jobs/$RJID)" '"status":"queued"'
+# The whole point: the job is not blamed for the worker's problem.
+RATT2=$(G /api/jobs/$RJID | jq_ 'd["attempt"]')
+assert "…and it spent no attempt"           "$RATT2" "$RATT"
+# The releasing box waits out a cool-off — the bound on a release loop, which an
+# untouched attempt counter cannot provide.
+assert "…and the releaser is not handed it straight back" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"]}')" '204'
+# An operator can see a job workers keep handing back; `attempt` cannot show it.
+assert "the queue view counts the releases"  "$(G '/api/admin/queue?status=queued')" '"releases":1'
+assert "a user token is not a worker here"   "$(curl -s -X POST $B/api/workers/jobs/$RJID/release -H "Authorization: Bearer $TOK" -d '{}')" 'not bound to an executor'
+curl -s -X POST $B/api/jobs/$RJID/cancel -H "Authorization: Bearer $TOK" >/dev/null
+
+echo
+echo "== 7b. FLEET-4: the queue, job by job =="
+assert "the queue read pages and totals"      "$(G /api/admin/queue)" '"total"'
+assert "…and says which ordering you got"     "$(G /api/admin/queue)" '"order":"recent"'
+# Asked for the queued rows it is the claim's own order, so row 1 really is next.
+# A list that LOOKED ordered and was not would mislead about what runs next.
+assert "…drain order when asked for queued"   "$(G '/api/admin/queue?status=queued')" '"order":"drain"'
+assert "a filter narrows rather than being ignored" \
+  "$(G '/api/admin/queue?kind=no.such.kind')" '"total":0'
+assert "…and the page is clamped, not refused" "$(G '/api/admin/queue?limit=9999')" '"limit":200'
+# A queue is managed by kind, age, team and holder. This read crosses every team
+# on the instance, so a team's prompt does not travel with the row.
+assert "no payload travels with a cross-team row" \
+  "$(G /api/admin/queue | grep -c '\"payload\"' || true)" '0'
+assert "a worker token cannot read the queue" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/admin/queue" -H "Authorization: Bearer $WT")" '403'
+
+echo
+echo "== 8. FLEET-3: the operator takes a host out of rotation, reversibly =="
+# The only lever before this was a RETIRE, which revokes the worker token: a
+# ten-minute drain meant re-provisioning the host afterwards.
+assert "drain"                                "$(P /api/executors/$EXID/drain)" '"admin_state":"drained"'
+assert "…and a drained worker is offered nothing" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"]}')" '204'
+# The difference from a retire, and the reason to prefer it: the box is still
+# there, still reporting, still holding its token.
+assert "…while the host stays visibly alive"   "$(G /api/executors)" '"status":"active"'
+assert "…and the fleet counts the intent apart from the liveness" \
+  "$(G /api/admin/workers)" '"drained":1'
+# `retired` is not an admin state: retiring is irreversible and is its own call.
+assert "an unknown admin state is not reachable" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/executors/$EXID/retire -H "Authorization: Bearer $TOK")" '404'
+assert "resume"                               "$(P /api/executors/$EXID/resume)" '"admin_state":"active"'
+assert "…and it takes work again" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/state -H "Authorization: Bearer $WT" -d '{"state":"ready"}')" '200'
+assert "a worker cannot drain itself"         "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/executors/$EXID/drain -H "Authorization: Bearer $WT")" '403'
+assert "draining something that is not there is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/executors/no-such/drain -H "Authorization: Bearer $TOK")" '404'
+
+echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'
 assert "…and the worker token is dead" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{}')" '401'
 assert "…and the executor is retired" "$(G /api/executors)" '"status":"retired"'
+# A retired row has no token to drain, and saying so beats pretending it worked.
+assert "…and a retired executor cannot be drained" \
+  "$(P /api/executors/$EXID/drain)" 'no token to drain'
 assert "an unknown executor is a 400" "$(P /api/ai/chat '{"prompt":"x","executor":"laptop-gpu"}')" 'unknown executor'
 
 echo

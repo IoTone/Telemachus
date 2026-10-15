@@ -1783,6 +1783,43 @@
       (require-perm db-conn p "instance:manage"))
     (if (executor-retire! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
 
+;; FLEET-4: the queue, job by job. A filter that is IGNORED rather than refused
+;; is invisible to the caller — the `query-param` assq bug that answered a
+;; request for Dutch with Japanese — so an empty string is treated as "no
+;; filter" and anything else is passed through to an equality test on a column.
+;; A bad `limit` or `offset` is clamped, not refused: this is a read, and an
+;; operator should not have to decode a 400 to see their queue.
+(define (ep-admin-queue req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define (f k) (let ([v (query-param req k)]) (and (string? v) (not (string=? v "")) v)))
+    (define (num k d) (let* ([raw (query-param req k)]
+                             [n (and (string? raw) (string->number raw))])
+                        (if (and (real? n) (>= n 0)) (inexact->exact (round n)) d)))
+    (json-response (queue-listing db-conn p
+                                  #:kind (f 'kind) #:status (f 'status)
+                                  #:executor (f 'executor) #:team (f 'team)
+                                  #:limit (num 'limit 50) #:offset (num 'offset 0))))))
+
+;; FLEET-3: the reversible lever. Until this the only way to take a flaky box out
+;; of rotation was DELETE /api/executors/<id>, which revokes the worker token —
+;; so a ten-minute drain meant re-provisioning the host afterwards.
+;;
+;; `instance:manage` only, not the org admin who may retire their own: draining
+;; is day-to-day operations of the instance's compute, and the asymmetry is
+;; deliberate rather than an oversight. Revisit it when an org runs its own fleet.
+(define (set-admin-state req id state)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define r (executor-set-admin-state! db-conn p id state))
+      (cond
+        [(eq? r 'retired) (err "the executor is retired — a retired worker has no token to drain" 409)]
+        [r (json-response (hasheq 'ok #t 'executor r))]
+        [else (err "not found" 404)])))))
+(define (ep-executor-drain req id) (set-admin-state req id "drained"))
+(define (ep-executor-resume req id) (set-admin-state req id "active"))
+
 ;; ---- model roles (slice 67) ----------------------------------------------------------
 (define (ep-model-roles-get req)
   (with-auth req (lambda (p) (json-response (model-roles-get db-conn (principal-team-id p))))))
@@ -1891,6 +1928,19 @@
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
     (worker-verdict (worker-fail! db-conn ex id (fmt b 'error) #:token (claim-token-of b)) id))))
+
+;; issue #61: the blameless hand-back. `failed` is its own verdict because the
+;; worker needs to know its release was the one that used the job up — it is the
+;; difference between "try again later" and "a person has to look at this".
+(define (ep-worker-release req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (define v (worker-release! db-conn ex id #:token (claim-token-of b)
+                               #:reason (let ([r (fmt b 'reason)]) (and (not (string=? r "")) r))))
+    (if (eq? v 'failed)
+        (json-response (hasheq 'ok #t 'id id 'status "error" 'released #t
+                               'detail (format "released ~a times — the job has been failed" MAX-RELEASES)))
+        (worker-verdict v id)))))
 
 ;; real model call (falls back to simulated when no model is configured)
 (define (ep-ai-chat req)
@@ -2875,6 +2925,7 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors 'admin-workers ep-admin-workers
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'executor-drain ep-executor-drain 'executor-resume ep-executor-resume 'admin-queue ep-admin-queue
    'repo-fields-get ep-repo-fields-get 'repo-fields-put ep-repo-fields-put
    'repo-attributes ep-repo-attributes 'repo-spans ep-repo-spans
    'member-role ep-member-role 'member-remove ep-member-remove
@@ -2882,7 +2933,7 @@
    'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide
    'review-stats ep-review-stats 'review-verify ep-review-verify
    'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
-   'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
+   'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail 'worker-release ep-worker-release
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit

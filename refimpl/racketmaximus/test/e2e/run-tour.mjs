@@ -128,11 +128,11 @@ try {
   await shot(page, '08-usage', 'Quotas & tool registry',
     'Windowed usage vs. limits, and every agent tool with a source badge: built-in, 🔌 plugin, mcp:mock (external MCP server), and 🛡️ oop:notes-helper (sandboxed out-of-process, with declared scopes).');
 
-  // 9 — admin + federated compute
-  log('admin'); await go(page, 'admin', 'text=Compute');
+  // 9 — admin + the worker fleet (FLEET-3 replaced the Compute table)
+  log('admin'); await go(page, 'admin', 'text=Workers');
   assert(await page.getByText('gpu-sim').first().isVisible().catch(() => false), 'federated executor listed');
-  await shot(page, '09-admin', 'Admin & federated compute',
-    'Operator-only instance view. The Compute table lists the local node (qwen2.5:7b) and federated executors (🛰️ gpu-sim) — the pluggable seam for remote/HPC compute.');
+  await shot(page, '09-admin', 'Admin & the worker fleet',
+    'Operator-only instance view. The Workers table lists the local node (qwen2.5:7b), federated executors (↗ gpu-sim) and any pull worker — each with its derived health, what the worker itself reports, what it is holding, and a reversible Drain. Below it the Queue: every job across every team with how long it has waited, and the two separate reasons one is not running — the platform is holding it, or no live worker can run it at all.');
 
   // 10 — localization
   log('i18n'); await page.evaluate(() => { window.setLang('ja'); window.go('chat'); });

@@ -61,6 +61,24 @@ pull host:          POST /api/workers/claim ──▶ (the host runs it) ──�
   genuinely new mechanism, and it is what makes a host that vanishes mid-job
   safe: the job is not lost and not run twice by design — the *result* is
   accepted only from the lease holder whose lease is current.
+- **A worker may hand a job BACK** (PULL‑12, issue #61):
+  `POST /api/workers/jobs/<id>/release` re-queues it with `attempt` untouched —
+  "I claimed this and then found I lack the model" is the worker's problem, not
+  the job's. A release loop is bounded by a 30-second cool-off that names the
+  releasing executor only (every other worker may take the job at once) and by a
+  release count, past which the job fails naming the hosts that let it go.
+- **The queue is readable job by job** (FLEET‑4, issue #70):
+  `GET /api/admin/queue` pages across every team with filters on kind, status,
+  executor and team. A queued row carries `waiting` (the platform is holding it,
+  the same reason `GET /api/jobs` gives) and `runnable` (no live worker can run
+  it at all) — two answers with different remedies, never merged. No payload and
+  no result travel with a row.
+- **An operator can take a host out of rotation** (FLEET‑3, issue #70):
+  `POST /api/executors/<id>/drain` and `/resume` write `executors.admin_state`,
+  a third column beside the derived `status` and the reported `worker_state` —
+  alive, taking work, and *should it be* are three questions. A drained worker
+  keeps its token and keeps polling, so it stays visibly alive; it is answered
+  204, which the wire already means. A job it holds is left running.
 - **The operator can see the fleet** (FLEET‑2, issue #70):
   `GET /api/admin/workers` reports each executor's health, what it holds, its
   outcomes and lease expiries over a window, and the queue — depth by kind, the

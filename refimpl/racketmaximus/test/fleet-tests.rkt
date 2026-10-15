@@ -175,3 +175,209 @@
   (check-equal? (hash-ref (ex-of rep "acme-box") 'worker_state) 'null
                 "a stale box's reported state is withdrawn (PULL-11e), here too")
   (disconnect c))
+
+;; ---- FLEET-3: the operator's own lever ---------------------------------------
+;; Before this the only way to take a box out of rotation was to RETIRE it, which
+;; revokes the worker token — so a ten-minute drain meant re-provisioning the
+;; host. These are the assertions that draining is reversible, that it leaves the
+;; worker visibly alive, and that it does not touch work already in flight.
+
+(test-case "FLEET-3: a drained worker is offered nothing, stays alive, and comes back"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (define (claim) (worker-claim! c (executor-by-name c "gpu-1") #:kinds '("infer.chat") #:models '("m")))
+  (define (j!) (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+
+  ;; a fresh executor is in rotation, and nothing was backfilled to say so
+  (check-equal? (hash-ref (executor-by-name c "gpu-1") 'admin_state) "active")
+  (check-true (sql-null? (query-value c "SELECT admin_state FROM executors WHERE id = ?" (hash-ref ex 'id)))
+              "NULL in the column reads as active — no backfill")
+  (define j1 (j!))
+  (check-equal? (hash-ref (claim) 'id) j1 "it takes work")
+
+  ;; drain it: the job it HOLDS is left alone
+  (define drained (executor-set-admin-state! c p (hash-ref ex 'id) "drained"))
+  (check-equal? (hash-ref drained 'admin_state) "drained")
+  (check-equal? (hash-ref (get-job c j1 tid) 'status) "running"
+                "draining says `start nothing new`, not `stop what you are doing`")
+
+  ;; …and it is offered nothing more
+  (define j2 (j!))
+  (check-false (claim) "a drained worker gets no work")
+  (check-equal? (hash-ref (get-job c j2 tid) 'status) "queued")
+
+  ;; …while remaining visibly ALIVE, which is the whole difference from a retire
+  (define e2 (executor-by-name c "gpu-1"))
+  (check-equal? (hash-ref e2 'status) "active" "the claim was still a sighting")
+  (check-true (and (resolve-token c tok) #t) "and its token still works")
+
+  ;; the fleet report counts the intent separately from the liveness
+  (define rep (fleet-report c p))
+  (check-equal? (hash-ref (hash-ref rep 'fleet) 'drained) 1)
+  (check-equal? (hash-ref (hash-ref rep 'fleet) 'active) 1
+                "three questions, three answers — a drained box is still alive")
+  ;; and it is not an answer to the queue: the job waiting on it is unclaimable
+  (check-equal? (hash-ref (hash-ref (hash-ref rep 'queue) 'unclaimable) 'count) 1
+                "a drained host must not read as a reason the queue can drain")
+
+  ;; resume: back in rotation on the next claim
+  (check-equal? (hash-ref (executor-set-admin-state! c p (hash-ref ex 'id) "active") 'admin_state) "active")
+  (check-equal? (hash-ref (claim) 'id) j2)
+  (check-equal? (hash-ref (hash-ref (hash-ref (fleet-report c p) 'queue) 'unclaimable) 'count) 0)
+  (disconnect c))
+
+(test-case "FLEET-3: the vocabulary is closed, a retired executor is not drainable, and both audit"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (check-exn #rx"state must be one of"
+             (lambda () (executor-set-admin-state! c p (hash-ref ex 'id) "retired"))
+             "`retired` is not an admin state — retiring is irreversible and is its own call")
+  (check-false (executor-set-admin-state! c p "no-such-id" "drained") "an unknown executor is #f")
+
+  (executor-set-admin-state! c p (hash-ref ex 'id) "drained")
+  (executor-set-admin-state! c p (hash-ref ex 'id) "active")
+  (check-equal? (for/list ([a (in-list (query-list c (string-append
+                                 "SELECT action FROM audit_log WHERE resource_id = ? "
+                                 "AND action LIKE 'executor.%' ORDER BY at_us ASC") (hash-ref ex 'id)))]) a)
+                '("executor.create" "executor.drain" "executor.resume")
+                "an operator taking compute out of rotation is an audited act, both ways")
+
+  ;; a retired row has no token to drain, and saying so beats pretending it worked
+  (check-true (executor-retire! c p (hash-ref ex 'id)))
+  (check-equal? (executor-set-admin-state! c p (hash-ref ex 'id) "drained") 'retired)
+  (disconnect c))
+
+;; ---- FLEET-4: the queue, job by job -----------------------------------------
+;; The summary says whether the queue is moving. This says what is in it and what
+;; each row is waiting for — and the two things it must never do are invent a
+;; hold reason and carry a team's payload past that team.
+
+(define (ids rep) (for/list ([j (in-list (hash-ref rep 'jobs))]) (hash-ref j 'id)))
+(define (row-of rep id) (findf (lambda (j) (equal? (hash-ref j 'id) id)) (hash-ref rep 'jobs)))
+
+(test-case "FLEET-4: drain order, ages, the holder and the lease"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (define (j! #:pri [pri 0]) (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                                            #:payload (hasheq 'messages '() 'secret "do not leak")
+                                            #:priority pri))
+  (define a (j!)) (define b (j!)) (define urgent (j! #:pri 5))
+  (query-exec c "UPDATE jobs SET created_epoch = ? WHERE id = ?" (- (current-seconds) 900) a)
+
+  ;; asked for the queued rows, the list is the order a free worker will take them
+  (define q (queue-listing c p #:status "queued"))
+  (check-equal? (hash-ref q 'order) "drain")
+  (check-equal? (hash-ref q 'total) 3)
+  (check-equal? (ids q) (list urgent a b)
+                "priority first, then oldest — the claim's own ORDER BY, so row 1 really is next")
+  (check-true (>= (hash-ref (row-of q a) 'age_seconds) 900) "the age is how long it has waited")
+
+  ;; a team's prompt does not travel with the row
+  (check-false (hash-has-key? (row-of q a) 'payload) "no payload on a cross-team read")
+  (check-false (hash-has-key? (row-of q a) 'result))
+
+  ;; a claim puts the holder and the lease countdown on the row
+  (worker-claim! c ex #:kinds '("infer.chat") #:models '("m"))
+  (define r (queue-listing c p #:status "running"))
+  (check-equal? (hash-ref r 'total) 1)
+  (check-equal? (hash-ref r 'order) "recent" "only the queued listing claims to be drain order")
+  (define run (car (hash-ref r 'jobs)))
+  (check-equal? (hash-ref run 'id) urgent "the highest-priority job was the one claimed")
+  (check-equal? (hash-ref run 'executor) "gpu-1" "named, not an opaque id")
+  (check-true (> (hash-ref run 'lease_seconds_left) 0))
+  (check-equal? (hash-ref run 'team) "Default")
+  (disconnect c))
+
+(test-case "FLEET-4: the hold reason is the admission seam's, and absent when nothing holds"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (check-false (hash-has-key? (row-of (queue-listing c p) j) 'waiting)
+               "nothing holds it, so the key is ABSENT — never a reason nothing stands behind")
+
+  ;; The same seam GET /api/jobs asks. Holding the team at its cap is the reason
+  ;; that clears on its own, so it is the one reported first.
+  ;;
+  ;; `set-cap-for!` is process-global, so the restore goes in a dynamic-wind: a
+  ;; failing check RAISES, and a restore written after it is simply skipped —
+  ;; which leaks a cap of 0 into every later test in the file and makes an
+  ;; unrelated one fail. That is exactly what happened while this was written.
+  (dynamic-wind
+    (lambda () (set-cap-for! (lambda (team) 0)))
+    (lambda ()
+      (define held (hash-ref (row-of (queue-listing c p) j) 'waiting))
+      (check-equal? (hash-ref held 'reason) "concurrency")
+      (check-equal? (hash-ref held 'limit) 0))
+    (lambda () (set-cap-for! (lambda (team) 4))))
+  (check-false (hash-has-key? (row-of (queue-listing c p) j) 'waiting)
+               "raise the cap and the row stops claiming to be held — derived, never stored")
+  (disconnect c))
+
+(test-case "FLEET-4: `runnable` answers the half the hold reason cannot"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                          #:payload (hasheq 'messages '()) #:requirements (hasheq 'model "llama-70b")))
+  ;; nothing is HOLDING it — the platform would admit it at once — and yet no
+  ;; machine exists that could take it. Those are different facts about one row.
+  (define before (row-of (queue-listing c p) j))
+  (check-false (hash-has-key? before 'waiting))
+  (check-false (hash-ref before 'runnable) "and the row says so")
+
+  ;; A worker that declares the model turns up. Its claim TAKES `j` — which is
+  ;; the point: the row was runnable after all — so the question is asked again
+  ;; of the next job wanting the same model.
+  (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (check-equal? (hash-ref (worker-claim! c ex #:kinds '("infer.chat") #:models '("llama-70b")) 'id) j
+                "it was not unrunnable, only unmatched")
+  (define j2 (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                           #:payload (hasheq 'messages '()) #:requirements (hasheq 'model "llama-70b")))
+  (check-true (hash-ref (row-of (queue-listing c p) j2) 'runnable))
+  ;; drained, and the answer flips back — the same predicate the claim decides with
+  (executor-set-admin-state! c p (hash-ref ex 'id) "drained")
+  (check-false (hash-ref (row-of (queue-listing c p) j2) 'runnable)
+               "a drained box is not a reason this row can run")
+
+  ;; an in-process kind is not asked the question at all: no worker claims it,
+  ;; so `runnable` would be a field about nothing
+  (define loc (enqueue-job! c #:team tid #:user uid #:kind "fleet.local" #:payload (hasheq)))
+  (check-false (hash-has-key? (row-of (queue-listing c p) loc) 'runnable))
+  (disconnect c))
+
+(test-case "FLEET-4: every filter narrows, and paging reports the whole count"
+  (define c (fresh))
+  (define-values (root sys) (bootstrap! c #:username "root" #:org-name "Instance" #:org-slug "system"))
+  (define op (user-principal c root sys))
+  (define acme (org-create! c #f #:name "Acme" #:slug "acme" #:owner-username "owner@acme"))
+  (define at (hash-ref acme 'team_id)) (define au (hash-ref acme 'owner_user_id))
+  (for ([_ (in-range 3)]) (enqueue-job! c #:team sys #:user root #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (for ([_ (in-range 2)]) (enqueue-job! c #:team at #:user au #:kind "fleet.local" #:payload (hasheq)))
+
+  (check-equal? (hash-ref (queue-listing c op) 'total) 5 "the whole instance, not one team")
+  (check-equal? (hash-ref (queue-listing c op #:kind "fleet.local") 'total) 2)
+  (check-equal? (hash-ref (queue-listing c op #:team at) 'total) 2)
+  (check-equal? (hash-ref (queue-listing c op #:kind "infer.chat" #:team at) 'total) 0
+                "filters are AND-ed")
+  (check-equal? (hash-ref (queue-listing c op #:status "done") 'total) 0)
+  (check-equal? (hash-ref (row-of (queue-listing c op #:team at) 
+                                  (car (ids (queue-listing c op #:team at)))) 'org) "Acme"
+                "a cross-team queue names the company, because an id is no use to a person")
+
+  ;; paging: the page is bounded and `total` is the count for the FILTER, so a
+  ;; console can say "3 of 5" rather than guessing from a short page
+  (define page (queue-listing c op #:limit 2))
+  (check-equal? (length (hash-ref page 'jobs)) 2)
+  (check-equal? (hash-ref page 'total) 5)
+  (check-equal? (hash-ref page 'limit) 2)
+  (check-equal? (length (hash-ref (queue-listing c op #:limit 2 #:offset 4) 'jobs)) 1)
+  (check-equal? (hash-ref (queue-listing c op #:limit 9999) 'limit) QUEUE-PAGE-MAX
+                "a page is clamped, not refused")
+  (disconnect c))

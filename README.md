@@ -81,11 +81,11 @@ Members and roles (owner / admin / member / viewer). Every API call is authorize
 
 Windowed usage vs. limits, and every agent tool with a source badge: built-in, 🔌 plugin, mcp:mock (external MCP server), and 🛡️ oop:notes-helper (sandboxed out-of-process, with declared scopes).
 
-### Admin & federated compute
+### Admin & the worker fleet
 
-![Admin & federated compute](docs/screenshots/09-admin.png)
+![Admin & the worker fleet](docs/screenshots/09-admin.png)
 
-Operator-only instance view. The Compute table lists the local node (qwen2.5:7b) and federated executors (🛰️ gpu-sim) — the pluggable seam for remote/HPC compute.
+Operator-only instance view. The Workers table lists the local node (qwen2.5:7b), federated executors (↗ gpu-sim) and any pull worker — each with its derived health, what the worker itself reports, what it is holding, and a reversible Drain. Below it the Queue: every job across every team with how long it has waited, and the two separate reasons one is not running — the platform is holding it, or no live worker can run it at all.
 
 ### Localized top to bottom
 

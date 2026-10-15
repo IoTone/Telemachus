@@ -1211,9 +1211,10 @@ Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
   so now. `locales/*.json` is the shipping artifact *because* CI gates it; a
   catalog loaded from a plugin directory would carry none of that.
 - ~~A worker cannot report ready/paused.~~ **Built as PULL‑11** — see below.
-  Still open: #59 (purge a finished job's payload), #60 (worker-token expiry with
-  a rotation overlap), #61 (a releasable claim that does not spend an attempt),
-  #62 (writable derived objects from a worker result).
+  ~~A releasable claim that does not spend an attempt.~~ **Built as PULL‑12**
+  (#61). Still open: #59 (purge a finished job's payload), #60 (worker-token
+  expiry with a rotation overlap), #62 (writable derived objects from a worker
+  result).
 
 ```sh
 raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, the refund
@@ -1312,6 +1313,144 @@ raco test test/fleet-tests.rkt   # the entries, the two sources, the queue, uncl
 bash test/pull-smoke.sh          # section 7, 11 assertions over HTTP
 ```
 
+## Draining a host, and the Workers card (FLEET‑3, issue #70)
+
+Built 15 Oct 2026. `POST /api/executors/:id/drain` and `/resume`,
+`instance:manage`, plus the console's **Workers** card, which replaced Compute.
+
+- **`executors.admin_state` is a THIRD column** (migration `0042`), beside the
+  derived `status` and the reported `worker_state`. Three questions, three
+  answers, and all three can be true at once: alive / taking work / *should* it
+  be taking work. **A drained box reporting `ready` is not a contradiction** —
+  it is a healthy machine held back, which is what a drain creates. NULL reads
+  as `active`; nothing is backfilled.
+- **Intent is NOT withdrawn when the row goes stale**, unlike `worker_state`
+  (PULL‑11e). A reported state is a claim the worker can no longer stand behind;
+  intent is a standing instruction that does not decay. Withdrawing it would let
+  a host return to rotation by going offline and coming back.
+- **A drained worker keeps polling and is answered 204.** It therefore keeps
+  being *seen* — the operator watches a live box taking nothing instead of one
+  gone stale, which is the gap #58 opened. 204 is a meaning the wire already
+  has, so a third-party worker is drainable with no change.
+- **Draining leaves a held job running.** It says "start nothing new"; stopping
+  work in flight is cancel (SCHED‑8). Releasing a claim without spending an
+  attempt is #61, and this is the reason that issue matters.
+- **`retired` is not an `admin_state`.** A retire revokes the token and is
+  irreversible; the two differ in kind, and a shared vocabulary would invite a
+  console to offer them as peers.
+- **The drained check lives in BOTH `executor-can-run?` and `worker-claim!`'s
+  short-circuit — do not "simplify" either away.** The predicate is
+  authoritative, because it is what keeps FLEET‑2's `unclaimable` honest; the
+  short-circuit is the same answer without scanning the queue, which keeps a
+  drained fleet's polling free. Both carry a comment saying so.
+- **The card replaced Compute rather than joining it.** The old table showed
+  name, model and endpoint — a pull worker has no endpoint, so every worker drew
+  an empty cell, and it displayed none of `status`, `worker_state` or
+  `last_seen_at`, which the API already answered.
+- **The worker token is parked in `S.wkToken` and shown until dismissed**, with
+  the `telemachus-worker` command line beside it. A toast scrolls away and there
+  is no second chance; the copy says so rather than implying a recovery that
+  does not exist. The retire confirmation names draining as the reversible
+  alternative, because the destructive button was the only one for so long.
+- 42 new `ui.*` strings, hand-translated into `ja` in the same commit.
+- **A config-file push executor must still appear on the card.** The fleet read
+  lists DB rows only — what a drain or a retire can act on — so building the
+  table from it alone made every `executors.json` entry vanish from the console.
+  They are merged back in from `GET /api/executors` (`source: "config"`) and
+  shown with no actions, since the file owns them. **The screenshot tour is what
+  caught this**: `run-tour.mjs` asserts `gpu-sim` is visible, and it waited on
+  the `Compute` heading, so replacing that card broke the tour in CI while
+  `validate.sh` passed locally. A console change that renames or removes a card
+  means grepping `test/e2e/*.mjs` and updating the shot's caption, the manifest,
+  `captions.ja.json`'s hash and the README regions (`README_ONLY=1`).
+
+```sh
+raco test test/fleet-tests.rkt   # reversibility, liveness, the closed vocabulary, both audits
+bash test/pull-smoke.sh          # section 8, 10 assertions over HTTP
+bash test/e2e/validate.sh        # the card renders under the console CSP
+```
+
+## The queue, job by job (FLEET‑4, issue #70)
+
+Built 15 Oct 2026. `GET /api/admin/queue`, `instance:manage`, plus the console's
+**Queue** card (`#qcard`, beside `#wkcard`). The last of #70.
+
+- **`waiting` and `runnable` are two answers and must never merge.** `waiting`
+  is the platform holding admissible work behind a cap or budget — it clears on
+  its own, and QUOTA‑3 says so on the job too. `runnable: false` means no live
+  worker can run it at all, and only an operator clears that. One field would
+  make a quota look like missing hardware.
+- `waiting` comes from **`team-hold`, memoized per team** — the seam
+  `GET /api/jobs` asks. It is a property of the team, so a cross-team listing
+  asks once per team, not once per row. Absent when nothing holds the job.
+- **`runnable` appears only on a queued REMOTE row.** No worker claims an
+  in-process kind, and a running row has already been answered.
+- **No `payload`, no `result`.** This read crosses every team and org on the
+  instance; a queue is managed by kind, age, team and holder. The team-scoped
+  `GET /api/jobs/:id` still carries them. An operator permission is not a reason
+  to widen a payload.
+- **`order` is reported, not assumed.** `status=queued` gives the claim's own
+  `priority DESC, created ASC`, so row 1 really is next; anything else is
+  newest-first. A list that looked like drain order while mixing in finished
+  jobs would mislead about what runs next. `COALESCE(created_epoch, 0)` — a
+  pre‑0041 row has none, and the dialects sort NULLs opposite ways under ASC.
+- **Read-only.** `cancel-job!` is team-scoped and its rule is team-tier
+  (SCHED‑8); an operator cancelling another company's job is its own decision.
+- The kind dropdown is built from the fleet read, not from the current page — a
+  filter assembled from the page would vanish the moment it was used.
+- **Give a console card an `id` before asserting on it.** A `.card` locator with
+  `hasText: 'Queue'` matched the WORKERS card, whose summary reads "queued for
+  workers". Every other asserted card on this tab is found by id.
+- **A test that sets process-global state restores it in a `dynamic-wind`.**
+  `set-cap-for!` was overridden to prove the hold reason with the restore after
+  the assertion; a failing check raises, so the restore never ran and a cap of 0
+  leaked into every later test in the file, failing an unrelated one.
+
+```sh
+raco test test/fleet-tests.rkt   # drain order, the two answers, the filters, paging
+bash test/pull-smoke.sh          # section 7b, 7 assertions over HTTP
+```
+
+## A releasable claim (PULL‑12, issue #61)
+
+Built 15 Oct 2026. `POST /api/workers/jobs/:id/release` — the blameless
+hand-back, and the last of #54's four deferred questions.
+
+- **`attempt` is UNTOUCHED.** That is the issue: a worker that finds it lacks the
+  model has told us about itself, and the old ways out (fail it, or go quiet and
+  be reaped) each charged the job one of its three lives. Three blameless
+  hand-backs retired a job nothing was wrong with.
+- **Two bounds, because `attempt` can no longer be one.** `released_by` +
+  `release_after` (30 s) stop the spin — the releasing executor is not offered
+  THIS job again, while every other worker may take it in the same second, so one
+  box short of VRAM cannot delay a fleet with capacity. `releases` stops the
+  pathology: past `MAX-RELEASES` (10) the job fails, naming the hosts that let it
+  go. Migration `0043-job-release`, all nullable, no backfill.
+- **The cool-off is tested in the claim's WHERE clause**, not in Racket after the
+  `LIMIT 64` — issue #54's trap, which would bound the answer instead of the scan
+  and show a worker an empty queue it had just emptied itself.
+- **An unknown reason is recorded as `other`, never refused.** PULL‑11f's
+  asymmetry pointing the other way: here the RELEASE is the request and the
+  reason rides along, so a 400 would leave the worker holding a job it has
+  already said it cannot run. `RELEASE-REASONS` is `busy` / `unsupported` /
+  `shutdown` / `other`.
+- **A release during cancellation settles the job**, as `worker-fail!` does
+  (SCHED‑8). Fenced by `claim_token` like every other post-claim write.
+- **Audited before the write** (FLEET‑1's rule — the re-queue clears
+  `executor_id`), and the FLEET‑4 queue row carries `releases`, because the field
+  a reader would check is by design unchanged.
+- **The reference worker releases on shutdown**, from the same plumber flush that
+  reports `paused`, the release first in case the host dies between the two
+  requests. A worker stopped mid-job was the most ordinary way an attempt got
+  spent on nothing. `held` is cleared in a `dynamic-wind` at the call site so it
+  is right however `run-job` exits.
+- A third-party worker that never calls `release` behaves exactly as before.
+
+```sh
+raco test test/pull-tests.rkt   # the untouched counter, the cool-off, the ceiling, the fence
+bash test/pull-smoke.sh         # section 6b, 7 assertions over HTTP
+```
+
 ## The reaper leaves a record (FLEET‑1, issue #70)
 
 Built 14 Oct 2026 — the first slice of the worker-fleet surface. A lease expiry
@@ -1369,10 +1508,28 @@ platform that did not go through `domain/tools/jsonschema.rkt`.
   case in `test/beta-tests.rkt` was missing `valid` incidentally (it is about
   braces inside strings) and had to gain it.
 
-**The rest of #31 is design, not code.** JEV cannot be self-hosted, so it cannot
-be the first backend of anything here; the recommendation is a typed-judgment
-SEAM with a local backend (a chat model behind a closed schema) and JEV as a
-plugin. Read the decision block before anyone writes an integration.
+**The rest of #31 is design, not code**, and the design was REVISED on 15 Oct
+2026 (JUDGE‑7…12, issue #57) because its premise changed. `IoTone/poplog`'s
+`packages/laya` self-hosts an open-weight decision model that takes JEV's own
+`POST /v1/systemone` request, so:
+
+- the first backend is laya, not a chat model behind a schema (that becomes the
+  second, and is the only one that runs in CI);
+- it needs **no new wire and no plugin** — a remote job kind `judge.typed` plus a
+  pull worker on the Mac inherits quota, the org gate, cancel, the lease, the
+  fence, PULL‑11's state, PULL‑12's release and all of FLEET‑1…4;
+- **option and question order is part of the question** — measured: 1 of 6
+  orderings agreed with the written order, one probability moved by 0.54. So
+  ordered lists, never `hasheq`, and **never sorted**: this is the third place
+  the hash-order trap appears here and the first where `json-out`'s sort would be
+  actively wrong;
+- `output_tokens` is always 0, so `ai.tokens.total` cannot bound it — a judgment
+  needs its own dimension;
+- a stored verdict must carry the checkpoint, the dtype and the batch policy, and
+  LAY‑11 must hash it AS GIVEN: 50% of answers move in the 4th decimal with their
+  batch-mates unless `batch_size=1`.
+
+Read the decision block before anyone writes an integration.
 
 ## A deferred job says why (issue #55, built 14 Oct 2026)
 
