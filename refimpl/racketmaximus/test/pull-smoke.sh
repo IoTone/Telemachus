@@ -202,6 +202,30 @@ assert "…and neither can a stranger" \
   "$(curl -s -o /dev/null -w '%{http_code}' $B/api/admin/workers)" '401'
 
 echo
+echo "== 6b. issue #61: a worker hands a job back without spending an attempt =="
+RJ=$(P /api/jobs '{"kind":"infer.chat","payload":{"messages":[{"role":"user","content":"release me"}]}}')
+RJID=$(printf '%s' "$RJ" | jq_ 'd["id"]')
+RCL=$(curl -s -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"]}')
+RFENCE=$(printf '%s' "$RCL" | jq_ 'd["claim_token"]')
+RATT=$(printf '%s' "$RCL" | jq_ 'd["attempt"]')
+WR(){ curl -s -X POST $B/api/workers/jobs/$RJID/release -H "Authorization: Bearer $WT" -d "$1"; }
+# Fenced exactly like complete and fail: a stale token tells a stranger nothing.
+assert "a release needs the attempt's token" "$(WR '{"claim_token":"nope"}')" 'not the lease holder'
+assert "release"                            "$(WR "{\"claim_token\":\"$RFENCE\",\"reason\":\"unsupported\"}")" '"ok":true'
+assert "…the job is queued again"           "$(G /api/jobs/$RJID)" '"status":"queued"'
+# The whole point: the job is not blamed for the worker's problem.
+RATT2=$(G /api/jobs/$RJID | jq_ 'd["attempt"]')
+assert "…and it spent no attempt"           "$RATT2" "$RATT"
+# The releasing box waits out a cool-off — the bound on a release loop, which an
+# untouched attempt counter cannot provide.
+assert "…and the releaser is not handed it straight back" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"]}')" '204'
+# An operator can see a job workers keep handing back; `attempt` cannot show it.
+assert "the queue view counts the releases"  "$(G '/api/admin/queue?status=queued')" '"releases":1'
+assert "a user token is not a worker here"   "$(curl -s -X POST $B/api/workers/jobs/$RJID/release -H "Authorization: Bearer $TOK" -d '{}')" 'not bound to an executor'
+curl -s -X POST $B/api/jobs/$RJID/cancel -H "Authorization: Bearer $TOK" >/dev/null
+
+echo
 echo "== 7b. FLEET-4: the queue, job by job =="
 assert "the queue read pages and totals"      "$(G /api/admin/queue)" '"total"'
 assert "…and says which ordering you got"     "$(G /api/admin/queue)" '"order":"recent"'

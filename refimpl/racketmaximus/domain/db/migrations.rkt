@@ -1207,7 +1207,35 @@
       ;; existing executor keeps taking work exactly as it did.
       (exec* conn "ALTER TABLE executors ADD COLUMN admin_state TEXT"))))
 
+(define m-0043-job-release
+  (migration "0043-job-release"
+    (lambda (conn)
+      ;; A worker may hand a job BACK without spending an attempt (issue #61).
+      ;;
+      ;; Before this a worker that claimed a job and then found it could not run
+      ;; it had two ways out, and both were lies: fail it, which blames the job
+      ;; for the worker's problem and spends one of its three attempts, or go
+      ;; quiet and let the lease reap it, which also spends one. "I claimed this
+      ;; and then found I lack the model" is blameless, and three of them retired
+      ;; a job that nothing was ever wrong with.
+      ;;
+      ;; `releases` is the count, which is what bounds a release LOOP: with the
+      ;; attempt counter deliberately untouched, nothing else would ever stop one.
+      ;; `released_by` and `release_after` are the cool-off — the executor that
+      ;; just let go is not offered this job again until the horizon passes,
+      ;; while every OTHER worker may take it immediately.
+      ;;
+      ;; Epoch seconds for the horizon, like every other time window here: the
+      ;; TEXT CURRENT_TIMESTAMP columns differ by dialect, the trap migrations
+      ;; 0038 through 0041 each name.
+      ;;
+      ;; All nullable, nothing backfilled: a job that has never been released
+      ;; reads exactly as it did before.
+      (exec* conn "ALTER TABLE jobs ADD COLUMN releases INTEGER")
+      (exec* conn "ALTER TABLE jobs ADD COLUMN released_by TEXT")
+      (exec* conn "ALTER TABLE jobs ADD COLUMN release_after BIGINT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release))

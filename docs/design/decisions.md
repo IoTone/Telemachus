@@ -527,6 +527,35 @@ the assertion: a failing `check-equal?` raises, the restore never ran, and a cap
 of 0 leaked into every later test in the file, failing an unrelated one. The
 cascade cost more time than the wrong expectation that started it.
 
+## A releasable claim (PULL‑12) — **decided and BUILT 15 Oct 2026** (issue #61)
+
+The last of the four questions #54 left as decisions. A worker that claimed a job
+and then found it could not run it had two ways out and both blamed the job: fail
+it, or go quiet and let the lease reap it. Each spent one of three attempts for
+something that was the HOST's problem, and three of them retired a job nothing
+was ever wrong with.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **PULL‑12a** | What a release costs the job | **Nothing: `attempt` is untouched** · vs a half-attempt · vs a separate attempt budget | This is the whole issue. "I claimed this and then found I lack the model" is a fact about the worker, and charging the job for it is how a healthy job reached `error` after three blameless hand-backs. Keeping one counter and spending it more slowly would still conflate the two, because what differs is not the weight but *whose* problem it was. |
+| 🔑 **PULL‑12b** | What bounds a release loop | **A per-executor cool-off plus a release COUNT, in the row** · vs the attempt counter · vs nothing | With `attempt` deliberately untouched, nothing else would stop a worker that claims and releases in a tight loop. Two bounds, because they answer different shapes of the problem: `release_after` + `released_by` stop the spin (the releaser is not offered this job again for 30 s), and `releases` stops the pathology (past 10 the job fails, naming the hosts that let it go — work no worker will run needs a person, and saying so beats recycling it in silence). |
+| 🔑 **PULL‑12c** | Who the cool-off applies to | **Only the executor that released it** · vs holding the job for everyone | A global hold would let one box short of VRAM delay a fleet that has capacity — a misbehaving worker's problem becomes every team's latency. Naming the releaser means every other worker may take the job in the same second. It remembers only the LAST releaser, which is enough: two bad boxes alternating still increment `releases`, and the ceiling ends it. |
+| **PULL‑12d** | Where the exclusion is tested | **In the claim's WHERE clause** · vs filtering in Racket after the query | Issue #54's lesson, and the same trap: filtering after `LIMIT 64` bounds the ANSWER instead of the scan, so a worker whose own releases fill the window would see an empty queue it had just emptied itself. |
+| **PULL‑12e** | An unknown reason | **Recorded as `other`, never refused** · vs a 400 | The asymmetry PULL‑11f drew, pointing the other way. On `/api/workers/state` the state IS the request, so an unknown one is refused. Here the RELEASE is the request and the reason rides along — refusing the call would leave the worker holding a job it has already said it cannot run, until the lease lapses and the job is charged an attempt for it. The same collapse `EXTRACT-REASONS` makes for an unknown extractor reason. |
+| **PULL‑12f** | A release during cancellation | **Settle, never re-queue** · vs re-queueing | What `worker-fail!` already does, for SCHED‑8's reason: cancellation is final, and re-running work somebody stopped is the one outcome nobody asked for. |
+| **PULL‑12g** | Visibility | **Audited before the write, and `releases` on the queue row** · vs the row alone | FLEET‑1's rule exactly: the re-queue clears `executor_id`, so after the write nothing says which host let go. A box that releases everything is precisely what an operator needs to find, and `attempt` — the field a reader would look at — is by design unchanged, so the queue view carries `releases` instead. |
+
+**The reference worker releases on the way out.** A worker stopped mid-job is the
+most ordinary way an attempt used to be spent on nothing: the lease lapsed two
+minutes later and the job was charged for a Ctrl‑C. It now posts `release` with
+`reason: "shutdown"` from the same plumber flush that reports `paused` (#58), the
+release first in case the host dies between the two requests, and both
+best-effort. FLEET‑3's drain is the other half of this: an operator drains a box,
+its in-flight job comes back un-charged, and another worker takes it at once.
+
+**A third-party worker needs no change.** `release` is a new endpoint; a worker
+that never calls it behaves exactly as before.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about
@@ -553,7 +582,7 @@ worth of consequences for every existing ledger row.
 second of usage every second, so there is no instant at which the budget resets;
 naming one would be a worse answer than naming none. `"total"` never resets.
 
-## Typed judgments, and TypeSafe AI's JEV (JUDGE) — **explored 14 Oct 2026** (issue #31)
+## Typed judgments: JEV, and laya (JUDGE) — **explored 14 Oct 2026** (issue #31), **revised 15 Oct 2026** (issue #57)
 
 Issue #31 asked whether to use TypeSafe AI's JEV, a hosted "System One" decision
 model (`POST https://api.typesafe.ai/v1/systemone`). **Only JUDGE‑6 is built** —
@@ -561,6 +590,10 @@ the one item that turned out to be a defect rather than a design question. The
 recommendation on the rest is deliberately not "integrate it" or "do not": it is
 that the platform is missing a *seam*, that JEV is a good second backend for that
 seam, and that it cannot be the first one.
+
+**Read the revision at the end of this section first** (JUDGE‑7…12, 15 Oct 2026).
+`IoTone/poplog`'s `packages/laya` self-hosts an open-weight model that takes the
+same request, which supersedes JUDGE‑2 and JUDGE‑3 and replaces JUDGE‑5.
 
 What it is, from its own documentation: you send a `state` (a string, object or
 array) and a map of typed `questions`, and get back one answer per question, keyed
@@ -600,6 +633,51 @@ substring of the text; that is a fact about two strings, not a judgment.
 **Before anyone commits to a number**: access is reported as waitlisted early
 access with no free tier, and the retention, residency and rate-limit figures in
 circulation disagree with each other. Read the live pricing page and the DPA.
+
+### Revisited 15 Oct 2026: laya changes the premise (JUDGE‑7…12, issue #57)
+
+`IoTone/poplog`'s [`packages/laya`](https://github.com/IoTone/poplog/tree/dev/packages/laya)
+is an out-of-tree Pop‑11 library that answers `typesafe`'s `ts_eval` with
+**Laya**, an open-weight decision model, on Apple Silicon through MLX — no key,
+no network after the first download, ~8–10 ms a question. It is built, measured
+and merged, with its own `RESEARCH.md`.
+
+**The sentence JUDGE‑2 rests on is no longer true.** It says JEV "is
+proprietary, API-only and **cannot be self-hosted**", and concluded that the
+seam's first backend had to be a chat model behind a closed JSON schema. Laya
+takes the same `POST /v1/systemone` request — a `state` plus a map of
+`noul`/`choice`/`score` questions — and returns the same answers. A self-hosted
+typed-judgment backend exists, and it is a real decision model rather than a chat
+model wearing a schema.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **JUDGE‑7** | Which backend is first | **Laya behind the seam; the chat-and-schema backend becomes the SECOND** · vs JUDGE‑2's order · vs laya only | Supersedes JUDGE‑2. A chat model behind `jsonschema.rkt` is still the right fallback — it is the only backend that runs in CI and on a box with no Apple Silicon — but it should not be the reference implementation of a typed judgment when a typed-judgment *model* can be self-hosted. JUDGE‑6 already shipped that fallback's shape for the beta judge, so the second backend is partly built. |
+| 🔑 **JUDGE‑8** | How it is reached | **A remote JOB KIND and a pull worker — no new wire, no plugin** · vs a push executor with a second protocol · vs JUDGE‑3's plugin · vs in-process | Supersedes JUDGE‑3, in a cheaper direction. JUDGE‑3 was right that `model-exchange` is single-wire OpenAI chat-completions and that `/v1/systemone` is not a chat call — and the notes already defer a second wire protocol deliberately. Laya shows we need none: register `judge.typed` with `#:remote? #t` and a `#:validate`, and a small worker on the Mac calls `laya_serve.py --stdio` (0.11 ms) or its loopback HTTP. Telemachus's side is a kind registration and a validator. It inherits, with no new code: quota admission, the org gate, cancel and `canceling` (SCHED‑8), the lease and the `claim_token` fence (#24), the reported state (PULL‑11), the blameless release (PULL‑12), and every one of FLEET‑1…4's visibility surfaces. A push executor would also mean Telemachus reaching OUT to a Mac on somebody's desk; a pull worker means the Mac reaches in and needs no inbound port, which is PULL‑1's whole argument. |
+| 🔑 **JUDGE‑9** | How a question is represented | **Ordered lists, never hashes — and NEVER sorted** · vs a jsexpr hash · vs sorting for stability | Measured, in `RESEARCH.md` §3.1: on one checkpoint **1 of 6 orderings** of three options agreed with the written order, and one option's probability moved by **0.54**. Option order is part of the question. Poplog hit this as a live defect (G3/G4): its hash-ordered JSON sent `billing, technical, sales, legal, hr` out as `technical, hr, billing, sales, legal` and got different answers, and it had to add an insertion-ordered `json_object` to `LIB JSON` to fix it. **Racket's `hasheq` has exactly the same hazard**, and this platform already knows it twice — `json-out` sorts so the docs gate cannot cry wolf, and LAY‑11's canonical form is "an ordered LIST, never a hash". This is the third instance with the **opposite remedy**: sorting here would change the answer, so order must be *preserved*, not normalized. A reader who knows `json-out` will reach for sorting; the seam has to make that impossible. |
+| 🔑 **JUDGE‑10** | Metering | **Its own dimension, `ai.judgments.total`** · vs JUDGE‑5's `ai.tokens.total` | Supersedes JUDGE‑5. Laya generates nothing — a single forward pass — so `output_tokens` is **always 0**, and input tokens for one question are a handful. Metered against `ai.tokens.total` a judgment is effectively free, and free means unbounded: exactly the shape of the agent's under-count, where "a live tool-using run measured 3,810 tokens where the old code billed 50 — so the budget was never reached and the missing check never showed". The quota ledger is dimension-keyed, so a new dimension needs **no migration**. |
+| 🔑 **JUDGE‑11** | What a stored verdict must carry | **Checkpoint commit, dtype and batch setting — and LAY‑11 hashes it AS GIVEN** · vs the answer alone · vs recomputing to verify | `ts_last_model` is `aac6fef/laya-mlx@20aed815… float16`, and the README says to record it beside any result you keep, because both change probabilities. Worse for an audit: §3.2 measures **50.2% of answers differing in the 3rd–4th decimal depending on their batch-mates**, exact only at `batch_size=1` (~1.7× for 16 questions). So a judgment is reproducible only if the checkpoint, the precision, the question order AND the batch policy are all pinned — and LAY‑11's decision chain must hash the verdict as it was given and **never** re-ask the model and compare, because a legitimate re-ask can differ. This also promotes the LAY‑10 finding from a nicety to a requirement: `model-exchange` already resolves the model and returns it as a third value that both call sites discard. A typed judgment without its checkpoint is unauditable. |
+| **JUDGE‑12** | Where it can run | **Never in-process, never in CI** · vs vendoring it | Laya is MLX on Apple Silicon, macOS 14+; this platform builds under Nix and runs on Linux. So the CI-testable backend is the chat-and-schema one, or a scripted double — the shape `test/mock-llm.rkt` already provides for chat and `tests/fake_laya_server.py` provides on the Pop‑11 side. Pinning a worker to one developer's Mac is also the R2 mistake in miniature; it belongs to an operator's fleet, which is what FLEET‑3's drain and PULL‑11's reported state are for. |
+
+**What does not change.** JUDGE‑1 (one seam, `judge`, taking a state and typed
+questions) stands as written. JUDGE‑4 stands and matters more, not less: the
+state leaving the process now leaves for another HOST, so "off by default,
+per-team, per-org, and the state that leaves is named in the audit entry" is the
+whole of the privacy story. JUDGE‑6 is built. And the limits still hold — this
+replaces neither the model seam, nor `draft-acceptable?`, nor
+`validate-extraction`.
+
+**Two things to measure before building, not after.** Whether the hosted Jev is
+order-sensitive is still unknown (poplog's G3/G4 fixed the client either way);
+and `judge.typed`'s validator has to be written against a real laya answer, which
+carries more than Jev's — every answer has `probabilities` and `action`, and a
+`score` answer has `legend`.
+
+**If it is built, the order is JUDGE‑9 → ‑8 → ‑10 → ‑11 → ‑7.** The ordered
+question representation first, because it is the one decision that is expensive
+to retrofit — every stored judgment made against a hash-ordered document would be
+unreproducible, and unlike LAY‑5's spans there would be no column to add later,
+only answers to throw away.
 
 ## Research, bring-your-own-key, data-policy routing (RSCH / BYOK / ZDR) — **proposed 13 Oct 2026**
 
