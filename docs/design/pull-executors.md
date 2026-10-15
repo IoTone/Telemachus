@@ -61,6 +61,12 @@ pull host:          POST /api/workers/claim ──▶ (the host runs it) ──�
   genuinely new mechanism, and it is what makes a host that vanishes mid-job
   safe: the job is not lost and not run twice by design — the *result* is
   accepted only from the lease holder whose lease is current.
+- **Every expiry is audited** (FLEET‑1, issue #70): `job.lease.expired` per
+  attempt, naming the executor that held it, and `job.attempts.exhausted` with
+  the whole list when the job finally fails. The entry is written **before** the
+  UPDATE, because the requeue sets `executor_id = NULL` and afterwards nothing
+  says which machine dropped the work. The stored error names the holders, so
+  one flaky box three times is distinguishable from three boxes once each.
 - **Routing a model call to a pull executor.** `run-chat #:executor` today
   resolves a name to a push URL. For a pull executor it instead **enqueues an
   `infer.chat` job and waits for it** (bounded by the caller's own job's lease),

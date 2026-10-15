@@ -473,13 +473,26 @@
 
 ;; an expired lease returns the job to the queue with attempt+1; past MAX-ATTEMPTS
 ;; it fails with the reason. Called from the scheduler's idle tick and by tests.
+;;
+;; FLEET-1: every expiry is AUDITED, and the entry is written BEFORE the UPDATE.
+;; The requeue sets `executor_id` to NULL — it has to, the job is nobody's again —
+;; so after the UPDATE the only record of which machine dropped the work is gone.
+;; Without the entry a job one flaky box failed three times is indistinguishable
+;; from three boxes that each tried once, which is the question an operator asks
+;; first. Writing it here rather than deriving it later is the whole point: there
+;; is nothing left to derive it from.
+;;
+;; No dedup, unlike QUOTA-3's `quota.exhausted`: that one is re-decided for every
+;; queued job on every tick, while an expiry happens once per attempt and is
+;; bounded by MAX-ATTEMPTS.
 (define (reap-leases! conn)
   ;; every claim carries a lease now — a pull worker's and the pool's alike — so
   ;; this recovers an in-process job whose worker died as well as a remote one.
   ;; (`lease_until < ?` already skips a NULL lease; those are swept at boot by
   ;; the scheduler's reap-orphans!.)
   (define expired (query-rows conn
-    "SELECT id, attempt FROM jobs WHERE status = 'running' AND lease_until < ?" (now)))
+    (string-append "SELECT id, attempt, team_id, executor_id, kind FROM jobs "
+                   "WHERE status = 'running' AND lease_until < ?") (now)))
   ;; A CANCELING job whose lease lapsed is settled, never re-queued: the holder is
   ;; gone (or ignored its cancellation past SCHED-9's ceiling), and re-running work
   ;; somebody stopped is the one outcome nobody asked for. This is also what frees
@@ -489,15 +502,80 @@
   (for ([id (in-list stopping)]) (settle-canceling! conn id))
   (for ([r (in-list expired)])
     (define id (vector-ref r 0)) (define attempt (vector-ref r 1))
-    (if (< attempt MAX-ATTEMPTS)
+    ;; straight through, not through `nz`: that answers the SYMBOL 'null for a
+    ;; JSON reader, and audit! wants sql-null for an absent column.
+    (define team (let ([v (vector-ref r 2)]) (if (sql-null? v) sql-null v)))
+    (define ex-id (let ([v (vector-ref r 3)]) (and (not (sql-null? v)) v)))
+    (define ex-name (executor-name conn ex-id))
+    ;; the ORIGINAL condition, inverted and named — `(< attempt MAX-ATTEMPTS)`
+    ;; requeues, so the job fails on the attempt that is no longer below the cap.
+    ;; `(>= (add1 attempt) …)` reads more naturally and costs the job an attempt.
+    (define last? (>= attempt MAX-ATTEMPTS))
+    ;; `team-id` is the JOB's team, because audit-list filters by it: an entry
+    ;; without one is invisible to exactly the people whose work stopped — the
+    ;; gap QUOTA-3 had to close for a deferred job, and the one `user.2fa.reset`
+    ;; still has.
+    (audit! conn #:action "job.lease.expired" #:actor-type "system"
+            #:team-id team #:resource-type "job" #:resource-id id
+            #:result (if last? "exhausted" "requeued")
+            #:meta (jsexpr->string (hasheq 'kind (vector-ref r 4)
+                                           'attempt attempt
+                                           'max_attempts MAX-ATTEMPTS
+                                           'executor_id (or ex-id 'null)
+                                           'executor (or ex-name 'null)
+                                           'lease_seconds LEASE-SECONDS)))
+    (if (not last?)
         (query-exec conn (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
                                         "claim_token = NULL, attempt = ? WHERE id = ?")
                     (add1 attempt) id)
-        (query-exec conn
-          (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, lease_until = NULL, "
-                         "claim_token = NULL, finished_at = CURRENT_TIMESTAMP WHERE id = ?")
-          (format "no executor completed it in ~a attempts (leases expired)" MAX-ATTEMPTS) id)))
+        (begin
+          (audit! conn #:action "job.attempts.exhausted" #:actor-type "system"
+                  #:team-id team #:resource-type "job" #:resource-id id
+                  #:result "error"
+                  #:meta (jsexpr->string (hasheq 'kind (vector-ref r 4)
+                                                 'attempts MAX-ATTEMPTS
+                                                 'holders (map (lambda (h) (or h 'null)) (lease-holders conn id)))))
+          (query-exec conn
+            (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, lease_until = NULL, "
+                           "claim_token = NULL, finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+            (exhausted-message conn id) id))))
   (+ (length expired) (length stopping)))
+
+;; The name of an executor, or #f for an in-process job (executor_id is NULL) or
+;; a row that has since been deleted. A name, not an id, because the id is what
+;; the audit meta carries and the name is what an operator recognises.
+(define (executor-name conn id)
+  (and id (let ([v (query-maybe-value conn "SELECT name FROM executors WHERE id = ?" id)])
+            (and v (not (sql-null? v)) v))))
+
+;; Which machines held this job, oldest attempt first, read back out of the trail
+;; the expiries above wrote. `#f` for an attempt the pool held in process.
+(define (lease-holders conn id)
+  (for/list ([m (in-list (query-list conn
+                           (string-append "SELECT meta FROM audit_log WHERE action = 'job.lease.expired' "
+                                          "AND resource_id = ? ORDER BY at_us ASC") id))])
+    (and (not (sql-null? m))
+         (with-handlers ([exn:fail? (lambda (_) #f)])
+           (let ([h (string->jsexpr m)])
+             (and (hash? h) (let ([n (hash-ref h 'executor 'null)]) (and (string? n) n))))))))
+
+;; The stored error names the machines that dropped it. "no executor completed it
+;; in 3 attempts" was true and told an operator nothing: the first thing they want
+;; to know is whether it was one bad box three times or three boxes once each, and
+;; that is the difference between retiring a host and looking at the job.
+(define (exhausted-message conn id)
+  (define held (lease-holders conn id))
+  (define named (filter string? held))
+  (cond
+    [(null? named)
+     (format "no worker completed it in ~a attempts (leases expired; in process)" MAX-ATTEMPTS)]
+    [(= 1 (length (remove-duplicates named)))
+     (format "no executor completed it in ~a attempts (leases expired on ~a~a)"
+             MAX-ATTEMPTS (car named)
+             (if (= (length named) (length held)) "" ", and in process"))]
+    [else
+     (format "no executor completed it in ~a attempts (leases expired on ~a)"
+             MAX-ATTEMPTS (string-join (map (lambda (h) (or h "in process")) held) ", "))]))
 
 ;; ---- routing a synchronous model call to a pull executor (PULL-5) --------------------
 ;; Enqueue an infer.chat sub-job and wait for a worker to complete it. Bounded:

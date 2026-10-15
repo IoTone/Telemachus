@@ -412,6 +412,35 @@ not spend an attempt (#61), and writable derived objects from a worker result
 (#62) — all four were questions on #54 rather than defects, and each needs a
 decision of its own before code.
 
+## The reaper leaves a record (FLEET‑1) — **decided and BUILT 14 Oct 2026** (issue #70)
+
+The first slice of the worker-fleet surface, and the only one worth building
+before the views that read it: there was nothing to build a view *from*. A lease
+expiry — the central failure event of the pull subsystem — was recorded nowhere,
+and the requeue actively destroyed the one fact a reader needs.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **FLEET‑1a** | Where the record lives | **The audit log, written in `reap-leases!` BEFORE the UPDATE** · vs a `job_attempts` table · vs deriving it later from the jobs row | The requeue sets `executor_id = NULL` — it has to, the job is nobody's again — so **after** the UPDATE there is nothing left to derive from. A job one flaky box failed three times and a job three healthy boxes each tried once are the same row, and which it was is the first question an operator asks. The audit log is already the record, already correctly ordered (`at_us`, issue #47) and already the thing `audit-list` reads; a second table would be a copy of a decision the log can hold. |
+| **FLEET‑1b** | Whose entry it is | **The JOB's `team_id`, with `actor_type` `system`** · vs the executor's org · vs no team | `audit-list` filters `WHERE team_id = ?`, so an entry carrying no team is invisible to exactly the people whose work stopped. This is the gap QUOTA‑3 had to close for a deferred job and the one `user.2fa.reset` still has. The executor's org would be the wrong answer for the same reason the org was wrong for a quota hold: the deferred work belongs to a team. |
+| **FLEET‑1c** | Two actions, not one | **`job.lease.expired` per attempt, `job.attempts.exhausted` once at the end** · vs one action with a `result` · vs one at the end carrying the history | They are read by different people at different times. The per-attempt entry is the fleet signal — this box drops jobs — and wants one row per event so a count is a count. The verdict is the job's story and wants to name every holder in one place, so a reader looking at a failed job does not have to assemble it. The per-attempt entry's `result` still distinguishes `requeued` from `exhausted`, so neither reader needs the other's rows. |
+| **FLEET‑1d** | No dedup | **One entry per expiry, unconditionally** · vs QUOTA‑3's once-per-window rule | QUOTA‑3 needed dedup because `quota.exhausted` is re-decided for every queued job on every pool tick, which writes dozens in seconds. An expiry happens once per attempt and is bounded by `MAX-ATTEMPTS`, so the volume is the volume and suppressing any of it would lose the count that makes the signal useful. |
+| 🔑 **FLEET‑1e** | What the stored error says | **Name the holders, read back out of the trail just written** · vs leaving the old wording · vs recording holders on the job row | "no executor completed it in 3 attempts (leases expired)" was true and told an operator nothing — and the difference between one bad box three times and three boxes once each is the difference between retiring a host and looking at the job. The message is composed by reading the `job.lease.expired` entries back, which is the closed loop that makes FLEET‑1a worth its cost: the trail is not write-only. An `attempt` with no executor reads as **in process**, never as a guessed name. |
+| **FLEET‑1f** | The in-process case | **`executor` is `null`, and the message says "in process"** · vs omitting the entry for a pool job · vs inventing a name like `pool` | The pool leases too (issue #17) and `reap-leases!` recovers its jobs as well, so a pool job whose process died is exactly as interesting. `null` rather than a name, for QUOTA‑3's reason: a field nothing stands behind is worse than an absent one. |
+
+**What this does NOT do.** A `canceling` job that the reaper settles is still
+unaudited — the cancellation itself is audited (`job.cancel`, SCHED‑8), so the
+missing entry is the narrower fact that a holder ignored it past the ceiling.
+`reap-orphans!`, which sweeps NULL-lease rows at boot, is likewise silent. Both
+are the same class and neither is a lease expiry; noted here rather than folded
+in, so the slice stays the one thing it claims to be.
+
+**The one place the refactor nearly changed behaviour.** The condition was
+`(< attempt MAX-ATTEMPTS)` → requeue. Naming the negation reads better as
+`(>= (add1 attempt) MAX-ATTEMPTS)`, which is **off by one** and costs every job
+an attempt. It is `(>= attempt MAX-ATTEMPTS)`, and `test/pull-tests.rkt`'s
+existing MAX-ATTEMPTS case is what says so.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about
