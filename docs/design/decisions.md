@@ -441,6 +441,37 @@ in, so the slice stays the one thing it claims to be.
 an attempt. It is `(>= attempt MAX-ATTEMPTS)`, and `test/pull-tests.rkt`'s
 existing MAX-ATTEMPTS case is what says so.
 
+## The fleet read (FLEET‑2) — **decided and BUILT 15 Oct 2026** (issue #70)
+
+`GET /api/executors` answers what each executor *is*. `GET /api/admin/workers`
+answers what the fleet is *doing*: which box holds which job, how often each one
+drops work, how deep the queue is, how long its oldest job has waited, and the
+figure the platform could not express at all — how many queued remote jobs no
+live worker is able to run.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **FLEET‑2a** | Where the instance-wide read lives | **Its own `instance:manage` route** · vs `?scope=instance` on `GET /api/jobs` · vs a per-team fleet view | `GET /api/jobs` is team-scoped by contract: `list-jobs` takes a team and `job-waiting` computes *that team's* hold reason. Widening it to cross teams would make a team-tier route answer past the org gate, which is step 0 of `can?` and the one thing nothing is allowed to tunnel through. An instance-wide question gets an instance-wide route. (`?scope=org` on `GET /api/notes` is not a counter-example: TEN‑2h gave it a *permission*, `org:read-data`, and still filters every row through `can?`.) |
+| **FLEET‑2b** | Stored counters | **Every number derived, none stored** · vs counters on the executor row | The rule `missing`/`stale`, `waiting` (QUOTA‑3) and executor health itself already live by. A stored count is a second copy of something the rows answer, and on the day the two disagree it is the copy an operator believes. Nothing here is on a hot path: this is one operator read, not a request-path computation. |
+| 🔑 **FLEET‑2c** | What a worker can run | **The claim's own declaration, merged into `executors.capabilities` on every claim** · vs the operator's create-time document · vs a new `observed_capabilities` column | This is the decision that makes FLEET‑2's headline figure mean anything. `capabilities` was written once at create and was usually `{}`, while the worker declared its kinds and models on **every poll** — so the platform was told the truth continuously and recorded the intention. A capability record that is aspirational cannot answer "can anything here run this job". Merged into the same document LAY‑9 reads for `tools` and `json_schema` rather than a second place to look, and an EMPTY declaration leaves the stored value alone, because a worker naming no models means "any", not "none" — PULL‑11d's silence rule. **Behaviour change**: `capabilities` on `GET /api/executors` now reflects what the worker last said. |
+| 🔑 **FLEET‑2d** | What "unclaimable" counts | **Only jobs no live executor's capabilities satisfy — never a job a quota or a cap holds** · vs any job that is not progressing | "Nothing *can* run it" and "nothing *may* run it yet" are different answers with different remedies, and conflating them would send an operator to buy a machine when the answer was a budget. QUOTA‑3 already explains the second case on the job itself. The predicate is `executor-can-run?`, extracted from `worker-claim!` and asked by both — one policy, two askers, the shape QUOTA‑3 settled for admission, because two implementations of one matching rule drift and the drift is invisible until it misleads. |
+| **FLEET‑2e** | Which executors count as an answer | **`active` pull rows only** · vs including `stale` | A stale box may come back, but it is running nothing now, and an operator asking "can this queue drain" means the fleet that exists. A stale row's *reported* state is withdrawn here exactly as it is on `GET /api/executors` (PULL‑11e). |
+| **FLEET‑2f** | The window | **24 hours by default, `?hours=`, clamped not refused** · vs lifetime totals · vs a fixed window | A lifetime total is the wrong number: a machine that failed forty jobs last month and none today is healthy, and the total says otherwise for ever. The audit log also grows without bound. A nonsense `?hours=` on a READ answers with the default rather than a 400 — there is nothing to get wrong by guessing, and an operator should not have to decode a refusal to see their fleet. |
+| 🔑 **FLEET‑2g** | Two sources for the counts | **Outcomes from the jobs row, lease expiries from FLEET‑1's trail** · vs one source for both | They cover different attempts and together cover all of them. `jobs.executor_id` survives a terminal write, so the row names the executor that *finished* a job — and the requeue nulls it, so the row can never name an earlier holder. FLEET‑1's `job.lease.expired` entries name every holder that dropped it. Reading outcomes from the trail as well would double-count the final attempt; reading expiries from the row is impossible. `started_epoch` (migration 0038) is the clock, because `finished_at` is TEXT `CURRENT_TIMESTAMP` and differs by dialect. |
+| **FLEET‑2h** | The queue's age | **A new `jobs.created_epoch`, migration 0041, no backfill** · vs computing an age from `created_at` | `created_at` is TEXT `CURRENT_TIMESTAMP`, whose format differs by dialect — the trap migrations 0038, 0039 and 0040 each name — so an age derived from it is invisibly wrong on one of the two. A job queued before the migration reports `null`, never a number derived from nothing. |
+| **FLEET‑2i** | Counting the meta | **`meta LIKE '%"executor_id":"<id>"%'`** · vs a JSON operator · vs a column on `audit_log` | The trick `object-processing` already uses to find the runs that touched a document: `jsexpr->string` writes no spaces, so the pair is one substring. SQLite and PostgreSQL do not spell a JSON operator the same way, and a column on `audit_log` for one caller's filter is the wrong shape. |
+
+**Bounded, and it says so.** `unclaimable` scans at most 200 queued remote jobs
+and reports `scanned` and `truncated` beside the count, the way the claim bounds
+its own window to 64. A report that silently answered about a prefix of the queue
+would be worse than one that says it stopped.
+
+**Still FLEET‑3 and ‑4**: the operator-side drain (`admin_state`, reversible,
+where today the only lever is a retire that revokes the token), the console's
+Workers and Queue cards, and the create flow that shows the worker token once.
+FLEET‑2 is HTTP only — deliberately, so the shape can be read before a card is
+drawn against it.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about

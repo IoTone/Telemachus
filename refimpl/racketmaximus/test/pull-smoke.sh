@@ -177,6 +177,31 @@ assert "…leaving the last good state in place" "$(G /api/executors)" '"worker_
 assert "a user token is not a worker here"   "$(curl -s -X POST $B/api/workers/state -H "Authorization: Bearer $TOK" -d '{"state":"ready"}')" 'not bound to an executor'
 
 echo
+echo "== 7. FLEET-2: the operator can see the fleet and the queue =="
+# What each executor IS lives on GET /api/executors; what the fleet is DOING
+# lives here. Instance-scoped, because a team-tier route widened to cross teams
+# would answer past the org gate.
+assert "the fleet read names the worker"      "$(G /api/admin/workers)" '"name":"laptop-gpu"'
+assert "…with its derived health"             "$(G /api/admin/workers)" '"status":"active"'
+assert "…and the queue block"                 "$(G /api/admin/workers)" '"oldest_queued_seconds"'
+assert "…and the figure a deep queue cannot explain" "$(G /api/admin/workers)" '"unclaimable"'
+assert "…which is zero while a worker can run the work" "$(G /api/admin/workers)" '"count":0'
+# The claim records what the worker DECLARED, which is what makes the figure
+# above mean anything: `capabilities` used to hold only what was typed at create.
+assert "the capability record is the worker's own declaration" \
+  "$(G /api/admin/workers)" '"models":["mock"]'
+# A window, clamped rather than refused: a nonsense value on a read should answer
+# with the default, not a 400 an operator has to decode.
+assert "the window is configurable"           "$(G '/api/admin/workers?hours=3')" '"hours":3'
+assert "…and a nonsense window falls back"    "$(G '/api/admin/workers?hours=-1')" '"hours":24'
+# instance:manage. The worker's own token carries jobs:execute and nothing else,
+# so the box cannot read the fleet it belongs to.
+assert "a worker token cannot read the fleet" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/admin/workers -H "Authorization: Bearer $WT")" '403'
+assert "…and neither can a stranger" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/admin/workers)" '401'
+
+echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'
 assert "…and the worker token is dead" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{}')" '401'
 assert "…and the executor is retired" "$(G /api/executors)" '"status":"retired"'

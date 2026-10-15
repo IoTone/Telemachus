@@ -695,6 +695,10 @@
       "text": "Per-locale coverage of the Localization Manager's catalog: total, approved, machine, missing, stale.",
       "hash": "cdb91dd313c4c647ddd892ce2786897c54e061d7"
     },
+    "doc.route.get.api.admin.workers": {
+      "text": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.",
+      "hash": "57debe14263c6fd7babde28e1412f4fbe9492a1f"
+    },
     "ui.norepoobjects": {
       "text": "No documents yet. Any format — pdf, svg, png, docx, xml, md.",
       "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
