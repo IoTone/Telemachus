@@ -1508,10 +1508,28 @@ platform that did not go through `domain/tools/jsonschema.rkt`.
   case in `test/beta-tests.rkt` was missing `valid` incidentally (it is about
   braces inside strings) and had to gain it.
 
-**The rest of #31 is design, not code.** JEV cannot be self-hosted, so it cannot
-be the first backend of anything here; the recommendation is a typed-judgment
-SEAM with a local backend (a chat model behind a closed schema) and JEV as a
-plugin. Read the decision block before anyone writes an integration.
+**The rest of #31 is design, not code**, and the design was REVISED on 15 Oct
+2026 (JUDGE‑7…12, issue #57) because its premise changed. `IoTone/poplog`'s
+`packages/laya` self-hosts an open-weight decision model that takes JEV's own
+`POST /v1/systemone` request, so:
+
+- the first backend is laya, not a chat model behind a schema (that becomes the
+  second, and is the only one that runs in CI);
+- it needs **no new wire and no plugin** — a remote job kind `judge.typed` plus a
+  pull worker on the Mac inherits quota, the org gate, cancel, the lease, the
+  fence, PULL‑11's state, PULL‑12's release and all of FLEET‑1…4;
+- **option and question order is part of the question** — measured: 1 of 6
+  orderings agreed with the written order, one probability moved by 0.54. So
+  ordered lists, never `hasheq`, and **never sorted**: this is the third place
+  the hash-order trap appears here and the first where `json-out`'s sort would be
+  actively wrong;
+- `output_tokens` is always 0, so `ai.tokens.total` cannot bound it — a judgment
+  needs its own dimension;
+- a stored verdict must carry the checkpoint, the dtype and the batch policy, and
+  LAY‑11 must hash it AS GIVEN: 50% of answers move in the 4th decimal with their
+  batch-mates unless `batch_size=1`.
+
+Read the decision block before anyone writes an integration.
 
 ## A deferred job says why (issue #55, built 14 Oct 2026)
 
