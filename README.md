@@ -85,7 +85,7 @@ Windowed usage vs. limits, and every agent tool with a source badge: built-in, �
 
 ![Admin & the worker fleet](docs/screenshots/09-admin.png)
 
-Operator-only instance view. The Workers table lists the local node (qwen2.5:7b), federated executors (↗ gpu-sim) and any pull worker — each with its derived health, what the worker itself reports, what it is holding, and a reversible Drain. Below it: the queue, and how many jobs no live worker can run.
+Operator-only instance view. The Workers table lists the local node (qwen2.5:7b), federated executors (↗ gpu-sim) and any pull worker — each with its derived health, what the worker itself reports, what it is holding, and a reversible Drain. Below it the Queue: every job across every team with how long it has waited, and the two separate reasons one is not running — the platform is holding it, or no live worker can run it at all.
 
 ### Localized top to bottom
 

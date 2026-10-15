@@ -61,6 +61,12 @@ pull host:          POST /api/workers/claim ──▶ (the host runs it) ──�
   genuinely new mechanism, and it is what makes a host that vanishes mid-job
   safe: the job is not lost and not run twice by design — the *result* is
   accepted only from the lease holder whose lease is current.
+- **The queue is readable job by job** (FLEET‑4, issue #70):
+  `GET /api/admin/queue` pages across every team with filters on kind, status,
+  executor and team. A queued row carries `waiting` (the platform is holding it,
+  the same reason `GET /api/jobs` gives) and `runnable` (no live worker can run
+  it at all) — two answers with different remedies, never merged. No payload and
+  no result travel with a row.
 - **An operator can take a host out of rotation** (FLEET‑3, issue #70):
   `POST /api/executors/<id>/drain` and `/resume` write `executors.admin_state`,
   a third column beside the derived `status` and the reported `worker_state` —

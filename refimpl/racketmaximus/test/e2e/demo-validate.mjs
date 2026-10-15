@@ -377,13 +377,25 @@ try {
   // empty endpoint for every pull worker and drew a dead box exactly like a busy
   // one, so what is asserted here is that the three ANSWERS are on screen.
   {
-    const card = await page.locator('.card', { hasText: 'Workers' }).first();
+    const card = page.locator('#wkcard');
     ok('workers card present in Admin', await card.count() > 0);
     const body = await card.innerText().catch(() => '');
     ok('…and it shows the local model beside the fleet', /local/.test(body));
     ok('…with the queue figure a depth count cannot explain',
        /no worker can run/i.test(body), body.slice(0, 200));
     ok('…and the create form that mints a worker token', await page.locator('#wkn').count() > 0);
+  }
+
+  // FLEET-4: the Queue card beside it. The gate fails on any console error, so
+  // this also proves the card's delegated filter handlers bind under the CSP —
+  // a `data-h-change` that never interpolated is how the funnel once shipped a
+  // dead submit button.
+  {
+    const card = page.locator('#qcard');
+    ok('queue card present in Admin', await card.count() > 0);
+    const body = await card.innerText().catch(() => '');
+    ok('…and it says which ordering it is showing',
+       /newest first|order a free worker/i.test(body), body.slice(0, 160));
   }
   restoreBrand = (await apiCall(page, '/api/branding')).json;
 

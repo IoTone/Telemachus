@@ -251,6 +251,14 @@
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.",
       "hash": "a23ae826a41c12acc5e93a274177b49fc2f65a41"
     },
+    "doc.tool.word_count.text": {
+      "text": "The text to count words in",
+      "hash": "9f6ee81cda8dc3daf6b0a143f188de3f949664b0"
+    },
+    "ui.qsubhint": {
+      "text": "A sub-job: another job is waiting on this one, so it is exempt from the team's concurrency cap — its parent already holds a slot.",
+      "hash": "7d8d12ba572f48a24f7f38ce8131c8d0af1eb9a5"
+    },
     "doc.tool.doc_extract_fields.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
@@ -258,10 +266,6 @@
     "http.already_initialized": {
       "text": "Already initialized.",
       "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
-    },
-    "doc.tool.word_count.text": {
-      "text": "The text to count words in",
-      "hash": "9f6ee81cda8dc3daf6b0a143f188de3f949664b0"
     },
     "ui.kg_alltypes": {
       "text": "any type",
@@ -322,6 +326,10 @@
     "doc.route.delete.api.2fa": {
       "text": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",
       "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
+    },
+    "ui.qage": {
+      "text": "waiting",
+      "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
     },
     "ui.prompt": {
       "text": "Prompt",
@@ -487,6 +495,10 @@
       "text": "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
     },
+    "ui.wkheldhint": {
+      "text": "The platform is holding this job: it is admissible work waiting on a limit, not a failure, and it starts on its own when the limit clears.",
+      "hash": "e005612afd8302da9676fc5a8c52dfafd076436c"
+    },
     "ui.objects": {
       "text": "Documents",
       "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
@@ -583,6 +595,10 @@
       "text": "Run workflow…",
       "hash": "48e95b8cd7e8597a1a0079c7013822562a36f1b7"
     },
+    "ui.qattempt": {
+      "text": "try",
+      "hash": "3240aa0fe3ca15051680641a59e8d7b61c286b23"
+    },
     "doc.tool.update_note": {
       "text": "Update a note's title and/or body by id.",
       "hash": "44491022a8c823f95545b85549b446db8e969998"
@@ -635,6 +651,14 @@
       "text": "Created operator {user} and team {team}.",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
     },
+    "ui.queue": {
+      "text": "Queue",
+      "hash": "d325fcd919384f395c02751e03d2cd0288b98cca"
+    },
+    "ui.link": {
+      "text": "Link",
+      "hash": "d0517071aa376e797705058bbad4b658954b9930"
+    },
     "ui.submitjob": {
       "text": "Submit a job",
       "hash": "510341190745d586870fc9862595a371c925fc0f"
@@ -674,10 +698,6 @@
     "ui.enable": {
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
-    },
-    "ui.link": {
-      "text": "Link",
-      "hash": "d0517071aa376e797705058bbad4b658954b9930"
     },
     "doc.route.get.api.translate": {
       "text": "The team's translation history.",
@@ -799,6 +819,10 @@
       "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
       "hash": "218f372f207fb10f594e39772c8cd33624edf803"
     },
+    "ui.qnoworker": {
+      "text": "no worker",
+      "hash": "27386d4385bbc993141aca01b7448f6b259e700a"
+    },
     "ui.reviewverdict_reject": {
       "text": "Rejected",
       "hash": "27eeb7a291bfc566447d9cd928e98caf90f70ee6"
@@ -890,6 +914,10 @@
     "ui.code": {
       "text": "2FA code (if enabled)",
       "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
+    },
+    "ui.qdrainorder": {
+      "text": "in the order a free worker will take them",
+      "hash": "636f3dcb0d102e0fcb13aa1df70f89f56132fb29"
     },
     "doc.route.get.api.beta.asset.id": {
       "text": "Serve one onboarding asset. Public: the funnel and the branding logo load it without a token.",
@@ -1419,6 +1447,14 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.get.api.org.branding": {
+      "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
+      "hash": "ed143a926240ffabe318645984be613401b30646"
+    },
+    "ui.qshowing": {
+      "text": "{from}–{to} of {total}",
+      "hash": "1d79d3c3f0867cec319181decf537a23d774d2b6"
+    },
     "doc.route.post.api.tools.name": {
       "text": "Enable or disable a tool for the team.",
       "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
@@ -1511,10 +1547,6 @@
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
-    "doc.route.get.api.org.branding": {
-      "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
-      "hash": "ed143a926240ffabe318645984be613401b30646"
-    },
     "ui.search": {
       "text": "Search",
       "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
@@ -1534,6 +1566,10 @@
     "ui.wkresume": {
       "text": "Resume",
       "hash": "b3bd0b5a70497bec4a02b7eb1cb0d4f37eb71a2a"
+    },
+    "doc.route.get.api.admin.queue": {
+      "text": "The queue, job by job, across every team (FLEET-4): each row's age, attempt, holder, lease countdown, and — for a queued one — why the platform is holding it (`waiting`, the same reason GET /api/jobs gives) and whether any live worker can run it at all (`runnable`). Filters `kind`, `status`, `executor`, `team`; pages with `limit` (max 200) and `offset`; `total` is the count for the filter. Asked for `status=queued` the list is the claim's own order, so position 1 really is next — `order` says which ordering you got. It carries no payload and no result: a queue is managed by kind, age, team and holder, and this read crosses every team on the instance.",
+      "hash": "b83d488c8da62ed3334ddfa5ad9218a6fb91eea2"
     },
     "doc.tool.doc_render": {
       "text": "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is \"pdf\" (a Markdown or HTML template, converted with pandoc and tectonic).",
@@ -1563,6 +1599,14 @@
       "text": "the model this instance calls itself, in process — it claims nothing and cannot be drained",
       "hash": "86c4c4eb2c336125df1fcb5739eadf5cbd38b723"
     },
+    "ui.qkind": {
+      "text": "kind",
+      "hash": "0ef25ae00f40c8471ee44b720036abcc25e96cee"
+    },
+    "doc.perm.org:read": {
+      "text": "See the company, its teams, members and audit trail.",
+      "hash": "05279417b614668317d0b96f13b779958ddfcdda"
+    },
     "doc.route.post.api.admin.seed-tenants": {
       "text": "Seed Acme and Globex with known dev passwords — demo fixture only.",
       "hash": "8ebbc1998b371a5d1fe99da2c98f2af7481e2a9a"
@@ -1582,10 +1626,6 @@
     "ui.quotaraiseop": {
       "text": "You can raise it below.",
       "hash": "fcf24e7c78cf03fabbab4d6d138fc343406ee1b9"
-    },
-    "doc.perm.org:read": {
-      "text": "See the company, its teams, members and audit trail.",
-      "hash": "05279417b614668317d0b96f13b779958ddfcdda"
     },
     "notes.saved": {
       "text": "Note saved.",
@@ -1771,6 +1811,14 @@
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "ui.qrecentorder": {
+      "text": "newest first",
+      "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
+    },
+    "doc.perm.research:use": {
+      "text": "Use the research surfaces.",
+      "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
+    },
     "ui.thfont": {
       "text": "Font",
       "hash": "b97c4d4cddf23ec47395af460f9e28df2a0f9b04"
@@ -1858,10 +1906,6 @@
     "doc.route.options.api.beta.config": {
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
-    },
-    "doc.perm.research:use": {
-      "text": "Use the research surfaces.",
-      "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
     },
     "doc.perm.notes:write": {
       "text": "Create and edit notes.",
@@ -2275,13 +2319,17 @@
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
-    "doc.tool.doc_render.data": {
-      "text": "The data to fill in, e.g. the extracted fields",
-      "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
+    "ui.qempty": {
+      "text": "Nothing in the queue.",
+      "hash": "40996f618a89348d223f7e1c58562e5f21a17a92"
     },
     "doc.perm.instance:*": {
       "text": "Everything at the instance tier; the operator (superadmin).",
       "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
+    },
+    "doc.tool.doc_render.data": {
+      "text": "The data to fill in, e.g. the extracted fields",
+      "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
     },
     "ui.tool": {
       "text": "Tool",
@@ -2570,6 +2618,10 @@
     "ui.bxtouch": {
       "text": "We’ll be in touch.",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "ui.qsub": {
+      "text": "sub",
+      "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
     },
     "doc.route.get.api.org": {
       "text": "The caller's own company.",

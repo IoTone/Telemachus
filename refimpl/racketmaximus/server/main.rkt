@@ -1783,6 +1783,24 @@
       (require-perm db-conn p "instance:manage"))
     (if (executor-retire! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
 
+;; FLEET-4: the queue, job by job. A filter that is IGNORED rather than refused
+;; is invisible to the caller — the `query-param` assq bug that answered a
+;; request for Dutch with Japanese — so an empty string is treated as "no
+;; filter" and anything else is passed through to an equality test on a column.
+;; A bad `limit` or `offset` is clamped, not refused: this is a read, and an
+;; operator should not have to decode a 400 to see their queue.
+(define (ep-admin-queue req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define (f k) (let ([v (query-param req k)]) (and (string? v) (not (string=? v "")) v)))
+    (define (num k d) (let* ([raw (query-param req k)]
+                             [n (and (string? raw) (string->number raw))])
+                        (if (and (real? n) (>= n 0)) (inexact->exact (round n)) d)))
+    (json-response (queue-listing db-conn p
+                                  #:kind (f 'kind) #:status (f 'status)
+                                  #:executor (f 'executor) #:team (f 'team)
+                                  #:limit (num 'limit 50) #:offset (num 'offset 0))))))
+
 ;; FLEET-3: the reversible lever. Until this the only way to take a flaky box out
 ;; of rotation was DELETE /api/executors/<id>, which revokes the worker token —
 ;; so a ten-minute drain meant re-provisioning the host afterwards.
@@ -2894,7 +2912,7 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors 'admin-workers ep-admin-workers
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
-   'executor-drain ep-executor-drain 'executor-resume ep-executor-resume
+   'executor-drain ep-executor-drain 'executor-resume ep-executor-resume 'admin-queue ep-admin-queue
    'repo-fields-get ep-repo-fields-get 'repo-fields-put ep-repo-fields-put
    'repo-attributes ep-repo-attributes 'repo-spans ep-repo-spans
    'member-role ep-member-role 'member-remove ep-member-remove

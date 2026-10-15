@@ -500,6 +500,33 @@ button was the only one for so long that reaching for it is the habit.
 filters by kind/status/executor). The Workers card carries the queue's three
 summary numbers; the job-by-job view is its own slice.
 
+## The queue, job by job (FLEET‑4) — **decided and BUILT 15 Oct 2026** (issue #70)
+
+`GET /api/admin/queue`, `instance:manage`, and the console's **Queue** card.
+FLEET‑2's summary answers "is the queue moving"; this answers "what is in it,
+and what is each row waiting for".
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **FLEET‑4a** | A second route | **Its own paged route** · vs more keys on `/api/admin/workers` · vs `?scope=instance` on `GET /api/jobs` | The fleet read is a bounded dashboard that must stay cheap enough to poll; this needs filters, paging and a total, and folding them together would make every dashboard read pay for a page of jobs nobody asked for. Widening the team-tier `GET /api/jobs` is refused for FLEET‑2a's reason: it would make a team-scoped route answer past the org gate. |
+| 🔑 **FLEET‑4b** | Two different answers to "why is this not running" | **`waiting` AND `runnable`, never merged** · vs one "blocked" field | They have different remedies and different owners. `waiting` is the platform holding admissible work behind a cap or a budget — it clears on its own, and QUOTA‑3 already says so on the job itself. `runnable: false` means no live worker can run the job at all, and nothing clears that but an operator. A single field would make a quota look like missing hardware, which is the mistake FLEET‑2d refused in the summary; the row-level view has to keep the same line. |
+| **FLEET‑4c** | Where `waiting` comes from | **`team-hold`, memoized per team** · vs a second implementation · vs per row | The same admission seam `GET /api/jobs` asks (QUOTA‑3). It is a property of the TEAM, so a cross-team listing asks it once per team rather than once per row — QUOTA‑3's "once per listing", scaled to a listing that spans teams. Absent when nothing holds the job, never `{"reason":"worker"}`. |
+| **FLEET‑4d** | Where `runnable` is reported | **Only on a QUEUED remote row** · vs every row | On an in-process kind no worker claims, so the field would be about nothing; on a running row the question is already answered. A field that is present but meaningless is how a reader learns to distrust the rest. |
+| 🔑 **FLEET‑4e** | What it carries | **No `payload`, no `result`** · vs the full job row | This read crosses every team and every org on the instance, and a queue is managed by kind, age, team and holder — not by reading a team's prompts. The team-scoped `GET /api/jobs/:id` still has them under that team's own gate. Narrow by default is the discipline LAY‑11 and the funnel's public slice already follow; an operator permission is not a reason to widen a payload. |
+| 🔑 **FLEET‑4f** | Ordering, and saying which one | **The claim's own order for `status=queued`, newest-first otherwise, and `order` reports which** · vs always newest-first · vs always the claim's order | Asked for the queued rows, the list is `priority DESC, created ASC` — the claim's `ORDER BY` — so position 1 really is the next job a free worker takes. That is only true of that one filter, and a list that LOOKED like the drain order while mixing in finished jobs would mislead about what runs next. So the answer says which ordering it is, and the card prints it. `COALESCE(created_epoch, 0)` because a pre‑0041 row has none and the two dialects sort NULLs opposite ways under ASC — zero is also right for drain order, a pre‑0041 job being the oldest thing there. |
+| **FLEET‑4g** | Cancel | **Read-only** · vs an operator cancel across teams | `cancel-job!` is team-scoped and the permission rule is team-tier (owner-ok OR `jobs:cancel`, SCHED‑8). An operator stopping another company's job is a decision of its own, and not one to make inside a listing because the listing happened to show the row. |
+| **FLEET‑4h** | Filters | **Equality on columns, AND-ed, clamped paging** · vs a query language | An operator asks "which kind", "whose", "which box". A filter that is IGNORED rather than refused is the `query-param` `assq` defect that answered a request for Dutch with Japanese, so an empty string means "no filter" and anything else reaches a column test. A bad `limit` or `offset` is clamped: this is a read, and nobody should have to decode a 400 to see their queue. |
+
+**The kind dropdown is built from the fleet read**, not from the rows on the
+current page — a filter assembled from the page would vanish the moment it was
+used.
+
+**A test that sets process-global state restores it in a `dynamic-wind`.**
+`set-cap-for!` was overridden to prove the hold reason, and the restore sat after
+the assertion: a failing `check-equal?` raises, the restore never ran, and a cap
+of 0 leaked into every later test in the file, failing an unrelated one. The
+cascade cost more time than the wrong expectation that started it.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about

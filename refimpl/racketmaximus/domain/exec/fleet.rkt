@@ -36,7 +36,7 @@
          "../sched/scheduler.rkt"
          "pull.rkt")
 
-(provide fleet-report FLEET-WINDOW-HOURS)
+(provide fleet-report queue-listing FLEET-WINDOW-HOURS QUEUE-PAGE-MAX)
 
 ;; How far back the per-executor counts look. Not "lifetime": the audit log grows
 ;; without bound, and the operationally interesting number is what this box has
@@ -160,10 +160,7 @@
     (for/list ([r (in-list rows)]
                #:unless (for/or ([e (in-list live)])
                           (executor-can-run? conn e
-                            #:kinds (let ([k (hash-ref (hash-ref e 'capabilities (hasheq)) 'kinds '())])
-                                      (if (list? k) (filter string? k) '()))
-                            #:models (let ([m (hash-ref (hash-ref e 'capabilities (hasheq)) 'models '())])
-                                       (if (list? m) (filter string? m) '()))
+                            #:kinds (caps-list e 'kinds) #:models (caps-list e 'models)
                             #:kind (vector-ref r 1) #:team (vector-ref r 2)
                             #:requirements (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                                              (let ([j (string->jsexpr (vector-ref r 3))])
@@ -204,3 +201,151 @@
                   'oldest_queued_seconds (oldest-queued conn)
                   'remote_kinds (remote-kinds)
                   'unclaimable (unclaimable conn executors))))
+
+;; ---- the queue, job by job (FLEET-4) -----------------------------------------
+;;
+;; `fleet-report` carries the queue's three summary numbers, which answer "is
+;; this moving". This answers "what is in it, and what is each row waiting for" —
+;; a paged, filterable listing across every team, for the operator who owns the
+;; box.
+;;
+;; A SEPARATE route rather than more of `/api/admin/workers`: that one is a
+;; bounded dashboard that must stay cheap enough to poll, and this needs paging,
+;; filters and a total. Keeping them together would have made every dashboard
+;; read pay for a page of jobs nobody asked for.
+;;
+;; Three things it deliberately does NOT do:
+;;
+;;   It carries no `payload` and no `result`. This read crosses every team and
+;;   every org on the instance, and a queue is managed by kind, age, team and
+;;   holder — not by reading a team's prompts. The team-scoped `GET /api/jobs/:id`
+;;   still has them, under that team's own gate. Narrower is the whole discipline
+;;   LAY-11 and the public funnel slice already follow.
+;;
+;;   It cannot cancel. `cancel-job!` is team-scoped and the permission rule is
+;;   team-tier (owner-ok OR `jobs:cancel`, SCHED-8); an operator stopping another
+;;   company's job is a decision of its own and not one to make inside a listing.
+;;
+;;   It invents no hold reason. `waiting` comes from `team-hold`, the same
+;;   admission seam `GET /api/jobs` asks (QUOTA-3), and is ABSENT when nothing
+;;   holds the job — never `{"reason":"worker"}`.
+
+(define QUEUE-PAGE-MAX 200)
+
+;; `team-hold` is a property of the TEAM, so a cross-team listing asks it once
+;; per team rather than once per row — the reason QUOTA-3 computes it once per
+;; listing, scaled up to a listing that spans teams.
+(define (hold-cache conn)
+  (define seen (make-hash))
+  (lambda (team sub?)
+    (hash-ref! seen (cons team sub?) (lambda () (team-hold conn team #:sub? sub?)))))
+
+(define QSELECT
+  (string-append
+   "SELECT j.id, j.kind, j.status, j.priority, j.team_id, j.attempt, j.parent_job_id, "
+   "       j.created_epoch, j.lease_until, j.error, j.created_at, j.requirements, "
+   "       t.name, o.name, x.name "
+   "FROM jobs j "
+   "LEFT JOIN teams t ON t.id = j.team_id "
+   "LEFT JOIN orgs o ON o.id = t.org_id "
+   "LEFT JOIN executors x ON x.id = j.executor_id "))
+
+;; Filters are AND-ed, and every one of them is a column: an operator looking at
+;; a deep queue is asking "which kind", "whose", "which box" — and a filter that
+;; was ignored rather than refused is the bug `query-param`'s assq mismatch
+;; produced in the Localization Manager, where a request for Dutch was answered
+;; with Japanese.
+(define (queue-where kind status executor team)
+  (for/fold ([cls '()] [args '()] #:result (values (reverse cls) (reverse args)))
+            ([f (in-list (list (cons "j.kind = ?" kind)
+                               (cons "j.status = ?" status)
+                               (cons "x.name = ?" executor)
+                               (cons "j.team_id = ?" team)))])
+    (if (cdr f) (values (cons (car f) cls) (cons (cdr f) args)) (values cls args))))
+
+;; -> a hash with `jobs`, `total`, `order`, and the filters that were applied.
+;;
+;; `order` says which way the list runs, because a list that LOOKED ordered and
+;; was not would mislead about what runs next. Asked for the queued rows alone,
+;; it is the claim's own order (`priority DESC, created ASC`), so position 1
+;; really is the next job a free worker takes. Otherwise it is newest first.
+;;
+;; `COALESCE(created_epoch, 0)` rather than a bare column: a row from before
+;; migration 0041 has none, and the two dialects sort NULLs opposite ways under
+;; ASC. Zero is also the right answer for drain order — a pre-0041 job is the
+;; oldest thing here.
+(define (queue-listing conn p #:kind [kind #f] #:status [status #f] #:executor [executor #f]
+                       #:team [team #f] #:limit [lim 50] #:offset [off 0])
+  (define n (max 1 (min QUEUE-PAGE-MAX lim)))
+  (define skip (max 0 off))
+  (define-values (cls args) (queue-where kind status executor team))
+  (define where (if (null? cls) "" (string-append "WHERE " (string-join cls " AND ") " ")))
+  (define drain? (equal? status "queued"))
+  (define order (if drain?
+                    "ORDER BY j.priority DESC, COALESCE(j.created_epoch, 0) ASC "
+                    "ORDER BY COALESCE(j.created_epoch, 0) DESC "))
+  (define total (apply query-value conn
+                       (string-append "SELECT COUNT(*) FROM jobs j "
+                                      "LEFT JOIN teams t ON t.id = j.team_id "
+                                      "LEFT JOIN executors x ON x.id = j.executor_id " where)
+                       args))
+  (define rows (apply query-rows conn
+                      (string-append QSELECT where order "LIMIT " (number->string n)
+                                     " OFFSET " (number->string skip))
+                      args))
+  (define held (hold-cache conn))
+  (define rk (remote-kinds))
+  ;; the live fleet, read once: `runnable` asks the claim's own predicate, so a
+  ;; row that says nothing can run it agrees with what a worker would refuse.
+  (define live (filter (lambda (e) (and (equal? (hash-ref e 'status) "active")
+                                        (equal? (hash-ref e 'mode) "pull")))
+                       (executor-list conn p)))
+  (hasheq
+   'total total 'limit n 'offset skip
+   'order (if drain? "drain" "recent")
+   'filters (hasheq 'kind (or kind 'null) 'status (or status 'null)
+                    'executor (or executor 'null) 'team (or team 'null))
+   'jobs
+   (for/list ([r (in-list rows)])
+     (define st (vector-ref r 2))
+     (define tid (vector-ref r 4))
+     (define sub? (not (sql-null? (vector-ref r 6))))
+     (define kd (vector-ref r 1))
+     (define remote? (and (member kd rk) #t))
+     (define req (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                   (let ([j (string->jsexpr (let ([v (vector-ref r 11)]) (if (sql-null? v) "{}" v)))])
+                     (if (hash? j) j (hasheq)))))
+     (define base
+       (hasheq 'id (vector-ref r 0) 'kind kd 'status st
+               'priority (vector-ref r 3)
+               'team_id (nz* (vector-ref r 4)) 'team (nz* (vector-ref r 12)) 'org (nz* (vector-ref r 13))
+               'attempt (vector-ref r 5) 'max_attempts MAX-ATTEMPTS
+               'sub_job sub?
+               'remote remote?
+               'executor (nz* (vector-ref r 14))
+               'age_seconds (let ([v (vector-ref r 7)]) (if (sql-null? v) 'null (- (now) v)))
+               'created_at (format "~a" (vector-ref r 10))
+               'lease_seconds_left (let ([v (vector-ref r 8)])
+                                     (if (sql-null? v) 'null (- v (now))))
+               'error (nz* (vector-ref r 9))))
+     ;; `waiting` only where it can mean anything, and ABSENT when nothing holds
+     ;; the job (QUOTA-3): nothing here can know whether a worker for a remote
+     ;; kind exists, and a reason nothing stands behind is how a reader stops
+     ;; trusting the field. `runnable` is the separate, answerable half.
+     (define with-hold
+       (cond
+         [(not (equal? st "queued")) base]
+         [(held tid sub?) => (lambda (h) (hash-set base 'waiting h))]
+         [else base]))
+     (if (and (equal? st "queued") remote?)
+         (hash-set with-hold 'runnable
+                   (for/or ([e (in-list live)])
+                     (executor-can-run? conn e
+                       #:kinds (caps-list e 'kinds) #:models (caps-list e 'models)
+                       #:kind kd #:team tid #:requirements req)))
+         with-hold))))
+
+(define (nz* v) (if (sql-null? v) 'null v))
+(define (caps-list e k)
+  (let ([v (hash-ref (let ([c (hash-ref e 'capabilities (hasheq))]) (if (hash? c) c (hasheq))) k '())])
+    (if (list? v) (filter string? v) '())))

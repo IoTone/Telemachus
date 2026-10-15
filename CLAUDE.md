@@ -1369,6 +1369,47 @@ bash test/pull-smoke.sh          # section 8, 10 assertions over HTTP
 bash test/e2e/validate.sh        # the card renders under the console CSP
 ```
 
+## The queue, job by job (FLEET‑4, issue #70)
+
+Built 15 Oct 2026. `GET /api/admin/queue`, `instance:manage`, plus the console's
+**Queue** card (`#qcard`, beside `#wkcard`). The last of #70.
+
+- **`waiting` and `runnable` are two answers and must never merge.** `waiting`
+  is the platform holding admissible work behind a cap or budget — it clears on
+  its own, and QUOTA‑3 says so on the job too. `runnable: false` means no live
+  worker can run it at all, and only an operator clears that. One field would
+  make a quota look like missing hardware.
+- `waiting` comes from **`team-hold`, memoized per team** — the seam
+  `GET /api/jobs` asks. It is a property of the team, so a cross-team listing
+  asks once per team, not once per row. Absent when nothing holds the job.
+- **`runnable` appears only on a queued REMOTE row.** No worker claims an
+  in-process kind, and a running row has already been answered.
+- **No `payload`, no `result`.** This read crosses every team and org on the
+  instance; a queue is managed by kind, age, team and holder. The team-scoped
+  `GET /api/jobs/:id` still carries them. An operator permission is not a reason
+  to widen a payload.
+- **`order` is reported, not assumed.** `status=queued` gives the claim's own
+  `priority DESC, created ASC`, so row 1 really is next; anything else is
+  newest-first. A list that looked like drain order while mixing in finished
+  jobs would mislead about what runs next. `COALESCE(created_epoch, 0)` — a
+  pre‑0041 row has none, and the dialects sort NULLs opposite ways under ASC.
+- **Read-only.** `cancel-job!` is team-scoped and its rule is team-tier
+  (SCHED‑8); an operator cancelling another company's job is its own decision.
+- The kind dropdown is built from the fleet read, not from the current page — a
+  filter assembled from the page would vanish the moment it was used.
+- **Give a console card an `id` before asserting on it.** A `.card` locator with
+  `hasText: 'Queue'` matched the WORKERS card, whose summary reads "queued for
+  workers". Every other asserted card on this tab is found by id.
+- **A test that sets process-global state restores it in a `dynamic-wind`.**
+  `set-cap-for!` was overridden to prove the hold reason with the restore after
+  the assertion; a failing check raises, so the restore never ran and a cap of 0
+  leaked into every later test in the file, failing an unrelated one.
+
+```sh
+raco test test/fleet-tests.rkt   # drain order, the two answers, the filters, paging
+bash test/pull-smoke.sh          # section 7b, 7 assertions over HTTP
+```
+
 ## The reaper leaves a record (FLEET‑1, issue #70)
 
 Built 14 Oct 2026 — the first slice of the worker-fleet surface. A lease expiry

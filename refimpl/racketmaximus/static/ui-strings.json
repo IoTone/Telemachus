@@ -317,5 +317,17 @@
   "ui.wktokenph": "the token above",
   "ui.wkgotit": "Got it",
   "ui.wkconfig": "from file",
-  "ui.wkconfighint": "Declared in executors.json, which owns its names — this instance reads the file at boot. It cannot be drained or retired from here; edit the file and restart."
+  "ui.wkconfighint": "Declared in executors.json, which owns its names — this instance reads the file at boot. It cannot be drained or retired from here; edit the file and restart.",
+  "ui.queue": "Queue",
+  "ui.qkind": "kind",
+  "ui.qage": "waiting",
+  "ui.qattempt": "try",
+  "ui.qempty": "Nothing in the queue.",
+  "ui.qshowing": "{from}–{to} of {total}",
+  "ui.qnoworker": "no worker",
+  "ui.qsub": "sub",
+  "ui.qsubhint": "A sub-job: another job is waiting on this one, so it is exempt from the team's concurrency cap — its parent already holds a slot.",
+  "ui.wkheldhint": "The platform is holding this job: it is admissible work waiting on a limit, not a failure, and it starts on its own when the limit clears.",
+  "ui.qdrainorder": "in the order a free worker will take them",
+  "ui.qrecentorder": "newest first"
 }

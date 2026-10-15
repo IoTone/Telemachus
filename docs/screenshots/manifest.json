@@ -42,7 +42,7 @@
   {
     "file": "09-admin.png",
     "title": "Admin & the worker fleet",
-    "caption": "Operator-only instance view. The Workers table lists the local node (qwen2.5:7b), federated executors (↗ gpu-sim) and any pull worker — each with its derived health, what the worker itself reports, what it is holding, and a reversible Drain. Below it: the queue, and how many jobs no live worker can run."
+    "caption": "Operator-only instance view. The Workers table lists the local node (qwen2.5:7b), federated executors (↗ gpu-sim) and any pull worker — each with its derived health, what the worker itself reports, what it is holding, and a reversible Drain. Below it the Queue: every job across every team with how long it has waited, and the two separate reasons one is not running — the platform is holding it, or no live worker can run it at all."
   },
   {
     "file": "10-i18n.png",

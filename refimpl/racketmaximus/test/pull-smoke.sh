@@ -202,6 +202,23 @@ assert "…and neither can a stranger" \
   "$(curl -s -o /dev/null -w '%{http_code}' $B/api/admin/workers)" '401'
 
 echo
+echo "== 7b. FLEET-4: the queue, job by job =="
+assert "the queue read pages and totals"      "$(G /api/admin/queue)" '"total"'
+assert "…and says which ordering you got"     "$(G /api/admin/queue)" '"order":"recent"'
+# Asked for the queued rows it is the claim's own order, so row 1 really is next.
+# A list that LOOKED ordered and was not would mislead about what runs next.
+assert "…drain order when asked for queued"   "$(G '/api/admin/queue?status=queued')" '"order":"drain"'
+assert "a filter narrows rather than being ignored" \
+  "$(G '/api/admin/queue?kind=no.such.kind')" '"total":0'
+assert "…and the page is clamped, not refused" "$(G '/api/admin/queue?limit=9999')" '"limit":200'
+# A queue is managed by kind, age, team and holder. This read crosses every team
+# on the instance, so a team's prompt does not travel with the row.
+assert "no payload travels with a cross-team row" \
+  "$(G /api/admin/queue | grep -c '\"payload\"' || true)" '0'
+assert "a worker token cannot read the queue" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/admin/queue" -H "Authorization: Bearer $WT")" '403'
+
+echo
 echo "== 8. FLEET-3: the operator takes a host out of rotation, reversibly =="
 # The only lever before this was a RETIRE, which revokes the worker token: a
 # ten-minute drain meant re-provisioning the host afterwards.

@@ -252,6 +252,10 @@
       "text": "呼び出し元の TOTP 二要素認証を有効にします。シークレットと単回使用のリカバリコード一組を、一度だけ返します。",
       "hash": "a23ae826a41c12acc5e93a274177b49fc2f65a41"
     },
+    "ui.qsubhint": {
+      "text": "サブジョブです。別のジョブがこれを待っているため、チームの同時実行数の上限から除外されます — 親ジョブがすでに枠を押さえています。",
+      "hash": "7d8d12ba572f48a24f7f38ce8131c8d0af1eb9a5"
+    },
     "doc.tool.doc_extract_fields.run": {
       "text": "ワークフロー実行 ID（由来の記録用）。",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
@@ -323,6 +327,10 @@
     "doc.route.delete.api.2fa": {
       "text": "呼び出し元自身の TOTP を無効化します。古いシードとそのリカバリコードは使えなくなり、再登録が必要です。",
       "hash": "2eca165a43b26e72f8c6702f56b853671c7797c6"
+    },
+    "ui.qage": {
+      "text": "待機時間",
+      "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
     },
     "ui.prompt": {
       "text": "プロンプト",
@@ -488,6 +496,10 @@
       "text": "ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
     },
+    "ui.wkheldhint": {
+      "text": "プラットフォームがこのジョブを保留しています。実行可能な作業が上限を待っている状態で、失敗ではありません。上限が解消されれば自動的に開始します。",
+      "hash": "e005612afd8302da9676fc5a8c52dfafd076436c"
+    },
     "ui.objects": {
       "text": "ドキュメント",
       "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
@@ -584,6 +596,10 @@
       "text": "ワークフローを実行…",
       "hash": "48e95b8cd7e8597a1a0079c7013822562a36f1b7"
     },
+    "ui.qattempt": {
+      "text": "試行",
+      "hash": "3240aa0fe3ca15051680641a59e8d7b61c286b23"
+    },
     "doc.tool.update_note": {
       "text": "ID でノートのタイトルまたは本文を更新する。",
       "hash": "44491022a8c823f95545b85549b446db8e969998"
@@ -675,6 +691,10 @@
     "ui.enable": {
       "text": "有効化",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
+    },
+    "ui.queue": {
+      "text": "キュー",
+      "hash": "d325fcd919384f395c02751e03d2cd0288b98cca"
     },
     "ui.link": {
       "text": "リンク",
@@ -792,6 +812,10 @@
       "text": "呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。",
       "hash": "218f372f207fb10f594e39772c8cd33624edf803"
     },
+    "ui.qnoworker": {
+      "text": "ワーカーなし",
+      "hash": "27386d4385bbc993141aca01b7448f6b259e700a"
+    },
     "ui.reviewverdict_reject": {
       "text": "却下済み",
       "hash": "27eeb7a291bfc566447d9cd928e98caf90f70ee6"
@@ -891,6 +915,10 @@
     "ui.code": {
       "text": "2FAコード（有効な場合）",
       "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
+    },
+    "ui.qdrainorder": {
+      "text": "空いたワーカーが取っていく順番",
+      "hash": "636f3dcb0d102e0fcb13aa1df70f89f56132fb29"
     },
     "doc.route.get.api.beta.asset.id": {
       "text": "オンボーディングアセットを1つ配信する。公開：申込フローとブランディングロゴはトークンなしで読み込みます。",
@@ -1420,6 +1448,10 @@
       "text": "ワークフロー実行 ID（由来の記録用）。",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "ui.qshowing": {
+      "text": "{total} 件中 {from}〜{to} 件",
+      "hash": "1d79d3c3f0867cec319181decf537a23d774d2b6"
+    },
     "doc.route.post.api.tools.name": {
       "text": "チーム用のツールを有効にする/無効にする",
       "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
@@ -1536,6 +1568,10 @@
       "text": "再開",
       "hash": "b3bd0b5a70497bec4a02b7eb1cb0d4f37eb71a2a"
     },
+    "doc.route.get.api.admin.queue": {
+      "text": "キューを全チーム横断でジョブ単位に表示する（FLEET-4）：各行の待機時間、試行回数、保持しているホスト、リースの残り時間、そして待機中のジョブについては、プラットフォームがなぜ保留しているか（`waiting`、GET /api/jobs が返すものと同じ理由）と、そもそも稼働中のワーカーで実行できるのか（`runnable`）。絞り込みは `kind`、`status`、`executor`、`team`。`limit`（最大200）と `offset` でページングし、`total` は絞り込み後の総件数である。`status=queued` を指定した場合、並び順は要求処理そのものの順序になるため、先頭が本当に次のジョブである — どの並び順になったかは `order` が示す。ペイロードと結果は含まない：キューは種別、待機時間、チーム、保持しているホストで管理するものであり、この読み取りはインスタンス上のすべてのチームにまたがる。",
+      "hash": "b83d488c8da62ed3334ddfa5ad9218a6fb91eea2"
+    },
     "doc.tool.doc_render": {
       "text": "フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が \"pdf\" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。",
       "hash": "60f537d9839bec95196ab4285cbd1b0967c15d46"
@@ -1575,6 +1611,10 @@
     "ui.quotaraiseop": {
       "text": "下の設定で引き上げられます。",
       "hash": "fcf24e7c78cf03fabbab4d6d138fc343406ee1b9"
+    },
+    "ui.qkind": {
+      "text": "種別",
+      "hash": "0ef25ae00f40c8471ee44b720036abcc25e96cee"
     },
     "doc.perm.org:read": {
       "text": "会社、そのチーム、メンバー、監査ログを見る。",
@@ -1859,6 +1899,10 @@
     "doc.route.options.api.beta.config": {
       "text": "サンドボックス化された Tier-C テンプレートのための CORS プリフライト。",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "ui.qrecentorder": {
+      "text": "新しい順",
+      "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
     },
     "doc.perm.research:use": {
       "text": "リサーチ機能を使う。",
@@ -2276,6 +2320,10 @@
       "text": "埋め込むデータ。例：抽出されたフィールド。",
       "hash": "92e78b4a50fac07647cf4d491ef3909265beb400"
     },
+    "ui.qempty": {
+      "text": "キューは空です。",
+      "hash": "40996f618a89348d223f7e1c58562e5f21a17a92"
+    },
     "doc.perm.instance:*": {
       "text": "インスタンス層のすべて；オペレーター（スーパー管理者）。",
       "hash": "5957c7a87ad3f05d89db595d3267a61bee7d7b74"
@@ -2571,6 +2619,10 @@
     "ui.bxtouch": {
       "text": "追ってご連絡いたします。",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "ui.qsub": {
+      "text": "サブ",
+      "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
     },
     "doc.route.get.api.org": {
       "text": "呼び出し元の会社",

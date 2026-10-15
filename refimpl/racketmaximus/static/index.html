@@ -903,7 +903,7 @@ function workersCard(xr, fr){
       <p class="mono muted" style="word-break:break-all">racket cli/telemachus-worker.rkt --url ${esc(location.origin)} --token &lt;${t('wktokenph')}&gt;</p>
       <button class="small" data-h-click="${H(()=>{S.wkToken=null;renderTab();})}">${t('wkgotit')}</button></div>` : '';
 
-  return `<div class="card" style="margin-top:14px"><h3>${t('workers')} <span class="muted" style="font-size:13px">— ${t('workershint')}</span></h3>
+  return `<div class="card" id="wkcard" style="margin-top:14px"><h3>${t('workers')} <span class="muted" style="font-size:13px">— ${t('workershint')}</span></h3>
     <p>${sum}</p>
     <table><thead><tr><th>${t('name')}</th><th>${t('model')}</th><th>${t('wkhealth')}</th><th>${t('wkreports')}</th>
       <th>${t('wklastseen')}</th><th>${t('wkholding')}</th><th title="${esc(t('wkwindowhint'))}">${t('wkwindow')}</th><th></th></tr></thead>
@@ -945,14 +945,87 @@ async function wkCreate(){
   toast(t('wkcreated'), true); renderTab();
 }
 
+
+// ---- the queue, job by job (FLEET-4, issue #70) -----------------------------
+// The Workers card above carries the queue's three summary numbers. This is what
+// is actually in it: each row's age, its holder and lease countdown, and for a
+// queued one the two separate answers to "why is this not running" —
+//
+//   `waiting`  the platform is holding it (a cap, a budget), which QUOTA-3 also
+//              shows on the Jobs tab. It clears on its own.
+//   `runnable` false means no live worker can run it at all. Nothing clears that
+//              but an operator.
+//
+// Read-only on purpose: cancelling is team-tier (owner-ok or jobs:cancel), and
+// an operator stopping another company's job is its own decision.
+function queueQuery(){
+  const f=S.qFilter||{};
+  const qs=Object.keys(f).filter(k=>f[k]).map(k=>k+'='+encodeURIComponent(f[k]));
+  qs.push('limit=25'); qs.push('offset='+(S.qOffset||0));
+  return '?'+qs.join('&');
+}
+// The kinds worth offering are the ones the fleet read already names: what is in
+// the queue now, plus every remote kind this build registers. Building the list
+// from the rows on the current PAGE would make a filter vanish the moment it
+// was used.
+function qKinds(fr){
+  if(!fr||!fr.ok) return [];
+  const q=fr.json.queue||{};
+  const here=(q.depth||[]).map(d=>d.kind), remote=q.remote_kinds||[];
+  return Array.from(new Set(here.concat(remote))).sort();
+}
+function qSet(k,v){ S.qFilter=Object.assign({}, S.qFilter||{}, {[k]:v}); S.qOffset=0; renderTab(); }
+function qPage(d){ S.qOffset=Math.max(0,(S.qOffset||0)+d); renderTab(); }
+function queueCard(qr, fr){
+  if(!qr||!qr.ok) return '';
+  const Q=qr.json, rows=Q.jobs||[], f=S.qFilter||{};
+  const sel=(k,opts,lbl)=>`<div><label>${lbl}</label><select data-h-change="${H((el)=>qSet(k,el.value))}">
+    ${['',...opts].map(o=>`<option value="${esc(o)}"${(f[k]||'')===o?' selected':''}>${o?esc(o):'—'}</option>`).join('')}
+  </select></div>`;
+  const row=(j)=>{
+    // Two different facts, never merged: held by the platform, or runnable by
+    // nobody. The first clears itself; the second needs a machine.
+    const wait = j.waiting ? `<span class="badge warn" title="${esc(t('wkheldhint'))}">${esc(j.waiting.reason)}</span>` : '';
+    const stuck = (j.runnable===false) ? `<span class="badge warn" title="${esc(t('wkunclaimablehint'))}">${t('qnoworker')}</span>` : '';
+    const lease = (j.lease_seconds_left==null) ? '' :
+      `<span class="muted" title="${esc(t('wkleasehint'))}">${t('wklease')} ${wkAge(j.lease_seconds_left)}</span>`;
+    return `<tr>
+      <td class="mono">${esc(j.kind)}${j.sub_job?` <span class="badge" title="${esc(t('qsubhint'))}">${t('qsub')}</span>`:''}</td>
+      <td><span class="badge">${esc(j.status)}</span> ${wait} ${stuck}</td>
+      <td class="muted">${wkAge(j.age_seconds)}</td>
+      <td>${esc(j.team||'–')}${j.org?` <span class="muted">${esc(j.org)}</span>`:''}</td>
+      <td class="mono muted">${j.executor?esc(j.executor):'–'} ${lease}</td>
+      <td class="mono muted">${j.attempt}/${j.max_attempts}</td>
+      <td class="muted" style="max-width:26em">${j.error?esc(j.error):''}</td></tr>`;
+  };
+  const from=(Q.offset||0)+1, to=(Q.offset||0)+rows.length;
+  const pager = Q.total>rows.length ? `<p class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',Q.total)}
+      <button class="small" data-h-click="${H(()=>qPage(-25))}"${(Q.offset||0)<=0?' disabled':''}>←</button>
+      <button class="small" data-h-click="${H(()=>qPage(25))}"${to>=Q.total?' disabled':''}>→</button></p>` : '';
+  // `order` is reported rather than assumed: a list that LOOKED like the drain
+  // order and was not would mislead about what runs next.
+  const ord = Q.order==='drain' ? t('qdrainorder') : t('qrecentorder');
+  return `<div class="card" id="qcard" style="margin-top:14px"><h3>${t('queue')} <span class="muted" style="font-size:13px">— ${esc(ord)}</span></h3>
+    <div class="row">
+      ${sel('status',['queued','running','canceling','done','error','canceled'],t('status'))}
+      ${sel('kind',qKinds(fr),t('qkind'))}
+    </div>
+    ${rows.length?`<table><thead><tr><th>${t('qkind')}</th><th>${t('status')}</th><th>${t('qage')}</th>
+      <th>${t('team')}</th><th>${t('workers')}</th><th>${t('qattempt')}</th><th></th></tr></thead>
+      <tbody>${rows.map(row).join('')}</tbody></table>`
+     :`<p class="muted">${t('qempty')}</p>`}
+    ${pager}</div>`;
+}
+
 async function adminView(){
   const r=await api('/api/admin/status');
   const mr=await api('/api/metrics'); const M=mr.ok?mr.json:{};
   const spr=await api('/api/session-policy'); if(spr.ok) S.adminPolicy=spr.json;   // issue #38
   const stat=(k,l)=>`<div class="card"><label>${l}</label><h2>${M[k]??'–'}</h2></div>`;
   const body = r.ok ? `<div class="row">${stat('users','users')}${stat('teams','teams')}${stat('notes','notes')}${stat('translations','translations')}${stat('active_tokens','tokens')}${stat('audit_events','audit')}</div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
-  const [xr,fr]=await Promise.all([api('/api/executors'), api('/api/admin/workers')]);
-  const compute=workersCard(xr, fr);
+  const [xr,fr,qr]=await Promise.all([api('/api/executors'), api('/api/admin/workers'),
+                                      api('/api/admin/queue'+queueQuery())]);
+  const compute=workersCard(xr, fr) + queueCard(qr, fr);
   const B = S.brand;
   const brandCard=`<div class="card" style="margin-top:14px"><h3>${t('branding')}</h3>
     <p class="muted" style="margin-top:0">${t('brandinghint')}</p>
