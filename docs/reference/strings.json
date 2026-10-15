@@ -179,6 +179,8 @@
   "doc.route.post.api.doc-triggers": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
   "doc.route.post.api.documents": "Create a text document (a repository object with content_type text/markdown).",
   "doc.route.post.api.executors": "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.",
+  "doc.route.post.api.executors.id.drain": "Take a pull executor out of rotation (FLEET-3): it is offered no new work and keeps its token, so it goes on polling and heartbeating and stays visibly alive. Reversible, unlike a retire, which revokes the token. A job it already holds is left running — stopping work in flight is what cancel is for.",
+  "doc.route.post.api.executors.id.resume": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
   "doc.route.post.api.features.name": "Enable or disable a feature for the team.",
   "doc.route.post.api.glossary": "Add or update a glossary term for a target language.",
   "doc.route.post.api.instance.quota": "Hosted mode: set a quota limit for the tenant's team.",

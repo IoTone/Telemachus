@@ -1185,7 +1185,29 @@
       ;; a field a reader learns to distrust is worse than no field.
       (exec* conn "ALTER TABLE jobs ADD COLUMN created_epoch BIGINT"))))
 
+(define m-0042-executor-admin-state
+  (migration "0042-executor-admin-state"
+    (lambda (conn)
+      ;; What the OPERATOR intends for this host (FLEET-3, issue #70).
+      ;;
+      ;; A THIRD column, and the reason is the reason 0040 gave for the second.
+      ;; `status` asks "is this host alive", which only the platform can know.
+      ;; `worker_state` asks "is it taking work", which only the worker can.
+      ;; `admin_state` asks "do we WANT it taking work", which only the operator
+      ;; can — and all three can legitimately disagree at once: a drained box
+      ;; reporting `ready` is not a contradiction, it is a healthy machine being
+      ;; held back, which is exactly the state an operator drains one into.
+      ;; Folding intent into either of the other two would lose that.
+      ;;
+      ;; Before this the only lever was DELETE /api/executors/<id>, which revokes
+      ;; the worker token: taking a flaky machine out of rotation for ten minutes
+      ;; meant re-provisioning it afterwards.
+      ;;
+      ;; Nullable, nothing backfills it, and NULL reads as `active`: every
+      ;; existing executor keeps taking work exactly as it did.
+      (exec* conn "ALTER TABLE executors ADD COLUMN admin_state TEXT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state))

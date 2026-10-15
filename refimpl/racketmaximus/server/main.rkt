@@ -1783,6 +1783,25 @@
       (require-perm db-conn p "instance:manage"))
     (if (executor-retire! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
 
+;; FLEET-3: the reversible lever. Until this the only way to take a flaky box out
+;; of rotation was DELETE /api/executors/<id>, which revokes the worker token —
+;; so a ten-minute drain meant re-provisioning the host afterwards.
+;;
+;; `instance:manage` only, not the org admin who may retire their own: draining
+;; is day-to-day operations of the instance's compute, and the asymmetry is
+;; deliberate rather than an oversight. Revisit it when an org runs its own fleet.
+(define (set-admin-state req id state)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (define r (executor-set-admin-state! db-conn p id state))
+      (cond
+        [(eq? r 'retired) (err "the executor is retired — a retired worker has no token to drain" 409)]
+        [r (json-response (hasheq 'ok #t 'executor r))]
+        [else (err "not found" 404)])))))
+(define (ep-executor-drain req id) (set-admin-state req id "drained"))
+(define (ep-executor-resume req id) (set-admin-state req id "active"))
+
 ;; ---- model roles (slice 67) ----------------------------------------------------------
 (define (ep-model-roles-get req)
   (with-auth req (lambda (p) (json-response (model-roles-get db-conn (principal-team-id p))))))
@@ -2875,6 +2894,7 @@
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors 'admin-workers ep-admin-workers
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
+   'executor-drain ep-executor-drain 'executor-resume ep-executor-resume
    'repo-fields-get ep-repo-fields-get 'repo-fields-put ep-repo-fields-put
    'repo-attributes ep-repo-attributes 'repo-spans ep-repo-spans
    'member-role ep-member-role 'member-remove ep-member-remove

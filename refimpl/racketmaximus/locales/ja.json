@@ -48,6 +48,10 @@
       "text": "文書を管理する：公開範囲の変更、共有と取り消し。所有者は owner-ok により保持し、manage 権限の付与で1つの文書の管理を委任できます。",
       "hash": "5f8597154d7cc35b56f411ca771924735caa2302"
     },
+    "ui.wkidle": {
+      "text": "待機",
+      "hash": "1adbcc344b317c2f3bd64fdac273f8b0dc410cdf"
+    },
     "doc.route.post.api.repo-obj.id.unshare": {
       "text": "プリンシパルがそのオブジェクトに持つすべての権限付与を取り消す。",
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
@@ -84,6 +88,10 @@
       "text": "チームのオブジェクトメタデータ項目を定義する：{fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}。項目の追加にマイグレーションは不要です。",
       "hash": "ce4457cb6abe71b32b8d7f6805f6e5dfa3fa7277"
     },
+    "ui.workershint": {
+      "text": "仕事を取りに来るホスト",
+      "hash": "908daf7804b4f9ebac0142fd35dce4c1fe0ed188"
+    },
     "ui.reviews": {
       "text": "レビュー",
       "hash": "e29a79fe0c349724caeaa1762fa917f5543248ca"
@@ -95,6 +103,10 @@
     "doc.route.post.api.branding.logo": {
       "text": "インスタンスロゴをアップロード（マークとワードマークを置き換えます）",
       "hash": "1d6aae8e5cb67d9c8b9623ac227d9a18295f46db"
+    },
+    "doc.route.post.api.executors.id.resume": {
+      "text": "停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。",
+      "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
     "ui.draftbudget": {
       "text": "AI 予算：約 {need} トークンが必要、本日の残りは {left} — 使用量画面で ai.tokens.total を上げないと下書きは待機します",
@@ -123,6 +135,10 @@
     "doc.route.post.api.beta.experience.publish": {
       "text": "保存済みの下書きを公開する；以後は環境変数で投入された既定値より優先されます。",
       "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
+    },
+    "ui.wkholding": {
+      "text": "処理中",
+      "hash": "329bb6c3b55346c25bd3f35339f2942b972a5966"
     },
     "ui.kg_mentions": {
       "text": "言及",
@@ -199,6 +215,10 @@
     "ui.copied": {
       "text": "コピーしました",
       "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
+    },
+    "ui.wkresumedok": {
+      "text": "再開しました",
+      "hash": "0654fd8c4e356e508ed93b2250c5b0d9714ec6a7"
     },
     "doc.tool.repo_extract_text.id": {
       "text": "リポジトリオブジェクトID",
@@ -363,6 +383,10 @@
     "ui.source": {
       "text": "ソース",
       "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "ui.wklease": {
+      "text": "リース",
+      "hash": "3b509b4fe253b562f28c95ab0c8fd686a1c4c4fc"
     },
     "doc.route.delete.api.members.id": {
       "text": "メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。",
@@ -592,6 +616,10 @@
       "text": "S3アクセスキー",
       "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
     },
+    "ui.wklastseen": {
+      "text": "最終確認",
+      "hash": "34070b8506d76fea3faf86d7e87fff38fa8d907c"
+    },
     "ui.l10ncoverage": {
       "text": "進捗",
       "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
@@ -676,6 +704,10 @@
       "text": "有効なメールアドレスを入力してください。",
       "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
     },
+    "ui.wkgotit": {
+      "text": "確認しました",
+      "hash": "5b8027fa0e819719a62305a6b15f3f1c10769f7f"
+    },
     "ui.updated": {
       "text": "更新",
       "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
@@ -683,6 +715,10 @@
     "doc.tool.doc_translate.locale": {
       "text": "目標言語コード、例：ja, nl, es-419",
       "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
+    },
+    "ui.wkreports": {
+      "text": "申告",
+      "hash": "0b7ec688eeb9119f72f32b5b0f62681af8cde1a4"
     },
     "doc.perm.files:delete": {
       "text": "リポジトリの文書を削除する。",
@@ -723,6 +759,14 @@
     "doc.tool.doc_extract_fields.step": {
       "text": "ワークフローステップ ID（由来の記録用）。",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "ui.wkdrain": {
+      "text": "停止",
+      "hash": "4e4369e733c095a308c9f110fad31b6a36951fae"
+    },
+    "ui.wkdrained": {
+      "text": "停止中",
+      "hash": "07320a06fb6a2b9c7ad4da376fe4d599d42b0331"
     },
     "ui.noruns": {
       "text": "実行履歴はまだありません。",
@@ -799,6 +843,10 @@
     "doc.route.put.api.branding": {
       "text": "インスタンスのタイトル、タグライン、テーマを設定します。不明な、不正な、または WCAG のコントラスト下限を下回るテーマトークンは、その名前を示す 400 になります。",
       "hash": "238d31f0df21df92e8e0420bffbd7abb2e899177"
+    },
+    "ui.wkleasehint": {
+      "text": "このホストが消えたと判断してジョブをキューに戻すまでの残り時間です。ワーカーはハートビートごとに延長します。",
+      "hash": "3b2100aee49efef4beab9dbebb3815fe3c33d88c"
     },
     "ui.reviewapprove": {
       "text": "承認",
@@ -904,6 +952,10 @@
       "text": "会社を作成：org、最初のチーム、所有者。明示的なスラッグは自然キーです（再実行で409エラー）",
       "hash": "42771b6fee9b1756ecf03cfe50df23b762abae38"
     },
+    "ui.wkqueued": {
+      "text": "ワーカー待ちのジョブ",
+      "hash": "e1123cdf2dd36125a8fa154f155699892d47698c"
+    },
     "ui.cap_manage": {
       "text": "管理",
       "hash": "3f282fcba8933e03a65a6dc92a27de8396961e2f"
@@ -947,6 +999,10 @@
     "ui.translate": {
       "text": "翻訳",
       "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    },
+    "ui.wkdrainhint": {
+      "text": "指示により新しい仕事を受け取っていません。トークンは保持したまま報告を続けるので、存在していることは確認できます。",
+      "hash": "d58d627bc1814ecd18d76bff9258645723c687f0"
     },
     "ui.usage": {
       "text": "使用状況",
@@ -1060,6 +1116,10 @@
       "text": "権限がありません：{perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
     },
+    "doc.route.post.api.executors.id.drain": {
+      "text": "プルエグゼキュータをローテーションから外す（FLEET-3）：新しい仕事は渡されず、トークンは保持されるため、要求とハートビートを続け、稼働していることが見える状態を保つ。トークンを失効させる廃止とは異なり、元に戻せる。すでに保持しているジョブはそのまま実行される — 実行中の作業を止めるのはキャンセルの役目である。",
+      "hash": "263309ad0763809eff362ddeaa035f0451173328"
+    },
     "ui.sharedwith": {
       "text": "共有中",
       "hash": "6203f44916a227ea2b0c8ec936b090f9d57e31ee"
@@ -1075,6 +1135,10 @@
     "doc.perm.files:write": {
       "text": "ドキュメントと新バージョンをアップロードします。",
       "hash": "e5297c6ea126b16479b1f9c5061614283b0a5e65"
+    },
+    "ui.wkadd": {
+      "text": "ワーカーを追加",
+      "hash": "f50304c09acf1f4e4ec034fd10fb990f952ed2d4"
     },
     "ui.operator": {
       "text": "オペレーター",
@@ -1160,6 +1224,10 @@
       "text": "無効化",
       "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
     },
+    "ui.wkconfigured": {
+      "text": "設定済み",
+      "hash": "3be9f957f29f905f10f7b652cab1c95ba8a2c205"
+    },
     "ui.confirmpw": {
       "text": "パスワードの確認",
       "hash": "4a7c565d4c4430e3bb8fa6c560125d5eb37e7c3d"
@@ -1187,6 +1255,10 @@
     "doc.route.options.api.beta.signup": {
       "text": "サンドボックス化された Tier-C テンプレートのための CORS プリフライト。",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "ui.wkcreated": {
+      "text": "ワーカーを作成しました — 今すぐトークンをコピーしてください",
+      "hash": "2d2c2cefc85e8b0a3d5c1f4c72c2c9d192e573b5"
     },
     "doc.route.delete.api.repo-obj.id": {
       "text": "オブジェクトを削除する（他のバージョンから参照されなくなったブロブは解放されます）。",
@@ -1376,6 +1448,10 @@
       "text": "テキストドキュメントを削除します。",
       "hash": "f500abea97efc00a4a244e22ffe02227348e511b"
     },
+    "ui.wknamereq": {
+      "text": "ワーカーには名前が必要です",
+      "hash": "9bf95dc2013c42b48eee010b6bddd5e357e92dd1"
+    },
     "ui.kg_none": {
       "text": "一致するエンティティが見つかりません。ドキュメントをインデックス化し、その後抽出を行ってください。",
       "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
@@ -1400,6 +1476,10 @@
       "text": "ローカルエグゼキュータ、環境変数で設定されたプッシュ型、API で作成されたもの（プッシュ型、またはワーカー付きのプル型）を、状態とともに。",
       "hash": "0f04e37ff8172fa65a013f7e48e9af6fa319c0f8"
     },
+    "ui.wkunclaimablewhy": {
+      "text": "ワーカー群に一致するものがありません — ワーカーのモデルを確認するか、起動してください",
+      "hash": "8d290c253e4a7c135c4e2c9f0ea1936dd830c74e"
+    },
     "ui.bytrigger": {
       "text": "トリガー",
       "hash": "63d62d4aee9a5d4fe8539e53a9e3d05ffc210c9b"
@@ -1415,6 +1495,10 @@
     "doc.perm.reviews:read": {
       "text": "チームのレビューキューと、記録済みの判断を見る。",
       "hash": "b9a2936a3b51463412d8340093e3f9f221431016"
+    },
+    "ui.wkactive": {
+      "text": "稼働中",
+      "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
     "doc.route.get.api.org.branding": {
       "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",
@@ -1432,6 +1516,10 @@
       "text": "コピー",
       "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
     },
+    "ui.wkstale": {
+      "text": "応答なし",
+      "hash": "a4e976a3d3fc6d0b40453de216fbbe2e9aaecdc4"
+    },
     "ui.activate": {
       "text": "アカウントを有効化",
       "hash": "b9186563deea94527f03558a5ec059806d363c49"
@@ -1439,6 +1527,10 @@
     "doc.route.get.api.doc-triggers.id": {
       "text": "1つのトリガーとその発火履歴（どのバージョン、どの実行、あるいはなぜ発火しなかったか）。",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
+    },
+    "ui.wkresume": {
+      "text": "再開",
+      "hash": "b3bd0b5a70497bec4a02b7eb1cb0d4f37eb71a2a"
     },
     "doc.tool.doc_render": {
       "text": "フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が \"pdf\" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。",
@@ -1455,6 +1547,10 @@
     "doc.route.get.api.beta.assets": {
       "text": "チームのオンボーディング資産をリストします。",
       "hash": "20267ee4b84d7009da89c1736bcffcc39db17a42"
+    },
+    "ui.wklocalhint": {
+      "text": "このインスタンス自身がプロセス内で呼び出すモデルです — 要求も行わず、停止もできません",
+      "hash": "86c4c4eb2c336125df1fcb5739eadf5cbd38b723"
     },
     "doc.route.post.api.admin.seed-tenants": {
       "text": "既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。",
@@ -1496,6 +1592,10 @@
       "text": "会社自身のセッションタイムアウト、インスタンスのもの、そしてインスタンスの下限を適用した実効ポリシー。",
       "hash": "5c0202597a8e09cba5a7be8019aa70cc95b12960"
     },
+    "ui.wknone": {
+      "text": "まだワーカーがありません。ワーカーは呼ばれるのを待つのではなく、自分からジョブを要求するマシンであり、これが推論を専用のマシンで動かす方法です。",
+      "hash": "53b0b75a64144d923a38f4048d4cf8c4baf42130"
+    },
     "ui.capability": {
       "text": "権限",
       "hash": "88e288f3e3ca8d1137556d908dcb9f355209464b"
@@ -1528,6 +1628,10 @@
       "text": "失効",
       "hash": "0be720759ff04d13c5706881d5d227a2621f91a6"
     },
+    "ui.wkwindow": {
+      "text": "24時間",
+      "hash": "0277959611310976682872bcb5d6423aa581a202"
+    },
     "ui.logout": {
       "text": "サインアウト",
       "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
@@ -1552,9 +1656,17 @@
       "text": "認証が必要です。",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
     },
+    "ui.wkunclaimable": {
+      "text": "実行できるワーカーなし",
+      "hash": "a857f59c856ab5b3b401c3e20f5a599694377503"
+    },
     "doc.plugin.rs3": {
       "text": "文書のバイト列を SHA-256 でアドレス指定してローカルファイルシステムに保存します。文書リポジトリの既定の保存先です。",
       "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
+    },
+    "ui.wkoldest": {
+      "text": "最長待機時間",
+      "hash": "cc4efe854cfcc0888cf273842d580e8d78d05956"
     },
     "ui.draftqueued": {
       "text": "{n} 件の文字列を {b} バッチでキューに入れました — レビュー用に「機械翻訳」として届きます",
@@ -1564,9 +1676,17 @@
       "text": "トリガーを作成：workflow_slug, match_prefix, match_types, input, fire_on_derived.",
       "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
     },
+    "ui.wklocal": {
+      "text": "ローカル",
+      "hash": "939bb46a04c3640c8c427e92b1b557e882e2d2a0"
+    },
     "doc.route.get.api.workflows": {
       "text": "チームのワークフロー定義。プラグイン提供のものは初回参照時に実体化されます。",
       "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
+    },
+    "ui.wktoken": {
+      "text": "ワーカートークン — 一度だけ表示",
+      "hash": "9acc8acb71039219d6d109fcea4f14ba824ddafc"
     },
     "beta.verify_failed": {
       "text": "認証に失敗しました。ページを再読み込みしてください。",
@@ -1668,6 +1788,10 @@
       "text": "レビュー対象",
       "hash": "7e3e171a15d4c42296765868f4131af6df1b2400"
     },
+    "ui.wkhealth": {
+      "text": "稼働状態",
+      "hash": "834b34f16f451e00f268dd5c8c81d16e3c020275"
+    },
     "ui.sourcetext": {
       "text": "翻訳するテキスト",
       "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
@@ -1723,6 +1847,10 @@
     "doc.tool.doc_render.template": {
       "text": "テンプレートドキュメントのオブジェクトIDまたはキー",
       "hash": "af52889b1f6ef204aecd17b5f6775b46587791f8"
+    },
+    "ui.wkpaused": {
+      "text": "一時停止",
+      "hash": "11b1b5ec9167678979a0e6e703210380431292a8"
     },
     "doc.route.options.api.beta.config": {
       "text": "サンドボックス化された Tier-C テンプレートのための CORS プリフライト。",
@@ -1976,6 +2104,10 @@
       "text": "自分が所有していないノートを共有する。",
       "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
     },
+    "ui.wkwindowhint": {
+      "text": "このホストで直近24時間に完了・失敗したジョブ数と、リースが失効した回数です。失効は、ジョブを保持したままホストが応答しなくなったことを意味し、そのジョブはキューに戻されました。",
+      "hash": "4ef5c224df2afcfd1006f4e8d1cfda09af18fdbc"
+    },
     "ui.l10nsource": {
       "text": "英語",
       "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
@@ -2116,6 +2248,10 @@
       "text": "ワークフロー",
       "hash": "825ce9e97dc41179ec167b83be91179b5dacd316"
     },
+    "ui.wkretireconfirm": {
+      "text": "{name} を廃止しますか？ワーカートークンは完全に失効し、保持中のジョブはキューに戻ります。一時的にローテーションから外すだけなら、廃止ではなく停止を使ってください。",
+      "hash": "bc19355c997cb1ed7a6b083c2784e3544d5dd4e7"
+    },
     "ui.signingin": {
       "text": "サインイン中…",
       "hash": "c66b2adcc5fc9f594be38f098d54c7b610e46e57"
@@ -2188,6 +2324,10 @@
       "text": "名前",
       "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
     },
+    "ui.wkunclaimablehint": {
+      "text": "稼働中のどのワーカーが申告したモデルや種別とも一致しない、キュー内のジョブです。チームのAI予算を待っているだけのジョブはここには含めません — それはジョブタブがジョブ自身に表示します。",
+      "hash": "167138294324197d2e1fc09e884b409989383bc7"
+    },
     "doc.perm.org:read-data": {
       "text": "会社内のすべてのチームにわたり、チームに公開されたノート・文書・検索結果を読む（TEN-2h）。非公開のものは対象外；書き込み不可；AI 利用不可。org_reader ロールが保持します。",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
@@ -2199,6 +2339,10 @@
     "ui.derivedfrom": {
       "text": "派生元",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
+    },
+    "ui.wkdrainedok": {
+      "text": "停止しました — 新しい仕事は受け取りません",
+      "hash": "246fc76ae576b20edd7a5e8812a3377eb2d86556"
     },
     "doc.tool.shipment_eta.lane": {
       "text": "レーン（例：SIN-LAX）",
@@ -2256,6 +2400,14 @@
       "text": "ユーザー（所有者、またはnotes:manage）とメモを共有します。与えられた権限はnotes:*のものでなければなりません。",
       "hash": "0d2759fa361a325bf38191358c553fe0a8002de5"
     },
+    "ui.wkretire": {
+      "text": "廃止",
+      "hash": "c9714c15af397514e267a29a83a2669dfe33365a"
+    },
+    "ui.wktokenhint": {
+      "text": "今すぐコピーしてください。再び読み取れる場所には保存されません。失った場合は、このワーカーを廃止して新しく追加してください。",
+      "hash": "925a07646bf14ebbdc4c79aa7721890a308b7cab"
+    },
     "ui.runs": {
       "text": "実行履歴",
       "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
@@ -2263,6 +2415,10 @@
     "ui.details": {
       "text": "詳細",
       "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
+    },
+    "ui.wktokenph": {
+      "text": "上記のトークン",
+      "hash": "6c5eea7d641d807896857c89deba0ca6ac4f3601"
     },
     "doc.route.post.api.runs.id.cancel": {
       "text": "実行を取消；既に実行中のステップが終了し、次のステップは開始しません。",
@@ -2348,6 +2504,10 @@
       "text": "エンティティ",
       "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
     },
+    "ui.workers": {
+      "text": "ワーカー",
+      "hash": "b6ef3acd0f91c0c6e2a6bad2692c8aa84dfc4c73"
+    },
     "doc.route.put.api.repo.key": {
       "text": "生のボディをキーにアップロードする（?filename=, ?visibility=）；既存のキーへの書き込みはバージョンを追加します。トリガーはここで評価されます。",
       "hash": "784e7b58fcc81205c89dbf99ed8044ef8f8fa28f"
@@ -2372,6 +2532,10 @@
       "text": "コンソール",
       "hash": "22e231ec8661962729182ce14c43ad6f9a6ebd62"
     },
+    "ui.wkaddhint": {
+      "text": "このホストが接続に使うワーカートークンを作成します。トークンはこの場で一度だけ表示され、以後は表示されません。",
+      "hash": "941270892ca682b26a07e164797fc6522ebc43f2"
+    },
     "ui.reject": {
       "text": "却下",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
@@ -2391,6 +2555,10 @@
     "ui.shared": {
       "text": "共有しました",
       "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
+    },
+    "ui.wkunreportedhint": {
+      "text": "このワーカーは自分の状態を一度も申告していません。古いプロトコルで書かれているか、まだ要求していないためで、障害ではありません。",
+      "hash": "3b3ff5a8019733c73cc6f9496176e19394352d2f"
     },
     "ui.bxtouch": {
       "text": "追ってご連絡いたします。",

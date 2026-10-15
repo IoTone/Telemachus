@@ -35,9 +35,9 @@
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
-         worker-document worker-report-state!
+         worker-document worker-report-state! executor-set-admin-state!
          executor-can-run? executor-secret executor-context
-         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
+         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES ADMIN-STATES
          pull-dispatch!)
 
 (define LEASE-SECONDS 120)      ; a worker heartbeats every LEASE/3
@@ -57,6 +57,12 @@
 ;; paused worker is still finishing, so it would be a state the database can
 ;; already answer.
 (define WORKER-STATES '("ready" "busy" "paused"))
+
+;; What an operator may intend for a host (FLEET-3). Two values, because the
+;; question is binary: is this box in rotation or not. `retired` is deliberately
+;; NOT one of them — retiring revokes the worker token and is irreversible, and
+;; the whole point of draining is that it is neither.
+(define ADMIN-STATES '("active" "drained"))
 (define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- executors --------------------------------------------------------------------
@@ -118,7 +124,11 @@
                            #:requirements [req (hasheq)])
   (define want-model (let ([m (hash-ref req 'model #f)]) (and (string? m) m)))
   (define want-exec (let ([e (hash-ref req 'executor #f)]) (and (string? e) e)))
-  (and (and (member kind (remote-kinds)) #t)
+  (and ;; the operator's intent is part of "can this box run it" (FLEET-3): a
+       ;; drained host is an answer to nothing, and a fleet report that counted
+       ;; it as one would say the queue can drain when nothing will touch it.
+       (not (equal? (hash-ref ex 'admin_state "active") "drained"))
+       (and (member kind (remote-kinds)) #t)
        (or (null? kinds) (and (member kind kinds) #t))
        (or (not want-model) (and (member want-model models) #t))
        (or (not want-exec) (equal? want-exec (hash-ref ex 'name)))
@@ -138,7 +148,7 @@
 
 (define ESELECT
   (string-append "SELECT id, org_id, name, mode, url, model, capabilities, token_id, status, last_seen_at, created_at, created_by, "
-                 "worker_state, state_epoch "
+                 "worker_state, state_epoch, admin_state "
                  "FROM executors"))
 
 (define (row->executor r)
@@ -171,6 +181,14 @@
           'status status
           'worker_state (if (and said fresh?) said 'null)
           'state_at (let ([v (vector-ref r 13)]) (if (or (sql-null? v) (not (and said fresh?))) 'null v))
+          ;; The operator's INTENT, and unlike `worker_state` it is NOT withdrawn
+          ;; when the row goes stale: a drained box that has gone quiet is still
+          ;; drained, and it is still drained when it comes back. This is a
+          ;; standing instruction, not a reading — the opposite case to PULL-11e,
+          ;; where the thing withdrawn was a claim the worker could no longer
+          ;; stand behind. NULL reads as `active`, so nothing backfilled changes.
+          'admin_state (let ([v (vector-ref r 14)])
+                         (if (and (not (sql-null? v)) (member v ADMIN-STATES)) v "active"))
           'last_seen_at (or seen 'null) 'created_at (format "~a" (vector-ref r 10))
           'created_by (nz (vector-ref r 11))))
 
@@ -255,6 +273,29 @@
 
 ;; every executor the caller may see: the operator sees all; an org principal
 ;; its own org's and the instance-wide ones
+;; Take a host out of rotation, or put it back (FLEET-3). Reversible and
+;; non-destructive: the token lives, the worker keeps polling and heartbeating,
+;; so a drained box stays VISIBLY alive instead of looking like one that died.
+;;
+;; A job it already holds is left alone. Draining says "start nothing new", and
+;; killing work in flight is what cancel is for — an operator who meant that has
+;; `POST /api/jobs/<id>/cancel` and should have to say so.
+(define (executor-set-admin-state! conn p id state)
+  (unless (member state ADMIN-STATES)
+    (raise-user-error 'executors (string-append "state must be one of " (string-join ADMIN-STATES ", "))))
+  (define r (query-maybe-row conn (string-append ESELECT " WHERE id = ?") id))
+  (and r
+       (let ([e (row->executor r)])
+         (cond
+           [(equal? (hash-ref e 'status) "retired") 'retired]
+           [else
+            (query-exec conn "UPDATE executors SET admin_state = ? WHERE id = ?" state id)
+            (audit! conn #:action (if (equal? state "drained") "executor.drain" "executor.resume")
+                    #:actor-type "user" #:actor-id (principal-user-id p)
+                    #:resource-type "executor" #:resource-id id
+                    #:meta (jsexpr->string (hasheq 'name (hash-ref e 'name) 'admin_state state)))
+            (row->executor (query-row conn (string-append ESELECT " WHERE id = ?") id))]))))
+
 (define (executor-list conn p)
   (define rows (query-rows conn (string-append ESELECT " ORDER BY created_at, name")))
   (define org (principal-org-id p))
@@ -308,9 +349,23 @@
       ;; ones saw an empty queue and polled forever against work it could have
       ;; run. The kind filter belongs in the WHERE clause: the window then holds
       ;; only candidates, and the limit bounds the scan rather than the answer.
+      ;; A drained host is heard from and offered nothing (FLEET-3). The touch
+      ;; above happens FIRST and on purpose: the worker keeps polling, so it
+      ;; keeps being seen, and the operator watches a live box that is taking
+      ;; nothing rather than one that has gone stale. Returning no work is also
+      ;; the answer the existing wire already has a meaning for — 204 — so a
+      ;; third-party worker needs no change to be drainable.
+      ;;
+      ;; `executor-can-run?` below refuses a drained executor too, and is the
+      ;; AUTHORITATIVE check — this one is the same answer reached without
+      ;; touching the queue at all. Do not remove either: the predicate is what
+      ;; keeps the fleet report honest, and this is what keeps a drained fleet's
+      ;; polling free.
       (define want-kinds
-        (let ([rk (remote-kinds)])
-          (if (null? kinds) rk (filter (lambda (k) (member k rk)) kinds))))
+        (if (equal? (hash-ref ex 'admin_state "active") "drained")
+            '()
+            (let ([rk (remote-kinds)])
+              (if (null? kinds) rk (filter (lambda (k) (member k rk)) kinds)))))
       (define candidates
         (if (null? want-kinds)
             '()                      ; this worker declares nothing we run remotely

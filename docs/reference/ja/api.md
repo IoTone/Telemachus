@@ -116,6 +116,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/executors` | bearer | `instance:manage` | — | エグゼキュータを作成する：{name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}。プル型エグゼキュータのワーカートークンはこのレスポンスに含まれ、二度と表示されません。 |
 | DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。 |
 | GET | `/api/admin/workers` | bearer | `instance:manage` | — | ワーカー群（FLEET-2）：各エグゼキュータの稼動状態、ワーカー自身の申告、保持中のジョブ、一定期間（?hours=、既定 24）の処理結果とリース失効の回数、直近の失敗 — さらにキュー：種別ごとの件数、最も古い待機ジョブの経過時間、そして稼動中のどのエグゼキュータでも実行できないリモートジョブの件数。この最後の数値は、深いキューを他の方法では説明できないものである：停止したワーカー群と稼動中のワーカー群は、件数だけでは同じように見える。すべての数値は導出され、クォータで保留されているジョブは実行不能には数えない — それは GET /api/jobs が `waiting` としてすでに示している。 |
+| POST | `/api/executors/:id/drain` | bearer | `instance:manage` | — | プルエグゼキュータをローテーションから外す（FLEET-3）：新しい仕事は渡されず、トークンは保持されるため、要求とハートビートを続け、稼働していることが見える状態を保つ。トークンを失効させる廃止とは異なり、元に戻せる。すでに保持しているジョブはそのまま実行される — 実行中の作業を止めるのはキャンセルの役目である。 |
+| POST | `/api/executors/:id/resume` | bearer | `instance:manage` | — | 停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。 |
 | POST | `/api/org/executors` | org-admin | `org:manage` | — | 呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。 |
 | POST | `/api/workers/claim` | bearer | `jobs:execute` | — | プル型ワーカーが実行可能な次のリモートジョブを取得する：{kinds, models, max_wait}；何もなければ 204。ジョブにはリースと claim_token が付き、以降そのジョブに対する書き込みはすべてこの claim_token を返送する必要があります。 |
 | POST | `/api/workers/state` | bearer | `jobs:execute` | — | プル型ワーカーが自分の状態を報告する：{state} — ready、busy、paused のいずれか。ジョブを保持していないワーカーが使える唯一の経路です：停止中のホストは取得を止めており、ハートビートを送るジョブも持たないため、これが無ければその沈黙を障害と区別できません。`state` は claim とハートビートでも受け付けるので、通常のループに追加のリクエストは不要です。state を指定しない呼び出しは、保存済みの状態をそのまま残します。 |

@@ -472,6 +472,34 @@ Workers and Queue cards, and the create flow that shows the worker token once.
 FLEET‑2 is HTTP only — deliberately, so the shape can be read before a card is
 drawn against it.
 
+## Draining a host, and the Workers card (FLEET‑3) — **decided and BUILT 15 Oct 2026** (issue #70)
+
+The operator's own lever, and the console surface that reads FLEET‑2. Until this
+the only way to take a flaky machine out of rotation was
+`DELETE /api/executors/<id>`, which revokes the worker token — so a ten-minute
+drain meant re-provisioning the host afterwards.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **FLEET‑3a** | Where intent lives | **A THIRD column, `executors.admin_state`** (migration 0042) · vs a fourth value in `worker_state` · vs folding it into `status` | Three questions, three answers, and all three can be true at once: `status` is derived and asks "is this host alive", `worker_state` is reported and asks "is it taking work", `admin_state` is the operator's and asks "do we *want* it taking work". **A drained box reporting `ready` is not a contradiction** — it is a healthy machine being held back, which is exactly the state a drain creates, and folding intent into either of the others would lose precisely that. The same argument PULL‑11a made for the second column and SCHED‑8 made for splitting `jobs.status`. |
+| **FLEET‑3b** | Reversibility | **Drain/resume, token untouched** · vs retire-and-recreate | A retire revokes the worker token and is irreversible, which is the wrong tool for "take this box out for ten minutes" — and it was the only tool. `retired` is deliberately **not** an `admin_state` value: the two operations differ in kind, and a vocabulary that contained both would invite a console to offer them as peers. |
+| 🔑 **FLEET‑3c** | What a drained worker sees | **It keeps polling and is answered 204** · vs refusing its token · vs telling it to stop | A drained host that keeps polling keeps being *seen*, so the operator watches a live box taking nothing instead of one that has gone stale — which is the whole gap issue #58 opened and this would otherwise reopen from the other side. 204 is also a meaning the wire already has, so a **third-party worker needs no change to be drainable**. Revoking the token instead would make a reversible act look exactly like a retire to the worker. |
+| **FLEET‑3d** | Work already in flight | **Left running** · vs cancelling it · vs waiting for the lease to lapse | Draining says "start nothing new". Stopping work in flight is what cancel is for (SCHED‑8), and an operator who means that should have to say it. Releasing the claim without spending an attempt is **#61**, and this slice is the reason that issue matters. |
+| 🔑 **FLEET‑3e** | Intent is NOT withdrawn when the row goes stale | **`admin_state` is reported whatever the health** · vs PULL‑11e's withdrawal rule | PULL‑11e withdraws a stale worker's reported state because it is a claim the worker can no longer stand behind. Intent is the opposite kind of fact: it is a **standing instruction**, it does not decay, and a drained box that went quiet is still drained — and still drained when it comes back. Withdrawing it would mean a host silently returned to rotation by going offline and coming back. |
+| **FLEET‑3f** | Who may drain | **`instance:manage` only** · vs also the org admin who may retire their own executor | Draining is day-to-day operation of the instance's compute. The asymmetry with retire is deliberate rather than an oversight, and is worth revisiting when an org runs a fleet of its own. |
+| **FLEET‑3g** | The claim's double check | **The predicate refuses a drained executor AND the claim short-circuits before touching the queue** · vs one or the other | `executor-can-run?` is authoritative, because it is what keeps FLEET‑2's `unclaimable` honest — a drained host must never read as a reason the queue can drain. The short-circuit in `worker-claim!` is the same answer reached without scanning anything, which is what keeps a drained fleet's polling free. Both, with a comment saying so, because removing either looks like a simplification. |
+| **FLEET‑3h** | The console card | **Replace "Compute" outright** · vs adding a second card | The old card showed name, model and endpoint — and a pull worker has no endpoint, so every worker drew an empty cell while a box that had died an hour ago drew identically to one mid-job. It displayed none of `status`, `worker_state` or `last_seen_at`, all of which the API already answered. Leaving it beside a correct card would leave the misleading one on screen. |
+| **FLEET‑3i** | The worker token in the UI | **Parked in `S` and shown until dismissed** · vs a toast · vs showing it again on request | It is in the create response and never again. A toast scrolls away, and there is no second chance — so it is a panel with the worker's command line beside it and a button that says the operator has it. Nothing can show it twice, and the copy says so rather than implying a recovery that does not exist. |
+
+**The retire confirmation names the reversible thing instead.** `ui.wkretireconfirm`
+says the token is revoked for good, that a held job returns to the queue, and
+that draining is what to do for a temporary removal — because the destructive
+button was the only one for so long that reaching for it is the habit.
+
+**Still FLEET‑4**: the Queue view (per-job ages, hold reasons, lease countdowns,
+filters by kind/status/executor). The Workers card carries the queue's three
+summary numbers; the job-by-job view is its own slice.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about

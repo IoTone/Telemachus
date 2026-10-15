@@ -1312,6 +1312,53 @@ raco test test/fleet-tests.rkt   # the entries, the two sources, the queue, uncl
 bash test/pull-smoke.sh          # section 7, 11 assertions over HTTP
 ```
 
+## Draining a host, and the Workers card (FLEET‑3, issue #70)
+
+Built 15 Oct 2026. `POST /api/executors/:id/drain` and `/resume`,
+`instance:manage`, plus the console's **Workers** card, which replaced Compute.
+
+- **`executors.admin_state` is a THIRD column** (migration `0042`), beside the
+  derived `status` and the reported `worker_state`. Three questions, three
+  answers, and all three can be true at once: alive / taking work / *should* it
+  be taking work. **A drained box reporting `ready` is not a contradiction** —
+  it is a healthy machine held back, which is what a drain creates. NULL reads
+  as `active`; nothing is backfilled.
+- **Intent is NOT withdrawn when the row goes stale**, unlike `worker_state`
+  (PULL‑11e). A reported state is a claim the worker can no longer stand behind;
+  intent is a standing instruction that does not decay. Withdrawing it would let
+  a host return to rotation by going offline and coming back.
+- **A drained worker keeps polling and is answered 204.** It therefore keeps
+  being *seen* — the operator watches a live box taking nothing instead of one
+  gone stale, which is the gap #58 opened. 204 is a meaning the wire already
+  has, so a third-party worker is drainable with no change.
+- **Draining leaves a held job running.** It says "start nothing new"; stopping
+  work in flight is cancel (SCHED‑8). Releasing a claim without spending an
+  attempt is #61, and this is the reason that issue matters.
+- **`retired` is not an `admin_state`.** A retire revokes the token and is
+  irreversible; the two differ in kind, and a shared vocabulary would invite a
+  console to offer them as peers.
+- **The drained check lives in BOTH `executor-can-run?` and `worker-claim!`'s
+  short-circuit — do not "simplify" either away.** The predicate is
+  authoritative, because it is what keeps FLEET‑2's `unclaimable` honest; the
+  short-circuit is the same answer without scanning the queue, which keeps a
+  drained fleet's polling free. Both carry a comment saying so.
+- **The card replaced Compute rather than joining it.** The old table showed
+  name, model and endpoint — a pull worker has no endpoint, so every worker drew
+  an empty cell, and it displayed none of `status`, `worker_state` or
+  `last_seen_at`, which the API already answered.
+- **The worker token is parked in `S.wkToken` and shown until dismissed**, with
+  the `telemachus-worker` command line beside it. A toast scrolls away and there
+  is no second chance; the copy says so rather than implying a recovery that
+  does not exist. The retire confirmation names draining as the reversible
+  alternative, because the destructive button was the only one for so long.
+- 40 new `ui.*` strings, hand-translated into `ja` in the same commit.
+
+```sh
+raco test test/fleet-tests.rkt   # reversibility, liveness, the closed vocabulary, both audits
+bash test/pull-smoke.sh          # section 8, 10 assertions over HTTP
+bash test/e2e/validate.sh        # the card renders under the console CSP
+```
+
 ## The reaper leaves a record (FLEET‑1, issue #70)
 
 Built 14 Oct 2026 — the first slice of the worker-fleet surface. A lease expiry

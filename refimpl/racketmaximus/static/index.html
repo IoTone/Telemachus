@@ -804,21 +804,143 @@ async function l10nExport(){
   else toast(r.json.error||'error');
 }
 
+
+// ---- the worker fleet (FLEET-3, issue #70) ----------------------------------
+// Three questions, three answers, and the card shows all three because they
+// legitimately disagree: `status` is derived (is this host alive), `worker_state`
+// is what the box REPORTS (is it taking work), `admin_state` is what the
+// operator INTENDS (should it be). A drained worker reporting `ready` is a
+// healthy machine being held back, and that is the whole point of draining.
+//
+// This replaced a three-column "Compute" table that showed name, model and
+// endpoint — and a pull worker has no endpoint, so every worker drew an empty
+// cell while a box that had died an hour ago drew exactly like one mid-job.
+function wkAge(sec){
+  if(sec==null) return '–';
+  const s=Math.max(0,Math.round(sec));
+  if(s<90) return s+'s';
+  if(s<5400) return Math.round(s/60)+'m';
+  if(s<172800) return Math.round(s/3600)+'h';
+  return Math.round(s/86400)+'d';
+}
+function wkHealth(st){
+  const cls = st==='active' ? 'ok' : (st==='stale' ? 'warn' : '');
+  return `<span class="badge ${cls}">${esc(st)}</span>`;
+}
+function workersCard(xr, fr){
+  if(!fr||!fr.ok) return '';
+  const F=fr.json, ex=F.executors||[], fl=F.fleet||{}, q=F.queue||{};
+  const loc = (xr&&xr.ok) ? xr.json.local : null;
+  const pulls = ex.filter(e=>e.mode==='pull'), pushes = ex.filter(e=>e.mode!=='pull');
+  const now = Math.floor(Date.now()/1000);
+
+  const sum = [
+    `<span class="badge">${fl.pull||0} ${t('workers').toLowerCase()}</span>`,
+    `<span class="badge ok">${fl.active||0} ${t('wkactive')}</span>`,
+    (fl.stale ? `<span class="badge warn">${fl.stale} ${t('wkstale')}</span>` : ''),
+    (fl.drained ? `<span class="badge warn">${fl.drained} ${t('wkdrained')}</span>` : ''),
+    (fl.paused ? `<span class="badge">${fl.paused} ${t('wkpaused')}</span>` : '')
+  ].filter(Boolean).join(' ');
+
+  const row=(e)=>{
+    const w=e.window||{}, cur=e.current;
+    const drained = e.admin_state==='drained';
+    const held = cur ? `<span class="mono">${esc(cur.kind)}</span> <span class="muted">${wkAge(cur.seconds_left==null?null:-cur.seconds_left)||''}</span>`
+                     : `<span class="muted">${t('wkidle')}</span>`;
+    const lease = cur ? `<span class="muted" title="${esc(t('wkleasehint'))}">${t('wklease')} ${wkAge(cur.seconds_left)}</span>` : '';
+    return `<tr${drained?' style="opacity:.62"':''}>
+      <td><span class="badge">${e.mode==='pull'?'🛰️':'↗'} ${esc(e.name)}</span>${drained?` <span class="badge warn" title="${esc(t('wkdrainhint'))}">${t('wkdrained')}</span>`:''}</td>
+      <td class="mono">${esc(e.model||'–')}</td>
+      <td>${wkHealth(e.status)}</td>
+      <td>${e.worker_state?`<span class="badge">${esc(e.worker_state)}</span>`:`<span class="muted" title="${esc(t('wkunreportedhint'))}">–</span>`}</td>
+      <td class="muted">${e.last_seen_at?wkAge(now-e.last_seen_at):'–'}</td>
+      <td>${cur?`${held} ${lease}`:held}</td>
+      <td class="mono muted">${w.done||0}&nbsp;✓ ${w.error||0}&nbsp;✗ ${w.leases_expired||0}&nbsp;⧖</td>
+      <td style="white-space:nowrap">${e.mode==='pull'?
+        (drained ? `<button class="small" data-h-click="${H(()=>wkAdmin(e.id,'resume'))}">${t('wkresume')}</button>`
+                 : `<button class="small" data-h-click="${H(()=>wkAdmin(e.id,'drain'))}">${t('wkdrain')}</button>`)
+        + ` <button class="small danger" data-h-click="${H(()=>wkRetire(e.id,e.name))}">${t('wkretire')}</button>`
+        : ''}</td></tr>`;
+  };
+
+  const locRow = loc ? `<tr><td><span class="badge ok">${t('wklocal')}</span></td><td class="mono">${esc(loc.model)}</td>
+    <td><span class="badge ${loc.configured?'ok':'warn'}">${loc.configured?t('wkconfigured'):t('simulated')}</span></td>
+    <td colspan="5" class="muted">${t('wklocalhint')}</td></tr>` : '';
+
+  const body = [locRow].concat(pulls.map(row)).concat(pushes.map(row)).join('');
+  const none = pulls.length?'':`<p class="muted">${t('wknone')}</p>`;
+
+  // The queue, and the one number a depth count cannot explain. `unclaimable`
+  // is jobs NO live worker's capabilities match — never a job a quota holds,
+  // which the Jobs tab already badges (QUOTA-3).
+  const depth=(q.depth||[]).filter(d=>d.remote);
+  const stuck=(q.unclaimable||{}).count||0;
+  const queue=`<div class="row" style="margin-top:10px;align-items:center;gap:14px">
+    <div><label>${t('wkqueued')}</label><h2>${depth.reduce((a,d)=>a+d.queued,0)}</h2>
+      <span class="muted mono">${depth.length?depth.map(d=>esc(d.kind)+' '+d.queued).join(' · '):'–'}</span></div>
+    <div><label>${t('wkoldest')}</label><h2>${wkAge(q.oldest_queued_seconds)}</h2></div>
+    <div><label title="${esc(t('wkunclaimablehint'))}">${t('wkunclaimable')}</label>
+      <h2${stuck?' style="color:var(--warn)"':''}>${stuck}</h2>
+      ${stuck?`<span class="muted">${t('wkunclaimablewhy')}</span>`:''}</div>
+  </div>`;
+
+  const tok = S.wkToken ? `<div class="card" style="margin-top:10px;border-color:var(--warn)">
+      <label>${t('wktoken')}</label>
+      <p class="mono" style="word-break:break-all">${esc(S.wkToken.token)}</p>
+      <p class="muted">${t('wktokenhint')}</p>
+      <p class="mono muted" style="word-break:break-all">racket cli/telemachus-worker.rkt --url ${esc(location.origin)} --token &lt;${t('wktokenph')}&gt;</p>
+      <button class="small" data-h-click="${H(()=>{S.wkToken=null;renderTab();})}">${t('wkgotit')}</button></div>` : '';
+
+  return `<div class="card" style="margin-top:14px"><h3>${t('workers')} <span class="muted" style="font-size:13px">— ${t('workershint')}</span></h3>
+    <p>${sum}</p>
+    <table><thead><tr><th>${t('name')}</th><th>${t('model')}</th><th>${t('wkhealth')}</th><th>${t('wkreports')}</th>
+      <th>${t('wklastseen')}</th><th>${t('wkholding')}</th><th title="${esc(t('wkwindowhint'))}">${t('wkwindow')}</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table>
+    ${none}
+    ${queue}
+    <hr>
+    <label>${t('wkadd')}</label>
+    <div class="row">
+      <div><input id="wkn" placeholder="${esc(t('name'))}" maxlength="64"></div>
+      <div><input id="wkm" placeholder="${esc(t('model'))}" maxlength="64"></div>
+      <div><button data-h-click="${H(()=>wkCreate())}">${t('create')}</button></div>
+    </div>
+    <p class="muted">${t('wkaddhint')}</p>
+    ${tok}</div>`;
+}
+async function wkAdmin(id, what){
+  const r=await api('/api/executors/'+encodeURIComponent(id)+'/'+what, {method:'POST'});
+  if(r.ok){ toast(t(what==='drain'?'wkdrainedok':'wkresumedok'), true); renderTab(); }
+  else toast(r.json.error||'error');
+}
+// The confirmation says what a retire COSTS and names the reversible thing to do
+// instead: a retire revokes the worker token, so it is not how you take a box
+// out of rotation for ten minutes.
+async function wkRetire(id, name){
+  if(!confirm(t('wkretireconfirm').replace('{name}', name))) return;
+  const r=await api('/api/executors/'+encodeURIComponent(id), {method:'DELETE'});
+  if(r.ok){ toast(t('deleted'), true); renderTab(); } else toast(r.json.error||'error');
+}
+// The worker token is in the create response and NEVER again, so it is parked in
+// S and shown until the operator dismisses it — not toasted, which scrolls away.
+async function wkCreate(){
+  const name=(document.getElementById('wkn').value||'').trim();
+  const model=(document.getElementById('wkm').value||'').trim();
+  if(!name){ toast(t('wknamereq')); return; }
+  const r=await api('/api/executors', {method:'POST', body:{name, mode:'pull', model: model||undefined}});
+  if(!r.ok){ toast(r.json.error||'error'); return; }
+  S.wkToken={token:r.json.worker_token||'', name};
+  toast(t('wkcreated'), true); renderTab();
+}
+
 async function adminView(){
   const r=await api('/api/admin/status');
   const mr=await api('/api/metrics'); const M=mr.ok?mr.json:{};
   const spr=await api('/api/session-policy'); if(spr.ok) S.adminPolicy=spr.json;   // issue #38
   const stat=(k,l)=>`<div class="card"><label>${l}</label><h2>${M[k]??'–'}</h2></div>`;
   const body = r.ok ? `<div class="row">${stat('users','users')}${stat('teams','teams')}${stat('notes','notes')}${stat('translations','translations')}${stat('active_tokens','tokens')}${stat('audit_events','audit')}</div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
-  const xr=await api('/api/executors');
-  let compute='';
-  if(xr.ok){
-    const loc=xr.json.local, rem=xr.json.executors||[];
-    const rows=[`<tr><td><span class="badge ok">local</span></td><td class="mono">${esc(loc.model)}</td><td class="mono muted">${loc.configured?'configured':'fallback'}</td></tr>`]
-      .concat(rem.map(e=>`<tr><td><span class="badge">🛰️ ${esc(e.name)}</span></td><td class="mono">${esc(e.model)}</td><td class="mono muted">${esc(e.url)}</td></tr>`)).join('');
-    compute=`<div class="card" style="margin-top:14px"><h3>Compute <span class="muted" style="font-size:13px">— federated executors</span></h3>
-      <table><thead><tr><th>executor</th><th>model</th><th>endpoint</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  }
+  const [xr,fr]=await Promise.all([api('/api/executors'), api('/api/admin/workers')]);
+  const compute=workersCard(xr, fr);
   const B = S.brand;
   const brandCard=`<div class="card" style="margin-top:14px"><h3>${t('branding')}</h3>
     <p class="muted" style="margin-top:0">${t('brandinghint')}</p>

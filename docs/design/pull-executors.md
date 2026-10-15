@@ -61,6 +61,12 @@ pull host:          POST /api/workers/claim ──▶ (the host runs it) ──�
   genuinely new mechanism, and it is what makes a host that vanishes mid-job
   safe: the job is not lost and not run twice by design — the *result* is
   accepted only from the lease holder whose lease is current.
+- **An operator can take a host out of rotation** (FLEET‑3, issue #70):
+  `POST /api/executors/<id>/drain` and `/resume` write `executors.admin_state`,
+  a third column beside the derived `status` and the reported `worker_state` —
+  alive, taking work, and *should it be* are three questions. A drained worker
+  keeps its token and keeps polling, so it stays visibly alive; it is answered
+  204, which the wire already means. A job it holds is left running.
 - **The operator can see the fleet** (FLEET‑2, issue #70):
   `GET /api/admin/workers` reports each executor's health, what it holds, its
   outcomes and lease expiries over a window, and the queue — depth by kind, the

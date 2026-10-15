@@ -142,6 +142,8 @@
 ;; answer about the fleet that exists.
 (define (unclaimable conn executors #:limit [lim 200])
   (define rk (remote-kinds))
+  ;; `executor-can-run?` refuses a DRAINED executor itself, so this filter stays
+  ;; about liveness alone and the two cannot disagree about intent.
   (define live (filter (lambda (e) (and (equal? (hash-ref e 'status) "active")
                                         (equal? (hash-ref e 'mode) "pull")))
                        executors))
@@ -192,7 +194,12 @@
                   ;; what the workers SAY, which is a different question from
                   ;; whether they are alive (PULL-11a) — and withdrawn for a
                   ;; stale row, so these never add up to `pull` by accident
-                  'paused (for/sum ([e (in-list pulls)]) (if (equal? (hash-ref e 'worker_state) "paused") 1 0)))
+                  'paused (for/sum ([e (in-list pulls)]) (if (equal? (hash-ref e 'worker_state) "paused") 1 0))
+                  ;; what the OPERATOR intends (FLEET-3), a third count beside
+                  ;; the derived health and the reported state. A drained box is
+                  ;; counted `active` as well when it is alive, because it is —
+                  ;; these are three answers to three questions, not a partition.
+                  'drained (for/sum ([e (in-list pulls)]) (if (equal? (hash-ref e 'admin_state) "drained") 1 0)))
    'queue (hasheq 'depth (queue-depth conn)
                   'oldest_queued_seconds (oldest-queued conn)
                   'remote_kinds (remote-kinds)

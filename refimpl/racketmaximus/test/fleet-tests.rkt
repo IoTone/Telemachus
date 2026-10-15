@@ -175,3 +175,78 @@
   (check-equal? (hash-ref (ex-of rep "acme-box") 'worker_state) 'null
                 "a stale box's reported state is withdrawn (PULL-11e), here too")
   (disconnect c))
+
+;; ---- FLEET-3: the operator's own lever ---------------------------------------
+;; Before this the only way to take a box out of rotation was to RETIRE it, which
+;; revokes the worker token — so a ten-minute drain meant re-provisioning the
+;; host. These are the assertions that draining is reversible, that it leaves the
+;; worker visibly alive, and that it does not touch work already in flight.
+
+(test-case "FLEET-3: a drained worker is offered nothing, stays alive, and comes back"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (define (claim) (worker-claim! c (executor-by-name c "gpu-1") #:kinds '("infer.chat") #:models '("m")))
+  (define (j!) (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+
+  ;; a fresh executor is in rotation, and nothing was backfilled to say so
+  (check-equal? (hash-ref (executor-by-name c "gpu-1") 'admin_state) "active")
+  (check-true (sql-null? (query-value c "SELECT admin_state FROM executors WHERE id = ?" (hash-ref ex 'id)))
+              "NULL in the column reads as active — no backfill")
+  (define j1 (j!))
+  (check-equal? (hash-ref (claim) 'id) j1 "it takes work")
+
+  ;; drain it: the job it HOLDS is left alone
+  (define drained (executor-set-admin-state! c p (hash-ref ex 'id) "drained"))
+  (check-equal? (hash-ref drained 'admin_state) "drained")
+  (check-equal? (hash-ref (get-job c j1 tid) 'status) "running"
+                "draining says `start nothing new`, not `stop what you are doing`")
+
+  ;; …and it is offered nothing more
+  (define j2 (j!))
+  (check-false (claim) "a drained worker gets no work")
+  (check-equal? (hash-ref (get-job c j2 tid) 'status) "queued")
+
+  ;; …while remaining visibly ALIVE, which is the whole difference from a retire
+  (define e2 (executor-by-name c "gpu-1"))
+  (check-equal? (hash-ref e2 'status) "active" "the claim was still a sighting")
+  (check-true (and (resolve-token c tok) #t) "and its token still works")
+
+  ;; the fleet report counts the intent separately from the liveness
+  (define rep (fleet-report c p))
+  (check-equal? (hash-ref (hash-ref rep 'fleet) 'drained) 1)
+  (check-equal? (hash-ref (hash-ref rep 'fleet) 'active) 1
+                "three questions, three answers — a drained box is still alive")
+  ;; and it is not an answer to the queue: the job waiting on it is unclaimable
+  (check-equal? (hash-ref (hash-ref (hash-ref rep 'queue) 'unclaimable) 'count) 1
+                "a drained host must not read as a reason the queue can drain")
+
+  ;; resume: back in rotation on the next claim
+  (check-equal? (hash-ref (executor-set-admin-state! c p (hash-ref ex 'id) "active") 'admin_state) "active")
+  (check-equal? (hash-ref (claim) 'id) j2)
+  (check-equal? (hash-ref (hash-ref (hash-ref (fleet-report c p) 'queue) 'unclaimable) 'count) 0)
+  (disconnect c))
+
+(test-case "FLEET-3: the vocabulary is closed, a retired executor is not drainable, and both audit"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (check-exn #rx"state must be one of"
+             (lambda () (executor-set-admin-state! c p (hash-ref ex 'id) "retired"))
+             "`retired` is not an admin state — retiring is irreversible and is its own call")
+  (check-false (executor-set-admin-state! c p "no-such-id" "drained") "an unknown executor is #f")
+
+  (executor-set-admin-state! c p (hash-ref ex 'id) "drained")
+  (executor-set-admin-state! c p (hash-ref ex 'id) "active")
+  (check-equal? (for/list ([a (in-list (query-list c (string-append
+                                 "SELECT action FROM audit_log WHERE resource_id = ? "
+                                 "AND action LIKE 'executor.%' ORDER BY at_us ASC") (hash-ref ex 'id)))]) a)
+                '("executor.create" "executor.drain" "executor.resume")
+                "an operator taking compute out of rotation is an audited act, both ways")
+
+  ;; a retired row has no token to drain, and saying so beats pretending it worked
+  (check-true (executor-retire! c p (hash-ref ex 'id)))
+  (check-equal? (executor-set-admin-state! c p (hash-ref ex 'id) "drained") 'retired)
+  (disconnect c))
