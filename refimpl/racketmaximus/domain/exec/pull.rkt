@@ -34,10 +34,11 @@
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          load-push-executors!
-         worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
+         worker-claim! worker-heartbeat! worker-complete! worker-fail! worker-release! reap-leases!
          worker-document worker-report-state! executor-set-admin-state!
          executor-can-run? executor-secret executor-context
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES ADMIN-STATES
+         RELEASE-REASONS MAX-RELEASES RELEASE-BACKOFF
          pull-dispatch!)
 
 (define LEASE-SECONDS 120)      ; a worker heartbeats every LEASE/3
@@ -57,6 +58,35 @@
 ;; paused worker is still finishing, so it would be a state the database can
 ;; already answer.
 (define WORKER-STATES '("ready" "busy" "paused"))
+
+;; Why a worker is handing a job back (issue #61). A CLOSED vocabulary, like
+;; WORKER-STATES and EXTRACT-REASONS — an operator surface switches on these.
+;;
+;;   busy         it took the job and has no capacity after all (out of VRAM)
+;;   unsupported  it cannot run THIS payload, though it matched the kind
+;;   shutdown     it is going away: a drain, a maintenance stop, a Ctrl-C
+;;
+;; Anything else collapses to `other` rather than being refused. The RELEASE is
+;; the request here, and the reason rides along with it, so failing the call
+;; over a cosmetic field would leave the worker holding a job it has already
+;; said it cannot run — strictly worse than recording "other". That is the same
+;; asymmetry PULL-11f drew between the state endpoint and the claim, and the
+;; same collapse EXTRACT-REASONS makes for an unknown extractor reason.
+(define RELEASE-REASONS '("busy" "unsupported" "shutdown" "other"))
+
+;; What bounds a release LOOP. The attempt counter is deliberately untouched by a
+;; release, so it cannot be what stops one: a worker that claims and releases in
+;; a tight loop would spin the job through the queue for ever.
+;;
+;;   RELEASE-BACKOFF  the releasing executor is not offered THIS job again until
+;;                    the horizon passes. Only that executor — every other worker
+;;                    may take it at once, so one bad box cannot delay a healthy
+;;                    fleet, which a global hold would have done.
+;;   MAX-RELEASES     past this the release FAILS the job instead, naming the
+;;                    hosts that let it go. A job no worker will run needs a
+;;                    person, and saying so beats recycling it silently.
+(define RELEASE-BACKOFF 30)
+(define MAX-RELEASES 10)
 
 ;; What an operator may intend for a host (FLEET-3). Two values, because the
 ;; question is binary: is this box in rotation or not. `retired` is deliberately
@@ -366,6 +396,15 @@
             '()
             (let ([rk (remote-kinds)])
               (if (null? kinds) rk (filter (lambda (k) (member k rk)) kinds)))))
+      ;; A job THIS executor just released is not offered back to it until the
+      ;; cool-off passes (issue #61) — and the test is in the WHERE clause, not
+      ;; in Racket, for issue #54's reason: filtering after the LIMIT bounds the
+      ;; answer instead of the scan, and a worker whose releases fill the window
+      ;; would see an empty queue it had just emptied itself.
+      ;;
+      ;; Every OTHER worker may take it immediately, which is why the cool-off
+      ;; names the releaser rather than holding the job: one box short of VRAM
+      ;; must not stall a fleet that has capacity.
       (define candidates
         (if (null? want-kinds)
             '()                      ; this worker declares nothing we run remotely
@@ -373,8 +412,10 @@
                    (string-append "SELECT id, team_id, kind, requirements, parent_job_id FROM jobs "
                                   "WHERE status = 'queued' AND kind IN ("
                                   (string-join (make-list (length want-kinds) "?") ",")
-                                  ") ORDER BY priority DESC, created_at ASC LIMIT 64")
-                   want-kinds)))
+                                  ") AND (release_after IS NULL OR release_after <= ? "
+                                  "       OR released_by IS NULL OR released_by <> ?) "
+                                  "ORDER BY priority DESC, created_at ASC LIMIT 64")
+                   (append want-kinds (list (now) (hash-ref ex 'id))))))
       (for/or ([r (in-list candidates)])
         (define id (vector-ref r 0)) (define team (vector-ref r 1)) (define kind (vector-ref r 2))
         (define req (with-handlers ([exn:fail? (lambda (_) (hasheq))])
@@ -496,6 +537,56 @@
                                      "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                  (format "executor ~a: ~a" (hash-ref ex 'name) message) job-id)
      'ok]))
+
+;; Hand a job back without spending an attempt (issue #61).
+;;
+;; Fenced exactly like `worker-complete!` and `worker-fail!`: `holder-check`
+;; first, so only the holder of THIS attempt can release it and a stranger can
+;; never learn anything about somebody's job. A release while the job is being
+;; CANCELED settles it, as a fail does — the cancellation wins, and re-queueing
+;; work somebody stopped is the one outcome nobody asked for.
+;;
+;; `attempt` is deliberately NOT incremented. That is the whole issue: a worker
+;; that finds it lacks the model has told us something about ITSELF, and spending
+;; one of the job's three lives for it retired jobs that nothing was wrong with.
+;;
+;; -> 'ok | 'failed (the ceiling) | whatever holder-check answered
+(define (worker-release! conn ex job-id #:token [token #f] #:reason [reason #f])
+  (define v (holder-check conn ex job-id token))
+  (cond
+    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
+    [(not (eq? v 'ok)) v]
+    [else
+     (define why (if (member reason RELEASE-REASONS) reason "other"))
+     (define n (add1 (let ([r (query-maybe-value conn "SELECT releases FROM jobs WHERE id = ?" job-id)])
+                       (if (or (not r) (sql-null? r)) 0 r))))
+     (define team (let ([t (query-maybe-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id)])
+                    (if (or (not t) (sql-null? t)) sql-null t)))
+     ;; Audited BEFORE the write, for FLEET-1's reason: the re-queue clears
+     ;; `executor_id`, and afterwards nothing says which host let go of the work.
+     ;; A box that releases everything is exactly what an operator needs to find.
+     (audit! conn #:action "job.released" #:actor-type "executor" #:actor-id (hash-ref ex 'id)
+             #:team-id team #:resource-type "job" #:resource-id job-id
+             #:result (if (> n MAX-RELEASES) "exhausted" "requeued")
+             #:meta (jsexpr->string (hasheq 'executor (hash-ref ex 'name) 'reason why
+                                            'releases n 'max_releases MAX-RELEASES)))
+     (cond
+       [(> n MAX-RELEASES)
+        (query-exec conn
+          (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, "
+                         "lease_until = NULL, claim_token = NULL, releases = ?, "
+                         "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+          (format "no executor would run it: released ~a times (last by ~a: ~a)"
+                  MAX-RELEASES (hash-ref ex 'name) why)
+          n job-id)
+        'failed]
+       [else
+        (query-exec conn
+          (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
+                         "claim_token = NULL, started_at = NULL, started_epoch = NULL, "
+                         "releases = ?, released_by = ?, release_after = ? WHERE id = ?")
+          n (hash-ref ex 'id) (+ (now) RELEASE-BACKOFF) job-id)
+        'ok])]))
 
 ;; ---- PULL-9: a worker reads the documents ITS OWN job names ------------------
 ;;

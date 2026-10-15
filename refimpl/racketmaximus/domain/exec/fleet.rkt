@@ -244,7 +244,7 @@
   (string-append
    "SELECT j.id, j.kind, j.status, j.priority, j.team_id, j.attempt, j.parent_job_id, "
    "       j.created_epoch, j.lease_until, j.error, j.created_at, j.requirements, "
-   "       t.name, o.name, x.name "
+   "       t.name, o.name, x.name, j.releases "
    "FROM jobs j "
    "LEFT JOIN teams t ON t.id = j.team_id "
    "LEFT JOIN orgs o ON o.id = t.org_id "
@@ -327,6 +327,9 @@
                'created_at (format "~a" (vector-ref r 10))
                'lease_seconds_left (let ([v (vector-ref r 8)])
                                      (if (sql-null? v) 'null (- v (now))))
+               ;; issue #61: a release spends no attempt, so `attempt` cannot show
+               ;; a job workers keep handing back. This is the column that can.
+               'releases (let ([v (vector-ref r 15)]) (if (sql-null? v) 0 v))
                'error (nz* (vector-ref r 9))))
      ;; `waiting` only where it can mean anything, and ABSENT when nothing holds
      ;; the job (QUOTA-3): nothing here can know whether a worker for a remote

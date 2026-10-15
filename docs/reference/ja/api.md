@@ -125,6 +125,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。 |
 | POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | 結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。 |
 | POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | 失敗を報告する：{error, claim_token}。現在のリース保持者、かつその試行からのみ受け付けます。 |
+| POST | `/api/workers/jobs/:id/release` | bearer | `jobs:execute` | — | 試行回数を消費せずにジョブを返却する（issue #61）：{claim_token, reason?} — busy、unsupported、shutdown のいずれか。それ以外は拒否せず `other` として記録する。ワーカーはすでにそのジョブを実行できないと申告しているためである。ジョブは直ちにキューへ戻り、他のワーカーはすぐに取得できる一方、返却したエグゼキュータには30秒間そのジョブを渡さない — これが返却ループの歯止めであり、試行回数を変えないこの経路では他に止めるものがない。10回を超えて返却された場合はジョブを失敗とし、返却したホストの名前を記録する：どのワーカーも実行しない作業には人の判断が必要である。 |
 | POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | — | このジョブが指定したドキュメントを読む：{object, claim_token, version?, as?}。新しい認可コードは不要で、条件は3つ — 呼び出し元がこの試行を保持していること、オブジェクト ID がそのジョブ自身のペイロードに現れること、そして読み取りがそのジョブのユーザーとして行われること（公開範囲・付与・組織ゲートがすべて適用されます）。`as: "bytes"`（base64、上限は TELEMACHUS_MAX_UPLOAD）または `as: "text"` で、スキャンの場合は {text: null, reason: "needs-ocr"} を返します。 |
 | GET | `/api/usage` | bearer | — | — | チームのクォータ指標を、使用量・上限・残量・期間のリセット時刻とともに返す。さらに `held` が、現在このチームのキュー内ジョブを保留している上限を示します（保留がなければ null）。 |
 | POST | `/api/quota` | bearer | `instance:manage` | — | 呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。 |

@@ -61,6 +61,12 @@ pull host:          POST /api/workers/claim ──▶ (the host runs it) ──�
   genuinely new mechanism, and it is what makes a host that vanishes mid-job
   safe: the job is not lost and not run twice by design — the *result* is
   accepted only from the lease holder whose lease is current.
+- **A worker may hand a job BACK** (PULL‑12, issue #61):
+  `POST /api/workers/jobs/<id>/release` re-queues it with `attempt` untouched —
+  "I claimed this and then found I lack the model" is the worker's problem, not
+  the job's. A release loop is bounded by a 30-second cool-off that names the
+  releasing executor only (every other worker may take the job at once) and by a
+  release count, past which the job fails naming the hosts that let it go.
 - **The queue is readable job by job** (FLEET‑4, issue #70):
   `GET /api/admin/queue` pages across every team with filters on kind, status,
   executor and team. A queued row carries `waiting` (the platform is holding it,

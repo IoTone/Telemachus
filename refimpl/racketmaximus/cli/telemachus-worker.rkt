@@ -60,6 +60,12 @@
                    (if (number? t) t (max 1 (quotient (string-length reply) 4)))))
   (hasheq 'reply reply 'tokens_used tokens))
 
+;; The job this worker is holding right now, for the shutdown flush (issue #61).
+;; Cleared in a dynamic-wind at the call site, so it is right however run-job
+;; exits — a release posted for a job that already completed would be refused as
+;; not-holder, which is harmless but would print a confusing line on every stop.
+(define held (box #f))
+
 (define (run-job job)
   (define id (hash-ref job 'id))
   (define kind (hash-ref job 'kind))
@@ -68,6 +74,8 @@
   ;; with the result, so a run whose lease lapsed cannot complete the attempt that
   ;; replaced it. A worker that drops it will be refused with 409.
   (define token (let ([t (hash-ref job 'claim_token #f)]) (if (string? t) t 'null)))
+  ;; what the shutdown flush would have to hand back (issue #61)
+  (set-box! held (cons id token))
   ;; Heartbeat at a third of the lease while the job runs — and READ the answer.
   ;; A 409 means this attempt is no longer ours to finish: the lease lapsed and
   ;; somebody re-claimed it, or the job was canceled (SCHED-8). Either way the
@@ -124,7 +132,25 @@
   (with-handlers ([exn:fail? void])
     (post "/api/workers/state" (hasheq 'state "paused"))
     (printf "telemachus-worker: reported paused\n")))
-(plumber-add-flush! (current-plumber) (lambda (_) (report-paused!)))
+
+;; …and hand back the job it is holding, if any (issue #61). Letting the lease
+;; lapse instead costs the job one of its three attempts for something that was
+;; this host's business, not the job's — and a worker stopped mid-job is the most
+;; ordinary way that used to happen. `shutdown` is the reason; the release spends
+;; no attempt, and another worker may take the job at once rather than waiting
+;; out the 120-second lease.
+;;
+;; Best-effort for report-paused!'s reason, and in this ORDER: the release is the
+;; one that matters to the work, so it goes first in case the host dies between
+;; the two requests.
+(define (release-held!)
+  (define h (unbox held))
+  (when h
+    (with-handlers ([exn:fail? void])
+      (post (format "/api/workers/jobs/~a/release" (car h))
+            (hasheq 'claim_token (cdr h) 'reason "shutdown"))
+      (printf "telemachus-worker: released ~a on the way out\n" (car h)))))
+(plumber-add-flush! (current-plumber) (lambda (_) (release-held!) (report-paused!)))
 
 (let loop ()
   (define-values (code resp)
@@ -134,7 +160,8 @@
                                          ;; there is capacity for another job
                                          'state "ready"))))
   (cond
-    [(and (= code 200) (hash? resp) (string? (hash-ref resp 'id #f))) (run-job resp)]
+    [(and (= code 200) (hash? resp) (string? (hash-ref resp 'id #f)))
+     (dynamic-wind void (lambda () (run-job resp)) (lambda () (set-box! held #f)))]
     [(= code 204) (void)]
     [(= code 0) (eprintf "claim: ~a (retrying)\n" (hash-ref resp 'error "?")) (sleep 3)]
     [(member code '(401 403)) (eprintf "claim refused: HTTP ~a — is the worker token valid and bound to an executor?\n" code) (exit 1)]

@@ -959,6 +959,14 @@
       "text": "First run — create the first operator",
       "hash": "da6847a10e476c38e1e6115bc9b1a6009437adba"
     },
+    "ui.locavail": {
+      "text": "Shipped in this build",
+      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
+    },
+    "doc.route.post.api.workers.jobs.id.release": {
+      "text": "Hand a job back WITHOUT spending an attempt (issue #61): {claim_token, reason?} — busy, unsupported or shutdown; anything else is recorded as `other` rather than refused, since the worker has already said it cannot run the job. It goes straight back to the queue and any other worker may take it at once, while the releasing executor is not offered it again for 30 seconds — the bound on a release loop, which the untouched attempt counter cannot provide. Past 10 releases the job fails instead, naming the hosts that let it go: work no worker will run needs a person.",
+      "hash": "98c4b195379deac9e9579d8106256baf1f1d4caa"
+    },
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
       "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
@@ -974,10 +982,6 @@
     "doc.route.get.api.notes.id": {
       "text": "One note.",
       "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
-    },
-    "ui.locavail": {
-      "text": "Shipped in this build",
-      "hash": "d101a9f54a7d5a4140cfd2d8ba1d647748e92f29"
     },
     "doc.route.post.api.orgs": {
       "text": "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).",

@@ -497,3 +497,116 @@
   (check-true (regexp-match? #rx"in process" (hash-ref (get-job c j tid) 'error))
               "the error says the pool lost it, not that an executor did")
   (disconnect c))
+
+;; ---- issue #61: a releasable claim that does not spend an attempt -------------
+;; A worker that claims a job and then finds it cannot run it used to have two
+;; ways out, and both blamed the job: fail it, or go quiet and let the lease
+;; reap it. Each spent one of three attempts for something that was the HOST's
+;; problem. These are the assertions that a release costs the job nothing, that
+;; it cannot become a spin, and that it is still fenced.
+
+(test-case "#61: a release re-queues, spends no attempt, and is fenced"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define cl (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (hash-ref cl 'claim_token))
+  (define attempt-before (hash-ref (get-job c j tid) 'attempt))
+
+  ;; fenced exactly like complete and fail: a stranger's token is refused, and a
+  ;; refusal tells them nothing about somebody else's job
+  (check-equal? (worker-release! c ex j #:token "not-the-token") 'not-holder)
+  (check-equal? (worker-release! c ex j) 'not-holder "…as is no token at all")
+  (check-equal? (hash-ref (get-job c j tid) 'status) "running" "a refused release changes nothing")
+
+  (check-equal? (worker-release! c ex j #:token fence #:reason "unsupported") 'ok)
+  (define after (get-job c j tid))
+  (check-equal? (hash-ref after 'status) "queued" "straight back to the queue")
+  (check-equal? (hash-ref after 'attempt) attempt-before
+                "and the attempt counter is UNTOUCHED — that is the whole issue")
+  (check-equal? (hash-ref after 'started_at) 'null "it never ran, so it has no start time")
+  (check-true (sql-null? (query-value c "SELECT executor_id FROM jobs WHERE id = ?" j)))
+  (check-equal? (worker-complete! c ex j (hasheq 'reply "late" 'tokens_used 1) #:token fence) 'not-running
+                "the released attempt cannot land a result afterwards")
+  (disconnect c))
+
+(test-case "#61: the releaser waits out a cool-off; every other worker may take it at once"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (a _ta) (executor-create! c p #:name "box-a" #:model "m"))
+  (define-values (b _tb) (executor-create! c p #:name "box-b" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define cl (worker-claim! c a #:kinds '("infer.chat") #:models '("m")))
+  (check-equal? (worker-release! c a j #:token (hash-ref cl 'claim_token) #:reason "busy") 'ok)
+
+  ;; the box that just let go is not handed it straight back — that is the bound
+  ;; on a release loop, which the untouched attempt counter cannot provide
+  (check-false (worker-claim! c a #:kinds '("infer.chat") #:models '("m"))
+               "the releasing executor is in its cool-off")
+  ;; …but a healthy fleet is not held up for it
+  (check-equal? (hash-ref (worker-claim! c b #:kinds '("infer.chat") #:models '("m")) 'id) j
+                "another worker takes it immediately — one bad box must not stall the queue")
+
+  ;; and the cool-off really does expire rather than excluding for ever
+  (worker-release! c b j #:token (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j) #:reason "busy")
+  (query-exec c "UPDATE jobs SET release_after = ? WHERE id = ?" (- (current-seconds) 1) j)
+  (check-equal? (hash-ref (worker-claim! c b #:kinds '("infer.chat") #:models '("m")) 'id) j
+                "past the horizon it is offered back")
+  (disconnect c))
+
+(test-case "#61: past MAX-RELEASES the job fails, naming the hosts that let it go"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex _t) (executor-create! c p #:name "fussy" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define (claim-release! r)
+    (define cl (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+    (check-true (and cl #t) "the cool-off was cleared, so it can claim again")
+    (define v (worker-release! c ex j #:token (hash-ref cl 'claim_token) #:reason r))
+    ;; the cool-off is per claim; clear it so the loop can run without sleeping
+    (query-exec c "UPDATE jobs SET release_after = NULL WHERE id = ?" j)
+    v)
+  (for ([_ (in-range MAX-RELEASES)]) (check-equal? (claim-release! "busy") 'ok))
+  (check-equal? (hash-ref (get-job c j tid) 'attempt) 1
+                "ten releases later it has still never spent an attempt")
+  (check-equal? (claim-release! "unsupported") 'failed "the next one gives up on it")
+  (define done (get-job c j tid))
+  (check-equal? (hash-ref done 'status) "error")
+  (check-true (regexp-match? #rx"released 10 times" (hash-ref done 'error)))
+  (check-true (regexp-match? #rx"fussy" (hash-ref done 'error))
+              "…and names the host, so an operator knows where to look")
+  ;; every release is in the trail, for FLEET-1's reason: the re-queue clears
+  ;; executor_id, so afterwards nothing in the row says who let go
+  (check-equal? (query-value c "SELECT COUNT(*) FROM audit_log WHERE action = 'job.released' AND resource_id = ?" j)
+                (add1 MAX-RELEASES))
+  (disconnect c))
+
+(test-case "#61: an unknown reason is recorded, not refused; a canceled job is settled"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define cl (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  ;; the RELEASE is the request and the reason rides along, so refusing the call
+  ;; would leave the worker holding a job it has already said it cannot run
+  (check-equal? (worker-release! c ex j #:token (hash-ref cl 'claim_token) #:reason "my-gpu-melted") 'ok)
+  (check-equal? (hash-ref (string->jsexpr
+                            (query-value c (string-append "SELECT meta FROM audit_log WHERE action = 'job.released' "
+                                                          "AND resource_id = ?") j))
+                          'reason)
+                "other" "an unknown reason collapses, exactly as an extractor's does")
+
+  ;; a release while the job is being CANCELED settles it — cancellation wins,
+  ;; and re-queueing work somebody stopped is the one outcome nobody asked for
+  (query-exec c "UPDATE jobs SET release_after = NULL WHERE id = ?" j)
+  (define cl2 (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (check-equal? (cancel-job! c j tid) #t)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "canceling")
+  (check-equal? (worker-release! c ex j #:token (hash-ref cl2 'claim_token)) 'canceled)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "canceled" "settled, never re-queued")
+  (disconnect c))

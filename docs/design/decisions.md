@@ -527,6 +527,35 @@ the assertion: a failing `check-equal?` raises, the restore never ran, and a cap
 of 0 leaked into every later test in the file, failing an unrelated one. The
 cascade cost more time than the wrong expectation that started it.
 
+## A releasable claim (PULL‑12) — **decided and BUILT 15 Oct 2026** (issue #61)
+
+The last of the four questions #54 left as decisions. A worker that claimed a job
+and then found it could not run it had two ways out and both blamed the job: fail
+it, or go quiet and let the lease reap it. Each spent one of three attempts for
+something that was the HOST's problem, and three of them retired a job nothing
+was ever wrong with.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **PULL‑12a** | What a release costs the job | **Nothing: `attempt` is untouched** · vs a half-attempt · vs a separate attempt budget | This is the whole issue. "I claimed this and then found I lack the model" is a fact about the worker, and charging the job for it is how a healthy job reached `error` after three blameless hand-backs. Keeping one counter and spending it more slowly would still conflate the two, because what differs is not the weight but *whose* problem it was. |
+| 🔑 **PULL‑12b** | What bounds a release loop | **A per-executor cool-off plus a release COUNT, in the row** · vs the attempt counter · vs nothing | With `attempt` deliberately untouched, nothing else would stop a worker that claims and releases in a tight loop. Two bounds, because they answer different shapes of the problem: `release_after` + `released_by` stop the spin (the releaser is not offered this job again for 30 s), and `releases` stops the pathology (past 10 the job fails, naming the hosts that let it go — work no worker will run needs a person, and saying so beats recycling it in silence). |
+| 🔑 **PULL‑12c** | Who the cool-off applies to | **Only the executor that released it** · vs holding the job for everyone | A global hold would let one box short of VRAM delay a fleet that has capacity — a misbehaving worker's problem becomes every team's latency. Naming the releaser means every other worker may take the job in the same second. It remembers only the LAST releaser, which is enough: two bad boxes alternating still increment `releases`, and the ceiling ends it. |
+| **PULL‑12d** | Where the exclusion is tested | **In the claim's WHERE clause** · vs filtering in Racket after the query | Issue #54's lesson, and the same trap: filtering after `LIMIT 64` bounds the ANSWER instead of the scan, so a worker whose own releases fill the window would see an empty queue it had just emptied itself. |
+| **PULL‑12e** | An unknown reason | **Recorded as `other`, never refused** · vs a 400 | The asymmetry PULL‑11f drew, pointing the other way. On `/api/workers/state` the state IS the request, so an unknown one is refused. Here the RELEASE is the request and the reason rides along — refusing the call would leave the worker holding a job it has already said it cannot run, until the lease lapses and the job is charged an attempt for it. The same collapse `EXTRACT-REASONS` makes for an unknown extractor reason. |
+| **PULL‑12f** | A release during cancellation | **Settle, never re-queue** · vs re-queueing | What `worker-fail!` already does, for SCHED‑8's reason: cancellation is final, and re-running work somebody stopped is the one outcome nobody asked for. |
+| **PULL‑12g** | Visibility | **Audited before the write, and `releases` on the queue row** · vs the row alone | FLEET‑1's rule exactly: the re-queue clears `executor_id`, so after the write nothing says which host let go. A box that releases everything is precisely what an operator needs to find, and `attempt` — the field a reader would look at — is by design unchanged, so the queue view carries `releases` instead. |
+
+**The reference worker releases on the way out.** A worker stopped mid-job is the
+most ordinary way an attempt used to be spent on nothing: the lease lapsed two
+minutes later and the job was charged for a Ctrl‑C. It now posts `release` with
+`reason: "shutdown"` from the same plumber flush that reports `paused` (#58), the
+release first in case the host dies between the two requests, and both
+best-effort. FLEET‑3's drain is the other half of this: an operator drains a box,
+its in-flight job comes back un-charged, and another worker takes it at once.
+
+**A third-party worker needs no change.** `release` is a new endpoint; a worker
+that never calls it behaves exactly as before.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about

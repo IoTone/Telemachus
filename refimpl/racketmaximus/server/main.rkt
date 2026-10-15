@@ -1929,6 +1929,19 @@
     (define b (read-json-body req))
     (worker-verdict (worker-fail! db-conn ex id (fmt b 'error) #:token (claim-token-of b)) id))))
 
+;; issue #61: the blameless hand-back. `failed` is its own verdict because the
+;; worker needs to know its release was the one that used the job up — it is the
+;; difference between "try again later" and "a person has to look at this".
+(define (ep-worker-release req id)
+  (with-worker req (lambda (p ex)
+    (define b (read-json-body req))
+    (define v (worker-release! db-conn ex id #:token (claim-token-of b)
+                               #:reason (let ([r (fmt b 'reason)]) (and (not (string=? r "")) r))))
+    (if (eq? v 'failed)
+        (json-response (hasheq 'ok #t 'id id 'status "error" 'released #t
+                               'detail (format "released ~a times — the job has been failed" MAX-RELEASES)))
+        (worker-verdict v id)))))
+
 ;; real model call (falls back to simulated when no model is configured)
 (define (ep-ai-chat req)
   (with-auth req (lambda (p)
@@ -2920,7 +2933,7 @@
    'reviews-list ep-reviews-list 'review-get ep-review-get 'review-decide ep-review-decide
    'review-stats ep-review-stats 'review-verify ep-review-verify
    'model-roles-get ep-model-roles-get 'model-roles-put ep-model-roles-put
-   'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail
+   'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail 'worker-release ep-worker-release
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit
