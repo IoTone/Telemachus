@@ -36,7 +36,7 @@
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! reap-leases!
          worker-document worker-report-state!
-         executor-secret executor-context
+         executor-can-run? executor-secret executor-context
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
          pull-dispatch!)
 
@@ -71,13 +71,60 @@
 ;; no state leaves the stored one ALONE rather than overwriting it with a guess:
 ;; a worker written against the old wire must keep reading as "never reported",
 ;; not flip to `ready` on each poll.
-(define (touch-executor! conn ex [state #f])
+(define (touch-executor! conn ex [state #f] #:kinds [kinds '()] #:models [models '()])
   (cond
     [state
      (query-exec conn "UPDATE executors SET last_seen_at = ?, worker_state = ?, state_epoch = ? WHERE id = ?"
                  (now) state (now) (hash-ref ex 'id))]
     [else
-     (query-exec conn "UPDATE executors SET last_seen_at = ? WHERE id = ?" (now) (hash-ref ex 'id))]))
+     (query-exec conn "UPDATE executors SET last_seen_at = ? WHERE id = ?" (now) (hash-ref ex 'id))])
+  (observe-capabilities! conn ex kinds models))
+
+;; What a worker DECLARES on a claim is the live capability record; what the
+;; operator typed at create time is an intention (FLEET-2). They were not the
+;; same field, so `executors.capabilities` was usually `{}` while the worker was
+;; telling us its kinds and models on every poll — and a fleet view asking "can
+;; anything here run this job" had nothing true to read. The claim's declaration
+;; is merged into the SAME document LAY-9 reads for `tools` and `json_schema`,
+;; rather than a second place to look.
+;;
+;; An EMPTY declaration leaves the stored one alone: a worker that names no
+;; models means "any", not "none", and overwriting on silence is the mistake
+;; PULL-11d avoided for `worker_state`. The write is skipped when nothing
+;; changed, because this runs on every poll.
+(define (observe-capabilities! conn ex kinds models)
+  (define have (let ([c (hash-ref ex 'capabilities (hasheq))]) (if (hash? c) c (hasheq))))
+  (define want
+    (let* ([h have]
+           [h (if (null? kinds) h (hash-set h 'kinds kinds))]
+           [h (if (null? models) h (hash-set h 'models models))])
+      h))
+  (unless (equal? want have)
+    (query-exec conn "UPDATE executors SET capabilities = ? WHERE id = ?"
+                (jsexpr->string want) (hash-ref ex 'id))))
+
+;; Can THIS executor, declaring these kinds and models, run THIS job?
+;;
+;; The CAPABILITY half of the claim's decision and nothing else: no concurrency
+;; cap, no budget, no conditional UPDATE. One policy, two askers — `worker-claim!`
+;; asks it to decide, and the fleet report asks it to explain (the shape QUOTA-3
+;; settled for the admission seam, for the same reason: two implementations of one
+;; rule drift, and here the drift would tell an operator to go and buy a machine
+;; they already have).
+;;
+;; `kinds` or `models` empty means "any", which is what the claim has always
+;; meant by an absent declaration — not "none".
+(define (executor-can-run? conn ex #:kinds kinds #:models models #:kind kind #:team team
+                           #:requirements [req (hasheq)])
+  (define want-model (let ([m (hash-ref req 'model #f)]) (and (string? m) m)))
+  (define want-exec (let ([e (hash-ref req 'executor #f)]) (and (string? e) e)))
+  (and (and (member kind (remote-kinds)) #t)
+       (or (null? kinds) (and (member kind kinds) #t))
+       (or (not want-model) (and (member want-model models) #t))
+       (or (not want-exec) (equal? want-exec (hash-ref ex 'name)))
+       ;; the org gate: an org-bound executor never sees another company's job
+       (let ([eorg (hash-ref ex 'org_id)])
+         (or (eq? eorg 'null) (equal? eorg (team-org conn team))))))
 
 ;; the one channel a worker with NO job can use. A paused host is the case the
 ;; claim loop cannot report: it has stopped claiming, and it holds no job to
@@ -255,7 +302,7 @@
 (define (worker-claim! conn ex #:kinds [kinds '()] #:models [models '()] #:state [state #f])
   (call-with-semaphore claim-lock
     (lambda ()
-      (touch-executor! conn ex state)
+      (touch-executor! conn ex state #:kinds kinds #:models models)
       ;; issue #54: this used to take the oldest 64 queued jobs of ANY kind and
       ;; then filter in Racket, so a worker whose jobs sat behind 64 in-process
       ;; ones saw an empty queue and polled forever against work it could have
@@ -278,15 +325,12 @@
         (define req (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                       (let ([j (string->jsexpr (vector-ref r 3))]) (if (hash? j) j (hasheq)))))
         (define sub? (not (sql-null? (vector-ref r 4))))
-        (define want-model (let ([m (hash-ref req 'model #f)]) (and (string? m) m)))
-        (define want-exec (let ([e (hash-ref req 'executor #f)]) (and (string? e) e)))
-        ;; `remote-kind?` and the caller's `kinds` are both guaranteed by the
-        ;; IN clause above, so what is left is what SQL cannot know
-        (and (or (not want-model) (member want-model models))
-             (or (not want-exec) (equal? want-exec (hash-ref ex 'name)))
-             ;; the org gate: an org-bound executor never sees another company's job
-             (let ([eorg (hash-ref ex 'org_id)])
-               (or (eq? eorg 'null) (equal? eorg (team-org conn team))))
+        ;; the capability half, shared with the fleet report so the two cannot
+        ;; disagree about what this box can run (FLEET-2). The kind is already
+        ;; guaranteed by the IN clause above; asking again costs nothing and
+        ;; keeps the rule in one place.
+        (and (executor-can-run? conn ex #:kinds kinds #:models models
+                                #:kind kind #:team team #:requirements req)
              ;; LIVE-IN, not `status='running'`: a job being canceled still has a
              ;; worker on it and still spends the team's budget (SCHED-8).
              (or sub? (< (query-value conn (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) team)

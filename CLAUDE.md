@@ -1262,6 +1262,56 @@ raco test test/pull-tests.rkt   # the closed vocabulary, silence, the stale with
 bash test/pull-smoke.sh         # section 6, 10 assertions over HTTP
 ```
 
+## The worker fleet, seen (FLEET‑2, issue #70)
+
+Built 15 Oct 2026. `GET /api/admin/workers`, `instance:manage` —
+`domain/exec/fleet.rkt`. What each executor IS stays on `GET /api/executors`;
+this is what the fleet is DOING.
+
+- **Its own instance-wide route, not a wider `GET /api/jobs`.** That one is
+  team-scoped by contract (`list-jobs` takes a team, `job-waiting` computes
+  *that* team's hold reason); widening it to cross teams would make a team-tier
+  route answer past the org gate, which is step 0 of `can?`.
+- **`unclaimable` is the point of the whole read**: queued remote jobs no live
+  executor's capabilities satisfy. A stalled fleet and a busy one look identical
+  from a depth count. It asks **`executor-can-run?`**, extracted from
+  `worker-claim!` — one policy, two askers. Never re-derive the matching rule
+  here; the drift is invisible until it misleads.
+- **A job a QUOTA holds is NOT unclaimable.** "Nothing can run it" and "nothing
+  may run it yet" have different remedies, and conflating them sends an operator
+  to buy hardware for a budget. QUOTA‑3's `waiting` already explains that case.
+- **A claim now RECORDS what the worker declared** (`observe-capabilities!`),
+  merged into `executors.capabilities` beside LAY‑9's `tools`/`json_schema`.
+  `capabilities` was written once at create and was usually `{}` while the worker
+  told us its kinds and models on every poll — an aspirational record cannot
+  answer the question above. An EMPTY declaration leaves the stored value alone
+  (a worker naming no models means "any"); the write is skipped when nothing
+  changed, because this is the hot path. **Behaviour change** on
+  `GET /api/executors`.
+- **Two sources, and they must stay two.** Outcomes come from the jobs row —
+  `executor_id` survives a terminal write, so the row names the executor that
+  *finished* the job and can never name an earlier holder, because the requeue
+  nulls it. Lease expiries come from FLEET‑1's trail, which names every holder.
+  Reading outcomes from the trail too would double-count the last attempt.
+  `started_epoch` is the clock; `finished_at` is TEXT and differs by dialect.
+- **Migration `0041-job-queued-age`** adds `jobs.created_epoch`, stamped in
+  `enqueue-job!`, no backfill. `created_at` is TEXT `CURRENT_TIMESTAMP` — the
+  trap 0038/0039/0040 each name — so an age from it is wrong on one dialect. A
+  pre-0041 job reports `oldest_queued_seconds: null`, never a guess.
+- Counts over the window come from `meta LIKE '%"executor_id":"<id>"%'`, the
+  trick `object-processing` uses: `jsexpr->string` writes no spaces, and the two
+  dialects do not spell a JSON operator the same way.
+- `?hours=` (default 24, clamped to 720, nonsense falls back) — a lifetime total
+  would call a box unhealthy for ever over last month's failures. `unclaimable`
+  scans at most 200 jobs and reports `scanned` and `truncated` beside the count.
+- **HTTP only, deliberately.** The console's Workers and Queue cards and the
+  operator drain are FLEET‑3/‑4.
+
+```sh
+raco test test/fleet-tests.rkt   # the entries, the two sources, the queue, unclaimable, the org gate
+bash test/pull-smoke.sh          # section 7, 11 assertions over HTTP
+```
+
 ## The reaper leaves a record (FLEET‑1, issue #70)
 
 Built 14 Oct 2026 — the first slice of the worker-fleet surface. A lease expiry

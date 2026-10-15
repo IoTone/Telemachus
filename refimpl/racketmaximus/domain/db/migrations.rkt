@@ -1166,7 +1166,26 @@
       ;; staleness horizon.
       (exec* conn "ALTER TABLE executors ADD COLUMN state_epoch BIGINT"))))
 
+(define m-0041-job-queued-age
+  (migration "0041-job-queued-age"
+    (lambda (conn)
+      ;; How long has this job been waiting? (FLEET-2, issue #70.) The queue's
+      ;; depth says how much work is piled up; its AGE says whether anything is
+      ;; moving, and an operator looking at a fleet asks the second one first.
+      ;;
+      ;; It needs a column because `jobs.created_at` is TEXT CURRENT_TIMESTAMP,
+      ;; whose format differs by dialect (SQLite `2026-08-21 04:16:09`, Postgres
+      ;; `...225696-07`) — so an age computed from it is invisibly wrong on one
+      ;; of the two. The same trap migrations 0038, 0039 and 0040 each name, and
+      ;; the same answer: epoch seconds.
+      ;;
+      ;; Nothing backfills it. A job queued before this migration reports its age
+      ;; as `null` rather than as a number derived from nothing — PULL-11's rule
+      ;; for an unreported worker state, and QUOTA-3's for an absent hold reason:
+      ;; a field a reader learns to distrust is worse than no field.
+      (exec* conn "ALTER TABLE jobs ADD COLUMN created_epoch BIGINT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state))
+                             m-0040-executor-state m-0041-job-queued-age))

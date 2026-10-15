@@ -115,6 +115,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/executors` | bearer | — | — | ローカルエグゼキュータ、環境変数で設定されたプッシュ型、API で作成されたもの（プッシュ型、またはワーカー付きのプル型）を、状態とともに。 |
 | POST | `/api/executors` | bearer | `instance:manage` | — | エグゼキュータを作成する：{name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}。プル型エグゼキュータのワーカートークンはこのレスポンスに含まれ、二度と表示されません。 |
 | DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。 |
+| GET | `/api/admin/workers` | bearer | `instance:manage` | — | ワーカー群（FLEET-2）：各エグゼキュータの稼動状態、ワーカー自身の申告、保持中のジョブ、一定期間（?hours=、既定 24）の処理結果とリース失効の回数、直近の失敗 — さらにキュー：種別ごとの件数、最も古い待機ジョブの経過時間、そして稼動中のどのエグゼキュータでも実行できないリモートジョブの件数。この最後の数値は、深いキューを他の方法では説明できないものである：停止したワーカー群と稼動中のワーカー群は、件数だけでは同じように見える。すべての数値は導出され、クォータで保留されているジョブは実行不能には数えない — それは GET /api/jobs が `waiting` としてすでに示している。 |
 | POST | `/api/org/executors` | org-admin | `org:manage` | — | 呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。 |
 | POST | `/api/workers/claim` | bearer | `jobs:execute` | — | プル型ワーカーが実行可能な次のリモートジョブを取得する：{kinds, models, max_wait}；何もなければ 204。ジョブにはリースと claim_token が付き、以降そのジョブに対する書き込みはすべてこの claim_token を返送する必要があります。 |
 | POST | `/api/workers/state` | bearer | `jobs:execute` | — | プル型ワーカーが自分の状態を報告する：{state} — ready、busy、paused のいずれか。ジョブを保持していないワーカーが使える唯一の経路です：停止中のホストは取得を止めており、ハートビートを送るジョブも持たないため、これが無ければその沈黙を障害と区別できません。`state` は claim とハートビートでも受け付けるので、通常のループに追加のリクエストは不要です。state を指定しない呼び出しは、保存済みの状態をそのまま残します。 |

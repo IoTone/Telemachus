@@ -81,6 +81,7 @@
          "../domain/authz/peer.rkt"                               ; who may assert identity (issue #40)
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
+         "../domain/exec/fleet.rkt"               ; the operator's view of that fleet (FLEET-2, issue #70)
          "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
          "../domain/agent/run.rkt"
          "../domain/agent/registry.rkt"           ; tool-settings-for, set-tool-enabled!
@@ -1736,6 +1737,21 @@
                                           'configured (model-configured?) 'remote #f)
                            'executors (append from-file rows))))))
 
+;; FLEET-2: what the fleet is DOING, as against what each executor IS. Instance
+;; scoped and instance:manage — a team-tier route widened to cross teams would
+;; answer past the org gate, which is step 0 of `can?`.
+;;
+;; `hours` bounds the per-executor counts. Clamped rather than refused: a
+;; nonsense value on a READ should answer with the default window, not a 400 an
+;; operator has to decode, and there is nothing here to get wrong by guessing.
+(define (ep-admin-workers req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define h (let* ([raw (query-param req 'hours)]
+                     [n (and (string? raw) (string->number raw))])
+                (if (and (real? n) (> n 0)) (min 720 (inexact->exact (round n))) FLEET-WINDOW-HOURS)))
+    (json-response (fleet-report db-conn p #:hours h)))))
+
 ;; create: the operator anywhere (org_id optional), an org admin for its own
 ;; company (TEN-2e). A pull executor's worker token is in THIS response and never again.
 (define (create-executor! req p #:org [org #f])
@@ -2857,7 +2873,7 @@
    'ai-echo ep-ai-echo 'ai-chat ep-ai-chat 'ai-chat-stream ep-ai-chat-stream 'agent ep-agent
    'translate-catalog ep-translate-catalog 'translate ep-translate 'translate-list ep-translate-list
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
-   'ai-model ep-ai-model 'executors ep-executors
+   'ai-model ep-ai-model 'executors ep-executors 'admin-workers ep-admin-workers
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
    'repo-fields-get ep-repo-fields-get 'repo-fields-put ep-repo-fields-put
    'repo-attributes ep-repo-attributes 'repo-spans ep-repo-spans

@@ -61,6 +61,12 @@ pull host:          POST /api/workers/claim ──▶ (the host runs it) ──�
   genuinely new mechanism, and it is what makes a host that vanishes mid-job
   safe: the job is not lost and not run twice by design — the *result* is
   accepted only from the lease holder whose lease is current.
+- **The operator can see the fleet** (FLEET‑2, issue #70):
+  `GET /api/admin/workers` reports each executor's health, what it holds, its
+  outcomes and lease expiries over a window, and the queue — depth by kind, the
+  oldest queued job's age, and how many queued remote jobs no live executor can
+  run. A claim also RECORDS what the worker declared into `capabilities`, which
+  is what makes that last figure true rather than aspirational.
 - **Every expiry is audited** (FLEET‑1, issue #70): `job.lease.expired` per
   attempt, naming the executor that held it, and `job.attempts.exhausted` with
   the whole list when the job finally fails. The entry is written **before** the

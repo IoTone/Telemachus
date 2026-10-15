@@ -118,9 +118,14 @@
 (define (enqueue-job! conn #:team team #:user user #:kind kind #:payload [payload (hasheq)] #:priority [pri 0]
                       #:requirements [req (hasheq)] #:parent [parent #f])
   (define id (new-id))
+  ;; `created_epoch` beside the TEXT `created_at` (migration 0041): the age of a
+  ;; queued job is what says whether the queue is moving, and an age computed
+  ;; from `created_at` is invisibly wrong on one of the two dialects.
   (query-exec conn
-    "INSERT INTO jobs (id, team_id, user_id, kind, payload, priority, requirements, parent_job_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    id team user kind (jsexpr->string payload) pri (jsexpr->string req) (or parent sql-null))
+    (string-append "INSERT INTO jobs (id, team_id, user_id, kind, payload, priority, requirements, parent_job_id, created_epoch) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    id team user kind (jsexpr->string payload) pri (jsexpr->string req) (or parent sql-null)
+    (current-seconds))
   id)
 
 ;; Why is this team's next job still queued? (issue #55)
