@@ -1908,12 +1908,22 @@
            (tenant-quota-record! db-conn p "ai.requests" 1)
            (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
            (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
-           (json-response (hasheq 'reply reply 'tokens_used tokens
-                                  'parsed (response-format-parse rf reply)
-                                  'model (executor-model ex)
-                                  'executor (or ex "local")
-                                  'concurrent inflight
-                                  'remaining_tokens (hash-ref after 'remaining)))))]))))
+           ;; issue #64: say when NO MODEL ANSWERED. With TELEMACHUS_MODEL_URL
+           ;; unset `run-chat` falls back to a deterministic upper-cased echo —
+           ;; which keeps the platform demoable and is worth keeping — but
+           ;; nothing in this response said so, so a caller got a
+           ;; plausible-looking reply from a model that was never called. Asked
+           ;; of `chat-simulated?`, the same seam run-chat decided with, rather
+           ;; than re-derived here. The key is ABSENT on a real call, never
+           ;; `simulated: false`: QUOTA-3's rule, a field that is there only when
+           ;; it says something.
+           (define base (hasheq 'reply reply 'tokens_used tokens
+                                'parsed (response-format-parse rf reply)
+                                'model (executor-model ex)
+                                'executor (or ex "local")
+                                'concurrent inflight
+                                'remaining_tokens (hash-ref after 'remaining)))
+           (json-response (if (chat-simulated? ex) (hash-set base 'simulated #t) base))))]))))
 
 (define (ep-ai-model req)
   (with-auth req (lambda (p) (json-response (model-info)))))
@@ -1956,10 +1966,15 @@
               ;; answer has already gone out. `parsed` on success, `schema_error`
               ;; when the model did not honour it — never a silent pass.
               (define-values (parsed problem) (response-format-verify rf text))
-              (emit (let ([done (hasheq 'done #t 'tokens_used tokens
-                                        'model (executor-model ex)
-                                        'executor (or ex "local")
-                                        'remaining_tokens (hash-ref after 'remaining))])
+              (emit (let* ([done (hasheq 'done #t 'tokens_used tokens
+                                         'model (executor-model ex)
+                                         'executor (or ex "local")
+                                         'remaining_tokens (hash-ref after 'remaining))]
+                           ;; issue #64, as on the non-streaming endpoint: the
+                           ;; reader has just watched an upper-cased echo arrive
+                           ;; token by token and deserves to be told no model
+                           ;; produced it
+                           [done (if (chat-simulated? ex) (hash-set done 'simulated #t) done)])
                       (cond [(not rf) done]
                             [problem (hash-set done 'schema_error problem)]
                             [else (hash-set done 'parsed parsed)])))))))]))))
@@ -3284,6 +3299,15 @@
           ;; issue #19: say plainly whether a dump of this database is replayable
           (if (secrets-enabled?) (format "sealed (key ~a)" (secret-key-id)) "plaintext")
           (quotient (max-upload-bytes) (* 1024 1024)))
+  ;; issue #64: the operator who most needs to know that no model is configured
+  ;; is the one standing in front of a fresh instance wondering why every AI
+  ;; answer looks like its own prompt shouted back. Said once, at boot, in the
+  ;; shape the plugin failures already use.
+  (unless (model-configured?)
+    (printf "\nWARNING: no model is configured (TELEMACHUS_MODEL_URL is unset).\n")
+    (printf "  /api/ai/chat answers with a SIMULATED upper-cased echo, flagged `simulated` in\n")
+    (printf "  the response; the document tools, the knowledge graph and the agent refuse\n")
+    (printf "  outright. Set TELEMACHUS_MODEL_URL to an OpenAI-compatible endpoint.\n\n"))
   ;; The S3 front door is a SEPARATE listener on a separate port: it runs on
   ;; web-kit/http1 because it must answer `Expect: 100-continue` and stream bodies
   ;; the servlet would buffer. Off unless TELEMACHUS_S3_PORT is set — an S3 endpoint

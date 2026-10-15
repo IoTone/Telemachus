@@ -580,6 +580,10 @@
       "text": "まだ誰とも共有していません。",
       "hash": "e07d3e8b440d2ed1986caa6cd3d25ce0c5119c92"
     },
+    "ui.simulatedwhy": {
+      "text": "TELEMACHUS_MODEL_URL が設定されていないため、この応答はモデルの回答ではなく、入力したプロンプトを決まった形で返しただけのものです。",
+      "hash": "490ef95053c12b82ccd44c2b73db4715c12e78af"
+    },
     "greeting.hello": {
       "text": "こんにちは、{name}さん！",
       "hash": "c9e3759b1756eba35b381ce2b72cd659e132b01f"
@@ -1285,8 +1289,8 @@
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
     },
     "doc.route.post.api.ai.chat.stream": {
-      "text": "同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。",
-      "hash": "b7e4ec3d446974eff8f49c3c7d506b4ceb5fbb4d"
+      "text": "同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。モデルが一切応答していない場合は `simulated: true` が入ります。",
+      "hash": "7e6e370303b6bcfec2968ccb380941f0555c1c91"
     },
     "doc.route.post.api.workers.state": {
       "text": "プル型ワーカーが自分の状態を報告する：{state} — ready、busy、paused のいずれか。ジョブを保持していないワーカーが使える唯一の経路です：停止中のホストは取得を止めており、ハートビートを送るジョブも持たないため、これが無ければその沈黙を障害と区別できません。`state` は claim とハートビートでも受け付けるので、通常のループに追加のリクエストは不要です。state を指定しない呼び出しは、保存済みの状態をそのまま残します。",
@@ -1751,6 +1755,10 @@
     "ui.thcontrasthint": {
       "text": "このテキストが読めない利用者がいる可能性があります。サーバーは最低値を下回るテーマを拒否します。",
       "hash": "931f620bbf6a582ae8b0d682fcec3c2206887dd4"
+    },
+    "ui.simulated": {
+      "text": "シミュレーション — モデルが設定されていません",
+      "hash": "524b30e930284e1befb775feee162556fe8365c1"
     },
     "ui.notriggers": {
       "text": "まだトリガーがありません。",
@@ -2273,8 +2281,8 @@
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
     },
     "doc.route.post.api.ai.chat": {
-      "text": "モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text|json_object|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。",
-      "hash": "0d0991ea659a2a58c2bb9bfd143226414dd66378"
+      "text": "モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text|json_object|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。",
+      "hash": "8b8b362cda5740cc3c15fe5d8d6c92278b0eac32"
     },
     "doc.route.post.api.l10n.draft": {
       "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",

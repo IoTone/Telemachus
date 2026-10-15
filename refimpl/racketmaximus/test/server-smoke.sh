@@ -113,6 +113,11 @@ if [ "${MAXC:-9}" -le 2 ]; then echo "  ok   concurrency cap (max=$MAXC of 2)"; 
 assert "ai model info"   "$(curl -s $B/api/ai/model -H "Authorization: Bearer $OP")" '"configured":false'
 assert "ai chat reply"   "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" '"reply":"HELLO"'
 assert "ai chat stream"  "$(curl -sN -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":"hello world"}')" '"done":true'
+# issue #64: this suite runs with NO model, so every reply above is the simulated
+# echo. It has to SAY so — a plausible-looking reply from a model that was never
+# called is the gotcha that keeps being rediscovered as "the judge is broken".
+assert "…and the echo admits it is not a model"  "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" '"simulated":true'
+assert "…on the stream's final event too"        "$(curl -sN -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" '"simulated":true'
 # issue #18: a prompt may be content PARTS, and a malformed one is named rather
 # than reaching the provider as an opaque 400
 assert "chat: a parts prompt"          "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"text","text":"hello"},{"type":"text","text":" world"}]}')" '"reply":"HELLO WORLD"'

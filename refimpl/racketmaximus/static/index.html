@@ -439,7 +439,11 @@ function go(tab){ S.tab=tab; S.newToken=null;
 // ---------- tabs ----------
 async function chatView(){
   if(!S.model){ const m=await api('/api/ai/model'); S.model=m.json; }
-  const badge = S.model?.configured ? `<span class="badge ok">${esc(S.model.model)}</span>` : `<span class="badge">${esc(S.model?.model||'local')} · simulated</span>`;
+  // issue #64: the badge said "· simulated" in hardcoded English — the one
+  // console string that never reached the catalogs, so a Japanese operator read
+  // the word that matters least in the language they had not chosen.
+  const badge = S.model?.configured ? `<span class="badge ok">${esc(S.model.model)}</span>`
+    : `<span class="badge" style="color:var(--warn)" title="${esc(t('simulatedwhy'))}">${esc(S.model?.model||'local')} · ${esc(t('simulated'))}</span>`;
   return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
     <div class="card">
       <label>${t('prompt')}</label><textarea id="cp" rows="3">Hello team</textarea>
@@ -461,7 +465,12 @@ async function doChat(){
       if(!line.startsWith('data:')) continue; let ev={}; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
       if(ev.token){ if(meta.textContent==='…') meta.textContent=''; rep.textContent += ev.token; }
       if(ev.error) toast(ev.error);
-      if(ev.done) meta.textContent = `${ev.tokens_used} tokens · ${esc(ev.model)} · remaining ${ev.remaining_tokens}`;
+      // issue #64: with no model configured the stream is a deterministic echo of
+      // the prompt. Say so where the reply is, rather than letting a reader take
+      // it for a model's answer — the server flags it, the console never guesses.
+      if(ev.done){ meta.textContent = `${ev.tokens_used} tokens · ${esc(ev.model)} · remaining ${ev.remaining_tokens}`;
+        if(ev.simulated) meta.insertAdjacentHTML('beforeend',
+          ` · <span style="color:var(--warn)" title="${esc(t('simulatedwhy'))}">\u26a0 ${esc(t('simulated'))}</span>`); }
     } }
 }
 
