@@ -41,8 +41,8 @@
   },
   {
     "file": "09-admin.png",
-    "title": "Admin & federated compute",
-    "caption": "Operator-only instance view. The Compute table lists the local node (qwen2.5:7b) and federated executors (🛰️ gpu-sim) — the pluggable seam for remote/HPC compute."
+    "title": "Admin & the worker fleet",
+    "caption": "Operator-only instance view. The Workers table lists the local node (qwen2.5:7b), federated executors (↗ gpu-sim) and any pull worker — each with its derived health, what the worker itself reports, what it is holding, and a reversible Drain. Below it: the queue, and how many jobs no live worker can run."
   },
   {
     "file": "10-i18n.png",

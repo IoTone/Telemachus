@@ -696,6 +696,10 @@
       "text": "対象言語コード、例えばes、nl、is",
       "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
     },
+    "ui.wkconfig": {
+      "text": "ファイル定義",
+      "hash": "9b86f93c66562c2612bd5a911294e5d3d931fa4c"
+    },
     "ui.resets": {
       "text": "リセット",
       "hash": "da1a3c80185a86b58790c77e17145fc737ff37b5"
@@ -2363,6 +2367,10 @@
     "ui.notprocessed": {
       "text": "この文書を処理したワークフローはまだありません。",
       "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
+    },
+    "ui.wkconfighint": {
+      "text": "executors.json に定義されており、名前はそのファイルが所有します — インスタンスは起動時にファイルを読み込みます。ここからは停止も廃止もできません。ファイルを編集して再起動してください。",
+      "hash": "d5d932cb85c95519ae589645b8d35d59e2b8df96"
     },
     "doc.route.post.api.orgs.ref.resume": {
       "text": "一時停止中の企業を再開します。",

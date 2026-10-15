@@ -1351,7 +1351,17 @@ Built 15 Oct 2026. `POST /api/executors/:id/drain` and `/resume`,
   is no second chance; the copy says so rather than implying a recovery that
   does not exist. The retire confirmation names draining as the reversible
   alternative, because the destructive button was the only one for so long.
-- 40 new `ui.*` strings, hand-translated into `ja` in the same commit.
+- 42 new `ui.*` strings, hand-translated into `ja` in the same commit.
+- **A config-file push executor must still appear on the card.** The fleet read
+  lists DB rows only — what a drain or a retire can act on — so building the
+  table from it alone made every `executors.json` entry vanish from the console.
+  They are merged back in from `GET /api/executors` (`source: "config"`) and
+  shown with no actions, since the file owns them. **The screenshot tour is what
+  caught this**: `run-tour.mjs` asserts `gpu-sim` is visible, and it waited on
+  the `Compute` heading, so replacing that card broke the tour in CI while
+  `validate.sh` passed locally. A console change that renames or removes a card
+  means grepping `test/e2e/*.mjs` and updating the shot's caption, the manifest,
+  `captions.ja.json`'s hash and the README regions (`README_ONLY=1`).
 
 ```sh
 raco test test/fleet-tests.rkt   # reversibility, liveness, the closed vocabulary, both audits

@@ -867,7 +867,19 @@ function workersCard(xr, fr){
     <td><span class="badge ${loc.configured?'ok':'warn'}">${loc.configured?t('wkconfigured'):t('simulated')}</span></td>
     <td colspan="5" class="muted">${t('wklocalhint')}</td></tr>` : '';
 
-  const body = [locRow].concat(pulls.map(row)).concat(pushes.map(row)).join('');
+  // Executors declared in executors.json are NOT in the fleet read — that one
+  // lists DB rows, which is what a drain or a retire can act on. They still
+  // belong on this table: dropping them would have made a configured push
+  // backend vanish from the console, which is how the screenshot tour caught
+  // this card the first time. Shown with no actions, because a file owns them.
+  const dbNames = ex.map(e=>e.name);
+  const fromFile = ((xr&&xr.ok) ? (xr.json.executors||[]) : [])
+    .filter(e=>(e.source||'config')==='config' && dbNames.indexOf(e.name)<0);
+  const fileRow=(e)=>`<tr>
+      <td><span class="badge">↗ ${esc(e.name)}</span> <span class="badge" title="${esc(t('wkconfighint'))}">${t('wkconfig')}</span></td>
+      <td class="mono">${esc(e.model||'–')}</td>
+      <td colspan="5" class="mono muted">${esc(e.url||'')}</td><td></td></tr>`;
+  const body = [locRow].concat(pulls.map(row)).concat(pushes.map(row)).concat(fromFile.map(fileRow)).join('');
   const none = pulls.length?'':`<p class="muted">${t('wknone')}</p>`;
 
   // The queue, and the one number a depth count cannot explain. `unclaimable`

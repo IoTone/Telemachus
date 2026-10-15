@@ -695,6 +695,14 @@
       "text": "Target language code, e.g. es, nl, is",
       "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
     },
+    "ui.thbg": {
+      "text": "Background",
+      "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
+    },
+    "ui.wkconfig": {
+      "text": "from file",
+      "hash": "9b86f93c66562c2612bd5a911294e5d3d931fa4c"
+    },
     "ui.resets": {
       "text": "Resets",
       "hash": "da1a3c80185a86b58790c77e17145fc737ff37b5"
@@ -814,10 +822,6 @@
     "doc.route.delete.api.org.session-policy": {
       "text": "Drop the company's session timeouts; its users fall back to the instance policy.",
       "hash": "31f74f2824b4a25e07c1aa68ac60f5ae9f5d1ea2"
-    },
-    "ui.thbg": {
-      "text": "Background",
-      "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
     },
     "ui.l10nall": {
       "text": "All statuses",
@@ -2383,6 +2387,14 @@
       "text": "No workflow has processed this document yet.",
       "hash": "4a280807905125cca2f116cd2a3b839c614a4d1e"
     },
+    "doc.route.post.api.org.members": {
+      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
+      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
+    },
+    "ui.wkconfighint": {
+      "text": "Declared in executors.json, which owns its names — this instance reads the file at boot. It cannot be drained or retired from here; edit the file and restart.",
+      "hash": "d5d932cb85c95519ae589645b8d35d59e2b8df96"
+    },
     "doc.route.post.api.orgs.ref.resume": {
       "text": "Resume a suspended company.",
       "hash": "fd7cd74e0a0889ebca0df4ecd0a42fa78193c537"
@@ -2390,10 +2402,6 @@
     "ui.brandclearlogo": {
       "text": "Remove logo",
       "hash": "a42817a09e2cc5caf003f4666558889665b8a888"
-    },
-    "doc.route.post.api.org.members": {
-      "text": "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).",
-      "hash": "03a74d632f9d392ba7d7d8c4dc71f6081a8174cb"
     },
     "ui.target": {
       "text": "Target language",
