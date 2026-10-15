@@ -415,3 +415,85 @@
   (check-equal? (hash-ref e2 'worker_state) 'null
                 "a worker that said busy an hour ago and vanished is stale, not busy")
   (check-equal? (hash-ref e2 'state_at) 'null))
+
+;; ---- FLEET-1: the reaper leaves a record (issue #70) ---------------------------
+;; The requeue sets executor_id to NULL, so after the UPDATE nothing in the jobs
+;; table says which machine dropped the work. These are the assertions that the
+;; trail is written BEFORE that happens, and that the final error names the boxes.
+
+(define (lease-audit c job)
+  (for/list ([r (in-list (query-rows c (string-append
+                           "SELECT action, result, team_id, meta FROM audit_log "
+                           "WHERE resource_id = ? ORDER BY at_us ASC") job))])
+    (list (vector-ref r 0) (vector-ref r 1)
+          (and (not (sql-null? (vector-ref r 2))) (vector-ref r 2))
+          (string->jsexpr (vector-ref r 3)))))
+
+(test-case "FLEET-1: every lease expiry is audited, and the error names the holders"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex1 _t1) (executor-create! c p #:name "gpu-1" #:model "m"))
+  (define-values (ex2 _t2) (executor-create! c p #:name "gpu-2" #:model "m"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat" #:payload (hasheq 'messages '())))
+  (define (expire!) (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j))
+
+  ;; gpu-1 takes it and dies
+  (check-equal? (hash-ref (worker-claim! c ex1 #:kinds '("infer.chat") #:models '("m")) 'id) j)
+  (expire!) (check-equal? (reap-leases! c) 1)
+  (define a1 (lease-audit c j))
+  (check-equal? (length a1) 1 "one expiry, one entry")
+  (check-equal? (car (car a1)) "job.lease.expired")
+  (check-equal? (cadr (car a1)) "requeued" "the result says what became of the job")
+  (check-equal? (caddr (car a1)) tid
+                "the entry carries the JOB's team, or audit-list cannot show it to them")
+  (define m1 (cadddr (car a1)))
+  (check-equal? (hash-ref m1 'executor) "gpu-1"
+                "the machine that dropped it is named, though executor_id is now NULL")
+  (check-equal? (hash-ref m1 'kind) "infer.chat")
+  (check-equal? (hash-ref m1 'max_attempts) MAX-ATTEMPTS)
+  (check-true (sql-null? (query-value c "SELECT executor_id FROM jobs WHERE id = ?" j))
+              "…and the row itself no longer remembers")
+
+  ;; gpu-2 takes it and dies; then gpu-1 again, which exhausts it
+  (check-equal? (hash-ref (worker-claim! c ex2 #:kinds '("infer.chat") #:models '("m")) 'id) j)
+  (expire!) (reap-leases! c)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "queued" "still inside MAX-ATTEMPTS")
+  (check-equal? (hash-ref (worker-claim! c ex1 #:kinds '("infer.chat") #:models '("m")) 'id) j)
+  (expire!) (reap-leases! c)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "error")
+
+  (define all (lease-audit c j))
+  (check-equal? (map car all)
+                '("job.lease.expired" "job.lease.expired" "job.lease.expired" "job.attempts.exhausted")
+                "three expiries and the verdict, in order")
+  (check-equal? (map cadr all) '("requeued" "requeued" "exhausted" "error"))
+  (check-equal? (for/list ([e (in-list (take all 3))]) (hash-ref (cadddr e) 'executor))
+                '("gpu-1" "gpu-2" "gpu-1")
+                "oldest attempt first — one flaky box twice is not three boxes once")
+  (check-equal? (hash-ref (cadddr (list-ref all 3)) 'holders) '("gpu-1" "gpu-2" "gpu-1"))
+  ;; the stored error is the thing an operator reads first
+  (define err (hash-ref (get-job c j tid) 'error))
+  (check-true (regexp-match? #rx"leases expired" err) "the old wording still holds")
+  (check-true (regexp-match? #rx"gpu-1, gpu-2, gpu-1" err) "…and it now names the holders")
+  (disconnect c))
+
+(test-case "FLEET-1: an in-process job names no executor, and says so"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "local.echo" #:payload (hasheq 'x "hi")))
+  (define (expire!) (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j))
+  ;; the pool claims with a lease and no executor; three deaths in a row
+  (let loop ([n 0])
+    (when (< n MAX-ATTEMPTS)
+      (check-true (string? (claim-job! c j #:lease (+ (current-seconds) POOL-LEASE-SECONDS))))
+      (expire!) (reap-leases! c)
+      (loop (add1 n))))
+  (check-equal? (hash-ref (get-job c j tid) 'status) "error")
+  (define all (lease-audit c j))
+  (check-equal? (length all) (add1 MAX-ATTEMPTS))
+  (check-equal? (hash-ref (cadddr (car all)) 'executor) 'null
+                "no executor held it — null, never a guessed name")
+  (check-true (regexp-match? #rx"in process" (hash-ref (get-job c j tid) 'error))
+              "the error says the pool lost it, not that an executor did")
+  (disconnect c))

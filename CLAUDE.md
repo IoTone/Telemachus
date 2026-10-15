@@ -1262,6 +1262,40 @@ raco test test/pull-tests.rkt   # the closed vocabulary, silence, the stale with
 bash test/pull-smoke.sh         # section 6, 10 assertions over HTTP
 ```
 
+## The reaper leaves a record (FLEET‑1, issue #70)
+
+Built 14 Oct 2026 — the first slice of the worker-fleet surface. A lease expiry
+is the central failure event of the pull subsystem and was recorded **nowhere**.
+
+- **The audit entry is written BEFORE the UPDATE.** The requeue sets
+  `executor_id = NULL` — the job is nobody's again — so afterwards nothing in
+  the `jobs` table says which machine dropped the work. A job one flaky box
+  failed three times and a job three boxes each tried once were the same row.
+  Never reorder this; there is nothing left to derive from.
+- `job.lease.expired` per attempt (`result` `requeued` or `exhausted`), naming
+  the executor in `meta`; `job.attempts.exhausted` once at the end carrying
+  `holders`, oldest attempt first. Two actions because two readers: a count of
+  the first is the fleet signal, the second is one job's story.
+- **`team_id` is the JOB's team**, `actor_type` `system`. `audit-list` filters by
+  team, so an entry without one is invisible to the people whose work stopped —
+  QUOTA‑3's rule, and the gap `user.2fa.reset` still has.
+- **No dedup**, unlike `quota.exhausted`: that is re-decided for every queued job
+  on every tick; an expiry happens once per attempt, bounded by `MAX-ATTEMPTS`.
+- **The stored error names the holders**, composed by reading the trail back
+  (`lease-holders`, `exhausted-message`). "no executor completed it in 3
+  attempts" was true and useless. An attempt with no executor reads as **in
+  process**, never as a guessed name.
+- **Do not write `(>= (add1 attempt) MAX-ATTEMPTS)`** when naming the negation of
+  the original `(< attempt MAX-ATTEMPTS)`. It is off by one and costs every job
+  an attempt; it is `(>= attempt MAX-ATTEMPTS)`. The existing MAX-ATTEMPTS case
+  in `test/pull-tests.rkt` is what catches it.
+- Still unaudited, deliberately and noted rather than folded in: a `canceling`
+  job the reaper settles, and `reap-orphans!`'s boot sweep.
+
+```sh
+raco test test/pull-tests.rkt   # the trail, the ordering, the in-process case
+```
+
 ## The beta judge's verdict is validated (JUDGE‑6, 14 Oct 2026)
 
 From the issue #31 exploration (decisions JUDGE‑1…6 in
