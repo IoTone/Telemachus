@@ -81,6 +81,7 @@
          "../domain/authz/peer.rkt"                               ; who may assert identity (issue #40)
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
+         (only-in "../domain/judge/judge.rkt" register-judge-kind!)   ; the typed-judgment kind (JUDGE-8)
          "../domain/exec/fleet.rkt"               ; the operator's view of that fleet (FLEET-2, issue #70)
          "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
          "../domain/agent/run.rkt"
@@ -3211,6 +3212,10 @@
                         => (lambda (p) (string-append "result.content: " p))]
                        [(not (number? (hash-ref r 'tokens_used #f))) "result.tokens_used must be a number"]
                        [else #f])))
+  ;; JUDGE-8 (issue #57): the typed-judgment kind. The request and the verdict
+  ;; both cross as composed/received BYTES; the full request-vs-verdict check
+  ;; is the seam's, at the read — see domain/judge/judge.rkt.
+  (register-judge-kind!)
   ;; The pool's per-tick maintenance. `set-reaper!` is ONE seam and stays one:
   ;; the lease reaper every tick (an expired lease must be noticed promptly), and
   ;; the abandoned-upload reaper on a long interval beside it (issue #54), since
