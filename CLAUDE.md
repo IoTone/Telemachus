@@ -1574,6 +1574,34 @@ The analysis is FINISHED (JUDGE‑1…14): the build plan, in order JUDGE‑9+13
 ‑8 → ‑10 → ‑11 → ‑7, is at the end of the decision block. Read it before anyone
 writes an integration.
 
+## The typed-judgment wire (JUDGE‑9 + JUDGE‑13, issue #57 slice 1)
+
+Built 15 Oct 2026 — the first slice of the judge, and the one that was expensive
+to retrofit. `domain/judge/wire.rkt`: question constructors
+(`judge-noul`/`judge-choice`/`judge-score`, mirroring poplog's `ts_*`), the
+request composer (`judge-request` → JEV's own `POST /v1/systemone` body), and
+`verdict-problem`, the validator a remote kind's `#:validate` will wrap.
+
+- **The request is COMPOSED BYTES.** `questions` and a choice's `criteria` are
+  JSON objects whose KEY ORDER is part of the question, which no jsexpr can
+  carry. `judge-request` answers a STRING, written once by `ordered-json`;
+  nothing downstream may parse-and-re-serialize it. `json-out`'s sort rule is
+  actively wrong here — keep this wire away from it.
+- **An ordered object is `(jobj (list (cons key value) …))`** — a struct, not a
+  bare list of pairs, because a pair whose cdr is a list IS a list and the two
+  shapes would be told apart by luck.
+- **`verdict-problem` takes both strings** (request, verdict), parses COPIES,
+  and answers `#f` or ONE problem naming the path. It requires `model` (a
+  judgment without its checkpoint is unauditable — JUDGE‑11), every question
+  answered with its own type, and a choice pick that is one of the question's
+  own options; it is OPEN to fields it does not know (`probabilities`, `action`,
+  `order`, `legend` — laya says more than JEV).
+- Nothing here touches the DB, the routes or the catalogs.
+
+```sh
+raco test test/judge-wire-tests.rkt   # 6 cases: order, bytes, determinism, the paths
+```
+
 ## A deferred job says why (issue #55, built 14 Oct 2026)
 
 An over-budget team's jobs stay `queued` — right, and until now invisible.
