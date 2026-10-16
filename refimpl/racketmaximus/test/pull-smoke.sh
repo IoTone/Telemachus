@@ -289,6 +289,33 @@ assert "…and the job still completes normally" \
   "$(curl -s -X POST $B/api/workers/jobs/$EJID/complete -H "Authorization: Bearer $WT" -d "{\"claim_token\":\"$EFENCE\",\"result\":{\"reply\":\"done\",\"tokens_used\":1}}")" '"ok":true'
 
 echo
+echo "== 8c. JUDGE-8: a typed judgment rides the same wire, as composed bytes =="
+# The request is COMPOSED BYTES (JUDGE-13): the platform (or this test) writes
+# it once and nothing re-serializes it. The verdict comes back AS RECEIVED.
+JREQ='{"state":"I was billed twice.","questions":{"refund":{"type":"noul","instructions":"Does the customer ask for money back?","criteria":{"true":"asks for money back","false":"no money mentioned"}}}}'
+JJOB=$(P /api/jobs "{\"kind\":\"judge.typed\",\"payload\":{\"request_json\":$(printf '%s' "$JREQ" | jq -Rs .)}}")
+JID=$(printf '%s' "$JJOB" | jq_ 'd["id"]')
+JCLAIM=$(curl -s -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["judge.typed"],"max_wait":2}')
+assert "a judge worker claims the job"            "$JCLAIM" '"kind":"judge.typed"'
+assert "…and the payload carries the bytes composed" "$JCLAIM" 'asks for money back'
+JFENCE=$(printf '%s' "$JCLAIM" | jq_ 'd["claim_token"]')
+# the worker's half of the contract: a verdict with no checkpoint fails the JOB by name
+BAD=$(curl -s -X POST $B/api/workers/jobs/$JID/complete -H "Authorization: Bearer $WT" \
+  -d "{\"claim_token\":\"$JFENCE\",\"result\":{\"verdict_json\":\"{\\\"answers\\\":{}}\"}}")
+assert "a verdict naming no checkpoint fails the job" "$(G /api/jobs/$JID)" 'names no checkpoint'
+# again, properly: claim the retry and answer like laya does
+JJOB2=$(P /api/jobs "{\"kind\":\"judge.typed\",\"payload\":{\"request_json\":$(printf '%s' "$JREQ" | jq -Rs .)}}")
+JID2=$(printf '%s' "$JJOB2" | jq_ 'd["id"]')
+JCLAIM2=$(curl -s -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["judge.typed"],"max_wait":2}')
+JFENCE2=$(printf '%s' "$JCLAIM2" | jq_ 'd["claim_token"]')
+JVERDICT='{"model":"aac6fef/laya-mlx@20aed81 float16","answers":{"refund":{"type":"noul","noul":0.93,"confidence":0.93}},"usage":{"input_tokens":64,"output_tokens":0}}'
+assert "the verdict lands" \
+  "$(curl -s -X POST $B/api/workers/jobs/$JID2/complete -H "Authorization: Bearer $WT" \
+      -d "{\"claim_token\":\"$JFENCE2\",\"result\":{\"verdict_json\":$(printf '%s' "$JVERDICT" | jq -Rs .)}}")" '"ok":true'
+assert "…stored AS RECEIVED, checkpoint and all"  "$(G /api/jobs/$JID2)" 'laya-mlx@20aed81'
+assert "…and the job is done"                     "$(G /api/jobs/$JID2)" '"status":"done"'
+
+echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'
 assert "…and the worker token is dead" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{}')" '401'
 assert "…and the executor is retired" "$(G /api/executors)" '"status":"retired"'

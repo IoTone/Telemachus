@@ -1602,6 +1602,44 @@ request composer (`judge-request` → JEV's own `POST /v1/systemone` body), and
 raco test test/judge-wire-tests.rkt   # 6 cases: order, bytes, determinism, the paths
 ```
 
+## The typed-judgment seam (JUDGE‑8, issue #57 slice 2)
+
+Built 15 Oct 2026. `domain/judge/judge.rkt`: `judge` (JUDGE‑1's one entry
+point) enqueues remote kind **`judge.typed`** and waits, the pull-dispatch
+pattern — so quota admission, the org gate, cancel, lease, fence, PULL‑12's
+release and the FLEET surface are all inherited from the job row. No new route:
+the worker wire is PULL's, and the kind is registered at boot in `main.rkt`
+beside `infer.chat`.
+
+- **Payload `{request_json}`, result `{verdict_json}` — both bytes, never
+  re-serialized** (JUDGE‑13). The job row ends up holding exactly what crossed
+  the wire, both directions.
+- **Validation is split in two, deliberately.** The kind's `#:validate`
+  (`judge-result-problem`) holds the WORKER to the half it controls:
+  `verdict_json` is a string parsing to an object with a checkpoint and
+  answers. The SEAM runs the full `verdict-problem request verdict` at the
+  read, where the request is in hand — a worker cannot be failed over a
+  question it never saw, and a well-shaped verdict that does not answer THIS
+  request is refused by path, never handed to the caller.
+- `judge` returns `(values verdict-jsexpr verdict-json)` — the values a caller
+  branches on AND the received bytes JUDGE‑11 stores and hashes.
+- **The dispatch is audited** (`judge.dispatched`, the job's team, naming the
+  job and the request's size — JUDGE‑4: state left the process for another
+  host; the entry says so without copying it).
+- **The reference worker is the laya bridge** (JUDGE‑14):
+  `TELEMACHUS_WORKER_LAYA_URL` (a loopback `laya_serve.py --port`, run it with
+  `--batch-size 1`) adds `judge.typed` to its kinds; the chat endpoint becomes
+  optional, so a Mac can be a judge host and nothing else. It POSTs
+  `request_json` RAW (`http-sendrecv`, not `http-post-json`, which would
+  re-encode) and returns the body as received.
+- laya itself never runs in CI (JUDGE‑12): the tests drive the seam with a
+  worker double that answers like laya, extra fields and all.
+
+```sh
+raco test test/judge-tests.rkt   # the round trip, the two validation halves, the audit
+bash test/pull-smoke.sh          # section 8c, 6 assertions over HTTP
+```
+
 ## A deferred job says why (issue #55, built 14 Oct 2026)
 
 An over-budget team's jobs stay `queued` — right, and until now invisible.
