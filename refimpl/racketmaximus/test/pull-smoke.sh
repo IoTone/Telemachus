@@ -314,6 +314,11 @@ assert "the verdict lands" \
       -d "{\"claim_token\":\"$JFENCE2\",\"result\":{\"verdict_json\":$(printf '%s' "$JVERDICT" | jq -Rs .)}}")" '"ok":true'
 assert "…stored AS RECEIVED, checkpoint and all"  "$(G /api/jobs/$JID2)" 'laya-mlx@20aed81'
 assert "…and the job is done"                     "$(G /api/jobs/$JID2)" '"status":"done"'
+# JUDGE-10: a judgment bills its own dimension, one per question — output_tokens
+# is 0 on this wire, so the token meter cannot see it. The limit makes quota-check
+# read the ledger (used reports 0 with no limit set, by design).
+assert "a judgments quota can be set"             "$(P /api/quota '{"dimension":"ai.judgments.total","limit":100,"window":"day"}')" '"ok":true'
+assert "…and the verdict above was billed on it"  "$(G /api/usage)" '"dimension":"ai.judgments.total","limit":100,"remaining":99'
 
 echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'

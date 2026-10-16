@@ -81,7 +81,7 @@
          "../domain/authz/peer.rkt"                               ; who may assert identity (issue #40)
          "../domain/exec/federation.rkt"          ; connect-executors!, list-executors, executor-exists?
          "../domain/exec/pull.rkt"                ; pull-model executors + the worker protocol (slice 66)
-         (only-in "../domain/judge/judge.rkt" register-judge-kind!)   ; the typed-judgment kind (JUDGE-8)
+         (only-in "../domain/judge/judge.rkt" register-judge-kind! judgments-in-result)   ; the typed-judgment kind (JUDGE-8/10)
          "../domain/exec/fleet.rkt"               ; the operator's view of that fleet (FLEET-2, issue #70)
          "../domain/ai/roles.rkt"                 ; model roles: which executor bulk work goes to (slice 67)
          "../domain/agent/run.rkt"
@@ -1625,7 +1625,7 @@
 ;; dimensions first, then the company's, and the first that refuses is the
 ;; answer, because that is the one somebody has to raise. `amount 1` is the
 ;; probe the admission itself makes — is there room for one more unit at all.
-(define QUOTA-HOLD-DIMS '("ai.requests" "ai.tokens.total"))
+(define QUOTA-HOLD-DIMS '("ai.requests" "ai.tokens.total" "ai.judgments.total"))
 
 ;; PURE, deliberately: the job listing calls this on every read (`team-hold` in
 ;; scheduler.rkt). The audit entry is `note-deferred!`'s business, and fires only
@@ -2164,7 +2164,7 @@
              ;; the Usage tab can say why work has stopped without reading the
              ;; queue — and `resets_at` is when it starts again (issue #55).
              'held (or (quota-hold-reason db-conn sid) 'null)
-             'quota (for/list ([dim (in-list '("ai.tokens.total" "ai.requests" "ai.concurrency"))])
+             'quota (for/list ([dim (in-list '("ai.tokens.total" "ai.requests" "ai.judgments.total" "ai.concurrency"))])
                       (define d (quota-check db-conn "team" sid dim 0))
                       (hasheq 'dimension dim 'used (hash-ref d 'used)
                               'limit (hash-ref d 'limit) 'remaining (hash-ref d 'remaining)
@@ -3375,11 +3375,19 @@
                                       (define toks (let ([t (and (hash? result) (hash-ref result 'tokens_used #f))])
                                                      (if (number? t) t 0)))
                                       (define org (team-org conn team))
+                                      ;; JUDGE-10: a judgment bills its own dimension, one per
+                                      ;; question answered — output_tokens is 0 on that wire, so
+                                      ;; the token meter cannot see it
+                                      (define judgments (judgments-in-result result))
                                       (quota-record! conn "team" team "ai.requests" 1)
                                       (quota-record! conn "team" team "ai.tokens.total" toks)
+                                      (when judgments
+                                        (quota-record! conn "team" team "ai.judgments.total" judgments))
                                       (when org
                                         (quota-record! conn "org" org "ai.requests" 1)
-                                        (quota-record! conn "org" org "ai.tokens.total" toks)))))
+                                        (quota-record! conn "org" org "ai.tokens.total" toks)
+                                        (when judgments
+                                          (quota-record! conn "org" org "ai.judgments.total" judgments))))))
   (printf "scheduler: 2 worker(s), per-team cap = ai.concurrency, quota-metered\n")
   (define tls? (tls-on?))
   (define ip (bind-ip))

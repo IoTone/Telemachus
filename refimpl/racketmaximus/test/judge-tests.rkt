@@ -114,6 +114,35 @@
              (lambda () (judge c #:team tid #:user uid #:state "s" #:questions QS)))
   (disconnect c))
 
+(test-case "judgments-in-result: the biller's count (JUDGE-10)"
+  ;; a judge result bills one per question ANSWERED; anything else answers #f,
+  ;; so every other kind's result is untouched by the judgments meter
+  (check-equal? (judgments-in-result
+                 (hasheq 'verdict_json "{\"model\":\"m\",\"answers\":{\"a\":{},\"b\":{}}}"))
+                2)
+  (check-false (judgments-in-result (hasheq 'reply "hi" 'tokens_used 3)))
+  (check-false (judgments-in-result (hasheq 'verdict_json "not json")))
+  (check-false (judgments-in-result "not a hash")))
+
+(test-case "a completed judgment reaches the ONE biller both claim paths share"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c alice #:name "mac" #:model "laya"))
+  (define billed (box #f))
+  ;; dynamic-wind, the FLEET-4 lesson: a raise anywhere in here must not leak a
+  ;; test biller into every later test in the file
+  (dynamic-wind
+    (lambda () (set-record!! (lambda (conn team result)
+                               (set-box! billed (judgments-in-result result)))))
+    (lambda ()
+      (void (one-shot-worker c ex answer-request))
+      (define-values (v vjson) (judge c #:team tid #:user uid #:state "s" #:questions QS))
+      (void v vjson))
+    (lambda () (set-record!! (lambda (conn team result) (void)))))
+  (check-equal? (unbox billed) 2 "one per question answered")
+  (disconnect c))
+
 (test-case "judge-result-problem: the worker's contract, named"
   (check-equal? (judge-result-problem "nope") "result must be an object")
   (check-equal? (judge-result-problem (hasheq)) "result.verdict_json must be a string (the verdict AS RECEIVED)")
