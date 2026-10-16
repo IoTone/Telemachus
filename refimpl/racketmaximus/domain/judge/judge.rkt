@@ -31,7 +31,8 @@
          "../sched/scheduler.rkt")
 
 (provide register-judge-kind! judge JUDGE-KIND JUDGE-WAIT-SECONDS
-         judge-result-problem)   ; exported for its tests
+         judge-result-problem    ; exported for its tests
+         judgments-in-result)    ; what the biller counts (JUDGE-10)
 
 (define JUDGE-KIND "judge.typed")
 (define JUDGE-WAIT-SECONDS 120)   ; a judgment is ~10 ms on the box; 120 s is "no worker"
@@ -57,6 +58,20 @@
         "result.verdict_json: the verdict names no checkpoint (model)"]
        [(not (hash? (hash-ref v 'answers #f))) "result.verdict_json: answers must be an object"]
        [else #f])]))
+
+;; JUDGE-10: what a completed judgment COSTS. `output_tokens` is always 0 on
+;; this wire, so `ai.tokens.total` cannot bound it — a judgment has its own
+;; dimension, `ai.judgments.total`, one per question answered. The count comes
+;; from the RESULT (the verdict's `answers`), because the one biller the
+;; scheduler and worker-complete! share sees only (conn team result); carrying
+;; a verdict_json with answers IS this kind's result contract, so counting it
+;; is counting the kind. Answers #f for every other kind's result.
+(define (judgments-in-result r)
+  (define vj (and (hash? r) (hash-ref r 'verdict_json #f)))
+  (define v (and (string? vj)
+                 (with-handlers ([exn:fail? (lambda (_) #f)]) (string->jsexpr vj))))
+  (and (hash? v) (hash? (hash-ref v 'answers #f))
+       (hash-count (hash-ref v 'answers))))
 
 (define (register-judge-kind!)
   (register-job-kind! JUDGE-KIND #f #:remote? #t #:validate judge-result-problem))

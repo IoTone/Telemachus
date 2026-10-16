@@ -1635,9 +1635,20 @@ beside `infer.chat`.
 - laya itself never runs in CI (JUDGE‑12): the tests drive the seam with a
   worker double that answers like laya, extra fields and all.
 
+**JUDGE‑10 (slice 3): a judgment bills its own dimension.** `output_tokens` is
+always 0 on this wire, so the token meter cannot see it. `judgments-in-result`
+(judge.rkt) counts the verdict's `answers` — one per question answered, `#f`
+for every other kind's result — and main.rkt's ONE biller (the `#:record!`
+lambda both `run-claimed!` and `worker-complete!` call) records
+**`ai.judgments.total`** at both tiers. The dimension is in `QUOTA-HOLD-DIMS`
+(a set limit holds the team's queue, like tokens) and on `GET /api/usage`. No
+default limit: a local judgment costs ~10 ms, and the hold only exists where
+an operator set one. Remember `quota-check` reports `used: 0` with no limit
+set — the smoke sets a limit before asserting the ledger.
+
 ```sh
-raco test test/judge-tests.rkt   # the round trip, the two validation halves, the audit
-bash test/pull-smoke.sh          # section 8c, 6 assertions over HTTP
+raco test test/judge-tests.rkt   # the round trip, the two validation halves, the audit, the meter
+bash test/pull-smoke.sh          # section 8c, 8 assertions over HTTP
 ```
 
 ## A deferred job says why (issue #55, built 14 Oct 2026)
