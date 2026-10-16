@@ -535,6 +535,10 @@
       "text": "also on derived documents",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
     },
+    "doc.route.post.api.workers.jobs.id.derive": {
+      "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TELEMACHUS_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
+      "hash": "e4bb9f9f29173beda9f6c6d65a5a077825f91b5c"
+    },
     "ui.started": {
       "text": "Started",
       "hash": "faa9e7e7ef5a264c58c68a4a0b9c8bd54241450a"

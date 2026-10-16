@@ -22,7 +22,7 @@
          "../domain/exec/pull.rkt"
          "../domain/repo/repo.rkt"
          (only-in "../domain/repo/blobs.rkt" current-blob-root)
-         racket/file net/base64)
+         racket/file racket/port net/base64)
 
 ;; blobs go to a temp dir, never the checkout's data/
 (current-blob-root (make-temporary-file "tmx-pull-blobs-~a" 'directory))
@@ -355,6 +355,106 @@
   (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
   (define fence2 (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j2))
   (check-true (hash? (worker-document c ex j2 (hash-ref secret 'id) #:token fence2))))
+
+;; ---- issue #62: a worker WRITES a document derived from one its job names ----
+
+(test-case "worker-derive!: the fence, the anchor, and the inheritance"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define bob (create-user! c #:username "bob"))
+  (void (add-member! c #:team tid #:user bob #:role "member"))
+  (define-values (ex tok) (executor-create! c alice #:name "ocr-box" #:model "m"))
+  (define-values (other other-tok) (executor-create! c alice #:name "elsewhere" #:model "m"))
+  (define src (repo-put! c alice #:key "scans/levee.pdf" #:port (open-input-string "scanned bytes")
+                         #:content-type "application/pdf" #:filename "levee.pdf"
+                         #:visibility "private"))
+  ;; a live grant on the SOURCE, so the inheritance below has something to copy
+  (void (repo-share! c alice (hash-ref src 'id) #:principal-type "user" #:principal-id bob
+                     #:capability "view"))
+  (define unrelated (repo-put! c alice #:key "scans/other.pdf" #:port (open-input-string "not this one")
+                               #:content-type "application/pdf"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                          #:payload (hasheq 'messages '() 'object_id (hash-ref src 'id))))
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j))
+  (define b64 (lambda (str) (bytes->string/utf-8 (base64-encode (string->bytes/utf-8 str) #""))))
+
+  ;; the happy path: the text layer lands beside the scan
+  (define got (worker-derive! c ex j #:token fence
+                              #:source (hash-ref src 'id) #:key "scans/levee.pdf.ocr.txt"
+                              #:bytes-b64 (b64 "levee 7 looks sound") #:content-type "text/plain"))
+  (check-true (hash? got) (format "~a" got))
+  (check-equal? (hash-ref got 'derived_from) (hash-ref src 'id))
+  (define out (repo-get c alice (hash-ref got 'object_id)))
+  ;; byte-identical, and PRIVATE like its source — visibility first, then grants
+  (define-values (o in) (repo-open c alice (hash-ref got 'object_id)))
+  (check-equal? (port->string in) "levee 7 looks sound") (close-input-port in)
+  (check-equal? (hash-ref out 'visibility) "private")
+  ;; the source's live grant was copied, so bob can read the derived text too
+  (define-values (ob bin) (repo-open c (user-principal c bob tid) (hash-ref got 'object_id)))
+  (check-true (and bin (begin (close-input-port bin) #t)) "the grant was inherited")
+  ;; and the derivation row says where it came from
+  (check-equal? (query-value c "SELECT source_object_id FROM repo_derivations WHERE object_id = ?"
+                             (hash-ref got 'object_id))
+                (hash-ref src 'id))
+  ;; the write is audited, naming the executor
+  (check-equal? (query-value c (string-append "SELECT COUNT(*) FROM audit_log WHERE "
+                                              "action = 'job.document.derived' AND resource_id = ?")
+                             (hash-ref got 'object_id))
+                1)
+
+  ;; the fence, all three halves, plus the anchor
+  (check-equal? (worker-derive! c ex j #:token "stale" #:source (hash-ref src 'id)
+                                #:key "x.txt" #:bytes-b64 (b64 "x")) 'not-holder)
+  (check-equal? (worker-derive! c other j #:token fence #:source (hash-ref src 'id)
+                                #:key "x.txt" #:bytes-b64 (b64 "x")) 'not-holder)
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref unrelated 'id)
+                                #:key "x.txt" #:bytes-b64 (b64 "x")) 'not-in-job
+                "there is no standalone put — the output must derive from a document the job names")
+  (check-equal? (worker-derive! c ex j #:token fence #:source ""
+                                #:key "x.txt" #:bytes-b64 (b64 "x")) 'no-source)
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "" #:bytes-b64 (b64 "x")) 'no-key)
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "x.txt" #:bytes-b64 "") 'no-bytes)
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "x.txt" #:bytes-b64 "???") 'bad-bytes)
+  ;; a refusal from the write itself comes back VERBATIM — the invalid key here
+  (define refused (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                  #:key "../escape.txt" #:bytes-b64 (b64 "x")))
+  (check-true (and (pair? refused) (eq? (car refused) 'refused)) (format "~a" refused))
+  ;; the ceiling: a worker is not a way past TELEMACHUS_MAX_UPLOAD
+  (putenv "TELEMACHUS_MAX_UPLOAD" "8")
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "x.txt" #:bytes-b64 (b64 "well over eight bytes"))
+                'too-large)
+  (putenv "TELEMACHUS_MAX_UPLOAD" "")
+  ;; a settled job writes nothing — the fence is the ATTEMPT
+  (void (worker-complete! c ex j (hasheq 'reply "x" 'tokens_used 1) #:token fence))
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "x.txt" #:bytes-b64 (b64 "x")) 'not-running))
+
+(test-case "worker-derive! writes as the JOB'S user, so can? and the quotas decide"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define bob (create-user! c #:username "bob"))
+  (void (add-member! c #:team tid #:user bob #:role "member"))
+  (define-values (ex tok) (executor-create! c alice #:name "gpu" #:model "m"))
+  ;; alice's PRIVATE document in a job of BOB'S: the source is invisible to the
+  ;; job's user, and a forbidden source and a missing one are ONE answer
+  (define secret (repo-put! c alice #:key "private/plan.pdf" #:port (open-input-string "the plan")
+                            #:content-type "application/pdf" #:visibility "private"))
+  (define j (enqueue-job! c #:team tid #:user bob #:kind "infer.chat"
+                          #:payload (hasheq 'messages '() 'object_id (hash-ref secret 'id))))
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j))
+  (define b64 (lambda (str) (bytes->string/utf-8 (base64-encode (string->bytes/utf-8 str) #""))))
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref secret 'id)
+                                #:key "x.txt" #:bytes-b64 (b64 "x"))
+                'no-such-document
+                "naming a document in a payload does not grant access to it"))
 
 ;; ---- issue #58: a worker says whether it is taking work ----------------------
 (define (ex-named c p name)

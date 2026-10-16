@@ -265,6 +265,30 @@ assert "draining something that is not there is a 404" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/executors/no-such/drain -H "Authorization: Bearer $TOK")" '404'
 
 echo
+echo "== 8b. issue #62: a worker writes a document DERIVED from one its job names =="
+# The write counterpart of PULL-9's read: the text layer an OCR box produced
+# lands beside the scan, as the job's own user, under the same fence.
+EJ=$(P /api/jobs "{\"kind\":\"infer.chat\",\"payload\":{\"messages\":[{\"role\":\"user\",\"content\":\"ocr it\"}],\"object_id\":\"$DOCID\"}}")
+EJID=$(printf '%s' "$EJ" | jq_ 'd["id"]')
+ECLAIM=$(curl -s -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{"kinds":["infer.chat"],"models":["mock"],"max_wait":2}')
+EFENCE=$(printf '%s' "$ECLAIM" | jq_ 'd["claim_token"]')
+B64=$(printf 'levee 7 looks sound (OCR)' | base64 | tr -d '\n')
+WD(){ curl -s -X POST "$B/api/workers/jobs/$EJID/derive" -H "Authorization: Bearer $WT" -d "$1"; }
+DRV=$(WD "{\"claim_token\":\"$EFENCE\",\"source\":\"$DOCID\",\"key\":\"scans/levee.txt.ocr.txt\",\"bytes_b64\":\"$B64\",\"content_type\":\"text/plain\"}")
+assert "the worker writes a derived document"  "$DRV" '"derived_from"'
+DRVID=$(printf '%s' "$DRV" | jq_ 'd["object_id"]')
+assert "…byte-identical on the way back out" \
+  "$(curl -s $B/api/repo-obj/$DRVID/content -H "Authorization: Bearer $TOK")" 'levee 7 looks sound (OCR)'
+assert "…and the derivation row names the source" "$(G /api/repo-obj/$DRVID/derivations)" "$DOCID"
+assert "…but never from a document the job does not name" \
+  "$(WD "{\"claim_token\":\"$EFENCE\",\"source\":\"$OTHERID\",\"key\":\"x.txt\",\"bytes_b64\":\"$B64\"}")" 'not named by this job'
+assert "…and never without the attempt's token" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/jobs/$EJID/derive -H "Authorization: Bearer $WT" -d "{\"claim_token\":\"nope\",\"source\":\"$DOCID\",\"key\":\"x.txt\",\"bytes_b64\":\"$B64\"}")" '409'
+assert "there is no unanchored put"            "$(WD "{\"claim_token\":\"$EFENCE\",\"key\":\"x.txt\",\"bytes_b64\":\"$B64\"}")" 'source object id is required'
+assert "…and the job still completes normally" \
+  "$(curl -s -X POST $B/api/workers/jobs/$EJID/complete -H "Authorization: Bearer $WT" -d "{\"claim_token\":\"$EFENCE\",\"result\":{\"reply\":\"done\",\"tokens_used\":1}}")" '"ok":true'
+
+echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'
 assert "…and the worker token is dead" "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim -H "Authorization: Bearer $WT" -d '{}')" '401'
 assert "…and the executor is retired" "$(G /api/executors)" '"status":"retired"'
