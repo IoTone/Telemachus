@@ -1635,6 +1635,33 @@ beside `infer.chat`.
 - laya itself never runs in CI (JUDGE‑12): the tests drive the seam with a
   worker double that answers like laya, extra fields and all.
 
+**JUDGE‑7 (slice 5): the chat-and-schema backend, behind the SAME validator.**
+`judge-via-chat` — the only backend CI runs end to end, and the fallback for an
+instance with no Apple Silicon host. Same request bytes (the model is SHOWN the
+composed `request_json`), same `verdict-problem`, same kept document via the
+shared `keep-judgment!`. `#:chat` is positional `(chat text sys)` (translate!'s
+seam; tests script it); `#:model-name` is REQUIRED — a chat verdict still names
+what answered, or it is unauditable. The reply is read with `outer-json` (prose
+or a fence around the JSON is fine), a refusal is retried ONCE (the pipeline's
+rule), and the verdict is CONSTRUCTED once — the model's answers plus the model
+name — then held to the request. The chat path meters its own
+`ai.judgments.total` (`tenant-quota-record!`): no job row means the scheduler's
+biller never sees it; the TOKENS are the caller's chat seam's to meter. A
+failed judgment bills nothing.
+
+**JUDGE‑11 (slice 4): the kept judgment is a DOCUMENT.** `judge #:source <id>`
+writes the settled verdict as `<source key>.judgment.json` (or `#:key`),
+DERIVED from the judged material — derive!'s rule to the letter (visibility at
+`repo-put!`, THEN `repo-inherit!`), written as the caller in-process so `can?`
+and the storage quota decide; an unreadable source and a missing one are ONE
+answer, refused BEFORE anything is enqueued. The content is the kept pair
+`{request_json, verdict_json}` as composed/received — both strings come back
+byte-identical, which is what LAY‑11 hashes, and the verdict's `model` string
+(checkpoint+revision+dtype) rides inside. `judge` returns THREE values now
+(verdict, verdict-json, doc-or-#f). The job row holds the same strings, but a
+row is #59's to purge — the document is the home for a judgment somebody means
+to keep, and "Processed by" finds it through the derivation row.
+
 **JUDGE‑10 (slice 3): a judgment bills its own dimension.** `output_tokens` is
 always 0 on this wire, so the token meter cannot see it. `judgments-in-result`
 (judge.rkt) counts the verdict's `answers` — one per question answered, `#f`
