@@ -1560,9 +1560,19 @@ platform that did not go through `domain/tools/jsonschema.rkt`.
   needs its own dimension;
 - a stored verdict must carry the checkpoint, the dtype and the batch policy, and
   LAY‑11 must hash it AS GIVEN: 50% of answers move in the 4th decimal with their
-  batch-mates unless `batch_size=1`.
+  batch-mates unless `batch_size=1`;
+- **the request travels as COMPOSED BYTES** (JUDGE‑13): `questions` and a
+  choice's `criteria` are JSON objects whose KEY order is part of the question,
+  which no jsexpr can carry — `request_json` is written once by an ordered
+  writer and never re-serialized, and the verdict is stored as received;
+- **no new laya API is needed** (JUDGE‑14): `laya_serve.py --port` already
+  speaks `POST /v1/systemone` + `GET /v1/health` on loopback with the flags
+  JUDGE‑11 pins; the bridge is a pull worker on the same host, run with
+  `--batch-size 1`.
 
-Read the decision block before anyone writes an integration.
+The analysis is FINISHED (JUDGE‑1…14): the build plan, in order JUDGE‑9+13 →
+‑8 → ‑10 → ‑11 → ‑7, is at the end of the decision block. Read it before anyone
+writes an integration.
 
 ## A deferred job says why (issue #55, built 14 Oct 2026)
 

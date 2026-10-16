@@ -699,11 +699,58 @@ and `judge.typed`'s validator has to be written against a real laya answer, whic
 carries more than Jev's — every answer has `probabilities` and `action`, and a
 `score` answer has `legend`.
 
-**If it is built, the order is JUDGE‑9 → ‑8 → ‑10 → ‑11 → ‑7.** The ordered
-question representation first, because it is the one decision that is expensive
-to retrofit — every stored judgment made against a hash-ordered document would be
-unreproducible, and unlike LAY‑5's spans there would be no column to add later,
-only answers to throw away.
+### Finished 15 Oct 2026: the wire, the bridge, and the build plan (JUDGE‑13…14)
+
+The revision above left one question genuinely open: JUDGE‑9 says the question
+and option order is part of the question, and the platform's own plumbing is
+built to destroy exactly that. `/v1/systemone`'s `questions` and a choice's
+`criteria` are JSON **objects** whose key order carries meaning (poplog had to
+add an insertion-ordered `json_object` to `LIB JSON` to fix it — their G3/G4),
+while `jobs.payload` is a jsexpr: a `hasheq` has no key order, `jsexpr->string`
+would scramble it, and `json-out` would sort it, each silently.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **JUDGE‑13** | How an ordered request survives the platform | **The job payload carries the request as COMPOSED BYTES (`request_json`), written once by an ordered-object writer at enqueue; every hop after that treats it as a string; the worker forwards it verbatim; the verdict is stored as RECEIVED (`verdict_json`)** · vs an ordered association-list shape every worker must serialize · vs trusting arrays to be enough | Order preservation becomes a property of CONSTRUCTION rather than of every hop's care — one writer, and no re-serialization anywhere on the path, so no hop can scramble what it never parses. Validation parses a copy to check; the bytes that travel are the bytes composed. It is JUDGE‑11's "hash the verdict as given" applied symmetrically to the request, and together they make the stored pair (request_json, verdict_json) exactly what crossed the wire — which is what an audit replays and what LAY‑11 chains. Arrays alone are NOT enough: `score` criteria are an array, but `questions` and choice `criteria` are objects on JEV's own wire, and we do not get to redesign it (that compatibility is the whole point of laya). |
+| 🔑 **JUDGE‑14** | What laya must expose | **Nothing new.** `laya_serve.py --port` already speaks `POST /v1/systemone` + `GET /v1/health` on loopback; the bridge is a Telemachus pull worker on the same host · vs a Telemachus-specific API on laya · vs embedding laya in the worker | Verified against `packages/laya` at `dev`: the HTTP transport exists, loopback by default, with `--model`, `--revision`, `--dtype`, `--device` and `--batch-size` flags — everything JUDGE‑11 needs to pin is a startup flag, and G1 already made the response's `model` the real checkpoint (`aac6fef/laya-mlx@20aed81… float16`). The worker forwards `request_json` as the body, returns the answer as received, and maps `GET /v1/health` onto PULL‑11's ready/paused report. Run laya with **`--batch-size 1`**: exact answer-independence, ~1.7× latency on a 16-question request, and the one configuration under which a stored verdict is reproducible at all. If the laya API ever grows for this, it grows conveniences, not contract — the contract is JEV's, and matching it is laya's reason for existing. |
+
+**The validator's target shape is pinned** (from laya's served answers and its own
+test double): `{model, answers: {qid: {type, noul|choice|score, confidence,
+probabilities?, action?, order?, legend?}}, usage: {input_tokens, output_tokens:
+0}}`. The validator checks that every question asked is answered with its own
+type and that `model` names a checkpoint, and is OPEN to fields it does not know
+— the call JUDGE‑6 made for the beta verdict, for the same reason: the answer
+side may legitimately say more than we asked.
+
+**The build plan, in order** — each slice useful alone, the first the one that is
+expensive to retrofit:
+
+1. **JUDGE‑9 + 13** — `domain/judge/wire.rkt`: an ordered-object JSON writer
+   (association lists in, object text out, never through `json-out`), the request
+   composer (state + typed questions → `request_json`), and the verdict
+   parser/validator above. Pure, no server, CI-testable in full.
+2. **JUDGE‑8** — the seam and the kind: `judge` (JUDGE‑1's one entry point)
+   enqueues remote kind `judge.typed` carrying `request_json`; `#:validate` from
+   slice 1 (a remote kind requires one). The reference worker grows a handler
+   that forwards to `TELEMACHUS_LAYA_URL` and answers verbatim. Everything else —
+   quota admission, the org gate, cancel, lease, fence, release, drain, the fleet
+   view — is inherited from the row, which is why this is a kind and not a wire.
+3. **JUDGE‑10** — metering: `ai.judgments.total`, one per question, charged by
+   the kind's completion path the way `infer.chat` bills `tokens_used`; no
+   migration (quota dimensions are rows).
+4. **JUDGE‑11** — storage: the verdict kept AS RECEIVED beside the request, the
+   `model` string (checkpoint + revision + dtype) on it, and — now that PULL‑13
+   exists — optionally written as a DOCUMENT derived from the judged material,
+   inheriting its visibility and grants, which is where JUDGE‑4's privacy rule
+   and the repository's existing authorization meet.
+5. **JUDGE‑7** — the second backend: chat-and-schema behind the same seam and the
+   same validator, the only backend CI can run end to end (JUDGE‑12); laya's
+   paths are CI-tested against a scripted `/v1/systemone` double. JUDGE‑6's beta
+   judge may then route through the seam instead of its own call.
+
+**Still open, deliberately:** whether the hosted Jev is order-sensitive
+(unmeasurable from here and moot while laya is the backend), and KG‑7's `utility`
+role growing a `judge` sibling — not until two things want different judges.
 
 ## Research, bring-your-own-key, data-policy routing (RSCH / BYOK / ZDR) — **proposed 13 Oct 2026**
 
