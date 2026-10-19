@@ -234,6 +234,21 @@ Model routing:
   another language needs the four calls and nothing else. It reports `ready` on
   each claim, `busy` on each heartbeat and `paused` on the way out, the last
   best-effort — a host being torn down may have no network left.
+- **A worker whose model is down stops taking work** (PULL-14, issue #93). Two
+  halves, both worker-side — no route, no migration, no wire field, so a
+  third-party worker needs no change. A model call that cannot connect, times
+  out, or answers 502/503/504 posts `release` with reason **`busy`** instead of
+  `fail`: that is the reason PULL-12 defined for this and that nothing sent
+  until now, and `worker-fail!` is TERMINAL, so one outage used to kill the job
+  on its first try rather than merely charge it an attempt. A 4xx, a 500 or an
+  unreadable reply still fails it — those are the job's problem, and recycling a
+  genuinely bad job round the fleet only reaches the same answer ten workers
+  later. And because a release only handles ONE job, optional
+  **`TELEMACHUS_WORKER_READY_URL`** is GETted before each claim (2xx = ready):
+  while it refuses, the worker reports `paused` once, claims nothing, and asks
+  again every `TELEMACHUS_WORKER_READY_INTERVAL` seconds (default 15). What
+  readiness MEANS stays the operator's — VRAM, memory, load or a schedule — so
+  the platform needs no knowledge of GPUs.
 
 ## Decisions (confirmed 15 Sep 2026)
 

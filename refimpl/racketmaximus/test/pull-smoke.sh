@@ -12,8 +12,11 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
 unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 export PORT="${PORT:-8845}"; MOCK_PORT="${MOCK_PORT:-8905}"
+# A mock that REFUSES (issue #93), and a port with nothing on it at all — the two
+# shapes of "this host cannot serve the job" that must not cost a job an attempt.
+MOCK503_PORT="${MOCK503_PORT:-8906}"; MOCK500_PORT="${MOCK500_PORT:-8908}"; DEAD_PORT="${DEAD_PORT:-8907}"
 port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
-for p in "$PORT" "$MOCK_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done
+for p in "$PORT" "$MOCK_PORT" "$MOCK503_PORT" "$MOCK500_PORT" "$DEAD_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done
 export TELEMACHUS_DATA_DIR="$(mktemp -d)"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/t.db}"
 export TELEMACHUS_BIND=127.0.0.1
@@ -21,10 +24,14 @@ export TELEMACHUS_BIND=127.0.0.1
 export MOCK_REPLY_FILE="$TELEMACHUS_DATA_DIR/reply.json"
 printf '{"*": "pulled: hello from the worker"}' > "$MOCK_REPLY_FILE"
 MOCK_PORT="$MOCK_PORT" racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock.log" 2>&1 & MOCK=$!
+MOCK_PORT="$MOCK503_PORT" MOCK_STATUS=503 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
+  racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock503.log" 2>&1 & MOCK503=$!
+MOCK_PORT="$MOCK500_PORT" MOCK_STATUS=500 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
+  racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock500.log" 2>&1 & MOCK500=$!
 unset TELEMACHUS_MODEL_URL
 racket server/main.rkt >"$TELEMACHUS_DATA_DIR/server.log" 2>&1 & SRV=$!
 WORKER=""
-cleanup(){ kill $SRV $MOCK 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"; }
+cleanup(){ kill $SRV $MOCK $MOCK503 $MOCK500 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"; }
 trap cleanup EXIT
 until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do :; done; exec 3>&- 2>/dev/null || true
 fail=0
@@ -319,6 +326,66 @@ assert "…and the job is done"                     "$(G /api/jobs/$JID2)" '"sta
 # read the ledger (used reports 0 with no limit set, by design).
 assert "a judgments quota can be set"             "$(P /api/quota '{"dimension":"ai.judgments.total","limit":100,"window":"day"}')" '"ok":true'
 assert "…and the verdict above was billed on it"  "$(G /api/usage)" '"dimension":"ai.judgments.total","limit":100,"remaining":99'
+
+echo
+echo "== 8d. issue #93: a host whose model is down hands jobs back, and stops taking them =="
+# A model endpoint that cannot answer is this HOST's problem, not the job's, and
+# the old behaviour was worse than "costs an attempt": worker-fail! is TERMINAL
+# (status error, no requeue), so one outage killed the job on its first try.
+# `busy` is the reason PULL-12 defined for exactly this and that nothing sent.
+W93(){ env TELEMACHUS_URL="http://127.0.0.1:$PORT" TELEMACHUS_WORKER_TOKEN="$WT" \
+        TELEMACHUS_WORKER_MODELS=mock "$@" racket cli/telemachus-worker.rkt --once \
+        >>"$TELEMACHUS_DATA_DIR/worker.log" 2>&1; }
+newjob(){ P /api/jobs "{\"kind\":\"infer.chat\",\"payload\":{\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}]}}" | jq_ 'd["id"]'; }
+att(){ G /api/jobs/$1 | jq_ 'd["attempt"]'; }
+lastaudit(){ G '/api/audit?limit=1'; }
+
+# (a) nothing listening at all
+DJ=$(newjob "model is down"); DA=$(att $DJ)
+W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$DEAD_PORT"
+assert "an unreachable model requeues the job"   "$(G /api/jobs/$DJ)" '"status":"queued"'
+# The point of the issue: the job is not blamed for the host's problem.
+assert "…spending no attempt"                    "$(att $DJ)" "$DA"
+assert "…recorded as a RELEASE, not a failure"   "$(lastaudit)" '"action":"job.released"'
+assert "…and the worker says it handed it back"  "$(tail -40 "$TELEMACHUS_DATA_DIR/worker.log")" 'HANDED BACK'
+curl -s -X POST $B/api/jobs/$DJ/cancel -H "Authorization: Bearer $TOK" >/dev/null
+
+# (b) a gateway or a model server refusing: 502/503/504 is "not now"
+SJ=$(newjob "model refuses"); SA=$(att $SJ)
+W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK503_PORT"
+assert "a 503 from the model requeues the job"   "$(G /api/jobs/$SJ)" '"status":"queued"'
+assert "…spending no attempt"                    "$(att $SJ)" "$SA"
+assert "…recorded as a release too"              "$(lastaudit)" '"action":"job.released"'
+curl -s -X POST $B/api/jobs/$SJ/cancel -H "Authorization: Bearer $TOK" >/dev/null
+
+# (c) a 4xx is OUR malformed request and a 500 is the model failing on THIS
+# input. Both are the job's problem and must still FAIL it, or a bad job would
+# ride the queue for ever being handed from worker to worker.
+FJ=$(newjob "model is broken")
+W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK500_PORT"
+assert "a 500 from the model still fails the job" "$(G /api/jobs/$FJ)" '"status":"error"'
+assert "…naming what the model said"              "$(G /api/jobs/$FJ)" 'model endpoint returned HTTP 500'
+
+# (d) the readiness gate. A release alone cannot cover a longer outage: the
+# cool-off is 30s for the releasing worker and MAX-RELEASES fails the job, so one
+# host busy for five minutes would fail every queued job it touched.
+# TELEMACHUS_WORKER_READY_URL is asked BEFORE each claim, so a host that cannot
+# serve takes nothing at all.
+GJ=$(newjob "gated"); GA=$(att $GJ)
+W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
+    TELEMACHUS_WORKER_READY_URL="http://127.0.0.1:$DEAD_PORT/ready"
+assert "a worker that is not ready claims nothing" "$(G /api/jobs/$GJ)" '"status":"queued"'
+assert "…spending no attempt"                      "$(att $GJ)" "$GA"
+# Visibly alive and REFUSING, rather than quiet — quiet is what a crashed worker
+# looks like, which is the gap #58 opened and this closes for an outage.
+assert "…and reports paused rather than going quiet" "$(G /api/executors)" '"worker_state":"paused"'
+assert "…while status still says active"             "$(G /api/executors)" '"status":"active"'
+# 2xx means take work. The server's own /health is a ready endpoint that needs no
+# stub, and the check is deliberately ignorant of what readiness MEANS — VRAM,
+# memory, load or a schedule are all the operator's business, not the platform's.
+W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
+    TELEMACHUS_WORKER_READY_URL="http://127.0.0.1:$PORT/health"
+assert "…and a ready host claims and runs it"      "$(G /api/jobs/$GJ)" '"status":"done"'
 
 echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'

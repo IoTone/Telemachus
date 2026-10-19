@@ -1263,6 +1263,60 @@ raco test test/pull-tests.rkt   # the closed vocabulary, silence, the stale with
 bash test/pull-smoke.sh         # section 6, 10 assertions over HTTP
 ```
 
+## A worker stops taking work while its model is down (PULL‑14, issue #93)
+
+Built 18 Oct 2026. Both halves are **worker-side** — `cli/telemachus-worker.rkt`
+only: no route, no migration, no wire field, so a third-party worker needs no
+change and an unset `TELEMACHUS_WORKER_READY_URL` means none of it does anything.
+
+- **PULL‑12 defined `busy` and nothing ever sent it.** The reference worker
+  released only on shutdown, so a model outage went to `/fail` — and
+  `worker-fail!` is **TERMINAL** (`status='error'`, no requeue). The live
+  behaviour was therefore worse than issue #93 describes: one outage did not
+  cost the job one of three attempts, it killed the job on its first try. Only a
+  LEASE EXPIRY spends an attempt.
+- **A model call that cannot be served RELEASES with reason `busy`.** Cannot
+  connect, timed out, or 502/503/504. A **4xx, a 500, or a reply that cannot be
+  read still FAILS** the job: those are the job's problem, and sending a
+  genuinely bad job round the fleet only reaches "no executor would run it" ten
+  workers later. `llm.rkt` already separates `malformed` from
+  `network`/`timeout`, which is the seam this reads — never widen it to "any
+  model error is the host's".
+- **A timeout counts as the host's**, though #93 did not list it: a card another
+  process is thrashing answers by timing out, which is the commonest shape of
+  this outage.
+- **`exn:fail:unavailable` is its own struct and its clause comes BEFORE
+  `exn:fail?`** in `run-job`'s `with-handlers` — the first matching clause wins,
+  so reordering them silently restores the old failing behaviour.
+- **A release alone cannot cover a longer outage**, which is why the readiness
+  gate exists: the cool-off is 30 s for the releasing worker and `MAX-RELEASES`
+  (10) fails a job, so one host busy for five minutes failed every queued job it
+  touched. `TELEMACHUS_WORKER_READY_URL` is GETted **before each claim**, 2xx =
+  ready. What readiness means stays the operator's (VRAM, memory, load, a
+  schedule), so the platform needs no knowledge of GPUs.
+- **`paused` is reported ONCE per outage, not once per check.** A row every
+  fifteen seconds tells an operator nothing the first one did not, and makes the
+  executor's own history useless for finding when the outage began — PULL‑11e's
+  rule. Coming back needs no post: the claim already carries `ready`.
+- **`TELEMACHUS_WORKER_READY_INTERVAL` defaults to 15 s**, and an unparseable or
+  non-positive value falls back to the default, **never to 0** — the platform's
+  rule for every interval knob, and here a 0 would be a hot loop against the
+  operator's own endpoint.
+- **After a `busy` release the worker waits** (`BUSY-BACKOFF`, 30 s). The
+  server's cool-off protects THIS job from THIS executor and says nothing about
+  the next one, so without it a worker whose model is down claims the whole queue
+  and releases all of it.
+- **The readiness GET opens and closes its own connection**, not `http-sendrecv`
+  — the measured descriptor leak documented above `http-post-json` in
+  `domain/agent/llm.rkt`. This runs before every claim, so it is the call that
+  would hit the 1024-descriptor limit fastest.
+- `test/mock-llm.rkt` takes **`MOCK_STATUS`** so a caller can see what a worker
+  does against a model endpoint that is refusing.
+
+```sh
+bash test/pull-smoke.sh   # section 8d, 14 assertions: the two releases, the two failures, the gate
+```
+
 ## A worker writes back a derived document (PULL‑13, issue #62)
 
 Built 15 Oct 2026 — the write counterpart of PULL‑9, and LAY‑6's asymmetry closed

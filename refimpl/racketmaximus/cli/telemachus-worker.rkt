@@ -12,10 +12,26 @@
 ;; the failure. The bearer is a worker token (scope jobs:execute) returned once
 ;; when the executor was created. Works through NAT and a tailnet — the worker
 ;; only ever connects OUT.
+;;
+;; A host whose model is unavailable does NOT keep claiming (issue #93). Two
+;; halves, because one alone is not enough:
+;;
+;;   TELEMACHUS_WORKER_READY_URL   optional. A GET this worker makes before each
+;;     claim; 2xx means "this host can run a job". While it says anything else
+;;     the worker reports `paused` ONCE, claims nothing, and asks again every
+;;     TELEMACHUS_WORKER_READY_INTERVAL seconds (default 15). The check can look
+;;     at VRAM, memory, load or the clock — the platform needs no knowledge of
+;;     GPUs, and with the variable unset none of this does anything.
+;;
+;;   …and a model call that cannot be served RELEASES the job (reason `busy`)
+;;     instead of failing it, so the outage costs the job no attempt. The
+;;     release is PULL-12's blameless hand-back; before this nothing sent the
+;;     `busy` reason it was built for, and a host that lost its card failed
+;;     three jobs and then started failing them for good.
 
 (require racket/string racket/list racket/port json
          net/http-client net/url
-         "../domain/agent/llm.rkt"       ; http-post-json
+         "../domain/agent/llm.rkt"       ; http-post-json, exn:fail:model-retryable
          (only-in "../domain/ai/content.rkt" content->text))
 
 (define (env k [d #f]) (let ([v (getenv k)]) (if (and v (not (string=? v ""))) v d)))
@@ -33,6 +49,24 @@
                       (if LAYA-URL '("judge.typed") '())))
 (define ONCE? (member "--once" (vector->list (current-command-line-arguments))))
 
+;; issue #93. Unset, this worker behaves exactly as before.
+(define READY-URL (env "TELEMACHUS_WORKER_READY_URL"))
+;; An unparseable or non-positive interval falls back to the default, never to
+;; 0 — a zero here would be a hot loop against the readiness endpoint, which is
+;; the platform's own rule for every other interval knob (see
+;; TELEMACHUS_MAX_JOB_SECONDS, TELEMACHUS_UPLOAD_REAP_HOURS).
+(define READY-INTERVAL
+  (let* ([raw (env "TELEMACHUS_WORKER_READY_INTERVAL")]
+         [n (and raw (string->number (string-trim raw)))])
+    (if (and (real? n) (> n 0)) (inexact->exact (floor n)) 15)))
+;; How long to wait after handing a job back for want of capacity. The SERVER
+;; keeps this job away from this executor for RELEASE-BACKOFF (30s) and says
+;; nothing about the NEXT job — so without a pause here a worker whose model is
+;; down would claim the whole queue and release all of it, which past
+;; MAX-RELEASES fails the jobs for good. The exact number is not load-bearing;
+;; not spinning is.
+(define BUSY-BACKOFF 30)
+
 (unless TOKEN (eprintf "TELEMACHUS_WORKER_TOKEN is not set\n") (exit 2))
 (when (null? KINDS)
   (eprintf "set TELEMACHUS_WORKER_MODEL_URL (an OpenAI-compatible chat endpoint) and/or TELEMACHUS_WORKER_LAYA_URL (a loopback laya_serve.py)\n")
@@ -41,6 +75,94 @@
 (define auth (list (string-append "Authorization: Bearer " TOKEN) "Content-Type: application/json"))
 (define (post path body)
   (http-post-json (string-append BASE path) body auth))
+
+;; ---- "this host cannot serve the job" is not the job's fault (issue #93) -----
+
+;; Raised where the MODEL could not answer for a reason that is this host's:
+;; nothing listening, a gateway refusing, a request that timed out against a
+;; card somebody else is holding. Distinct from exn:fail so run-job can release
+;; the job instead of failing it — a plain exn:fail still means the job is bad.
+(struct exn:fail:unavailable exn:fail () #:transparent)
+(define (unavailable! fmt . args)
+  (raise (exn:fail:unavailable (apply format fmt args) (current-continuation-marks))))
+
+;; 502/503/504 are a gateway or a model server saying "not now"; a 4xx is our own
+;; malformed request and a 500 is the model failing on THIS input — both of those
+;; are the job's problem and stay failures. Same split as llm.rkt's
+;; retryable-code?, minus the 500 it is willing to retry: retrying a 500 costs
+;; one call, releasing a job for one tells every other worker it is unrunnable.
+(define (unavailable-code? code) (member code '(502 503 504)))
+
+;; An endpoint that cannot be served should not be distinguishable here from one
+;; that is merely slow: a GPU another process is thrashing answers by timing out,
+;; which is the single most common shape of the outage this guards against.
+;; `malformed` is NOT one of these — a reply we cannot read is a broken model,
+;; not a busy one, and the issue asks for it to stay a failure.
+(define (retryable-reason-is-host? e)
+  (memq (exn:fail:model-retryable-reason e) '(network timeout idle)))
+
+;; -> (values host port ssl? path-prefix) for a base URL
+(define (url-bits u0)
+  (define u (string->url u0))
+  (define ssl? (equal? (url-scheme u) "https"))
+  (values (url-host u)
+          (or (url-port u) (if ssl? 443 80))
+          ssl?
+          (let ([pp (string-join (map path/param-path (url-path u)) "/")])
+            (if (string=? pp "") "" (string-append "/" pp)))))
+
+;; GET a URL for its status code; 0 when the host could not be reached, could
+;; not answer in time, or said something unreadable. Every one of those means
+;; "not ready", so they collapse deliberately — this is a yes/no question and a
+;; readiness probe that raised would take the loop down with it.
+;;
+;; Two things this must not get wrong, both of them lessons already paid for in
+;; domain/agent/llm.rkt (see the note above http-post-json):
+;;
+;;   • it opens and CLOSES its own connection rather than calling http-sendrecv,
+;;     which abandons the socket under the response port — collection does not
+;;     reclaim it, so polling this before every claim would leak a descriptor
+;;     per pass and hit the 1024 limit in hours;
+;;   • it runs under a DEADLINE, because neither http-conn-open nor
+;;     http-conn-sendrecv! takes one: an endpoint that accepts the connection
+;;     and never answers would otherwise hang this loop for ever, which is a
+;;     worse outage than the one the gate exists to survive. The request runs
+;;     under its own custodian and the timeout shuts it down — killing the
+;;     thread alone would leave the socket open.
+(define (http-get-code url #:timeout [secs 10])
+  (define cust (make-custodian))
+  (define ch (make-channel))
+  (define t (parameterize ([current-custodian cust])
+              (thread (lambda ()
+                        (channel-put
+                         ch
+                         (with-handlers ([(lambda (_) #t) (lambda (_) 0)])
+                           (define-values (host port ssl? prefix) (url-bits url))
+                           (define hc (http-conn-open host #:ssl? ssl? #:port port))
+                           (dynamic-wind
+                             void
+                             (lambda ()
+                               (define-values (status _h in)
+                                 (http-conn-sendrecv! hc (if (string=? prefix "") "/" prefix)
+                                                      #:method #"GET"))
+                               (void (port->string in))
+                               (close-input-port in)
+                               (let ([m (regexp-match #px#"\\b([0-9]{3})\\b" status)])
+                                 (if m (string->number (bytes->string/utf-8 (cadr m))) 0)))
+                             (lambda () (http-conn-close! hc)))))))))
+  (define r (sync/timeout secs ch))
+  (custodian-shutdown-all cust)
+  (cond [r r]
+        [else (kill-thread t) 0]))
+
+;; Can this host take a job right now? With no READY_URL set the answer is
+;; always yes, which is what makes this change invisible to every worker and
+;; every deployment that does not ask for it.
+(define (host-ready?)
+  (if (not READY-URL)
+      #t
+      (let ([code (http-get-code READY-URL)])
+        (and (>= code 200) (< code 300)))))
 
 ;; infer.chat — forward to the model.
 ;; `response_format` is forwarded when the platform asked for one (issue #18), so
@@ -55,8 +177,20 @@
       (let ([rf (hash-ref payload 'response_format #f)])
         (if (and rf (not (eq? rf 'null))) (hash-set b 'response_format rf) b))))
   (define-values (code resp)
-    (http-post-json MODEL-URL body (append (list "Content-Type: application/json")
-                                          (if MODEL-KEY (list (string-append "Authorization: Bearer " MODEL-KEY)) '()))))
+    ;; http-post-json raises exn:fail:model-retryable once its OWN retries are
+    ;; spent — an unreachable endpoint, a deadline, a stalled read. Those are
+    ;; this host's problem, so they hand the job back instead of failing it.
+    ;; `malformed` is the exception: a model that answered with something
+    ;; unreadable is broken, not busy, and the job should be failed for it.
+    (with-handlers ([exn:fail:model-retryable?
+                     (lambda (e)
+                       (if (retryable-reason-is-host? e)
+                           (unavailable! "~a" (exn-message e))
+                           (raise e)))])
+      (http-post-json MODEL-URL body (append (list "Content-Type: application/json")
+                                             (if MODEL-KEY (list (string-append "Authorization: Bearer " MODEL-KEY)) '())))))
+  (when (unavailable-code? code)
+    (unavailable! "the model endpoint answered HTTP ~a" code))
   (unless (= code 200) (error 'worker "model endpoint returned HTTP ~a" code))
   (define choices (hash-ref resp 'choices '()))
   ;; a provider may answer with content PARTS; join their text rather than
@@ -76,6 +210,11 @@
 ;; not-holder, which is harmless but would print a confusing line on every stop.
 (define held (box #f))
 
+;; Set when the last job was handed back for want of capacity (issue #93), so
+;; the next pass of the loop waits before claiming a job this host almost
+;; certainly cannot run either.
+(define no-capacity (box #f))
+
 ;; judge.typed — forward to laya (JUDGE-8/13/14). The payload's `request_json`
 ;; goes out EXACTLY as the platform composed it, and the verdict goes back
 ;; EXACTLY as laya wrote it: both are bytes this worker must not parse and
@@ -84,21 +223,26 @@
 (define (run-judge-typed payload)
   (define rq (hash-ref payload 'request_json #f))
   (unless (string? rq) (error 'worker "judge.typed payload carries no request_json"))
-  (define u (string->url LAYA-URL))
-  (define path (string-append
-                (let ([pp (string-join (map path/param-path (url-path u)) "/")])
-                  (if (string=? pp "") "" (string-append "/" pp)))
-                "/v1/systemone"))
+  (define-values (host port ssl? prefix) (url-bits LAYA-URL))
+  (define path (string-append prefix "/v1/systemone"))
+  ;; Nothing listening, or a card somebody else is holding, is this host's
+  ;; problem and not the judgment's (issue #93): hand the job back rather than
+  ;; failing it. laya answers 503 while it is loading a checkpoint, which is the
+  ;; ordinary case on a host that was just restarted.
   (define-values (status _hdrs in)
-    (http-sendrecv (url-host u) path
-                   #:port (or (url-port u) (if (equal? (url-scheme u) "https") 443 80))
-                   #:ssl? (equal? (url-scheme u) "https")
-                   #:method #"POST"
-                   #:data (string->bytes/utf-8 rq)
-                   #:headers '("Content-Type: application/json")))
+    (with-handlers ([exn:fail:network?
+                     (lambda (e) (unavailable! "laya could not be reached: ~a" (exn-message e)))])
+      (http-sendrecv host path
+                     #:port port
+                     #:ssl? ssl?
+                     #:method #"POST"
+                     #:data (string->bytes/utf-8 rq)
+                     #:headers '("Content-Type: application/json"))))
   (define body (port->string in))
   (define code (let ([m (regexp-match #rx"^HTTP/[^ ]+ ([0-9]+)" status)])
                  (if m (string->number (bytes->string/utf-8 (cadr m))) 0)))
+  (when (unavailable-code? code)
+    (unavailable! "laya answered HTTP ~a" code))
   (unless (= code 200)
     (error 'worker "laya returned HTTP ~a: ~a" code
            (let ([b (string-trim body)]) (substring b 0 (min 300 (string-length b))))))
@@ -145,6 +289,23 @@
                                 (post (format "/api/workers/jobs/~a/fail" id)
                                       (hasheq 'error why 'claim_token token))
                                 (printf "job ~a (~a): STOPPED — ~a\n" id kind why))]
+                  ;; BEFORE the exn:fail? clause below, which would otherwise
+                  ;; match this too — the first matching clause wins.
+                  ;;
+                  ;; The model could not be served, which is this host's problem
+                  ;; and not the job's (issue #93). Hand it back: the release
+                  ;; spends no attempt, another worker may take it at once, and
+                  ;; `busy` is the reason PULL-12 defined for exactly this and
+                  ;; that nothing sent until now.
+                  [exn:fail:unavailable?
+                   (lambda (e)
+                     (kill-thread beat)
+                     (set-box! no-capacity #t)
+                     (define-values (code _r)
+                       (post (format "/api/workers/jobs/~a/release" id)
+                             (hasheq 'claim_token token 'reason "busy")))
+                     (printf "job ~a (~a): HANDED BACK — ~a~a\n" id kind (exn-message e)
+                             (if (= code 200) "" (format " (release refused: HTTP ~a)" code))))]
                   [exn:fail? (lambda (e)
                                (kill-thread beat)
                                (post (format "/api/workers/jobs/~a/fail" id)
@@ -189,20 +350,60 @@
       (post (format "/api/workers/jobs/~a/release" (car h))
             (hasheq 'claim_token (cdr h) 'reason "shutdown"))
       (printf "telemachus-worker: released ~a on the way out\n" (car h)))))
-(plumber-add-flush! (current-plumber) (lambda (_) (release-held!) (report-paused!)))
+(void (plumber-add-flush! (current-plumber) (lambda (_) (release-held!) (report-paused!))))
+
+;; Standing down is reported ONCE per outage, not once per check (issue #93).
+;; /api/workers/state is the authoritative channel (PULL-11) and a row every
+;; fifteen seconds would tell an operator nothing the first one did not — while
+;; making the executor's history useless for finding when the outage began.
+(define stood-down (box #f))
+
+(define (stand-down! why)
+  (unless (unbox stood-down)
+    (set-box! stood-down #t)
+    ;; best-effort, for report-paused!'s reason: a host with no network should
+    ;; not crash out of a loop whose whole job is to survive the outage
+    (with-handlers ([exn:fail? void])
+      (post "/api/workers/state" (hasheq 'state "paused")))
+    (eprintf "telemachus-worker: ~a — reported paused, claiming nothing (re-checking every ~as)\n"
+             why READY-INTERVAL)))
+
+(define (stand-up!)
+  (when (unbox stood-down)
+    (set-box! stood-down #f)
+    ;; no state post needed: the claim below reports `ready` itself
+    (printf "telemachus-worker: ready again — claiming\n")))
 
 (let loop ()
-  (define-values (code resp)
-    (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq 'error (exn-message e))))])
-      (post "/api/workers/claim" (hasheq 'kinds KINDS 'models MODELS 'max_wait 20
-                                         ;; about to long-poll, so by definition
-                                         ;; there is capacity for another job
-                                         'state "ready"))))
   (cond
-    [(and (= code 200) (hash? resp) (string? (hash-ref resp 'id #f)))
-     (dynamic-wind void (lambda () (run-job resp)) (lambda () (set-box! held #f)))]
-    [(= code 204) (void)]
-    [(= code 0) (eprintf "claim: ~a (retrying)\n" (hash-ref resp 'error "?")) (sleep 3)]
-    [(member code '(401 403)) (eprintf "claim refused: HTTP ~a — is the worker token valid and bound to an executor?\n" code) (exit 1)]
-    [else (eprintf "claim: HTTP ~a\n" code) (sleep 3)])
-  (unless ONCE? (loop)))
+    ;; The gate comes FIRST. A host that cannot run a job should not take one —
+    ;; and should be visibly alive-and-refusing rather than quiet, because quiet
+    ;; is what a CRASHED worker looks like (PULL-11).
+    [(not (host-ready?))
+     (stand-down! (format "~a is not ready" READY-URL))
+     (unless ONCE? (sleep READY-INTERVAL) (loop))]
+    [else
+     (stand-up!)
+     (let-values ([(code resp)
+                   (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq 'error (exn-message e))))])
+                     (post "/api/workers/claim" (hasheq 'kinds KINDS 'models MODELS 'max_wait 20
+                                                        ;; about to long-poll, so by definition
+                                                        ;; there is capacity for another job
+                                                        'state "ready")))])
+       (cond
+         [(and (= code 200) (hash? resp) (string? (hash-ref resp 'id #f)))
+          (dynamic-wind void (lambda () (run-job resp)) (lambda () (set-box! held #f)))]
+         [(= code 204) (void)]
+         [(= code 0) (eprintf "claim: ~a (retrying)\n" (hash-ref resp 'error "?")) (sleep 3)]
+         [(member code '(401 403)) (eprintf "claim refused: HTTP ~a — is the worker token valid and bound to an executor?\n" code) (exit 1)]
+         [else (eprintf "claim: HTTP ~a\n" code) (sleep 3)]))
+     ;; A job just came back for want of capacity. Waiting is the difference
+     ;; between one released job and a queue drained into releases: the server's
+     ;; cool-off protects THIS job from THIS executor and says nothing about the
+     ;; next one. With a READY_URL set the gate above takes over from here.
+     (when (unbox no-capacity)
+       (set-box! no-capacity #f)
+       (unless ONCE?
+         (eprintf "telemachus-worker: no capacity — waiting ~as before claiming again\n" BUSY-BACKOFF)
+         (sleep BUSY-BACKOFF)))
+     (unless ONCE? (loop))]))

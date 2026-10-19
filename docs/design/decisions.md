@@ -582,6 +582,34 @@ must not land, which is the same rule SCHED‑8 set for its result.
 verdict back as a document beside the material it judged, inheriting its
 visibility, before anyone builds the judge itself.
 
+## A worker stops taking work while its model is down (PULL‑14) — **decided and BUILT 18 Oct 2026** (issue #93)
+
+Reported from a workstation that shares its GPUs with other work: another program
+holds the card for hours, the worker claims a job, the model call fails, and the
+job is failed or released in a loop. The only way out was stopping the worker
+from outside.
+
+PULL‑12 built the blameless hand-back and defined `busy` — "it took the job and
+has no capacity after all (out of VRAM)" — and **nothing ever sent it**. The
+reference worker released only on shutdown. So the live behaviour was worse than
+the issue describes: `worker-fail!` is TERMINAL (`status = 'error'`, no requeue),
+so one model outage did not cost the job one of three attempts, it killed the job
+on its first try.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **PULL‑14a** | Which model failures are the HOST's | **Cannot connect, timed out, or 502/503/504 → release `busy`** · vs failing all of them · vs releasing all of them | The split is "could this job ever be answered here" versus "is this job answerable at all". A 4xx is our own malformed request and a 500 is the model failing on THIS input: both are the job's problem and must still fail it, or a bad job rides the queue for ever being handed from worker to worker. A timeout is included deliberately though the issue did not list it — a card another process is thrashing answers by timing out, which is the single most common shape of this outage. |
+| 🔑 **PULL‑14b** | A reply that cannot be read | **Stays a failure** · vs releasing it | `llm.rkt` already separates `malformed` from `network`/`timeout`, and a model answering with something unreadable is broken, not busy. Releasing it would send a genuinely bad job round the fleet until `MAX-RELEASES` failed it with "no executor would run it" — true, and ten workers' time later than the honest answer. |
+| 🔑 **PULL‑14c** | Whether a release is enough | **No: a readiness gate as well** · vs the release alone | The release handles ONE job. The cool-off is 30 s for the releasing worker and `MAX-RELEASES` fails a job after 10, so one host busy for five minutes fails every queued job it touches. A worker that cannot serve must stop CLAIMING, not keep claiming and handing back. |
+| 🔑 **PULL‑14d** | Who decides readiness | **An operator-supplied URL the worker GETs; 2xx means ready** · vs the platform probing VRAM · vs a worker-side heuristic | The platform needs no knowledge of GPUs, and should not grow any: the check can look at VRAM, memory, load, a lock file or the clock, and all of those are the operator's business. `TELEMACHUS_WORKER_READY_URL` unset means the mechanism does nothing, so no deployment and no third-party worker changes behaviour. |
+| **PULL‑14e** | What a not-ready worker reports | **`paused`, ONCE per outage** · vs on every check · vs nothing | PULL‑11's state exists for exactly this: a host that is alive and refusing. Quiet is what a CRASHED worker looks like, which is the gap #58 opened and this closes for an outage. Once per outage, because a row every fifteen seconds tells an operator nothing the first one did not — and makes the executor's own history useless for finding when the outage began. Coming back needs no post: the claim already reports `ready`. |
+| **PULL‑14f** | After a `busy` release | **The worker waits before claiming again** · vs claiming immediately | The server's cool-off keeps THIS job away from THIS executor and says nothing about the next one, so without a pause a worker whose model is down claims the whole queue and releases all of it — which past `MAX-RELEASES` fails those jobs for good. With a `READY_URL` set the gate takes over; the backoff is what keeps the unset case sane. |
+| **PULL‑14g** | The readiness poll's transport | **Its own connection, opened and closed** · vs `http-sendrecv` | The measured descriptor leak behind the note above `http-post-json`: `http-sendrecv` abandons the socket under the response port and collection does not reclaim it. This runs before EVERY claim, so it is the one call in the worker that would reach the 1024-descriptor limit fastest. |
+
+**A third-party worker needs no change.** Both halves are worker-side: no route,
+no migration, no wire field. A worker that never reads `READY_URL` and fails on a
+503 behaves exactly as it does today.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about
