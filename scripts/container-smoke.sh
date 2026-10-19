@@ -80,27 +80,36 @@ assert "…with a package count"         "$SBOM" '"packageCount"'
 
 echo
 echo "== 2. it serves, as a non-root user, on a read-only root filesystem =="
-# Two shapes, because the database comes from somewhere different in each.
+# ALWAYS a bridge network with a published port — never --network host.
 #
-#   • CI supplies one on the runner's own loopback (a service container with a
-#     published port). The app then runs with `--network host` so it can reach
-#     127.0.0.1 — and host networking CANNOT also publish a port, so the app is
-#     reached on its own 8835 rather than a mapped one. Passing both -p and
-#     --network host is an error, not a no-op.
-#   • Run by hand, this starts its own Postgres on a private network and
-#     publishes the app's port.
+# Host networking looked simpler for the CI case (the service container's
+# Postgres is on the runner's loopback) and is a trap twice over:
+#
+#   • the container binds the host's 8835, so on any box that already runs
+#     Telemachus the smoke silently tests THAT server instead. It did: on the
+#     demo box /health answered, the log assertions came back empty, and the
+#     run "failed" for reasons that had nothing to do with the image.
+#   • the caller then shares the container's loopback, so the peer gate admits
+#     an unauthenticated bootstrap and the refusal cannot be asserted at all.
+#
+# A bridge network fixes both: the port is mapped to one nobody else uses, the
+# container keeps PORT=8835 inside (so the image's own HEALTHCHECK stays valid),
+# and the caller is the gateway — a genuine stranger, which is what makes the
+# bootstrap-gate assertion mean something.
+#
+# An external database is then reached through host-gateway rather than
+# loopback, which is the same hop a real deployment makes to a managed Postgres.
+EXTRA_HOSTS=""
 if [ -n "${DATABASE_URL:-}" ]; then
-  # `postgres` is the hostname inside a CI job's service network; from the
-  # runner (and so from a host-networked container) it is loopback.
-  DB_URL=$(printf '%s' "$DATABASE_URL" | sed 's/@postgres:/@127.0.0.1:/')
-  DOCKER_NET_ARGS="--network host"
-  PUBLISH=""
-  APP_PORT=8835
-  # Host networking means the caller shares the container's loopback, so the
-  # peer gate legitimately ADMITS an unauthenticated bootstrap. The refusal is
-  # only a meaningful assertion when the caller is genuinely remote.
-  LOOPBACK_CALLER=1
-  echo "  (using the DATABASE_URL from the environment, host networking)"
+  # `postgres` is the hostname inside a CI job's service network; from a bridge
+  # container it is the host, reached as host.docker.internal.
+  DB_URL=$(printf '%s' "$DATABASE_URL" \
+           | sed -e 's/@postgres:/@host.docker.internal:/' \
+                 -e 's/@127\.0\.0\.1:/@host.docker.internal:/' \
+                 -e 's/@localhost:/@host.docker.internal:/')
+  EXTRA_HOSTS="--add-host=host.docker.internal:host-gateway"
+  DOCKER_NET_ARGS=""
+  echo "  (external DATABASE_URL, reached through host-gateway)"
 else
   OWN_PG=1
   docker network create "$NET" >/dev/null
@@ -114,17 +123,14 @@ else
   done
   DB_URL="postgres://telemachus:telemachus@$PGNAME:5432/telemachus"
   DOCKER_NET_ARGS="--network $NET"
-  PUBLISH="-p $PORT:8835"
-  APP_PORT="$PORT"
-  # A published port on a bridge network: the container sees the gateway, not
-  # loopback, so the gate is live and testable.
-  LOOPBACK_CALLER=0
 fi
+PUBLISH="-p $PORT:8835"
+APP_PORT="$PORT"
 
 # The posture the image is built for, asserted by RUNNING it that way: no writable
 # root filesystem, no capabilities, no new privileges, a tmpfs for /tmp and one
 # named volume. If any of these were wrong the container would not come up.
-docker run -d --name "$NAME" $DOCKER_NET_ARGS \
+docker run -d --name "$NAME" $DOCKER_NET_ARGS $EXTRA_HOSTS \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
   -v "$NAME-data:/data" \
   -e DATABASE_URL="$DB_URL" \
@@ -164,20 +170,13 @@ echo "== 3. the API works end to end, through the published port =="
 # (issue #40) — a fresh instance on a network otherwise belongs to whoever calls
 # first.
 #
-# Whether that gate is EXERCISABLE depends on how this run reached the
-# container, so the assertion is conditional rather than skipped or faked. Under
-# host networking the caller shares the container's loopback and is not a
-# stranger at all; asserting a refusal there would be asserting a bug. And it
-# must come FIRST where it applies, because a successful bootstrap is
-# first-run-only: one admitted call consumes it and every later assertion 401s,
-# which is exactly how this failed in CI.
-if [ "$LOOPBACK_CALLER" = 0 ]; then
-  assert "bootstrap refuses an unauthenticated stranger" \
-    "$(curl -s -X POST $B/api/bootstrap -d '{"username":"nope","password":"pw-pw-pw1"}')" \
-    'this host only'
-else
-  echo "  --   bootstrap refusal not applicable (host networking: the caller IS loopback)"
-fi
+# This run always reaches the container over a bridge network, so the caller is
+# the gateway — a genuine stranger — and the gate is live. It is asserted BEFORE
+# the real bootstrap because a successful bootstrap is first-run-only: one
+# admitted call consumes it and every later assertion 401s.
+assert "bootstrap refuses an unauthenticated stranger" \
+  "$(curl -s -X POST $B/api/bootstrap -d '{"username":"nope","password":"pw-pw-pw1"}')" \
+  'this host only'
 TOK=$(curl -s -X POST $B/api/bootstrap -H 'X-Telemachus-Bootstrap: container-smoke-bootstrap' \
         -d '{"username":"ops","password":"pw-pw-pw1"}' \
       | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
