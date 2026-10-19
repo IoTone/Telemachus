@@ -610,6 +610,45 @@ on its first try.
 no migration, no wire field. A worker that never reads `READY_URL` and fails on a
 503 behaves exactly as it does today.
 
+## Containers, Postgres in CI, and an unattended boot (DEPLOY) — **decided and BUILT 19 Oct 2026** (issue #89)
+
+An integrator who runs everything as OCI containers on managed Postgres could not
+adopt Telemachus without doing the packaging themselves: deployment was Nix-only,
+there was no image and no compose file, and CI proved SQLite alone although
+`DATABASE_URL` has taken a Postgres URL for months. The failures that packaging
+exposes are the quiet kind — an instance that boots healthy and then cannot write
+a document, or runs old code against a schema a newer replica already migrated.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **DEPLOY‑1** | How the image is built | **`dockerTools` from the same derivation `nix build` produces** · vs a Dockerfile · vs a Dockerfile that installs the Nix package | What ships is then what the unit suite ran inside, and there is no second build path to drift from the flake. A Dockerfile would be a second dependency pin, which is the deterministic-deps tenet applied to the thing customers actually run. The cost is that the image is Linux-only to BUILD, which is a real limit on a Mac and the reason `packages.container` is wrapped in `optionalAttrs isLinux` rather than failing obscurely. |
+| 🔑 **DEPLOY‑2** | What the image contains | **The package, `curl`, a CA bundle, `/etc/passwd` — and NO shell** · vs a shell for debuggability · vs busybox | A shell is the first thing an attacker looks for and nothing in the image needs one. The consequence is real and documented: `docker exec … sh` does not work, so debugging is `docker logs` and the API. It also forces the HEALTHCHECK into the exec form, which hardcodes the port — accepted, because the alternative is shipping a shell to expand one variable. |
+| 🔑 **DEPLOY‑3** | Where anything writable lives | **One volume, `/data`, and `/tmp` supplied by the caller** · vs a writable root · vs several volumes | The image is built to run under `--read-only`, and `/tmp` is deliberately NOT in it: a container under `--read-only` cannot create one, so the caller passes a tmpfs and the omission fails loudly at the first upload rather than silently writing into a layer. `HOME=/data` because Racket wants a writable home and the package's wrapper derives the data dir from it. |
+| 🔑 **DEPLOY‑4** | What a startup check refuses over | **Three errors; two warnings that strict mode promotes** · vs refusing on all five · vs warning on all five | Refusing on all five would break every existing deployment, including the demo box, which serves plaintext HTTP on `0.0.0.0` across a tailnet — a real and reasonable posture. So "no secret key" (the supported trusted-database position, issue #19) and "no TLS on a public bind" are advice by default and refusals under `TELEMACHUS_STRICT_STARTUP`. The three that are always fatal are the ones no configuration could want: a blob store that cannot be written, migrations still pending, and a database migrated by a NEWER build. |
+| 🔑 **DEPLOY‑5** | The newer-schema check | **An ERROR, naming the unknown migrations** · vs a warning · vs not checking | The dangerous direction, and nothing else in the system notices it: old code against a new schema writes rows the new code will misread. A half-rolled-back deployment is exactly how it happens. The remedy is to deploy the newer build, so carrying on corrupts data rather than merely failing — which is what makes it fatal rather than advisory. |
+| 🔑 **DEPLOY‑6** | Which in-flight jobs a drain owns | **A register the pool keeps in memory** · vs `status='running' AND executor_id IS NULL` | The jobs table cannot answer this. An in-process claim leaves `executor_id` NULL, so that query is EVERY replica's pool work — and requeueing by it would steal a sibling's in-flight jobs the moment one replica restarted, which is precisely the deployment an image invites. The register is the shape the reference worker's `held` box already uses for one job, maintained in a `dynamic-wind` so it is right however the handler exits. |
+| 🔑 **DEPLOY‑7** | What a drained job costs | **Nothing: neither `attempt` nor `releases` moves** · vs spending an attempt · vs counting it as a release | Without the drain, a restart left jobs `running` until the reaper requeued them with attempt+1 — so three ordinary deploys could push a healthy job to `error`. PULL‑12's rule, applied to the server. `releases` is deliberately not used either, although it is the bound on a worker's release loop: its ceiling FAILS the job, so a crashlooping deployment would mark every job it touched broken. Nothing bounds a restart loop here, on purpose — the honest outcome of a box that cannot stay up is a queue that does not move, not a queue full of jobs blamed for it. |
+| **DEPLOY‑8** | How the signal is caught | **A plain `exn:break?` handler** · vs an FFI signal handler · vs `STOPSIGNAL SIGINT` | Measured rather than assumed: Racket delivers BOTH SIGTERM and SIGINT as `exn:break`, and plumber flushes run, so `docker stop`, `systemctl stop` and Ctrl‑C all reach the same handler with no FFI and no image-level signal override. The drain default (25s) is chosen to fit INSIDE the orchestrator's patience — Kubernetes allows 30s, systemd 90s, `docker stop` only 10 — because a drain that is SIGKILLed halfway is worse than none. |
+| **DEPLOY‑9** | How the dialects are proved | **A CI matrix, both legs always run** · vs a nightly Postgres job · vs a second workflow | "It passed on SQLite" is exactly the state that let two Postgres bugs reach the HTTP smokes. `fail-fast: false`, so one dialect's failure does not hide the other's. Each HTTP smoke gets its OWN database on the Postgres leg, because `bootstrap!` is first-run-only — three smokes sharing one database leave the second and third holding an empty token and failing in ways that say nothing about Postgres. The e2e job stays single-dialect: it drives a browser and asserts on rendering and CSP, so doubling the slowest job would buy a second opinion on the part of the stack with no SQL in it. |
+| **DEPLOY‑10** | "Upgrade from the previous release" | **Upgrade from EVERY prefix of the migration list** · vs checking out the previous tag · vs from-empty only | Stronger and cheaper. The release tags' migration ids are a prefix of today's, so "stop after N and come forward" IS the upgrade an operator on any past version performs — and it needs no checkout of two-month-old code that would not build. A from-empty run (which `nix build` already does) cannot catch the failure this is for: a migration written against today's tables rather than the tables as they were at its own point in history. Measured at 1.2s on SQLite and 4.5s on Postgres for all 44 points, so there is no reason to sample — and sampling is how the one bad migration stays hidden. |
+| **DEPLOY‑11** | The configuration surface | **One hand-written page with a CI gate** · vs a generated reference · vs a registry refactor | 62 variables are read through plain `getenv`/`env*` calls scattered across the tree; declaring them in a registry would be a large refactor for a page that an operator reads once. So the page is written by hand and `scripts/check-config-reference.sh` fails the build in BOTH directions — a variable the code reads and the page omits, and a variable the page documents and nothing reads. It caught a stale row on its first run. |
+| **DEPLOY‑12** | MinIO in the compose file | **Left out, with the reason written down** · vs including it · vs silence | Issue #89 asks for it. Telemachus SERVES an S3 API but cannot yet STORE blobs in a bucket — an S3-compatible blob-store backend is issue #82, unbuilt — so a MinIO container today would be a service nothing talks to. That reads as a broken example rather than a staged one, and the acceptance criterion's MinIO half genuinely depends on #82 rather than on this slice. |
+
+**Kubernetes is plain YAML, not a chart** (the issue allows either): a chart's
+`values.yaml` would be a second configuration surface to keep in step with
+`docs/ops/configuration.md`, and the manifests are readable as-is. They set
+`replicas: 1`, and that is a STORAGE limit rather than a concurrency one — the
+PVC is ReadWriteOnce and `rs3` is a local directory, so a shared blob store
+(#82) is what raises it. The scheduler itself is safe in several processes, which
+is exactly what DEPLOY‑6 is for.
+
+**The image is 1.74 GB, and Racket is 750 MB of it** — the runtime floor. The
+optional PDF toolchain (pandoc, tectonic, biber's perl, librsvg's gtk) is about
+400 MB more, and it is `find-executable-path`'d at CALL time (DWF‑6), so a slim
+variant without it is possible and would save roughly a quarter. Not built here:
+it is a second image to keep in step for a 23% saving against a floor that
+dominates either way.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about

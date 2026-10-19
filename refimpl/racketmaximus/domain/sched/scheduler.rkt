@@ -52,6 +52,7 @@
          team-hold job-waiting
          set-reaper! current-job
          claim-job! finish! reap-orphans! POOL-LEASE-SECONDS
+         drain-scheduler! scheduler-inflight-count drain-seconds
          current-plugin registered-job-kinds job-kinds-of-plugin plugin-kind-prefix)
 
 (define (vr r i) (vector-ref r i))
@@ -472,12 +473,39 @@
 
 ;; synchronous: claim + run the next queued job. Returns its id, or #f if none.
 ;; Used by the worker loop and directly by tests.
+
+;; ---- what THIS process is holding right now (issue #89) ---------------------
+;;
+;; A graceful shutdown has to know which attempts are its own, and the jobs table
+;; cannot say: an in-process claim leaves `executor_id` NULL, so "running with no
+;; executor" is every replica's pool work, not this one's. Requeueing by that
+;; query would steal a sibling's in-flight jobs the moment one replica restarted
+;; — which is exactly the deployment the container story invites.
+;;
+;; So the pool keeps its own register, the shape the reference worker's `held` box
+;; already uses for one job. Maintained in a dynamic-wind so it is right however
+;; run-claimed! exits.
+(define inflight-lock (make-semaphore 1))
+(define *inflight* (make-hash))            ; job id -> claim token
+
+(define (inflight-add! id token)
+  (call-with-semaphore inflight-lock (lambda () (hash-set! *inflight* id token))))
+(define (inflight-remove! id)
+  (call-with-semaphore inflight-lock (lambda () (hash-remove! *inflight* id))))
+(define (scheduler-inflight-count)
+  (call-with-semaphore inflight-lock (lambda () (hash-count *inflight*))))
+(define (inflight-snapshot)
+  (call-with-semaphore inflight-lock (lambda () (hash->list *inflight*))))
+
 (define (process-one! conn)
   (define claimed (claim-next! conn))
   (and claimed
        (let ([id (car claimed)] [token (cdr claimed)])
-         (run-claimed! conn id token)
-         id)))
+         (inflight-add! id token)
+         (dynamic-wind
+          void
+          (lambda () (run-claimed! conn id token) id)
+          (lambda () (inflight-remove! id))))))
 
 ;; ---- the bounded worker pool ------------------------------------------------
 (define *run* (box #f))
@@ -499,3 +527,97 @@
                     (when idle? (sleep idle)))
                   (loop))))))
   (lambda () (set-box! *run* #f)))    ; stop thunk
+
+;; ---- graceful shutdown (issue #89) ------------------------------------------
+
+;; How long to let in-flight jobs finish. The default has to fit INSIDE the
+;; orchestrator's own patience or the drain is pointless — it would be SIGKILLed
+;; halfway, which is strictly worse than a short clean one. Kubernetes allows 30s
+;; by default (`terminationGracePeriodSeconds`) and systemd 90s
+;; (`TimeoutStopSec`), so 25 fits under both; `docker stop` allows only 10, which
+;; is why the compose file and the docs pass `-t`/`stop_grace_period`.
+;; An unparseable or non-positive value falls back to the default, never to 0 —
+;; the platform's rule for every interval knob, and a 0 here would make the
+;; "graceful" path identical to a kill.
+(define DEFAULT-DRAIN-SECONDS 25)
+(define (drain-seconds)
+  (define raw (getenv "TELEMACHUS_DRAIN_SECONDS"))
+  (define n (and raw (string->number (string-trim raw))))
+  (cond [(and (real? n) (> n 0)) (inexact->exact (floor n))]
+        [(and raw (member (string-downcase (string-trim raw)) '("never" "0"))) 0]
+        [else DEFAULT-DRAIN-SECONDS]))
+
+;; Hand a job back WITHOUT blaming it: queued again, same attempt, same
+;; `releases`. An operator restarting a box is not the job's fault, and neither
+;; counter should move —
+;;
+;;   • `attempt` is what PULL-12 established: spending one for the host's
+;;     business is how healthy jobs reached `error`. A rolling deploy would
+;;     otherwise burn an attempt per replica per restart.
+;;   • `releases` is deliberately NOT used either, even though it is the bound on
+;;     a worker's release loop. Its ceiling (MAX-RELEASES) FAILS the job, so a
+;;     crashlooping deployment would fail every job it touched after ten
+;;     restarts. Nothing bounds a restart loop here, on purpose: the honest
+;;     outcome of a box that cannot stay up is a queue that does not move, not a
+;;     queue full of jobs marked broken.
+;;
+;; Fenced on the attempt's claim_token like every other post-claim write (issue
+;; #24), so a job whose lease already lapsed and was re-claimed elsewhere is left
+;; alone. A job being CANCELED is settled rather than requeued — SCHED-8's rule,
+;; and re-running work somebody stopped is the one outcome nobody asked for.
+(define (drain-release! conn id token)
+  (define st (query-maybe-value conn "SELECT status FROM jobs WHERE id = ?" id))
+  (cond
+    [(equal? st "canceling") (settle-canceling! conn id token) 'canceled]
+    [else
+     ;; Audited BEFORE the write, for FLEET-1's reason: the requeue clears
+     ;; `executor_id` and resets the clock, so afterwards nothing says this job
+     ;; was interrupted by a shutdown rather than simply queued.
+     (define team (let ([t (query-maybe-value conn "SELECT team_id FROM jobs WHERE id = ?" id)])
+                    (if (or (not t) (sql-null? t)) sql-null t)))
+     (with-handlers ([exn:fail? void])
+       (audit! conn #:action "job.drained" #:actor-type "system"
+               #:team-id team #:resource-type "job" #:resource-id id
+               #:result "requeued"
+               #:meta (jsexpr->string (hasheq 'reason "shutdown"))))
+     (define r (query conn
+       (string-append "UPDATE jobs SET status='queued', executor_id=NULL, lease_until=NULL, "
+                      "claim_token=NULL, started_at=NULL, started_epoch=NULL "
+                      "WHERE id = ? AND claim_token = ? AND status='running' RETURNING id")
+       id token))
+     (if (and (rows-result? r) (pair? (rows-result-rows r))) 'requeued 'not-ours)]))
+
+;; Stop claiming, wait for in-flight work, then hand back whatever did not
+;; finish. Returns (values finished requeued) — how many completed on their own
+;; and how many went back to the queue.
+;;
+;; `stop` is start-scheduler!'s own thunk; passing it keeps this function from
+;; needing to know that the flag is a box.
+(define (drain-scheduler! conn #:stop [stop #f] #:seconds [secs (drain-seconds)]
+                          #:log [log void])
+  (if stop (stop) (set-box! *run* #f))        ; claim nothing further
+  (define before (scheduler-inflight-count))
+  (define deadline (+ (current-inexact-milliseconds) (* 1000.0 secs)))
+  (let wait ([announced #f])
+    (define n (scheduler-inflight-count))
+    (cond
+      [(zero? n) (void)]
+      [(>= (current-inexact-milliseconds) deadline)
+       (log (format "drain: ~a job(s) did not finish within ~as — handing them back" n secs))]
+      [else
+       (unless announced
+         (log (format "drain: waiting up to ~as for ~a running job(s)" secs n)))
+       (sleep 0.25)
+       (wait #t)]))
+  ;; whatever is still held is handed back, blamelessly
+  (define left (inflight-snapshot))
+  (define requeued
+    (for/sum ([p (in-list left)])
+      (define outcome
+        (with-handlers ([exn:fail? (lambda (e)
+                                     (log (format "drain: could not hand back ~a: ~a"
+                                                  (car p) (exn-message e)))
+                                     'error)])
+          (drain-release! conn (car p) (cdr p))))
+      (if (eq? outcome 'requeued) 1 0)))
+  (values (- before (length left)) requeued))

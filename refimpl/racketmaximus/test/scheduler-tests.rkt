@@ -318,3 +318,83 @@
               stopping tid uid "ok")
   (check-equal? (reap-orphans! c) 1)
   (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" stopping) "canceled"))
+
+;; ---- graceful shutdown (issue #89) -----------------------------------------
+
+(test-case "drain-seconds: a default, an off switch, and never 0 by accident"
+  (define (with-env v thunk)
+    (define old (getenv "TELEMACHUS_DRAIN_SECONDS"))
+    (dynamic-wind
+     (lambda () (if v (putenv "TELEMACHUS_DRAIN_SECONDS" v) (putenv "TELEMACHUS_DRAIN_SECONDS" "")))
+     thunk
+     ;; restore in a dynamic-wind: a failing check raises, and a leaked value
+     ;; would change what every later test in this file measures
+     (lambda () (putenv "TELEMACHUS_DRAIN_SECONDS" (or old "")))))
+  (with-env #f    (lambda () (check-equal? (drain-seconds) 25)))
+  (with-env "60"  (lambda () (check-equal? (drain-seconds) 60)))
+  ;; An off switch has to be spelled, and it is the one case 0 is meant.
+  (with-env "0"      (lambda () (check-equal? (drain-seconds) 0)))
+  (with-env "never"  (lambda () (check-equal? (drain-seconds) 0)))
+  ;; …and a typo must never read as "hand everything back immediately", which is
+  ;; the platform's rule for every interval knob.
+  (with-env "banana" (lambda () (check-equal? (drain-seconds) 25)))
+  (with-env "-5"     (lambda () (check-equal? (drain-seconds) 25))))
+
+(test-case "a drain hands back what did not finish, un-charged, and fences its result"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "drainer"))
+  (define started (make-semaphore 0))
+  (define release (make-semaphore 0))
+  (register-job-kind! "slow"
+    (lambda (conn p payload)
+      (semaphore-post started)
+      (semaphore-wait release)        ; held in flight until this test lets go
+      (hasheq 'finished #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "slow"))
+  (define att0 (hash-ref (get-job c j tid) 'attempt))
+  (check-equal? (scheduler-inflight-count) 0 "nothing is held before the claim")
+
+  (define runner (thread (lambda () (process-one! c))))
+  (semaphore-wait started)
+  ;; The register is what makes a drain possible at all: `executor_id IS NULL`
+  ;; is every replica's pool work, not this process's.
+  (check-equal? (scheduler-inflight-count) 1 "the pool knows what it is holding")
+
+  ;; No patience at all: hand it straight back.
+  (define-values (finished requeued) (drain-scheduler! c #:seconds 0))
+  (check-equal? requeued 1)
+  (check-equal? finished 0)
+  (define g (get-job c j tid))
+  (check-equal? (hash-ref g 'status) "queued" "the job is runnable again")
+  (check-equal? (hash-ref g 'attempt) att0
+                "a shutdown is not the job's fault — no attempt is spent")
+
+  ;; Now let the handler run to completion. Its result must NOT land: the drain
+  ;; cleared the attempt's claim_token, and `finish!` names it (issue #24). This
+  ;; is the same fence a cancelled job relies on, and without it a drained job
+  ;; would be marked done by a process that no longer owns it.
+  (semaphore-post release)
+  (thread-wait runner)
+  (define g2 (get-job c j tid))
+  (check-equal? (hash-ref g2 'status) "queued"
+                "the drained attempt cannot complete the job it let go of")
+  ;; `'null`, not #f: get-job maps a NULL column to the jsexpr null.
+  (check-equal? (hash-ref g2 'result) 'null "…and wrote no result at all")
+  (check-equal? (scheduler-inflight-count) 0 "the register is empty again")
+  (close-db! c))
+
+(test-case "a drain waits for a job that finishes in time, and spends nothing"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "waiter"))
+  (define started (make-semaphore 0))
+  (register-job-kind! "quick"
+    (lambda (conn p payload) (semaphore-post started) (hasheq 'ok #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "quick"))
+  (define runner (thread (lambda () (process-one! c))))
+  (semaphore-wait started)
+  (thread-wait runner)                       ; it really did finish on its own
+  ;; A drain with work already done reports no requeue — the ordinary restart.
+  (define-values (finished requeued) (drain-scheduler! c #:seconds 5))
+  (check-equal? requeued 0)
+  (check-equal? (hash-ref (get-job c j tid) 'status) "done")
+  (close-db! c))

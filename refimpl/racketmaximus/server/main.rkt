@@ -94,6 +94,9 @@
 
 ;; require db-kit/migrate for migrate! (separate module in the db-kit collection)
 (require (only-in db-kit/migrate migrate!))
+;; issue #89: the checks an instance runs before it serves. Their own module so
+;; they are unit-testable without a live server (peer.rkt's move, same reason).
+(require "startup.rkt")
 
 ;; ---- database (thread-safe virtual connection over a pool) ------------------
 ;; Backend-neutral: sqlite:/// or postgres:// — db-kit's connector dispatches.
@@ -3162,6 +3165,19 @@
                             "  time, not against the install. Set TELEMACHUS_DATA_DIR (or\n"
                             "  TELEMACHUS_RS3_ROOT) to an absolute path.")
              r)))
+  ;; issue #89: everything else an unattended deployment gets wrong silently.
+  ;; AFTER plugins, because the blob store the probe writes to is the one rs3 may
+  ;; have replaced — the same reason the two refusals above wait for them. The
+  ;; errors here refuse to serve; the warnings become refusals under
+  ;; TELEMACHUS_STRICT_STARTUP. See server/startup.rkt for why each is which.
+  (unless (report-startup-problems!
+           (startup-problems #:bind-ip (bind-ip)
+                             #:tls? (tls-on?)
+                             #:secrets? (secrets-enabled?)
+                             #:blob-root (blob-root)
+                             #:conn db-conn
+                             #:migrations all-migrations))
+    (exit 1))
   (when (pair? plugins)
     (printf "loaded ~a plugin(s) from ~a\n" (length plugins)
             (string-join (map path->string plugins-dirs) ", ")))
@@ -3363,7 +3379,7 @@
                            'reasoning "judge output was not a JSON object")]))
          (set-prospect-judge! conn pid verdict)
          (hasheq 'prospect_id pid 'verdict verdict 'tokens_used tokens)])))
-  (void (start-scheduler! db-conn #:workers 2
+  (define stop-scheduler (start-scheduler! db-conn #:workers 2
                           #:cap-for (lambda (team)
                                       (define-values (lim _w) (get-limit db-conn "team" team "ai.concurrency"))
                                       (or lim 2))         ; per-team fairness: cap = the team's ai.concurrency
@@ -3418,7 +3434,52 @@
     (printf "s3 endpoint on http://~a:~a  (path-style · region ~a · bucket = team slug)\n"
             ip (s3-port) (s3-region)))
   (flush-output)
-  (if tls?
-      (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes)
-             #:ssl-cert (tls-cert) #:ssl-key (tls-key))
-      (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes))))
+  ;; ---- graceful shutdown (issue #89) ----------------------------------------
+  ;;
+  ;; Racket delivers BOTH SIGTERM and SIGINT as exn:break (measured, not assumed:
+  ;; `docker stop`, `systemctl --user stop` and Ctrl-C all arrive here), so the
+  ;; drain needs no FFI signal handler and no STOPSIGNAL override in the image.
+  ;;
+  ;; What the drain buys: without it, every job this process was running stays
+  ;; `running` with a live lease until the reaper notices, and `reap-leases!`
+  ;; requeues it with attempt+1 — so a rolling restart spent an attempt per
+  ;; in-flight job and a job could reach `error` after three ordinary deploys.
+  ;; Draining hands them back un-charged instead, and immediately, so the next
+  ;; replica picks them up now rather than after the 120s lease.
+  ;; Run at most once, however the process leaves: a plumber flush AND the break
+  ;; handler below can both fire, and the second call would print a confusing
+  ;; second report of zero.
+  (define drained? (box #f))
+  (define (drain! why)
+    (unless (unbox drained?)
+      (set-box! drained? #t)
+      (printf "\n~a — draining (TELEMACHUS_DRAIN_SECONDS=~a)\n" why (drain-seconds))
+      (flush-output)
+      (define-values (finished requeued)
+        (with-handlers ([exn:fail? (lambda (e)
+                                     (eprintf "drain: ~a\n" (exn-message e))
+                                     (values 0 0))])
+          (drain-scheduler! db-conn #:stop stop-scheduler
+                            #:log (lambda (m) (printf "  ~a\n" m) (flush-output)))))
+      (printf "drained: ~a job(s) finished, ~a handed back to the queue\n" finished requeued)
+      (flush-output)))
+
+  ;; The drain hangs off a PLUMBER FLUSH, not off a break handler alone.
+  ;;
+  ;; Measured: `serve/servlet #:command-line? #t` installs its own break handler
+  ;; and exits cleanly, so the signal never reaches a `with-handlers` wrapped
+  ;; around `serve` — a container stopped with `docker stop` exited 0 having
+  ;; drained nothing, which looks exactly like a successful shutdown. A plumber
+  ;; flush runs on SIGTERM, on SIGINT and on a normal exit, which is the same
+  ;; seam cli/telemachus-worker.rkt already uses to hand its job back on the way
+  ;; out. The break handler is kept as well, for the case where the break does
+  ;; arrive here first; `drained?` makes the pair idempotent.
+  ;;
+  ;; Safe on the refusal paths above: those `exit` before the scheduler starts,
+  ;; so the in-flight register is empty and this is a no-op.
+  (void (plumber-add-flush! (current-plumber) (lambda (_) (drain! "shutting down"))))
+  (with-handlers ([exn:break? (lambda (_) (drain! "shutdown signal") (exit 0))])
+    (if tls?
+        (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes)
+               #:ssl-cert (tls-cert) #:ssl-key (tls-key))
+        (serve handle #:port port #:listen-ip ip #:max-body-length (max-upload-bytes)))))

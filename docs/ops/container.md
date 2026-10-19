@@ -1,0 +1,198 @@
+# Running Telemachus in a container
+
+The OCI image, compose for evaluation, and Kubernetes. Issue #89.
+
+Configuration is **entirely environmental** — see
+[configuration.md](configuration.md) for every variable and its default. Nothing
+is written at runtime, which is what lets the image run with a read-only root
+filesystem.
+
+## Build it
+
+```sh
+nix build .#container        # on a Linux host; produces ./result, a tarball
+docker load < result
+docker image ls telemachus   # telemachus:0.1.0
+```
+
+The image is built from the **same derivation `nix build` produces**, so what
+ships is what the unit suite ran inside. There is no Dockerfile, and that is
+deliberate: a second build path is a second thing to keep in step with the
+flake.
+
+`packages.container` exists on Linux only, because an image's contents are Linux
+store paths. From a Mac, build it on a Linux box or through a remote builder —
+every input is pinned by `flake.lock`, so the bytes are the same either way.
+
+## Run it
+
+```sh
+docker run -d --name telemachus \
+  --read-only --tmpfs /tmp \
+  --cap-drop ALL --security-opt no-new-privileges \
+  -v telemachus-data:/data \
+  -e DATABASE_URL='postgres://user:pass@db.internal:5432/telemachus' \
+  -e TELEMACHUS_SECRET_KEY="$(openssl rand -hex 32)" \
+  -e TELEMACHUS_SECRET="$(openssl rand -hex 32)" \
+  -p 8835:8835 \
+  --stop-timeout 30 \
+  telemachus:0.1.0
+```
+
+Then `curl localhost:8835/health`, and bootstrap the first operator:
+
+```sh
+curl -XPOST localhost:8835/api/bootstrap -d '{"username":"ops","password":"a-real-password"}'
+```
+
+`POST /api/bootstrap` is **loopback-only** unless `TELEMACHUS_BOOTSTRAP_SECRET`
+is set — a fresh instance on a network otherwise belongs to whoever calls first.
+From outside the container that means either `docker exec`, a published port on
+loopback as above, or setting that secret.
+
+### The four flags that are not optional
+
+| Flag | Why |
+|---|---|
+| `--tmpfs /tmp` | **/tmp is not in the image.** Under `--read-only` the container cannot create it, and request bodies and the PDF toolchain both need a writable one. Omitting this fails on the first upload, not at boot. |
+| `-v …:/data` | Everything that persists: blobs, the SQLite file if you use one, a generated TLS cert. Without it, documents live in the container layer and vanish with it. |
+| `--stop-timeout 30` | `docker stop` allows **10 seconds** by default and then SIGKILLs. The drain wants 25. A half-finished drain is worse than none — jobs are left `running` until their lease expires. |
+| `-e DATABASE_URL=…` | Without it the instance uses SQLite inside `/data`, which is fine for evaluation and wrong for anything with more than one replica. |
+
+`--read-only`, `--cap-drop ALL` and `--security-opt no-new-privileges` are not
+required, but the image is built to run under all three and
+`scripts/container-smoke.sh` asserts it does.
+
+## What the image promises
+
+- **Non-root**: uid/gid `65532:65532`, the distroless "nonroot" convention, so a
+  cluster policy or a `runAsUser` written for that matches without translation.
+- **No shell.** There is no `/bin/sh`, no `cat`, nothing to pivot to — the only
+  extra binary is `curl`, and it is there solely so the `HEALTHCHECK` has
+  something to run. A consequence worth knowing: `docker exec … sh` does not
+  work, and debugging is done through the API and `docker logs`.
+- **A healthcheck that asks the app.** `GET /health` is `{ok, multitenant}` and
+  nothing else — cheap, public, and the one endpoint that needs no token. A TCP
+  check would call a wedged instance healthy. It is the **exec** form and so
+  hardcodes port 8835; if you override `PORT`, override the healthcheck too.
+- **An SBOM at `/share/telemachus/sbom.json`**, a flat inventory of the image's
+  Nix runtime closure. Verify it against the source with
+  `nix path-info -r .#telemachus`.
+- **`/data` declared as a VOLUME**, so a plain `docker run` with no `-v` still
+  keeps documents across a restart instead of losing them with the container.
+
+## Graceful shutdown
+
+On `SIGTERM` (what `docker stop`, `systemctl stop` and Kubernetes all send) the
+instance:
+
+1. stops claiming new jobs;
+2. waits up to `TELEMACHUS_DRAIN_SECONDS` (25) for in-flight jobs to finish;
+3. hands back whatever did not finish — queued again, **no attempt spent**;
+4. exits 0.
+
+The log says what happened:
+
+```
+shutdown signal — draining (TELEMACHUS_DRAIN_SECONDS=25)
+  drain: waiting up to 25s for 2 running job(s)
+drained: 2 job(s) finished, 0 handed back to the queue
+```
+
+Why it matters: without the drain, every job the process was running stays
+`running` with a live lease until the reaper notices, and the reaper requeues
+with **attempt+1** — so a rolling restart spent an attempt per in-flight job,
+and a job could reach `error` after three ordinary deploys.
+
+Set the orchestrator's grace period **at least** as high as the drain:
+`--stop-timeout 30` for Docker, `stop_grace_period: 30s` for compose,
+`terminationGracePeriodSeconds: 30` for Kubernetes (its default, which fits).
+
+## Compose, for evaluation
+
+[`compose.yaml`](../../compose.yaml) brings up the app, Postgres and a
+deterministic model stub:
+
+```sh
+nix build .#container && docker load < result
+docker compose up                 # or: docker-compose up, for the standalone v2 binary
+HOST_PORT=18835 docker compose up # if something already holds 8835
+
+curl localhost:8835/health
+curl -XPOST localhost:8835/api/bootstrap \
+     -H 'X-Telemachus-Bootstrap: compose-evaluation-bootstrap' \
+     -d '{"username":"ops","password":"pw-pw-pw1"}'
+```
+
+The header is needed because **bootstrap is loopback-only** and from your shell
+the container is the bridge gateway, not loopback; `compose.yaml` sets the
+matching `TELEMACHUS_BOOTSTRAP_SECRET` so the documented first step works. It is
+an evaluation value, and the file says so.
+
+It is for **evaluation**, and says so at each line that would be wrong in
+production: the database password is in the file, no TLS terminates in front of
+the app, and nothing backs up the `data` volume.
+
+**On MinIO:** issue #89 asks for it and it is deliberately absent. Telemachus
+*serves* an S3 API (`TELEMACHUS_S3_PORT`) but cannot yet *store* blobs in a
+bucket — an S3-compatible blob-store backend is **issue #82**, unbuilt. A MinIO
+container today would be a service nothing talks to, which reads as a broken
+example rather than a staged one.
+
+## Kubernetes
+
+[`deploy/k8s/telemachus.yaml`](../../deploy/k8s/telemachus.yaml) is plain YAML
+rather than a Helm chart — the issue allows either, and a chart's `values.yaml`
+would be a second configuration surface to keep in step with
+[configuration.md](configuration.md).
+
+```sh
+kubectl create namespace telemachus
+kubectl -n telemachus create secret generic telemachus \
+  --from-literal=database-url='postgres://user:pass@host:5432/telemachus' \
+  --from-literal=secret-key="$(openssl rand -hex 32)" \
+  --from-literal=secret="$(openssl rand -hex 32)"
+kubectl -n telemachus apply -f deploy/k8s/telemachus.yaml
+```
+
+It sets `TELEMACHUS_STRICT_STARTUP=1`, which is the right default for an
+unattended deployment: with a secret key in place and TLS on the Ingress, every
+startup check passes, so a configuration mistake refuses to start instead of
+running degraded.
+
+**It is `replicas: 1`, and that is a storage limit rather than a concurrency
+one.** The PVC is `ReadWriteOnce` and the default blob store (`rs3`) is a local
+directory, so a second pod cannot reach the first one's documents; a shared store
+is issue #82. The scheduler itself is safe in several processes — every claim is
+an atomic `UPDATE … WHERE status='queued' RETURNING id`, and the drain hands back
+only the attempts *that process* holds, tracked in memory rather than inferred
+from `executor_id IS NULL`, precisely so one replica's restart cannot steal
+another's work.
+
+Probes are `httpGet`, not `exec`, so they need nothing inside the image and keep
+working if `curl` is ever dropped from it. The `startupProbe` is generous
+because the first boot migrates the schema — 43 transactions on an empty
+database.
+
+## Startup checks
+
+The instance refuses to serve when the blob store is not writable, when
+migrations are still pending, or when the database was migrated by a **newer**
+build than this one — see [configuration.md](configuration.md#startup-checks).
+Two further checks (no secret key; plaintext HTTP on a non-loopback bind) are
+warnings by default and refusals under `TELEMACHUS_STRICT_STARTUP=1`, because
+both are positions a working instance can legitimately hold.
+
+## Verifying a deployment
+
+```sh
+bash scripts/container-smoke.sh          # builds if needed, starts its own Postgres
+IMAGE=telemachus:0.1.0 DATABASE_URL='postgres://…' bash scripts/container-smoke.sh
+```
+
+It asserts the image's own promises, then runs it the way this page describes —
+read-only, non-root, no capabilities, an external Postgres — and checks that
+`/health` answers, that the log says `db: postgres://` (and not a SQLite file it
+quietly fell back to), that a document round-trips byte-identically through
+`/data`, and that `docker stop` produces a drain and exit code 0 rather than a
+kill. CI runs it on every push.

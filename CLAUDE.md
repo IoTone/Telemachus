@@ -1263,6 +1263,145 @@ raco test test/pull-tests.rkt   # the closed vocabulary, silence, the stale with
 bash test/pull-smoke.sh         # section 6, 10 assertions over HTTP
 ```
 
+## Containers, Postgres in CI, and an unattended boot (DEPLOY, issue #89)
+
+Built 19 Oct 2026. Decision block **DEPLOY‑1…12** in `docs/design/decisions.md`;
+operator docs are `docs/ops/container.md` and `docs/ops/configuration.md`.
+
+```sh
+nix build .#container && docker load < result   # LINUX ONLY (see below)
+bash scripts/container-smoke.sh                 # 24 assertions, starts its own Postgres
+bash scripts/check-config-reference.sh          # the config-doc drift gate
+raco test test/migration-tests.rkt test/startup-tests.rkt
+docker compose up                               # app + Postgres + a model stub
+```
+
+### The image
+
+- **Built from the same derivation `nix build` produces** (`nix/container.nix`,
+  `dockerTools.buildLayeredImage`) — no Dockerfile, so there is no second
+  dependency pin to drift from the flake. **`packages.container` is Linux-only**
+  (`optionalAttrs isLinux`): an image's contents are Linux store paths, so a Mac
+  has to build it on a Linux host or a remote builder. `nix eval` on darwin
+  reporting "does not provide attribute" is that, working.
+- **`git add` a new Nix file before building.** Nix only sees git-tracked files —
+  `nix/container.nix` evaluated to "does not provide attribute" until it was
+  added, with a message that points at the wrong thing.
+- **There is NO SHELL in the image**, and that is load-bearing: `docker exec … sh`
+  does not work, debugging is `docker logs` plus the API, and the `HEALTHCHECK`
+  must be the **exec** form (`["CMD" "curl" …]`). A `CMD-SHELL` healthcheck
+  reports unhealthy for ever. The exec form hardcodes port 8835, so overriding
+  `PORT` means overriding the healthcheck.
+- **`/tmp` is deliberately not in the image.** Under `--read-only` the container
+  cannot create one, so the caller passes `--tmpfs /tmp` (compose, the k8s
+  manifests and the smoke all do). Omitting it fails at the first upload, not at
+  boot.
+- Non-root uid/gid **65532** (the distroless convention, so an existing
+  `runAsUser` matches), `/data` the one declared VOLUME, `HOME=/data` because
+  Racket wants a writable home and the package wrapper derives the data dir from
+  it, and an SBOM at `/share/telemachus/sbom.json` (the Nix runtime closure,
+  verifiable with `nix path-info -r`).
+- **1.74 GB, and Racket is 750 MB of it.** glibc-locales is 233 MB and the
+  OPTIONAL PDF toolchain (pandoc/tectonic/biber/librsvg) about 400 MB. A slim
+  variant is possible — `doc_render`'s toolchain is `find-executable-path`'d at
+  CALL time (DWF‑6) — and was not built: a second image to maintain for a 23%
+  saving against a floor that dominates anyway.
+
+### Graceful shutdown
+
+- **The drain hangs off a PLUMBER FLUSH, not a break handler.** Measured:
+  `serve/servlet #:command-line? #t` installs its own break handler and exits
+  cleanly, so `with-handlers ([exn:break? …])` wrapped around `serve` **never
+  fires** — a container stopped with `docker stop` exited 0 having drained
+  nothing, which is indistinguishable from a clean shutdown. The flush runs on
+  SIGTERM, on SIGINT and on a normal exit (also measured: Racket delivers both
+  signals as `exn:break` and flushes run for both). Same seam
+  `cli/telemachus-worker.rkt` uses to hand its job back. The break handler is
+  kept too, and a `drained?` latch makes the pair idempotent.
+- **The pool keeps a REGISTER of its own in-flight attempts**
+  (`scheduler-inflight-count`, maintained in a `dynamic-wind` around
+  `run-claimed!`). The jobs table cannot answer "which are mine": an in-process
+  claim leaves `executor_id` NULL, so `status='running' AND executor_id IS NULL`
+  is **every replica's** pool work, and requeueing by that query would steal a
+  sibling's jobs the moment one replica restarted.
+- **A drained job costs nothing** — neither `attempt` nor `releases` moves.
+  Without the drain a restart left jobs `running` until the reaper requeued them
+  with attempt+1, so three ordinary deploys could push a healthy job to `error`.
+  `releases` is deliberately unused as well: its ceiling FAILS the job, so a
+  crashlooping deployment would mark every job it touched broken. Nothing bounds
+  a restart loop, on purpose.
+- **The drained attempt cannot land its result** — `drain-scheduler!` clears the
+  `claim_token` and `finish!` names it (issue #24), so the handler that finishes
+  afterwards is fenced out. `test/scheduler-tests.rkt` asserts exactly that.
+- `TELEMACHUS_DRAIN_SECONDS` defaults to **25**, to fit INSIDE the orchestrator's
+  patience (k8s 30s, systemd 90s, `docker stop` only 10 — pass `-t`). A drain
+  SIGKILLed halfway is worse than none. `0`/`never` hands work back at once; a
+  typo falls back to the default.
+
+### Startup checks (`server/startup.rkt`)
+
+Its own module so the rules are unit-testable without a live server — peer.rkt's
+move, for the same reason: a harness on localhost with a writable data dir
+satisfies every check by construction and can only exercise the allowed side.
+
+- **Always fatal**: the blob store is not writable (probed by actually writing
+  AND reading back — a missing directory, a root-owned one and a read-only mount
+  cannot be told apart by a permission bit, and all three surface as a 500 on the
+  first document save); migrations still pending; **the database was migrated by
+  a NEWER build** (old code against a new schema writes rows the new code
+  misreads — the remedy is to deploy that version, so continuing corrupts data).
+- **Warnings by default, refusals under `TELEMACHUS_STRICT_STARTUP=1`**: no
+  secret key (plaintext at rest is the supported trusted-database position), and
+  a non-loopback bind with no TLS (the demo box does exactly this across a
+  tailnet). Making these fatal unconditionally would break every existing
+  deployment.
+- **`loopback-bind?` DELEGATES to peer.rkt's `loopback-address?`** rather than
+  re-implementing it — the compiler caught the duplicate on the first build. A
+  bind address only adds spellings a connected peer never arrives as
+  (`localhost`, `[::1]`), which it normalizes first. Two predicates would drift
+  and the TLS warning would start disagreeing with the identity-header gate about
+  what is private.
+
+### CI
+
+- **A matrix over `db: [sqlite, postgres]`, `fail-fast: false`.** "It passed on
+  SQLite" is the state that let two Postgres bugs reach the HTTP smokes.
+- **Each HTTP smoke needs its OWN database on the Postgres leg.** `bootstrap!` is
+  first-run-only, so three smokes sharing one database leave the second and third
+  holding an **empty token**, failing in ways that say nothing about Postgres.
+- The docs/localization/config gates run on the **sqlite leg only** — they read
+  the source, not the database.
+- **The e2e job stays single-dialect** and says why: it drives a browser and
+  asserts on rendering and CSP, so doubling the slowest job buys a second opinion
+  on the part of the stack with no SQL in it.
+- **`test/migration-tests.rkt` upgrades from EVERY prefix** of the migration
+  list, on both dialects — stronger than "from the previous release" and needing
+  no old checkout, because the release tags' ids are a prefix of today's. 1.2s on
+  SQLite, 4.5s on Postgres for all 44 points, so it does not sample: sampling is
+  how the one migration that assumes a later table stays hidden. A from-empty run
+  (which `nix build` already does) cannot catch that class at all.
+
+### The configuration reference
+
+`docs/ops/configuration.md` is **hand-written with a CI gate**
+(`scripts/check-config-reference.sh`): 62 variables are read through plain
+`getenv`/`env*` calls across the tree, so a registry would be a large refactor
+for a page read once. The gate fails in BOTH directions — read-but-undocumented,
+and documented-but-read-nowhere. It caught a stale row on its first run.
+`TELEMACHUS_MODEL_<ROLE>` is built at runtime, so the script carries a
+`RUNTIME_PREFIXES` allowlist with the reason. **No associative arrays**: macOS
+ships bash 3.2, where `declare -A` becomes an indexed array and the subscript is
+evaluated as arithmetic, failing under `set -u` on the key itself.
+
+### MinIO is deliberately absent from compose
+
+Issue #89 asks for it. Telemachus **serves** an S3 API but cannot yet **store**
+blobs in a bucket — that is issue **#82**, unbuilt — so a MinIO container would
+be a service nothing talks to, which reads as a broken example rather than a
+staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
+STORAGE limit, not a concurrency one: the scheduler is safe in several processes,
+which is what the in-flight register exists for.
+
 ## A worker stops taking work while its model is down (PULL‑14, issue #93)
 
 Built 18 Oct 2026. Both halves are **worker-side** — `cli/telemachus-worker.rkt`

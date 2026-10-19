@@ -16,8 +16,36 @@ defaults:
 
 jobs:
   racket:
-    name: Racket tests + server smoke
+    # The dialect is part of the job name, so a red check says WHICH backend
+    # broke without opening the log.
+    name: Racket tests + server smoke (${{ matrix.db }})
     runs-on: ubuntu-latest
+    strategy:
+      # Both legs always run: "it passed on SQLite" is exactly the state that
+      # let two Postgres bugs reach the HTTP smokes (see test/db-fixture.rkt),
+      # and a cancelled leg would hide the second one again.
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+
+    # A service container only on the Postgres leg. `services` cannot be made
+    # conditional, so the container is started for both legs and simply unused
+    # by the SQLite one — it costs a few seconds of pull, and the alternative is
+    # two near-identical jobs that drift apart.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: telemachus
+          POSTGRES_PASSWORD: telemachus
+          POSTGRES_DB: tmx
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
       - uses: Bogdanp/setup-racket@v1.15
@@ -25,17 +53,40 @@ jobs:
           version: stable
           variant: CS
           distribution: full
+
+      # Every suite honours a pre-set DATABASE_URL and defaults to SQLite when
+      # there is none, so the matrix is one variable and no test changes.
+      #
+      # Each HTTP smoke gets its OWN database on the Postgres leg, because
+      # `bootstrap!` is first-run-only: three smokes against one database would
+      # leave the second and third holding an EMPTY token and failing in ways
+      # that say nothing about Postgres. (On SQLite each smoke makes its own
+      # temp file already.)
+      - name: Postgres databases, one per suite
+        if: matrix.db == 'postgres'
+        env:
+          PGPASSWORD: telemachus
+        run: |
+          for d in tmx_unit tmx_smoke tmx_mt tmx_pull tmx_s3; do
+            psql -h 127.0.0.1 -U telemachus -d tmx -c "CREATE DATABASE $d" >/dev/null
+            echo "created $d"
+          done
+
       - name: Compile
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
           raco make server/main.rkt
+
       - name: Unit tests
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_unit' || '' }}
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
           # Glob, not an explicit list — a named list silently skips every new suite.
           # Must be `*-tests.rkt`: a bare `test/*.rkt` would pull in test/mock-*.rkt,
           # which are mock *servers* that block forever.
           raco test test/*-tests.rkt
+
       # pdftotext (poppler-utils) is a real dependency of the document-indexing
       # workflow — flake.nix pins it for the same reason. Without it the smoke's
       # `index-documents` run ends in `error`, deliberately: a missing extractor
@@ -44,18 +95,28 @@ jobs:
       # tolerate an environment the product does not.
       - name: Install poppler-utils (pdftotext)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+
       - name: Server smoke
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_smoke' || '' }}
         run: bash test/server-smoke.sh
+
       # Multi-tenancy is off by default, so the smoke run above already covers the
       # single-tenant path; this boots a second server WITH the flag and asserts the
       # cross-org isolation properties (and that the surface vanishes when off).
       # Its own ports (8836/8837) so it never races the smoke run's 8835.
       - name: Multi-tenancy demo
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_mt' || '' }}
         run: bash test/multitenant-demo.sh
+
       # A pull-model executor end to end: create it, run the reference worker
       # against the scripted mock model, route a chat through it (slice 66).
       - name: Pull executor smoke
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_pull' || '' }}
         run: bash test/pull-smoke.sh
+
       # Issue #25: the S3 endpoint was built against real aws-cli requests captured
       # on the wire, and since #19 the credential's secret is SEALED at rest, so
       # SigV4 unwraps it on every signed request. The suite skips silently without
@@ -67,23 +128,91 @@ jobs:
           unzip -q /tmp/awscliv2.zip -d /tmp
           sudo /tmp/aws/install --update
           aws --version
+
       - name: S3 endpoint smoke (sealed credential)
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_s3' || '' }}
         run: bash test/s3-smoke.sh
+
+      # The two gates below read the SOURCE, not the database, so running them on
+      # both legs would only buy a second identical answer.
+      #
       # The reference under docs/reference/ is generated from the source of truth
       # (tools, workflows, permissions, the route table, plugins) and COMMITTED;
       # this fails the build when a PR changes the code without regenerating.
       - name: Documentation drift gate
+        if: matrix.db == 'sqlite'
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
           racket cli/telemachus-docs.rkt check
+
       - name: Localization gate
+        if: matrix.db == 'sqlite'
         run: |
           export PLTCOLLECTS="$(pwd)/pkgs:"
           racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt static/ui-strings.json ../../docs/reference/strings.json --required en,ja
 
+      # Issue #89: every TELEMACHUS_* name the code reads must appear in the
+      # configuration reference, so the one table an operator configures a
+      # container from cannot quietly fall behind the code.
+      - name: Configuration reference gate
+        if: matrix.db == 'sqlite'
+        working-directory: .
+        run: bash scripts/check-config-reference.sh
+
+  # The container is what issue #89 is about: build it, then prove it actually
+  # serves against an EXTERNAL Postgres rather than only that it builds.
+  container:
+    name: OCI image + container smoke
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: telemachus
+          POSTGRES_PASSWORD: telemachus
+          POSTGRES_DB: telemachus
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      # Offline schema validation of the Kubernetes example — no cluster needed.
+      # `-strict` rejects unknown fields, so a misspelled key (the way a manifest
+      # usually rots) fails here rather than silently doing nothing in a cluster.
+      - name: Validate the Kubernetes manifests
+        working-directory: .
+        run: nix run nixpkgs#kubeconform -- -summary -strict deploy/k8s/telemachus.yaml
+
+      - name: Build the image
+        working-directory: .
+        run: |
+          nix build .#container --print-build-logs
+          docker load < result
+          docker image ls telemachus
+      # Non-root, read-only root filesystem, an external database and no bind
+      # mount for anything but the data volume: the posture the image promises.
+      #
+      # DATABASE_URL points at the service container above, which takes the
+      # script's host-networking branch. Without it the script would start a
+      # SECOND Postgres of its own — correct, and a wasted minute.
+      - name: Container smoke (external Postgres, read-only rootfs, non-root)
+        working-directory: .
+        env:
+          DATABASE_URL: postgres://telemachus:telemachus@127.0.0.1:5432/telemachus
+        run: bash scripts/container-smoke.sh
+
   e2e:
     name: E2E feature tour + catalog
     runs-on: ubuntu-latest
+    # Both matrix legs, so a dialect failure fails fast before the browser work.
     needs: racket
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +229,12 @@ jobs:
         run: |
           npm install
           npx playwright install --with-deps chromium chromium-headless-shell
+      # Deliberately SQLite only. These drive the console in a browser and assert
+      # on rendering, CSP and localized copy; the dialect is exercised by the
+      # matrix above, where a failure names the backend instead of arriving as a
+      # screenshot. Doubling the slowest job would buy a second opinion on the
+      # part of the stack that has no SQL in it.
+      #
       # The deploy gate: 52 assertions across the whole console, failing on any
       # 5xx and any uncaught page/console error. Runs BEFORE the tours because a
       # broken app should fail fast, and the tours would only photograph it.

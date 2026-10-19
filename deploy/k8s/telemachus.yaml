@@ -1,0 +1,187 @@
+# Telemachus on Kubernetes — a worked example, not a chart (issue #89).
+#
+#   kubectl create namespace telemachus
+#   kubectl -n telemachus create secret generic telemachus \
+#     --from-literal=database-url='postgres://user:pass@host:5432/telemachus' \
+#     --from-literal=secret-key="$(openssl rand -hex 32)" \
+#     --from-literal=secret="$(openssl rand -hex 32)"
+#   kubectl -n telemachus apply -f deploy/k8s/telemachus.yaml
+#
+# Deliberately plain YAML rather than a Helm chart: the issue asks for "a Helm
+# chart OR Kubernetes manifests example", and a chart's values.yaml would be a
+# second configuration surface to keep in step with docs/ops/configuration.md.
+# These manifests are readable as-is and templatable by whatever the reader
+# already uses.
+#
+# THE ONE THING TO KNOW BEFORE SCALING: `replicas: 1`, and the comment on it is
+# not boilerplate. Read it before changing that number.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: telemachus-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+  # Document bytes live here when TELEMACHUS_BLOB_STORE is the default `rs3`.
+  # Back this up together with the database: a restore that mixes a new database
+  # with an old volume leaves rows pointing at blobs that are not there. An
+  # S3-backed store (issue #82, unbuilt) is what removes this coupling.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: telemachus
+spec:
+  selector:
+    app: telemachus
+  ports:
+    - name: http
+      port: 8835
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemachus
+spec:
+  # ONE replica, on purpose, for two reasons that both have to be fixed before
+  # this number goes up:
+  #
+  #  1. the PVC above is ReadWriteOnce, so a second pod on another node cannot
+  #     mount it. With `rs3` the blob store is a local directory; two replicas
+  #     need a shared store, which is issue #82.
+  #  2. nothing here is a correctness problem for the DATABASE — the job
+  #     scheduler is safe to run in several processes (every claim is an atomic
+  #     `UPDATE … WHERE status='queued' RETURNING id`, and the graceful drain
+  #     hands back only the attempts THIS process holds, tracked in memory
+  #     rather than inferred from `executor_id IS NULL`, precisely so a restart
+  #     cannot steal a sibling's work).
+  #
+  # So the limit is storage, not concurrency.
+  replicas: 1
+  strategy:
+    # Not RollingUpdate while the PVC is ReadWriteOnce: the new pod would wait
+    # for a volume the old one still holds, and the rollout would stall.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: telemachus
+  template:
+    metadata:
+      labels:
+        app: telemachus
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532          # so the mounted volume is writable by that uid
+        seccompProfile:
+          type: RuntimeDefault
+      # Must be at least TELEMACHUS_DRAIN_SECONDS (25) or the drain is SIGKILLed
+      # halfway, leaving jobs `running` until their lease expires. The default is
+      # 30, which fits; it is spelled out so a later change to one is noticed
+      # against the other.
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: telemachus
+          image: telemachus:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8835
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          env:
+            # The image already sets TELEMACHUS_BIND=0.0.0.0, PORT, HOME and
+            # TELEMACHUS_DATA_DIR=/data. Everything here is a deployment choice.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: telemachus, key: database-url }
+            - name: TELEMACHUS_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: telemachus, key: secret-key }
+            - name: TELEMACHUS_SECRET
+              valueFrom:
+                secretKeyRef: { name: telemachus, key: secret }
+            # TLS is terminated by the Ingress; the pod network carries plaintext.
+            # With a secret key set and TLS in front, every startup check passes,
+            # so strict mode is safe to turn on — and an unattended deployment is
+            # exactly what it is for.
+            - name: TELEMACHUS_STRICT_STARTUP
+              value: "1"
+            - name: TELEMACHUS_DRAIN_SECONDS
+              value: "25"
+            # Point this at an in-cluster model service, or leave it unset and
+            # accept that the AI paths refuse (and say so at boot).
+            # - name: TELEMACHUS_MODEL_URL
+            #   value: http://vllm.models.svc.cluster.local:8000/v1/chat/completions
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # /tmp is not in the image, and the root filesystem is read-only:
+            # request bodies and the PDF toolchain both need a writable one.
+            - name: tmp
+              mountPath: /tmp
+          # httpGet, not exec: the probe then needs nothing inside the image, so
+          # it keeps working if curl is ever dropped from it. /health is
+          # `{ok, multitenant}` and nothing else (issue #11) — cheap, public, and
+          # the one endpoint that needs no token, which is what a probe wants.
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            # The first boot migrates the schema; on an empty Postgres that is 43
+            # transactions. Generous here rather than in livenessProbe, so a slow
+            # first start is not mistaken for a hung process later.
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            # The document pipeline's PDF path shells out to tectonic, which is
+            # memory-hungry on first run while it fetches its TeX bundle.
+            limits: { cpu: "2", memory: 2Gi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: telemachus-data
+        - name: tmp
+          emptyDir: {}
+---
+# TLS terminates here. The app sends HSTS only when TELEMACHUS_TLS=1, which is
+# for terminating IN the process; behind an Ingress, let the Ingress send it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: telemachus
+  annotations:
+    # Document uploads are capped by TELEMACHUS_MAX_UPLOAD (32 MiB) in the app;
+    # an Ingress with a smaller body limit would reject them first, with an
+    # error that says nothing about Telemachus.
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+spec:
+  rules:
+    - host: telemachus.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: telemachus
+                port:
+                  name: http
+  tls:
+    - hosts: [telemachus.example.com]
+      secretName: telemachus-tls
