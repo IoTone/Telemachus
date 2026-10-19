@@ -26,6 +26,12 @@
 (define port (string->number (or (getenv "MOCK_PORT") "8900")))
 (define call-file (or (getenv "MOCK_CALL_FILE") "/tmp/mock-call.json"))
 (define reply-file (getenv "MOCK_REPLY_FILE"))
+;; Answer every request with this status instead of 200, for a caller that needs
+;; to see what a worker does when the model endpoint is refusing (issue #93).
+;; A bad value is ignored rather than crashing the stub.
+(define forced-status
+  (let ([n (string->number (or (getenv "MOCK_STATUS") ""))])
+    (and (exact-integer? n) (>= n 100) (< n 600) n)))
 
 (define (chat-response parsed)
   (define table
@@ -114,7 +120,9 @@
                            [has-tool? (final-response)]
                            [else (tool-call-response)])))
     (write-string (string-append
-                   "HTTP/1.1 200 OK\r\n"
+                   (if forced-status
+                       (format "HTTP/1.1 ~a Refused\r\n" forced-status)
+                       "HTTP/1.1 200 OK\r\n")
                    "Content-Type: application/json\r\n"
                    "Content-Length: " (number->string (bytes-length payload)) "\r\n"
                    "Connection: close\r\n\r\n") out)
