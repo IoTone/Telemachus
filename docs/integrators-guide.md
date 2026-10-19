@@ -347,6 +347,50 @@ open "$BASE/api/x/integrator-demo/bundle/"     # after signing into the console
 `test/server-smoke.sh` asserts every one of those, so the example cannot rot
 silently.
 
+## 8b. Run it as a container
+
+Everything above describes a plugin inside the instance. If you are deploying
+Telemachus rather than extending it, the deployment surface is two pages:
+
+- **[ops/configuration.md](ops/configuration.md)** — every environment variable
+  and its default. There is no config file, and nothing is written at runtime:
+  an instance is configured entirely by its environment, which is what lets the
+  image run with a read-only root filesystem. A CI gate fails the build if the
+  code reads a variable that page does not document.
+- **[ops/container.md](ops/container.md)** — the OCI image, `compose.yaml` for
+  evaluation, and Kubernetes manifests.
+
+```sh
+nix build .#container && docker load < result    # on a Linux host
+docker run -d --read-only --tmpfs /tmp -v telemachus-data:/data \
+  -e DATABASE_URL='postgres://…' -e TELEMACHUS_SECRET_KEY="$(openssl rand -hex 32)" \
+  -p 8835:8835 --stop-timeout 30 telemachus:0.1.0
+```
+
+Four things about the image are worth knowing before you plan around it:
+
+1. **It ships no shell.** `docker exec … sh` does not work; debugging is
+   `docker logs` and the API. The only extra binary is `curl`, for the
+   healthcheck.
+2. **`/tmp` is not in it.** Pass `--tmpfs /tmp`, or the first upload fails.
+3. **Set the stop timeout to at least 30s.** On SIGTERM the instance drains —
+   in-flight jobs finish, and anything that does not is handed back to the queue
+   **un-charged**. `docker stop` allows 10 seconds by default and then SIGKILLs,
+   which leaves those jobs `running` until their lease expires.
+4. **`POST /api/bootstrap` is loopback-only** unless you set
+   `TELEMACHUS_BOOTSTRAP_SECRET` — from outside the container the caller is the
+   bridge gateway, not loopback.
+
+Set **`TELEMACHUS_STRICT_STARTUP=1`** for an unattended deployment: the checks
+that are advisory by default (no sealing key; plaintext HTTP on a public bind)
+then refuse to start instead of running degraded.
+
+**Blob storage is still local.** With the default `rs3` store, document bytes
+live in the `/data` volume, so back it up together with the database and do not
+expect to scale past one replica. An S3-compatible backend is
+[issue #82](https://github.com/IoTone/Telemachus/issues/82) and is not built;
+until it is, that coupling is the real constraint on how you deploy this.
+
 ## 9. Checklist for a first integration
 
 1. `nix develop`, then `raco make server/main.rkt` — Nix is the toolchain.

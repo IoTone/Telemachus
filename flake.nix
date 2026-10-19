@@ -16,6 +16,15 @@
       packages = forAll (pkgs: rec {
         telemachus = pkgs.callPackage ./nix/telemachus.nix { };
         default = telemachus;
+      } // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+        # The OCI image (issue #89) — Linux only, because an image's contents are
+        # Linux store paths. On a Mac, build it on a Linux host (or a remote
+        # builder); `nix build .#container` there produces the same bytes.
+        container = import ./nix/container.nix {
+          inherit pkgs;
+          telemachus = pkgs.callPackage ./nix/telemachus.nix { };
+          version = "0.1.0";
+        };
       });
 
       apps = forAll (pkgs:

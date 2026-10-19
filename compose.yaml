@@ -1,0 +1,151 @@
+# Local evaluation of Telemachus against the backends a real deployment uses
+# (issue #89): the app on managed-style Postgres, with a deterministic model stub
+# so the AI paths answer without a GPU or an API key.
+#
+#   nix build .#container && docker load < result     # on a Linux host
+#   docker compose up
+#   # then:
+#   curl localhost:8835/health
+#   curl -XPOST localhost:8835/api/bootstrap \
+#        -H 'X-Telemachus-Bootstrap: compose-evaluation-bootstrap' \
+#        -d '{"username":"ops","password":"pw-pw-pw1"}'
+#   # (the header is why TELEMACHUS_BOOTSTRAP_SECRET is set below — bootstrap is
+#   #  loopback-only, and from your shell the container is not loopback)
+#
+# This is for EVALUATION. Three things make it unsuitable as-is for production,
+# each called out at its line: the database password is in the file, no TLS
+# terminates in front of the app, and there is no backup of the `data` volume.
+#
+# On MinIO: issue #89 asks for it here, and it is deliberately absent. Telemachus
+# SERVES an S3 API (set TELEMACHUS_S3_PORT) but cannot yet STORE blobs in a
+# bucket — an S3-compatible blob-store backend is issue #82, unbuilt. A MinIO
+# container in this file today would be a service nothing talks to, which reads
+# as a broken example rather than a staged one. When #82 lands, add it here and
+# set TELEMACHUS_BLOB_STORE=s3.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: telemachus
+      # EVALUATION ONLY. In production this comes from a secret store, and the
+      # app reads it from a mounted file rather than an environment variable.
+      POSTGRES_PASSWORD: telemachus
+      POSTGRES_DB: telemachus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U telemachus -d telemachus"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # A deterministic OpenAI-compatible endpoint, so chat, the document pipeline
+  # and the knowledge graph all answer without a GPU or an API key. Without a
+  # model configured those refuse outright and /api/ai/chat returns a flagged
+  # upper-cased echo — correct, and confusing in a first-run evaluation.
+  #
+  # Deliberately NOT the telemachus image: that one ships no shell and no bare
+  # `racket` on PATH (see nix/container.nix), so it cannot host the repo's own
+  # test/mock-llm.rkt. A four-line stub in a stock image is honest about being a
+  # stub. To use a real model instead, delete this service and point
+  # TELEMACHUS_MODEL_URL at e.g. http://host.docker.internal:11434/v1/chat/completions.
+  model-stub:
+    image: python:3.12-alpine
+    command:
+      - python
+      - -c
+      - |
+        import json
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        REPLY = "This is a scripted reply from the compose model stub."
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                body = json.dumps({
+                    "choices": [{"message": {"role": "assistant", "content": REPLY}}],
+                    "usage": {"total_tokens": 12},
+                }).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *a): pass
+        HTTPServer(("0.0.0.0", 8900), H).serve_forever()
+    read_only: true
+    tmpfs: [/tmp]
+    user: "65534:65534"
+
+  telemachus:
+    image: telemachus:0.1.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # Overridable because 8835 is a common thing to already have running:
+      #   HOST_PORT=18835 docker compose up
+      # Deliberately NOT named TELEMACHUS_* — it configures compose, not the
+      # app, and the configuration-reference gate scans for that prefix.
+      - "${HOST_PORT:-8835}:8835"
+      # The S3 front door. Commented out because it is off unless
+      # TELEMACHUS_S3_PORT is set below — surface area should be asked for.
+      # - "8836:8836"
+    environment:
+      DATABASE_URL: postgres://telemachus:telemachus@postgres:5432/telemachus
+      # The image already sets TELEMACHUS_BIND=0.0.0.0, PORT, HOME and
+      # TELEMACHUS_DATA_DIR; everything here is a deployment's own choice.
+      TELEMACHUS_MODEL_URL: http://model-stub:8900/v1/chat/completions
+      TELEMACHUS_MODEL: mock
+      # Seals TOTP seeds and S3/executor keys at rest. 64 hex = the key itself.
+      # EVALUATION ONLY — generate your own with `telemachus-secrets keygen`.
+      TELEMACHUS_SECRET_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      TELEMACHUS_SECRET: compose-evaluation-secret
+      # POST /api/bootstrap is LOOPBACK-ONLY (issue #40): a fresh instance on a
+      # network otherwise belongs to whoever calls first. From your shell the
+      # container sees the bridge gateway, not loopback, so without this the
+      # documented first step — bootstrapping the first operator — is refused.
+      # EVALUATION ONLY: in production leave it unset and bootstrap over an SSH
+      # tunnel or `docker exec`, or set a real secret.
+      TELEMACHUS_BOOTSTRAP_SECRET: compose-evaluation-bootstrap
+      # Refuse to start on anything the startup checks consider wrong. Left ON
+      # here because this file supplies a secret key — the remaining advisory
+      # check is "plaintext HTTP on a non-loopback bind", and inside a compose
+      # network that is the intended posture, so it is waived with TLS below.
+      # TELEMACHUS_STRICT_STARTUP: "1"
+      #
+      # NO TLS TERMINATES HERE. For production put a reverse proxy in front and
+      # set TELEMACHUS_TLS=1 so HSTS is sent, or terminate in the proxy and bind
+      # this service to the internal network only.
+      TELEMACHUS_DRAIN_SECONDS: "25"
+    # The image is built to run this way: nothing is written outside /data.
+    read_only: true
+    # /tmp is not in the image. Request bodies and the PDF toolchain need it, and
+    # under read_only the container cannot make its own.
+    tmpfs:
+      - /tmp
+    volumes:
+      # Blobs, and the generated TLS cert if TELEMACHUS_TLS is turned on.
+      # NOT BACKED UP by anything here: document bytes live in this volume when
+      # TELEMACHUS_BLOB_STORE is the default `rs3`, so back it up alongside the
+      # database or the two will disagree after a restore.
+      - data:/data
+    # Must be at least TELEMACHUS_DRAIN_SECONDS, or the drain is SIGKILLed
+    # halfway — which is worse than not draining, because jobs are then left
+    # `running` until their lease expires. `docker stop` allows only 10s by
+    # default, which is why this is spelled out.
+    stop_grace_period: 30s
+    healthcheck:
+      # The image declares its own HEALTHCHECK; repeated here so `docker compose
+      # ps` shows it even when the image is replaced by a local build. The EXEC
+      # form, because the image ships no shell — a CMD-SHELL test here would
+      # report "unhealthy" for ever.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8835/health"]
+      interval: 15s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  pgdata:
+  data:
