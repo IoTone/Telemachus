@@ -20,8 +20,16 @@ NAME="telemachus-smoke-$$"
 PGNAME="telemachus-smoke-pg-$$"
 NET="telemachus-smoke-net-$$"
 fail=0
-assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1"; else echo "  FAIL $1 — expected: $3 — got: ${2:0:400}"; fail=1; fi; }
-refute(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  FAIL $1 — did NOT expect: $3"; fail=1; else echo "  ok   $1"; fi; }
+# Substring tests in pure bash, with NO pipe. The `printf … | grep -qF` idiom the
+# other smokes use is unsafe here because this script sets `pipefail`: grep -q
+# exits on the first match, printf then gets EPIPE, and pipefail promotes that to
+# the pipeline's status — so a SUCCESSFUL match reports FAIL, with a "write
+# error: Broken pipe" beside it. It bit the SBOM assertions, whose haystack is
+# large enough for the race to land.
+assert(){ case "$2" in *"$3"*) echo "  ok   $1";;
+                        *) echo "  FAIL $1 — expected: $3 — got: ${2:0:400}"; fail=1;; esac; }
+refute(){ case "$2" in *"$3"*) echo "  FAIL $1 — did NOT expect: $3"; fail=1;;
+                        *) echo "  ok   $1";; esac; }
 
 OWN_PG=0
 cleanup(){
@@ -88,6 +96,10 @@ if [ -n "${DATABASE_URL:-}" ]; then
   DOCKER_NET_ARGS="--network host"
   PUBLISH=""
   APP_PORT=8835
+  # Host networking means the caller shares the container's loopback, so the
+  # peer gate legitimately ADMITS an unauthenticated bootstrap. The refusal is
+  # only a meaningful assertion when the caller is genuinely remote.
+  LOOPBACK_CALLER=1
   echo "  (using the DATABASE_URL from the environment, host networking)"
 else
   OWN_PG=1
@@ -104,6 +116,9 @@ else
   DOCKER_NET_ARGS="--network $NET"
   PUBLISH="-p $PORT:8835"
   APP_PORT="$PORT"
+  # A published port on a bridge network: the container sees the gateway, not
+  # loopback, so the gate is live and testable.
+  LOOPBACK_CALLER=0
 fi
 
 # The posture the image is built for, asserted by RUNNING it that way: no writable
@@ -147,17 +162,26 @@ echo
 echo "== 3. the API works end to end, through the published port =="
 # POST /api/bootstrap is LOOPBACK-ONLY unless TELEMACHUS_BOOTSTRAP_SECRET is set
 # (issue #40) — a fresh instance on a network otherwise belongs to whoever calls
-# first. From the host the container sees the bridge gateway, not loopback, so
-# this exercises the documented escape rather than working around the gate.
-# Prove the gate is live before using the secret, or this assertion would pass
-# just as well on a build that had dropped it.
-assert "bootstrap refuses an unauthenticated stranger" \
-  "$(curl -s -X POST $B/api/bootstrap -d '{"username":"nope","password":"pw-pw-pw1"}')" \
-  'this host only'
+# first.
+#
+# Whether that gate is EXERCISABLE depends on how this run reached the
+# container, so the assertion is conditional rather than skipped or faked. Under
+# host networking the caller shares the container's loopback and is not a
+# stranger at all; asserting a refusal there would be asserting a bug. And it
+# must come FIRST where it applies, because a successful bootstrap is
+# first-run-only: one admitted call consumes it and every later assertion 401s,
+# which is exactly how this failed in CI.
+if [ "$LOOPBACK_CALLER" = 0 ]; then
+  assert "bootstrap refuses an unauthenticated stranger" \
+    "$(curl -s -X POST $B/api/bootstrap -d '{"username":"nope","password":"pw-pw-pw1"}')" \
+    'this host only'
+else
+  echo "  --   bootstrap refusal not applicable (host networking: the caller IS loopback)"
+fi
 TOK=$(curl -s -X POST $B/api/bootstrap -H 'X-Telemachus-Bootstrap: container-smoke-bootstrap' \
         -d '{"username":"ops","password":"pw-pw-pw1"}' \
       | python3 -c 'import sys,json;print(json.load(sys.stdin).get("token",""))')
-assert "…and mints a token with the secret"  "$TOK" 'tk_'
+assert "bootstrap mints a token"  "$TOK" 'tk_'
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
 # whoami answers with ids, permissions and the session policy — NOT a username.
 # Assert on the thing that proves the token is the operator's.
