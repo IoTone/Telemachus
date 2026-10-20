@@ -251,13 +251,25 @@
                      (list "-r" (number->string (ocr-dpi)) "-png"
                            "-l" (number->string (ocr-max-pages))
                            (path->string pdf) (path->string (build-path dir "pg")))))
+      ;; A LEXICOGRAPHIC sort is right here, and only because pdftoppm
+      ;; ZERO-PADS to the width of the document's highest page number: a
+      ;; 12-page scan gives pg-01…pg-12, not pg-1…pg-12, so every name is the
+      ;; same width and string order is page order. Measured, because the naive
+      ;; reading breaks at page 10 — unpadded, "pg-10" sorts before "pg-2" and
+      ;; the text of a long scan comes back shuffled with every span pointing
+      ;; into the wrong page. test/ocr-tests.rkt covers a 10-page document for
+      ;; exactly this boundary. Do not "simplify" this to a plain sort on the
+      ;; assumption that the names are numeric.
       (define pages
         (sort (for/list ([f (in-list (directory-list dir))]
                          #:when (regexp-match? #px"^pg.*\\.png$" (path->string f)))
                 f)
               string<? #:key path->string))
       (cond
-        [(null? pages) (values #f (if ok? 'failed 'failed) '())]
+        ;; pdftoppm failing and pdftoppm producing nothing are one answer: there
+        ;; are no pages to read, and the operator-fixable case (no binary at all)
+        ;; was already separated out as 'missing-tool before we got here.
+        [(null? pages) (values #f 'failed '())]
         [else
          ;; Accumulate across pages, carrying the running offset so every span's
          ;; start/end indexes into the ONE string this call returns.

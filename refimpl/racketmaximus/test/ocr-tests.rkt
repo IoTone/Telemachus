@@ -119,6 +119,25 @@
   bs)
 
 ;; A born-digital PDF: real text drawn as text, so pdftotext finds a layer.
+;; A multi-page PDF of numbered pages, for the page-ORDER boundary. Ten pages is
+;; the smallest count that exercises it: pdftoppm pads to the document's digit
+;; width, so this run produces pg-01…pg-10 and a lexicographic sort is page
+;; order — but if it ever stopped padding, "pg-10" would sort before "pg-02" and
+;; a long scan's text would come back shuffled. Numbered pages make that visible;
+;; identical pages would not.
+(define (numbered-pdf-bytes n)
+  (define tmp (make-temporary-file "tmx-ocr-mp-~a.pdf"))
+  (define dc (new pdf-dc% [interactive #f] [use-paper-bbox #f] [as-eps #f]
+                  [width 600] [height 200] [output tmp]))
+  (send dc start-doc "pages")
+  (for ([i (in-range n)])
+    (send dc start-page)
+    (send dc set-font (make-font #:size 48 #:family 'modern))
+    (send dc draw-text (format "PAGE ~a" (add1 i)) 40 40)
+    (send dc end-page))
+  (send dc end-doc)
+  (define bs (file->bytes tmp)) (delete-file tmp) bs)
+
 (define (text-pdf-bytes)
   (define tmp (make-temporary-file "tmx-ocr-text-~a.pdf"))
   (define dc (new pdf-dc% [interactive #f] [use-paper-bbox #f] [as-eps #f]
@@ -296,3 +315,29 @@
         (for ([sp (in-list spans)])
           (define w (substring text (hash-ref sp 'start) (hash-ref sp 'end)))
           (check-false (string=? (string-trim w) "")))))))
+
+;; ---- 8. page ORDER past the single-digit boundary -------------------------------
+(when (and HAVE-TESSERACT? HAVE-PDFTOPPM?)
+  (test-case "a ten-page scan comes back in page order, not lexicographic order"
+    ;; 72dpi: this reads ten pages and the words are 48pt, so the cheapest
+    ;; rasterisation that still reads keeps the suite quick.
+    (define saved (getenv "TELEMACHUS_OCR_DPI"))
+    (dynamic-wind
+      (lambda () (putenv "TELEMACHUS_OCR_DPI" "72"))
+      (lambda ()
+        (with-ocr
+          (lambda ()
+            (define-values (text reason spans) (read3 (numbered-pdf-bytes 10) "application/pdf"))
+            (check-false reason)
+            ;; The page numbers tesseract read, in the order they appear in the
+            ;; text. Shuffled filenames would show up here as 1,10,2,3,…
+            (define seen
+              (for/list ([m (in-list (regexp-match* #px"PAGE ([0-9]+)" (or text "")
+                                                    #:match-select cadr))])
+                (string->number m)))
+            (check-equal? seen '(1 2 3 4 5 6 7 8 9 10)
+                          (format "pages out of order: ~a (text ~s)" seen text))
+            ;; and the spans' own page numbers rise with the text
+            (define pages (remove-duplicates (map (lambda (s) (hash-ref s 'page)) spans)))
+            (check-equal? pages (sort pages <) "span pages must ascend with the offsets"))))
+      (lambda () (putenv "TELEMACHUS_OCR_DPI" (or saved ""))))))
