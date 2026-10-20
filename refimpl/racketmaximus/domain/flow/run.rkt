@@ -16,6 +16,10 @@
 ;; on every step against the principal the run pinned at start.
 
 (require db-kit/portable
+         ;; issue #83 slice 3: a run's bindings and a step's input/output are
+         ;; derived document content for the pipeline
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
+         (only-in "../../config.rkt" content-encryption-enabled?)
          racket/list
          racket/string
          json
@@ -33,6 +37,32 @@
          flow-advance! flow-step-execute!
          register-plugin-workflow! plugin-workflows
          FLOW-JOB-KIND)
+
+;; ---- sealing a run's bindings (issue #83 r1, slice 3) -----------------------------
+;; A run's `input`, each step's `input` and `output`, the run's `output`, and the
+;; `cursor_json` that carries bound values between steps are all DERIVED CONTENT
+;; for the document pipeline: the extracted fields, the rendered form, the
+;; translation. Sealed with the seam the extracted text and job payloads use,
+;; under the same opt-in switch and a per-row AAD.
+;;
+;; THESE FIVE COLUMNS WERE FOUND BY THE SCAN, not by enumeration:
+;; test/dump-leak-tests.rkt drives a real workflow and names every column still
+;; holding the fixture text. Two of them — `workflow_runs.output` and the note a
+;; tool wrote — were not on the list this slice started from.
+;;
+;; `cursor_json` is sealed even though a COMPLETED run wipes it to '{}': while the
+;; run is in flight it holds the bound values, and a dump taken mid-run is exactly
+;; the case this protects. The scan cannot see that (it only observes finished
+;; runs), which is a limit of the test and not a reason to leave the column.
+(define (run-input-ctx id) (string-append "workflow_runs.input:" id))
+(define (run-output-ctx id) (string-append "workflow_runs.output:" id))
+(define (run-cursor-ctx id) (string-append "workflow_runs.cursor:" id))
+(define (step-input-ctx id) (string-append "workflow_steps.input:" id))
+(define (step-output-ctx id) (string-append "workflow_steps.output:" id))
+
+(define (seal ctx s) (if (and (content-encryption-enabled?) (string? s)) (secret-wrap ctx s) s))
+;; never conditional on the switch — a row sealed while it was on must still open
+(define (unseal ctx s) (if (string? s) (secret-unwrap ctx s) s))
 
 (define FLOW-JOB-KIND "flow.step")
 (define FEATURE "workflows")
@@ -158,9 +188,14 @@
 
 (define (row->run r)
   (hasheq 'id (vr r 0) 'def_id (vr r 1) 'team_id (vr r 2) 'user_id (vr r 3)
-          'status (vr r 4) 'input (js (vr r 5))
-          'output (if (sql-null? (vr r 6)) 'null (js (vr r 6)))
-          'error (nz (vr r 7)) 'cursor (js (vr r 8)) 'steps_used (vr r 9)
+          ;; Unsealed here, which is the ONE read path for a run (#83 slice 3):
+          ;; every caller goes through row->run, so there is one place to get it
+          ;; right rather than a dozen.
+          'status (vr r 4) 'input (js (unseal (run-input-ctx (vr r 0)) (vr r 5)))
+          'output (if (sql-null? (vr r 6)) 'null (js (unseal (run-output-ctx (vr r 0)) (vr r 6))))
+          'error (nz (vr r 7))
+          'cursor (js (unseal (run-cursor-ctx (vr r 0)) (vr r 8)))
+          'steps_used (vr r 9)
           'created_at (vr r 10) 'started_at (nz (vr r 11)) 'finished_at (nz (vr r 12))
           'slug (nz (vr r 13))))
 
@@ -173,8 +208,9 @@
 (define (row->step r)
   (hasheq 'id (vr r 0) 'run_id (vr r 1) 'step_id (vr r 2) 'seq (vr r 3) 'status (vr r 4)
           'attempt (vr r 5) 'job_id (nz (vr r 6))
-          'input (if (sql-null? (vr r 7)) 'null (js (vr r 7)))
-          'output (if (sql-null? (vr r 8)) 'null (js (vr r 8)))
+          ;; …and the one read path for a step.
+          'input (if (sql-null? (vr r 7)) 'null (js (unseal (step-input-ctx (vr r 0)) (vr r 7))))
+          'output (if (sql-null? (vr r 8)) 'null (js (unseal (step-output-ctx (vr r 0)) (vr r 8))))
           'error (nz (vr r 9)) 'started_at (nz (vr r 10)) 'finished_at (nz (vr r 11))
           'parent_id (nz (vr r 12))))
 
@@ -231,7 +267,8 @@
     (string-append "INSERT INTO workflow_runs (id, def_id, team_id, user_id, status, input, cursor_json, started_at) "
                    "VALUES (?, ?, ?, ?, 'running', ?, ?, CURRENT_TIMESTAMP)")
     id (hash-ref def 'id) (principal-team-id p) (principal-user-id p)
-    (jsexpr->string input) (jsexpr->string (hasheq 'next (spec-start spec))))
+    (seal (run-input-ctx id) (jsexpr->string input))
+    (seal (run-cursor-ctx id) (jsexpr->string (hasheq 'next (spec-start spec)))))
   (audit! conn #:action "workflow.run" #:actor-type "user" #:actor-id (principal-user-id p)
           #:team-id (principal-team-id p) #:resource-type "workflows" #:resource-id (hash-ref def 'id)
           #:meta (jsexpr->string (hasheq 'run_id id 'slug (hash-ref def 'slug))))
@@ -276,7 +313,8 @@
 (define (finish! conn id status #:error [err #f] #:output [out #f])
   (query-exec conn
     "UPDATE workflow_runs SET status = ?, error = ?, output = ?, cursor_json = '{}', finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-    status (or err sql-null) (if out (jsexpr->string out) sql-null) id))
+    status (or err sql-null)
+    (if out (seal (run-output-ctx id) (jsexpr->string out)) sql-null) id))
 
 ;; ---- the reducer -------------------------------------------------------------
 ;; advance : (conn run-id) -> void. Reads state from the DB, decides, enqueues.
@@ -359,12 +397,13 @@
                                                'decided_ms (hash-ref rev 'decided_ms))))
         (query-exec conn
           "UPDATE workflow_steps SET status = 'done', output = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-          (jsexpr->string output) srow)
+          (seal (step-output-ctx srow) (jsexpr->string output)) srow)
         ;; `on` names a step per verdict; a null (or an absent branch) ends the run
         (define nxt (let ([v (hash-ref (hash-ref st 'on (hasheq)) (string->symbol verdict) 'null)])
                       (and (string? v) v)))
         (query-exec conn "UPDATE workflow_runs SET status = 'running', cursor_json = ? WHERE id = ?"
-                    (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq))) run-id)
+                    (seal (run-cursor-ctx run-id)
+                          (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq)))) run-id)
         (flow-advance! conn run-id)))))
 
 (set-resume-hook! resume-from-review!)
@@ -388,7 +427,8 @@
      (query-exec conn
        (string-append "INSERT INTO workflow_steps (id, run_id, step_id, seq, status, attempt, input, started_at) "
                       "VALUES (?, ?, ?, ?, 'running', 1, ?, CURRENT_TIMESTAMP)")
-       pid run-id map-id used (jsexpr->string (hasheq 'count (length items) 'over items)))
+       pid run-id map-id used
+       (seal (step-input-ctx pid) (jsexpr->string (hasheq 'count (length items) 'over items))))
      (query-exec conn "UPDATE workflow_runs SET steps_used = ? WHERE id = ?"
                  (+ used 1 (length items)) run-id)
      (cond
@@ -400,7 +440,7 @@
             (string-append "INSERT INTO workflow_steps (id, run_id, parent_id, step_id, seq, status, attempt, input) "
                            "VALUES (?, ?, ?, ?, ?, 'queued', 1, ?)")
             cid run-id pid (format "~a#~a" map-id i) (+ used 1 i)
-            (jsexpr->string (hasheq 'item v 'index i)))
+            (seal (step-input-ctx cid) (jsexpr->string (hasheq 'item v 'index i))))
           (enqueue-step! conn run cid))])]))
 
 ;; Children finish on different worker threads, so the "was I the last one?" read
@@ -423,13 +463,14 @@
             (define out (hasheq 'results (for/list ([k (in-list kids)]) (hash-ref k 'output))))
             (query-exec conn
               "UPDATE workflow_steps SET status = 'done', output = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-              (jsexpr->string out) parent-id)
+              (seal (step-output-ctx parent-id) (jsexpr->string out)) parent-id)
             (define rrow (run-row conn run-id))
             (when rrow
               (define run (row->run rrow))
               (define nxt (step-next (spec-of conn run) (step-ref (spec-of conn run) (hash-ref parent 'step_id))))
               (query-exec conn "UPDATE workflow_runs SET cursor_json = ? WHERE id = ?"
-                          (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq))) run-id)
+                          (seal (run-cursor-ctx run-id)
+                                (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq)))) run-id)
               (flow-advance! conn run-id))))))))
 
 (define (enqueue-step! conn run step-row-id)
@@ -483,13 +524,15 @@
                (define tmpl (map-template step))
                (define args (resolve-hash (hash-ref tmpl 'with (hasheq)) ctx))
                (query-exec conn "UPDATE workflow_steps SET input = ? WHERE id = ?"
-                           (jsexpr->string (hash-set (hash-ref st 'input) 'args args)) srow-id)
+                           (seal (step-input-ctx srow-id)
+                                 (jsexpr->string (hash-set (hash-ref st 'input) 'args args))) srow-id)
                (values (hasheq 'result (tool-run! conn p (substring (hash-ref tmpl 'uses "") 5) args)) 'child)]
               [else
                (case (step-kind step)
               [(tool)
                (define args (resolve-hash (hash-ref step 'with (hasheq)) ctx))
-               (query-exec conn "UPDATE workflow_steps SET input = ? WHERE id = ?" (jsexpr->string args) srow-id)
+               (query-exec conn "UPDATE workflow_steps SET input = ? WHERE id = ?"
+                           (seal (step-input-ctx srow-id) (jsexpr->string args)) srow-id)
                (define result (tool-run! conn p (step-tool-name step) args))
                (values (hasheq 'result result) (step-next spec step))]
               [(choice)
@@ -499,13 +542,14 @@
                  [else (error 'flow "unsupported step kind in '~a'" (hash-ref st 'step_id))])]))
           (query-exec conn
             "UPDATE workflow_steps SET status = 'done', output = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-            (jsexpr->string output) srow-id)
+            (seal (step-output-ctx srow-id) (jsexpr->string output)) srow-id)
           (cond
             ;; a child never moves the cursor — the parent does, once they are all in
             [(eq? next 'child) (complete-map! conn run-id (parent-of st))]
             [else
              (query-exec conn "UPDATE workflow_runs SET cursor_json = ? WHERE id = ?"
-                         (jsexpr->string (if next (hasheq 'next next) (hasheq))) run-id)
+                         (seal (run-cursor-ctx run-id)
+                               (jsexpr->string (if next (hasheq 'next next) (hasheq)))) run-id)
              (flow-advance! conn run-id)])
           output)])]))
 

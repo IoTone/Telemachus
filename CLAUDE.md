@@ -1461,8 +1461,35 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
   than producing red lines an operator has to triage. The default mode still runs
   them. `requirements` is deliberately not sealed — a claim filters on it in SQL
   and it holds no document content.
-- **`workflow_runs.input` / `workflow_steps` are still plaintext**, and the leak
-  test has a KNOWN-GAP case pinning that, which fails the day they are sealed.
+- **Slice 3 sealed the run bindings and the translations table** (ENC‑13…18), so
+  **r1 is complete**: `repo_text`, `jobs`, `workflow_runs.input`/`output`/
+  `cursor_json`, `workflow_steps.input`/`output`, and
+  `translations.source_text`/`result_text`.
+- **The scan beat the enumeration twice.** Slice 3's list did not include
+  `workflow_runs.output`; the scan found it. And `translations` was classified
+  with `notes` as user-facing content, which was WRONG — `doc_translate` calls
+  `translate!`, so a document's text lands in `source_text` on every pipeline
+  translation. The scan missed THAT because the probe did not translate: a scan
+  sees exactly what its fixture does, so extend the fixture before trusting a
+  green result.
+- **The line is: content the platform retains BY ITSELF is sealed; a tool's
+  deliberate product is not.** `notes.title` stays plaintext because a note
+  exists only when a workflow was told to write one. So #83's acceptance
+  criterion as literally written is unachievable — any tool can write content
+  anywhere — and what the test asserts instead is that no column the platform
+  fills by itself retains it.
+- **`cursor_json` is sealed although the scan cannot see it**: a completed run
+  wipes it to `'{}'`, so the scan only observes it empty, but mid-run it holds the
+  bound values and a dump taken then is the case this protects.
+- **Unsealing lives in `row->run` and `row->step` only.** Thirteen writes, two
+  reads — every caller goes through those projections, which is why the WRITES
+  are what the scan has to police.
+- **`object-processing` loses only hand-started runs with no derived document**
+  (it also finds runs via derivation rows and `doc_trigger_fires`), and reports
+  `runs_complete` rather than returning a silently short list.
+- **`doc-pipeline-smoke` passes with the switch on**, and the leak test checks a
+  run reached `done` BEFORE scanning — a broken engine writes fewer columns and
+  would pass a scan for the wrong reason.
 - **`(require "/abs/path.rkt")` is a bad module path**; an absolute path needs
   `(require (file "/abs/path.rkt"))`.
 
