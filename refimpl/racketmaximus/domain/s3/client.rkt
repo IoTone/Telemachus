@@ -282,42 +282,58 @@
 
 ;; A streaming, fully signed PUT. `digest` is both the key's last segment and the
 ;; payload hash — see the module header.
+;; NOT RETRIED, and this is the rule llm.rkt already states for a streamed model
+;; reply: once bytes have left, replaying is not a recovery.
+;;
+;; The reason here is concrete rather than stylistic. `in` is a ONE-SHOT input
+;; port — a socket, or a blob being read out of another store — so a second
+;; attempt would find it at EOF and send ZERO bytes while Content-Length promised
+;; `size` of them. The far end then waits for a body that never arrives, so the
+;; failure a retry produces is a HANG, which is strictly worse than the 500 it
+;; was trying to paper over. (This function was wrapped in `with-retries` when it
+;; was written, which would have done exactly that.)
+;;
+;; What to do instead is caller-shaped, and both callers already have an answer:
+;; repo-put! is driven by a request that can be made again, and
+;; cli/telemachus-blobs.rkt opens each file per blob and is resumable, so
+;; re-running `migrate` IS the retry. A retrying write would need the body as a
+;; re-openable thunk rather than a port, which is a seam change (DOC-5) and not
+;; this slice's to make.
 (define (s3-put-stream cfg key in size digest)
-  (with-retries cfg 'put
-    (lambda ()
-      (define-values (status headers body)
-        (s3-send cfg "PUT" key
-                 #:extra-headers (s3-sse-headers cfg)
-                 #:body in #:body-size size #:payload-hash digest))
-      (cond
-        [(and (>= status 200) (< status 300))
-         (close-input-port body)
-         ;; Requirement 2's teeth. The bucket, not us, decides what it stored, so
-         ;; the ANSWER is what gets checked — a bucket policy or a replication
-         ;; rule that drops encryption is invisible in the request we sent.
-         ;; The object HAS LANDED by the time we can check this, and it is left
-         ;; where it is rather than deleted. The response is the only source of
-         ;; truth about what the bucket did, so there is no way to check before
-         ;; writing; and quietly deleting an object we have just been told we do
-         ;; not understand would destroy the evidence an operator needs to see
-         ;; what their bucket policy actually did. So: refuse loudly, say the
-         ;; object exists, and let them look.
-         (when (s3-config-require-encryption? cfg)
-           (define got (header-ref headers "x-amz-server-side-encryption"))
-           (unless got
-             (s3-error status "unencrypted"
-                       (string-append "the bucket stored ~a WITHOUT reporting server-side "
-                                      "encryption, and TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION is on. "
-                                      "The object exists and may be in plaintext — it is left in "
-                                      "place deliberately so you can inspect it. Check the bucket's "
-                                      "default encryption and any policy that strips the header, or "
-                                      "set TELEMACHUS_S3_BLOB_SSE=none if plaintext is intended.")
-                       key)))
-         (void)]
-        [else
-         (define-values (code text) (drain-error status headers body))
-         (s3-error status code "PUT ~a failed: ~a ~a~a" key status code
-                   (if (string=? text "") "" (format " — ~a" text)))]))))
+  (let ()
+    (define-values (status headers body)
+      (s3-send cfg "PUT" key
+               #:extra-headers (s3-sse-headers cfg)
+               #:body in #:body-size size #:payload-hash digest))
+    (cond
+      [(and (>= status 200) (< status 300))
+       (close-input-port body)
+       ;; Requirement 2's teeth. The bucket, not us, decides what it stored, so
+       ;; the ANSWER is what gets checked — a bucket policy or a replication
+       ;; rule that drops encryption is invisible in the request we sent.
+       ;; The object HAS LANDED by the time we can check this, and it is left
+       ;; where it is rather than deleted. The response is the only source of
+       ;; truth about what the bucket did, so there is no way to check before
+       ;; writing; and quietly deleting an object we have just been told we do
+       ;; not understand would destroy the evidence an operator needs to see
+       ;; what their bucket policy actually did. So: refuse loudly, say the
+       ;; object exists, and let them look.
+       (when (s3-config-require-encryption? cfg)
+         (define got (header-ref headers "x-amz-server-side-encryption"))
+         (unless got
+           (s3-error status "unencrypted"
+                     (string-append "the bucket stored ~a WITHOUT reporting server-side "
+                                    "encryption, and TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION is on. "
+                                    "The object exists and may be in plaintext — it is left in "
+                                    "place deliberately so you can inspect it. Check the bucket's "
+                                    "default encryption and any policy that strips the header, or "
+                                    "set TELEMACHUS_S3_BLOB_SSE=none if plaintext is intended.")
+                     key)))
+       (void)]
+      [else
+       (define-values (code text) (drain-error status headers body))
+       (s3-error status code "PUT ~a failed: ~a ~a~a" key status code
+                 (if (string=? text "") "" (format " — ~a" text)))])))
 
 ;; -> input port, or #f for a miss. The port is live on the socket; the caller
 ;; closes it. A 404 is NOT an error here: the seam's contract is that `get`

@@ -18,7 +18,7 @@
 ;;
 ;;   raco test test/s3-client-tests.rkt
 
-(require rackunit racket/string racket/list racket/port
+(require rackunit racket/string racket/list racket/port racket/tcp
          "../domain/s3/client.rkt"
          (only-in "../domain/s3/sigv4.rkt"
                   sigv4-verify parse-authorization seconds->amz-date))
@@ -159,3 +159,71 @@
   (check-equal? (s3-request-target "/docs/k" '(("uploads" . ""))) "/docs/k?uploads")
   (check-equal? (s3-request-target "/docs/k" '(("partNumber" . "2") ("uploadId" . "a/b")))
                 "/docs/k?partNumber=2&uploadId=a%2Fb"))
+
+;; ---- 7. HOW MANY TIMES DOES IT ACTUALLY TRY? -----------------------------------
+;; A real listener that answers 500 to everything and COUNTS connections. No
+;; external service, but a real socket, so this measures the retry policy rather
+;; than reading it.
+;;
+;; The PUT case is the one that matters, and it is a bug this test was written to
+;; close: `s3-put-stream` was wrapped in `with-retries` when it was written. The
+;; body is a ONE-SHOT port, so the second attempt would have found it at EOF and
+;; sent zero bytes while Content-Length promised more — the far end then waits
+;; for a body that never arrives, which turns a 500 into a HANG. A write must
+;; therefore be attempted exactly once, however retryable the status looks.
+(define (with-counting-500-server proc)
+  (define listener (tcp-listen 0 8 #t "127.0.0.1"))
+  (define-values (_h port _ph _pp) (tcp-addresses listener #t))
+  (define connections (box 0))
+  (define stop? (box #f))
+  (define server
+    (thread
+     (lambda ()
+       (let loop ()
+         (unless (unbox stop?)
+           (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
+             (define-values (in out) (tcp-accept listener))
+             (set-box! connections (add1 (unbox connections)))
+             ;; Read the request head, then answer 500 without reading the body:
+             ;; a client that retries will come back on a NEW connection, which is
+             ;; what gets counted.
+             (let head ()
+               (define l (read-line in 'return-linefeed))
+               (unless (or (eof-object? l) (string=? l "")) (head)))
+             (write-string "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n" out)
+             (flush-output out)
+             (close-output-port out)
+             (close-input-port in))
+           (loop))))))
+  (dynamic-wind
+    void
+    (lambda () (proc port connections))
+    (lambda () (set-box! stop? #t)
+               (with-handlers ([(lambda (_) #t) void]) (tcp-close listener))
+               (kill-thread server))))
+
+(test-case "a GET retries, and a PUT is attempted exactly ONCE"
+  (with-counting-500-server
+    (lambda (port connections)
+      (define c (s3-config (format "http://127.0.0.1:~a" port) "b" "us-east-1" "p"
+                           "AK" "SK" "none" #f #f #t 3 10))
+      ;; GET: a 500 is the far end asking us to come back, so all three attempts
+      ;; are made and each is its own connection.
+      (set-box! connections 0)
+      (check-exn exn:fail:s3? (lambda () (s3-get-stream c "p/o/d")))
+      (check-equal? (unbox connections) 3
+                    (format "a GET should try 3 times, made ~a" (unbox connections)))
+
+      ;; PUT: exactly one, because the body cannot be re-sent.
+      (set-box! connections 0)
+      (define bs (make-bytes 4096 65))
+      (check-exn exn:fail:s3?
+                 (lambda () (s3-put-stream c "p/o/d" (open-input-bytes bs) 4096
+                                           "0000000000000000000000000000000000000000000000000000000000000000")))
+      (check-equal? (unbox connections) 1
+                    (format "a PUT must be attempted ONCE, made ~a" (unbox connections)))
+
+      ;; DELETE is idempotent and bodyless, so it retries like a GET.
+      (set-box! connections 0)
+      (check-exn exn:fail:s3? (lambda () (s3-delete c "p/o/d")))
+      (check-equal? (unbox connections) 3))))
