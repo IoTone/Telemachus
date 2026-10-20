@@ -1438,10 +1438,31 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
   The real failure is a rotated key or a restored dump, and a message echoing
   what it could not read puts in the log exactly what the column was sealed to
   keep out of the database.
-- **Acceptance criterion 1 is NOT yet met in full.** `jobs.payload`/`result` hold
-  the same text until #59's purge removes them, so a dump can still carry fixture
-  text. That is slice 2 — roughly eight SQL seams including the pull wire, where
-  the worker must receive plaintext.
+- **Slice 2 sealed `jobs.payload` and `jobs.result` too** (decisions ENC‑8…12),
+  so acceptance criterion 1 now holds for the paths a job and a document take.
+- **The work was found by a WHOLE-DATABASE SCAN, not by enumerating SQL sites.**
+  `test/dump-leak-tests.rkt` walks every table and column the schema has and names
+  what still contains the fixture text, with a CONTROL case proving the scanner
+  finds the needle when encryption is OFF — without that control the encrypted
+  case proves nothing. Write that test first for any future column; auditing your
+  own list of eleven sites is the check that passes because it never looked.
+- **A worker always receives PLAINTEXT.** It holds no key; `worker-claim!`
+  unseals before answering, so the wire is unchanged and a third-party worker
+  needs no change. `pull-smoke` passes with the switch on — run it that way after
+  touching the claim path.
+- **THREE read sites SWALLOW a parse failure, so "a missed unseal raises" is
+  false for them.** `run-claimed!` returns `(hasheq)` on a bad parse, so a missed
+  unseal hands the kind an EMPTY payload and the job runs on nothing; PULL‑9's and
+  PULL‑13's warrant checks answer `'not-in-job`, refusing a worker a document its
+  own job names. The leak scan cannot see either — which is why the same test also
+  asserts a job's RESULT is correct with encryption on.
+- **`server-smoke` is mode-aware** (`assert_content`): with the switch on it SKIPS
+  the three content-search assertions and says which capability is off, rather
+  than producing red lines an operator has to triage. The default mode still runs
+  them. `requirements` is deliberately not sealed — a claim filters on it in SQL
+  and it holds no document content.
+- **`workflow_runs.input` / `workflow_steps` are still plaintext**, and the leak
+  test has a KNOWN-GAP case pinning that, which fails the day they are sealed.
 - **`(require "/abs/path.rkt")` is a bad module path**; an absolute path needs
   `(require (file "/abs/path.rkt"))`.
 

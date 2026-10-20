@@ -456,7 +456,14 @@
                       ;; do not spend an hour on something about to be retried
                       ;; anyway. `attempt` is 0 on a first claim.
                       (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
-                              'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vector-ref row 2)))
+                              ;; UNSEALED before it goes on the wire (#83 r2). A
+                              ;; worker holds no key and could not decrypt; the
+                              ;; protection is of the database — a dump, a replica,
+                              ;; a snapshot — exactly as #19's claim is narrow about
+                              ;; defending a dump and not a host. The wire is
+                              ;; unchanged, so a third-party worker needs no change.
+                              'payload (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                                         (string->jsexpr (unseal-payload (vector-ref row 0) (vector-ref row 2))))
                               'claim_token token
                               'attempt (vector-ref row 4) 'max_attempts MAX-ATTEMPTS
                               'lease_until lease 'lease_seconds LEASE-SECONDS)))))))))
@@ -522,7 +529,7 @@
        [else
         (query-exec conn (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
                                         "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
-                    (jsexpr->string result) job-id)
+                    (seal-result job-id (jsexpr->string result)) job-id)
         (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
         ((scheduler-record!) conn team result)
         'ok])]))
@@ -627,8 +634,11 @@
     [(string=? object-id "") 'no-object]
     [else
      (define r (query-row conn "SELECT team_id, user_id, payload FROM jobs WHERE id = ?" job-id))
+     ;; Unsealed before the warrant check. The handler swallows, so a missed
+     ;; unseal here would answer 'not-in-job — safe, and wrong: the worker would
+     ;; be refused a document its own job names.
      (define payload (with-handlers ([exn:fail? (lambda (_) (hasheq))])
-                       (string->jsexpr (vector-ref r 2))))
+                       (string->jsexpr (unseal-payload job-id (vector-ref r 2)))))
      (cond
        [(not (member object-id (jsexpr-strings payload))) 'not-in-job]
        [else
@@ -698,8 +708,9 @@
        [(> (bytes-length bs) (max-upload-bytes)) 'too-large]
        [else
         (define r (query-row conn "SELECT team_id, user_id, payload FROM jobs WHERE id = ?" job-id))
+        ;; see the note on the read above: a missed unseal refuses rather than raises
         (define payload (with-handlers ([exn:fail? (lambda (_) (hasheq))])
-                          (string->jsexpr (vector-ref r 2))))
+                          (string->jsexpr (unseal-payload job-id (vector-ref r 2)))))
         (cond
           [(not (member source-id (jsexpr-strings payload))) 'not-in-job]
           [else
@@ -865,7 +876,7 @@
     (define st (vector-ref r 0))
     (cond
       [(equal? st "done")
-       (define res (string->jsexpr (vector-ref r 1)))
+       (define res (string->jsexpr (unseal-result id (vector-ref r 1))))
        ;; a worker may answer with `reply` or with content parts (issue #18); the
        ;; validator has already refused parts that carry no text
        (define reply

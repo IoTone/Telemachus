@@ -38,6 +38,22 @@ assert(){ # <label> <haystack> <needle>
   if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1"; else echo "  FAIL $1 — expected to contain: $3 — got: $2"; fail=1; fi
 }
 
+# Issue #83: with TELEMACHUS_ENCRYPT_CONTENT on, the extracted text is sealed and
+# CONTENT SEARCH is unavailable by design — the match is a SQL LIKE over that
+# column. Three assertions below depend on it, so they are skipped in that mode
+# rather than left to fail: a suite that reports four red lines an operator has to
+# triage into "expected" and "not" is worse than one that says which capability is
+# off. The skip is LOUD, because a silent one is how a gap hides (issue #25).
+CONTENT_SEARCH=1
+case "${TELEMACHUS_ENCRYPT_CONTENT:-}" in 1|yes|true|on) CONTENT_SEARCH=0;; esac
+[ "$CONTENT_SEARCH" = 0 ] && echo "  note TELEMACHUS_ENCRYPT_CONTENT is on — content-search assertions are SKIPPED (#83 ENC-2)"
+
+# <label> <haystack> <needle>, run only when document content is searchable.
+assert_content(){
+  if [ "$CONTENT_SEARCH" = 1 ]; then assert "$1" "$2" "$3"
+  else echo "  skip $1 — content search is off (TELEMACHUS_ENCRYPT_CONTENT)"; fi
+}
+
 # <label> <haystack> <needle-that-must-be-ABSENT>. The other smokes have had this
 # for a while and this one did not, so a `refute` written here ran as an unknown
 # command: bash said "command not found" on stderr, nothing set `fail`, and the
@@ -153,7 +169,7 @@ assert "audit member403" "$(curl -s $B/api/audit -H "Authorization: Bearer $BOB"
 assert "search note"     "$(curl -s "$B/api/search?q=Secret" -H "Authorization: Bearer $OP")" '"type":"note"'
 assert "doc created"     "$(curl -s -X POST $B/api/documents -H "Authorization: Bearer $OP" -d '{"title":"Spec","content":"the master plan","visibility":"team"}')" '"title":"Spec"'
 assert "doc list page"   "$(curl -s $B/api/documents -H "Authorization: Bearer $OP")" '"next_offset"'
-assert "doc search"      "$(curl -s "$B/api/search?q=master" -H "Authorization: Bearer $OP")" '"type":"document"'
+assert_content "doc search"      "$(curl -s "$B/api/search?q=master" -H "Authorization: Bearer $OP")" '"type":"document"'
 # async jobs: submit a chat job (fallback model), poll the worker pool to completion
 JOB=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"chat","payload":{"prompt":"hello jobs"}}')
 assert "job queued"      "$JOB" '"status":"queued"'
@@ -633,7 +649,7 @@ done
 # the PDF uploaded further up reports 'missing-tool and fails the run ON PURPOSE.
 [ "$idxs" = done ] || idxs="$idxs — $(printf '%s' "$idxjson" | grep -oP '"error":"\K[^"]*' | head -1)"
 assert "index-documents run completed" "$idxs" "done"
-assert "search now matches the document's CONTENT" \
+assert_content "search now matches the document's CONTENT" \
   "$(curl -s "$B/api/search?q=wombat" -H "Authorization: Bearer $OP")" 'plans/forecast.md'
 
 # ---- LAY-4/LAY-5: what a team asserts, and where the text came from ---------------
@@ -732,7 +748,7 @@ for i in $(seq 1 40); do
   sleep 0.5
 done
 assert "the indexing run completed" "$rtfs" "done"
-assert "a format only a PLUGIN can read is searchable" \
+assert_content "a format only a PLUGIN can read is searchable" \
   "$(curl -s "$B/api/search?q=aqueduct" -H "Authorization: Bearer $OP")" 'surveys/report.rtf'
 rm -f /tmp/tmx-smoke-rtf.rtf
 
@@ -805,7 +821,12 @@ assert "…and it is fresh per response"      "$([ "$N1" != "$N2" ] && echo diff
 
 # ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
 assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'
-assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'
+# Inapplicable when a key IS configured, which TELEMACHUS_ENCRYPT_CONTENT requires.
+if [ -n "${TELEMACHUS_SECRET_KEY:-}" ]; then
+  echo "  skip …plaintext when no key is configured — a key is set in this run"
+else
+  assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'
+fi
 TFA=$(curl -s -X POST $B/api/2fa/enable -H "Authorization: Bearer $OP")
 assert "2fa enable returns the seed once"     "$TFA" '"secret":'
 # issue #26: enrolling hands out the way back in at the same time
