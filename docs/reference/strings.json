@@ -58,6 +58,7 @@
   "doc.plugin.example-tools": "A sample third-party plugin: adds a word_count tool.",
   "doc.plugin.integrator-demo": "The worked example for docs/integrators-guide.md: a tool, an authenticated route, a background job kind and a themed screen.",
   "doc.plugin.knowledge-graph": "A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed.",
+  "doc.plugin.ocr": "Reads text out of photographs and scanned PDFs with Tesseract, with per-word page and region provenance.",
   "doc.plugin.rs3": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
   "doc.plugin.translate-chat": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
   "doc.route.delete.api.2fa": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",

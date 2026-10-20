@@ -67,7 +67,7 @@ jobs:
         env:
           PGPASSWORD: telemachus
         run: |
-          for d in tmx_unit tmx_smoke tmx_mt tmx_pull tmx_s3; do
+          for d in tmx_unit tmx_smoke tmx_mt tmx_pull tmx_s3 tmx_ocr; do
             psql -h 127.0.0.1 -U telemachus -d tmx -c "CREATE DATABASE $d" >/dev/null
             echo "created $d"
           done
@@ -93,8 +93,18 @@ jobs:
       # is an operator-fixable fault the engine refuses to swallow. The runner
       # image does not ship it, so install it here rather than teach the test to
       # tolerate an environment the product does not.
-      - name: Install poppler-utils (pdftotext)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+      # pdftotext AND pdftoppm (the OCR extractor rasterises a scan's pages with
+      # it), plus the OCR engine itself. Installed rather than tolerated absent:
+      # test/ocr-tests.rkt skips its engine cases without tesseract and SAYS so,
+      # and a suite that skips quietly is how the s3 path went unexercised for a
+      # year (issue #25). `-eng` is a separate package from the engine on Debian;
+      # without it tesseract runs and reads nothing.
+      - name: Install poppler-utils (pdftotext, pdftoppm) and tesseract
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            poppler-utils tesseract-ocr tesseract-ocr-eng
+          tesseract --version | head -1
 
       - name: Server smoke
         env:
@@ -116,6 +126,16 @@ jobs:
         env:
           DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_pull' || '' }}
         run: bash test/pull-smoke.sh
+
+      # Issue #92's ACCEPTANCE CRITERIA over HTTP: a photograph and a scanned PDF
+      # uploaded through the repository front door, OCR'd by the indexing
+      # workflow as a real scheduler job, and found by search with per-word page
+      # and region provenance. test/ocr-tests.rkt proves the extractor; this
+      # proves the path, which no unit test reaches.
+      - name: OCR smoke (photograph + scanned PDF, end to end)
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_ocr' || '' }}
+        run: bash test/ocr-smoke.sh
 
       # Issue #25: the S3 endpoint was built against real aws-cli requests captured
       # on the wire, and since #19 the credential's secret is SEALED at rest, so

@@ -96,6 +96,27 @@ Conventions used throughout:
 | `TELEMACHUS_OOP` | `<impl>/oop.json` | Out-of-process (sandboxed) plugin config file. |
 | `TELEMACHUS_LOCALES` | `locales` | Directory of `*.json` catalogs. The export **writes** here, so point it at a writable copy in a test. |
 
+## OCR (the `ocr` plugin, issue #92)
+
+Reading text out of photographs and scanned PDFs. **Off unless you turn it on**,
+because enabling it replaces the platform's own PDF reader for the whole
+instance — see [the OCR notes](#ocr-the-ocr-plugin-issue-92) below the table.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TELEMACHUS_OCR` | off | Boolean (`1`/`yes`/`true`/`on`). Claims `image/jpeg,png,tiff,bmp,webp,x-portable-pixmap` **and `application/pdf`**, so a scan is OCR'd instead of reported `needs-ocr`. Set with no `tesseract` on PATH, the plugin **fails to load and says why** rather than answering `missing-tool` on every scan; `TELEMACHUS_PLUGINS_STRICT=1` turns that into a refusal to start. |
+| `TELEMACHUS_OCR_LANGUAGES` | `eng` | Passed to tesseract as-is, so `eng+spa` for two. `tesseract --list-langs` is the authority on a box; the nixpkgs build bundles 129. |
+| `TELEMACHUS_OCR_MAX_PAGES` | `20` | Pages of a scanned PDF to read. Enforced **in `pdftoppm`**, so a 400-page scan is not rendered and then discarded. Nonsense or non-positive falls back to the default, never 0. |
+| `TELEMACHUS_OCR_TIMEOUT` | `120` | Seconds for one engine call, per page. The call runs under its own custodian, so a timeout takes the child and its pipes with it. |
+| `TELEMACHUS_OCR_DPI` | `150` | Resolution a PDF page is rasterised at before OCR. Higher reads small print better and costs time and memory on every page. |
+
+A PDF's **text layer is tried first** and only a PDF with none is rasterised: a
+born-digital PDF carries exact text where OCR guesses, so the order is
+load-bearing rather than an optimisation. Extracted text arrives with per-word
+**page and region provenance** (LAY-5 spans), which `GET
+/api/repo-obj/<id>/spans?at=<offset>` resolves — this is the first reader that
+fills them.
+
 ## Multi-tenancy and hosted mode
 
 | Variable | Default | What it does |

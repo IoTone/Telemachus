@@ -12,6 +12,7 @@ A plugin is a directory under `plugins/` with a `plugin.json` manifest (`id`, `n
 | Example Tools (`example-tools`) | 0.1.0 | `word_count` | — | `GET /word-count`, `POST /word-count` | `x.example-tools.word-count` | `application/rtf` | A sample third-party plugin: adds a word_count tool. |
 | Integrator demo (`integrator-demo`) | 0.1.0 | `shipment_eta` | — | `GET /eta`, `POST /eta` | `x.integrator-demo.lane-report` | — | The worked example for docs/integrators-guide.md: a tool, an authenticated route, a background job kind and a themed screen. |
 | Knowledge Graph (`knowledge-graph`) | 0.1.0 | — | `index-knowledge` | — | — | — | A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed. |
+| OCR (`ocr`) | 0.1.0 | — | — | — | — | — | Reads text out of photographs and scanned PDFs with Tesseract, with per-word page and region provenance. |
 | rs3 — local content-addressed blob store (`rs3`) | 0.1.0 | — | — | — | — | — | Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository. |
 | Translate Chat (`translate-chat`) | 0.1.0 | `chat_message`, `translate_text` | `translate-chat` | — | — | — | A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language. |
 

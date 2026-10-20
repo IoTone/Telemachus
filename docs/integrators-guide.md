@@ -305,6 +305,22 @@ or image pixels.
 (values text #f (list (hasheq 'start 0 'end 11 'page 1 'bbox '(72 690 180 702))))
 ```
 
+**There is now a shipped one to read: `plugins/ocr/`** (issue #92). It claims the
+image types plus `application/pdf`, pipes the image to Tesseract on stdin, and is
+the first reader in the tree that fills these spans — per-word page and bounding
+box, which `GET /api/repo-obj/<id>/spans?at=<offset>` resolves. Three things in it
+are worth copying rather than rediscovering:
+
+- it is **opt-in** on `TELEMACHUS_OCR`, because claiming `application/pdf`
+  replaces the reader for the whole instance and a takeover nobody asked for is
+  the wrong kind of surprise;
+- it tries the **text layer first** and rasterises only a PDF that has none — a
+  born-digital PDF carries exact text where OCR guesses;
+- it builds the text **from the same engine output the spans come from**, in one
+  run. Two runs can segment a page differently, and since these offsets index
+  into the text *that call* returned, mixing them yields provenance that points
+  at the wrong characters — wrong in a way "is there any text?" cannot detect.
+
 This is what turns review from "source on the left, output on the right" into
 *click the extracted value and jump to the region it was read from* — the single
 biggest lever on a reviewer's time. Two values remain entirely valid: provenance

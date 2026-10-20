@@ -27,7 +27,24 @@
 # tmpfs. compose.yaml, the k8s manifests and scripts/container-smoke.sh all do,
 # and docs/ops/container.md says so — a missing /tmp surfaces as a confusing
 # failure in the first request that buffers an upload.
-{ pkgs, telemachus, version }:
+# `extraPath` adds packages to the image's contents AND to the server's PATH.
+# It exists for ONE case that the stock image cannot otherwise reach: OCR
+# (issue #92) needs `tesseract`, whose closure with all 129 bundled language
+# files is 1.1 GiB against this image's 1.74 GB — +63% for a feature that is off
+# by default, so it is not shipped. An integrator who wants it overrides with the
+# languages they actually use (English alone is 129 MiB, +7%) rather than
+# maintaining a second image, which is what DEPLOY-12 declined for the slim
+# variant. docs/ops/container.md carries the recipe.
+#
+# An EMPTY extraPath is inert: `contents ++ [ ]` and `rootPaths ++ [ ]` are the
+# same lists, and the PATH string is character-identical, because
+# concatMapStringsSep over [] is "" and optionalString false is "" (checked, not
+# assumed). It does NOT mean this branch's image matches an older one — the image
+# now contains the ocr plugin, so of course it differs. Do not try to establish
+# that by comparing .drv paths from `--impure` evaluations: `<nixpkgs>` can
+# resolve to a moving channel, so two evaluations of ONE expression disagree and
+# the comparison means nothing.
+{ pkgs, telemachus, version, extraPath ? [ ] }:
 
 let
   uid = 65532;
@@ -57,7 +74,7 @@ let
   # Not full SPDX — it is a flat, sorted inventory of every store path that ships,
   # with the name and version Nix parsed out of each. That is the claim it makes,
   # and it is verifiable: `nix path-info -r` on the package gives the same list.
-  closure = pkgs.closureInfo { rootPaths = [ telemachus pkgs.curl pkgs.cacert etc ]; };
+  closure = pkgs.closureInfo { rootPaths = [ telemachus pkgs.curl pkgs.cacert etc ] ++ extraPath; };
 
   sbom = pkgs.runCommand "telemachus-sbom.json" { nativeBuildInputs = [ pkgs.jq ]; } ''
     mkdir -p $out/share/telemachus
@@ -100,7 +117,7 @@ pkgs.dockerTools.buildLayeredImage {
     # tool the image does not ship is a healthcheck that reports "unhealthy"
     # forever, which is worse than none.
     pkgs.curl
-  ];
+  ] ++ extraPath;
 
   # /data is created in `etc` above so it exists with the right owner even when
   # nothing is mounted over it — otherwise a plain `docker run` with no volume
@@ -131,7 +148,13 @@ pkgs.dockerTools.buildLayeredImage {
       "TELEMACHUS_BIND=0.0.0.0"
       "PORT=8835"
       "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-      "PATH=${pkgs.curl}/bin:${telemachus}/bin"
+      # extraPath comes FIRST so an operator-supplied tool wins over anything of
+      # the same name in the package wrapper, and it is on PATH at all because
+      # the OCR extractor resolves `tesseract` with find-executable-path at call
+      # time (DWF-6's rule) rather than being handed a store path.
+      "PATH=${pkgs.lib.concatMapStringsSep ":" (p: "${p}/bin") extraPath}${
+         pkgs.lib.optionalString (extraPath != [ ]) ":"
+       }${pkgs.curl}/bin:${telemachus}/bin"
       # Under an orchestrator the stop signal arrives with a deadline;
       # 25s fits inside Kubernetes' default 30s grace period. See
       # domain/sched/scheduler.rkt's drain-seconds.

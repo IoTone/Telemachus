@@ -1,0 +1,7 @@
+{
+  "id": "ocr",
+  "name": "OCR",
+  "version": "0.1.0",
+  "description": "Reads text out of photographs and scanned PDFs with Tesseract, with per-word page and region provenance.",
+  "entry": "main.rkt"
+}
