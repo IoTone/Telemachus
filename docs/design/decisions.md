@@ -649,6 +649,48 @@ variant without it is possible and would save roughly a quarter. Not built here:
 it is a second image to keep in step for a 23% saving against a floor that
 dominates either way.
 
+## Reading scans and photographs (OCR) — **decided and BUILT 19 Oct 2026** (issue #92)
+
+An integrator running Telemachus headless as a document-processing service feeds
+it phone photographs and scanned PDFs. Those were the two inputs the platform
+could not read: `image/*` was `'unsupported` and a PDF with no text layer was
+`'needs-ocr` (LAY‑8) — both the right answer, and both a dead end. LAY‑8 was
+built as this slice's prerequisite, because until a scan could be *told apart*
+from a blank page nothing could decide which documents needed an engine.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **OCR‑1** | Where the engine lives | **An in-process Racket extractor that shells out** · vs the out-of-process JSON-RPC plugin the issue suggests · vs a new job kind | LAY‑7 already settled this and its own comment names the case: "a plugin wrapping YomiToku or PaddleOCR is a few lines of Racket around a subprocess", and the built-in PDF reader is a pipe to `pdftotext`. LAY‑6's out-of-process seam is for a plugin acting as a TOOL, bytes shipped to it. Building this over JSON-RPC would mean a second extractor mechanism for one format, with the platform's cap, timeout, `'failed` containment and ownership rules all re-implemented on the far side. |
+| 🔑 **OCR‑2** | How a scan stops being a dead end | **Claim `application/pdf`, which REPLACES the built-in reader** · vs a retry queue for `'needs-ocr` rows · vs a second pass in the indexer | Registering a type the platform already reads replaces its reader — LAY‑7's stated purpose. So requirement 5 needs no new machinery at all: no retry table, no state to reconcile, no second code path that can disagree with the first. |
+| 🔑 **OCR‑3** | Text layer or pixels | **`pdftotext` FIRST; rasterise only a PDF with no layer** · vs always OCR for one code path · vs trust the content type | A born-digital PDF carries exact text where OCR guesses, and rasterising it is both slower and worse. The ORDER is load-bearing rather than an optimisation, and `test/ocr-tests.rkt` pins it by asserting a text-layer read produces **no spans** — spans would prove the page had been rasterised. |
+| 🔑 **OCR‑4** | On by default? | **OFF unless `TELEMACHUS_OCR` is set** · vs on whenever `tesseract` is on PATH · vs a per-team setting | OCR‑2's power is the hazard: a reader that takes over PDF extraction for the whole instance because a binary happens to be installed is the shape of mistake the blob-store check refuses to make. #92 asks for "selectable per instance via config", so selection is explicit and the default is today's behaviour exactly. Measured consequence: the full unit suite is **1135 tests, unchanged**, because nothing registers without the switch. |
+| **OCR‑5** | Enabled but unusable | **`init!` RAISES, so the plugin is reported failed** · vs register anyway and answer `'missing-tool` · vs log a warning | The operator asked for OCR. Answering `'missing-tool` on every scan while the boot log says nothing is how a deployment concludes the feature is broken. A raise is reported by the plugin-failure surface (#48) and `TELEMACHUS_PLUGINS_STRICT=1` escalates it to a refusal to start, which is what an unattended deployment wants. |
+| 🔑 **OCR‑6** | Where the text comes from | **Built FROM the TSV rows, one engine run** · vs a `txt` run for text and a `tsv` run for regions | LAY‑5's offsets index into "the text this same call returned". Two runs can segment a page differently, so text from one and spans from the other is a provenance record that quietly points at the wrong characters — wrong in a way no test that checks only "is there text" would see. `test/ocr-tests.rkt` asserts every span's `substring` is its own word. |
+| **OCR‑7** | Orientation | **`--psm 1`, content-based OSD** · vs reading EXIF · vs both | Strictly better than EXIF, not merely easier: leptonica does not apply an EXIF rotation, and a page fed through a scanner sideways has no EXIF to read. Detecting rotation from the content covers both cases with one flag. |
+| **OCR‑8** | How the image reaches the engine | **STDIN** · vs a temp file path | `tesseract - -` the way the built-in pipes to `pdftotext`. A temp file also did not work: handed a path, leptonica picks its decoder from the FILENAME, so a suffix-less temp file exits 1 with the PNG's own magic bytes appearing where a filename belongs (having failed to decode it, tesseract falls back to reading the file as a list of image paths). Stdin has none of these questions and leaves nothing behind when a job is cancelled mid-read. |
+| **OCR‑9** | An image with no text | **An honest EMPTY, never `'needs-ocr`** · vs `'failed` · vs `'unsupported` | `'needs-ocr` means "a reader that can do OCR would get further", and here that reader has just run — returning it would offer the document to the indexer forever. A photograph of a wall genuinely has no text, and that is a successful read of nothing. |
+| **OCR‑10** | Bounding the work | **Pages capped in `pdftoppm`, a per-page timeout under its own custodian** · vs capping after rendering · vs no bound | This is the one extractor whose cost scales with its input. `-l` bounds the work in the renderer rather than rendering 400 pages to read 20, and the timeout's custodian takes the child and its pipes with it — killing the waiting thread alone leaves the subprocess alive, the measured mistake `llm.rkt` documents for HTTP. |
+
+**What is NOT built, and why** — rather than implied:
+
+- **Requirement 2's per-page derived JSON object** (page, text, confidence as a
+  document beside the source). The extractor seam is
+  `(in content-type) -> (values text reason spans)`: it cannot write a document,
+  and widening it so one reader can would hand every plugin extractor the ability
+  to write into the repository. The provenance half IS built — per-word page and
+  bbox through LAY‑5's spans, which this is the first reader to fill — but
+  per-word CONFIDENCE is dropped by `clean-spans`, whose shape is `start`/`end`/
+  `page`/`bbox`. A derived object wants a tool or a workflow step, not this seam.
+- **HEIC**, which needs `libheif` to become a PNG first. Claiming a type we would
+  answer `'failed` for is worse than leaving it `'unsupported`, which is true.
+- **A max-PIXELS bound** (requirement 6 asks for pages AND pixels). Pages, a
+  per-page timeout and the team's existing job quota all bound it today; a pixel
+  ceiling needs the image decoded to be measured, which is most of the cost.
+- **A two-page TIFF fixture** (requirement 7). Tesseract pages multi-page TIFF
+  natively and the page-numbering path is covered by a two-page PDF, but
+  `racket/draw` cannot WRITE multi-page TIFF, so the fixture would need a
+  committed binary — which is what the generated-fixture rule exists to avoid.
+
 ## A deferred job is visible (QUOTA‑3) — **decided and BUILT 14 Oct 2026** (issue #55)
 
 Deferring an over-budget team's jobs is right and stays. Being **silent** about

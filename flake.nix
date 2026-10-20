@@ -43,7 +43,16 @@
             sqlite          # the default backend, plus its CLI for poking at a DB
             postgresql      # the OTHER dialect: migrations must pass on both
             openssl         # TELEMACHUS_TLS=1 shells out to it for a self-signed cert
-            poppler-utils   # pdftotext — PDF text extraction for the search index (slice 54)
+            poppler-utils   # pdftotext — PDF text extraction for the search index (slice 54);
+                            # ALSO pdftoppm, which is how the OCR extractor renders a
+                            # scanned PDF's pages to images (issue #92). One dependency
+                            # covering both is why ocrmypdf is not here: it would add a
+                            # Python application to do what two pinned binaries already do.
+            tesseract       # the OCR engine (issue #92). The nixpkgs build bundles 129
+                            # language files, so #92's "at least eng, spa" needs no
+                            # override — `tesseract --list-langs` is the authority.
+                            # Found with find-executable-path at CALL time (DWF-6), so a
+                            # box without it boots and every other format still reads.
             curl python3    # every demo script uses both
             awscli2         # test/s3-smoke.sh drives the REAL client (issue #25) — the
                             # endpoint was built against aws-cli requests captured on

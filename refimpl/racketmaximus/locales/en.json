@@ -127,6 +127,14 @@
       "text": "Delete a team.",
       "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
     },
+    "doc.plugin.ocr": {
+      "text": "Reads text out of photographs and scanned PDFs with Tesseract, with per-word page and region provenance.",
+      "hash": "4dd6c30cfb3a60fd83ac3f1696330bd4bc6c45d4"
+    },
+    "doc.route.post.api.jobs": {
+      "text": "Enqueue a scheduler job of a registered kind.",
+      "hash": "fff845878822c59c97eb52e16eb48498503ff750"
+    },
     "ui.updpw": {
       "text": "Update password",
       "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
@@ -150,10 +158,6 @@
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
-    },
-    "doc.route.post.api.jobs": {
-      "text": "Enqueue a scheduler job of a registered kind.",
-      "hash": "fff845878822c59c97eb52e16eb48498503ff750"
     },
     "doc.route.put.api.org.branding": {
       "text": "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.",

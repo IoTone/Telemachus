@@ -1402,6 +1402,68 @@ staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
 STORAGE limit, not a concurrency one: the scheduler is safe in several processes,
 which is what the in-flight register exists for.
 
+## Reading scans and photographs (OCR, issue #92)
+
+Built 19 Oct 2026. `plugins/ocr/` + `tesseract`; decision block **OCR‑1…10** in
+`docs/design/decisions.md`. The first thing that fills LAY‑5's spans.
+
+```sh
+export TELEMACHUS_OCR=1          # OFF by default — see below
+raco test test/ocr-tests.rkt     # 8 cases, generated fixtures, no server
+bash test/ocr-smoke.sh           # 19 assertions: a photo and a scan, end to end
+```
+
+- **It is OPT-IN, and that is not timidity.** Registering `application/pdf`
+  REPLACES the platform's PDF reader for the whole instance (LAY‑7's purpose),
+  so a reader that took over because a binary happened to be on PATH is the
+  mistake the blob-store check exists to refuse. With the switch unset nothing
+  registers and a scan still reports `'needs-ocr`: the full unit suite is
+  **1135 tests, unchanged**.
+- **Enabled with no `tesseract` on PATH, `init!` RAISES** — reported by the
+  plugin-failure surface, escalated to a refusal to start by
+  `TELEMACHUS_PLUGINS_STRICT=1`. Answering `'missing-tool` on every scan while
+  the boot log says nothing is how a deployment concludes the feature is broken.
+- **The text layer is tried FIRST; only a PDF with none is rasterised.** A
+  born-digital PDF carries exact text where OCR guesses. The order is
+  load-bearing, and the test pins it from the other side: a text-layer read must
+  produce **no spans**, because spans would prove the page had been rasterised.
+- **The text is built FROM the TSV, in one engine run.** Never a `txt` run for
+  the text and a `tsv` run for the regions: the two can segment a page
+  differently, and LAY‑5's offsets index into "the text this same call returned",
+  so mixing them is a provenance record pointing at the wrong characters. The
+  test asserts every span's `substring` is its own word.
+- **The image goes in on STDIN**, as the built-in pipes to `pdftotext`. A temp
+  file is not an option: handed a path, leptonica picks its decoder from the
+  FILENAME, and a suffix-less temp file exits 1 with the PNG's own magic bytes
+  appearing where a filename belongs — having failed to decode it, tesseract
+  falls back to reading the file as a LIST OF IMAGE PATHS. Adding `.png` fixed
+  that and the open still failed for a file Racket had written into the nix-shell
+  `TMPDIR`, which `file` called a valid PNG and a shell read fine.
+- **Orientation is `--psm 1`, not EXIF** — and that is better, not easier:
+  leptonica does not apply an EXIF rotation, and a page scanned sideways has no
+  EXIF to read. Content-based OSD covers both.
+- **An image with no text is an honest EMPTY, never `'needs-ocr`** — that reason
+  means "a reader that can do OCR would get further", and it just has. Returning
+  it would offer the document to the indexer forever.
+- `pdftoppm` (poppler-utils, already pinned) renders a scan's pages, so there is
+  no `ocrmypdf` and no new Python application. The nixpkgs tesseract bundles
+  **129 language files**, so `TELEMACHUS_OCR_LANGUAGES=eng+spa` needs no
+  override; `tesseract --list-langs` is the authority.
+- **Writing a test that polls `/api/runs/:id`: match the RUN's status, not a
+  substring.** `case "$RUN" in *'"status":"done"'*)` breaks as soon as any
+  status in the document is done, and the run JSON embeds every STEP with its
+  own — so the loop exits while `extract#0` is mid-OCR and the next assertion
+  reads an index that has not been written. It passed for the photograph, whose
+  OCR takes under a second, and failed for the rasterised PDF, which takes
+  several: a timing-shaped failure that looked like a broken extractor.
+  `ocr-smoke.sh`'s `wait_run` reads the status as JSON. (`grep -oP
+  '"status":"\K[^"]+'`, which the other smokes use, is right only because the
+  top-level key sorts before `"steps"` — and `-P` is GNU-only.)
+- **Two fixtures in one suite need DIFFERENT words.** The photo and the scan
+  started out carrying identical text, and a search then could not say which
+  document had been read — the scan's assertion failed while the scan had been
+  OCR'd perfectly.
+
 ## A worker stops taking work while its model is down (PULL‑14, issue #93)
 
 Built 18 Oct 2026. Both halves are **worker-side** — `cli/telemachus-worker.rkt`
