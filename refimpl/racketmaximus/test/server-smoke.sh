@@ -775,6 +775,49 @@ assert "reads: a member may not enumerate who looked" \
   "$(curl -s "$B/api/repo-obj/$AOID/reads" -H "Authorization: Bearer $BOB")" \
   'Forbidden: files:read'
 
+# ---- r3: the chain and the export, over HTTP --------------------------------------
+# Single-tenant, so every entry this run wrote has no org: `-` is that bucket and
+# is the default, which on this box is the whole log.
+AV=$(curl -s "$B/api/admin/audit/verify" -H "Authorization: Bearer $OP")
+assert "chain: the log verifies"                   "$AV" '"ok":true'
+assert "chain: ...and says how many it checked"    "$AV" '"checked"'
+assert "chain: ...with nothing broken"             "$AV" '"broken_at":null'
+# verify SEALS first, so an operator never sees an unsealed tail reported as a gap
+assert "chain: nothing is left unsealed after a verify" "$AV" '"unsealed":0'
+assert "chain: ...and the head is named"           "$AV" '"head":"'
+# the export is JSONL with the chain fields in it, which is what makes a copy
+# kept elsewhere verifiable on its own
+EXP=$(curl -s "$B/api/admin/audit/export?limit=20" -H "Authorization: Bearer $OP")
+assert "export: one JSON object per line" \
+  "$(printf '%s' "$EXP" | python3 -c "
+import json,sys
+ls=[l for l in sys.stdin.read().split(chr(10)) if l.strip()]
+print('ok' if ls and all(isinstance(json.loads(l),dict) for l in ls) else 'BAD')")" "ok"
+assert "export: ...carrying the chain hash" \
+  "$(printf '%s' "$EXP" | python3 -c "
+import json,sys
+ls=[json.loads(l) for l in sys.stdin.read().split(chr(10)) if l.strip()]
+print('ok' if all(l.get('chain_hash') for l in ls) else 'MISSING')")" "ok"
+assert "export: ...and each line links to the one before" \
+  "$(printf '%s' "$EXP" | python3 -c "
+import json,sys
+ls=[json.loads(l) for l in sys.stdin.read().split(chr(10)) if l.strip()]
+print('ok' if all(b['chain_prev']==a['chain_hash'] for a,b in zip(ls,ls[1:])) else 'BROKEN')")" "ok"
+# taking a copy of the log off the box is itself exactly the event a later reader
+# would want to find, so the export audits itself
+assert "export: the export is itself recorded" \
+  "$(curl -s "$B/api/admin/audit/export?limit=200000" -H "Authorization: Bearer $OP" \
+     | grep -c 'audit.exported' | awk '{print ($1 >= 1) ? "ok" : "MISSING"}')" "ok"
+# an operator permission, not a team one
+assert "chain: a member cannot verify the instance's log" \
+  "$(curl -s "$B/api/admin/audit/verify" -H "Authorization: Bearer $BOB")" \
+  'Forbidden: instance:manage'
+assert "chain: ...nor export it" \
+  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $BOB")" \
+  'Forbidden: instance:manage'
+assert "chain: an unknown org is a 404, not an empty export" \
+  "$(curl -s "$B/api/admin/audit/export?org=nope" -H "Authorization: Bearer $OP")" 'no such org'
+
 echo "== object metadata =="
 assert "a member may not define the team's fields" \
   "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $BOB" -d '{"fields":[]}')" \

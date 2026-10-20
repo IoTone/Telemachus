@@ -63,6 +63,7 @@
          "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
          "../domain/audit/reads.rkt"              ; who read a document (issue #84)
+         "../domain/audit/chain.rkt"              ; …and that the record was not edited (r3)
          (only-in "../domain/db/id.rkt" new-id)
          (only-in "../domain/repo/extract.rkt" repo-spans-for spans-covering)   ; LAY-5
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
@@ -1324,6 +1325,57 @@
       (require-perm db-conn p "instance:manage")
       (define id (org-resolve db-conn ref))
       (if id (proc p id) (err "not found" 404)))))))
+
+;; ---- the audit chain and the export (#84 r3) --------------------------------
+;; `instance:manage`, and NOT behind `with-mt`: a single-tenant instance has an
+;; audit log too, and its entries carry no org. `?org=` takes an id or a slug as
+;; every /api/orgs route does (`org-resolve`), and `-` names the no-org bucket,
+;; which on a single-tenant box is the whole log. The default is `-` for that
+;; reason.
+(define (audit-org-ref req)
+  (define ref (query-param req 'org "-"))
+  (if (string=? ref "-") "-" (or (org-resolve db-conn ref) #f)))
+
+(define (ep-audit-verify req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define oid (audit-org-ref req))
+    (cond
+      [(not oid) (err "no such org" 404)]
+      [else
+       ;; verify SEALS first (the default), so an operator's own command never
+       ;; reports an unsealed tail as if something were missing — and the status
+       ;; beside it says how big that window currently is.
+       (define v (audit-chain-verify db-conn oid))
+       (json-response (hash-set v 'status (audit-chain-status db-conn oid)))]))))
+
+(define (ep-audit-export req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define oid (audit-org-ref req))
+    (define (us k) (let ([v (query-param req k "")])
+                     (and (not (string=? v "")) (string->number v))))
+    (cond
+      [(not oid) (err "no such org" 404)]
+      [else
+       (define lim (max 1 (min 1000000 (or (us 'limit) 100000))))
+       (audit! db-conn #:action "audit.exported" #:actor-type "user"
+               #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+               #:org-id (if (string=? oid "-") 'null oid) #:result "ok"
+               #:meta (jsexpr->string (hasheq 'from (or (us 'from) 'null)
+                                              'to (or (us 'to) 'null) 'limit lim)))
+       ;; streamed, not assembled: an org's year of document reads is not
+       ;; something to hold in memory. `x-ndjson` is what the line-delimited
+       ;; form is called, and `attachment` keeps a browser from rendering it.
+       (response/output
+        #:mime-type #"application/x-ndjson"
+        #:headers (list (make-header #"X-Content-Type-Options" #"nosniff")
+                        (make-header #"Content-Disposition"
+                                     (string->bytes/utf-8
+                                      (format "attachment; filename=\"audit-~a.jsonl\"" oid))))
+        (lambda (out)
+          (void (audit-export-jsonl db-conn oid out
+                                    #:from (us 'from) #:to (us 'to) #:limit lim))))]))))
 
 (define (ep-org-get req ref)
   (with-org req ref (lambda (p id) (json-response (org-get db-conn id)))))
@@ -3156,6 +3208,7 @@
    'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign
    'repo-reads ep-repo-reads
+   'audit-verify ep-audit-verify 'audit-export ep-audit-export
    'repo-meta ep-repo-meta 'repo-delete ep-repo-delete 'repo-put ep-repo-put
    'repo-traces ep-repo-traces 'repo-delete-prefix ep-repo-delete-prefix
    'retention-get ep-retention-get 'retention-put ep-retention-put
@@ -3443,6 +3496,15 @@
   ;; finds its teams from the policy documents that exist.
   (define last-retention-sweep (box 0))
   (define RETENTION-SWEEP-EVERY 3600)
+  ;; The audit chain's seal (#84 r3) rides the same seam again, on the SHORTEST of
+  ;; the three intervals. The gap between a seal and the next one is the window in
+  ;; which an entry is written and not yet protected, so this one wants to be
+  ;; frequent — and it is cheap: one indexed query that usually finds nothing, and
+  ;; an UPDATE per entry it does find. The alternative, linking at insert time,
+  ;; costs a SELECT on the path of every audited read AND forks the chain under
+  ;; two concurrent writers.
+  (define last-audit-seal (box 0))
+  (define AUDIT-SEAL-EVERY 60)
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -3464,6 +3526,12 @@
          (when (or (> deleted 0) (> purged 0))
            (printf "retention: deleted ~a object tree(s), purged ~a job payload(s)\n"
                    deleted purged))))
+     (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
+       (set-box! last-audit-seal (current-seconds))
+       ;; its own handler too, for the reason the other two have one
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "audit chain: ~a\n" (exn-message e)))])
+         (void (audit-chain-seal! conn))))
      n))
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker

@@ -729,10 +729,35 @@ nothing samples, nothing batches, and there is no knob that could. r6's ceiling 
 met — one insert per read, and the two indexes migration 0046 adds serve the
 reads an auditor makes rather than the write path.
 
-**What slice 1 does NOT do**: r3's hash chain and JSONL export. Those are AUD‑10+
-and are their own slice, because the chain is a per-org linked list with its own
-verify command and the export is a streaming endpoint — neither is a field on an
-event, and folding them in would have made one unreviewable change.
+**Slice 2 built r3** — the chain and the export, AUD‑10…16 below.
+
+### AUD‑10…16 — the chain and the export (issue #84 r3, slice 2)
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| **AUD‑10** | When the chain is linked | **In a SWEEP on the reaper seam, every 60s** · vs at insert time | Two reasons and the first is a REQUIREMENT. r6 caps a read at "no more than one indexed insert", and linking at insert means a SELECT for the org's head before every write — on the path of every audited read, which is now every document read. The second is correctness: at insert time it would **FORK**, because two concurrent writers both read the same head and both claim it as their predecessor, and no lock fixes that across replicas. One sweep walking in `at_us` order cannot fork. |
+| **AUD‑11** | The window that creates | **Reported, not hidden**: `audit-chain-status` gives `sealed`/`unsealed`, and verify and export BOTH seal first | Entries written since the last seal are real and unprotected. An operator's own command must never report an unsealed tail as if something were missing, and a reader must be able to see how large the gap is rather than discover it. |
+| **AUD‑12** | What the digest covers | **Every column, named one by one, including `at_us`** · vs the id and a timestamp | A field NOT in the digest could be edited without breaking the chain, so the list IS the statement of what is protected — adding a column to `audit_log` means adding it here and bumping `CHAIN-VERSION`, which re-seals rather than silently protecting less. `at_us` is in it because a re-timestamping is a reordering, and the order is the evidence. |
+| **AUD‑13** | The canonical form | **An ordered LIST, never a hash** | The FOURTH appearance of this trap: `hasheq` iteration order is not stable across processes, so hashing a hash makes the chain disagree with itself on another machine. (`json-out` sorts for it; JUDGE‑13's wire refuses re-serialization for it; LAY‑11's chain is a list for it.) `meta` is likewise exported VERBATIM as the stored string — parsing and re-emitting it would reorder its keys and the digest covers the stored bytes. |
+| **AUD‑14** | What verify checks | **The hash AND the link** · vs the hash alone | A row whose `chain_prev` was rewritten to skip a deleted predecessor would otherwise verify — and that is precisely what somebody who understood the scheme would try. It has its own test, and that test fails against a hash-only verify. |
+| **AUD‑15** | An entry with no org | **Chained in its own bucket, `-`** · vs left unchained | A single-tenant instance's entries all have no org, and so do instance-level events everywhere. Leaving them unchained would make them deletable without trace — on the one deployment shape where the whole log is in that bucket. |
+| **AUD‑16** | The export's shape | **JSONL, streamed to the response port, chain fields included** · vs a JSON array · vs the chain stripped | One object per line appends and streams; an org's year of document reads is not something to hold in memory. The chain fields are IN it deliberately: a copy kept elsewhere can be verified against itself, and that external copy is the nearest thing to the external anchor this design is missing. The export is itself audited (`audit.exported`) — taking a copy of the log off the box is exactly the event a later reader wants to find. |
+
+**The claim is the narrow one, stated as LAY‑11 states it.** The chain detects an
+entry altered in place, an entry removed from the middle, and a rewritten link.
+It does **NOT** detect a rewrite by anyone who can WRITE the table, who can
+recompute every link after the row they changed — and that is the party an
+administrative audit is most meant to defend against. Same shape as secrets at
+rest, which defends a DUMP and not a HOST. Closing it needs an external anchor:
+publishing the head hash somewhere the database's owner does not control. That is
+a deployment decision rather than a schema one, and it is not built — but the
+export is what makes it POSSIBLE without further code, which is the most this
+slice can honestly claim.
+
+**The acceptance criterion is tested at its stated scale**: 10,000 events seal
+and verify, and three separate tamperings each break it and are each NAMED — a
+field edited in place, an entry deleted from the middle, and `chain_prev`
+rewritten to cover the deletion.
 
 ### ENC‑19…22 — the ERROR columns, and the logs (issue #83 r4, slice 4)
 

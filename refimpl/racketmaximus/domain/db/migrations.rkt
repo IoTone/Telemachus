@@ -1326,7 +1326,28 @@
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_audit_org_time ON audit_log (org_id, at_us)")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log (resource_type, resource_id, at_us)"))))
 
+(define m-0047-audit-chain
+  (migration "0047-audit-chain"
+    (lambda (conn)
+      ;; The hash chain (issue #84 r3). Each entry hashes its own fields together
+      ;; with its predecessor's hash, PER ORG, so an entry altered in place or
+      ;; removed from the middle breaks every link after it.
+      ;;
+      ;; Both nullable, and nothing is backfilled at migration time — the chain is
+      ;; sealed by a SWEEP (`audit-chain-seal!`), not at insert. Two reasons, the
+      ;; first a requirement: r6 caps a read at one indexed insert, and linking at
+      ;; insert time means a SELECT for the org's head before every write, on the
+      ;; path of every audited read. The second is correctness — two concurrent
+      ;; writers would both claim the same head as their predecessor and FORK the
+      ;; chain, which no lock fixes across replicas. One sweep in `at_us` order
+      ;; cannot fork.
+      (exec* conn "ALTER TABLE audit_log ADD COLUMN chain_prev TEXT")
+      (exec* conn "ALTER TABLE audit_log ADD COLUMN chain_hash TEXT")
+      ;; The sweep's own query: "which entries are not yet linked", oldest first.
+      ;; Without this it is a full scan of the audit log on every tick.
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_audit_unsealed ON audit_log (org_id, chain_hash, at_us)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain))

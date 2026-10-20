@@ -1963,6 +1963,14 @@
       "text": "Create and edit notes.",
       "hash": "fdd2d6a55dcb86b65c6617635e455431b1e7f095"
     },
+    "ui.trigger_prefix": {
+      "text": "Key prefix",
+      "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
+    },
+    "doc.route.get.api.admin.audit.verify": {
+      "text": "Verify the audit log's hash chain for one org, naming the first broken entry.",
+      "hash": "b79be73c6551410d3d882aa8ae4e86aa78344197"
+    },
     "doc.route.delete.api.beta.asset.id": {
       "text": "Delete an onboarding asset.",
       "hash": "ca144e9ef80342a5e185b34d4c1f81bd5ac56769"
@@ -1970,6 +1978,10 @@
     "doc.perm.workflows:run": {
       "text": "Start and cancel runs. An S3 key needs this scope for its uploads to fire triggers.",
       "hash": "21cb174e21ed16c1c221a45bb425838fcd7e8690"
+    },
+    "doc.route.get.api.admin.audit.export": {
+      "text": "Export one org's audit log as JSONL over a date range, chain fields included.",
+      "hash": "2eeacc7c2915920c3d826d1d86251ef0e71442ef"
     },
     "doc.perm.roles:manage": {
       "text": "Reserved for team-defined roles, which are not in v1 — the four built-in roles are the vocabulary. Granted, but nothing reads it yet.",
@@ -2122,10 +2134,6 @@
     "ui.s3created": {
       "text": "Key created",
       "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
-    },
-    "ui.trigger_prefix": {
-      "text": "Key prefix",
-      "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
     },
     "doc.route.patch.api.orgs.ref": {
       "text": "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).",
