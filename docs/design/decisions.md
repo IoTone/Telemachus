@@ -705,6 +705,51 @@ columns and would pass a scan for entirely the wrong reason.
   r1's wording and are searched by `search.rkt` — the same ENC‑2 trade, decided
   the same way, but a separate column pair.
 
+### IDEM‑1…9 — idempotency keys (issue #90)
+
+`POST /api/workflows/<slug>/run` was not idempotent: a client that timed out and
+retried started a SECOND run on the same object. For an integrator driving
+Telemachus from a queued worker — the shape the issue describes — a retry is not
+an unusual event, it is the normal one.
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| **IDEM‑1** | What is replayed | **The stored RESPONSE and its stored STATUS CODE** · vs recompute the answer | The point of a retry is that the client never saw the first answer. Recomputing would mean deciding, per endpoint, what "the same answer again" is — and for a run that has since finished it is a DIFFERENT answer, which is exactly the confusion a retrying client cannot afford. The stored bytes are the only thing certainly equal to what the first call said. 202 comes back as 202. |
+| **IDEM‑2** | The key's scope | **(team, key)** · vs (team, key, endpoint) | One key is one request. A client that sends the same key to two endpoints has made a mistake and a 409 says so; scoping per endpoint would accept it silently and leave two records claiming one key. The endpoint is in the FINGERPRINT, so the mistake is detected rather than tolerated. |
+| **IDEM‑3** | The fingerprint | **Canonicalized — keys sorted recursively — then hashed** · vs `jsexpr->string` of the payload | `hasheq` iteration order is not stable across processes, so a fingerprint over a raw hash would differ between two replicas and a load-balanced instance would 409 a client's HONEST retry. The same trap that makes `json-out` sort and AUD‑13 hash a list. A LIST's order stays meaningful — it is the caller's sequence, not a hash's. |
+| **IDEM‑4** | When the row is written | **AFTER the work succeeds** · vs before · vs two-phase | A row written first makes a crash mid-request permanent: the client retries, gets a stored answer for work that never happened, and nothing ever runs. Written last, a crash leaves no key, the retry does the work, and the worst case is the double execution that was the PRE-EXISTING behaviour. The remaining window needs a two-phase record and is not built — named here rather than discovered. |
+| **IDEM‑5** | A failed request | **Not stored** · vs store every outcome | The retry that follows a 500 is the retry this feature exists for. Freezing the 500 would turn the key into a way to guarantee failure. |
+| **IDEM‑6** | Past the 24h window | **A MISS, never a conflict** | After a day the client is not retrying, it is making a new request, and refusing it would be worse than performing it. A conflict there would make a key permanently poisonous. |
+| **IDEM‑7** | The concurrent retry | **`ON CONFLICT DO NOTHING`; the first answer stands** | Two retries can both pass the lookup before either stores — a retrying client often sends twice in the same second. The loser must not FAIL a request it has already performed. |
+| **IDEM‑8** | r2's `dedupe: true` | **Derives a key from (slug, definition VERSION, input)** · vs from the object id alone | The version is in the derivation deliberately: an EDITED workflow legitimately re-runs, which is the whole reason r3 exposes the version on the run. The object id and version r2 names are already IN the input for this pipeline (`process-upload` binds `object_id`), so hashing the input covers them without the endpoint having to know a particular workflow's shape. An explicit key always wins — the client's own idea of what its retry is beats ours. |
+| **IDEM‑9** | A replay is VISIBLE | **`idempotent_replay: true` on the replayed body** | A silent replay and a fresh success are otherwise indistinguishable, and an integrator debugging a double-send needs to know which happened. It is added to the stored body on the way out, so the stored bytes stay exactly the first answer. |
+
+**r4 is satisfied, with a deviation worth stating**: keys are purged on their OWN
+24-hour window (on the reaper seam, the fourth thing there) rather than by a
+team's retention rule. A key past the window is not retained data — it can never
+be replayed — and a team that configured no retention policy would otherwise
+accumulate them for ever. The stored response may name a document, so keeping it
+longer than it can be used is a copy with no purpose.
+
+**Which endpoints are covered, and the two refusals.** `POST
+/api/workflows/<slug>/run` and `POST /api/jobs` are covered. The issue also names
+two the implementation declines:
+
+- **Token create is NOT covered, on purpose.** Its response carries a bearer
+  token shown once, and replaying it means STORING that credential in the clear
+  in a second table for 24 hours. #19's rule is that a token is stored as a
+  peppered hash and never as itself; an idempotency feature must not be the one
+  exception. A client that retries a token create gets two tokens and can revoke
+  one, which is a far better outcome than a credential at rest.
+- **The raw-body object PUT is NOT covered.** Its payload is an input PORT of up
+  to 32 MiB, and fingerprinting it means buffering it — which is the exact cost
+  the `web-kit/http1` data plane exists to avoid (DOC: bodies are a port, not
+  bytes). Fingerprinting the key plus the length instead would replay a DIFFERENT
+  document that happened to match, which is worse than not offering the feature.
+  Re-PUTting is already a new VERSION rather than a duplicate object, and the
+  blob is deduped by digest, so the damage a retry does there is bounded.
+- Webhook create is #85's and unbuilt, so there is nothing to make idempotent yet.
+
 ### AUD‑1…9 — who read a document (issue #84, slice 1)
 
 `audit_log` recorded create / update / delete / share / visibility for repo

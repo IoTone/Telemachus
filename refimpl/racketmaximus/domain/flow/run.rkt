@@ -198,7 +198,15 @@
   ;; the console lists runs before it has fetched any definition.
   (string-append "SELECT id, def_id, team_id, user_id, status, input, output, error, cursor_json, "
                  "steps_used, created_at, started_at, finished_at, "
-                 "(SELECT slug FROM workflow_defs d WHERE d.id = workflow_runs.def_id) "
+                 "(SELECT slug FROM workflow_defs d WHERE d.id = workflow_runs.def_id), "
+                 ;; #90 r3: WHICH DEFINITION VERSION ran. `def_id` already
+                 ;; determined it — `workflow_defs` is UNIQUE(team, slug,
+                 ;; version) — but a caller had to fetch the definition to find
+                 ;; out, and a run of a since-superseded version looked
+                 ;; identical to a run of the current one. It matters for
+                 ;; idempotency: an edited workflow legitimately re-runs, and
+                 ;; the version is how a client can tell that is what happened.
+                 "(SELECT version FROM workflow_defs d WHERE d.id = workflow_runs.def_id) "
                  "FROM workflow_runs"))
 
 (define (row->run r)
@@ -212,7 +220,7 @@
           'cursor (js (unseal (run-cursor-ctx (vr r 0)) (vr r 8)))
           'steps_used (vr r 9)
           'created_at (vr r 10) 'started_at (nz (vr r 11)) 'finished_at (nz (vr r 12))
-          'slug (nz (vr r 13))))
+          'slug (nz (vr r 13)) 'version (nz (vr r 14))))
 
 (define (run-row conn id) (query-maybe-row conn (string-append RSELECT " WHERE id = ?") id))
 

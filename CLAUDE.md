@@ -1523,6 +1523,54 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
   shared-key host, any account with `SELECT`. The column is the layer that
   survives being `SELECT`ed.
 
+## Idempotency keys (IDEM‑1…9, issue #90)
+
+Built 20 Oct 2026. `domain/idem/idem.rkt`; migration `0048-idempotency`;
+`Idempotency-Key` (or `idempotency_key` in the body) on `POST
+/api/workflows/:slug/run` and `POST /api/jobs`, plus `dedupe: true` on a run.
+
+```sh
+raco test test/idem-tests.rkt   # 8 cases: canonicalization, the window, the race
+bash test/server-smoke.sh       # the "idempotency keys" block, 15 assertions
+```
+
+- **The stored RESPONSE is replayed, not a recomputed one** — including its
+  status code, so a 202 comes back as a 202. For a run that has since finished,
+  "the same answer again" is a DIFFERENT answer, which is the confusion a
+  retrying client cannot afford.
+- **The key is scoped to (team, key), NOT (team, key, endpoint).** One key is one
+  request; the endpoint is in the FINGERPRINT, so the same key on two endpoints
+  is a 409 rather than two records claiming one key.
+- **The fingerprint CANONICALIZES first** (keys sorted, recursively). A
+  fingerprint over `jsexpr->string` of a hash would differ between replicas —
+  `hasheq` order again — and a load-balanced instance would 409 an honest retry.
+  A LIST's order stays meaningful: it is the caller's sequence.
+- **The row is written AFTER the work succeeds.** Written first, a crash mid-request
+  is permanent: the retry gets a stored answer for work that never happened. The
+  remaining window is the pre-existing double execution, and narrowing it needs a
+  two-phase record — not built, and said so.
+- **A failure is not stored.** The retry after a 500 is the retry this is for;
+  freezing the 500 would make a key a way to guarantee failure.
+- **Past the 24h window is a MISS, never a conflict** — after a day the client is
+  making a new request, and a conflict would make the key permanently poisonous.
+- **`dedupe: true` derives the key from (slug, definition VERSION, input)**, so an
+  EDITED workflow legitimately re-runs. That is why r3 now exposes `version` on
+  the run. An explicit key always wins.
+- **`idempotent_replay: true` is added on the way out**, so a replay and a fresh
+  success are distinguishable; the STORED bytes stay exactly the first answer.
+- **Token create is deliberately NOT covered**: replaying it would store a bearer
+  token in the clear for 24 hours, and #19's rule is that a token is a hash and
+  never itself. Two tokens one of which you revoke beats a credential at rest.
+  The raw-body object PUT is not covered either — fingerprinting a 32 MiB input
+  PORT means buffering it, which is what the http1 data plane exists to avoid.
+- **Keys are reaped on their own 24h window** (r4), the fourth thing on
+  `set-reaper!`, not by a team's retention rule: a key past the window is dead
+  weight, and a team with no policy would accumulate it for ever.
+- **`server-smoke.sh` had no `ok`/`bad`** — only `assert`, `assert_content` and
+  `refute` — so two branches written with them ran as unknown commands and were
+  silently absent. THIRD time this shape appeared in this file. `differ()` now
+  exists for "these two ids must not match"; grep for a helper before using it.
+
 ## Who read a document (AUD‑1…9, issue #84 slice 1)
 
 Built 20 Oct 2026. `domain/audit/reads.rkt`; migration `0046-audit-reads`;
