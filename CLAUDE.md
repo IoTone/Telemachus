@@ -1431,6 +1431,48 @@ staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
 STORAGE limit, not a concurrency one: the scheduler is safe in several processes,
 which is what the in-flight register exists for.
 
+## One sealed column, declared once (#110 r1)
+
+`domain/authz/sealed.rkt` — `define-sealed-column` replaces five hand-written
+copies of #83's sealing rule.
+
+```racket
+(define-sealed-column "jobs.payload" (seal-payload unseal-payload) (id))
+(define-sealed-column "jobs.error"   (seal-error unseal-error) (id) #:forgiving)
+(define-sealed-column "doc_trigger_fires.error"
+                      (seal-fire-error unseal-fire-error) (trigger-id version-id) #:forgiving)
+```
+
+```sh
+raco test test/sealed-column-tests.rkt   # 6 cases, AAD compatibility first
+```
+
+- **THE AAD IS THE COMPATIBILITY SURFACE.** The context string is authenticated
+  data in every sealed row ever written (`<table>.<column>:<row-id>`), so
+  changing one by a character means every existing row for that column stops
+  opening. `test/sealed-column-tests.rkt` pins all thirteen strings AND seals a
+  fixture the OLD way — `secret-wrap` with the hand-built literal — then opens it
+  through the generated unseal. That second case is the one that cannot pass
+  vacuously.
+- **`workflow_runs.cursor` is the context for the `cursor_json` column.** The
+  mismatch is history now, because rows exist with it. Pinned.
+- **The key names are written by the CALLER** (`(id)`, `(trigger-id version-id)`)
+  rather than generated, which keeps the arity checked — a two-key column called
+  with one argument fails at the call instead of building a context with a hole —
+  and documents what the row id is at the declaration.
+- **`#:forgiving` is ENC-21**, and the two cases are genuinely different: a
+  payload that will not open must RAISE, a stored error message must not take the
+  row it describes down with it.
+- **The four `(string? v)` guards were REDUNDANT, not divergent.** `secret-wrap`
+  and `secret-unwrap` are both total — they pass a non-string, and an unwrapped
+  value, straight through — so the fifth copy omitting the guard behaved
+  identically. They are dropped rather than preserved: a guard duplicating its
+  callee's is how a reader comes to believe the callee lacks one. (My audit first
+  called this a live divergence; it is not, and the corrected reading is in
+  sealed.rkt.)
+- `run.rkt`'s two-step `(seal (ctx id) v)` became `(seal-run-input id v)` at all
+  20 call sites — one shape everywhere, no context plumbing.
+
 ## Encrypting derived document content (ENC, issue #83 slice 1)
 
 Built 20 Oct 2026. `TELEMACHUS_ENCRYPT_CONTENT`; seams in

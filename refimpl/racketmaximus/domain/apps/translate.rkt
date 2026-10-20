@@ -19,13 +19,10 @@
          "../ai/executor.rkt"      ; run-chat, model-info
          ;; issue #83 r1: these two columns hold derived document content whenever
          ;; the pipeline translates
-         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
-         (only-in "../../config.rkt" content-encryption-enabled?))
+         (only-in "../authz/sealed.rkt" define-sealed-column))
 
-(define (seal-tr ctx v)
-  (if (and (content-encryption-enabled?) (string? v)) (secret-wrap ctx v) v))
-;; never conditional on the switch, so a row sealed while it was on still opens
-(define (unseal-tr ctx v) (if (string? v) (secret-unwrap ctx v) v))
+(define-sealed-column "translations.source_text" (seal-source unseal-source) (id))
+(define-sealed-column "translations.result_text" (seal-result unseal-result) (id))
 
 (provide translate! translate-list translate-catalog!
          glossary-add! glossary-list lang-label)
@@ -91,17 +88,17 @@
     ;; itself. The leak scan missed it because the probe workflow does not
     ;; translate, which is the scan's coverage limit, not an absence of the leak.
     id (principal-team-id p) (principal-user-id p) src tgt
-    (seal-tr (string-append "translations.source_text:" id) text)
-    (seal-tr (string-append "translations.result_text:" id) reply)
+    (seal-source id text)
+    (seal-result id reply)
     model)
   (values (hasheq 'id id 'source_lang src 'target_lang tgt 'source_text text 'result reply 'model model) tokens))
 
 (define (row->tr r)
   (hasheq 'id (vector-ref r 0) 'source_lang (vector-ref r 1) 'target_lang (vector-ref r 2)
           ;; the ONE read path for a stored translation
-          'source_text (unseal-tr (string-append "translations.source_text:" (vector-ref r 0))
+          'source_text (unseal-source (vector-ref r 0)
                                   (vector-ref r 3))
-          'result (unseal-tr (string-append "translations.result_text:" (vector-ref r 0))
+          'result (unseal-result (vector-ref r 0)
                              (vector-ref r 4))
           'model (vector-ref r 5) 'created_at (vector-ref r 6)))
 

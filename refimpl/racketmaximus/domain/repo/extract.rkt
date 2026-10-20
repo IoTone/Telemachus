@@ -29,8 +29,7 @@
          (only-in "../sched/scheduler.rkt" current-plugin)
          ;; issue #83: the extracted text is sealed with the same seam the three
          ;; replayable credentials use, under the same table.column:row AAD
-         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
-         (only-in "../../config.rkt" content-encryption-enabled?))
+         (only-in "../authz/sealed.rkt" define-sealed-column))
 
 (provide extract-text extract-text/spans extractable? EXTRACT-CAP EXTRACT-REASONS
          span-problem spans-covering
@@ -304,17 +303,8 @@
 ;;
 ;; `spans` is sealed too, because OCR page structure is derived content (r1 names
 ;; it) and a bbox list plus page numbers is a map of where the words are.
-(define (text-context object-id) (string-append "repo_text.content:" object-id))
-(define (spans-context object-id) (string-append "repo_text.spans:" object-id))
-
-(define (seal-text object-id s)
-  (if (content-encryption-enabled?) (secret-wrap (text-context object-id) s) s))
-(define (unseal-text object-id s)
-  ;; NOT conditional on the switch: a row sealed while it was on must still open
-  ;; after it is turned off, or turning the switch off would lose every document's
-  ;; text. `secret-unwrap` returns anything unwrapped as-is, so this is safe on a
-  ;; plaintext row too.
-  (if (string? s) (secret-unwrap (text-context object-id) s) s))
+(define-sealed-column "repo_text.content" (seal-text  unseal-text)  (object-id))
+(define-sealed-column "repo_text.spans"   (seal-spans unseal-spans) (object-id))
 
 (define (repo-text-upsert! conn object-id version-id content #:spans [spans '()])
   (query-exec conn
@@ -325,8 +315,7 @@
                    "spans = excluded.spans, extracted_at = CURRENT_TIMESTAMP")
     object-id version-id
     (seal-text object-id content)
-    (let ([j (jsexpr->string (clean-spans spans))])
-      (if (content-encryption-enabled?) (secret-wrap (spans-context object-id) j) j))))
+    (seal-spans object-id (jsexpr->string (clean-spans spans)))))
 
 ;; the stored provenance for an object, or '() — never #f, so a caller that asks
 ;; about a document extracted before provenance existed gets an empty answer
@@ -336,7 +325,7 @@
   (cond
     [(or (not v) (sql-null? v)) '()]
     [else (with-handlers ([exn:fail? (lambda (_) '())])
-            (let ([j (string->jsexpr (secret-unwrap (spans-context object-id) v))])
+            (let ([j (string->jsexpr (unseal-spans object-id v))])
               (if (list? j) j '())))]))
 
 (define (repo-text-delete! conn object-id)
