@@ -1570,6 +1570,49 @@ bash test/s3-smoke.sh                 # the presign round trip: issuance + redem
 - Two mistakes of mine worth the line: conditional SQL with a fixed argument
   list (again), and a test helper defined BELOW its first use.
 
+### The chain and the export (AUD‑10…16, slice 2)
+
+Migration `0047-audit-chain`; `GET /api/admin/audit/{verify,export}`
+(`instance:manage`); `domain/audit/chain.rkt`.
+
+```sh
+raco test test/audit-chain-tests.rkt   # 9 cases, incl. 10k events and 3 tamperings
+bash test/server-smoke.sh              # the chain/export block, 12 assertions
+```
+
+- **The chain is sealed in a SWEEP, never at insert.** Two reasons and the first
+  is a requirement: r6 caps a read at one indexed insert, and linking at insert
+  means a head SELECT before every write on the path of every audited read. The
+  second is correctness — at insert time it would **FORK**, two concurrent
+  writers both claiming the same head, which no lock fixes across replicas. One
+  sweep in `at_us` order cannot fork. It rides `set-reaper!` (the third thing on
+  that seam) every 60s, the shortest of the three intervals.
+- **The window is REPORTED**: `audit-chain-status` gives `sealed`/`unsealed`, and
+  verify and export both seal first, so an operator never sees an unsealed tail
+  reported as a gap.
+- **The digest names every column one by one, `at_us` included.** A field not in
+  it could be edited without breaking the chain, so the list IS the statement of
+  what is protected: a new `audit_log` column means a new line here AND a
+  `CHAIN-VERSION` bump, which re-seals rather than silently protecting less.
+- **Verify checks the hash AND the link.** A row whose `chain_prev` was rewritten
+  to skip a deleted predecessor would otherwise verify — which is exactly what
+  somebody who understood the scheme would try. It has its own test.
+- **The canonical form is an ordered LIST** — the fourth appearance of the
+  hash-order trap. `meta` is exported VERBATIM as the stored string for the same
+  reason: re-serializing it would reorder its keys and the digest covers the
+  stored bytes.
+- **An entry with no org is chained in its own bucket (`-`)**, which on a
+  single-tenant box is the whole log. Leaving it unchained would make those
+  entries deletable without trace.
+- **The claim is the narrow one, as LAY‑11 states it**: it catches an entry
+  altered in place, one removed from the middle, and a rewritten link. It does
+  NOT catch a rewrite by anyone who can WRITE the table — they recompute every
+  later link — and that is the party an audit most defends against. Closing it
+  needs an EXTERNAL anchor; the export is what makes that possible without
+  further code, and is the most this can honestly claim.
+- **The export audits itself** (`audit.exported`): taking a copy of the log off
+  the box is exactly the event a later reader wants to find.
+
 ## Retention rules on a schedule (DEL‑9…16, issue #86 r3)
 
 Built 20 Oct 2026. `domain/retention/retention.rkt`; migration `0045-legal-hold`;

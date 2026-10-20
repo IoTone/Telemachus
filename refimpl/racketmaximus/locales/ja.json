@@ -1972,6 +1972,10 @@
       "text": "実行の開始と取り消し。アップロードでトリガーを発火させるには、S3 キーにこのスコープが必要です。",
       "hash": "21cb174e21ed16c1c221a45bb425838fcd7e8690"
     },
+    "doc.route.get.api.admin.audit.export": {
+      "text": "1つの組織の監査ログを日付範囲で JSONL として書き出す。チェーンのフィールドを含む。",
+      "hash": "2eeacc7c2915920c3d826d1d86251ef0e71442ef"
+    },
     "doc.perm.roles:manage": {
       "text": "チーム定義の役割のための予約。v1 には含まれません — 組み込みの4つの役割が語彙です。付与されますが、まだ参照されていません。",
       "hash": "99fb1d888f50eddc875ac09015b6b03b174c8a3d"
@@ -2127,6 +2131,10 @@
     "ui.trigger_prefix": {
       "text": "キープレフィックス",
       "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
+    },
+    "doc.route.get.api.admin.audit.verify": {
+      "text": "1つの組織の監査ログのハッシュチェーンを検証し、最初に壊れたエントリを示す。",
+      "hash": "b79be73c6551410d3d882aa8ae4e86aa78344197"
     },
     "doc.route.patch.api.orgs.ref": {
       "text": "会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。",
