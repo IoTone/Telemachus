@@ -18,7 +18,7 @@
 ;; makes "just re-upload it" safe advice.
 
 (require db-kit/portable json
-         racket/file racket/port racket/string racket/list racket/date
+         racket/file racket/port racket/string racket/list racket/date racket/set
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../quota/quota.rkt"
@@ -30,6 +30,8 @@
          repo-fields repo-fields-set! repo-set-attributes!
          repo-get repo-open repo-list repo-versions
          repo-set-visibility! repo-delete! repo-usage
+         blob-referenced? release-blob-if-unreferenced!
+         derived-closure repo-delete-tree! repo-delete-prefix! repo-traces
          repo-share! repo-unshare! repo-grants
          repo-inherit! repo-derivations
          CAPABILITIES capability-permissions permissions->capability
@@ -631,11 +633,97 @@
                  'version_id (nz (vector-ref r 2)) 'run_id (nz (vector-ref r 3))
                  'step_id (nz (vector-ref r 4)) 'created_at (format "~a" (vector-ref r 5))))))
 
+;; ---- the derivation closure (issue #86 r1) ----------------------------------------
+;; Everything produced FROM this object, transitively. `repo-derivations` reads the
+;; other way — what an object came from — so this is the reverse edge, and the
+;; pipeline builds deep trees: a source yields `.extracted.json`, which yields a
+;; form, which yields a translation.
+;;
+;; CYCLE-SAFE, with a seen set. DWF-3 stops a trigger firing on its own output, so
+;; the trigger path cannot build a loop — but a hand-run workflow can derive A from
+;; B and later B from A, and a walk without a seen set would then not terminate.
+;; Nothing enforces acyclicity in the table, so this does not assume it.
+;;
+;; Returned DEEPEST FIRST, which is the order a delete must use: releasing a
+;; parent's bytes before its children are gone would let a child's surviving
+;; version row keep them alive, and the parent is then a tombstone pointing at
+;; bytes nobody can reach.
+(define (derived-closure conn id)
+  (let loop ([frontier (list id)] [seen (set id)] [acc '()])
+    (cond
+      [(null? frontier) acc]       ; acc is built child-first, so it is already deepest-first
+      [else
+       (define kids
+         (for*/list ([parent (in-list frontier)]
+                     [k (in-list (query-list conn
+                           "SELECT object_id FROM repo_derivations WHERE source_object_id = ?" parent))]
+                     #:unless (set-member? seen k))
+           k))
+       (define fresh (remove-duplicates kids))
+       (loop fresh
+             (for/fold ([s seen]) ([k (in-list fresh)]) (set-add s k))
+             (append fresh acc))])))
+
+;; ---- releasing bytes (issue #86 r6) -----------------------------------------------
+;; THE ONE PLACE that decides whether a blob may go. There were two, and each was
+;; wrong in a different way:
+;;
+;;   * this file's `repo-delete!` counted VERSIONS in the org and never looked at
+;;     `repo_upload_parts` at all. A staged multipart part IS a blob in its
+;;     upload's org namespace (`blob-stage!` in domain/s3/server.rkt), so deleting
+;;     an object whose digest an in-flight upload also staged destroyed the bytes
+;;     that upload needed, and Complete Multipart then assembled from nothing.
+;;     Reachable on the ordinary dedup path: re-uploading a document that already
+;;     exists is exactly when a part and a version share a digest.
+;;   * `release-blob!` in domain/s3/server.rkt counted parts GLOBALLY — not
+;;     org-scoped — so one tenant's in-flight upload pinned another tenant's copy
+;;     for ever. A storage leak rather than a disclosure, and the mirror image of
+;;     the dedup oracle the namespace exists to prevent (DOC-6).
+;;
+;; Both halves are org-scoped here. `repo_upload_parts` belongs to the S3
+;; listener, and reaching it from the repository is deliberate: an S3 multipart
+;; upload BECOMES a repository object, so the two tables describe one lifecycle
+;; and a predicate that could see only half of it is the bug above.
+(define (blob-referenced? conn org digest #:except-object [except #f])
+  (define versions
+    (if except
+        ;; Two statements rather than one with an interpolated clause: the clause
+        ;; and its parameter have to appear or vanish TOGETHER, and building the
+        ;; SQL conditionally while passing a fixed argument list is how they come
+        ;; apart. It was written that way here first and would have failed with an
+        ;; arity error on exactly the cascade path this argument exists for.
+        (query-value conn
+          (string-append "SELECT COUNT(*) FROM repo_versions v "
+                         "JOIN repo_objects o ON o.id = v.object_id "
+                         "WHERE v.digest = ? AND o.org_id = ? AND o.id <> ?")
+          digest org except)
+        (query-value conn
+          (string-append "SELECT COUNT(*) FROM repo_versions v "
+                         "JOIN repo_objects o ON o.id = v.object_id "
+                         "WHERE v.digest = ? AND o.org_id = ?")
+          digest org)))
+  (define parts
+    (query-value conn
+      (string-append "SELECT COUNT(*) FROM repo_upload_parts pt "
+                     "JOIN repo_uploads u ON u.id = pt.upload_id "
+                     "WHERE pt.digest = ? AND u.org_id = ?")
+      digest org))
+  (or (> versions 0) (> parts 0)))
+
+;; Release the bytes if nothing in this org still points at them. `#:except-object`
+;; is for a caller that has already tombstoned an object but not yet removed its
+;; version rows — the rows are gone before this is called in `repo-delete!`, so it
+;; is unused there and exists for the cascade, which deletes several objects in one
+;; pass and must not let object B's surviving rows keep A's bytes alive.
+(define (release-blob-if-unreferenced! conn org digest #:except-object [except #f])
+  (unless (blob-referenced? conn org digest #:except-object except)
+    (blob-delete! org digest)))
+
 ;; ---- deleting ---------------------------------------------------------------------
 ;; The object row is tombstoned rather than removed, so the key frees up while the
-;; audit trail still resolves. The blob is removed only when no version anywhere
-;; still names that digest — content addressing means another object, or another
-;; version of this one, may be pointing at the same bytes.
+;; audit trail still resolves. The blob is removed only when nothing in the org
+;; still names that digest — content addressing means another object, another
+;; version of this one, OR AN IN-FLIGHT UPLOAD'S PART may point at the same bytes.
 (define (repo-delete! conn p id)
   (define o (repo-get conn p id))
   (and o
@@ -652,16 +740,7 @@
          (define freed
            (for/sum ([r (in-list versions)])
              (define digest (vector-ref r 1))
-             ;; Scoped to the ORG, because that is the namespace the blob lives in
-             ;; (DOC-6). A global count would let another tenant's identical bytes
-             ;; pin this org's copy forever — the mirror image of the dedup leak the
-             ;; namespace exists to prevent.
-             (define still (query-value conn
-               (string-append "SELECT COUNT(*) FROM repo_versions v "
-                              "JOIN repo_objects o ON o.id = v.object_id "
-                              "WHERE v.digest = ? AND o.org_id = ?")
-               digest org))
-             (when (zero? still) (blob-delete! org digest))
+             (release-blob-if-unreferenced! conn org digest)
              (vector-ref r 2)))
          ;; storage.bytes is a gauge, so a delete is a negative entry on the same
          ;; ledger rather than a second table (DOC-11)
@@ -671,6 +750,211 @@
                  #:team-id (hash-ref o 'team_id) #:resource-type "repo" #:resource-id id
                  #:meta (format "{\"key\":~s,\"freed\":~a}" (hash-ref o 'key) freed))
          #t)))
+
+;; ---- cascade delete (issue #86 r1) -----------------------------------------------
+;; Deleting a source left its derived objects behind: `.extracted.json`, the filled
+;; form, each translation — separate objects, each still readable, each still
+;; billed. A tenant asked to delete a document and the document's CONTENTS stayed
+;; in the repository under three other keys.
+;;
+;; ALL OR NOTHING ON PERMISSION. Every object in the closure is checked before
+;; anything is deleted, and one the caller may not delete refuses the WHOLE
+;; operation, naming it. A half-cascaded tree is worse than a refusal: the caller
+;; cannot tell what went and what stayed, and the obvious recovery — run it again
+;; — is exactly what a partial failure makes unsafe. `detach?` is the way out when
+;; a derived object must survive.
+;;
+;; DETACH is not "leave it alone": the derivation rows are removed, so the object
+;; stops claiming to come from something that no longer exists. A derived document
+;; whose source is a tombstone, still pointing at it, is a provenance record that
+;; lies — and "Processed by" would render it.
+;;
+;; ONE audit event for the tree, not one per object (r1). The event is what an
+;; auditor reads to answer "was this deletion request honoured", and that question
+;; is about the tree.
+;;
+;; -> (hasheq 'deleted (ids) 'detached (ids) 'freed bytes 'dry_run bool)
+(define (repo-delete-tree! conn p id #:detach? [detach? #f] #:dry-run? [dry-run? #f])
+  (define root (repo-get conn p id))
+  (and root
+       (let ()
+         (define kids (derived-closure conn id))
+         ;; Check EVERYTHING first. repo-get raises on a permission failure and
+         ;; answers #f for a miss (DOC-5), so a derived row pointing at an object
+         ;; that is already gone is skipped rather than fatal.
+         (define reachable
+           (for/list ([k (in-list kids)]
+                      #:when (with-handlers ([exn:fail? (lambda (e) (raise e))])
+                               (repo-get conn p k)))
+             k))
+         (for ([k (in-list reachable)])
+           (define o (repo-get conn p k))
+           (require-perm conn p "files:delete" #:resource (obj->resource o)))
+         (require-perm conn p "files:delete" #:resource (obj->resource root))
+
+         (define (size-of oid)
+           (or (query-maybe-value conn
+                 "SELECT COALESCE(SUM(size), 0) FROM repo_versions WHERE object_id = ?" oid) 0))
+         (cond
+           [dry-run?
+            (hasheq 'dry_run #t
+                    'deleted (if detach? (list id) (append reachable (list id)))
+                    'detached (if detach? reachable '())
+                    'freed (for/sum ([oid (in-list (if detach? (list id) (append reachable (list id))))])
+                             (size-of oid)))]
+           [else
+            (define freed-box (box 0))
+            (define gone
+              (cond
+                [detach?
+                 ;; the rows, not the objects: each derived document becomes its own
+                 (for ([k (in-list reachable)])
+                   (query-exec conn "DELETE FROM repo_derivations WHERE source_object_id = ?" id))
+                 '()]
+                [else
+                 (for/list ([k (in-list reachable)])
+                   (set-box! freed-box (+ (unbox freed-box) (size-of k)))
+                   (repo-delete! conn p k)
+                   k)]))
+            (set-box! freed-box (+ (unbox freed-box) (size-of id)))
+            (repo-delete! conn p id)
+            ;; …and the root's own derivation rows, in both modes: it is gone, so
+            ;; nothing may still record it as a source or a product.
+            (query-exec conn "DELETE FROM repo_derivations WHERE source_object_id = ? OR object_id = ?" id id)
+            (audit! conn #:action "repo.delete.cascade" #:actor-type "user"
+                    #:actor-id (principal-user-id p) #:team-id (hash-ref root 'team_id)
+                    #:resource-type "repo" #:resource-id id
+                    #:meta (format "{\"key\":~s,\"deleted\":~a,\"detached\":~a,\"freed\":~a}"
+                                   (hash-ref root 'key)
+                                   (add1 (length gone)) (if detach? (length reachable) 0)
+                                   (unbox freed-box)))
+            (hasheq 'dry_run #f
+                    'deleted (append gone (list id))
+                    'detached (if detach? reachable '())
+                    'freed (unbox freed-box))]))))
+
+;; ---- prefix delete (issue #86 r2) ------------------------------------------------
+;; "Delete everything under inbox/2024/" as one call. Per-object deletion was the
+;; only shape, so an integrator honouring a retention obligation over a prefix had
+;; to list, page, and delete one at a time — and get the cascade right themselves.
+;;
+;; DRY RUN IS THE DEFAULT. Not a convenience: this is the single most destructive
+;; call in the API, a mistyped prefix is indistinguishable from a correct one at
+;; the point of use, and `?prefix=` with an empty value would otherwise mean
+;; "every object this team has". A caller must pass `confirm=1` to remove
+;; anything, and a dry run tells them the count and the bytes first.
+;;
+;; It reuses `repo-delete-tree!` per object rather than deleting rows in bulk, so
+;; the per-object permission check, the blob-release rule, the cascade and the
+;; storage refund are all the same code the single-object path uses. A bulk SQL
+;; delete would be faster and would be a second implementation of all four.
+;;
+;; -> (hasheq 'prefix .. 'objects n 'freed bytes 'deleted (ids) 'dry_run bool)
+(define (repo-delete-prefix! conn p prefix
+                             #:confirm? [confirm? #f]
+                             #:cascade? [cascade? #t]
+                             #:limit [limit 500])
+  (require-perm conn p "files:delete")
+  (when (string=? (string-trim (or prefix "")) "")
+    (raise-user-error 'repo (string-append "a prefix is required — refusing to treat an empty "
+                                           "prefix as \"every object in the team\"")))
+  ;; The caller's own listing, so visibility, grants and the org gate all apply and
+  ;; this can never reach further than a `GET /api/repo?prefix=` would.
+  (define listed (repo-list conn p #:prefix prefix #:limit limit))
+  (define ids (for/list ([o (in-list listed)]) (hash-ref o 'id)))
+  ;; A derived object may itself be under the prefix, and deleting its source first
+  ;; takes it with it — so the second delete would find a tombstone. Roots first,
+  ;; then skip whatever has already gone.
+  (define roots
+    (let ([under (list->set ids)])
+      (for/list ([id (in-list ids)]
+                 #:unless (for/or ([d (in-list (query-list conn
+                               "SELECT source_object_id FROM repo_derivations WHERE object_id = ?" id))])
+                            (set-member? under d)))
+        id)))
+  (cond
+    [(not confirm?)
+     (define planned
+       (for/list ([id (in-list roots)])
+         (repo-delete-tree! conn p id #:dry-run? #t)))
+     (hasheq 'prefix prefix 'dry_run #t
+             'objects (for/sum ([pl (in-list planned)]) (length (hash-ref pl 'deleted)))
+             'freed (for/sum ([pl (in-list planned)]) (hash-ref pl 'freed))
+             'deleted (for*/list ([pl (in-list planned)] [i (in-list (hash-ref pl 'deleted))]) i)
+             'truncated (>= (length listed) limit))]
+    [else
+     (define done
+       (for/list ([id (in-list roots)]
+                  ;; already taken by an earlier root's cascade
+                  #:when (repo-get conn p id))
+         (if cascade?
+             (repo-delete-tree! conn p id)
+             (hasheq 'deleted (if (repo-delete! conn p id) (list id) '()) 'freed 0))))
+     (define gone (for*/list ([r (in-list done)] [i (in-list (hash-ref r 'deleted))]) i))
+     (audit! conn #:action "repo.delete.prefix" #:actor-type "user"
+             #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+             #:resource-type "repo" #:resource-id prefix
+             #:meta (format "{\"prefix\":~s,\"objects\":~a}" prefix (length gone)))
+     (hasheq 'prefix prefix 'dry_run #f
+             'objects (length gone)
+             'freed (for/sum ([r (in-list done)]) (hash-ref r 'freed 0))
+             'deleted gone
+             'truncated (>= (length listed) limit))]))
+
+;; ---- what is left (issue #86 r7) -------------------------------------------------
+;; The verification read. An operator who has honoured a deletion request needs to
+;; be able to SHOW that nothing remains, and "I called DELETE and it returned 200"
+;; is not that. Each count is a table a trace could hide in.
+;;
+;; `audit` is reported but is NOT a trace to be cleaned: the audit log is
+;; deliberately what survives an erasure (TEN-2g, and #86 r5 says so explicitly),
+;; so a non-zero count there is the expected state and the field exists to say so
+;; rather than to be driven to zero.
+(define (repo-traces conn p id)
+  (require-perm conn p "files:read")
+  (define team (principal-team-id p))
+  (define org (query-maybe-value conn "SELECT org_id FROM teams WHERE id = ?" team))
+  ;; Deliberately NOT repo-get: the point is to look for remains of something that
+  ;; should be gone, and repo-get answers #f for a tombstone. The row is read
+  ;; directly, scoped to the caller's team so this cannot probe another tenant.
+  (define row (query-maybe-row conn
+    (string-append "SELECT key, deleted_at, org_id FROM repo_objects "
+                   "WHERE id = ? AND team_id = ?") id team))
+  (and row
+       (let* ([key (vector-ref row 0)]
+              [deleted? (not (sql-null? (vector-ref row 1)))]
+              [oorg (vector-ref row 2)]
+              [digests (query-list conn "SELECT digest FROM repo_versions WHERE object_id = ?" id)])
+         (hasheq
+          'id id
+          'key key
+          'deleted deleted?
+          'versions (length digests)
+          'text (query-value conn "SELECT COUNT(*) FROM repo_text WHERE object_id = ?" id)
+          'derived (length (derived-closure conn id))
+          'derivation_rows (query-value conn
+            (string-append "SELECT COUNT(*) FROM repo_derivations "
+                           "WHERE object_id = ? OR source_object_id = ?") id id)
+          ;; `resource_grants`, filtered by resource_type the way repo-grants does —
+          ;; the table is shared with notes, so counting by id alone would attribute
+          ;; another resource's grants to this object if the ids ever collided.
+          'grants (query-value conn
+            (string-append "SELECT COUNT(*) FROM resource_grants "
+                           "WHERE resource_type = 'repo' AND resource_id = ?") id)
+          ;; blobs STILL PRESENT for this object's versions. Zero versions means
+          ;; zero here by construction, which is the point: a tombstone with no
+          ;; version rows cannot be holding bytes.
+          'blobs (for/sum ([d (in-list digests)]) (if (blob-exists? (or oorg org) d) 1 0))
+          ;; A job whose payload or result still quotes this object id — the trace
+          ;; #59's purge removes. Matched the way object-processing does it
+          ;; (`jsexpr->string` writes no spaces, so the pair is one substring), and
+          ;; team-scoped because this read is.
+          'job_payloads (query-value conn
+            (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? "
+                           "AND (payload LIKE ? OR COALESCE(result, '') LIKE ?)")
+            team (format "%~s:~s%" "object_id" id) (format "%~s:~s%" "object_id" id))
+          'audit (query-value conn
+            "SELECT COUNT(*) FROM audit_log WHERE resource_id = ?" id)))))
 
 (define (repo-usage conn p)
   (require-perm conn p "files:read")

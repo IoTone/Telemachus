@@ -202,6 +202,9 @@
    (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs).")
 
    ;; ---- document repository -------------------------------------------------------------
+   ;; DELETE before GET on the same path is irrelevant (the method is matched too),
+   ;; but it sits here so the two /api/repo entries read together.
+   (R "DELETE" "/api/repo" 'repo-delete-prefix #:perm "files:delete" #:doc "Delete every object under `?prefix=`, cascading to what each one derived (#86). DRY RUN BY DEFAULT: without `confirm=1` nothing is removed and the reply is the count, the bytes and the ids that WOULD go. An empty or missing prefix is refused rather than read as \"every object in the team\". `?cascade=0` deletes only the listed objects and leaves their derivatives. The objects are found through the caller's own listing, so visibility, grants and the org gate apply exactly as on `GET /api/repo?prefix=`, and each deletion re-runs the per-object permission check.")
    (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).")
    (R "POST" "/api/repo-obj/:id/share" 'repo-share #:perm "files:manage" #:doc "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.")
    (R "POST" "/api/repo-obj/:id/unshare" 'repo-unshare #:perm "files:manage" #:doc "Revoke every grant a principal holds on the object.")
@@ -216,8 +219,10 @@
    (R "POST" "/api/repo-obj/:id/visibility" 'repo-visibility #:perm "files:manage" #:doc "Set private, team or shared.")
    (R "GET" "/api/repo-obj/:id/content" 'repo-get #:perm "files:read" #:doc "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.")
    (R "POST" "/api/repo-obj/:id/presign" 'repo-presign #:perm "files:read" #:doc "A time-boxed presigned S3 URL, signed with the caller's own newest S3 key.")
+   ;; Above the bare /api/repo-obj/:id — first match wins in list order.
+   (R "GET" "/api/repo-obj/:id/traces" 'repo-traces #:perm "files:read" #:doc "What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — \"I called DELETE and got a 200\" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure.")
    (R "GET" "/api/repo-obj/:id" 'repo-meta #:perm "files:read" #:doc "Object metadata with its versions.")
-   (R "DELETE" "/api/repo-obj/:id" 'repo-delete #:perm "files:delete" #:doc "Delete an object (blobs are released when no other version references them).")
+   (R "DELETE" "/api/repo-obj/:id" 'repo-delete #:perm "files:delete" #:doc "Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing claims to come from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one.")
    (R "PUT" "/api/repo/*key" 'repo-put #:perm "files:write" #:doc "Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here.")
    (R "GET" "/api/s3/credentials" 's3-creds #:doc "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.")
    (R "POST" "/api/s3/credentials" 's3-cred-create #:doc "Issue an S3 access key, optionally scoped (add workflows:run for a prefix that should fire triggers).")

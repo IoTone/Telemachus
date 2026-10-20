@@ -606,16 +606,18 @@
   (charge-storage! conn up (- staged))
   (for ([r (in-list parts)]) (release-blob! conn org (vector-ref r 0))))
 
-;; Delete a blob only if nothing points at it any more: another in-flight
-;; upload's part, or a finished object's version. Org-scoped, as repo-delete!
-;; is, because global dedup across tenants is an existence oracle (DOC-6).
+;; Delete a blob only if nothing in the ORG points at it any more: another
+;; in-flight upload's part, or a finished object's version.
+;;
+;; This DELEGATES now (issue #86 r6). It had its own copy of the rule, and the
+;; copy's part check was not org-scoped — `WHERE digest = ?` with no `org_id` —
+;; so one tenant's in-flight upload pinned another tenant's identical bytes for
+;; ever. Meanwhile `repo-delete!`'s copy never consulted parts at all and could
+;; delete the bytes a live upload was staging. Two implementations of one rule,
+;; each missing a different half, which is why there is one now and it lives
+;; with the tables it reads.
 (define (release-blob! conn org d)
-  (define still-a-part (query-value conn
-    "SELECT COUNT(*) FROM repo_upload_parts WHERE digest = ?" d))
-  (define still-a-version (query-value conn
-    (string-append "SELECT COUNT(*) FROM repo_versions v JOIN repo_objects o ON o.id = v.object_id "
-                   "WHERE v.digest = ? AND o.org_id = ?") d org))
-  (when (and (zero? still-a-part) (zero? still-a-version)) (blob-delete! org d)))
+  (release-blob-if-unreferenced! conn org d))
 
 ;; ---- reaping an abandoned upload (issue #54) ------------------------------------
 ;; A client that disconnects mid-multipart leaves rows and blobs behind. Nothing
