@@ -213,11 +213,39 @@
     (when body
       (copy-port body out)
       (flush-output out))
-    ;; Not close-output-port: with TLS that tears the session down before the
-    ;; response is read. The far end has Content-Length and does not need EOF.
+    ;; `out` is deliberately NOT closed here, and it IS returned so the caller
+    ;; can close it. Closing it now would, under TLS, tear the session down
+    ;; before the response is read; leaving it unreferenced leaks a descriptor on
+    ;; every successful request — the measured mistake llm.rkt documents for
+    ;; `http-sendrecv`, and one this code made until the leak was traced. Every
+    ;; caller below closes both ports, or hands both to `streamed-body`.
     (define status (read-status-line in))
     (define headers (read-headers in))
-    (values status headers in)))
+    (values status headers in out)))
+
+;; A GET's body as a port the CALLER owns, with the socket closed deterministically.
+;;
+;; The socket's input port cannot simply be handed out: closing it would leave
+;; `out` open and nothing the caller does can reach `out`. So the body is copied
+;; into a BOUNDED pipe by a thread that closes the socket on its way out.
+;; Bounded is the point — an unbounded pipe would buffer the whole object in
+;; memory, which is what this store exists to avoid. At this size the copy blocks
+;; until the reader consumes, so the stream keeps its backpressure.
+;;
+;; A caller that closes early is handled: `copy-port` then raises writing to a
+;; closed pipe, the handler swallows it, and the socket is closed regardless.
+(define PIPE-BYTES (* 1024 1024))
+
+(define (streamed-body in out len)
+  (define-values (pin pout) (make-pipe PIPE-BYTES))
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) void])
+       (copy-port (if len (make-limited-input-port in len #f) in) pout))
+     (with-handlers ([(lambda (_) #t) void]) (close-output-port pout))
+     (with-handlers ([(lambda (_) #t) void]) (close-input-port in))
+     (with-handlers ([(lambda (_) #t) void]) (close-output-port out))))
+  pin)
 
 (define (read-status-line in)
   (define l (read-line in 'return-linefeed))
@@ -301,13 +329,14 @@
 ;; this slice's to make.
 (define (s3-put-stream cfg key in size digest)
   (let ()
-    (define-values (status headers body)
+    (define-values (status headers body out)
       (s3-send cfg "PUT" key
                #:extra-headers (s3-sse-headers cfg)
                #:body in #:body-size size #:payload-hash digest))
+    (define (done!) (close-input-port body) (close-output-port out))
     (cond
       [(and (>= status 200) (< status 300))
-       (close-input-port body)
+       (done!)
        ;; Requirement 2's teeth. The bucket, not us, decides what it stored, so
        ;; the ANSWER is what gets checked — a bucket policy or a replication
        ;; rule that drops encryption is invisible in the request we sent.
@@ -332,6 +361,7 @@
        (void)]
       [else
        (define-values (code text) (drain-error status headers body))
+       (close-output-port out)
        (s3-error status code "PUT ~a failed: ~a ~a~a" key status code
                  (if (string=? text "") "" (format " — ~a" text)))])))
 
@@ -342,23 +372,24 @@
 (define (s3-get-stream cfg key)
   (with-retries cfg 'get
     (lambda ()
-      (define-values (status headers body) (s3-send cfg "GET" key))
+      (define-values (status headers body out) (s3-send cfg "GET" key))
       (cond
         [(and (>= status 200) (< status 300))
          (define len (let ([v (header-ref headers "content-length")])
                        (and v (string->number v))))
-         (if len (make-limited-input-port body len #t) body)]
-        [(= status 404) (close-input-port body) #f]
+         (streamed-body body out len)]
+        [(= status 404) (close-input-port body) (close-output-port out) #f]
         [else
          (define-values (code text) (drain-error status headers body))
+         (close-output-port out)
          (s3-error status code "GET ~a failed: ~a ~a" key status code)]))))
 
 ;; -> size, or #f for a miss
 (define (s3-head cfg key)
   (with-retries cfg 'head
     (lambda ()
-      (define-values (status headers body) (s3-send cfg "HEAD" key))
-      (close-input-port body)
+      (define-values (status headers body out) (s3-send cfg "HEAD" key))
+      (close-input-port body) (close-output-port out)
       (cond
         [(and (>= status 200) (< status 300))
          (let ([v (header-ref headers "content-length")]) (and v (string->number v)))]
@@ -368,13 +399,14 @@
 (define (s3-delete cfg key)
   (with-retries cfg 'delete
     (lambda ()
-      (define-values (status headers body) (s3-send cfg "DELETE" key))
+      (define-values (status headers body out) (s3-send cfg "DELETE" key))
       (cond
         ;; 204 is the success; 404 is already-gone, which for a delete is the
         ;; same outcome and must not raise — the seam's delete is idempotent and
         ;; the reaper calls it on blobs it may have already removed.
         [(or (and (>= status 200) (< status 300)) (= status 404))
-         (close-input-port body) (void)]
+         (close-input-port body) (close-output-port out) (void)]
         [else
          (define-values (code text) (drain-error status headers body))
+         (close-output-port out)
          (s3-error status code "DELETE ~a failed: ~a ~a" key status code)]))))

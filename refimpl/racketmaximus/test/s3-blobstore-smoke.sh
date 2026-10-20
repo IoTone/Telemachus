@@ -142,6 +142,50 @@ assert "a blob that was never written is a MISS, not an error" "$OUT" "miss-get 
 assert "delete removes it"                    "$OUT" "stat-after-delete #f"
 assert "a second delete does not raise"       "$OUT" "second-delete ok"
 
+echo "== 2b. descriptors do not grow across many operations ======================"
+# The client returns a live socket for a GET and must close BOTH of its ports.
+# It did not: `out` was closed only on the error path, so every successful
+# request leaked a descriptor — the measured mistake llm.rkt documents for
+# http-sendrecv, repeated here. A count is the only honest check of the fix,
+# because nothing about the code's shape makes the leak visible.
+#
+# /dev/fd exists on Linux and macOS. 40 full cycles is 160-odd requests, so a
+# one-per-request leak is unmistakable against startup noise.
+#
+# THE COUNTER ITSELF WAS CONTROLLED, because "growth 0" from a blind measurement
+# looks exactly like "growth 0" from a clean one: 40 TCP connection pairs left
+# deliberately open moved the count by 80. It sees sockets. The threshold is 8
+# rather than 0 because a run legitimately opens a few things lazily.
+FDS=$(racket -e "
+(require racket/port racket/file (file \"$PLUG\") (file \"$BLOBS\"))
+(init!)
+(define (fd-count)
+  (with-handlers ([(lambda (_) #t) (lambda (_) -1)])
+    (length (directory-list \"/dev/fd\"))))
+(define bs (make-bytes 4096 90))
+(define-values (d n) (digest-of-port (open-input-bytes bs)))
+;; one warm cycle first, so lazily-opened things are not counted as a leak
+(blob-put! \"org-fd\" d (open-input-bytes bs) n)
+(let ([in (blob-get \"org-fd\" d)]) (void (port->bytes in)) (close-input-port in))
+(blob-delete! \"org-fd\" d)
+(define before (fd-count))
+(for ([i (in-range 40)])
+  (blob-put! \"org-fd\" d (open-input-bytes bs) n)
+  (define in (blob-get \"org-fd\" d))
+  (void (port->bytes in))
+  (close-input-port in)
+  (blob-size \"org-fd\" d)
+  (blob-delete! \"org-fd\" d))
+;; the GET body is closed by a thread, so give those a moment to finish
+(sleep 1)
+(define after (fd-count))
+(printf \"fds before ~a after ~a growth ~a\n\" before after (- after before))
+(printf \"verdict ~a\n\" (cond [(< before 0) \"UNKNOWN\"]
+                               [(<= (- after before) 8) \"STABLE\"]
+                               [else \"LEAKING\"]))" 2>&1)
+echo "$FDS" | sed 's/^/     /' | tail -3
+assert "descriptors are stable across 40 put/get/stat/delete cycles" "$FDS" "verdict STABLE"
+
 echo "== 3. require-encryption has TEETH =========================================="
 # Telemachus's own S3 endpoint does not implement SSE, so a bucket that reports
 # no encryption is exactly the condition requirement 2 must refuse. If this
