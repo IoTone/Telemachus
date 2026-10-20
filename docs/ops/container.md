@@ -174,6 +174,45 @@ working if `curl` is ever dropped from it. The `startupProbe` is generous
 because the first boot migrates the schema — 43 transactions on an empty
 database.
 
+## OCR is not in the image, and what to do about it
+
+The `ocr` plugin (issue #92) ships in the image like every other plugin, but
+**`tesseract` does not**, so setting `TELEMACHUS_OCR=1` on the stock image makes
+the plugin fail to load and say why. That is deliberate and measured:
+
+| What | Closure |
+|---|---|
+| `tesseract` with all 129 bundled language files | **1.1 GiB** |
+| `tesseract.override { enableLanguages = [ "eng" ]; }` | **129 MiB** |
+| the image itself, today | 1.74 GB |
+
+All languages would grow the image by **63%** for a feature that is off by
+default — and the slim-variant decision already declined a *second* image for a
+23% saving, so shipping a bigger one here would be the same trade in reverse.
+
+An integrator who wants OCR in a container adds the engine with the languages
+they actually use, which is a few lines against this flake and costs ~7%:
+
+```nix
+# in your own flake. `extraPath` adds each package to the image's contents and to
+# the FRONT of the server's PATH; the default [] leaves `nix build .#container`
+# byte-identical, so this costs nothing when unused.
+packages.container-ocr = import ./nix/container.nix {
+  inherit pkgs;
+  telemachus = pkgs.callPackage ./nix/telemachus.nix { };
+  version = "0.1.0";
+  extraPath = [ (pkgs.tesseract.override { enableLanguages = [ "eng" "spa" ]; }) ];
+};
+```
+
+Then run it with `-e TELEMACHUS_OCR=1 -e TELEMACHUS_OCR_LANGUAGES=eng+spa`.
+
+`pdftoppm`, which the OCR path uses to rasterise a scanned PDF's pages, is
+already in the image as part of poppler-utils, so the engine is the only piece
+missing. `TELEMACHUS_OCR_LANGUAGES` must name languages that were actually
+compiled in — the plugin passes the value to tesseract as-is, and
+`tesseract --list-langs` is the authority on what a given image can read.
+
 ## Startup checks
 
 The instance refuses to serve when the blob store is not writable, when
