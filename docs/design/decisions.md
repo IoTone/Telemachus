@@ -649,6 +649,36 @@ variant without it is possible and would save roughly a quarter. Not built here:
 it is a second image to keep in step for a 23% saving against a floor that
 dominates either way.
 
+## Deleting a document and everything it produced (DEL) — **decided and BUILT 20 Oct 2026** (issue #86, slice 1)
+
+Deletion was per object. `DELETE /api/repo-obj/:id` removed versions, text and
+bytes — and left every DERIVED object behind: the extracted JSON, the filled
+form, each translation, separate objects under their own keys, each still
+readable and still billed. A tenant asked for a document to be deleted and the
+document's contents stayed in the repository three times over.
+
+This is slice 1 of #86: cascade (r1), prefix (r2), the blob-reference guarantee
+(r6) and the verification read (r7). Legal hold (r4), the retention rule engine
+(r3) and tenant erasure (r5) are each their own slice.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **DEL‑1** | One blob-release rule | **ONE predicate, org-scoped on versions AND parts** · vs the two that existed | There were two implementations and each was wrong differently. `repo-delete!` counted versions in the org and **never consulted `repo_upload_parts`** — a staged part IS a blob in its upload's org namespace, so deleting an object whose digest a live upload had also staged destroyed the bytes that upload needed, and Complete Multipart then assembled from nothing. Reachable on the ordinary dedup path: re-uploading a document that already exists is exactly when a part and a version share a digest. Meanwhile `release-blob!` counted parts GLOBALLY, so one tenant's in-flight upload pinned another tenant's identical bytes for ever. Reaching the S3 listener's table from the repository is deliberate: a multipart upload BECOMES a repository object, so the two tables describe one lifecycle and a predicate that sees half of it is the bug above. |
+| 🔑 **DEL‑2** | Cascade or detach | **Both, and detach REMOVES the derivation rows** · vs delete only · vs leave derivatives alone | Leaving them alone is the bug. But a derived document whose source is a tombstone, still recording that source, is a provenance record that LIES — and "Processed by" renders it. So detach is not "do nothing to the child": it is "stop claiming the parent". |
+| 🔑 **DEL‑3** | A cascade that cannot delete everything | **ALL-OR-NOTHING on permission, refused by name** · vs skip what you cannot delete · vs best effort | A half-cascaded tree cannot be told apart from a finished one, and the obvious recovery — run it again — is what a partial failure makes unsafe. The caller detaches instead. |
+| 🔑 **DEL‑4** | Prefix delete's default | **DRY RUN, `confirm=1` to act** · vs delete immediately · vs no prefix delete | The most destructive call in the API. A mistyped prefix is indistinguishable from a correct one at the point of use, and `?prefix=` with an empty value would mean "every object this team has" — which is refused outright rather than honoured. |
+| **DEL‑5** | How a prefix delete deletes | **`repo-delete-tree!` per object** · vs bulk SQL | Slower, and it reuses the per-object permission check, the blob-release rule, the cascade and the storage refund rather than reimplementing all four. Roots are computed first and already-deleted objects skipped, because a derivative under the same prefix goes with its source. |
+| **DEL‑6** | Walking the derivation graph | **Cycle-safe, deepest-first** · vs assume a tree | DWF‑3 stops a trigger firing on its own output, so the TRIGGER path cannot loop — but a hand-run workflow can derive A from B and later B from A, and nothing in the table enforces acyclicity. Deepest-first is required for correctness, not tidiness: releasing a parent's bytes before its children are gone lets a child's surviving version row keep them alive, leaving a tombstone pointing at bytes nobody can reach. |
+| 🔑 **DEL‑7** | The verification read | **`GET /api/repo-obj/:id/traces`, and `audit` is NOT a trace** · vs trusting the DELETE's 200 | "I called DELETE and got a 200" is not evidence that a deletion request was honoured; a count per table a trace could hide in is. `audit` is reported precisely so an operator can see that it is the one thing deliberately left — an erasure keeps it (TEN‑2g, #86 r5) — rather than chasing it to zero. |
+| **DEL‑8** | One audit event or many | **One for the tree** · vs one per object | The question an auditor asks is "was this deletion request honoured", and that is a question about the tree. The event names the key, the counts and the bytes. |
+
+**Not built in this slice, and named rather than implied:** legal hold (r4) —
+a flag blocking deletion by rule or API, which needs a decision about whether it
+binds the prefix path too; the retention rule engine (r3), which is where #59's
+`purge-job-content!` sweep and #83's 7-day horizon both belong, as one answer;
+and org erasure (r5). `?lifecycle` on the S3 listener still answers 501 by
+design (DOC‑13) and r3's mapping question is open with it.
+
 ## Purging a job's content (PURGE) — **decided and BUILT 20 Oct 2026** (issue #59)
 
 `jobs.payload` holds whatever a kind needs, and for `infer.chat` and the document

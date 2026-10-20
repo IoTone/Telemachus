@@ -1402,6 +1402,60 @@ staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
 STORAGE limit, not a concurrency one: the scheduler is safe in several processes,
 which is what the in-flight register exists for.
 
+## Deleting a document and everything it produced (DEL, issue #86 slice 1)
+
+Built 20 Oct 2026. `domain/repo/repo.rkt`; `?cascade=`/`?detach=`/`?dry_run=` on
+`DELETE /api/repo-obj/:id`, `DELETE /api/repo?prefix=`, and
+`GET /api/repo-obj/:id/traces`. Decisions **DEL‑1…8**.
+
+```sh
+raco test test/repo-tests.rkt test/upload-reap-tests.rkt
+bash test/server-smoke.sh    # the "cascade and prefix delete" block, 13 assertions
+```
+
+- **ONE blob-release rule now, and there were two.** `blob-referenced?` /
+  `release-blob-if-unreferenced!` in repo.rkt is the only one; the S3 listener's
+  `release-blob!` delegates. The old pair were each wrong differently:
+  `repo-delete!` **never consulted `repo_upload_parts`**, so deleting an object
+  whose digest a live multipart upload had also staged destroyed the bytes that
+  upload needed (reachable on the normal dedup path — re-uploading an existing
+  document is exactly when a part and a version share a digest); and
+  `release-blob!` counted parts GLOBALLY, so one tenant's upload pinned another
+  tenant's copy for ever. Reaching the listener's table from the repository is
+  deliberate: a multipart upload BECOMES a repository object.
+- **`detach` removes the derivation rows, it does not merely spare the child.** A
+  derived document still recording a source that is now a tombstone is provenance
+  that lies, and "Processed by" renders it.
+- **A cascade is all-or-nothing on permission**, refused by name. A
+  half-cascaded tree cannot be told from a finished one, and rerunning — the
+  obvious recovery — is what partial failure makes unsafe.
+- **`DELETE /api/repo?prefix=` is a DRY RUN unless `confirm=1`**, and an empty
+  prefix is refused rather than read as "every object in the team". It deletes
+  through `repo-delete-tree!` per object, so the permission check, the
+  blob-release rule, the cascade and the storage refund are not reimplemented.
+- **The closure walk is cycle-safe and deepest-first.** DWF‑3 stops a trigger
+  firing on its own output, but a hand-run workflow can derive A from B and later
+  B from A and nothing in the table forbids it. Deepest-first is correctness:
+  releasing a parent's bytes before its children are gone lets a child's
+  surviving version row keep them alive.
+- **`traces` reports `audit` and that is NOT a trace to drive to zero** — an
+  erasure deliberately keeps the audit log (TEN‑2g). The field exists so an
+  operator can see that it is the one thing left.
+- **`member` returns the tail from the element onward**, so in a deepest-first
+  list a DEEPER element has a LONGER tail. An ordering assertion written the
+  other way round fails against a correct ordering — it did here.
+- **The grants table is `resource_grants`, not `repo_grants`**, and it is shared
+  with notes, so a count needs `resource_type = 'repo'` as `repo-grants` does.
+- **Building SQL conditionally while passing a fixed argument list is how a
+  clause and its parameter come apart.** `blob-referenced?`'s `#:except-object`
+  was written that way first and would have failed with an arity error on exactly
+  the cascade path the argument exists for. Two statements, not one with an
+  interpolated clause.
+- **When adding a route, check the paren balance before compiling.** Three route
+  entries in this slice and the last were written as `(R … #:doc "…"` with the
+  closing paren missing; `racket-parens.p` names the line in ~7 ms, and
+  `raco`'s own "indentation suggests a missing `)` before line N" is good here too.
+
 ## Purging a job's content (PURGE, issue #59)
 
 Built 20 Oct 2026. `DELETE /api/jobs/:id/content`; `purge-job-content!` in

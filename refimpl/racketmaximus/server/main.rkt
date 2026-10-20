@@ -2667,9 +2667,48 @@
   (define p (s3-port))
   (and p (format "http://~a:~a" (if (equal? (bind-ip) "0.0.0.0") "<host>" (bind-ip)) p)))
 
+;; `?cascade=1` / `?detach=1` / `?dry_run=1` (issue #86 r1). Without cascade this
+;; is exactly what it was: one object, one blob-release pass.
+;;
+;; `query-param`'s default is "" and an empty string is TRUE in Racket, so these
+;; are compared against a value rather than tested for truth — the trap that made
+;; every bundle sub-resource 401 the first time (issue #43).
+(define (flag? req name)
+  (member (query-param req name) '("1" "true" "yes" "on")))
+
 (define (ep-repo-delete req id)
   (with-auth req (lambda (p)
-    (if (repo-delete! db-conn p id) (json-response (hasheq 'ok #t 'id id)) (err "not found" 404)))))
+    (cond
+      [(flag? req 'cascade)
+       (define r (repo-delete-tree! db-conn p id
+                                    #:detach? (and (flag? req 'detach) #t)
+                                    #:dry-run? (and (flag? req 'dry_run) #t)))
+       (if r (json-response (hash-set r 'ok #t)) (err "not found" 404))]
+      [(flag? req 'dry_run)
+       ;; A dry run without cascade still answers, so a caller can ask "what would
+       ;; this delete cost me" uniformly rather than only on the cascade path.
+       (define r (repo-delete-tree! db-conn p id #:detach? #t #:dry-run? #t))
+       (if r (json-response (hash-set (hash-set r 'detached '()) 'ok #t)) (err "not found" 404))]
+      [else
+       (if (repo-delete! db-conn p id) (json-response (hasheq 'ok #t 'id id)) (err "not found" 404))]))))
+
+(define (ep-repo-delete-prefix req)
+  (with-auth req (lambda (p)
+    (define prefix (query-param req 'prefix))
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (json-response
+       (hash-set (repo-delete-prefix! db-conn p prefix
+                                      #:confirm? (and (flag? req 'confirm) #t)
+                                      ;; cascade is ON unless explicitly turned off:
+                                      ;; leaving derivatives behind is what #86 r1
+                                      ;; exists to stop, so it is not the default
+                                      #:cascade? (not (member (query-param req 'cascade) '("0" "false" "no" "off"))))
+                 'ok #t))))))
+
+(define (ep-repo-traces req id)
+  (with-auth req (lambda (p)
+    (define r (repo-traces db-conn p id))
+    (if r (json-response r) (err "not found" 404)))))
 
 ;; ---- workflows (slice 46) ---------------------------------------------------
 ;; The spec is the contract: `validate-spec` is reached the same way from here as
@@ -2999,6 +3038,7 @@
    'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign
    'repo-meta ep-repo-meta 'repo-delete ep-repo-delete 'repo-put ep-repo-put
+   'repo-traces ep-repo-traces 'repo-delete-prefix ep-repo-delete-prefix
    's3-creds ep-s3-creds 's3-cred-create ep-s3-cred-create 's3-cred-revoke ep-s3-cred-revoke
    'workflows-create ep-workflows-create 'workflows-list ep-workflows-list 'workflow-schema ep-workflow-schema
    'workflow-run ep-workflow-run

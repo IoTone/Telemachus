@@ -108,3 +108,77 @@
   (check-equal? (uploads c) 1)
   (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "")
   (check-equal? (reap-uploads! c) 1))
+
+;; ---- one blob-release rule, org-scoped on BOTH halves (issue #86 r6) -----------
+;; There were two implementations of "may this blob go", and each was wrong in a
+;; different way. Both cases below FAIL against the code as it was.
+;;
+;;   1. `repo-delete!` counted versions in the org and never looked at
+;;      `repo_upload_parts`. A staged part IS a blob in its upload's org
+;;      namespace, so deleting an object whose digest a live upload had also
+;;      staged destroyed the bytes that upload needed. Reachable on the ordinary
+;;      dedup path: re-uploading a document that already exists is exactly when
+;;      a part and a version share a digest.
+;;   2. `release-blob!` counted parts GLOBALLY, so one tenant's in-flight upload
+;;      pinned another tenant's identical bytes for ever.
+(test-case "deleting an object does NOT destroy bytes a live upload has staged"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define org (query-maybe-value c "SELECT org_id FROM teams WHERE id = ?" tid))
+  (define p (user-principal c uid tid))
+  (define payload #"the same bytes twice")
+
+  ;; an object holding the bytes …
+  (define o (repo-put! c p #:key "docs/a.bin" #:port (open-input-bytes payload)
+                       #:content-type "application/octet-stream" #:filename "a.bin"))
+  (define d (query-value c "SELECT digest FROM repo_versions WHERE object_id = ?" (hash-ref o 'id)))
+  ;; … and an in-flight multipart upload staging the SAME digest, which is what a
+  ;; re-upload of an existing document produces
+  (define-values (up d2) (stage! c tid org #:bytes payload))
+  (check-equal? d d2 "the fixture only means anything if the digests match")
+  (check-true (blob-exists? org d) "staged and stored")
+
+  ;; delete the object: its version rows go, the part's reference remains
+  (check-true (repo-delete! c p (hash-ref o 'id)))
+  (check-true (blob-referenced? c org d) "the live upload's part still points at it")
+  (check-true (blob-exists? org d)
+              "the bytes a live multipart upload needs must survive the object's deletion")
+
+  ;; and once the upload's part row goes, nothing points at the bytes any more.
+  ;; The part row is removed directly rather than through `drop-upload!`: that
+  ;; procedure is internal to the S3 listener and what is under test here is the
+  ;; REFCOUNT RULE, not the upload lifecycle (which reap-uploads! covers above).
+  (query-exec c "DELETE FROM repo_upload_parts WHERE upload_id = ?" up)
+  (check-false (blob-referenced? c org d))
+  (release-blob-if-unreferenced! c org d)
+  (check-false (blob-exists? org d) "…and now they are collected")
+  (close-db! c))
+
+(test-case "one org's staged part does not pin another org's identical bytes"
+  (define c (fresh))
+  (define-values (uid-a tid-a) (bootstrap! c #:username "alice"))
+  (define org-a (query-maybe-value c "SELECT org_id FROM teams WHERE id = ?" tid-a))
+  ;; A second org with its own team, holding byte-identical content. The two
+  ;; copies are deliberately separate blobs (DOC-6): global dedup across tenants
+  ;; is an existence oracle.
+  (define org-b (new-id))
+  (define tid-b (new-id))
+  (query-exec c "INSERT INTO orgs (id, name, slug) VALUES (?, ?, ?)" org-b "B Ltd" "b-ltd")
+  (query-exec c "INSERT INTO teams (id, org_id, name, slug) VALUES (?, ?, ?, ?)"
+              tid-b org-b "B team" "b-team")
+  (define payload #"shared by coincidence")
+  (define-values (d _n) (blob-stage! org-b (open-input-bytes payload)))
+  (check-true (blob-exists? org-b d))
+
+  ;; org A stages a part with the same digest …
+  (define-values (up da) (stage! c tid-a org-a #:bytes payload))
+  (check-equal? d da)
+  ;; … which says nothing about org B's copy
+  (check-false (blob-referenced? c org-b d)
+               "a part in ANOTHER org must not count as a reference here")
+  (release-blob-if-unreferenced! c org-b d)
+  (check-false (blob-exists? org-b d) "org B's unreferenced copy is collected")
+  ;; and org A's own copy is untouched by that
+  (check-true (blob-referenced? c org-a d))
+  (check-true (blob-exists? org-a d))
+  (close-db! c))

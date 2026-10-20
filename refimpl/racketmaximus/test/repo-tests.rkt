@@ -489,3 +489,145 @@
 
   ;; no limit given at all: the old behaviour, nothing refuses a large body
   (void (put! conn acme "unbounded.bin" (make-bytes 10000 65))))
+
+;; ---- cascade delete and the verification read (issue #86 r1/r7) ----------------
+;; Deleting a source left its derived objects behind: the extracted JSON, the
+;; filled form, each translation — separate objects, each still readable and
+;; still billed. A tenant asked for a document to be deleted and the document's
+;; CONTENTS stayed in the repository under three other keys.
+;;
+;; The tree here is deliberately TWO deep (source → extracted → translated),
+;; because a one-level cascade passes a one-level test and the pipeline builds
+;; chains: doc_extract_fields feeds doc_render feeds doc_translate.
+(test-case "a cascade deletes the whole derivation tree, deepest first"
+  (define conn (fresh))
+  (define-values (alice team) (owner-of conn))
+  (define src (put! conn alice "inbox/invoice.txt" #"ACME 1250 EUR"))
+  (define ext (put! conn alice "inbox/invoice.txt.extracted.json" #"{\"total\":1250}"))
+  (define form (put! conn alice "inbox/invoice.txt.form.md" #"# filled"))
+    ;; ASCII bytes: a #"..." literal cannot hold non-ASCII, and the content is
+  ;; irrelevant to the cascade — only the derivation edges are.
+  (define tr (put! conn alice "inbox/invoice.txt.form.ja.md" #"# translated"))
+  (define sid (hash-ref src 'id))
+  (repo-inherit! conn alice #:source sid #:target (hash-ref ext 'id) #:run-id "r1")
+  (repo-inherit! conn alice #:source (hash-ref ext 'id) #:target (hash-ref form 'id) #:run-id "r1")
+  (repo-inherit! conn alice #:source (hash-ref form 'id) #:target (hash-ref tr 'id) #:run-id "r1")
+
+  ;; the closure is transitive, and the ROOT is not in it
+  (define closure (derived-closure conn sid))
+  (check-equal? (length closure) 3 (format "expected 3 derived, got ~a" closure))
+  (check-false (member sid closure) "the root is not its own descendant")
+  ;; deepest first: the translation must precede the extracted JSON it descends
+  ;; from, or a delete would release a parent's bytes while a child still points
+  ;; at them
+  ;; `member` answers the sublist FROM the element onward, so an element EARLIER
+  ;; in the list has a LONGER tail. Deepest-first therefore means the translation's
+  ;; tail is longer than the extracted JSON's — this assertion was written the
+  ;; other way round first and failed against a correct ordering.
+  (check-true (> (length (member (hash-ref tr 'id) closure))
+                 (length (member (hash-ref ext 'id) closure)))
+              "deepest-first ordering: the translation is deleted before its source")
+
+  ;; a dry run changes nothing
+  (define plan (repo-delete-tree! conn alice sid #:dry-run? #t))
+  (check-true (hash-ref plan 'dry_run))
+  (check-equal? (length (hash-ref plan 'deleted)) 4 "the tree plus its root")
+  (check-true (> (hash-ref plan 'freed) 0))
+  (check-true (and (repo-get conn alice sid) #t) "…and the source is still there")
+  (check-true (and (repo-get conn alice (hash-ref tr 'id)) #t))
+
+  ;; the real thing
+  (define done (repo-delete-tree! conn alice sid))
+  (check-false (hash-ref done 'dry_run))
+  (check-equal? (length (hash-ref done 'deleted)) 4)
+  (check-false (repo-get conn alice sid) "the source is gone")
+  (for ([o (in-list (list ext form tr))])
+    (check-false (repo-get conn alice (hash-ref o 'id))
+                 (format "~a should be gone" (hash-ref o 'key))))
+  (close-db! conn))
+
+(test-case "detach keeps the derived objects and removes the provenance that would lie"
+  (define conn (fresh))
+  (define-values (alice team) (owner-of conn))
+  (define src (put! conn alice "a.txt" #"source"))
+  (define der (put! conn alice "a.txt.extracted.json" #"{}"))
+  (repo-inherit! conn alice #:source (hash-ref src 'id) #:target (hash-ref der 'id))
+  (check-equal? (length (repo-derivations conn alice (hash-ref der 'id))) 1)
+
+  (define r (repo-delete-tree! conn alice (hash-ref src 'id) #:detach? #t))
+  (check-equal? (hash-ref r 'deleted) (list (hash-ref src 'id)) "only the source")
+  (check-equal? (length (hash-ref r 'detached)) 1)
+  (check-false (repo-get conn alice (hash-ref src 'id)))
+  (check-true (and (repo-get conn alice (hash-ref der 'id)) #t) "the derived object survives")
+  ;; …and no longer claims to come from a tombstone, which "Processed by" would render
+  (check-equal? (repo-derivations conn alice (hash-ref der 'id)) '()
+                "the provenance row is gone, not left pointing at something deleted")
+  (close-db! conn))
+
+(test-case "the verification read reports what is left, and what is meant to be"
+  (define conn (fresh))
+  (define-values (alice team) (owner-of conn))
+  (define src (put! conn alice "b.txt" #"bytes here"))
+  (define der (put! conn alice "b.txt.extracted.json" #"{}"))
+  (repo-inherit! conn alice #:source (hash-ref src 'id) #:target (hash-ref der 'id))
+  (define sid (hash-ref src 'id))
+
+  (define before (repo-traces conn alice sid))
+  (check-false (hash-ref before 'deleted))
+  (check-equal? (hash-ref before 'versions) 1)
+  (check-equal? (hash-ref before 'derived) 1)
+  (check-true (>= (hash-ref before 'blobs) 1) "the bytes are present")
+
+  (repo-delete-tree! conn alice sid)
+  (define after (repo-traces conn alice sid))
+  (check-true (hash-ref after 'deleted) "the row is a tombstone")
+  (check-equal? (hash-ref after 'versions) 0)
+  (check-equal? (hash-ref after 'text) 0)
+  (check-equal? (hash-ref after 'derived) 0)
+  (check-equal? (hash-ref after 'derivation_rows) 0)
+  (check-equal? (hash-ref after 'blobs) 0 "no bytes remain")
+  ;; …and the audit trail is EXPECTED to remain. It is reported so an operator can
+  ;; see it rather than chase it to zero: an erasure deliberately keeps it.
+  (check-true (> (hash-ref after 'audit) 0) "the audit log survives, by design")
+  (close-db! conn))
+
+;; ---- prefix delete (issue #86 r2) ----------------------------------------------
+;; The most destructive call in the API, so the default has to be the safe one: a
+;; mistyped prefix looks exactly like a correct one at the point of use, and an
+;; empty prefix would mean "everything this team has".
+(test-case "a prefix delete is a DRY RUN unless confirmed, and refuses an empty prefix"
+  (define conn (fresh))
+  (define-values (alice team) (owner-of conn))
+  (define a (put! conn alice "inbox/2024/one.txt" #"aaaa"))
+  (define b (put! conn alice "inbox/2024/two.txt" #"bbbbbb"))
+  (define keep (put! conn alice "inbox/2025/three.txt" #"cccc"))
+  ;; a derivative of one of them, under the SAME prefix: the cascade takes it, and
+  ;; the pass must then not try to delete a tombstone
+  (define der (put! conn alice "inbox/2024/one.txt.extracted.json" #"{}"))
+  (repo-inherit! conn alice #:source (hash-ref a 'id) #:target (hash-ref der 'id))
+
+  ;; an empty prefix is refused outright rather than meaning "all"
+  (check-exn exn:fail:user?
+             (lambda () (repo-delete-prefix! conn alice ""))
+             "an empty prefix must not be read as every object")
+  (check-exn exn:fail:user? (lambda () (repo-delete-prefix! conn alice "   ")))
+
+  ;; the default is a plan, not an action
+  (define plan (repo-delete-prefix! conn alice "inbox/2024/"))
+  (check-true (hash-ref plan 'dry_run))
+  (check-equal? (hash-ref plan 'objects) 3 "two objects plus the derivative of one")
+  (check-true (> (hash-ref plan 'freed) 0))
+  (check-true (and (repo-get conn alice (hash-ref a 'id)) #t) "nothing was deleted")
+  (check-true (and (repo-get conn alice (hash-ref der 'id)) #t))
+
+  ;; confirmed
+  (define done (repo-delete-prefix! conn alice "inbox/2024/" #:confirm? #t))
+  (check-false (hash-ref done 'dry_run))
+  (check-equal? (hash-ref done 'objects) 3)
+  (check-false (repo-get conn alice (hash-ref a 'id)))
+  (check-false (repo-get conn alice (hash-ref b 'id)))
+  (check-false (repo-get conn alice (hash-ref der 'id)) "the derivative went with its source")
+  ;; …and the neighbouring prefix is untouched, which is the whole point of a prefix
+  (check-true (and (repo-get conn alice (hash-ref keep 'id)) #t)
+              "inbox/2025/ must survive a delete of inbox/2024/")
+  (close-db! conn))

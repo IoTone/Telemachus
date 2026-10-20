@@ -638,6 +638,41 @@ assert "search now matches the document's CONTENT" \
 
 # ---- LAY-4/LAY-5: what a team asserts, and where the text came from ---------------
 echo
+echo "== cascade and prefix delete (issue #86) =="
+# A source with one derived output, then the cascade, then the verification read.
+CSRC=$(curl -s -X PUT "$B/api/repo/purgeme/src.txt" -H "Authorization: Bearer $OP" \
+       -H 'Content-Type: text/plain' --data-binary 'the source document')
+CSID=$(printf '%s' "$CSRC" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+CDER=$(curl -s -X PUT "$B/api/repo/purgeme/src.txt.extracted.json" -H "Authorization: Bearer $OP" \
+       -H 'Content-Type: application/json' --data-binary '{"total":1}')
+CDID=$(printf '%s' "$CDER" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+assert "cascade: traces show the object before anything is deleted" \
+  "$(curl -s "$B/api/repo-obj/$CSID/traces" -H "Authorization: Bearer $OP")" '"deleted":false'
+# a dry run must change nothing
+assert "cascade: a dry run reports and does not delete" \
+  "$(curl -s -X DELETE "$B/api/repo-obj/$CSID?cascade=1&dry_run=1" -H "Authorization: Bearer $OP")" '"dry_run":true'
+assert "cascade: …so the object is still there" \
+  "$(curl -s "$B/api/repo-obj/$CSID" -H "Authorization: Bearer $OP")" "$CSID"
+# an empty prefix is refused rather than meaning "everything"
+assert "prefix: an empty prefix is refused, not read as every object" \
+  "$(curl -s -X DELETE "$B/api/repo?prefix=&confirm=1" -H "Authorization: Bearer $OP")" 'a prefix is required'
+# and a prefix delete is a dry run unless confirmed
+assert "prefix: the default is a dry run" \
+  "$(curl -s -X DELETE "$B/api/repo?prefix=purgeme/" -H "Authorization: Bearer $OP")" '"dry_run":true'
+assert "prefix: …and nothing went" \
+  "$(curl -s "$B/api/repo-obj/$CDID" -H "Authorization: Bearer $OP")" "$CDID"
+assert "prefix: confirmed, it deletes the prefix" \
+  "$(curl -s -X DELETE "$B/api/repo?prefix=purgeme/&confirm=1" -H "Authorization: Bearer $OP")" '"dry_run":false'
+assert "prefix: …the source is gone" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/repo-obj/$CSID" -H "Authorization: Bearer $OP")" '404'
+assert "prefix: …and so is what it derived" \
+  "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/repo-obj/$CDID" -H "Authorization: Bearer $OP")" '404'
+TRACES=$(curl -s "$B/api/repo-obj/$CSID/traces" -H "Authorization: Bearer $OP")
+assert "traces: the tombstone says deleted"        "$TRACES" '"deleted":true'
+assert "traces: no versions remain"                "$TRACES" '"versions":0'
+assert "traces: no bytes remain"                   "$TRACES" '"blobs":0'
+assert "traces: no derivation rows remain"         "$TRACES" '"derivation_rows":0'
+
 echo "== object metadata =="
 assert "a member may not define the team's fields" \
   "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $BOB" -d '{"fields":[]}')" \
