@@ -16,7 +16,16 @@
          json
          "../db/id.rkt"
          "../authz/authz.rkt"
-         "../ai/executor.rkt")     ; run-chat, model-info
+         "../ai/executor.rkt"      ; run-chat, model-info
+         ;; issue #83 r1: these two columns hold derived document content whenever
+         ;; the pipeline translates
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
+         (only-in "../../config.rkt" content-encryption-enabled?))
+
+(define (seal-tr ctx v)
+  (if (and (content-encryption-enabled?) (string? v)) (secret-wrap ctx v) v))
+;; never conditional on the switch, so a row sealed while it was on still opens
+(define (unseal-tr ctx v) (if (string? v) (secret-unwrap ctx v) v))
 
 (provide translate! translate-list translate-catalog!
          glossary-add! glossary-list lang-label)
@@ -74,12 +83,27 @@
   (define model (hash-ref (model-info) 'model "fallback"))
   (query-exec conn
     "INSERT INTO translations (id,team_id,owner_user_id,source_lang,target_lang,source_text,result_text,model) VALUES (?,?,?,?,?,?,?,?)"
-    id (principal-team-id p) (principal-user-id p) src tgt text reply model)
+;; Sealed (#83 r1, "translation output"). The pipeline's `doc_translate` calls
+    ;; this with a document's extracted TEXT, so these two columns hold derived
+    ;; document content on every pipeline translation — not only when a user types
+    ;; into the Translate tab. That is why they are in scope where `notes` is not:
+    ;; a note gets content when a workflow is TOLD to write one, this happens by
+    ;; itself. The leak scan missed it because the probe workflow does not
+    ;; translate, which is the scan's coverage limit, not an absence of the leak.
+    id (principal-team-id p) (principal-user-id p) src tgt
+    (seal-tr (string-append "translations.source_text:" id) text)
+    (seal-tr (string-append "translations.result_text:" id) reply)
+    model)
   (values (hasheq 'id id 'source_lang src 'target_lang tgt 'source_text text 'result reply 'model model) tokens))
 
 (define (row->tr r)
   (hasheq 'id (vector-ref r 0) 'source_lang (vector-ref r 1) 'target_lang (vector-ref r 2)
-          'source_text (vector-ref r 3) 'result (vector-ref r 4) 'model (vector-ref r 5) 'created_at (vector-ref r 6)))
+          ;; the ONE read path for a stored translation
+          'source_text (unseal-tr (string-append "translations.source_text:" (vector-ref r 0))
+                                  (vector-ref r 3))
+          'result (unseal-tr (string-append "translations.result_text:" (vector-ref r 0))
+                             (vector-ref r 4))
+          'model (vector-ref r 5) 'created_at (vector-ref r 6)))
 
 (define (translate-list conn p #:limit [lim 20])
   (require-perm conn p "chat:use")

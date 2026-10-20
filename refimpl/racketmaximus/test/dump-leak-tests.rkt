@@ -28,6 +28,12 @@
          "../domain/repo/blobs.rkt"
          "../domain/repo/extract.rkt"
          "../domain/sched/scheduler.rkt"
+         "../domain/agent/registry.rkt"
+         "../domain/agent/tools.rkt"
+         "../domain/flow/dsl.rkt"
+         "../domain/notes/notes.rkt"
+         "../domain/apps/translate.rkt"
+         "../domain/flow/run.rkt"
          "../config.rkt")
 
 (define BLOB-ROOT (make-temporary-file "telemachus-leak-~a" 'directory))
@@ -87,6 +93,33 @@
 ;; A realistic pass: a document with the needle in it, its extracted text, and a
 ;; job whose payload carries the needle and whose result echoes it — which is what
 ;; `infer.chat` does with a document's words.
+;; A real workflow, driven through the real scheduler, so the scan sees what a
+;; RUN writes: `workflow_runs.input`, each step's `input` and `output`, and the
+;; run's `cursor_json` (which holds the bound values between steps). Inserting a
+;; row by hand would miss three of those four.
+;; `create_note` is a built-in tool, so no tool has to be registered: the note's
+;; TITLE carries the needle into the step's input, and the tool's reply carries it
+;; into the step's output — which is the pair this slice is about.
+(define-workflow leak-probe
+  #:description "Carry a string through a step's input and output"
+  #:input ([subject string])
+  (step write (tool create_note #:title (in subject) #:body "filed by the leak probe") #:end))
+
+(define (run-a-workflow! c p)
+  (define d (flow-publish! c p leak-probe))
+  (define run (flow-run-start! c p d #:input (hasheq 'subject (string-append "Case: " NEEDLE))))
+  (let loop ([n 0]) (when (and (< n 20) (process-one! c)) (loop (add1 n))))
+  (hash-ref run 'id))
+
+;; The probe also stores a TRANSLATION, because `doc_translate` writes a
+;; document's text into `translations.source_text` on every pipeline translation —
+;; and the scan missed that column until the probe exercised it. The chat is a
+;; stub: what is under test is the COLUMN, not the model.
+(define (translate-something! c p)
+  (translate! c p #:text (string-append "Patient note: " NEEDLE) #:target-lang "ja"
+              #:use-glossary #f
+              #:chat (lambda (t sys) (values (string-append "[ja] " t) 7))))
+
 (define (do-work! c uid tid)
   (define oid (new-id))
   (repo-text-upsert! c oid "v1" (string-append "Extracted: " NEEDLE))
@@ -95,6 +128,9 @@
   (define j (enqueue-job! c #:team tid #:user uid #:kind "echo-needle"
                           #:payload (hasheq 'prompt (string-append "Summarise: " NEEDLE))))
   (void (process-one! c))
+  ;; translate! answers TWO values (the row and the token count), and `(void x)`
+  ;; takes exactly one — so this is define-values, not void.
+  (define-values (_tr _toks) (translate-something! c (user-principal c uid tid)))
   (values oid j))
 
 ;; ---- 1. the control: with encryption OFF the needle IS there ---------------------
@@ -144,28 +180,42 @@
 ;; lands, it fails, and the assertion moves into case 2 where it belongs. A test
 ;; that quietly covered only the sealed tables would let "acceptance criterion
 ;; met" be claimed for a dump that still carries the text.
-(test-case "KNOWN GAP: workflow run and step columns are not sealed yet"
+(test-case "a REAL workflow run leaves it only where a TOOL deliberately wrote it"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define p (user-principal c uid tid))
   (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\f)
     (lambda ()
       (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
         (lambda ()
-          ;; A run row written directly, carrying the needle the way a
-          ;; process-upload run's bindings would. The engine is not under test
-          ;; here — the COLUMN is.
-          (define rid (new-id))
-          (define did (new-id))
-          (query-exec c (string-append "INSERT INTO workflow_defs (id, team_id, slug, version, spec) "
-                                       "VALUES (?, ?, ?, ?, ?)")
-                      did tid "leak-probe" 1 "{}")
-          (query-exec c (string-append "INSERT INTO workflow_runs (id, def_id, team_id, user_id, status, input) "
-                                       "VALUES (?, ?, ?, ?, ?, ?)")
-                      rid did tid uid "done"
-                      (string-append "{\"text\":\"" NEEDLE "\"}"))
-          (define hits (scan-for c NEEDLE))
-          (check-equal? hits '("workflow_runs.input")
-                        (string-append "expected exactly the known gap. If this now reports '() the"
-                                       " slice-3 sealing has landed — move the assertion into case 2."
-                                       " If it reports MORE, a new unsealed column appeared."))))))
+          (define rid (run-a-workflow! c p))
+          ;; FUNCTIONAL FIRST: the engine must still work with every binding
+          ;; sealed. A run that failed would leave fewer columns written and the
+          ;; scan below would pass for the wrong reason — the whole engine broken
+          ;; is indistinguishable from the engine leaking nothing.
+          (check-equal? (query-value c "SELECT status FROM workflow_runs WHERE id = ?" rid) "done"
+                        "the run must COMPLETE with its bindings sealed")
+          (check-equal? (query-value c "SELECT COUNT(*) FROM workflow_steps WHERE run_id = ? AND status = 'done'" rid) 1)
+
+          (define hits (sort (scan-for c NEEDLE) string<?))
+          (printf "  (workflow run) the needle is in: ~a\n" hits)
+          ;; WHAT THIS PROVES, and the limit of #83's acceptance criterion.
+          ;;
+          ;; Every column the PLATFORM fills incidentally is sealed: the run's
+          ;; input and output, each step's input and output, the cursor between
+          ;; them. What is left is `notes.title` — and that is not a leak, it is
+          ;; the workflow's PRODUCT. The probe runs `create_note`, so the text is
+          ;; in the notes table because a workflow was told to put it there, in
+          ;; the user-facing store the Notes tab reads and searches.
+          ;;
+          ;; So the criterion as literally written — "a dump contains no fixture
+          ;; text" — is not achievable while any tool can write content anywhere:
+          ;; sealing notes would mean a user cannot search their own notes, which
+          ;; is ENC-2's trade applied to a far more visible capability. What IS
+          ;; achievable, and is what this asserts, is that no column the platform
+          ;; fills BY ITSELF retains the text.
+          (check-equal? hits '("notes.title")
+                        (string-append "expected only the note the workflow was told to write."
+                                       " More means a platform-filled column is unsealed;"
+                                       " fewer means notes stopped being written at all."))))))
   (close-db! c))

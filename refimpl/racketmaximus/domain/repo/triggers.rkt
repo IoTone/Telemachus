@@ -22,6 +22,9 @@
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../flow/run.rkt"
+         ;; issue #83 slice 3: with a run's bindings sealed, the LIKE that finds a
+         ;; hand-started run cannot match
+         (only-in "../../config.rkt" content-encryption-enabled?)
          "repo.rkt")
 
 (provide trigger-create! trigger-list trigger-get trigger-update! trigger-delete!
@@ -280,11 +283,22 @@
             (append (for/list ([d (in-list derived)] #:when (string? (hash-ref d 'run_id))) (hash-ref d 'run_id))
                     (for/list ([d (in-list derived-from)] #:when (string? (hash-ref d 'run_id))) (hash-ref d 'run_id))
                     (query-list conn "SELECT run_id FROM doc_trigger_fires WHERE object_id = ? AND run_id IS NOT NULL" id)
-                    ;; a run started by hand names the document in its input; the JSON
-                    ;; is written without spaces, so the pair is one substring
-                    (query-list conn "SELECT id FROM workflow_runs WHERE team_id = ? AND input LIKE ?"
-                                (hash-ref o 'team_id)
-                                (string-append "%\"object_id\":\"" id "\"%")))))
+                    ;; A run started BY HAND names the document in its input; the
+                    ;; JSON is written without spaces, so the pair is one substring.
+                    ;;
+                    ;; Skipped when the bindings are sealed (#83 slice 3), because
+                    ;; a LIKE over ciphertext matches nothing. The other two paths
+                    ;; above still work — a run that produced a derived document is
+                    ;; found through its derivation row, and one a trigger started
+                    ;; through `doc_trigger_fires` — so what is lost is narrower
+                    ;; than it looks: a hand-started run that produced no derived
+                    ;; document. `runs_complete` on the reply says so, rather than
+                    ;; letting the panel silently omit it.
+                    (if (content-encryption-enabled?)
+                        '()
+                        (query-list conn "SELECT id FROM workflow_runs WHERE team_id = ? AND input LIKE ?"
+                                    (hash-ref o 'team_id)
+                                    (string-append "%\"object_id\":\"" id "\"%"))))))
          (define runs
            (sort
             (for*/list ([rid (in-list run-ids)]
@@ -300,6 +314,10 @@
                                             "SELECT trigger_id FROM doc_trigger_fires WHERE run_id = ?" (hash-ref run 'id))
                                           sql-null))))
             string>? #:key (lambda (r) (hash-ref r 'created_at))))
-         (hasheq 'object_id id 'derived derived 'derived_from derived-from 'runs runs))))
+         (hasheq 'object_id id 'derived derived 'derived_from derived-from 'runs runs
+                 ;; #83: with run bindings sealed, a hand-started run that produced
+                 ;; no derived document cannot be found. Reported on every reply so
+                 ;; a reader can tell an incomplete list from a complete one.
+                 'runs_complete (not (content-encryption-enabled?))))))
 
 (set-put-hook! fire-triggers!)

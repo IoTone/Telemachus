@@ -113,8 +113,13 @@
               'snippet (if content-hit?
                            (snippet text q)
                            (let ([ct (vector-ref r 5)]) (if (string=? ct "") "" ct))))))
+  ;; Sealed with the rest of the derived content (#83 r1): the pipeline's
+  ;; `doc_translate` writes a document's text into these two columns, so a LIKE
+  ;; over them matches ciphertext. Translations drop out of search entirely in
+  ;; that mode — there is no key or filename to fall back on, unlike a repository
+  ;; object — which `content_search: false` on the reply already covers.
   (define tr-hits
-    (if (can? conn p "chat:use")
+    (if (and (not sealed?) (can? conn p "chat:use"))
         (for/list ([r (in-list (query-rows conn
              (string-append "SELECT id, target_lang, source_text, result_text FROM translations "
                             "WHERE team_id = ? AND (source_text LIKE ? OR result_text LIKE ?) ORDER BY created_at DESC LIMIT ?")

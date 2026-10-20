@@ -685,16 +685,22 @@ transient content purged.
 the test says exactly what that covers: a scan can only find a leak in a table the
 fixture WROTE TO.
 
-**Not in this slice, named rather than implied:**
+### Slice 3 — run bindings and translations, 20 Oct 2026. **r1 is complete.**
 
-- **`workflow_runs.input`, `workflow_steps.input`/`output` and `cursor_json`** —
-  roughly fifteen more sites, and for the document pipeline those columns hold the
-  extracted fields and the rendered form, so they are derived content by r1's
-  wording. `dump-leak-tests.rkt` has a KNOWN-GAP case that pins
-  `workflow_runs.input` as the one remaining leak and fails the day it is sealed,
-  so the assertion moves into the acceptance case rather than the gap being
-  forgotten. The trade is ENC‑2's again: `object-processing` finds runs with a
-  `LIKE` over `workflow_runs.input`, which is how "Processed by" works.
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **ENC‑13** | Which columns, decided how | **By extending the scan to drive a REAL workflow, not by enumeration** · vs sealing the list this slice started from | The list was `workflow_runs.input`, `workflow_steps.input`/`output` and `cursor_json`. The scan found **`workflow_runs.output` as well** — a fifth column that was never on it. That is the second time the method beat the enumeration (slice 2 was the first). |
+| 🔑 **ENC‑14** | `translations.source_text` / `result_text` | **Sealed — they ARE platform-retained derived content** · vs out of scope with notes | This was classified with `notes` at first, as user-facing app content, and that was WRONG: `doc_translate` calls `translate!`, which writes a document's extracted text into `source_text` on **every pipeline translation**. The scan did not catch it either, because the probe workflow did not translate — found by reading the call chain after the scan went green. A scan sees exactly what its fixture does and no more. |
+| 🔑 **ENC‑15** | Where the line is | **Content the platform retains BY ITSELF is sealed; a tool's deliberate product is not** · vs seal every table · vs seal none of the user-facing ones | `notes.title` keeps the text because the probe's workflow calls `create_note` — the note exists only because a workflow was TOLD to write one, and it lives in the store the Notes tab reads and searches. Sealing it is ENC‑2's trade applied to a far more visible capability. **So #83's acceptance criterion as literally written is not achievable**: any tool can write content anywhere. What is achievable, and is what the test asserts, is that no column the platform fills by itself retains it. |
+| **ENC‑16** | `cursor_json`, which the scan cannot see | **Sealed anyway** · vs skip it because nothing observes a leak | A completed run wipes it to `'{}'`, so the scan only ever observes it empty. Mid-run it holds the bound values, and a dump taken then is precisely the case this protects. A limit of the test is not a reason to leave the column. |
+| **ENC‑17** | What "Processed by" loses | **Narrower than it looks; and it SAYS so** · vs accept a silently short list | `object-processing` finds runs three ways — derivation rows, `doc_trigger_fires`, and a `LIKE` over the run's input. Only the third breaks, so what is lost is a hand-started run that produced no derived document. `runs_complete` on the reply reports it. |
+| **ENC‑18** | Where the unsealing lives | **The two row projections, `row->run` and `row->step`** · vs at each caller | Thirteen write sites but only TWO reads: every caller goes through those projections. One place to get right instead of a dozen — which is also why the write sites are the ones the scan has to police. |
+
+**Verified functionally, not only by absence:** `doc-pipeline-smoke` passes with
+the switch ON — the whole upload → extract → fields → render → translate →
+trigger path with every binding sealed — and the leak test asserts a run reaches
+`status = 'done'` **before** it scans, because a broken engine writes fewer
+columns and would pass a scan for entirely the wrong reason.
 - **`translations.source_text` / `result_text`**, which are derived content by
   r1's wording and are searched by `search.rkt` — the same ENC‑2 trade, decided
   the same way, but a separate column pair.
