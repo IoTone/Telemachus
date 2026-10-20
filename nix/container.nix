@@ -34,8 +34,16 @@
 # by default, so it is not shipped. An integrator who wants it overrides with the
 # languages they actually use (English alone is 129 MiB, +7%) rather than
 # maintaining a second image, which is what DEPLOY-12 declined for the slim
-# variant. docs/ops/container.md carries the recipe. Default [] keeps
-# `nix build .#container` byte-identical.
+# variant. docs/ops/container.md carries the recipe.
+#
+# An EMPTY extraPath is inert: `contents ++ [ ]` and `rootPaths ++ [ ]` are the
+# same lists, and the PATH string is character-identical, because
+# concatMapStringsSep over [] is "" and optionalString false is "" (checked, not
+# assumed). It does NOT mean this branch's image matches an older one — the image
+# now contains the ocr plugin, so of course it differs. Do not try to establish
+# that by comparing .drv paths from `--impure` evaluations: `<nixpkgs>` can
+# resolve to a moving channel, so two evaluations of ONE expression disagree and
+# the comparison means nothing.
 { pkgs, telemachus, version, extraPath ? [ ] }:
 
 let

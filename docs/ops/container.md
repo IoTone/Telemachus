@@ -194,9 +194,10 @@ An integrator who wants OCR in a container adds the engine with the languages
 they actually use, which is a few lines against this flake and costs ~7%:
 
 ```nix
-# in your own flake. `extraPath` adds each package to the image's contents and to
-# the FRONT of the server's PATH; the default [] leaves `nix build .#container`
-# byte-identical, so this costs nothing when unused.
+# in your own flake. `extraPath` adds each package to the image's contents, to
+# the image's closure (so the SBOM stays honest) and to the FRONT of the server's
+# PATH. Leaving it out is inert — same contents, same closure, and a
+# character-identical PATH — so it costs nothing when unused.
 packages.container-ocr = import ./nix/container.nix {
   inherit pkgs;
   telemachus = pkgs.callPackage ./nix/telemachus.nix { };
