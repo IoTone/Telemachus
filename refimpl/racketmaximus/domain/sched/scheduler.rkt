@@ -42,9 +42,13 @@
          racket/string
          racket/format
          "../db/id.rkt"
-         "../authz/authz.rkt")     ; user-principal
+         "../authz/authz.rkt"      ; user-principal
+         ;; issue #83 r2: a job's payload and result are the document's own words
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
+         (only-in "../../config.rkt" content-encryption-enabled?))
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
+         seal-payload seal-result unseal-payload unseal-result
          purge-job-content! PURGEABLE-STATUSES
          job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-STATUSES LIVE-IN
          process-one! start-scheduler! set-cap-for! set-hold-reason! set-on-hold! set-record!!
@@ -55,6 +59,39 @@
          claim-job! finish! reap-orphans! POOL-LEASE-SECONDS
          drain-scheduler! scheduler-inflight-count drain-seconds
          current-plugin registered-job-kinds job-kinds-of-plugin plugin-kind-prefix)
+
+;; ---- sealing a job's payload and result (issue #83 r2) --------------------------
+;; `payload` is the INPUT a kind was given and `result` is what it produced, and
+;; for `infer.chat` and the document pipeline both are the document's own words.
+;; Sealed with the same seam the extracted text uses (#19's AES-256-GCM, the same
+;; `<table>.<column>:<row-id>` AAD), under the same opt-in switch.
+;;
+;; THE WRITES ARE THE DANGEROUS HALF, and there are only three: the enqueue, the
+;; pool's `finish!`, and the worker's completion. A missed READ hands ciphertext
+;; to `string->jsexpr` and raises, which is loud; a missed WRITE stores plaintext
+;; and says nothing. `test/dump-leak-tests.rkt` scans every column of every table
+;; for the fixture text rather than trusting an enumeration of these sites — which
+;; is how the two below were identified in the first place.
+;;
+;; A WORKER ALWAYS RECEIVES PLAINTEXT. It holds no key and could not decrypt; the
+;; wire is unchanged, and `worker-claim!` unseals before answering. The protection
+;; here is of the DATABASE — a dump, a replica, a volume snapshot — exactly as
+;; #19's claim is narrow about defending a dump and not a host.
+(define (payload-context id) (string-append "jobs.payload:" id))
+(define (result-context id) (string-append "jobs.result:" id))
+
+(define (seal-payload id s)
+  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (payload-context id) s) s))
+(define (seal-result id s)
+  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (result-context id) s) s))
+
+;; Unsealing is NOT conditional on the switch — a row sealed while it was on must
+;; still open after it is off, or turning it off would make every queued job
+;; unrunnable. `secret-unwrap` passes an unwrapped value through.
+(define (unseal-payload id s)
+  (if (string? s) (secret-unwrap (payload-context id) s) s))
+(define (unseal-result id s)
+  (if (string? s) (secret-unwrap (result-context id) s) s))
 
 (define (vr r i) (vector-ref r i))
 (define (now) (current-seconds))
@@ -126,7 +163,11 @@
   (query-exec conn
     (string-append "INSERT INTO jobs (id, team_id, user_id, kind, payload, priority, requirements, parent_job_id, created_epoch) "
                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    id team user kind (jsexpr->string payload) pri (jsexpr->string req) (or parent sql-null)
+    id team user kind (seal-payload id (jsexpr->string payload)) pri
+    ;; `requirements` is NOT sealed: it is the kind's matching criteria (models,
+    ;; capabilities), which a claim filters on in SQL and which carries no
+    ;; document content.
+    (jsexpr->string req) (or parent sql-null)
     (current-seconds))
   id)
 
@@ -173,7 +214,15 @@
 
 (define (row->job r)
   (hasheq 'id (vr r 0) 'kind (vr r 1) 'status (vr r 2) 'priority (vr r 3)
-          'result (let ([x (vr r 4)]) (if (sql-null? x) 'null (with-handlers ([exn:fail? (lambda (_) x)]) (string->jsexpr x))))
+          'result (let ([x (vr r 4)])
+                    (if (sql-null? x)
+                        'null
+                        ;; unsealed first; the fallback returns the RAW value for a
+                        ;; result that was never JSON, which is pre-existing
+                        ;; behaviour — but it must not return ciphertext, so the
+                        ;; unseal happens outside the handler's fallback
+                        (let ([plain (unseal-result (vr r 0) x)])
+                          (with-handlers ([exn:fail? (lambda (_) plain)]) (string->jsexpr plain)))))
           'error (nz (vr r 5)) 'created_at (vr r 6) 'started_at (nz (vr r 7)) 'finished_at (nz (vr r 8))
           'executor_id (nz (vr r 9)) 'attempt (vr r 10) 'parent_job_id (nz (vr r 11))
           ;; `purged_at` is reported because WITHOUT it an empty payload and a
@@ -411,7 +460,8 @@
     (string-append "UPDATE jobs SET status=?, result=?, error=?, lease_until=NULL, claim_token=NULL, "
                    "finished_at=CURRENT_TIMESTAMP WHERE id = ? AND status='running'"
                    (if token " AND claim_token = ?" "") " RETURNING id")
-    status (or result sql-null) (or err sql-null) id (if token (list token) '())))
+    status (if result (seal-result id result) sql-null) (or err sql-null) id
+    (if token (list token) '())))
   (and (rows-result? r) (pair? (rows-result-rows r))))
 
 ;; Keep the lease alive while the handler runs, and enforce SCHED-9's ceiling.
@@ -509,7 +559,14 @@
   (define r (query-maybe-row conn "SELECT team_id, user_id, kind, payload FROM jobs WHERE id = ?" id))
   (when r
     (define team (vr r 0)) (define user (vr r 1)) (define kind (vr r 2))
-    (define payload (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr (vr r 3))))
+    ;; Unsealed BEFORE parsing. The handler below swallows a parse failure into an
+    ;; empty payload — which is the right call for a corrupt row, and means a
+    ;; MISSED UNSEAL here would not raise: the kind would quietly run on nothing.
+    ;; So this is the one read site whose mistake is silent, and
+    ;; test/dump-leak-tests.rkt asserts a job's RESULT is still correct with
+    ;; encryption on, which is what would catch it.
+    (define payload (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                      (string->jsexpr (unseal-payload id (vr r 3)))))
     (define handler (hash-ref *kinds* kind #f))
     (with-handlers ([exn:fail? (lambda (e)
                                  (unless (finish! conn id "error" #:error (exn-message e) #:token token)

@@ -671,13 +671,30 @@ transient content purged.
 | **ENC‑6** | What `rewrap` touches | **Content columns ONLY when the switch is on** · vs always, like credentials | For the three credentials, "a key exists" means they should be sealed and `rewrap` sealing them is the point. Content is different: sealing it costs search, so an unconditional sweep would silently remove a capability from an instance that had deliberately kept it. `status` lists them separately for the same reason — the switch being off is the documented default, not a leak. |
 | **ENC‑7** | What a failed unseal may say | **Not the plaintext, the ciphertext, or the key** · vs echo the value | The real failure is operational (a rotated key, a restored dump), and a message quoting what it could not read would put in the log precisely what the column was sealed to keep out of the database. r4's test asserts all three absences. |
 
+### Slice 2 — `jobs.payload` and `jobs.result` (r2's encryption half), 20 Oct 2026
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **ENC‑8** | How the work was found | **Write the acceptance criterion as a WHOLE-DATABASE SCAN first, and let it name the leaks** · vs enumerate the SQL sites and audit the list | There are eleven sites, and the dangerous half is the WRITES: a missed read usually raises, a missed write stores plaintext in silence. Auditing one's own enumeration is the check that passes because it never looked in the right place. `test/dump-leak-tests.rkt` walks every table and column the schema HAS, with a CONTROL case proving the scanner finds the needle when encryption is off — without which the encrypted case proves nothing. It named `jobs.payload` and `jobs.result` precisely. |
+| 🔑 **ENC‑9** | The worker wire | **A worker always receives PLAINTEXT; `worker-claim!` unseals** · vs ship ciphertext and give workers a key · vs a second wire | A worker holds no key and could not decrypt. The protection here is of the DATABASE — a dump, a replica, a snapshot — which is #19's narrow claim applied to content. The wire is therefore unchanged and a third-party worker needs no change; `pull-smoke` passes with the switch on. |
+| 🔑 **ENC‑10** | Three reads that SWALLOW | **Unseal before parsing, and say so at each** · vs rely on "a missed unseal raises" | It does not raise at three sites. `run-claimed!` wraps the parse in a handler returning `(hasheq)`, so a missed unseal hands the kind an EMPTY payload and the job runs on nothing. PULL‑9's and PULL‑13's warrant checks do the same and answer `'not-in-job`, refusing a worker a document its own job names — safe, and wrong. The leak scan cannot see either, which is why `dump-leak-tests.rkt` also asserts a job's RESULT is still correct with encryption on. |
+| **ENC‑11** | What the suite does when sealed | **`server-smoke` is MODE-AWARE and skips loudly** · vs let it fail · vs drop the assertions | Three assertions depend on content search (two document searches and LAY‑7's plugin-extractor demonstration), and one asserts the no-key posture a key contradicts. Four red lines an operator has to triage into "expected" and "not" is worse than a suite that names which capability is off. The skip is loud, and the default mode still RUNS all four. |
+| **ENC‑12** | `requirements` | **NOT sealed** · vs seal everything on the row | It is the kind's matching criteria — models and capabilities — which a claim filters on in SQL and which carries no document content. |
+
+**Acceptance criterion 1 is now met for the paths a job and a document take**, and
+the test says exactly what that covers: a scan can only find a leak in a table the
+fixture WROTE TO.
+
 **Not in this slice, named rather than implied:**
 
-- **`jobs.payload` / `jobs.result` and run-step payloads** (r2's encryption half).
-  Roughly eight SQL seams including the pull wire, where a worker must receive
-  plaintext, and each one is a place a mistake means a job runs on ciphertext.
-  **Acceptance criterion 1 is therefore NOT yet met in full**: a dump still
-  carries fixture text via an unpurged payload.
+- **`workflow_runs.input`, `workflow_steps.input`/`output` and `cursor_json`** —
+  roughly fifteen more sites, and for the document pipeline those columns hold the
+  extracted fields and the rendered form, so they are derived content by r1's
+  wording. `dump-leak-tests.rkt` has a KNOWN-GAP case that pins
+  `workflow_runs.input` as the one remaining leak and fails the day it is sealed,
+  so the assertion moves into the acceptance case rather than the gap being
+  forgotten. The trade is ENC‑2's again: `object-processing` finds runs with a
+  `LIKE` over `workflow_runs.input`, which is how "Processed by" works.
 - **`translations.source_text` / `result_text`**, which are derived content by
   r1's wording and are searched by `search.rkt` — the same ENC‑2 trade, decided
   the same way, but a separate column pair.
