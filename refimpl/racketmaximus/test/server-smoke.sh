@@ -733,6 +733,63 @@ assert "traces: no versions remain"                "$TRACES" '"versions":0'
 assert "traces: no bytes remain"                   "$TRACES" '"blobs":0'
 assert "traces: no derivation rows remain"         "$TRACES" '"derivation_rows":0'
 
+echo "== instance-wide feature switch (issue #63) =="
+# The gap the integrator's guide stated: flags were per TEAM only.
+assert "features: the instance switch reads back"  \
+  "$(curl -s $B/api/instance-features -H "Authorization: Bearer $OP")" '"known"'
+assert "features: a member cannot set it" \
+  "$(curl -s -X PUT $B/api/instance-features -H "Authorization: Bearer $BOB" -d '{"features":{}}')" \
+  'Forbidden: instance:manage'
+# an unknown feature is REFUSED, not stored: a flag that does nothing is how an
+# operator concludes the switch is broken
+assert "features: an unknown feature is refused" \
+  "$(curl -s -X PUT $B/api/instance-features -H "Authorization: Bearer $OP" \
+      -d '{"features":{"nosuchthing":false}}')" "unknown feature"
+assert "features: a non-boolean is refused" \
+  "$(curl -s -X PUT $B/api/instance-features -H "Authorization: Bearer $OP" \
+      -d '{"features":{"search":"yes"}}')" "must be true or false"
+# turn search off for the whole instance
+assert "features: the instance can turn one off" \
+  "$(curl -s -X PUT $B/api/instance-features -H "Authorization: Bearer $OP" \
+      -d '{"features":{"search":false}}')" '"search":false'
+assert "features: ...and the team's listing says WHICH layer did it" \
+  "$(curl -s $B/api/features -H "Authorization: Bearer $OP")" '"disabled_by":"instance"'
+# The endpoint itself refuses, which is the point of the switch — and it refuses
+# through `require-feature`, whose message is `Forbidden: <feature>`. That the
+# wording is unchanged is the evidence that matters: the instance layer resolves
+# inside `feature-enabled?`, so every gate that already asked is now covered
+# without being touched.
+assert "features: ...and the feature's endpoint refuses" \
+  "$(curl -s "$B/api/search?q=anything" -H "Authorization: Bearer $OP")" 'Forbidden: search'
+# THE DECISION: a team may tighten and may never loosen
+assert "features: a team cannot turn back on what the instance disabled" \
+  "$(curl -s -X POST $B/api/features/search -H "Authorization: Bearer $OP" -d '{"enabled":true}')" \
+  'cannot'
+assert "features: ...refused as a 409, not stored and ignored" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/features/search \
+      -H "Authorization: Bearer $OP" -d '{"enabled":true}')" "409"
+# a team turning it OFF is always allowed -- that is a team recording its own
+# intention, which survives the instance flipping back
+assert "features: a team may still turn it off" \
+  "$(curl -s -X POST $B/api/features/search -H "Authorization: Bearer $OP" -d '{"enabled":false}')" \
+  '"enabled":false'
+# and an unknown feature name on the team route is a 400 too
+assert "features: an unknown feature name is a 400" \
+  "$(curl -s -X PUT $B/api/instance-features -H "Authorization: Bearer $OP" -d '{"features":{}}' >/dev/null; \
+     curl -s -X POST $B/api/features/nosuch -H "Authorization: Bearer $OP" -d '{"enabled":true}')" \
+  "unknown feature"
+# restore: the instance allows everything again, and the team's own OFF stands
+assert "features: the instance switch is cleared" \
+  "$(curl -s $B/api/instance-features -H "Authorization: Bearer $OP")" '"features":{}'
+assert "features: ...and the team's own choice is still remembered" \
+  "$(curl -s $B/api/features -H "Authorization: Bearer $OP")" '"disabled_by":"team"'
+assert "features: ...which the team CAN undo" \
+  "$(curl -s -X POST $B/api/features/search -H "Authorization: Bearer $OP" -d '{"enabled":true}')" \
+  '"effective":true'
+# single-tenant: the org plane is invisible, as every other org route is
+assert "features: the org plane is invisible single-tenant" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/org/features -H "Authorization: Bearer $OP")" "404"
+
 echo "== idempotency keys (issue #90) =="
 # THE ACCEPTANCE CRITERIA, over HTTP, because what is promised is a RESPONSE.
 #

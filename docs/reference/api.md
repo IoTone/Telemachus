@@ -196,7 +196,11 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/admin/seed` | bearer | `settings:manage` | — | Seed sample notes and documents into the caller's team. |
 | GET | `/api/metrics` | bearer | `instance:manage` | — | Operational metrics. |
 | GET | `/api/features` | bearer | — | — | The team's feature flags. |
-| POST | `/api/features/:name` | bearer | `settings:manage` | — | Enable or disable a feature for the team. |
+| POST | `/api/features/:name` | bearer | `settings:manage` | — | Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it. |
+| GET | `/api/instance-features` | bearer | `instance:manage` | — | Which features the instance allows at all; absence means allowed. |
+| PUT | `/api/instance-features` | bearer | `instance:manage` | — | Turn a feature off for the whole instance; no org or team can turn it back on. |
+| GET | `/api/org/features` | bearer | `org:read` | — | Which features the caller's own company allows. |
+| PUT | `/api/org/features` | bearer | `org:manage` | — | Turn a feature off for the caller's own company; its teams cannot turn it back on. |
 | GET | `/api/plugins` | bearer | — | — | The loaded plugins with their tools and workflows. |
 | GET | `/api/mcp` | bearer | — | — | Connected MCP servers. |
 | GET | `/api/oop` | bearer | — | — | Connected sandboxed (out-of-process) plugins and the capabilities they may ask for. |

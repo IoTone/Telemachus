@@ -28,12 +28,27 @@ What is **not** available today, stated plainly so you do not design around it:
 
 - **A plugin cannot add a tab to the core console.** It serves its own screens (§4)
   instead. There is no extension point inside `static/index.html`.
-- **Feature flags are per TEAM, not per instance.** `chat`, `agent`, `translate`,
-  `search` and `workflows` can each be switched off — `POST /api/features/<name>
-  {"enabled":false}`, permission `settings:manage`, and the console drops the tab as
-  well as refusing the endpoint. But "this deployment has no chat" means doing it
-  for every team; there is no instance-wide switch yet. Individual tools switch the
-  same way (`POST /api/tools/<name>`).
+- **Feature flags are per instance, per org and per team** (issue #63; this was a
+  stated gap and is now built). `chat`, `agent`, `translate`, `search` and
+  `workflows` can each be switched off at any of the three layers:
+  `PUT /api/instance-features {"features":{"chat":false}}` (`instance:manage`),
+  `PUT /api/org/features` (`org:manage`, the caller's own company), and
+  `POST /api/features/<name> {"enabled":false}` (`settings:manage`, one team).
+  The console drops the tab as well as refusing the endpoint.
+
+  **A layer may TIGHTEN and may never LOOSEN.** A team cannot turn on what the
+  instance or its company turned off — that is refused by name with a 409 rather
+  than stored and ignored — because a feature switch is a *control*, and the same
+  call session policy makes (SESS‑4). This is deliberately the opposite of
+  branding, where a company's document wins whole: branding is cosmetic, this
+  governs whether an endpoint answers.
+
+  `GET /api/features` reports the effective answer plus `disabled_by`, naming
+  which layer said no — so "why is this tab missing" has an answer that does not
+  involve diffing three documents. A team's own `off` is remembered under a layer
+  that also says no, so flipping the instance switch back does not silently
+  re-enable a team that opted out. Individual tools switch per team only
+  (`POST /api/tools/<name>`).
 - **No hot reload.** A plugin is loaded at boot; adding one means a restart.
 
 ## 2. Theme the console

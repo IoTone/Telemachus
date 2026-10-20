@@ -604,6 +604,10 @@
       "text": "プル型エグゼキュータに提供されたジョブの取得・ハートビート・完了・失敗報告。ワーカートークンのみが保持し、1つのエグゼキュータに紐づきます；チームのデータには届かず、実行も開始しません。",
       "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
     },
+    "doc.route.put.api.instance-features": {
+      "text": "インスタンス全体で機能を無効にする。組織もチームも再び有効にはできない。",
+      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
+    },
     "ui.apitokens": {
       "text": "APIトークン",
       "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
@@ -1104,6 +1108,10 @@
       "text": "有効",
       "hash": "3ea3f9802accf8817bacd6f3df46a73b93ccddec"
     },
+    "doc.route.get.api.instance-features": {
+      "text": "インスタンスがどの機能を許可しているか。キーが無い場合は許可。",
+      "hash": "29eb38bb2c4a51cf8f6b06de3068265748a091af"
+    },
     "ui.visupdated": {
       "text": "公開範囲を更新しました",
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
@@ -1299,6 +1307,10 @@
     "ui.wkconfigured": {
       "text": "設定済み",
       "hash": "3be9f957f29f905f10f7b652cab1c95ba8a2c205"
+    },
+    "doc.route.put.api.org.features": {
+      "text": "呼び出し元の会社で機能を無効にする。その配下のチームは再び有効にはできない。",
+      "hash": "ca7cfdfb5359b0de1761d996af74b3bf1d9ec895"
     },
     "ui.confirmpw": {
       "text": "パスワードの確認",
@@ -1571,6 +1583,10 @@
     "ui.bxrestart": {
       "text": "開始できませんでした — 再読み込みしてください",
       "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
+    },
+    "doc.route.get.api.org.features": {
+      "text": "呼び出し元の会社がどの機能を許可しているか。",
+      "hash": "0f8d84053a35eb9b4b0a15ad065a894d132f1be9"
     },
     "doc.perm.features:manage": {
       "text": "チームごとに機能をオン／オフにする。",
@@ -2065,8 +2081,8 @@
       "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
     },
     "doc.route.post.api.features.name": {
-      "text": "チーム用の機能を有効にする/無効にする",
-      "hash": "70450a5f4b07df469785c31e6aa303ffccafcc74"
+      "text": "チームの機能を有効または無効にする。チームは上位の層が許可する範囲で厳しくできるが、緩めることはできない。",
+      "hash": "9ab8adb7edffdb2b08f0fe8a41bb46abc5115422"
     },
     "ui.back": {
       "text": "戻る",
