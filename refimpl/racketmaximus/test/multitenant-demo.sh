@@ -259,6 +259,48 @@ assert "clearing restores the inherited policy" "$(curl -s -X DELETE $B/api/org/
 assert "...back to the instance's 30 minutes" "$(g /api/org/session-policy $ACME_OWNER)" '"idle_seconds":1800'
 
 echo
+echo "== 8d. issue #63 — an org may turn a feature off for its own teams ============="
+# The same shape as 8c, and deliberately so: a feature switch is a CONTROL, so
+# the instance owns the floor and a layer below may only TIGHTEN. (Branding is
+# the other way round, because branding is cosmetic.)
+assert "acme disables translate for itself" \
+  "$(curl -s -X PUT $B/api/org/features -H "Authorization: Bearer $ACME_OWNER" -d '{"features":{"translate":false}}')" \
+  '"translate":false'
+assert "...so an acme team sees it off, and knows the ORG did it" \
+  "$(g /api/features $ACME_DEV)" '"disabled_by":"org"'
+assert "...and the endpoint refuses" \
+  "$(curl -s -X POST $B/api/translate -H "Authorization: Bearer $ACME_DEV" -d '{"text":"hi","target_lang":"ja"}')" \
+  'Forbidden: translate'
+# a team inside acme cannot undo its own company's decision
+assert "an acme team cannot turn it back on" \
+  "$(curl -s -X POST $B/api/features/translate -H "Authorization: Bearer $ACME_OWNER" -d '{"enabled":true}')" \
+  'cannot'
+# the other company is untouched — the isolation the org gate already draws
+# `write-json` sorts keys, so the pair reads enabled-then-feature
+assert "globex still has translate" "$(g /api/features $GLBX_DEV)" '{"enabled":true,"feature":"translate"}'
+# a plain member may not set the company's switches
+assert "a dev may not set the org's features" \
+  "$(curl -s -X PUT $B/api/org/features -H "Authorization: Bearer $ACME_DEV" -d '{"features":{}}')" 'Forbidden'
+# the instance layer outranks the org's: acme saying YES cannot survive it
+assert "the instance disables chat everywhere" \
+  "$(curl -s -X PUT $B/api/instance-features -H "Authorization: Bearer $ROOT" -d '{"features":{"chat":false}}')" \
+  '"chat":false'
+assert "acme asking for chat back is accepted as a document" \
+  "$(curl -s -X PUT $B/api/org/features -H "Authorization: Bearer $ACME_OWNER" -d '{"features":{"translate":false,"chat":true}}')" \
+  '"chat":true'
+assert "...but the EFFECTIVE answer is still the instance's no" \
+  "$(g /api/features $ACME_DEV)" '"disabled_by":"instance"'
+assert "...and globex is equally refused, which is what instance-wide means" \
+  "$(g /api/features $GLBX_DEV)" '"disabled_by":"instance"'
+# restore
+assert "the instance switch is cleared" \
+  "$(curl -s -X PUT $B/api/instance-features -H "Authorization: Bearer $ROOT" -d '{"features":{}}')" '"features":{}'
+assert "acme's own translate decision still stands" "$(g /api/features $ACME_DEV)" '"disabled_by":"org"'
+assert "acme clears its own switches" \
+  "$(curl -s -X PUT $B/api/org/features -H "Authorization: Bearer $ACME_OWNER" -d '{"features":{}}')" '"features":{}'
+assert "...and translate is back for acme" "$(g /api/features $ACME_DEV)" '{"enabled":true,"feature":"translate"}'
+
+echo
 echo "== 9. suspending a company freezes only that company ==========================="
 assert "suspend acme" "$(pj /api/orgs/$ACME_ORG/suspend $ROOT)" '"status":"suspended"'
 assert "acme writes blocked"  "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $ACME_DEV" -d '{"title":"nope"}')" 'tenant suspended'

@@ -705,6 +705,34 @@ columns and would pass a scan for entirely the wrong reason.
   r1's wording and are searched by `search.rkt` — the same ENC‑2 trade, decided
   the same way, but a separate column pair.
 
+### FEAT‑1…6 — a feature switch above the team (issue #63)
+
+Feature flags were per TEAM only, and `docs/integrators-guide.md` stated the gap
+rather than papering over it: an operator could not turn a feature off for the
+whole instance, and on a multi-tenant box could not turn one off for one company.
+Every new feature therefore shipped either on for everyone or off until each team
+opted in.
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| **FEAT‑1** | May a lower layer loosen? | **No — TIGHTEN ONLY, as SESS‑4** · vs the org's document wins whole, as branding's | A feature switch governs whether an endpoint ANSWERS, which makes it a control rather than a decoration. An instance switch a team can override is not a switch. Branding is the deliberate opposite — a company's look should replace the instance's — and the two now read alike in their own terms. |
+| **FEAT‑2** | What the refusal looks like | **409, naming the layer** · vs store it and let resolution ignore it | A `feature_settings` row saying `enabled = 1` under an instance that says no would be a setting that lies to the next person who reads it. Turning a feature OFF stays allowed at every layer, including under a layer that already has: that is a team recording its own intention. |
+| **FEAT‑3** | Absence | **Means enabled, at every layer** · vs seed the full set | An instance that has configured nothing behaves exactly as it did before this existed — no migration, no backfill. Only an explicit `false` blocks; a stored `true` is a layer saying it does not object, which is not the same as not having decided. (`hash-ref`'s default is `#f` and a stored `false` is also `#f`, so the KEY's presence is asked first.) |
+| **FEAT‑4** | Where the upper layers live | **`instance_settings`, beside branding, localization, session policy, model roles, repo fields and retention** · vs a new table | The home the notes have said to use for the next instance-wide setting since branding introduced it. No migration at all for this slice. |
+| **FEAT‑5** | How the answer is explained | **`disabled_by` on `GET /api/features`, naming the FURTHEST layer that objects** · vs a boolean | "Why is this tab missing" is the question, and three documents to diff by hand is a poor answer — `retention-sources`' rule and branding's `scope`. The furthest layer comes first because it is the one the reader cannot change from where they are standing: a team admin seeing `instance` knows not to look in their own settings. |
+| **FEAT‑6** | An unknown feature | **Refused, not stored** | A flag that silently does nothing is how an operator concludes the switch is broken — the call an unknown theme token and an unknown retention field both make. Validated against `known-features` at every layer, including the existing per-team route, which did not check at all before. |
+
+**A team's own `off` survives the instance flipping back on**, which is asserted
+rather than left implicit: re-enabling instance-wide must not silently re-enable a
+team that had opted out, because the team's row is its own decision and nobody
+revoked it.
+
+**Nothing that already asked `feature-enabled?` had to change.** The three layers
+resolve INSIDE that predicate, so every gate that was already asking — the
+endpoints, `require-feature`, the console's tab list, the workflow engine's own
+check — is covered without being touched. The smoke asserts this by pinning the
+UNCHANGED refusal wording (`Forbidden: search`) rather than a new message.
+
 ### IDEM‑1…9 — idempotency keys (issue #90)
 
 `POST /api/workflows/<slug>/run` was not idempotent: a client that timed out and

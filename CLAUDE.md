@@ -1523,6 +1523,47 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
   shared-key host, any account with `SELECT`. The column is the layer that
   survives being `SELECT`ed.
 
+## A feature switch above the team (FEAT‑1…6, issue #63)
+
+Built 20 Oct 2026. `domain/features/features.rkt`; `GET/PUT
+/api/instance-features` (`instance:manage`), `GET/PUT /api/org/features`
+(`org:read`/`org:manage`). **No migration** — the two upper layers are
+`instance_settings` documents.
+
+```sh
+raco test test/instance-features-tests.rkt   # 11 cases, the resolution order first
+bash test/server-smoke.sh                     # the feature-switch block, 15 assertions
+TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8d, the org layer
+```
+
+- **TIGHTEN ONLY — SESS‑4's rule, not branding's.** A feature switch governs
+  whether an endpoint ANSWERS, so the instance owns the floor: a team cannot turn
+  on what the instance or its company turned off, and that is a **409 naming the
+  layer**, never a stored row that resolution ignores. Branding is deliberately
+  the opposite (a company's look replaces the instance's) because branding is
+  cosmetic.
+- **Turning a feature OFF is allowed at every layer**, including under a layer
+  that already says no — that is a team recording its own intention, and it
+  SURVIVES the instance switch being flipped back. Asserted, because silently
+  re-enabling an opted-out team would be the obvious bug.
+- **Absence means enabled everywhere**, so an instance that configured nothing
+  behaves exactly as before. Only an explicit `false` blocks: a stored `true` is
+  "this layer does not object", which is not "I have not decided". `hash-ref`'s
+  default is `#f` and a stored `false` is also `#f` — ask whether the KEY is
+  there first.
+- **`disabled_by` names the FURTHEST layer that objects**, because that is the
+  one the reader cannot change from where they are standing. "Why is this tab
+  missing" should not need three documents diffed by hand.
+- **An unknown feature is refused at every layer**, including the per-team route,
+  which did not validate at all before.
+- **Nothing that already asked `feature-enabled?` changed.** The layers resolve
+  inside that predicate, so every existing gate is covered untouched — the smoke
+  pins the UNCHANGED `Forbidden: search` wording to prove it rather than a new
+  message.
+- **`features.rkt` now requires `authz.rkt`** (for `team-org`) and
+  `settings.rkt`. Both directions checked: neither requires features, so no
+  cycle.
+
 ## Idempotency keys (IDEM‑1…9, issue #90)
 
 Built 20 Oct 2026. `domain/idem/idem.rkt`; migration `0048-idempotency`;

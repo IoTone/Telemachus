@@ -603,6 +603,10 @@
       "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
       "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
     },
+    "doc.route.put.api.instance-features": {
+      "text": "Turn a feature off for the whole instance; no org or team can turn it back on.",
+      "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
+    },
     "ui.apitokens": {
       "text": "API tokens",
       "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
@@ -1103,6 +1107,14 @@
       "text": "enabled",
       "hash": "3ea3f9802accf8817bacd6f3df46a73b93ccddec"
     },
+    "doc.route.get.api.instance-features": {
+      "text": "Which features the instance allows at all; absence means allowed.",
+      "hash": "29eb38bb2c4a51cf8f6b06de3068265748a091af"
+    },
+    "doc.perm.roles:read": {
+      "text": "See the team's roles and what they grant.",
+      "hash": "8d9e3136ad48763f056ec3c85beefa5a27b53997"
+    },
     "ui.visupdated": {
       "text": "Visibility updated",
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
@@ -1138,10 +1150,6 @@
     "ui.upload": {
       "text": "Upload",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
-    },
-    "doc.perm.roles:read": {
-      "text": "See the team's roles and what they grant.",
-      "hash": "8d9e3136ad48763f056ec3c85beefa5a27b53997"
     },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
@@ -1243,6 +1251,14 @@
       "text": "Tools",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
     },
+    "ui.wkconfigured": {
+      "text": "configured",
+      "hash": "3be9f957f29f905f10f7b652cab1c95ba8a2c205"
+    },
+    "doc.route.put.api.org.features": {
+      "text": "Turn a feature off for the caller's own company; its teams cannot turn it back on.",
+      "hash": "ca7cfdfb5359b0de1761d996af74b3bf1d9ec895"
+    },
     "doc.route.delete.api.executors.id": {
       "text": "Retire an executor: its worker token is revoked and any job it holds returns to the queue.",
       "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
@@ -1294,10 +1310,6 @@
     "ui.disable": {
       "text": "Disable",
       "hash": "9a7d4e0687b14e2b7cda406900b802782cd50a62"
-    },
-    "ui.wkconfigured": {
-      "text": "configured",
-      "hash": "3be9f957f29f905f10f7b652cab1c95ba8a2c205"
     },
     "ui.confirmpw": {
       "text": "Confirm password",
@@ -1574,6 +1586,10 @@
     "ui.bxrestart": {
       "text": "could not start — please reload",
       "hash": "758c3cc13d0a610de94c2c6cc15111253e964f8b"
+    },
+    "doc.route.get.api.org.features": {
+      "text": "Which features the caller's own company allows.",
+      "hash": "0f8d84053a35eb9b4b0a15ad065a894d132f1be9"
     },
     "doc.perm.features:manage": {
       "text": "Turn features on and off for teams.",
@@ -2072,8 +2088,8 @@
       "hash": "53414c8b1aeb32b5d4411921ea0e6fc5ca82308f"
     },
     "doc.route.post.api.features.name": {
-      "text": "Enable or disable a feature for the team.",
-      "hash": "70450a5f4b07df469785c31e6aa303ffccafcc74"
+      "text": "Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it.",
+      "hash": "9ab8adb7edffdb2b08f0fe8a41bb46abc5115422"
     },
     "ui.back": {
       "text": "Back",
