@@ -64,6 +64,7 @@
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
          "../domain/audit/reads.rkt"              ; who read a document (issue #84)
          "../domain/audit/chain.rkt"              ; …and that the record was not edited (r3)
+         "../domain/idem/idem.rkt"                ; idempotency keys (issue #90)
          (only-in "../domain/db/id.rkt" new-id)
          (only-in "../domain/repo/extract.rkt" repo-spans-for spans-covering)   ; LAY-5
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
@@ -2455,11 +2456,21 @@
       [(not kind) (err "kind required" 400)]
       [else
        (define pr (hash-ref b 'priority 0))
-       (define id (enqueue-job! db-conn #:team (principal-team-id p) #:user (principal-user-id p)
-                                #:kind (format "~a" kind)
-                                #:payload (let ([pl (hash-ref b 'payload (hasheq))]) (if (hash? pl) pl (hasheq)))
-                                #:priority (if (number? pr) pr 0)))
-       (json-response (hasheq 'id id 'status "queued") #:code 202)]))))
+       (define pl (let ([x (hash-ref b 'payload (hasheq))]) (if (hash? x) x (hasheq))))
+       ;; #90: enqueueing is the other create a queued integrator retries. The
+       ;; fingerprint covers the kind, the payload and the priority — a retry
+       ;; that changed the priority is a different request, and silently
+       ;; replaying the first would leave the job at a priority the client no
+       ;; longer asked for.
+       (with-idem req p b #:endpoint "POST /api/jobs"
+                  #:payload (hasheq 'kind (format "~a" kind) 'payload pl
+                                    'priority (if (number? pr) pr 0))
+                  (lambda ()
+                    (define id (enqueue-job! db-conn #:team (principal-team-id p)
+                                             #:user (principal-user-id p)
+                                             #:kind (format "~a" kind) #:payload pl
+                                             #:priority (if (number? pr) pr 0)))
+                    (values (hasheq 'id id 'status "queued") 202)))]))))
 
 (define (ep-jobs-list req)
   (with-auth req (lambda (p) (json-response (hasheq 'jobs (list-jobs db-conn (principal-team-id p)))))))
@@ -2947,6 +2958,60 @@
   (with-auth req (lambda (p)
     (if (trigger-delete! db-conn p id) (json-response (hasheq 'ok #t)) (err "not found" 404)))))
 
+;; ---- idempotency keys (issue #90) -------------------------------------------
+;; A client names its retry with `Idempotency-Key` (or `idempotency_key` in the
+;; body, for a caller that cannot set headers — a webhook-style integration
+;; often cannot). The thunk returns `(values jsexpr code)` rather than a
+;; response, because the STORED thing has to be the answer's content and its
+;; code: a `response` object's body is an output procedure and cannot be read
+;; back, and rebuilding it later from the handler would not be the first call's
+;; answer, which is the whole point.
+(define (idem-key-of req b)
+  (define h (req-header req #"idempotency-key"))
+  (define bk (and (hash? b) (let ([v (hash-ref b 'idempotency_key #f)])
+                              (and (string? v) (not (string=? v "")) v))))
+  (or (and h (not (string=? h "")) h) bk))
+
+;; `#:key` overrides what the request carries, for r2's DERIVED key. Passing it
+;; in beats synthesising a fake request with an extra header: a request object is
+;; the listener's, and faking one to carry a value we already have in hand is the
+;; kind of indirection that makes the next reader hunt for a header nobody sent.
+(define (with-idem req p b #:endpoint endpoint #:payload payload #:key [key* #f] proc)
+  (define key (or key* (idem-key-of req b)))
+  (cond
+    ;; no key: exactly the behaviour every caller had before this existed
+    [(not key) (let-values ([(jsx code) (proc)]) (json-response jsx #:code code))]
+    [else
+     (define team (principal-team-id p))
+     (define fp (idem-fingerprint endpoint payload))
+     (define seen (idem-lookup db-conn team key endpoint fp))
+     (cond
+       ;; the ORIGINAL answer and the ORIGINAL code, which is what a client that
+       ;; never saw the first response needs. `idempotent_replay` is added so a
+       ;; caller can TELL — a silent replay and a fresh success are
+       ;; indistinguishable otherwise, and an integrator debugging a double-send
+       ;; needs to know which happened.
+       [(hash? seen)
+        (json-response (if (hash? (hash-ref seen 'hit))
+                           (hash-set (hash-ref seen 'hit) 'idempotent_replay #t)
+                           (hash-ref seen 'hit))
+                       #:code (hash-ref seen 'code))]
+       ;; same key, different request: answering either one would be wrong —
+       ;; replaying the first hides the second, performing the second breaks the
+       ;; promise the key made.
+       [(eq? seen 'conflict)
+        (err (string-append "this Idempotency-Key was already used for a different request"
+                            " — use a new key, or resend the original request unchanged")
+             409)]
+       [else
+        (define-values (jsx code) (proc))
+        ;; stored only on SUCCESS. A failure is not an outcome worth replaying:
+        ;; the retry that follows a 500 is the retry this feature is for, and
+        ;; freezing the 500 would make the key a way to guarantee failure.
+        (when (and (>= code 200) (< code 300))
+          (idem-store! db-conn team key endpoint fp jsx code))
+        (json-response jsx #:code code)])]))
+
 (define (ep-workflow-run req slug)
   (with-auth req (lambda (p)
     (require-feature p "workflows")
@@ -2956,7 +3021,26 @@
       [else
        (define b (read-json-body req))
        (define in (let ([i (hash-ref b 'input (hasheq))]) (if (hash? i) i (hasheq))))
-       (json-response (flow-run-start! db-conn p d #:input in) #:code 202)]))))
+       ;; r2: `dedupe: true` DERIVES a key from the work itself — the slug, the
+       ;; definition's version and the input — so re-processing an unchanged
+       ;; object is a no-op that returns the previous run. The version is in the
+       ;; derivation deliberately: an EDITED workflow legitimately re-runs, which
+       ;; is why r3 exposes the version on the run at all. The object id and
+       ;; version the issue names are already IN the input for this pipeline
+       ;; (`process-upload` binds `object_id`), so hashing the input covers them
+       ;; without this endpoint having to know a particular workflow's shape.
+       ;;
+       ;; An EXPLICIT key always wins: the client's own idea of what its retry is
+       ;; beats ours.
+       (define derived
+         (and (eq? (hash-ref b 'dedupe #f) #t)
+              (not (idem-key-of req b))
+              (string-append "auto:" (idem-fingerprint
+                                      (format "run:~a:~a" slug (hash-ref d 'version "?"))
+                                      in))))
+       (with-idem req p b #:endpoint (format "POST /api/workflows/~a/run" slug)
+                  #:payload (hasheq 'input in) #:key derived
+                  (lambda () (values (flow-run-start! db-conn p d #:input in) 202)))]))))
 
 (define (ep-runs-list req)
   (with-auth req (lambda (p)
@@ -3505,6 +3589,8 @@
   ;; two concurrent writers.
   (define last-audit-seal (box 0))
   (define AUDIT-SEAL-EVERY 60)
+  (define last-idem-reap (box 0))
+  (define IDEM-REAP-EVERY 600)
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -3526,6 +3612,15 @@
          (when (or (> deleted 0) (> purged 0))
            (printf "retention: deleted ~a object tree(s), purged ~a job payload(s)\n"
                    deleted purged))))
+     ;; Idempotency keys past their 24h window, on the upload sweep's cadence —
+;;        they are dead weight that can never be replayed, and the stored response
+;;        may name a document (#90 r4).
+     (when (> (- (current-seconds) (unbox last-idem-reap)) IDEM-REAP-EVERY)
+       (set-box! last-idem-reap (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "idempotency reaper: ~a\n" (exn-message e)))])
+         (define gone (idem-reap! conn))
+         (when (> gone 0) (printf "reaped ~a expired idempotency key(s)\n" gone))))
      (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
        (set-box! last-audit-seal (current-seconds))
        ;; its own handler too, for the reason the other two have one

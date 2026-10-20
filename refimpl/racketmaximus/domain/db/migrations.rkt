@@ -1347,7 +1347,39 @@
       ;; Without this it is a full scan of the audit log on every tick.
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_audit_unsealed ON audit_log (org_id, chain_hash, at_us)"))))
 
+(define m-0048-idempotency
+  (migration "0048-idempotency"
+    (lambda (conn)
+      ;; Idempotency keys (issue #90). A retry after a timeout must not start a
+      ;; second run, which is what it did.
+      ;;
+      ;; UNIQUE on (team_id, key) and NOT on (team_id, key, endpoint): one key is
+      ;; one request. A client that sends the same key to two endpoints has made a
+      ;; mistake and gets a 409; scoping per endpoint would accept it silently and
+      ;; leave two records claiming one key.
+      ;;
+      ;; `response` holds the ORIGINAL answer as JSON text and `status_code` its
+      ;; code, because the point of a retry is that the client never saw the first
+      ;; answer — recomputing it would mean deciding what "the same answer again"
+      ;; is, and for a run that has since finished that is a DIFFERENT answer.
+      ;;
+      ;; `created_epoch`, not a TEXT timestamp: the 24h window is compared in SQL,
+      ;; and `CURRENT_TIMESTAMP`'s format differs by dialect — the trap migrations
+      ;; 0038 through 0041 and 0046 each name.
+      (exec* conn (string-append
+        "CREATE TABLE idempotency_keys ("
+        "  team_id TEXT NOT NULL,"
+        "  key TEXT NOT NULL,"
+        "  endpoint TEXT NOT NULL,"
+        "  fingerprint TEXT NOT NULL,"
+        "  response TEXT NOT NULL,"
+        "  status_code INTEGER NOT NULL,"
+        "  created_epoch BIGINT NOT NULL,"
+        "  PRIMARY KEY (team_id, key))"))
+      ;; the reaper's own query: everything past the window, across all teams
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_idem_age ON idempotency_keys (created_epoch)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency))

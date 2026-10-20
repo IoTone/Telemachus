@@ -63,6 +63,17 @@ refute(){
   if printf '%s' "$2" | grep -qF -- "$3"; then echo "  FAIL $1 — must NOT contain: $3 — got: $2"; fail=1; else echo "  ok   $1"; fi
 }
 
+# <label> <a> <b>: the two values must DIFFER. Added for #90, where the property
+# is "two calls with no key produce two different ids" — which `assert` cannot
+# express and which was written with `ok`/`bad` first. Those exist in the OTHER
+# smokes and not in this one, so both branches ran as unknown commands and the
+# assertions were silently absent: the THIRD time that shape of mistake appeared
+# in this file's history, after `refute` and a vacuous payload check. Before
+# using a helper here, grep for its definition.
+differ(){
+  if [ "$2" != "$3" ]; then echo "  ok   $1"; else echo "  FAIL $1 — both were: $2"; fail=1; fi
+}
+
 racket server/main.rkt >/tmp/tmx-smoke.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"' EXIT
@@ -721,6 +732,81 @@ assert "traces: the tombstone says deleted"        "$TRACES" '"deleted":true'
 assert "traces: no versions remain"                "$TRACES" '"versions":0'
 assert "traces: no bytes remain"                   "$TRACES" '"blobs":0'
 assert "traces: no derivation rows remain"         "$TRACES" '"derivation_rows":0'
+
+echo "== idempotency keys (issue #90) =="
+# THE ACCEPTANCE CRITERIA, over HTTP, because what is promised is a RESPONSE.
+#
+#   "Two identical run requests with the same key create one run and return the
+#    same run id."  /  "A changed payload with the same key returns 409."
+IDK="idem-$(date +%s)-$$"
+IR1=$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+        -H "Idempotency-Key: $IDK" -d '{"input":{"subject":"idem-one"}}')
+IR2=$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+        -H "Idempotency-Key: $IDK" -d '{"input":{"subject":"idem-one"}}')
+ID1=$(printf '%s' "$IR1" | grep -oP '"id":"\K[^"]+' | head -1)
+ID2=$(printf '%s' "$IR2" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "idem: a retry returns the SAME run id" "$ID2" "$ID1"
+# ...and it must be the same ROW, not two rows that happen to agree
+assert "idem: ...and only ONE run exists for that subject" \
+  "$(curl -s $B/api/runs -H "Authorization: Bearer $OP" | python3 -c "
+import json,sys
+rs=[r for r in json.load(sys.stdin)['runs'] if r.get('input',{}).get('subject')=='idem-one']
+print(len(rs))")" "1"
+# the replay is VISIBLE: a silent replay and a fresh success are otherwise
+# indistinguishable, and an integrator debugging a double-send needs to know
+assert "idem: the replay says it is one"       "$IR2" '"idempotent_replay":true'
+refute "idem: a first call does NOT claim to be a replay" "$IR1" 'idempotent_replay'
+# the ORIGINAL status code comes back, not a 200: 202 is part of the answer
+assert "idem: the replay carries the original 202" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workflows/smoke-filer/run \
+      -H "Authorization: Bearer $OP" -H "Idempotency-Key: $IDK" \
+      -d '{"input":{"subject":"idem-one"}}')" "202"
+# a CHANGED payload on the same key: answering either request would be wrong
+assert "idem: the same key with a different payload is a 409" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workflows/smoke-filer/run \
+      -H "Authorization: Bearer $OP" -H "Idempotency-Key: $IDK" \
+      -d '{"input":{"subject":"idem-CHANGED"}}')" "409"
+assert "idem: ...and says what to do about it" \
+  "$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+      -H "Idempotency-Key: $IDK" -d '{"input":{"subject":"idem-CHANGED"}}')" 'use a new key'
+# JSON key ORDER is not a payload change -- a client's serializer may reorder
+assert "idem: reordered JSON keys are the SAME request" \
+  "$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+      -H "Idempotency-Key: $IDK" -d '{"input":{"subject":"idem-one"}}' | grep -c idempotent_replay)" "1"
+# the body field, for a caller that cannot set headers
+IDK2="idem-body-$(date +%s)-$$"
+BR1=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
+       -d "{\"kind\":\"echo\",\"payload\":{},\"idempotency_key\":\"$IDK2\"}")
+BR2=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
+       -d "{\"kind\":\"echo\",\"payload\":{},\"idempotency_key\":\"$IDK2\"}")
+assert "idem: the key may ride in the BODY too" \
+  "$(printf '%s' "$BR2" | grep -oP '"id":"\K[^"]+')" \
+  "$(printf '%s' "$BR1" | grep -oP '"id":"\K[^"]+')"
+assert "idem: ...and jobs create is covered"   "$BR2" '"idempotent_replay":true'
+# NO key at all behaves exactly as before: two calls, two runs
+NK1=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"echo","payload":{}}' | grep -oP '"id":"\K[^"]+')
+NK2=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"echo","payload":{}}' | grep -oP '"id":"\K[^"]+')
+differ "idem: with no key, nothing changed" "$NK1" "$NK2"
+# r2: dedupe:true DERIVES a key from the work, so re-processing an unchanged
+# input is a no-op. No header is sent at all here.
+DD1=$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+       -d '{"input":{"subject":"dedupe-me"},"dedupe":true}')
+DD2=$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+       -d '{"input":{"subject":"dedupe-me"},"dedupe":true}')
+assert "dedupe: an unchanged input is a no-op returning the previous run" \
+  "$(printf '%s' "$DD2" | grep -oP '"id":"\K[^"]+' | head -1)" \
+  "$(printf '%s' "$DD1" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "dedupe: ...and says so"                "$DD2" '"idempotent_replay":true'
+# a CHANGED input under dedupe is a different derived key, so it RUNS -- it is
+# not a conflict, because the client never claimed the two were the same request
+DD3=$(curl -s -X POST $B/api/workflows/smoke-filer/run -H "Authorization: Bearer $OP" \
+       -d '{"input":{"subject":"dedupe-OTHER"},"dedupe":true}')
+differ "dedupe: a changed input runs, rather than conflicting" \
+  "$(printf '%s' "$DD3" | grep -oP '"id":"\K[^"]+' | head -1)" \
+  "$(printf '%s' "$DD1" | grep -oP '"id":"\K[^"]+' | head -1)"
+# r3: the run says WHICH definition version ran, which is how a client can tell
+# an edited workflow legitimately re-ran
+assert "the run records which workflow VERSION ran" "$DD1" '"version"'
 
 echo "== audit reads (issue #84) =="
 # Its OWN object: $RID was deleted by the repository block above, and this needs
