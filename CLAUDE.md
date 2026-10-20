@@ -1523,6 +1523,53 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
   shared-key host, any account with `SELECT`. The column is the layer that
   survives being `SELECT`ed.
 
+## Who read a document (AUD‑1…9, issue #84 slice 1)
+
+Built 20 Oct 2026. `domain/audit/reads.rkt`; migration `0046-audit-reads`;
+`GET /api/repo-obj/:id/reads`. Reads were audited NOWHERE.
+
+```sh
+raco test test/audit-read-tests.rkt   # 6 cases, including the one-seam claim
+bash test/server-smoke.sh             # the "audit reads" block, 11 assertions
+bash test/s3-smoke.sh                 # the presign round trip: issuance + redemption
+```
+
+- **ONE SEAM: `repo-open`.** Every door that hands out bytes arrives there — the
+  console download and the API GET, S3 GetObject / HeadObject / CopyObject
+  source, LAY‑6's `repo.get`, PULL‑9's worker read, the indexer, `doc_text` in a
+  workflow step. Nine call sites would be nine chances to forget and the tenth
+  would be silent. `current-read-context` says WHICH door; the claim is tested,
+  not asserted — a read through a door taught nothing about auditing still
+  appears.
+- **A metadata GET is NOT a content read**, and the absence is asserted (the
+  entry count does not move). `repo-get` answers listings and dialogs; auditing
+  it would bury the reads that matter under rows about rendering a table.
+- **A refused read is recorded, and has to be CAUGHT** — `repo-get` RAISES on a
+  permission failure while answering `#f` for a miss. The entry is written even
+  where the API collapses the two into one answer (the KG's rule, PULL‑9's): the
+  caller is told one thing, the record keeps them apart.
+- **The actor can be a MACHINE while the principal stays the person.**
+  `actor_type`/`actor_id` name the executor or the run; `can?` still answered for
+  the job's user. `tool-run!`'s `#:run` is the one place a step invokes a tool,
+  so it is the one place that carries it.
+- **Never the object key** (r2) — it routinely carries a name or a national id.
+  Ids only, joined from `repo_objects` under that table's own gate. BOTH halves
+  are asserted: the key is absent AND the id still resolves.
+- **Reading the record needs `files:manage`**, not `files:read`: who looked is
+  information about the PEOPLE. On a private object the refusal comes one step
+  earlier and names `files:read`, which is honest.
+- **`org_id` is denormalized onto the entry**, because the export is by org and
+  DEL‑7 keeps the log through an erasure — it cannot depend on a join to a
+  deleted team.
+- **`presigned-auth` is ONE predicate with two askers** (the verifier picks the
+  signature rule, the handler records a redemption rather than a read). Deriving
+  it twice is `executor-can-run?`'s drift.
+- **`test/fold-tests.rkt` needed `0046-audit-reads` in `also-required`** — the
+  documented trap: it builds a half-migrated database and `audit!` now writes the
+  new columns on every entry.
+- Two mistakes of mine worth the line: conditional SQL with a fixed argument
+  list (again), and a test helper defined BELOW its first use.
+
 ## Retention rules on a schedule (DEL‑9…16, issue #86 r3)
 
 Built 20 Oct 2026. `domain/retention/retention.rkt`; migration `0045-legal-hold`;

@@ -24,11 +24,17 @@
          "../quota/quota.rkt"
          "../settings/settings.rkt"       ; the team's field definitions live beside branding
          "../fields/fields.rkt"           ; one validation vocabulary, shared with the funnel
+         ;; issue #84: reads are audited at the ONE seam that produces bytes
+         (only-in "../audit/reads.rkt" audit-read! audit-read-denied!)
          "blobs.rkt")
 
 (provide repo-put! set-put-hook! set-delete-hook!
          repo-fields repo-fields-set! repo-set-attributes!
          repo-get repo-open repo-list repo-versions
+         ;; the ONE implementation of the triple can? reads for an object —
+         ;; exported so the audit read surface can ask for it instead of
+         ;; rebuilding it (issue #84)
+         obj->resource
          repo-set-visibility! repo-delete! repo-usage
          blob-referenced? release-blob-if-unreferenced!
          derived-closure repo-delete-tree! repo-delete-prefix! repo-traces
@@ -278,8 +284,33 @@
            o)))
 
 ;; -> (values object input-port) or (values #f #f). `version` selects history.
+;;
+;; THIS IS THE AUDIT SEAM FOR READS (issue #84). Every path that hands out
+;; document bytes arrives here — the console download and the API GET, the S3
+;; listener's GetObject / HeadObject / CopyObject source, LAY-6's out-of-process
+;; `repo.get`, PULL-9's worker read, the indexer, and `doc_text` inside a
+;; workflow step — so the entry is written ONCE, here, and
+;; `current-read-context` says which door it came through. Nine call sites would
+;; have been nine chances to forget, and the tenth, written later, would be
+;; silent: `repo-put!`'s trigger hook is here for the same reason.
+;;
+;; A REFUSAL IS AUDITED TOO (r4), and it has to be caught rather than inferred:
+;; `repo-get` RAISES through `require-perm` on a permission failure while
+;; answering `#f` for a miss — the asymmetry CLAUDE.md warns about — so the
+;; denial is recorded and the exception re-raised unchanged. The caller may still
+;; collapse the two outcomes into one answer (the knowledge graph's rule, PULL-9's,
+;; the derive warrant's); the RECORD keeps them apart, which is the point.
 (define (repo-open conn p id #:version [version-id #f])
-  (define o (repo-get conn p id))
+  (define o
+    (with-handlers ([exn:fail:forbidden?
+                     (lambda (e)
+                       ;; the row is read WITHOUT can? only to name what was
+                       ;; refused — nothing from it reaches the caller
+                       (let ([r (obj-row conn id)])
+                         (when r (audit-read-denied! conn p (row->obj r)
+                                                     (exn:fail:forbidden-permission e))))
+                       (raise e))])
+      (repo-get conn p id)))
   (cond
     [(not o) (values #f #f)]
     [else
@@ -295,10 +326,16 @@
        [(not v) (values #f #f)]
        [else
         (define in (blob-get (hash-ref o 'org_id) (vector-ref v 0)))
-        (values (hash-set* o 'digest (vector-ref v 0) 'size (vector-ref v 1)
-                           'content_type (vector-ref v 2) 'filename (vector-ref v 3)
-                           'version (vector-ref v 4))
-                in)])]))
+        (define full (hash-set* o 'digest (vector-ref v 0) 'size (vector-ref v 1)
+                                'content_type (vector-ref v 2) 'filename (vector-ref v 3)
+                                'version (vector-ref v 4)
+                                ;; the version actually opened, which for a
+                                ;; history read is not the object's current one
+                                'version_id (or version-id (hash-ref o 'version_id))))
+        ;; recorded once the bytes are genuinely available: a read that could not
+        ;; find its version answers #f above and is not a read of anything.
+        (audit-read! conn p full)
+        (values full in)])]))
 
 ;; Listing filters by `can?` per row rather than in SQL: the visibility rules live in
 ;; one place, and a private object simply does not appear. Slower and correct beats

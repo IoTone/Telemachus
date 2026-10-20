@@ -25,6 +25,7 @@
          "../authz/authz.rkt"
          "../repo/repo.rkt"
          "../repo/blobs.rkt"
+         (only-in "../audit/reads.rkt" read-context with-read-context)
          (only-in "../quota/quota.rkt" quota-check quota-record!)
          sha2-kit
          "sigv4.rkt"
@@ -97,12 +98,20 @@
 ;; ---- authentication -----------------------------------------------------------------
 ;; Returns a principal, or an http-res explaining the refusal. The failure symbols map
 ;; to S3's own codes so a client can tell "your clock is wrong" from "wrong key".
+;; Was this request signed as a PRESIGNED URL? One definition, two askers — the
+;; verifier below picks which signature rule to apply, and the handler uses it to
+;; record a presign REDEMPTION rather than an ordinary read (issue #84). Deriving
+;; it twice is the drift CLAUDE.md warns about for `executor-can-run?`.
+(define (presigned-auth req)
+  (and (not (parse-authorization (req-header req "authorization")))
+       (presign-parse (http-req-query req))))
+
 (define (authenticate conn req)
   (define authz (req-header req "authorization"))
   (define header-auth (parse-authorization authz))
   ;; A presigned URL carries everything in the query string and no Authorization
   ;; header, which is the whole point: a browser can follow it.
-  (define query-auth (and (not header-auth) (presign-parse (http-req-query req))))
+  (define query-auth (presigned-auth req))
   (define auth (or header-auth query-auth))
   (define payload-hash (or (req-header req "x-amz-content-sha256") UNSIGNED-PAYLOAD))
   (cond
@@ -690,7 +699,22 @@
       (cond
         [(http-res? who) who]                                  ; the refusal itself
         [(refused-subresource req) => (lambda (q) (not-implemented (string-append "?" q)))]
-        [else (dispatch conn who req method)]))))
+        [else
+         ;; issue #84: the data plane's own door. `http-req` has carried the
+         ;; client's address since slice 51, which is what #84's acceptance
+         ;; criterion asks for by name — "the redeeming client IP" — because a
+         ;; presigned link is followed by whoever was given it, from wherever
+         ;; they are, with no bearer token to identify them.
+         (with-read-context
+           (read-context (if (presigned-auth req) "presign" "s3")
+                         (http-req-client-ip req)
+                         (req-header req "user-agent")
+                         (or (req-header req "x-amz-request-id")
+                             (req-header req "x-request-id")
+                             (new-id))
+                         (req-header req "range")
+                         #f #f)
+           (lambda () (dispatch conn who req method)))]))))
 
 (define (dispatch conn p req method)
   (define-values (bucket key) (split-path (http-req-path req)))

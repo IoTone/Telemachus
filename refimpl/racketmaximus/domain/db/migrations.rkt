@@ -1292,7 +1292,41 @@
       ;; line: a pre-migration job reports `null`, never a guess).
       (exec* conn "ALTER TABLE repo_versions ADD COLUMN created_epoch BIGINT"))))
 
+(define m-0046-audit-reads
+  (migration "0046-audit-reads"
+    (lambda (conn)
+      ;; WHO READ A DOCUMENT (issue #84). `audit_log` carried actor, team, action,
+      ;; resource and result — enough for "who changed this" and not enough for
+      ;; "who viewed this, when, from where", which is the question a regulated
+      ;; deployment is actually asked.
+      ;;
+      ;; Four columns, all nullable, nothing backfilled. A pre-0046 entry reports
+      ;; them as absent rather than as a guess — 0041's line for
+      ;; `oldest_queued_seconds`, and PULL-11's for a withdrawn worker state: a
+      ;; field a reader learns to distrust is worse than no field.
+      ;;
+      ;; `org_id` is DENORMALIZED onto the entry rather than joined through the
+      ;; team, deliberately. An export is "by org and date range" (r3), a team can
+      ;; in principle be re-parented, and the audit log is the one table that must
+      ;; still be readable when the rows it describes are gone — DEL-7 keeps it
+      ;; through an erasure, so it cannot depend on a join to a deleted team.
+      (exec* conn "ALTER TABLE audit_log ADD COLUMN org_id TEXT")
+      ;; The CLIENT's address and agent, not the server's. #84's acceptance
+      ;; criterion names "the redeeming client IP" specifically, because a
+      ;; presigned link is followed by whoever was given it.
+      (exec* conn "ALTER TABLE audit_log ADD COLUMN client_ip TEXT")
+      (exec* conn "ALTER TABLE audit_log ADD COLUMN user_agent TEXT")
+      ;; Correlates the several entries one request can write — a presigned GET
+      ;; that is refused, retried and satisfied is three rows and one request.
+      (exec* conn "ALTER TABLE audit_log ADD COLUMN request_id TEXT")
+      ;; r6: "reads must not add more than one indexed insert". These two indexes
+      ;; serve the reads an auditor makes, and neither is on the insert path
+      ;; beyond the one write SQLite and Postgres both do per index. The export
+      ;; (r3) scans by org and time; the per-document question scans by resource.
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_audit_org_time ON audit_log (org_id, at_us)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log (resource_type, resource_id, at_us)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads))

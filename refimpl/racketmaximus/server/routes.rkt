@@ -224,6 +224,7 @@
    (R "PATCH" "/api/repo-obj/:id/attributes" 'repo-attributes #:perm "files:read" #:doc "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.")
    (R "GET" "/api/repo-obj/:id/spans" 'repo-spans #:perm "files:read" #:doc "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.")
    (R "GET" "/api/repo-obj/:id/processing" 'repo-processing #:perm "files:read" #:doc "\"Processed by\": derived documents, sources, and every run that touched the document.")
+   (R "GET" "/api/repo-obj/:id/reads" 'repo-reads #:perm "files:read" #:doc "Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts.")
    (R "GET" "/api/share-targets" 'share-targets #:perm "files:read" #:doc "Who a document can be shared with: the team's people and the org's teams.")
    (R "POST" "/api/repo-obj/:id/visibility" 'repo-visibility #:perm "files:manage" #:doc "Set private, team or shared.")
    (R "GET" "/api/repo-obj/:id/content" 'repo-get #:perm "files:read" #:doc "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.")

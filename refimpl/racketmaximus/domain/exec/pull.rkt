@@ -27,6 +27,7 @@
          (only-in "../ai/content.rkt" content->text)
          (only-in "../repo/repo.rkt" repo-open repo-get repo-put! repo-inherit!)
          (only-in "../repo/extract.rkt" extract-text)
+         (only-in "../audit/reads.rkt" read-context with-read-context)
          (only-in "../../config.rkt" max-upload-bytes)
          racket/port net/base64
          (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
@@ -648,9 +649,16 @@
         ;; `can?` refuses by RAISING (repo-get), while a missing row answers #f.
         ;; Both collapse to the same verdict here on purpose: "does not exist or
         ;; is not yours to read" is one answer, as it is in the knowledge graph.
+        ;; issue #84: the read is the JOB'S USER's — that is who `can?` answered
+        ;; for — but the ACTOR is the executor, because an auditor asked "who
+        ;; viewed this" needs to see that a machine did, and which one. The two
+        ;; are different questions and the entry answers both.
         (define-values (o in)
-          (with-handlers ([exn:fail? (lambda (_) (values #f #f))])
-            (repo-open conn p object-id #:version version)))
+          (with-read-context
+            (read-context "worker" #f #f job-id #f "executor" (hash-ref ex 'id))
+            (lambda ()
+              (with-handlers ([exn:fail? (lambda (_) (values #f #f))])
+                (repo-open conn p object-id #:version version)))))
         (cond
           [(not in) 'no-such-document]
           [(equal? as "text")

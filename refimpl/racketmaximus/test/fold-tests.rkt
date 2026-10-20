@@ -37,7 +37,12 @@
 ;; on a column the pre-fold world had never heard of. Add to this list when that
 ;; happens again; it is a statement about the CODE's requirements, not about the
 ;; fold.
-(define also-required '("0033-audit-seq"))
+;; Migrations AFTER the fold that today's code nevertheless depends on. A real
+;; instance never sees a partial schema; this test does, so every later migration
+;; the code reads has to be named here. 0046 joined the list because `audit!`
+;; now writes `org_id`/`client_ip`/`user_agent`/`request_id` on EVERY entry, and
+;; this fixture's code path audits.
+(define also-required '("0033-audit-seq" "0046-audit-reads"))
 (define pre-fold
   (append
    (let loop ([ms all-migrations] [acc '()])

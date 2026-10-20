@@ -19,6 +19,7 @@
          ;; issue #83 slice 3: a run's bindings and a step's input/output are
          ;; derived document content for the pipeline
          (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
+         (only-in "../audit/reads.rkt" read-context with-read-context)
          (only-in "../../config.rkt" content-encryption-enabled?)
          racket/list
          racket/string
@@ -498,14 +499,24 @@
 ;; Registered as the "flow.step" job kind at module level, the way the built-in
 ;; tools register themselves — so requiring this module is all it takes for the
 ;; scheduler (and a test calling `process-one!`) to be able to run a workflow.
-(define (tool-run! conn p name args)
+;; `#:run` is issue #84 r1's "reads performed by workflow steps (actor = the run,
+;; with the triggering actor recorded)". This is the ONE place a step invokes a
+;; tool, so it is the one place that has to carry it: whatever the tool then reads
+;; — `doc_text`, the indexer, `kg_extract` — arrives at `repo-open`'s seam already
+;; knowing it was a run that asked. The principal is unchanged and is still who
+;; `can?` answers for; `actor_id` is the run and the triggering user is the
+;; principal on the entry, so the record holds both without a second lookup.
+(define (tool-run! conn p name args #:run [run-id #f])
   (define t (tool-by-name name))
   (unless t (error 'flow "unknown tool '~a' — no plugin registered it" name))
   (unless (tool-enabled? conn (principal-team-id p) name)
     (error 'flow "tool '~a' is disabled for this team" name))
   (require-perm conn p "tools:invoke")                      ; raises → the step fails
   (when (tool-perm t) (require-perm conn p (tool-perm t)))
-  ((tool-handler t) conn p args))
+  (if run-id
+      (with-read-context (read-context "run" #f #f run-id #f "run" run-id)
+                         (lambda () ((tool-handler t) conn p args)))
+      ((tool-handler t) conn p args)))
 
 (define (flow-step-execute! conn p payload)
   (define run-id (format "~a" (hash-ref payload 'run_id "")))
@@ -541,14 +552,15 @@
                (query-exec conn "UPDATE workflow_steps SET input = ? WHERE id = ?"
                            (seal (step-input-ctx srow-id)
                                  (jsexpr->string (hash-set (hash-ref st 'input) 'args args))) srow-id)
-               (values (hasheq 'result (tool-run! conn p (substring (hash-ref tmpl 'uses "") 5) args)) 'child)]
+               (values (hasheq 'result (tool-run! conn p (substring (hash-ref tmpl 'uses "") 5) args
+                                                  #:run run-id)) 'child)]
               [else
                (case (step-kind step)
               [(tool)
                (define args (resolve-hash (hash-ref step 'with (hasheq)) ctx))
                (query-exec conn "UPDATE workflow_steps SET input = ? WHERE id = ?"
                            (seal (step-input-ctx srow-id) (jsexpr->string args)) srow-id)
-               (define result (tool-run! conn p (step-tool-name step) args))
+               (define result (tool-run! conn p (step-tool-name step) args #:run run-id))
                (values (hasheq 'result result) (step-next spec step))]
               [(choice)
                (define hit (eval-predicate (hash-ref step 'when) ctx))

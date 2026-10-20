@@ -158,6 +158,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | — | Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it. |
 | GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | — | Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read. |
 | GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | — | "Processed by": derived documents, sources, and every run that touched the document. |
+| GET | `/api/repo-obj/:id/reads` | bearer | `files:read` | — | Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts. |
 | GET | `/api/share-targets` | bearer | `files:read` | — | Who a document can be shared with: the team's people and the org's teams. |
 | POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | — | Set private, team or shared. |
 | GET | `/api/repo-obj/:id/content` | bearer | `files:read` | — | Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist. |

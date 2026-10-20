@@ -700,15 +700,25 @@
     rtype rid ptype pid perm))
 
 ;; ---- audit ------------------------------------------------------------------
+;; The four trailing keywords are issue #84's (migration 0046) and every one of
+;; them DEFAULTS TO ABSENT, so the ~90 existing call sites are unchanged and a
+;; pre-0046 entry and a new entry from a path with no client are the same shape.
+;; `#f` is accepted as well as `sql-null` because the context those come from
+;; carries #f for "no client" (a scheduler job has no address).
 (define (audit! conn #:action action
                 #:actor-type [actor-type sql-null] #:actor-id [actor-id sql-null]
                 #:team-id [team-id sql-null] #:resource-type [resource-type sql-null]
-                #:resource-id [resource-id sql-null] #:result [result "ok"] #:meta [meta sql-null])
+                #:resource-id [resource-id sql-null] #:result [result "ok"] #:meta [meta sql-null]
+                #:org-id [org-id sql-null] #:ip [ip sql-null]
+                #:user-agent [user-agent sql-null] #:request-id [request-id sql-null])
+  (define (orn v) (if (or (not v) (eq? v 'null)) sql-null v))
   (query-exec conn
     (string-append "INSERT INTO audit_log "
-                   "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta, at_us) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    (new-id) actor-type actor-id team-id action resource-type resource-id result meta (audit-stamp!)))
+                   "(id, actor_type, actor_id, team_id, action, resource_type, resource_id, result, meta, at_us, "
+                   "org_id, client_ip, user_agent, request_id) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    (new-id) actor-type actor-id team-id action resource-type resource-id result meta (audit-stamp!)
+    (orn org-id) (orn ip) (orn user-agent) (orn request-id)))
 
 ;; issue #47: the ordering key, and the reason it is not simply a clock reading —
 ;; a burst of events lands inside one tick whatever the unit, and then the order
@@ -730,7 +740,8 @@
 (define (audit-list conn team-id #:limit [lim 50] #:offset [off 0])
   (define (nz x) (if (sql-null? x) 'null x))
   (for/list ([r (in-list (query-rows conn
-     (string-append "SELECT id, action, actor_type, actor_id, resource_type, resource_id, result, at "
+     (string-append "SELECT id, action, actor_type, actor_id, resource_type, resource_id, result, at, "
+                    "client_ip, user_agent, request_id "
                     ;; `at` first — it is right for rows written before at_us
                     ;; existed — then the microsecond within that second, then the
                     ;; id so the order is at least stable when neither can say
@@ -740,4 +751,8 @@
     (hasheq 'id (vector-ref r 0) 'action (vector-ref r 1)
             'actor_type (nz (vector-ref r 2)) 'actor_id (nz (vector-ref r 3))
             'resource_type (nz (vector-ref r 4)) 'resource_id (nz (vector-ref r 5))
-            'result (nz (vector-ref r 6)) 'at (vector-ref r 7))))
+            'result (nz (vector-ref r 6)) 'at (vector-ref r 7)
+            ;; #84 r2: who, from where. Absent on a pre-0046 entry and on any
+            ;; event with no client in front of it — never a guess.
+            'client_ip (nz (vector-ref r 8)) 'user_agent (nz (vector-ref r 9))
+            'request_id (nz (vector-ref r 10)))))
