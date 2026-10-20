@@ -679,6 +679,17 @@ assert "retention: a valid policy is accepted" \
   "$(curl -s -X PUT "$B/api/retention" -H "Authorization: Bearer $OP" -d '{"purge_job_payloads_after_days":7}')" '"ok":true'
 assert "retention: …and reads back, naming which layer set it" \
   "$(curl -s "$B/api/retention" -H "Authorization: Bearer $OP")" '"purge_job_payloads_after_days":"team"'
+# The READ is gated too, and was not: `routes.rkt` declared files:read and
+# `ep-retention-get` enforced nothing, so any authenticated caller could read the
+# team's, the company's and the INSTANCE's policy. `$CI` is scoped `*:read`,
+# which does include files:read — so the proof is a token scoped to something
+# ELSE entirely.
+NOFILES=$(curl -s -X POST $B/api/tokens -H "Authorization: Bearer $OP" \
+            -d '{"name":"nofiles","scopes":["notes:read"]}' | grep -oP '"token":"\K[^"]+')
+assert "retention: a token without files:read cannot READ the rules" \
+  "$(curl -s "$B/api/retention" -H "Authorization: Bearer $NOFILES")" 'Forbidden: files:read'
+assert "retention: …nor the plan" \
+  "$(curl -s "$B/api/retention/plan" -H "Authorization: Bearer $NOFILES")" 'Forbidden: files:read'
 assert "retention: a plain member cannot set the team's rules" \
   "$(curl -s -X PUT "$B/api/retention" -H "Authorization: Bearer $BOB" -d '{"max_age_days":1}')" 'Forbidden'
 # the hold: placed through the stewardship permission, and audited

@@ -792,6 +792,35 @@ bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model;
 TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
 ```
 
+## The route table's `#:perm` is now GATED (code audit, 20 Oct 2026)
+
+`test/route-perm-gate-tests.rkt` asks, for every route, whether the permission
+`routes.rkt` DECLARES is enforced anywhere reachable from the handler it names.
+
+- **`rt-auth`, `rt-perm` and `rt-feature` are enforced NOWHERE by the
+  dispatcher** — `route` reads `rt-handler` and nothing else. Each handler does
+  auth, permission and feature by hand, so those three fields were documentation
+  that `docs/reference/api.md` published as fact.
+- **It was wrong once.** `GET /api/retention` declared `files:read` and enforced
+  nothing: `with-auth` and straight to the data, so any authenticated caller
+  could read the team's, the company's and the INSTANCE's retention policy. Its
+  sibling two definitions below had the line. One forgotten line, nothing
+  checking.
+- **The gate reads source through Racket's own READER**, not a regex: each module
+  is `read` as a module form and walked as data. The first version counted
+  parens, got 83 top-level forms out of ~1,600 and passed its way to a wrong
+  answer — caught only by its own "can the walk find a permission that IS
+  enforced" assertion, which is why that assertion leads the file.
+- The walk is a call graph BY NAME, 4 levels, over main.rkt + `domain/` +
+  `pkgs/`. It is an approximation and sound in the safe direction: something
+  enforced where the walk cannot reach is a false PASS, never a false failure, so
+  the gate cannot block a correct change.
+- **Eleven HANDLERS entries are an inline `lambda`**, not a named handler; the
+  gate walks those in place. The alternative — exempting the two routes that
+  surfaced — would have excused exactly the routes nobody looks at.
+- Positive-controlled: with the `require-perm` removed again, the gate fails and
+  names `GET /api/retention`.
+
 ## The route table and the generated reference (slice 60)
 
 `server/routes.rkt` DECLARES every HTTP route: method, path pattern, handler key,

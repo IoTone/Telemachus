@@ -827,6 +827,15 @@
 
 (define (ep-retention-get req)
   (with-auth req (lambda (p)
+    ;; `files:read`, as `routes.rkt` declares and as `ep-retention-plan-get` two
+    ;; definitions below already enforced. THIS LINE WAS MISSING: the route table
+    ;; said the handler enforced a permission and the handler did not, so any
+    ;; authenticated member could read the team's, the company's and the
+    ;; INSTANCE's retention policy. Found by asking the question mechanically —
+    ;; every route's declared `#:perm` against the body of the handler it names —
+    ;; and `test/routes-tests.rkt` now asks it on every build, because a
+    ;; declaration nothing checks is a comment.
+    (require-perm db-conn p "files:read")
     (define team (principal-team-id p))
     (define org (team-org-of p))
     (json-response
