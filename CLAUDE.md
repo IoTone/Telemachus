@@ -1402,6 +1402,79 @@ staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
 STORAGE limit, not a concurrency one: the scheduler is safe in several processes,
 which is what the in-flight register exists for.
 
+## Document bytes in a bucket (BLOB, issue #82)
+
+Built 20 Oct 2026. `domain/s3/client.rkt` + `plugins/s3blobs/` +
+`cli/telemachus-blobs.rkt`; decision block **BLOB‑1…9** in
+`docs/design/decisions.md`. IAM policy and migration notes in
+`docs/ops/container.md`.
+
+```sh
+export TELEMACHUS_BLOB_STORE=s3        # with the endpoint/bucket/keys set
+raco test test/s3-client-tests.rkt     # 8 cases, no network
+bash test/s3-blobstore-smoke.sh        # 23 assertions over a real socket
+racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
+```
+
+- **The signer is NOT new code.** `domain/s3/sigv4.rkt` was built to VERIFY what
+  clients send us, and every primitive a signer needs was already exported and
+  already pinned to AWS's own vectors. The client composes them, so ONE
+  implementation faces both directions — and `test/s3-client-tests.rkt` hands
+  what it signs to our own verifier, with a tampered-request control so the test
+  cannot pass vacuously. Never write a second SigV4 here.
+- **The payload hash is FREE, and that is why a PUT can stream.** A signed S3 PUT
+  must carry `x-amz-content-sha256`; normally you buffer the object to compute it
+  or give up signing the payload. In a content-addressed store the digest IS that
+  hash, so the body streams once, unbuffered, fully signed. It also means a blob
+  whose bytes disagree with its digest is refused by the far end
+  (`XAmzContentSHA256Mismatch`) rather than stored under a name that lies.
+- **A raw socket, not `net/http-client`.** Its `#:data` takes bytes (buffer
+  everything) or a procedure, which makes the request chunked — and S3 rejects
+  chunked unless it is `aws-chunked` with per-chunk signatures, which sigv4.rkt
+  deliberately does not implement.
+- **Encryption is checked on the RESPONSE.** What we asked for and what the
+  bucket did are different claims; a policy that strips the header is invisible in
+  the request. The object has already landed when the check fires and is **left in
+  place deliberately** — deleting it would destroy the evidence of what the bucket
+  actually did.
+- **`s3-host-header` is the ONE place the Host is computed.** It is a SIGNED
+  header, so two copies drifting would fail every request with
+  `SignatureDoesNotMatch` and nothing in the message would name which copy was
+  wrong. `s3-object-url` calls it rather than recomputing.
+- **The boot health check is `startup.rkt`'s existing probe.** It writes a blob,
+  reads it back and deletes it, fatally — which through this store checks
+  reachability, credentials, bucket existence, permissions and the encryption
+  posture at once. Do not add a second health mechanism.
+- **The migration moves NO database rows**, because `repo_versions` stores the
+  digest and the store is addressed by it. That is what makes it resumable and
+  safe on a live instance. It **re-hashes every blob**: rs3 takes the digest from
+  the PATH, so a rotted file looks correct until something hashes it, and a
+  corrupt blob is reported and left alone rather than copied under a name that
+  lies about it.
+- **`TELEMACHUS_S3_PORT`/`_S3_REGION` are the listener's; the blob store's names
+  all carry BLOB.** One instance can legitimately serve an S3 API and write to a
+  bucket at the same time.
+- **Do not write a bare `TELEMACHUS_S3_BLOB` prefix in a comment.**
+  `scripts/check-config-reference.sh` greps `TELEMACHUS_` tokens out of the
+  source, so a prefix in prose reads to it as an undocumented variable — it
+  reported exactly that, twice, while that note was being written.
+- **MinIO's images are no longer freely pullable** (docker.io and quay.io both
+  answer `unauthorized`; `:latest` unpublished, checked 20 Oct 2026), and
+  `localstack/localstack:latest` now needs a licence. So the acceptance criterion
+  as written in #82 cannot be met: CI drives the suite against THIS server's own
+  S3 API instead, and section 5 uses a real bucket only when `S3_TEST_ENDPOINT`
+  is set (vendor-neutral on purpose — these knobs were `MINIO_*` at first, which
+  named the one target a reader cannot obtain). **The SSE round trip is unproven against a real bucket**; what is covered
+  is the refusal when a bucket does not report encryption.
+- Multipart is **not** built: a single signed PUT handles anything up to S3's
+  documented 5 GiB ceiling, and multipart would need each part buffered to hash
+  it, so the free-hash property does not extend to it. The case that reaches that
+  ceiling is an inbound **S3-listener multipart upload**, which assembles and
+  calls `repo-put!` — not the 32 MiB front door. A write above it fails rather
+  than truncating, because Content-Length and the payload hash both go with the
+  request; the specific `EntityTooLarge` code is AWS's documentation, not
+  something measured here.
+
 ## Reading scans and photographs (OCR, issue #92)
 
 Built 19 Oct 2026. `plugins/ocr/` + `tesseract`; decision block **OCR‑1…10** in

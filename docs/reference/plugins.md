@@ -14,6 +14,7 @@ A plugin is a directory under `plugins/` with a `plugin.json` manifest (`id`, `n
 | Knowledge Graph (`knowledge-graph`) | 0.1.0 | — | `index-knowledge` | — | — | — | A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed. |
 | OCR (`ocr`) | 0.1.0 | — | — | — | — | — | Reads text out of photographs and scanned PDFs with Tesseract, with per-word page and region provenance. |
 | rs3 — local content-addressed blob store (`rs3`) | 0.1.0 | — | — | — | — | — | Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository. |
+| s3 — object-storage blob store (`s3blobs`) | 0.1.0 | — | — | — | — | — | Stores document bytes in any S3-compatible bucket (AWS S3, MinIO, Ceph RGW), addressed by their SHA-256, encrypted server-side by default. |
 | Translate Chat (`translate-chat`) | 0.1.0 | `chat_message`, `translate_text` | `translate-chat` | — | — | — | A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language. |
 
 ## The seams a plugin may fill

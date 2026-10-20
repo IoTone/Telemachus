@@ -96,6 +96,40 @@ Conventions used throughout:
 | `TELEMACHUS_OOP` | `<impl>/oop.json` | Out-of-process (sandboxed) plugin config file. |
 | `TELEMACHUS_LOCALES` | `locales` | Directory of `*.json` catalogs. The export **writes** here, so point it at a writable copy in a test. |
 
+## Object-storage blob store (the `s3blobs` plugin, issue #82)
+
+Document bytes in an S3-compatible bucket instead of on local disk. Selected with
+`TELEMACHUS_BLOB_STORE=s3`; with the plugin present and that unset, nothing here
+is read and the instance uses `rs3` exactly as before.
+
+**These are not the S3 *listener*'s settings.** `TELEMACHUS_S3_PORT` and
+`TELEMACHUS_S3_REGION` configure the S3 API this server *serves* (slice 52);
+everything below configures the bucket it *writes to*. An instance can do both at
+once, which is why the names differ.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TELEMACHUS_S3_BLOB_ENDPOINT` | — | **Required.** `http(s)://host[:port]`. A bare `host:port` is refused rather than guessed at: assuming `https` would silently fail a plaintext MinIO on a LAN. |
+| `TELEMACHUS_S3_BLOB_BUCKET` | — | **Required.** The bucket. Not created for you. |
+| `TELEMACHUS_S3_BLOB_REGION` | `us-east-1` | Signing region. MinIO ignores it but it is still signed, so it must match whatever the endpoint expects. |
+| `TELEMACHUS_S3_BLOB_PREFIX` | `blobs` | Key prefix. The layout is `<prefix>/<org>/<sha256>` — flat under the org, because a bucket's keyspace has no directory problem. The **org level is load-bearing**: global dedup across tenants is an existence oracle (DOC‑6). |
+| `TELEMACHUS_S3_BLOB_ACCESS_KEY` | `AWS_ACCESS_KEY_ID` | Access key id. The `AWS_*` name is accepted as a fallback because that is how most platforms already inject credentials. |
+| `TELEMACHUS_S3_BLOB_SECRET_KEY` | `AWS_SECRET_ACCESS_KEY` | Secret key. |
+| `TELEMACHUS_S3_BLOB_SSE` | `kms` | `kms`, `s3` or `none`. Server-side encryption is **on by default**, and `none` has to be asked for. |
+| `TELEMACHUS_S3_BLOB_KMS_KEY_ID` | the bucket's default key | Only with `SSE=kms`. Omitting it is a real configuration — the bucket's own default KMS key — not an error. |
+| `TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION` | on unless `SSE=none` | Checks the **response**, not the request: a PUT whose reply carries no `x-amz-server-side-encryption` is refused by name. That is what catches a bucket policy or a replication rule quietly dropping it. The object has already landed when this fires and is **left in place deliberately**, so you can inspect what the bucket did. |
+| `TELEMACHUS_S3_BLOB_PATH_STYLE` | on | Path-style addressing (`/bucket/key`). **On by default, unlike the AWS SDKs**, because MinIO and Ceph RGW are the deployments this exists for and neither gets virtual-host DNS for free; AWS still accepts it. |
+| `TELEMACHUS_S3_BLOB_RETRIES` | `3` | Attempts per operation. Only a 429 or a 5xx retries — a 4xx is our own request. Every operation is idempotent (the key *is* the content hash), so a retry needs no idempotency key. |
+| `TELEMACHUS_S3_BLOB_TIMEOUT` | `120` | Seconds for one operation. |
+
+**The boot check is the one that was already there.** `server/startup.rkt`
+probes the active blob store by writing a blob, reading it back and deleting it,
+and treats failure as fatal — so endpoint reachability, credentials, bucket
+existence, Get/Put/Delete permission *and* the encryption posture are all
+verified before the instance serves, with no second mechanism to keep in step.
+
+See [the IAM policy and migration notes](container.md#object-storage-for-document-bytes).
+
 ## OCR (the `ocr` plugin, issue #92)
 
 Reading text out of photographs and scanned PDFs. **Off unless you turn it on**,

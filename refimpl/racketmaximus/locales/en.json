@@ -379,13 +379,17 @@
       "text": "How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window.",
       "hash": "bbb9fa1bd8d56749050fd3a56e8c196483c7405c"
     },
-    "doc.route.get.api.runs": {
-      "text": "The team's runs, newest first.",
-      "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
-    },
     "doc.workflow.index-knowledge.name": {
       "text": "Index Knowledge",
       "hash": "25914663dfac64e6314732a7e89badcc8c3ff7b0"
+    },
+    "doc.plugin.s3blobs": {
+      "text": "Stores document bytes in any S3-compatible bucket (AWS S3, MinIO, Ceph RGW), addressed by their SHA-256, encrypted server-side by default.",
+      "hash": "7b0012fa9dda105e4b36bddcc824d05a277c6c97"
+    },
+    "doc.route.get.api.runs": {
+      "text": "The team's runs, newest first.",
+      "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
     },
     "ui.newversion": {
       "text": "Saved as a new version",

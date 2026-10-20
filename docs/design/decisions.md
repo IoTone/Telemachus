@@ -649,6 +649,65 @@ variant without it is possible and would save roughly a quarter. Not built here:
 it is a second image to keep in step for a 23% saving against a floor that
 dominates either way.
 
+## Document bytes in a bucket (BLOB) — **decided and BUILT 20 Oct 2026** (issue #82)
+
+The only blob backend was `rs3`, plaintext files on local disk. That is what kept
+the Kubernetes example at `replicas: 1` (a `ReadWriteOnce` volume one pod can
+mount), kept MinIO out of `compose.yaml`, and left integrators handling regulated
+data with no way to put bytes in storage they already back up and audit. The seam
+for a second backend has existed since DOC‑5 and nothing had used it.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **BLOB‑1** | Where the SigV4 signer comes from | **Compose `domain/s3/sigv4.rkt`'s existing primitives** · vs a second signer for outbound use · vs an AWS SDK | That module was built from the spec to VERIFY what clients send us and is pinned to AWS's own published vectors by 64 cases. Reusing it means ONE implementation faces both directions, so a canonicalisation bug breaks our server and our client together and loudly, instead of two subtly different implementations that agree with nobody. `test/s3-client-tests.rkt` makes the argument concrete: it hands what the signer produces to our own verifier, in process, and also checks a tampered request FAILS so the test cannot pass vacuously. |
+| 🔑 **BLOB‑2** | How the payload hash is obtained | **It is the blob's digest — free** · vs buffering the object to hash it · vs `UNSIGNED-PAYLOAD` over TLS | A signed S3 PUT must carry `x-amz-content-sha256`. Normally that forces a choice between buffering a 2 GB object and not signing the payload at all. In a CONTENT-ADDRESSED store the digest we are handed IS that hash, by construction, so the body streams once, unbuffered, fully signed — requirement 5 falls out rather than being engineered. It also integrity-checks every write for nothing: bytes that disagree with our digest are refused by the far end as `XAmzContentSHA256Mismatch` instead of being stored under a name that lies. |
+| **BLOB‑3** | The HTTP client | **A raw socket** · vs `net/http-client` · vs `web-kit/http1` (the server) | `http-conn-send!`'s `#:data` takes bytes (buffer everything) or a procedure, which makes the request CHUNKED — and S3 rejects chunked unless it is `aws-chunked` with per-chunk signatures, which sigv4.rkt deliberately does not implement for want of a client that uses it. A socket is what allows Content-Length plus a streamed body. |
+| 🔑 **BLOB‑4** | Is encryption checked, or merely requested? | **The RESPONSE is checked** · vs trusting the request headers · vs a bucket-policy-only approach | What we asked for and what the bucket did are different claims, and a policy or replication rule that strips the header is invisible in the request. `TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION` refuses a PUT whose reply carries no `x-amz-server-side-encryption`. The bucket-policy deny is documented **as well**, because the two catch different failures. |
+| **BLOB‑5** | The object has already landed when that fires | **Refuse loudly and LEAVE it** · vs delete it · vs ignore | The response is the only source of truth, so there is no checking before writing. Quietly deleting an object we have just been told we do not understand would destroy the evidence an operator needs to see what their bucket actually did; the message says the object exists and why it was left. |
+| **BLOB‑6** | Addressing style | **Path-style by DEFAULT** · vs virtual-host, as the AWS SDKs default | MinIO and Ceph RGW are the deployments this exists for and neither gets virtual-host DNS for free, while AWS still accepts path-style. The Host header is SIGNED, so this is not cosmetic — and it is computed in ONE place (`s3-host-header`), because two copies would drift and every request would fail `SignatureDoesNotMatch` with nothing naming which copy was wrong. |
+| **BLOB‑7** | Where the boot health check lives | **Nowhere new — `startup.rkt`'s existing probe** · vs a store-specific health hook | That probe already writes a blob, reads it back and deletes it, and treats failure as fatal. Routed through this store it verifies endpoint reachability, credentials, bucket existence, Get/Put/Delete permission AND the encryption posture, because the probe PUT goes through BLOB‑4's assertion. Requirement 5's health check is therefore composition, not code, and there is no second mechanism to keep in step. |
+| **BLOB‑8** | Retries | **429/5xx only, bounded, deterministic backoff** · vs retry everything · vs none | A 4xx is our own request and retrying spends the same error again — llm.rkt's rule for the model transport. Every operation here is idempotent (the key IS the content hash), so retries need no idempotency key (#90) to be safe. A GET that has begun handing bytes to its caller is never retried. |
+| **BLOB‑9** | The migration's shape | **A CLI that re-hashes everything** · vs a schema migration · vs trusting the filename | NO ROW MOVES: `repo_versions` stores the digest and the store is addressed by it, so the same rows describe the blobs wherever they live — which is what makes this copyable at all, resumable, and safe to run on a live instance. Re-hashing is not belt-and-braces: `rs3` takes a blob's digest FROM ITS PATH, so a rotted file looks correct to anything that does not hash it, and a copy that trusted the name would propagate the rot under a name that lies about it. A corrupt blob is reported and left alone, because its row points at a digest nothing can satisfy and that is a data-loss question, not a copy-tool decision. |
+
+**What is NOT built, and why** — rather than implied:
+
+- **Multipart upload (requirement 4's second half).** A single signed PUT streams
+  any object up to S3's documented 5 GiB single-request ceiling, which is 160×
+  the default `TELEMACHUS_MAX_UPLOAD`. Multipart would mean buffering each part
+  to hash it, so BLOB‑2's free-hash property does not extend to it and it is real
+  work rather than a flag.
+  **Where this actually bites**, since the front door's 32 MiB cap suggests
+  otherwise: the S3 LISTENER assembles a multipart upload and hands the result to
+  `repo-put!` (`op-complete-multipart`, assembling the parts with
+  `input-port-append`), so an inbound multipart upload is exactly how a blob larger
+  than the cap reaches the store. Above 5 GiB such a write fails. AWS documents
+  `EntityTooLarge` for it and that has NOT been observed here — a 5 GiB upload is
+  not something this suite does — so the claim worth making is the one that
+  follows from the design rather than from a vendor's table: the request carries
+  Content-Length AND the digest as its payload hash, so a rejected or truncated
+  write cannot be mistaken for a complete one. It fails; it does not silently
+  store a short object under a name that says otherwise.
+- **Client-side envelope encryption (requirement 3)**, which the issue itself
+  marks optional. It is the one item here that changes the DATA at rest, so it
+  wants its own slice beside #83 (encrypting extracted text and payloads) rather
+  than being bolted to a transport.
+- **Instance-role and web-identity credentials (requirement 1).** Static keys are
+  read, and the `AWS_*` names are accepted so a platform that already injects
+  them needs no duplication. IMDS and web-identity are each a token exchange with
+  its own refresh clock, and getting a refresh wrong fails hours after boot.
+- **A MinIO container in CI (the acceptance criterion), because it is no longer
+  possible.** MinIO's images are not freely pullable: `docker.io/minio/minio` and
+  `quay.io/minio/minio` both answer `unauthorized` and `:latest` is unpublished
+  (checked 20 Oct 2026). `localstack/localstack:latest` now requires a licence
+  too. So CI runs the suite against THIS server's own S3 API — a real,
+  independent SigV4 verifier over a real socket — and the suite's section 5 uses
+  a real bucket when `S3_TEST_ENDPOINT` is set, skipping loudly when it is not.
+  Those knobs are deliberately NOT named after a vendor: they were `MINIO_*`
+  first, which pointed a reader at the single unavailable option and defaulted
+  the credentials to `minioadmin` besides.
+  **The SSE round trip is therefore unproven against a real bucket**, and the
+  refusal half (a bucket that does not report encryption) is what is covered.
+
 ## Reading scans and photographs (OCR) — **decided and BUILT 19 Oct 2026** (issue #92)
 
 An integrator running Telemachus headless as a document-processing service feeds
