@@ -94,6 +94,7 @@
     (for/list ([r (in-list ROUTES)])
       (hasheq 'method (rt-method r) 'path (rt-path r) 'handler (symbol->string (rt-handler r))
               'auth (symbol->string (rt-auth r)) 'permission (or (rt-perm r) 'null)
+              'scope (symbol->string (rt-scope r))
               'feature (or (rt-feature r) 'null) 'description (rt-doc r))))
   (define plugins
     (sort (for/list ([p (in-list (loaded-plugins))])
@@ -116,7 +117,7 @@
     (for/list ([r (in-list (plugin-routes))])
       (hasheq 'method (hash-ref r 'method) 'path (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
               'handler (string-append "plugin:" (hash-ref r 'plugin))
-              'auth "bearer" 'permission (or (hash-ref r 'perm) 'null) 'feature 'null
+              'auth "bearer" 'permission (or (hash-ref r 'perm) 'null) 'scope "role" 'feature 'null
               'description (hash-ref r 'doc) 'plugin (hash-ref r 'plugin))))
   ;; every route permission must be described, like every role permission is
   (for ([r (in-list ROUTES)]) (when (rt-perm r) (permission-doc (rt-perm r))))
@@ -357,14 +358,20 @@
    "(`server/routes.rkt`). `auth` is how a route authenticates: **public** needs no "
    "credential; **bearer** a session or API token; **provision** the hosted-mode "
    "provisioning token; **superadmin** and **org-admin** the two multi-tenancy planes. "
-   "The permission is the one the handler enforces on its main path — owner-ok and "
-   "resource grants may admit a caller the role would not. A feature flag, when named, "
-   "must be on for the team.\n\n"
+   "The permission column says what a caller needs. A **role** permission is checked "
+   "by the dispatcher before the handler runs, so the table is the enforcement and not "
+   "a description of it. A **resource** permission is weighed against the particular "
+   "note or document by `can?`, which also admits the OWNER and anyone holding a "
+   "matching grant — so a caller whose role does not carry it may still be admitted "
+   "for one object, which is what sharing is. A feature flag, when named, must be on "
+   "for the team.\n\n"
    "Path segments written `:name` are parameters; `*name` takes the rest of the path.\n\n"
-   (table '("Method" "Path" "Auth" "Permission" "Feature" "Description")
+   (table '("Method" "Path" "Auth" "Permission" "Checked" "Feature" "Description")
           (for/list ([r (in-list routes)])
             (list (hash-ref r 'method) (code (hash-ref r 'path)) (hash-ref r 'auth)
                   (let ([p (hash-ref r 'permission)]) (if (string? p) (code p) "—"))
+                  (let ([p (hash-ref r 'permission)])
+                    (if (string? p) (hash-ref r 'scope "role") "—"))
                   (let ([f (hash-ref r 'feature)]) (if (string? f) (code f) "—"))
                   (L (route-id r) (hash-ref r 'description)))))
    "\n"

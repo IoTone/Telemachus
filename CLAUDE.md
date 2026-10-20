@@ -792,6 +792,44 @@ bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model;
 TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
 ```
 
+## The route table ENFORCES what it declares (#110 r2)
+
+`dispatch` in main.rkt applies `rt-auth`, `rt-feature` and — when the permission
+is ROLE-scoped — `rt-perm`, before the handler runs. The table was documentation;
+`GET /api/retention` is what forgetting looked like (#109).
+
+- **THE ORDER IS LOAD-BEARING** and it is why `dispatch` is a `cond`:
+  `with-mt` FIRST for the two multi-tenancy planes (the flag gate answers **404**,
+  "invisible when off", and a permission answers 403 — reversed, a single-tenant
+  instance would tell an anonymous caller the route exists), then authentication
+  (401 before any mention of a permission), then the FEATURE flag, then the
+  permission. Both smokes pin the 404.
+- **`#:scope` is per ROUTE, not per permission** — and deriving it from the
+  permission was my first version and was WRONG. `files:read` on
+  `/api/repo-obj/:id/content` has a resource to weigh; on `/api/retention` there
+  is none. The wrong version left `/api/retention` unchecked by the dispatcher
+  *while looking covered*.
+- **`'resource` means the dispatcher keeps out.** A role pre-check there is
+  STRICTER than the handler's `can?`, which also admits the owner and a grant
+  holder — it would refuse exactly what DSH‑1 built. 30 routes; the other 93 are
+  pre-checked.
+- **A create or a list IS role-scoped**, verified one function at a time rather
+  than assumed: `repo-list`, `kg-find` and `flow-runs` each `require-perm` up
+  front before any per-row filtering, so moving the check earlier is equivalent.
+- **`#:auth 'handler`** is the one route that authenticates itself — the plugin
+  bundle takes a bearer OR a ticket (#43), and pre-authenticating refused the
+  ticket navigation. `server-smoke` caught it in four assertions on the first run.
+- **Handlers keep their own checks**, deliberately: two layers on the
+  authorization path is a feature, and deleting 93 lines would make the
+  dispatcher a single point of failure. The duplication worth removing was the
+  RULE written five times (r1), not a second check.
+- **Build an `rt` through `R`, never positionally.** `install-plugin-routes!` did
+  it positionally, so adding the 8th field broke plugin routes at BOOT with an
+  arity mismatch — after a full green suite, and only the control that strips a
+  handler's own check found it.
+- Proven by control: with `ep-retention-get`'s own `require-perm` removed, the
+  request is still refused and the whole smoke passes.
+
 ## The route table's `#:perm` is now GATED (code audit, 20 Oct 2026)
 
 `test/route-perm-gate-tests.rkt` asks, for every route, whether the permission

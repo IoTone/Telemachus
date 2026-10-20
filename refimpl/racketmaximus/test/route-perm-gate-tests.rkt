@@ -172,3 +172,56 @@
                 (if (symbol? h) h (rt-handler r))))))
   (check-equal? missing '()
                 (string-append "\n  " (string-join missing "\n  "))))
+
+;; ---- #110 r2: the scope the dispatcher acts on ----------------------------------
+;; `dispatch` pre-checks a route's permission when `rt-scope` is 'role and leaves
+;; it alone when it is 'resource, because a role-level pre-check on a resource
+;; permission is STRICTER than the handler's own `can?` — which also admits the
+;; owner and anyone holding a grant (DSH-1). So the classification is a security
+;; decision per route, and these are its invariants.
+(test-case "scope is a closed vocabulary, and only means something with a permission"
+  (for ([r (in-list ROUTES)])
+    ;; check-not-false, not check-true: `memq` answers the TAIL, and check-true
+    ;; wants exactly #t — the trap CLAUDE.md records from the OCR slice
+    (check-not-false (memq (rt-scope r) '(role resource))
+                     (format "~a ~a has scope ~s" (rt-method r) (rt-path r) (rt-scope r)))
+    (unless (rt-perm r)
+      (check-eq? (rt-scope r) 'role
+                 (format "~a ~a declares no permission, so 'resource says nothing"
+                         (rt-method r) (rt-path r))))))
+
+(test-case "a resource-scoped route names a resource (or is the documented exception)"
+  ;; The rule is "is the real check per-row `can?` or the role" — and a path with
+  ;; no parameter has no row to weigh. The one exception is the prefix delete,
+  ;; which fans out over many objects and checks each: a role pre-check there
+  ;; would refuse a caller whose grants cover the objects their role does not.
+  (define odd
+    (for/list ([r (in-list ROUTES)]
+               #:when (and (eq? (rt-scope r) 'resource)
+                           (not (regexp-match? #rx":|[*]" (rt-path r)))
+                           (not (and (equal? (rt-method r) "DELETE")
+                                     (equal? (rt-path r) "/api/repo")))))
+      (format "~a ~a" (rt-method r) (rt-path r))))
+  (check-equal? odd '()))
+
+(test-case "the routes the dispatcher pre-checks are the ones a role decides"
+  ;; A sanity bound rather than a re-derivation: if this count moves a long way,
+  ;; somebody has reclassified routes in bulk and should have thought about it.
+  ;; 93 role-scoped + 30 resource-scoped at the time of writing.
+  (define role-scoped
+    (for/list ([r (in-list ROUTES)] #:when (and (rt-perm r) (eq? (rt-scope r) 'role))) r))
+  (define resource-scoped
+    (for/list ([r (in-list ROUTES)] #:when (and (rt-perm r) (eq? (rt-scope r) 'resource))) r))
+  (check-true (> (length role-scoped) 80) (format "role-scoped: ~a" (length role-scoped)))
+  (check-true (> (length resource-scoped) 25) (format "resource-scoped: ~a" (length resource-scoped)))
+  ;; every `files:*` / `notes:*` route that names an object must be resource-scoped
+  ;; — this is the direction that would be a REGRESSION if it flipped
+  (define dangerous
+    (for/list ([r (in-list ROUTES)]
+               #:when (and (rt-perm r)
+                           (regexp-match? #rx"^(files|notes):" (rt-perm r))
+                           (regexp-match? #rx":id|:slug|[*]key" (rt-path r))
+                           (eq? (rt-scope r) 'role)))
+      (format "~a ~a declares ~a at ROLE scope — a grant would stop admitting"
+              (rt-method r) (rt-path r) (rt-perm r))))
+  (check-equal? dangerous '()))
