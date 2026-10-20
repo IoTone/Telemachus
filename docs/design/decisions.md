@@ -672,11 +672,21 @@ for a second backend has existed since DOC‑5 and nothing had used it.
 **What is NOT built, and why** — rather than implied:
 
 - **Multipart upload (requirement 4's second half).** A single signed PUT streams
-  any object up to S3's 5 GiB single-request ceiling, which is 160× the default
-  `TELEMACHUS_MAX_UPLOAD`. Multipart would mean buffering each part to hash it,
-  so BLOB‑2's free-hash property does not extend to it and it is real work rather
-  than a flag. The ceiling is documented; above it the write fails with S3's own
-  `EntityTooLarge` rather than silently truncating.
+  any object up to S3's documented 5 GiB single-request ceiling, which is 160×
+  the default `TELEMACHUS_MAX_UPLOAD`. Multipart would mean buffering each part
+  to hash it, so BLOB‑2's free-hash property does not extend to it and it is real
+  work rather than a flag.
+  **Where this actually bites**, since the front door's 32 MiB cap suggests
+  otherwise: the S3 LISTENER assembles a multipart upload and hands the result to
+  `repo-put!` (`op-complete-multipart`, assembling the parts with
+  `input-port-append`), so an inbound multipart upload is exactly how a blob larger
+  than the cap reaches the store. Above 5 GiB such a write fails. AWS documents
+  `EntityTooLarge` for it and that has NOT been observed here — a 5 GiB upload is
+  not something this suite does — so the claim worth making is the one that
+  follows from the design rather than from a vendor's table: the request carries
+  Content-Length AND the digest as its payload hash, so a rejected or truncated
+  write cannot be mistaken for a complete one. It fails; it does not silently
+  store a short object under a name that says otherwise.
 - **Client-side envelope encryption (requirement 3)**, which the issue itself
   marks optional. It is the one item here that changes the DATA at rest, so it
   wants its own slice beside #83 (encrypting extracted text and payloads) rather

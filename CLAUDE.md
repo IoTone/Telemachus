@@ -1466,8 +1466,13 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   set. **The SSE round trip is unproven against a real bucket**; what is covered
   is the refusal when a bucket does not report encryption.
 - Multipart is **not** built: a single signed PUT handles anything up to S3's
-  5 GiB ceiling, and multipart would need each part buffered to hash it, so the
-  free-hash property does not extend to it.
+  documented 5 GiB ceiling, and multipart would need each part buffered to hash
+  it, so the free-hash property does not extend to it. The case that reaches that
+  ceiling is an inbound **S3-listener multipart upload**, which assembles and
+  calls `repo-put!` — not the 32 MiB front door. A write above it fails rather
+  than truncating, because Content-Length and the payload hash both go with the
+  request; the specific `EntityTooLarge` code is AWS's documentation, not
+  something measured here.
 
 ## Reading scans and photographs (OCR, issue #92)
 
