@@ -1,210 +1,210 @@
 # HTTP API
 
-Every route the server dispatches, in matching order, from the declared route table (`server/routes.rkt`). `auth` is how a route authenticates: **public** needs no credential; **bearer** a session or API token; **provision** the hosted-mode provisioning token; **superadmin** and **org-admin** the two multi-tenancy planes. The permission is the one the handler enforces on its main path — owner-ok and resource grants may admit a caller the role would not. A feature flag, when named, must be on for the team.
+Every route the server dispatches, in matching order, from the declared route table (`server/routes.rkt`). `auth` is how a route authenticates: **public** needs no credential; **bearer** a session or API token; **provision** the hosted-mode provisioning token; **superadmin** and **org-admin** the two multi-tenancy planes. The permission column says what a caller needs. A **role** permission is checked by the dispatcher before the handler runs, so the table is the enforcement and not a description of it. A **resource** permission is weighed against the particular note or document by `can?`, which also admits the OWNER and anyone holding a matching grant — so a caller whose role does not carry it may still be admitted for one object, which is what sharing is. A feature flag, when named, must be on for the team.
 
 Path segments written `:name` are parameters; `*name` takes the rest of the path.
 
-| Method | Path | Auth | Permission | Feature | Description |
-|---|---|---|---|---|---|
-| GET | `/` | public | — | — | The console (or the beta funnel when TELEMACHUS_HOME=beta). The HTML title is rewritten from instance branding. |
-| GET | `/index.html` | public | — | — | The console. |
-| GET | `/login` | public | — | — | The console, sign-in first — a URL that never depends on the beta landing. |
-| GET | `/activate` | public | — | — | The console, on the magic-link activation screen (hosted mode). |
-| GET | `/health` | public | — | — | Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status. |
-| GET | `/beta-sdk.js` | public | — | — | The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta). |
-| GET | `/beta/bundle/:plugin/*path` | public | — | — | A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in. |
-| POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path. |
-| GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache. |
-| GET | `/beta/template` | public | — | — | The Tier-C sandboxed HTML template, localized by the experience overlay. |
-| GET | `/api/config` | public | — | — | Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token. |
-| GET | `/api/branding` | public | — | — | Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |
-| PUT | `/api/branding` | bearer | `instance:manage` | — | Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it. |
-| GET | `/api/retention` | bearer | `files:read` | — | The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing. |
-| PUT | `/api/retention` | bearer | `settings:manage` | — | Set the TEAM's retention rules: `max_age_days`, `delete_derived_after_days`, `purge_job_payloads_after_days`. Each is a whole number of days or null. **0 is refused** — it would delete a document on arrival — and a field nobody defined is refused rather than dropped, because a rule that does nothing while you believe data is being deleted is the worst way to be wrong. A team may only SHORTEN what its org and the instance allow. |
-| GET | `/api/retention/plan` | bearer | `files:read` | — | What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch. |
-| POST | `/api/repo-obj/:id/legal-hold` | bearer | `files:manage` | — | Place or release a legal hold on an object: `{"hold": true\|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one. |
-| GET | `/api/session-policy` | bearer | `instance:manage` | — | The instance session timeouts (issue #38): idle_seconds, absolute_seconds, warn_seconds, with the shipped defaults and the accepted bounds. |
-| PUT | `/api/session-policy` | bearer | `instance:manage` | — | Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them. |
-| POST | `/api/branding/logo` | bearer | `instance:manage` | — | Upload the instance logo (replaces the mark and the wordmark). |
-| GET | `/api/i18n/catalog` | public | — | — | The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them. |
-| PUT | `/api/i18n` | bearer | `instance:manage` | — | Set the instance default locale and whether users may switch. |
-| GET | `/api/l10n/coverage` | bearer | `localization:read` | — | Per-locale coverage of the Localization Manager's catalog: total, approved, machine, missing, stale. |
-| GET | `/api/l10n/messages` | bearer | `localization:read` | — | The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged. |
-| POST | `/api/l10n/import` | bearer | `localization:manage` | — | Pull the catalogs on disk into the Manager's tables. |
-| POST | `/api/l10n/export` | bearer | `localization:manage` | — | Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved. |
-| POST | `/api/l10n/draft` | bearer | `localization:manage` | — | Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered. |
-| POST | `/api/l10n/discard` | bearer | `localization:manage` | — | Remove a locale's machine drafts (never a human's work). |
-| PUT | `/api/l10n/messages/:id` | bearer | `localization:translate` | — | Submit a translation for one message. |
-| POST | `/api/l10n/review/:id` | bearer | `localization:review` | — | Approve or send back a translation. A translator cannot approve their own. |
-| GET | `/api/beta/config` | public | — | — | The published onboarding experience's public slice (fields, copy, theme) in one language. |
-| OPTIONS | `/api/beta/signup` | public | — | — | CORS preflight for a sandboxed Tier-C template. |
-| OPTIONS | `/api/beta/config` | public | — | — | CORS preflight for a sandboxed Tier-C template. |
-| OPTIONS | `/api/beta/challenge` | public | — | — | CORS preflight for a sandboxed Tier-C template. |
-| GET | `/api/beta/experience` | bearer | — | — | The team's draft onboarding experience, including the judge prompt. |
-| PUT | `/api/beta/experience` | bearer | — | — | Save a draft of the onboarding experience. |
-| POST | `/api/beta/experience/publish` | bearer | — | — | Publish the saved draft; it then wins over the ENV-seeded default. |
-| POST | `/api/beta/assets` | bearer | — | — | Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB. |
-| GET | `/api/beta/assets` | bearer | — | — | List the team's onboarding assets. |
-| GET | `/api/beta/asset/:id` | public | — | — | Serve one onboarding asset. Public: the funnel and the branding logo load it without a token. |
-| DELETE | `/api/beta/asset/:id` | bearer | — | — | Delete an onboarding asset. |
-| GET | `/api/beta/challenge` | public | — | — | A proof-of-work challenge the funnel solves before signing up. |
-| POST | `/api/beta/signup` | public | — | — | Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured. |
-| GET | `/api/beta/prospects` | bearer | — | — | List the prospects the funnel captured, with signals and verdicts. |
-| POST | `/api/beta/prospects/:id/decide` | bearer | — | — | Accept or decline a prospect. |
-| POST | `/api/bootstrap` | public | — | — | First run only: create the operator, the first org and team. Returns the operator's token. Refuses once the instance has a user. |
-| POST | `/api/provision` | provision | — | — | Hosted mode: provision this instance with exactly one owner and a magic activation link. |
-| POST | `/api/activate` | public | — | — | Hosted mode: redeem an activation token and set the owner's password. |
-| POST | `/api/instance/suspend` | provision | — | — | Hosted mode: suspend the tenant (writes are refused with 402). |
-| POST | `/api/instance/resume` | provision | — | — | Hosted mode: resume a suspended tenant. |
-| POST | `/api/instance/quota` | provision | — | — | Hosted mode: set a quota limit for the tenant's team. |
-| POST | `/api/login` | public | — | — | Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. |
-| POST | `/api/2fa/enable` | bearer | — | — | Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once. |
-| POST | `/api/2fa/recovery-codes` | bearer | — | — | Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26). |
-| GET | `/api/2fa/recovery-codes` | bearer | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |
-| DELETE | `/api/2fa` | bearer | — | — | Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again. |
-| DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
-| POST | `/api/password` | bearer | — | — | Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone. |
-| GET | `/api/whoami` | bearer | — | — | The caller: user, team, operator flag, org, org role, locale, permissions. |
-| POST | `/api/profile` | bearer | — | — | Update the caller's profile (display name, locale). |
-| POST | `/api/members` | bearer | `members:manage` | — | Add a member to the caller's team with a role; returns the new member's first token. |
-| GET | `/api/members` | bearer | — | — | The team's members and roles. |
-| PATCH | `/api/members/:id` | bearer | `members:manage` | — | Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it. |
-| DELETE | `/api/members/:id` | bearer | `members:manage` | — | Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed. |
-| GET | `/api/admin/status` | bearer | `instance:manage` | — | Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
-| POST | `/api/orgs` | superadmin | `instance:manage` | — | Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run). |
-| GET | `/api/orgs` | superadmin | `instance:manage` | — | List every org on the instance. |
-| POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | — | Suspend a company (id or slug); every team in it becomes read-only. |
-| POST | `/api/orgs/:ref/resume` | superadmin | `instance:manage` | — | Resume a suspended company. |
-| POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | Set an org-level quota; teams nest beneath it. |
-| GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | One company, its teams and quotas. |
-| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d). |
-| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | — | Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link. |
-| POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | Seed Acme and Globex with known dev passwords — demo fixture only. |
-| GET | `/api/org` | org-admin | `org:read` | — | The caller's own company. |
-| GET | `/api/org/teams` | org-admin | `org:read` | — | The teams in the caller's company. |
-| POST | `/api/org/teams` | org-admin | `org:manage` | — | Create a team in the caller's company. |
-| POST | `/api/org/members` | org-admin | `org:manage` | — | Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader). |
-| PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own. |
-| GET | `/api/org/audit` | org-admin | `org:read` | — | The company's audit trail. |
-| GET | `/api/org/retention` | org-admin | `org:read` | — | The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it. |
-| PUT | `/api/org/retention` | org-admin | `org:manage` | — | Set the company's retention rules. Same vocabulary and same refusals as the team route; the effective value for a team is the shortest of instance, org and team. |
-| GET | `/api/org/session-policy` | org-admin | `org:read` | — | The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied. |
-| PUT | `/api/org/session-policy` | org-admin | `org:manage` | — | Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's. |
-| DELETE | `/api/org/session-policy` | org-admin | `org:manage` | — | Drop the company's session timeouts; its users fall back to the instance policy. |
-| GET | `/api/org/branding` | org-admin | `org:read` | — | The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none. |
-| PUT | `/api/org/branding` | org-admin | `org:manage` | — | Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are. |
-| DELETE | `/api/org/branding` | org-admin | `org:manage` | — | Drop the company's branding; its users see the instance's again. |
-| POST | `/api/org/branding/logo` | org-admin | `org:manage` | — | Upload the company's logo (base64) and make it the company's mark. |
-| POST | `/api/notes` | bearer | `notes:write` | — | Create a note with a visibility. |
-| GET | `/api/notes` | bearer | `notes:read` | — | List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones). |
-| POST | `/api/documents` | bearer | `files:write` | — | Create a text document (a repository object with content_type text/markdown). |
-| GET | `/api/documents` | bearer | `files:read` | — | List text documents. |
-| GET | `/api/documents/:id` | bearer | `files:read` | — | One text document with its body. |
-| PUT | `/api/documents/:id` | bearer | `files:write` | — | Update a text document's title, body or visibility (a new version). |
-| DELETE | `/api/documents/:id` | bearer | `files:delete` | — | Delete a text document. |
-| POST | `/api/notes/:id/share` | bearer | `notes:manage` | — | Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one. |
-| GET | `/api/notes/:id` | bearer | `notes:read` | — | One note. |
-| PUT | `/api/notes/:id` | bearer | `notes:write` | — | Update a note. |
-| DELETE | `/api/notes/:id` | bearer | `notes:delete` | — | Delete a note. |
-| POST | `/api/ai/echo` | bearer | `chat:use` | — | A metered no-model echo, for exercising quotas. |
-| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text\|json_object\|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TELEMACHUS_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. |
-| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all. |
-| POST | `/api/agent` | bearer | `chat:use` | `agent` | Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered. |
-| POST | `/api/translate/catalog` | bearer | `chat:use` | `translate` | Translate a whole locale catalog, placeholders preserved. |
-| POST | `/api/translate` | bearer | `chat:use` | `translate` | Translate text into a target language, applying the team glossary. |
-| GET | `/api/translate` | bearer | `chat:use` | — | The team's translation history. |
-| POST | `/api/glossary` | bearer | `settings:manage` | — | Add or update a glossary term for a target language. |
-| GET | `/api/glossary` | bearer | `chat:use` | — | The team glossary. |
-| GET | `/api/ai/model` | bearer | — | — | Which model is configured (or that the simulated fallback is in use). |
-| GET | `/api/model-roles` | bearer | — | — | Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default. |
-| PUT | `/api/model-roles` | bearer | `settings:manage` | — | Set a team's model roles: {roles: {utility: <executor name> \| null}}. The executor must exist; null returns to the instance default, then the local model. |
-| GET | `/api/executors` | bearer | — | — | The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health. |
-| POST | `/api/executors` | bearer | `instance:manage` | — | Create an executor: {name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again. |
-| DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | Retire an executor: its worker token is revoked and any job it holds returns to the queue. |
-| GET | `/api/admin/workers` | bearer | `instance:manage` | — | The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that. |
-| GET | `/api/admin/queue` | bearer | `instance:manage` | — | The queue, job by job, across every team (FLEET-4): each row's age, attempt, holder, lease countdown, and — for a queued one — why the platform is holding it (`waiting`, the same reason GET /api/jobs gives) and whether any live worker can run it at all (`runnable`). Filters `kind`, `status`, `executor`, `team`; pages with `limit` (max 200) and `offset`; `total` is the count for the filter. Asked for `status=queued` the list is the claim's own order, so position 1 really is next — `order` says which ordering you got. It carries no payload and no result: a queue is managed by kind, age, team and holder, and this read crosses every team on the instance. |
-| POST | `/api/executors/:id/drain` | bearer | `instance:manage` | — | Take a pull executor out of rotation (FLEET-3): it is offered no new work and keeps its token, so it goes on polling and heartbeating and stays visibly alive. Reversible, unlike a retire, which revokes the token. A job it already holds is left running — stopping work in flight is what cancel is for. |
-| POST | `/api/executors/:id/resume` | bearer | `instance:manage` | — | Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim. |
-| POST | `/api/org/executors` | org-admin | `org:manage` | — | Create an executor bound to the caller's company (TEN-2e): offered only to its teams. |
-| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back. |
-| POST | `/api/workers/state` | bearer | `jobs:execute` | — | A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone. |
-| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409. |
-| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind. |
-| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt. |
-| POST | `/api/workers/jobs/:id/release` | bearer | `jobs:execute` | — | Hand a job back WITHOUT spending an attempt (issue #61): {claim_token, reason?} — busy, unsupported or shutdown; anything else is recorded as `other` rather than refused, since the worker has already said it cannot run the job. It goes straight back to the queue and any other worker may take it at once, while the releasing executor is not offered it again for 30 seconds — the bound on a release loop, which the untouched attempt counter cannot provide. Past 10 releases the job fails instead, naming the hosts that let it go: work no worker will run needs a person. |
-| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | — | Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: "bytes"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: "text"`, where a scan answers {text: null, reason: "needs-ocr"}. |
-| POST | `/api/workers/jobs/:id/derive` | bearer | `jobs:execute` | — | Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TELEMACHUS_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository. |
-| GET | `/api/usage` | bearer | — | — | The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is). |
-| POST | `/api/quota` | bearer | `instance:manage` | — | Set a quota limit for the caller's team (dimension, limit, window). |
-| GET | `/api/tools` | bearer | — | — | Every registered tool with its permission, source and per-team enabled state. |
-| POST | `/api/tokens` | bearer | `settings:manage` | — | Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; "never" for a long-lived machine token); the raw token is shown once. |
-| GET | `/api/tokens` | bearer | `settings:manage` | — | The team's API tokens. |
-| DELETE | `/api/tokens/:id` | bearer | `settings:manage` | — | Revoke an API token. |
-| GET | `/api/search` | bearer | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader. |
-| GET | `/api/audit` | bearer | `settings:manage` | — | The team's recent audit events. |
-| POST | `/api/jobs` | bearer | `chat:use` | — | Enqueue a scheduler job of a registered kind. |
-| GET | `/api/jobs` | bearer | — | — | The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: "quota"\|"concurrency", …}; the key is absent when nothing holds it and it is waiting only for a free worker. |
-| POST | `/api/jobs/:id/cancel` | bearer | — | — | Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops. |
-| DELETE | `/api/jobs/:id/content` | bearer | — | — | Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart. |
-| GET | `/api/jobs/:id` | bearer | — | — | One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs). |
-| DELETE | `/api/repo` | bearer | `files:delete` | — | Delete every object under `?prefix=`, cascading to what each one derived (#86). DRY RUN BY DEFAULT: without `confirm=1` nothing is removed and the reply is the count, the bytes and the ids that WOULD go. An empty or missing prefix is refused rather than read as "every object in the team". `?cascade=0` deletes only the listed objects and leaves their derivatives. The objects are found through the caller's own listing, so visibility, grants and the org gate apply exactly as on `GET /api/repo?prefix=`, and each deletion re-runs the per-object permission check. |
-| GET | `/api/repo` | bearer | `files:read` | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4). |
-| POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | Share with a user or a team in the org: {principal_type, principal_id, capability: view\|edit\|manage, expires_at?}. {user_id} still means view. |
-| POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | Revoke every grant a principal holds on the object. |
-| GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | One entry per principal: capability, permissions, granted_by, expiry, expired. |
-| GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | — | Provenance: what the document was derived from, by which run and step. |
-| GET | `/api/repo-fields` | bearer | `files:read` | — | The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex. |
-| PUT | `/api/repo-fields` | bearer | `settings:manage` | — | Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration. |
-| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | — | Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it. |
-| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | — | Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read. |
-| GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | — | "Processed by": derived documents, sources, and every run that touched the document. |
-| GET | `/api/admin/audit/verify` | bearer | `instance:manage` | — | Verify the audit log's hash chain for one org, naming the first broken entry. |
-| GET | `/api/admin/audit/export` | bearer | `instance:manage` | — | Export one org's audit log as JSONL over a date range, chain fields included. |
-| GET | `/api/repo-obj/:id/reads` | bearer | `files:read` | — | Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts. |
-| GET | `/api/share-targets` | bearer | `files:read` | — | Who a document can be shared with: the team's people and the org's teams. |
-| POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | — | Set private, team or shared. |
-| GET | `/api/repo-obj/:id/content` | bearer | `files:read` | — | Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist. |
-| POST | `/api/repo-obj/:id/presign` | bearer | `files:read` | — | A time-boxed presigned S3 URL, signed with the caller's own newest S3 key. |
-| GET | `/api/repo-obj/:id/traces` | bearer | `files:read` | — | What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — "I called DELETE and got a 200" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure. |
-| GET | `/api/repo-obj/:id` | bearer | `files:read` | — | Object metadata with its versions. |
-| DELETE | `/api/repo-obj/:id` | bearer | `files:delete` | — | Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing claims to come from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one. |
-| PUT | `/api/repo/*key` | bearer | `files:write` | — | Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here. |
-| GET | `/api/s3/credentials` | bearer | — | — | The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with. |
-| POST | `/api/s3/credentials` | bearer | — | — | Issue an S3 access key, optionally scoped (add workflows:run for a prefix that should fire triggers). |
-| DELETE | `/api/s3/credentials/:id` | bearer | — | — | Revoke an S3 access key; presigned links signed with it die with it. |
-| POST | `/api/workflows` | bearer | `workflows:write` | `workflows` | Publish a workflow spec (validated; unknown fields refused); re-publishing a slug bumps its version. |
-| GET | `/api/workflows` | bearer | `workflows:read` | `workflows` | The team's workflow definitions, plugin-contributed ones materialized on first look. |
-| GET | `/api/workflows/schema` | public | — | — | The workflow spec format: version, step kinds, binding references, predicates. |
-| POST | `/api/workflows/:slug/run` | bearer | `workflows:run` | `workflows` | Start a run with {input}; declared inputs are required and typed. Returns 202 with the run. |
-| GET | `/api/doc-triggers` | bearer | `workflows:read` | `workflows` | The team's upload triggers, with the team's remaining AI budget. |
-| POST | `/api/doc-triggers` | bearer | `workflows:write` | `workflows` | Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived. |
-| GET | `/api/doc-triggers/:id` | bearer | `workflows:read` | — | One trigger with its fire history (which version, which run, or why not). |
-| PATCH | `/api/doc-triggers/:id` | bearer | `workflows:write` | — | Change a trigger's fields; absent fields are left alone. |
-| DELETE | `/api/doc-triggers/:id` | bearer | `workflows:write` | — | Delete a trigger and its history; the runs it started remain. |
-| GET | `/api/workflows/:slug` | bearer | `workflows:read` | `workflows` | One workflow definition with its spec. |
-| GET | `/api/runs` | bearer | `workflows:read` | `workflows` | The team's runs, newest first. |
-| POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | Cancel a run; a step already executing finishes, the next never starts. |
-| GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | One run with its steps, inputs, outputs and errors. |
-| GET | `/api/reviews` | bearer | `reviews:read` | — | The team's review queue, newest first. ?status=pending (the default), decided, canceled or all. |
-| GET | `/api/reviews/stats` | bearer | `reviews:read` | — | How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window. |
-| GET | `/api/reviews/verify` | bearer | `audit:read` | — | Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor. |
-| GET | `/api/reviews/:id` | bearer | `reviews:read` | — | One review: what is under review, the checklist to answer, and the decision if it has been made. |
-| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | Decide a review: {verdict: approve\|revise\|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names. |
-| GET | `/api/kg/entities` | bearer | `files:read` | — | Find entities by ?q= and ?type=; only those with a mention the caller can read. |
-| GET | `/api/kg/entities/:id` | bearer | `files:read` | — | One entity with its relations and mentions, each mention filtered by the source document's visibility. |
-| POST | `/api/kg/extract` | bearer | `workflows:run` | `workflows` | Queue the index-knowledge workflow over the team's unextracted documents. |
-| POST | `/api/admin/seed` | bearer | `settings:manage` | — | Seed sample notes and documents into the caller's team. |
-| GET | `/api/metrics` | bearer | `instance:manage` | — | Operational metrics. |
-| GET | `/api/features` | bearer | — | — | The team's feature flags. |
-| POST | `/api/features/:name` | bearer | `settings:manage` | — | Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it. |
-| GET | `/api/instance-features` | bearer | `instance:manage` | — | Which features the instance allows at all; absence means allowed. |
-| PUT | `/api/instance-features` | bearer | `instance:manage` | — | Turn a feature off for the whole instance; no org or team can turn it back on. |
-| GET | `/api/org/features` | bearer | `org:read` | — | Which features the caller's own company allows. |
-| PUT | `/api/org/features` | bearer | `org:manage` | — | Turn a feature off for the caller's own company; its teams cannot turn it back on. |
-| GET | `/api/plugins` | bearer | — | — | The loaded plugins with their tools and workflows. |
-| GET | `/api/mcp` | bearer | — | — | Connected MCP servers. |
-| GET | `/api/oop` | bearer | — | — | Connected sandboxed (out-of-process) plugins and the capabilities they may ask for. |
-| POST | `/api/tools/:name` | bearer | `settings:manage` | — | Enable or disable a tool for the team. |
+| Method | Path | Auth | Permission | Checked | Feature | Description |
+|---|---|---|---|---|---|---|
+| GET | `/` | public | — | — | — | The console (or the beta funnel when TELEMACHUS_HOME=beta). The HTML title is rewritten from instance branding. |
+| GET | `/index.html` | public | — | — | — | The console. |
+| GET | `/login` | public | — | — | — | The console, sign-in first — a URL that never depends on the beta landing. |
+| GET | `/activate` | public | — | — | — | The console, on the magic-link activation screen (hosted mode). |
+| GET | `/health` | public | — | — | — | Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status. |
+| GET | `/beta-sdk.js` | public | — | — | — | The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta). |
+| GET | `/beta/bundle/:plugin/*path` | public | — | — | — | A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in. |
+| POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | — | Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path. |
+| GET | `/api/x/:plugin/bundle/*path` | handler | — | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache. |
+| GET | `/beta/template` | public | — | — | — | The Tier-C sandboxed HTML template, localized by the experience overlay. |
+| GET | `/api/config` | public | — | — | — | Public instance configuration: home mode, multi-tenancy flag, the localization policy (default locale, available locales, whether switching is enabled). The sign-in screen reads it before anyone has a token. |
+| GET | `/api/branding` | public | — | — | — | Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d). |
+| PUT | `/api/branding` | bearer | `instance:manage` | role | — | Set the instance title, tagline and theme. A theme token that is unknown, malformed, or below the WCAG contrast floor is a 400 naming it. |
+| GET | `/api/retention` | bearer | `files:read` | role | — | The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing. |
+| PUT | `/api/retention` | bearer | `settings:manage` | role | — | Set the TEAM's retention rules: `max_age_days`, `delete_derived_after_days`, `purge_job_payloads_after_days`. Each is a whole number of days or null. **0 is refused** — it would delete a document on arrival — and a field nobody defined is refused rather than dropped, because a rule that does nothing while you believe data is being deleted is the worst way to be wrong. A team may only SHORTEN what its org and the instance allow. |
+| GET | `/api/retention/plan` | bearer | `files:read` | role | — | What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch. |
+| POST | `/api/repo-obj/:id/legal-hold` | bearer | `files:manage` | resource | — | Place or release a legal hold on an object: `{"hold": true\|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one. |
+| GET | `/api/session-policy` | bearer | `instance:manage` | role | — | The instance session timeouts (issue #38): idle_seconds, absolute_seconds, warn_seconds, with the shipped defaults and the accepted bounds. |
+| PUT | `/api/session-policy` | bearer | `instance:manage` | role | — | Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them. |
+| POST | `/api/branding/logo` | bearer | `instance:manage` | role | — | Upload the instance logo (replaces the mark and the wordmark). |
+| GET | `/api/i18n/catalog` | public | — | — | — | The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them. |
+| PUT | `/api/i18n` | bearer | `instance:manage` | role | — | Set the instance default locale and whether users may switch. |
+| GET | `/api/l10n/coverage` | bearer | `localization:read` | role | — | Per-locale coverage of the Localization Manager's catalog: total, approved, machine, missing, stale. |
+| GET | `/api/l10n/messages` | bearer | `localization:read` | role | — | The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged. |
+| POST | `/api/l10n/import` | bearer | `localization:manage` | role | — | Pull the catalogs on disk into the Manager's tables. |
+| POST | `/api/l10n/export` | bearer | `localization:manage` | role | — | Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved. |
+| POST | `/api/l10n/draft` | bearer | `localization:manage` | role | — | Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered. |
+| POST | `/api/l10n/discard` | bearer | `localization:manage` | role | — | Remove a locale's machine drafts (never a human's work). |
+| PUT | `/api/l10n/messages/:id` | bearer | `localization:translate` | role | — | Submit a translation for one message. |
+| POST | `/api/l10n/review/:id` | bearer | `localization:review` | role | — | Approve or send back a translation. A translator cannot approve their own. |
+| GET | `/api/beta/config` | public | — | — | — | The published onboarding experience's public slice (fields, copy, theme) in one language. |
+| OPTIONS | `/api/beta/signup` | public | — | — | — | CORS preflight for a sandboxed Tier-C template. |
+| OPTIONS | `/api/beta/config` | public | — | — | — | CORS preflight for a sandboxed Tier-C template. |
+| OPTIONS | `/api/beta/challenge` | public | — | — | — | CORS preflight for a sandboxed Tier-C template. |
+| GET | `/api/beta/experience` | bearer | — | — | — | The team's draft onboarding experience, including the judge prompt. |
+| PUT | `/api/beta/experience` | bearer | — | — | — | Save a draft of the onboarding experience. |
+| POST | `/api/beta/experience/publish` | bearer | — | — | — | Publish the saved draft; it then wins over the ENV-seeded default. |
+| POST | `/api/beta/assets` | bearer | — | — | — | Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB. |
+| GET | `/api/beta/assets` | bearer | — | — | — | List the team's onboarding assets. |
+| GET | `/api/beta/asset/:id` | public | — | — | — | Serve one onboarding asset. Public: the funnel and the branding logo load it without a token. |
+| DELETE | `/api/beta/asset/:id` | bearer | — | — | — | Delete an onboarding asset. |
+| GET | `/api/beta/challenge` | public | — | — | — | A proof-of-work challenge the funnel solves before signing up. |
+| POST | `/api/beta/signup` | public | — | — | — | Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured. |
+| GET | `/api/beta/prospects` | bearer | — | — | — | List the prospects the funnel captured, with signals and verdicts. |
+| POST | `/api/beta/prospects/:id/decide` | bearer | — | — | — | Accept or decline a prospect. |
+| POST | `/api/bootstrap` | public | — | — | — | First run only: create the operator, the first org and team. Returns the operator's token. Refuses once the instance has a user. |
+| POST | `/api/provision` | provision | — | — | — | Hosted mode: provision this instance with exactly one owner and a magic activation link. |
+| POST | `/api/activate` | public | — | — | — | Hosted mode: redeem an activation token and set the owner's password. |
+| POST | `/api/instance/suspend` | provision | — | — | — | Hosted mode: suspend the tenant (writes are refused with 402). |
+| POST | `/api/instance/resume` | provision | — | — | — | Hosted mode: resume a suspended tenant. |
+| POST | `/api/instance/quota` | provision | — | — | — | Hosted mode: set a quota limit for the tenant's team. |
+| POST | `/api/login` | public | — | — | — | Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. |
+| POST | `/api/2fa/enable` | bearer | — | — | — | Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once. |
+| POST | `/api/2fa/recovery-codes` | bearer | — | — | — | Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26). |
+| GET | `/api/2fa/recovery-codes` | bearer | — | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |
+| DELETE | `/api/2fa` | bearer | — | — | — | Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again. |
+| DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | role | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
+| POST | `/api/password` | bearer | — | — | — | Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone. |
+| GET | `/api/whoami` | bearer | — | — | — | The caller: user, team, operator flag, org, org role, locale, permissions. |
+| POST | `/api/profile` | bearer | — | — | — | Update the caller's profile (display name, locale). |
+| POST | `/api/members` | bearer | `members:manage` | role | — | Add a member to the caller's team with a role; returns the new member's first token. |
+| GET | `/api/members` | bearer | — | — | — | The team's members and roles. |
+| PATCH | `/api/members/:id` | bearer | `members:manage` | role | — | Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it. |
+| DELETE | `/api/members/:id` | bearer | `members:manage` | role | — | Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed. |
+| GET | `/api/admin/status` | bearer | `instance:manage` | role | — | Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
+| POST | `/api/orgs` | superadmin | `instance:manage` | role | — | Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run). |
+| GET | `/api/orgs` | superadmin | `instance:manage` | role | — | List every org on the instance. |
+| POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | role | — | Suspend a company (id or slug); every team in it becomes read-only. |
+| POST | `/api/orgs/:ref/resume` | superadmin | `instance:manage` | role | — | Resume a suspended company. |
+| POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | role | — | Set an org-level quota; teams nest beneath it. |
+| GET | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | One company, its teams and quotas. |
+| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d). |
+| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | role | — | Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link. |
+| POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | role | — | Seed Acme and Globex with known dev passwords — demo fixture only. |
+| GET | `/api/org` | org-admin | `org:read` | role | — | The caller's own company. |
+| GET | `/api/org/teams` | org-admin | `org:read` | role | — | The teams in the caller's company. |
+| POST | `/api/org/teams` | org-admin | `org:manage` | role | — | Create a team in the caller's company. |
+| POST | `/api/org/members` | org-admin | `org:manage` | role | — | Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader). |
+| PATCH | `/api/org/members/:id` | org-admin | `org:manage` | role | — | Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own. |
+| GET | `/api/org/audit` | org-admin | `org:read` | role | — | The company's audit trail. |
+| GET | `/api/org/retention` | org-admin | `org:read` | role | — | The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it. |
+| PUT | `/api/org/retention` | org-admin | `org:manage` | role | — | Set the company's retention rules. Same vocabulary and same refusals as the team route; the effective value for a team is the shortest of instance, org and team. |
+| GET | `/api/org/session-policy` | org-admin | `org:read` | role | — | The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied. |
+| PUT | `/api/org/session-policy` | org-admin | `org:manage` | role | — | Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's. |
+| DELETE | `/api/org/session-policy` | org-admin | `org:manage` | role | — | Drop the company's session timeouts; its users fall back to the instance policy. |
+| GET | `/api/org/branding` | org-admin | `org:read` | role | — | The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none. |
+| PUT | `/api/org/branding` | org-admin | `org:manage` | role | — | Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are. |
+| DELETE | `/api/org/branding` | org-admin | `org:manage` | role | — | Drop the company's branding; its users see the instance's again. |
+| POST | `/api/org/branding/logo` | org-admin | `org:manage` | role | — | Upload the company's logo (base64) and make it the company's mark. |
+| POST | `/api/notes` | bearer | `notes:write` | role | — | Create a note with a visibility. |
+| GET | `/api/notes` | bearer | `notes:read` | role | — | List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones). |
+| POST | `/api/documents` | bearer | `files:write` | role | — | Create a text document (a repository object with content_type text/markdown). |
+| GET | `/api/documents` | bearer | `files:read` | role | — | List text documents. |
+| GET | `/api/documents/:id` | bearer | `files:read` | resource | — | One text document with its body. |
+| PUT | `/api/documents/:id` | bearer | `files:write` | resource | — | Update a text document's title, body or visibility (a new version). |
+| DELETE | `/api/documents/:id` | bearer | `files:delete` | resource | — | Delete a text document. |
+| POST | `/api/notes/:id/share` | bearer | `notes:manage` | resource | — | Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one. |
+| GET | `/api/notes/:id` | bearer | `notes:read` | resource | — | One note. |
+| PUT | `/api/notes/:id` | bearer | `notes:write` | resource | — | Update a note. |
+| DELETE | `/api/notes/:id` | bearer | `notes:delete` | resource | — | Delete a note. |
+| POST | `/api/ai/echo` | bearer | `chat:use` | role | — | A metered no-model echo, for exercising quotas. |
+| POST | `/api/ai/chat` | bearer | `chat:use` | role | `chat` | One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text\|json_object\|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TELEMACHUS_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. |
+| POST | `/api/ai/chat/stream` | bearer | `chat:use` | role | `chat` | The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all. |
+| POST | `/api/agent` | bearer | `chat:use` | role | `agent` | Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered. |
+| POST | `/api/translate/catalog` | bearer | `chat:use` | role | `translate` | Translate a whole locale catalog, placeholders preserved. |
+| POST | `/api/translate` | bearer | `chat:use` | role | `translate` | Translate text into a target language, applying the team glossary. |
+| GET | `/api/translate` | bearer | `chat:use` | role | — | The team's translation history. |
+| POST | `/api/glossary` | bearer | `settings:manage` | role | — | Add or update a glossary term for a target language. |
+| GET | `/api/glossary` | bearer | `chat:use` | role | — | The team glossary. |
+| GET | `/api/ai/model` | bearer | — | — | — | Which model is configured (or that the simulated fallback is in use). |
+| GET | `/api/model-roles` | bearer | — | — | — | Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default. |
+| PUT | `/api/model-roles` | bearer | `settings:manage` | role | — | Set a team's model roles: {roles: {utility: <executor name> \| null}}. The executor must exist; null returns to the instance default, then the local model. |
+| GET | `/api/executors` | bearer | — | — | — | The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health. |
+| POST | `/api/executors` | bearer | `instance:manage` | role | — | Create an executor: {name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again. |
+| DELETE | `/api/executors/:id` | bearer | `instance:manage` | role | — | Retire an executor: its worker token is revoked and any job it holds returns to the queue. |
+| GET | `/api/admin/workers` | bearer | `instance:manage` | role | — | The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that. |
+| GET | `/api/admin/queue` | bearer | `instance:manage` | role | — | The queue, job by job, across every team (FLEET-4): each row's age, attempt, holder, lease countdown, and — for a queued one — why the platform is holding it (`waiting`, the same reason GET /api/jobs gives) and whether any live worker can run it at all (`runnable`). Filters `kind`, `status`, `executor`, `team`; pages with `limit` (max 200) and `offset`; `total` is the count for the filter. Asked for `status=queued` the list is the claim's own order, so position 1 really is next — `order` says which ordering you got. It carries no payload and no result: a queue is managed by kind, age, team and holder, and this read crosses every team on the instance. |
+| POST | `/api/executors/:id/drain` | bearer | `instance:manage` | role | — | Take a pull executor out of rotation (FLEET-3): it is offered no new work and keeps its token, so it goes on polling and heartbeating and stays visibly alive. Reversible, unlike a retire, which revokes the token. A job it already holds is left running — stopping work in flight is what cancel is for. |
+| POST | `/api/executors/:id/resume` | bearer | `instance:manage` | role | — | Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim. |
+| POST | `/api/org/executors` | org-admin | `org:manage` | role | — | Create an executor bound to the caller's company (TEN-2e): offered only to its teams. |
+| POST | `/api/workers/claim` | bearer | `jobs:execute` | role | — | A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back. |
+| POST | `/api/workers/state` | bearer | `jobs:execute` | role | — | A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone. |
+| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | role | — | Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409. |
+| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | role | — | Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind. |
+| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | role | — | Report a failure: {error, claim_token}. Accepted only from the current lease holder and that attempt. |
+| POST | `/api/workers/jobs/:id/release` | bearer | `jobs:execute` | role | — | Hand a job back WITHOUT spending an attempt (issue #61): {claim_token, reason?} — busy, unsupported or shutdown; anything else is recorded as `other` rather than refused, since the worker has already said it cannot run the job. It goes straight back to the queue and any other worker may take it at once, while the releasing executor is not offered it again for 30 seconds — the bound on a release loop, which the untouched attempt counter cannot provide. Past 10 releases the job fails instead, naming the hosts that let it go: work no worker will run needs a person. |
+| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | role | — | Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: "bytes"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: "text"`, where a scan answers {text: null, reason: "needs-ocr"}. |
+| POST | `/api/workers/jobs/:id/derive` | bearer | `jobs:execute` | role | — | Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TELEMACHUS_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository. |
+| GET | `/api/usage` | bearer | — | — | — | The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is). |
+| POST | `/api/quota` | bearer | `instance:manage` | role | — | Set a quota limit for the caller's team (dimension, limit, window). |
+| GET | `/api/tools` | bearer | — | — | — | Every registered tool with its permission, source and per-team enabled state. |
+| POST | `/api/tokens` | bearer | `settings:manage` | role | — | Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; "never" for a long-lived machine token); the raw token is shown once. |
+| GET | `/api/tokens` | bearer | `settings:manage` | role | — | The team's API tokens. |
+| DELETE | `/api/tokens/:id` | bearer | `settings:manage` | role | — | Revoke an API token. |
+| GET | `/api/search` | bearer | — | — | `search` | Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader. |
+| GET | `/api/audit` | bearer | `settings:manage` | role | — | The team's recent audit events. |
+| POST | `/api/jobs` | bearer | `chat:use` | role | — | Enqueue a scheduler job of a registered kind. |
+| GET | `/api/jobs` | bearer | — | — | — | The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: "quota"\|"concurrency", …}; the key is absent when nothing holds it and it is waiting only for a free worker. |
+| POST | `/api/jobs/:id/cancel` | bearer | — | — | — | Cancel a job. Your own, queued or running; somebody else's needs jobs:cancel. A queued job is canceled outright; a running one goes to `canceling` — its result is discarded at once, and it stops holding its team's concurrency slot when the handler actually stops. |
+| DELETE | `/api/jobs/:id/content` | bearer | — | — | — | Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart. |
+| GET | `/api/jobs/:id` | bearer | — | — | — | One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs). |
+| DELETE | `/api/repo` | bearer | `files:delete` | resource | — | Delete every object under `?prefix=`, cascading to what each one derived (#86). DRY RUN BY DEFAULT: without `confirm=1` nothing is removed and the reply is the count, the bytes and the ids that WOULD go. An empty or missing prefix is refused rather than read as "every object in the team". `?cascade=0` deletes only the listed objects and leaves their derivatives. The objects are found through the caller's own listing, so visibility, grants and the org gate apply exactly as on `GET /api/repo?prefix=`, and each deletion re-runs the per-object permission check. |
+| GET | `/api/repo` | bearer | `files:read` | role | — | List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4). |
+| POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | resource | — | Share with a user or a team in the org: {principal_type, principal_id, capability: view\|edit\|manage, expires_at?}. {user_id} still means view. |
+| POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | resource | — | Revoke every grant a principal holds on the object. |
+| GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | resource | — | One entry per principal: capability, permissions, granted_by, expiry, expired. |
+| GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | resource | — | Provenance: what the document was derived from, by which run and step. |
+| GET | `/api/repo-fields` | bearer | `files:read` | role | — | The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex. |
+| PUT | `/api/repo-fields` | bearer | `settings:manage` | role | — | Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration. |
+| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | resource | — | Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it. |
+| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | resource | — | Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read. |
+| GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | resource | — | "Processed by": derived documents, sources, and every run that touched the document. |
+| GET | `/api/admin/audit/verify` | bearer | `instance:manage` | role | — | Verify the audit log's hash chain for one org, naming the first broken entry. |
+| GET | `/api/admin/audit/export` | bearer | `instance:manage` | role | — | Export one org's audit log as JSONL over a date range, chain fields included. |
+| GET | `/api/repo-obj/:id/reads` | bearer | `files:read` | resource | — | Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts. |
+| GET | `/api/share-targets` | bearer | `files:read` | role | — | Who a document can be shared with: the team's people and the org's teams. |
+| POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | resource | — | Set private, team or shared. |
+| GET | `/api/repo-obj/:id/content` | bearer | `files:read` | resource | — | Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist. |
+| POST | `/api/repo-obj/:id/presign` | bearer | `files:read` | resource | — | A time-boxed presigned S3 URL, signed with the caller's own newest S3 key. |
+| GET | `/api/repo-obj/:id/traces` | bearer | `files:read` | resource | — | What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — "I called DELETE and got a 200" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure. |
+| GET | `/api/repo-obj/:id` | bearer | `files:read` | resource | — | Object metadata with its versions. |
+| DELETE | `/api/repo-obj/:id` | bearer | `files:delete` | resource | — | Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing claims to come from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one. |
+| PUT | `/api/repo/*key` | bearer | `files:write` | resource | — | Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here. |
+| GET | `/api/s3/credentials` | bearer | — | — | — | The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with. |
+| POST | `/api/s3/credentials` | bearer | — | — | — | Issue an S3 access key, optionally scoped (add workflows:run for a prefix that should fire triggers). |
+| DELETE | `/api/s3/credentials/:id` | bearer | — | — | — | Revoke an S3 access key; presigned links signed with it die with it. |
+| POST | `/api/workflows` | bearer | `workflows:write` | role | `workflows` | Publish a workflow spec (validated; unknown fields refused); re-publishing a slug bumps its version. |
+| GET | `/api/workflows` | bearer | `workflows:read` | role | `workflows` | The team's workflow definitions, plugin-contributed ones materialized on first look. |
+| GET | `/api/workflows/schema` | public | — | — | — | The workflow spec format: version, step kinds, binding references, predicates. |
+| POST | `/api/workflows/:slug/run` | bearer | `workflows:run` | role | `workflows` | Start a run with {input}; declared inputs are required and typed. Returns 202 with the run. |
+| GET | `/api/doc-triggers` | bearer | `workflows:read` | role | `workflows` | The team's upload triggers, with the team's remaining AI budget. |
+| POST | `/api/doc-triggers` | bearer | `workflows:write` | role | `workflows` | Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived. |
+| GET | `/api/doc-triggers/:id` | bearer | `workflows:read` | resource | — | One trigger with its fire history (which version, which run, or why not). |
+| PATCH | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | Change a trigger's fields; absent fields are left alone. |
+| DELETE | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | Delete a trigger and its history; the runs it started remain. |
+| GET | `/api/workflows/:slug` | bearer | `workflows:read` | resource | `workflows` | One workflow definition with its spec. |
+| GET | `/api/runs` | bearer | `workflows:read` | role | `workflows` | The team's runs, newest first. |
+| POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | role | `workflows` | Cancel a run; a step already executing finishes, the next never starts. |
+| GET | `/api/runs/:id` | bearer | `workflows:read` | resource | `workflows` | One run with its steps, inputs, outputs and errors. |
+| GET | `/api/reviews` | bearer | `reviews:read` | role | — | The team's review queue, newest first. ?status=pending (the default), decided, canceled or all. |
+| GET | `/api/reviews/stats` | bearer | `reviews:read` | role | — | How often the team let the AI's output stand: approve / revise / reject per workflow and step, with the mean time to a decision. A query over decisions already made, not a separate evaluation system. ?since=<epoch ms> narrows the window. |
+| GET | `/api/reviews/verify` | bearer | `audit:read` | role | — | Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor. |
+| GET | `/api/reviews/:id` | bearer | `reviews:read` | role | — | One review: what is under review, the checklist to answer, and the decision if it has been made. |
+| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | role | — | Decide a review: {verdict: approve\|revise\|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names. |
+| GET | `/api/kg/entities` | bearer | `files:read` | role | — | Find entities by ?q= and ?type=; only those with a mention the caller can read. |
+| GET | `/api/kg/entities/:id` | bearer | `files:read` | resource | — | One entity with its relations and mentions, each mention filtered by the source document's visibility. |
+| POST | `/api/kg/extract` | bearer | `workflows:run` | role | `workflows` | Queue the index-knowledge workflow over the team's unextracted documents. |
+| POST | `/api/admin/seed` | bearer | `settings:manage` | role | — | Seed sample notes and documents into the caller's team. |
+| GET | `/api/metrics` | bearer | `instance:manage` | role | — | Operational metrics. |
+| GET | `/api/features` | bearer | — | — | — | The team's feature flags. |
+| POST | `/api/features/:name` | bearer | `settings:manage` | role | — | Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it. |
+| GET | `/api/instance-features` | bearer | `instance:manage` | role | — | Which features the instance allows at all; absence means allowed. |
+| PUT | `/api/instance-features` | bearer | `instance:manage` | role | — | Turn a feature off for the whole instance; no org or team can turn it back on. |
+| GET | `/api/org/features` | bearer | `org:read` | role | — | Which features the caller's own company allows. |
+| PUT | `/api/org/features` | bearer | `org:manage` | role | — | Turn a feature off for the caller's own company; its teams cannot turn it back on. |
+| GET | `/api/plugins` | bearer | — | — | — | The loaded plugins with their tools and workflows. |
+| GET | `/api/mcp` | bearer | — | — | — | Connected MCP servers. |
+| GET | `/api/oop` | bearer | — | — | — | Connected sandboxed (out-of-process) plugins and the capabilities they may ask for. |
+| POST | `/api/tools/:name` | bearer | `settings:manage` | role | — | Enable or disable a tool for the team. |
 
 ## Plugin routes
 

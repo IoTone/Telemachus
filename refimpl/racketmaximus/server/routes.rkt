@@ -21,13 +21,20 @@
 ;;
 ;; `auth`: 'public (no credential), 'bearer (a session or API token — `with-auth`
 ;; or `current-principal`), 'provision (the hosted-mode provisioning token),
-;; 'superadmin / 'org-admin (the two multi-tenancy planes). The permission is the
+;; 'superadmin / 'org-admin (the two multi-tenancy planes, which the dispatcher
+;; puts behind `with-mt` FIRST so the flag gate's 404 beats a 403), and 'handler
+;; for the one route that accepts a bearer OR something else and must decide for
+;; itself.
+;;
+;; SINCE #110 r2 THE DISPATCHER ENFORCES THIS FIELD, and `perm` too when the
+;; permission is role-scoped — see `dispatch` in main.rkt for why a
+;; resource-scoped permission is deliberately left to the handler. The permission is the
 ;; one the handler ENFORCES with require-perm on its main path; owner-ok and
 ;; resource grants may admit a caller the role would not (see the RBAC design).
 
 (require racket/string racket/list)
 
-(provide (struct-out rt) ROUTES match-route match-routes route-params
+(provide (struct-out rt) R ROUTES match-route match-routes route-params
          PLUGIN-ROUTE-PREFIX plugin-route-path)
 
 ;; Plugin-contributed routes (slice 63) live under ONE platform-fixed prefix that
@@ -37,11 +44,27 @@
 (define (plugin-route-path plugin-id path)
   (string-append PLUGIN-ROUTE-PREFIX plugin-id "/" (regexp-replace #rx"^/+" path "")))
 
-(struct rt (method path handler auth perm feature doc) #:transparent)
+;; `scope` is #110 r2's: 'role means the dispatcher may check `perm` by ROLE
+;; before the handler runs; 'resource means `can?` must weigh it against a
+;; particular note, document or workflow definition, where owner-ok and a GRANT
+;; also admit — so a role pre-check would be STRICTER than the handler's own and
+;; would refuse exactly what sharing exists for (DSH-1).
+;;
+;; It is per ROUTE and not per permission, which is the correction this slice
+;; cost: `files:read` on /api/repo-obj/:id/content has a resource to weigh, and
+;; on /api/retention there is none — same permission, different answer. Deriving
+;; it from the permission left /api/retention unprotected by the dispatcher while
+;; looking covered, and the control that strips a handler's own check is what
+;; showed it.
+(struct rt (method path handler auth perm feature doc scope) #:transparent)
 
 (define (R method path handler
-           #:auth [auth 'bearer] #:perm [perm #f] #:feature [feature #f] #:doc doc)
-  (rt method path handler auth perm feature doc))
+           #:auth [auth 'bearer] #:perm [perm #f] #:feature [feature #f] #:doc doc
+           ;; 'role by default: the common case is a permission the role decides,
+           ;; and defaulting the OTHER way would silently stop the dispatcher
+           ;; checking a route somebody forgot to annotate.
+           #:scope [scope 'role])
+  (rt method path handler auth perm feature doc scope))
 
 (define ROUTES
   (list
@@ -57,7 +80,13 @@
    ;; platform under every plugin's prefix, and core routes match before plugin
    ;; ones, so a plugin cannot serve its own screens from a public cached path.
    (R "POST" "/api/x/:plugin/bundle-ticket" 'plugin-bundle-ticket #:doc "Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path.")
-   (R "GET" "/api/x/:plugin/bundle/*path" 'plugin-bundle #:doc "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.")
+   ;; #:auth 'handler — a BEARER or a bundle TICKET, and only the handler can tell
+   ;; which (issue #43). The dispatcher must not pre-authenticate it: doing so
+   ;; refuses the ticket navigation before the handler ever looks, which is what
+   ;; #110 r2 did on its first run and `server-smoke.sh` caught in four
+   ;; assertions. Named rather than left as 'bearer, so the exception is a
+   ;; declaration instead of a surprise.
+   (R "GET" "/api/x/:plugin/bundle/*path" 'plugin-bundle #:auth 'handler #:doc "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.")
    (R "GET" "/beta/template" 'beta-template #:auth 'public #:doc "The Tier-C sandboxed HTML template, localized by the experience overlay.")
 
    ;; ---- instance: config, branding, localization ------------------------------------
@@ -70,7 +99,7 @@
    (R "GET" "/api/retention" 'retention-get #:perm "files:read" #:doc "The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing.")
    (R "PUT" "/api/retention" 'retention-put #:perm "settings:manage" #:doc "Set the TEAM's retention rules: `max_age_days`, `delete_derived_after_days`, `purge_job_payloads_after_days`. Each is a whole number of days or null. **0 is refused** — it would delete a document on arrival — and a field nobody defined is refused rather than dropped, because a rule that does nothing while you believe data is being deleted is the worst way to be wrong. A team may only SHORTEN what its org and the instance allow.")
    (R "GET" "/api/retention/plan" 'retention-plan-get #:perm "files:read" #:doc "What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch.")
-   (R "POST" "/api/repo-obj/:id/legal-hold" 'legal-hold-put #:perm "files:manage" #:doc "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.")
+   (R "POST" "/api/repo-obj/:id/legal-hold" 'legal-hold-put #:perm "files:manage" #:scope 'resource #:doc "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.")
    (R "GET" "/api/session-policy" 'session-policy-get #:perm "instance:manage" #:doc "The instance session timeouts (issue #38): idle_seconds, absolute_seconds, warn_seconds, with the shipped defaults and the accepted bounds.")
    (R "PUT" "/api/session-policy" 'session-policy-put #:perm "instance:manage" #:doc "Set the instance session timeouts. null on a field means no limit on that axis; an org may tighten these and may never loosen them.")
    (R "POST" "/api/branding/logo" 'branding-logo #:perm "instance:manage" #:doc "Upload the instance logo (replaces the mark and the wordmark).")
@@ -155,13 +184,13 @@
    (R "GET" "/api/notes" 'notes-list #:perm "notes:read" #:doc "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).")
    (R "POST" "/api/documents" 'documents-create #:perm "files:write" #:doc "Create a text document (a repository object with content_type text/markdown).")
    (R "GET" "/api/documents" 'documents-list #:perm "files:read" #:doc "List text documents.")
-   (R "GET" "/api/documents/:id" 'documents-get #:perm "files:read" #:doc "One text document with its body.")
-   (R "PUT" "/api/documents/:id" 'documents-update #:perm "files:write" #:doc "Update a text document's title, body or visibility (a new version).")
-   (R "DELETE" "/api/documents/:id" 'documents-delete #:perm "files:delete" #:doc "Delete a text document.")
-   (R "POST" "/api/notes/:id/share" 'notes-share #:perm "notes:manage" #:doc "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.")
-   (R "GET" "/api/notes/:id" 'notes-get #:perm "notes:read" #:doc "One note.")
-   (R "PUT" "/api/notes/:id" 'notes-update #:perm "notes:write" #:doc "Update a note.")
-   (R "DELETE" "/api/notes/:id" 'notes-delete #:perm "notes:delete" #:doc "Delete a note.")
+   (R "GET" "/api/documents/:id" 'documents-get #:perm "files:read" #:scope 'resource #:doc "One text document with its body.")
+   (R "PUT" "/api/documents/:id" 'documents-update #:perm "files:write" #:scope 'resource #:doc "Update a text document's title, body or visibility (a new version).")
+   (R "DELETE" "/api/documents/:id" 'documents-delete #:perm "files:delete" #:scope 'resource #:doc "Delete a text document.")
+   (R "POST" "/api/notes/:id/share" 'notes-share #:perm "notes:manage" #:scope 'resource #:doc "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.")
+   (R "GET" "/api/notes/:id" 'notes-get #:perm "notes:read" #:scope 'resource #:doc "One note.")
+   (R "PUT" "/api/notes/:id" 'notes-update #:perm "notes:write" #:scope 'resource #:doc "Update a note.")
+   (R "DELETE" "/api/notes/:id" 'notes-delete #:perm "notes:delete" #:scope 'resource #:doc "Delete a note.")
 
    ;; ---- AI: chat, agent, translation ---------------------------------------------------
    (R "POST" "/api/ai/echo" 'ai-echo #:perm "chat:use" #:doc "A metered no-model echo, for exercising quotas.")
@@ -213,31 +242,31 @@
    ;; ---- document repository -------------------------------------------------------------
    ;; DELETE before GET on the same path is irrelevant (the method is matched too),
    ;; but it sits here so the two /api/repo entries read together.
-   (R "DELETE" "/api/repo" 'repo-delete-prefix #:perm "files:delete" #:doc "Delete every object under `?prefix=`, cascading to what each one derived (#86). DRY RUN BY DEFAULT: without `confirm=1` nothing is removed and the reply is the count, the bytes and the ids that WOULD go. An empty or missing prefix is refused rather than read as \"every object in the team\". `?cascade=0` deletes only the listed objects and leaves their derivatives. The objects are found through the caller's own listing, so visibility, grants and the org gate apply exactly as on `GET /api/repo?prefix=`, and each deletion re-runs the per-object permission check.")
+   (R "DELETE" "/api/repo" 'repo-delete-prefix #:perm "files:delete" #:scope 'resource #:doc "Delete every object under `?prefix=`, cascading to what each one derived (#86). DRY RUN BY DEFAULT: without `confirm=1` nothing is removed and the reply is the count, the bytes and the ids that WOULD go. An empty or missing prefix is refused rather than read as \"every object in the team\". `?cascade=0` deletes only the listed objects and leaves their derivatives. The objects are found through the caller's own listing, so visibility, grants and the org gate apply exactly as on `GET /api/repo?prefix=`, and each deletion re-runs the per-object permission check.")
    (R "GET" "/api/repo" 'repo-list #:perm "files:read" #:doc "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).")
-   (R "POST" "/api/repo-obj/:id/share" 'repo-share #:perm "files:manage" #:doc "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.")
-   (R "POST" "/api/repo-obj/:id/unshare" 'repo-unshare #:perm "files:manage" #:doc "Revoke every grant a principal holds on the object.")
-   (R "GET" "/api/repo-obj/:id/grants" 'repo-grants #:perm "files:manage" #:doc "One entry per principal: capability, permissions, granted_by, expiry, expired.")
-   (R "GET" "/api/repo-obj/:id/derivations" 'repo-derivations #:perm "files:read" #:doc "Provenance: what the document was derived from, by which run and step.")
+   (R "POST" "/api/repo-obj/:id/share" 'repo-share #:perm "files:manage" #:scope 'resource #:doc "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.")
+   (R "POST" "/api/repo-obj/:id/unshare" 'repo-unshare #:perm "files:manage" #:scope 'resource #:doc "Revoke every grant a principal holds on the object.")
+   (R "GET" "/api/repo-obj/:id/grants" 'repo-grants #:perm "files:manage" #:scope 'resource #:doc "One entry per principal: capability, permissions, granted_by, expiry, expired.")
+   (R "GET" "/api/repo-obj/:id/derivations" 'repo-derivations #:perm "files:read" #:scope 'resource #:doc "Provenance: what the document was derived from, by which run and step.")
    (R "GET" "/api/repo-fields" 'repo-fields-get #:perm "files:read" #:doc "The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex.")
    (R "PUT" "/api/repo-fields" 'repo-fields-put #:perm "settings:manage" #:doc "Define the team's object metadata fields: {fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}. Adding one needs no migration.")
-   (R "PATCH" "/api/repo-obj/:id/attributes" 'repo-attributes #:perm "files:read" #:doc "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.")
-   (R "GET" "/api/repo-obj/:id/spans" 'repo-spans #:perm "files:read" #:doc "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.")
-   (R "GET" "/api/repo-obj/:id/processing" 'repo-processing #:perm "files:read" #:doc "\"Processed by\": derived documents, sources, and every run that touched the document.")
+   (R "PATCH" "/api/repo-obj/:id/attributes" 'repo-attributes #:perm "files:read" #:scope 'resource #:doc "Set a document's team-defined metadata: {attributes: {key: value}}. Needs files:write ON THE DOCUMENT. A key the team has not defined is refused, not stored; an empty value clears it.")
+   (R "GET" "/api/repo-obj/:id/spans" 'repo-spans #:perm "files:read" #:scope 'resource #:doc "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.")
+   (R "GET" "/api/repo-obj/:id/processing" 'repo-processing #:perm "files:read" #:scope 'resource #:doc "\"Processed by\": derived documents, sources, and every run that touched the document.")
    ;; the chain's own two routes sit above nothing that could swallow them, but
    ;; they are kept together so a reader finds the pair
    (R "GET" "/api/admin/audit/verify" 'audit-verify #:perm "instance:manage" #:doc "Verify the audit log's hash chain for one org, naming the first broken entry.")
    (R "GET" "/api/admin/audit/export" 'audit-export #:perm "instance:manage" #:doc "Export one org's audit log as JSONL over a date range, chain fields included.")
-   (R "GET" "/api/repo-obj/:id/reads" 'repo-reads #:perm "files:read" #:doc "Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts.")
+   (R "GET" "/api/repo-obj/:id/reads" 'repo-reads #:perm "files:read" #:scope 'resource #:doc "Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts.")
    (R "GET" "/api/share-targets" 'share-targets #:perm "files:read" #:doc "Who a document can be shared with: the team's people and the org's teams.")
-   (R "POST" "/api/repo-obj/:id/visibility" 'repo-visibility #:perm "files:manage" #:doc "Set private, team or shared.")
-   (R "GET" "/api/repo-obj/:id/content" 'repo-get #:perm "files:read" #:doc "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.")
-   (R "POST" "/api/repo-obj/:id/presign" 'repo-presign #:perm "files:read" #:doc "A time-boxed presigned S3 URL, signed with the caller's own newest S3 key.")
+   (R "POST" "/api/repo-obj/:id/visibility" 'repo-visibility #:perm "files:manage" #:scope 'resource #:doc "Set private, team or shared.")
+   (R "GET" "/api/repo-obj/:id/content" 'repo-get #:perm "files:read" #:scope 'resource #:doc "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.")
+   (R "POST" "/api/repo-obj/:id/presign" 'repo-presign #:perm "files:read" #:scope 'resource #:doc "A time-boxed presigned S3 URL, signed with the caller's own newest S3 key.")
    ;; Above the bare /api/repo-obj/:id — first match wins in list order.
-   (R "GET" "/api/repo-obj/:id/traces" 'repo-traces #:perm "files:read" #:doc "What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — \"I called DELETE and got a 200\" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure.")
-   (R "GET" "/api/repo-obj/:id" 'repo-meta #:perm "files:read" #:doc "Object metadata with its versions.")
-   (R "DELETE" "/api/repo-obj/:id" 'repo-delete #:perm "files:delete" #:doc "Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing claims to come from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one.")
-   (R "PUT" "/api/repo/*key" 'repo-put #:perm "files:write" #:doc "Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here.")
+   (R "GET" "/api/repo-obj/:id/traces" 'repo-traces #:perm "files:read" #:scope 'resource #:doc "What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — \"I called DELETE and got a 200\" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure.")
+   (R "GET" "/api/repo-obj/:id" 'repo-meta #:perm "files:read" #:scope 'resource #:doc "Object metadata with its versions.")
+   (R "DELETE" "/api/repo-obj/:id" 'repo-delete #:perm "files:delete" #:scope 'resource #:doc "Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing claims to come from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one.")
+   (R "PUT" "/api/repo/*key" 'repo-put #:perm "files:write" #:scope 'resource #:doc "Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here.")
    (R "GET" "/api/s3/credentials" 's3-creds #:doc "The caller's S3 access keys (secrets never shown again) and the endpoint/bucket to use them with.")
    (R "POST" "/api/s3/credentials" 's3-cred-create #:doc "Issue an S3 access key, optionally scoped (add workflows:run for a prefix that should fire triggers).")
    (R "DELETE" "/api/s3/credentials/:id" 's3-cred-revoke #:doc "Revoke an S3 access key; presigned links signed with it die with it.")
@@ -249,13 +278,13 @@
    (R "POST" "/api/workflows/:slug/run" 'workflow-run #:perm "workflows:run" #:feature "workflows" #:doc "Start a run with {input}; declared inputs are required and typed. Returns 202 with the run.")
    (R "GET" "/api/doc-triggers" 'doc-triggers-list #:perm "workflows:read" #:feature "workflows" #:doc "The team's upload triggers, with the team's remaining AI budget.")
    (R "POST" "/api/doc-triggers" 'doc-triggers-create #:perm "workflows:write" #:feature "workflows" #:doc "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.")
-   (R "GET" "/api/doc-triggers/:id" 'doc-trigger-get #:perm "workflows:read" #:doc "One trigger with its fire history (which version, which run, or why not).")
-   (R "PATCH" "/api/doc-triggers/:id" 'doc-trigger-update #:perm "workflows:write" #:doc "Change a trigger's fields; absent fields are left alone.")
-   (R "DELETE" "/api/doc-triggers/:id" 'doc-trigger-delete #:perm "workflows:write" #:doc "Delete a trigger and its history; the runs it started remain.")
-   (R "GET" "/api/workflows/:slug" 'workflow-get #:perm "workflows:read" #:feature "workflows" #:doc "One workflow definition with its spec.")
+   (R "GET" "/api/doc-triggers/:id" 'doc-trigger-get #:perm "workflows:read" #:scope 'resource #:doc "One trigger with its fire history (which version, which run, or why not).")
+   (R "PATCH" "/api/doc-triggers/:id" 'doc-trigger-update #:perm "workflows:write" #:scope 'resource #:doc "Change a trigger's fields; absent fields are left alone.")
+   (R "DELETE" "/api/doc-triggers/:id" 'doc-trigger-delete #:perm "workflows:write" #:scope 'resource #:doc "Delete a trigger and its history; the runs it started remain.")
+   (R "GET" "/api/workflows/:slug" 'workflow-get #:perm "workflows:read" #:scope 'resource #:feature "workflows" #:doc "One workflow definition with its spec.")
    (R "GET" "/api/runs" 'runs-list #:perm "workflows:read" #:feature "workflows" #:doc "The team's runs, newest first.")
    (R "POST" "/api/runs/:id/cancel" 'run-cancel #:perm "workflows:run" #:feature "workflows" #:doc "Cancel a run; a step already executing finishes, the next never starts.")
-   (R "GET" "/api/runs/:id" 'run-get #:perm "workflows:read" #:feature "workflows" #:doc "One run with its steps, inputs, outputs and errors.")
+   (R "GET" "/api/runs/:id" 'run-get #:perm "workflows:read" #:scope 'resource #:feature "workflows" #:doc "One run with its steps, inputs, outputs and errors.")
    (R "GET" "/api/reviews" 'reviews-list #:perm "reviews:read" #:doc "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.")
    ;; literal paths BEFORE the :id pattern — first match wins in list order, and
    ;; /api/reviews/:id would otherwise swallow both of these
@@ -266,7 +295,7 @@
 
    ;; ---- knowledge graph ---------------------------------------------------------------
    (R "GET" "/api/kg/entities" 'kg-entities #:perm "files:read" #:doc "Find entities by ?q= and ?type=; only those with a mention the caller can read.")
-   (R "GET" "/api/kg/entities/:id" 'kg-entity #:perm "files:read" #:doc "One entity with its relations and mentions, each mention filtered by the source document's visibility.")
+   (R "GET" "/api/kg/entities/:id" 'kg-entity #:perm "files:read" #:scope 'resource #:doc "One entity with its relations and mentions, each mention filtered by the source document's visibility.")
    (R "POST" "/api/kg/extract" 'kg-extract #:perm "workflows:run" #:feature "workflows" #:doc "Queue the index-knowledge workflow over the team's unextracted documents.")
 
    ;; ---- administration ----------------------------------------------------------------

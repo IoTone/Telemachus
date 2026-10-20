@@ -1666,10 +1666,23 @@
     (raise (exn:fail:forbidden (format "feature ~a is disabled" name) (current-continuation-marks) name))))
 
 (define current-request-principal (make-parameter #f))
+;; IDEMPOTENT since #110 r2. The DISPATCHER now authenticates every non-public
+;; route before the handler runs, and 127 handlers also call `with-auth`
+;; themselves — so without this the token would be resolved twice per request:
+;; two indexed lookups and two `last_used_epoch` writes, on every call. An
+;; already-resolved principal is reused, which also means the handler-side calls
+;; can be removed gradually rather than in one 187-file commit.
+;;
+;; Reusing it is correct and not merely cheap: `current-request-principal` is set
+;; by this function and by nothing else, so a value in it was resolved from THIS
+;; request's own bearer a few frames up.
 (define (with-auth req proc)
-  (define p (current-principal req))
+  (define already (current-request-principal))
+  (define p (or already (current-principal req)))
   (cond
     [(not p) (unauthorized)]
+    ;; the suspended-tenant and context work was done by the outer call
+    [already (proc p)]
     ;; ONB-7 read-only, now org-aware: a suspended COMPANY freezes every team in it
     [(and (tenant-read-only? db-conn (principal-team-id p)) (not (GET? (request-method req))))
      (err "tenant suspended — writes are disabled; contact your administrator" 402)]
@@ -3409,9 +3422,17 @@
 (define (install-plugin-routes!)
   (set-box! PLUGIN-ROUTES
     (for/list ([r (in-list (plugin-routes))])
-      (define entry (rt (hash-ref r 'method) (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
-                        (string->symbol (string-append "plugin:" (hash-ref r 'plugin)))
-                        'bearer (hash-ref r 'perm) #f (hash-ref r 'doc)))
+      ;; Built through `R` rather than the `rt` constructor POSITIONALLY. It was
+      ;; positional, and adding #110 r2's `scope` field broke plugin routes at
+      ;; BOOT with an arity mismatch — which the full suite had already passed
+      ;; before that field existed, and only the control that strips a handler's
+      ;; own permission check caught. `R` carries the defaults, so the next field
+      ;; added to the struct cannot do this again.
+      (define entry (R (hash-ref r 'method)
+                       (plugin-route-path (hash-ref r 'plugin) (hash-ref r 'path))
+                       (string->symbol (string-append "plugin:" (hash-ref r 'plugin)))
+                       #:perm (hash-ref r 'perm)
+                       #:doc (hash-ref r 'doc)))
       (define perm (hash-ref r 'perm))
       (define handler (hash-ref r 'handler))
       (define names (route-params entry))
@@ -3429,6 +3450,70 @@
                   (json-response (if (or (hash? result) (list? result) (string? result) (number? result) (boolean? result))
                                      result (hasheq 'result (format "~a" result))))))))))))
 
+;; ---- the route table ENFORCES what it declares (#110 r2) -----------------------
+;; `rt-auth`, `rt-perm` and `rt-feature` were documentation: `route` read
+;; `rt-handler` and nothing else, and all 187 handlers did auth, permission and
+;; feature by hand. `GET /api/retention` is what forgetting looked like — it
+;; declared `files:read` and enforced nothing, and any authenticated caller could
+;; read the instance's retention policy (#109).
+;;
+;; THE ORDER IS LOAD-BEARING, and it is the reason this is a `cond` and not three
+;; independent checks:
+;;
+;;   1. `with-mt` FIRST for the two multi-tenancy planes, because the flag gate
+;;      answers 404 — "this feature is invisible when off" — and a permission
+;;      check answers 403. Reversed, a single-tenant instance would tell an
+;;      anonymous caller that `/api/org/features` exists and they may not have it.
+;;      Both smokes pin the 404.
+;;   2. then authentication, so an unauthenticated caller gets 401 and never a
+;;      message about a permission.
+;;   3. then the FEATURE flag, which is team-scoped and says "not on this
+;;      instance/org/team" rather than "not you".
+;;   4. then the permission — and only a ROLE-scoped one.
+;;
+;; WHY NOT EVERY PERMISSION — and why `scope` is per ROUTE. Pre-checking a
+;; permission by ROLE where the handler weighs it against a RESOURCE would be
+;; strictly tighter than `can?`, which also admits the owner and anyone holding a
+;; matching grant. It would refuse exactly the cases sharing exists for: the
+;; viewer handed `edit`, the owner of a private document whose role grants
+;; nothing. DSH-1 made a grant confer the permission on one resource and this must
+;; not take that back, so the 30 routes that name a resource declare
+;; `#:scope 'resource` and the dispatcher leaves them alone.
+;;
+;; THE FIRST VERSION DERIVED THIS FROM THE PERMISSION and was wrong. `files:read`
+;; on /api/repo-obj/:id/content has a resource to weigh; on /api/retention there
+;; is none. Treating the permission as resource-scoped everywhere left
+;; /api/retention unchecked by the dispatcher while looking covered — found by
+;; stripping that handler's own `require-perm` and watching the request succeed.
+;; A create or a list is role-scoped: `repo-list`, `kg-find` and `flow-runs` each
+;; require their permission up front before any per-row filtering, so moving that
+;; check earlier is equivalent and not stricter — which was verified one function
+;; at a time rather than assumed.
+;;
+;; The handlers still carry their own checks. That is deliberate for now: this
+;; change is about making the declaration authoritative, and removing 93
+;; now-redundant lines is a separate step with its own verification — doing both
+;; at once would leave no way to tell which half broke something.
+(define (dispatch entry params req)
+  (define h (hash-ref HANDLERS (rt-handler entry)))
+  (define (run) (apply h req params))
+  (define (authed)
+    (with-auth req (lambda (p)
+      (define f (rt-feature entry))
+      (when f (require-feature p f))
+      (define perm (rt-perm entry))
+      (when (and perm (eq? (rt-scope entry) 'role)) (require-perm db-conn p perm))
+      (run))))
+  (case (rt-auth entry)
+    [(public) (run)]
+    ;; 'provision is the control plane's own token, resolved by its handlers
+    ;; against TELEMACHUS_PROVISION_TOKEN and not by `with-auth` at all
+    [(provision) (run)]
+    ;; 'handler: a bearer OR a ticket, and only the handler can tell (issue #43)
+    [(handler) (run)]
+    [(superadmin org-admin) (with-mt req authed)]
+    [else (authed)]))
+
 (define (route req)
   ;; HEAD must reach every GET route: monitors, link unfurlers and health
   ;; checkers probe with HEAD, and before 2026-09-04 every one of them got a
@@ -3441,7 +3526,7 @@
               (bytes->string/utf-8 (if (bytes=? rm #"HEAD") #"GET" rm))))
   (define-values (entry params) (match-route m (request-path req)))
   (cond
-    [entry (apply (hash-ref HANDLERS (rt-handler entry)) req params)]
+    [entry (dispatch entry params req)]
     [else
      ;; then the plugins' — under /api/x/<id>/ only, so nothing here can have
      ;; shadowed a core route above
