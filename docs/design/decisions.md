@@ -649,6 +649,46 @@ variant without it is possible and would save roughly a quarter. Not built here:
 it is a second image to keep in step for a 23% saving against a floor that
 dominates either way.
 
+## Purging a job's content (PURGE) — **decided and BUILT 20 Oct 2026** (issue #59)
+
+`jobs.payload` holds whatever a kind needs, and for `infer.chat` and the document
+pipeline that is the document's own text; `result` holds the model's reply.
+Nothing ever removed them. Issue #59 sat open as a DECISION — what the horizon
+is, per-instance or per-team, what stays auditable — and the decision it was
+waiting for arrived from a caller rather than from us: an application honouring a
+user's deletion request can clear its own rows, and the text stays here, in a
+table nobody reads once the run has finished.
+
+**This slice is the LEVER, not the policy.** The horizon, whether it is per-team
+or per-instance, and what evaluates it are #86's retention rules; a scheduled
+sweep would call exactly this function. Building the lever first means the sweep
+has something to call and the policy is still open — which is what the issue's
+own status note asked for.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **PURGE‑1** | What a purge destroys | **`payload`, `result` AND `error`** · vs payload only · vs payload + result | A handler's error message can quote the input it choked on, so leaving `error` would leave the one copy of the text most likely to be read by a human. |
+| 🔑 **PURGE‑2** | Is the row deleted? | **No — status, timings, attempts, executor and audit references all survive** · vs `DELETE FROM jobs` | The audit log is the record of what happened (QUOTA‑3, FLEET‑1); the job row need not be. A DELETE would also remove FLEET‑1's lease-trail anchor and make a team's own history lie about how much work it ran. A purged job stays accountable while its content does not. |
+| 🔑 **PURGE‑3** | Why a `purged_at` column | **A marker, because `'{}'` is ambiguous** · vs clearing the fields and nothing else | `payload` is `NOT NULL DEFAULT '{}'`, so a purge sets it to exactly what a job with no payload looks like. Without a marker, "purged" and "never had anything" are the same row — nothing can show an operator that a deletion request was honoured, a retention sweep cannot skip what it has already done, and two concurrent purges cannot be made to settle to one audit entry. |
+| 🔑 **PURGE‑4** | Which statuses | **`done`, `error`, `canceled` only** · vs any status · vs done only | A queued or running job's payload is the INPUT a handler is about to read or is reading; clearing it mid-flight fails the job in a way that looks like corruption. The caller cancels first, which is why this sits beside `cancel-job!`. **`canceled` IS purgeable**: the work stopped, so the input it was given can go. |
+| **PURGE‑5** | Who may | **Owner-ok, OR `jobs:purge` for somebody else's** · vs reusing `jobs:cancel` · vs any team member | Exactly cancel's shape (SCHED‑8), with its own permission because the authorities differ: stopping a colleague's work loses nothing, and destroying the input and output it recorded does. Granted to admin, not member — a member needs neither for their own. |
+| **PURGE‑6** | Already purged | **`purged: false`, not an error** · vs 409 · vs a second success | The caller asked for the content to be gone and it is. But a caller reconciling a deletion request, and a sweep counting what it cleared, both need to know whether THIS call did it. The guard is `purged_at IS NULL … RETURNING id`, which is also what makes two concurrent purges produce one audit entry. |
+| **PURGE‑7** | What the audit entry holds | **The action, actor and job id — NO content** · vs recording what was purged | The point of the call is that the content stops existing; an audit row quoting it would be the one copy left behind. |
+| **PURGE‑8** | A missing job vs another team's | **One answer, 404** · vs 403 for a job that exists elsewhere | Distinguishing them turns the endpoint into a probe for job ids across teams. The same collapse the knowledge graph and PULL‑9's document read make. |
+
+**Deliberately still open** (and #59 stays closed on the lever, not the policy):
+the scheduled sweep and its horizon. #83 requirement 2 proposes 7 days by
+default; #86 requirement 3 puts `purge-job-payloads-after` in a per-team/org
+retention policy evaluated by a scheduled job. Those two want one answer, not
+two, and it belongs with #86's policy engine — the sweep then calls
+`purge-job-content!` per row and needs nothing new here.
+
+Also not built: **encryption** of payload and result while they still exist,
+which is #83 requirement 2's other half. A purge removes content after the fact;
+encryption protects it before. They are complementary and the second is a larger
+slice (it reaches `repo_text`, derived JSON, and the search index that reads
+them).
+
 ## Document bytes in a bucket (BLOB) — **decided and BUILT 20 Oct 2026** (issue #82)
 
 The only blob backend was `rs3`, plaintext files on local disk. That is what kept

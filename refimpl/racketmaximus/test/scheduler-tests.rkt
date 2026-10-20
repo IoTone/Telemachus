@@ -398,3 +398,79 @@
   (check-equal? requeued 0)
   (check-equal? (hash-ref (get-job c j tid) 'status) "done")
   (close-db! c))
+
+;; ---- purging a settled job's content (issue #59) --------------------------------
+;; `payload` holds the document's own text for `infer.chat` and the pipeline, and
+;; `result` the model's reply; nothing ever removed them. The case that forced
+;; this is a downstream application honouring a deletion request: it can clear
+;; its own rows, and the text stayed here.
+;;
+;; The assertions are deliberately split between "the content is gone" and "the
+;; row is still accountable", because a DELETE would satisfy the first and
+;; destroy the second — and the audit log, not the job row, is the record of
+;; what happened.
+(test-case "a settled job's content is purgeable, once, and the row survives"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "echo" (lambda (conn p payload) (hasheq 'echo (hash-ref payload 'secret ""))))
+
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "echo"
+                          #:payload (hasheq 'secret "PATIENT-RECORD-8831")))
+  ;; before: the sensitive text really is in the row, or the test proves nothing
+  (check-equal? (query-value c "SELECT payload FROM jobs WHERE id = ?" j)
+                "{\"secret\":\"PATIENT-RECORD-8831\"}")
+  (check-equal? (purge-job-content! c j tid) 'not-settled
+                "a QUEUED job is refused: its payload is the input a handler will read")
+
+  (check-equal? (process-one! c) j)
+  (define before (get-job c j tid))
+  (check-equal? (hash-ref before 'status) "done")
+  (check-equal? (hash-ref (hash-ref before 'result) 'echo) "PATIENT-RECORD-8831")
+  (check-equal? (hash-ref before 'purged_at) 'null "not purged yet")
+
+  ;; the purge itself
+  (check-equal? (purge-job-content! c j tid) #t)
+  (check-equal? (query-value c "SELECT payload FROM jobs WHERE id = ?" j) "{}")
+  (check-true (sql-null? (query-value c "SELECT result FROM jobs WHERE id = ?" j)))
+  (check-true (sql-null? (query-value c "SELECT error FROM jobs WHERE id = ?" j)))
+  ;; and NOTHING anywhere in the row still quotes it
+  (check-false (regexp-match? #px"PATIENT-RECORD"
+                              (format "~a" (query-row c "SELECT * FROM jobs WHERE id = ?" j)))
+               "no column may still hold the purged text")
+
+  ;; the row is still accountable
+  (define after (get-job c j tid))
+  (check-equal? (hash-ref after 'status) "done" "status survives")
+  (check-equal? (hash-ref after 'kind) "echo")
+  (check-equal? (hash-ref after 'created_at) (hash-ref before 'created_at) "timings survive")
+  (check-equal? (hash-ref after 'finished_at) (hash-ref before 'finished_at))
+  (check-equal? (hash-ref after 'attempt) (hash-ref before 'attempt) "attempt count survives")
+  ;; …and says so, which is the whole reason for the column: '{}' alone cannot
+  ;; distinguish "purged" from "never had a payload"
+  (check-true (exact-integer? (hash-ref after 'purged_at)) "purged_at is reported")
+
+  ;; idempotent, and HONEST about it: the second call did not do it
+  (check-equal? (purge-job-content! c j tid) 'already-purged)
+  (close-db! c))
+
+(test-case "purge is refused mid-flight, and scoped to the team"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (register-job-kind! "echo" (lambda (conn p payload) (hasheq 'ok #t)))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "echo" #:payload (hasheq 'text "x")))
+
+  ;; running and canceling are both refused — a payload being READ must not be
+  ;; cleared under the handler, which would fail the job as if it were corrupt
+  (query-exec c "UPDATE jobs SET status='running' WHERE id = ?" j)
+  (check-equal? (purge-job-content! c j tid) 'not-settled)
+  (query-exec c "UPDATE jobs SET status='canceling' WHERE id = ?" j)
+  (check-equal? (purge-job-content! c j tid) 'not-settled)
+  ;; canceled IS settled — the work stopped, so the input it was given can go
+  (query-exec c "UPDATE jobs SET status='canceled' WHERE id = ?" j)
+  (check-equal? (purge-job-content! c j tid) #t)
+
+  ;; another team cannot reach it, and the answer is the same as "no such job" —
+  ;; a 404, never a 403, so the call cannot be used to probe for job ids
+  (check-false (purge-job-content! c j "some-other-team"))
+  (check-false (purge-job-content! c "no-such-job" tid))
+  (close-db! c))
