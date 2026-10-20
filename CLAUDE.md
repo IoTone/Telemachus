@@ -1402,6 +1402,49 @@ staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
 STORAGE limit, not a concurrency one: the scheduler is safe in several processes,
 which is what the in-flight register exists for.
 
+## Encrypting derived document content (ENC, issue #83 slice 1)
+
+Built 20 Oct 2026. `TELEMACHUS_ENCRYPT_CONTENT`; seams in
+`domain/repo/extract.rkt`; decisions **ENC‑1…7**.
+
+```sh
+export TELEMACHUS_SECRET_KEY=$(openssl rand -hex 32)
+export TELEMACHUS_ENCRYPT_CONTENT=1
+raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
+```
+
+- **It is a SEPARATE switch from `TELEMACHUS_SECRET_KEY`, and must stay one.**
+  Sealing `repo_text.content` makes content search impossible — the match is a
+  SQL `LIKE` over that column — so riding on the key, which every instance
+  should set, would silently remove a capability from everyone.
+- **Search DROPS the content clause and reports `content_search: false`.** A
+  `LIKE` left over ciphertext returns no content matches, so a search quietly
+  stops looking inside documents and the answer reads as "no such document". The
+  flag is what distinguishes "not found" from "not looked for".
+- **The switch with NO key refuses to start**, and it is the one startup problem
+  that is fatal regardless of `TELEMACHUS_STRICT_STARTUP`: `secret-wrap` passes
+  the value through without a key by design (#19), so that combination writes the
+  plaintext it was turned on to prevent AND costs search, while reporting healthy.
+- **Unsealing is never conditional on the switch.** A row sealed while it was on
+  must open after it is off, or flipping it back loses every document's text.
+- **`spans` is sealed too** — r1 names OCR page structures, and a bbox list with
+  page numbers is a map of where the words are.
+- **`rewrap` touches the content columns ONLY when the switch is on**, unlike the
+  three credentials. Sealing content costs search, so an unconditional rotation
+  would remove it from an instance that had deliberately kept it; `status` lists
+  them separately because the switch being off is the documented default, not a
+  leak.
+- **A failed unseal must not quote the plaintext, the ciphertext OR the key.**
+  The real failure is a rotated key or a restored dump, and a message echoing
+  what it could not read puts in the log exactly what the column was sealed to
+  keep out of the database.
+- **Acceptance criterion 1 is NOT yet met in full.** `jobs.payload`/`result` hold
+  the same text until #59's purge removes them, so a dump can still carry fixture
+  text. That is slice 2 — roughly eight SQL seams including the pull wire, where
+  the worker must receive plaintext.
+- **`(require "/abs/path.rkt")` is a bad module path**; an absolute path needs
+  `(require (file "/abs/path.rkt"))`.
+
 ## Deleting a document and everything it produced (DEL, issue #86 slice 1)
 
 Built 20 Oct 2026. `domain/repo/repo.rkt`; `?cascade=`/`?detach=`/`?dry_run=` on

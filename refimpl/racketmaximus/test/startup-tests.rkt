@@ -141,3 +141,25 @@
   ;; …even though the other two are only warnings in this configuration
   (check-false (report-startup-problems! ps #:out (open-output-nowhere)))
   (delete-file f))
+
+;; ---- encrypting content without a key (issue #83) -------------------------------
+;; The one combination that silently does the opposite of what was asked:
+;; `secret-wrap` passes plaintext through when no key is configured (#19, so that
+;; adopting a key needs no migration), so the switch would write exactly the
+;; plaintext it was turned on to prevent — and report success.
+(test-case "TELEMACHUS_ENCRYPT_CONTENT without a key is FATAL, not advisory"
+  (define saved (getenv "TELEMACHUS_ENCRYPT_CONTENT"))
+  (dynamic-wind
+    (lambda () (putenv "TELEMACHUS_ENCRYPT_CONTENT" "1"))
+    (lambda ()
+      (define ps (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #f))
+      (define p (findf (lambda (x) (eq? (startup-problem-key x) 'encrypt-without-key)) ps))
+      (check-true (and p #t) "the combination must be reported")
+      (check-eq? (startup-problem-severity p) 'error
+                 "and it is an ERROR even without strict mode, unlike no-secret-key")
+      (check-true (regexp-match? #px"PLAINTEXT" (startup-problem-message p))
+                  "the message has to say what actually happens")
+      ;; with a key present it is not a problem at all
+      (define ok (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #t))
+      (check-false (findf (lambda (x) (eq? (startup-problem-key x) 'encrypt-without-key)) ok)))
+    (lambda () (putenv "TELEMACHUS_ENCRYPT_CONTENT" (or saved "")))))

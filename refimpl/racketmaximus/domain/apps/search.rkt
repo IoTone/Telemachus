@@ -19,7 +19,9 @@
 (require db-kit/portable
          racket/string
          "../authz/authz.rkt"
-         "../kg/kg.rkt")
+         "../kg/kg.rkt"
+         ;; issue #83: with the extracted text sealed, a LIKE over it cannot match
+         (only-in "../../config.rkt" content-encryption-enabled?))
 
 (provide search-all)
 
@@ -63,19 +65,33 @@
   ;; Content-addressed objects: the key is the searchable text we have. `filename`
   ;; is checked too because the key is often a tidy path while the filename is what
   ;; the person actually remembers typing.
+  ;; With the extracted text sealed (#83) a `LIKE` over it matches ciphertext and
+  ;; so matches nothing. The clause is DROPPED rather than left in to return no
+  ;; rows — a key or filename match still works — and `content_search` on the
+  ;; reply says the other half is unavailable. Silently keeping a clause that
+  ;; cannot match is how a search quietly starts missing documents.
+  ;;
+  ;; The SQL and its ARGUMENTS are built together. Interpolating a clause while
+  ;; passing a fixed argument list is how the two come apart, which CLAUDE.md
+  ;; records from `blob-referenced?` — and which this code did on its first
+  ;; attempt, passing `(void)` as a query parameter.
+  (define sealed? (content-encryption-enabled?))
+  (define repo-sql
+    (string-append "SELECT o.id, o.owner_user_id, o.visibility, o.key, "
+                   "COALESCE(v.filename, ''), COALESCE(v.content_type, ''), "
+                   "COALESCE(t.content, '') "
+                   "FROM repo_objects o "
+                   "LEFT JOIN repo_versions v ON v.id = o.current_version_id "
+                   "LEFT JOIN repo_text t ON t.object_id = o.id "
+                   "WHERE o.team_id = ? AND o.deleted_at IS NULL "
+                   (if sealed?
+                       "AND (o.key LIKE ? OR v.filename LIKE ?) "
+                       "AND (o.key LIKE ? OR v.filename LIKE ? OR t.content LIKE ?) ")
+                   "ORDER BY o.updated_at DESC LIMIT ?"))
+  (define (repo-args t) (if sealed? (list t pat pat lim) (list t pat pat pat lim)))
   (define repo-hits
     (for*/list ([t (in-list teams)]
-                [r (in-list (query-rows conn
-         (string-append "SELECT o.id, o.owner_user_id, o.visibility, o.key, "
-                        "COALESCE(v.filename, ''), COALESCE(v.content_type, ''), "
-                        "COALESCE(t.content, '') "
-                        "FROM repo_objects o "
-                        "LEFT JOIN repo_versions v ON v.id = o.current_version_id "
-                        "LEFT JOIN repo_text t ON t.object_id = o.id "
-                        "WHERE o.team_id = ? AND o.deleted_at IS NULL "
-                        "AND (o.key LIKE ? OR v.filename LIKE ? OR t.content LIKE ?) "
-                        "ORDER BY o.updated_at DESC LIMIT ?")
-         t pat pat pat lim))]
+                [r (in-list (apply query-rows conn repo-sql (repo-args t)))]
          #:when (can? conn p "files:read"
                       #:resource (hasheq 'resource_type "repo" 'resource_id (vector-ref r 0)
                                          'team_id t 'owner_user_id (vector-ref r 1)

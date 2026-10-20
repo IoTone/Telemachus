@@ -649,6 +649,43 @@ variant without it is possible and would save roughly a quarter. Not built here:
 it is a second image to keep in step for a 23% saving against a floor that
 dominates either way.
 
+## Encrypting derived document content at rest (ENC) — **decided and BUILT 20 Oct 2026** (issue #83, slice 1)
+
+Only replayable credentials were sealed (#19). The text extracted from a
+document — the thing a tenant's regulated content actually becomes — sat in
+`repo_text.content` in plaintext, as did the OCR page structure beside it. A
+dump, a replica or a volume snapshot carried it.
+
+Slice 1 is `repo_text` (content and spans): the DURABLE copy. `jobs.payload` and
+`jobs.result` hold the same text transiently and are slice 2; #59's purge already
+removes them on demand, so the two halves compose — durable content sealed,
+transient content purged.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **ENC‑1** | Is it the secret key's switch? | **A SEPARATE switch, `TELEMACHUS_ENCRYPT_CONTENT`** · vs seal whenever a key exists · vs always | Sealing this column makes CONTENT SEARCH impossible — the match is a SQL `LIKE` over it. Riding on `TELEMACHUS_SECRET_KEY`, which is wanted on every instance, would silently remove a capability people use from every instance that took the recommended posture. #83 r3 permits exactly this shape ("or be an explicit opt-in per instance"). |
+| 🔑 **ENC‑2** | What search does when sealed | **Drop the clause and SAY so (`content_search: false`)** · vs leave the clause in · vs refuse the query | Leaving a `LIKE` over ciphertext in place returns no content matches, so a search quietly stops looking inside documents and the answer reads as "there is no such document". Dropping the clause keeps key and filename matching useful; the flag is what lets a caller tell "not found" from "not looked for". Reported on every reply, not only when off, so a client branches rather than guesses. |
+| 🔑 **ENC‑3** | The switch set with no key | **REFUSE TO START, unconditionally** · vs warn · vs seal with a derived default key | `secret-wrap` passes the value through when no key is configured — deliberately, so adopting a key needs no migration (#19). So this combination writes exactly the plaintext the operator turned the switch on to prevent, reports healthy, AND costs content search. It is the only startup problem in `startup.rkt` that is fatal regardless of `TELEMACHUS_STRICT_STARTUP`, because there is no reading of it under which the instance is doing what was asked. |
+| 🔑 **ENC‑4** | Unsealing when the switch is off | **Always unseal; never conditional** · vs honour the switch on read | A row sealed while the switch was on must still open after it is turned off, or flipping it back would lose every document's extracted text. `secret-unwrap` returns an unwrapped value as-is, so the unconditional path is safe on plaintext rows too. |
+| **ENC‑5** | Spans as well as content | **Sealed too** · vs content only | r1 names "OCR page structures", and a bbox list with page numbers is a map of where the words are. Sealing the text and leaving its geometry is half a measure. |
+| **ENC‑6** | What `rewrap` touches | **Content columns ONLY when the switch is on** · vs always, like credentials | For the three credentials, "a key exists" means they should be sealed and `rewrap` sealing them is the point. Content is different: sealing it costs search, so an unconditional sweep would silently remove a capability from an instance that had deliberately kept it. `status` lists them separately for the same reason — the switch being off is the documented default, not a leak. |
+| **ENC‑7** | What a failed unseal may say | **Not the plaintext, the ciphertext, or the key** · vs echo the value | The real failure is operational (a rotated key, a restored dump), and a message quoting what it could not read would put in the log precisely what the column was sealed to keep out of the database. r4's test asserts all three absences. |
+
+**Not in this slice, named rather than implied:**
+
+- **`jobs.payload` / `jobs.result` and run-step payloads** (r2's encryption half).
+  Roughly eight SQL seams including the pull wire, where a worker must receive
+  plaintext, and each one is a place a mistake means a job runs on ciphertext.
+  **Acceptance criterion 1 is therefore NOT yet met in full**: a dump still
+  carries fixture text via an unpurged payload.
+- **`translations.source_text` / `result_text`**, which are derived content by
+  r1's wording and are searched by `search.rkt` — the same ENC‑2 trade, decided
+  the same way, but a separate column pair.
+- **A blind index**, the alternative to losing search. A keyed token hash would
+  keep matching without storing plaintext, and it leaks token frequency and
+  co-occurrence; r3's "an index that does not store plaintext" arguably permits
+  it, and it is a design with its own threat model rather than a flag.
+
 ## Deleting a document and everything it produced (DEL) — **decided and BUILT 20 Oct 2026** (issue #86, slice 1)
 
 Deletion was per object. `DELETE /api/repo-obj/:id` removed versions, text and
