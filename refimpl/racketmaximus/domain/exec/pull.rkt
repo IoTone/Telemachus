@@ -524,7 +524,7 @@
        [problem
         (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
                                         "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
-                    (string-append "worker returned a bad result: " problem) job-id)
+                    (seal-error job-id (string-append "worker returned a bad result: " problem)) job-id)
         'ok]
        [else
         (query-exec conn (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
@@ -542,7 +542,8 @@
     [else
      (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
                                      "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
-                 (format "executor ~a: ~a" (hash-ref ex 'name) message) job-id)
+                 ;; the worker's own message, which may quote what it was handed
+                 (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message)) job-id)
      'ok]))
 
 ;; Hand a job back without spending an attempt (issue #61).
@@ -583,8 +584,9 @@
           (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, "
                          "lease_until = NULL, claim_token = NULL, releases = ?, "
                          "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
-          (format "no executor would run it: released ~a times (last by ~a: ~a)"
-                  MAX-RELEASES (hash-ref ex 'name) why)
+          (seal-error job-id
+            (format "no executor would run it: released ~a times (last by ~a: ~a)"
+                    MAX-RELEASES (hash-ref ex 'name) why))
           n job-id)
         'failed]
        [else
@@ -813,7 +815,7 @@
           (query-exec conn
             (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, lease_until = NULL, "
                            "claim_token = NULL, finished_at = CURRENT_TIMESTAMP WHERE id = ?")
-            (exhausted-message conn id) id))))
+            (seal-error id (exhausted-message conn id)) id))))
   (+ (length expired) (length stopping)))
 
 ;; The name of an executor, or #f for an in-process job (executor_id is NULL) or
@@ -884,7 +886,8 @@
                [else (let-values ([(t _p) (content->text (hash-ref res 'content ""))]) t)]))
        (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
       [(member st '("error" "canceled"))
-       (error 'run-chat "executor ~a: ~a" name (let ([e (vector-ref r 2)]) (if (sql-null? e) st e)))]
+       (error 'run-chat "executor ~a: ~a" name
+              (let ([e (vector-ref r 2)]) (if (sql-null? e) st (unseal-error id e))))]
       [(> waited WAIT-SECONDS)
        (query-exec conn "UPDATE jobs SET status = 'canceled', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','running')" id)
        (error 'run-chat "executor ~a: no worker completed the request within ~a s" name WAIT-SECONDS)]

@@ -29,6 +29,7 @@
          "../domain/repo/extract.rkt"
          "../domain/sched/scheduler.rkt"
          "../domain/agent/registry.rkt"
+         (only-in "../domain/tools/dsl.rkt" define-tool)
          "../domain/agent/tools.rkt"
          "../domain/flow/dsl.rkt"
          "../domain/notes/notes.rkt"
@@ -218,4 +219,119 @@
                         (string-append "expected only the note the workflow was told to write."
                                        " More means a platform-filled column is unsealed;"
                                        " fewer means notes stopped being written at all."))))))
+  (close-db! c))
+
+;; ---- 4. #83 r4: the FAILURE path, and the captured logs -------------------------
+;; r4 is its own requirement — "error paths and logs must never include document
+;; text or extracted fields; add a test that greps captured logs for fixture
+;; content during failing jobs" — and the three cases above could not see it,
+;; because every job they run SUCCEEDS. Nothing above ever wrote an `error`
+;; column, so the scan walked four of them finding nothing and said so.
+;;
+;; The leak was real. `jobs.error` is `(exn-message e)` from an ARBITRARY handler,
+;; and the messages this platform's own tools raise quote what they choked on by
+;; design: the strict renderer names the placeholder, DWF-5's extraction names the
+;; path, the knowledge-graph extractor refuses a snippet that is not a verbatim
+;; substring of the text. #59 had already written down why — "a handler's message
+;; can quote the input it choked on" is its reason for clearing `error` on a purge
+;; — and the column was still plaintext until the row was purged, which for a
+;; failed job may be never.
+;;
+;; The worst of the four was not a column at all: a failing TRIGGER copied the
+;; message into `audit_log.meta`, the one table a retention sweep deliberately
+;; never clears (DEL-7, the audit log IS the record). That copy outlived every
+;; other, including the fire row #59 purges.
+(define (fail-a-job! c uid tid)
+  ;; a handler that raises QUOTING its input, which is what a real tool does
+  (register-job-kind! "refuse-needle"
+                      (lambda (conn p payload)
+                        (error 'extract "could not read a total from: ~a"
+                               (hash-ref payload 'prompt ""))))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "refuse-needle"
+                          #:payload (hasheq 'prompt (string-append "Invoice: " NEEDLE))))
+  (void (process-one! c))
+  j)
+
+;; A failing workflow STEP, so `workflow_steps.error` and `workflow_runs.error`
+;; are written too — three of the four error columns from one probe. The step
+;; fails inside the engine, so the run's own message wraps the step's and the
+;; content reaches both.
+(define-tool refuse_needle_tool
+  #:description "Refuse, quoting the text — what a strict tool really does"
+  (text string #:description "the text to choke on"))
+
+(register-tool! "refuse_needle_tool" refuse_needle_tool "notes:read"
+  (lambda (conn p args)
+    (error 'render "no value for {{total}} in: ~a" (hash-ref args 'text ""))))
+
+(define-workflow leak-fail-probe
+  #:description "Fail a step while quoting the input"
+  #:input ([subject string])
+  (step boom (tool refuse_needle_tool #:text (in subject)) #:end))
+
+(define (fail-a-workflow! c p)
+  (define d (flow-publish! c p leak-fail-probe))
+  (define run (flow-run-start! c p d #:input (hasheq 'subject (string-append "Case: " NEEDLE))))
+  (let loop ([n 0]) (when (and (< n 20) (process-one! c)) (loop (add1 n))))
+  (hash-ref run 'id))
+
+(define (failing-work! c uid tid)
+  (define p (user-principal c uid tid))
+  (define j (fail-a-job! c uid tid))
+  (define rid (fail-a-workflow! c p))
+  (values j rid))
+
+;; CONTROL first, as case 1 is to case 2: a scan that could not find the needle
+;; in a failure message would pass the sealed case while proving nothing. This
+;; one also DOCUMENTS the four homes, so a future column shows up as a diff here
+;; rather than as silence.
+(test-case "CONTROL: with encryption off, a FAILING job leaves its input in the error columns"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define-values (j rid) (failing-work! c uid tid))
+  (define hits (sort (scan-for c NEEDLE) string<?))
+  (printf "  (control, failures) the needle is in: ~a\n" hits)
+  (check-true (and (member "jobs.error" hits) #t)
+              (format "a failing handler's message must be findable here: ~a" hits))
+  (check-true (and (member "workflow_steps.error" hits) #t) (format "hits: ~a" hits))
+  (check-true (and (member "workflow_runs.error" hits) #t) (format "hits: ~a" hits))
+  (close-db! c))
+
+(test-case "ACCEPTANCE (r4): a FAILING job leaves the text in no column and in no log"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  ;; LOGS TOO, which is the half a dump scan cannot see. Everything the failure
+  ;; path writes to stdout or stderr is captured and searched: a message that is
+  ;; sealed in the database and printed to the console is not protected, and a
+  ;; container's logs are the copy most likely to be read by a person and shipped
+  ;; to a third party.
+  (define out (open-output-string))
+  (define err (open-output-string))
+  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
+    (lambda ()
+      (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
+        (lambda ()
+          (parameterize ([current-output-port out] [current-error-port err])
+            (define-values (j rid) (failing-work! c uid tid))
+            ;; FUNCTIONAL FIRST, as case 3 does: the failure must still be
+            ;; RECORDED, or "no text anywhere" would pass for a build that
+            ;; stopped recording failures at all — which is the same answer for
+            ;; the opposite reason.
+            (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "error")
+            (check-equal? (query-value c "SELECT status FROM workflow_runs WHERE id = ?" rid) "error")
+            ;; and it must still be READABLE by the person debugging it: the
+            ;; message comes back through the projection, plaintext, needle and
+            ;; all. Sealing a diagnostic into illegibility would be a different
+            ;; bug wearing this one's clothes.
+            (define job (get-job c j tid))
+            (check-true (string? (hash-ref job 'error))
+                        "the stored message must still be readable through the API")
+            (check-true (string-contains? (hash-ref job 'error) NEEDLE)
+                        "…and it must still say what it choked on"))))))
+  (define hits (sort (scan-for c NEEDLE) string<?))
+  (check-equal? hits '()
+                (format "a dump would carry the failure's message in: ~a" hits))
+  (define logged (string-append (get-output-string out) "\n" (get-output-string err)))
+  (check-false (string-contains? logged NEEDLE)
+               (string-append "the fixture text reached a log. Captured output:\n" logged))
   (close-db! c))

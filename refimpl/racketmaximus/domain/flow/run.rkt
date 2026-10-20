@@ -59,10 +59,24 @@
 (define (run-cursor-ctx id) (string-append "workflow_runs.cursor:" id))
 (define (step-input-ctx id) (string-append "workflow_steps.input:" id))
 (define (step-output-ctx id) (string-append "workflow_steps.output:" id))
+;; The error columns joined in slice 4. A step's message is the TOOL's own:
+;; `doc_render` names the placeholder the data lacked, DWF-5's extraction names
+;; the path that did not match, the knowledge-graph extractor quotes the snippet
+;; it refused. A run's message wraps a step's, so the content reaches both.
+(define (run-error-ctx id) (string-append "workflow_runs.error:" id))
+(define (step-error-ctx id) (string-append "workflow_steps.error:" id))
 
 (define (seal ctx s) (if (and (content-encryption-enabled?) (string? s)) (secret-wrap ctx s) s))
 ;; never conditional on the switch — a row sealed while it was on must still open
 (define (unseal ctx s) (if (string? s) (secret-unwrap ctx s) s))
+;; A diagnostic must not cost the row it describes: a value that will not open
+;; (a rotated key, a restored dump) reads as a note saying so, where a binding
+;; raises. Same split as the scheduler's.
+(define (unseal-err ctx s)
+  (if (string? s)
+      (with-handlers ([exn:fail? (lambda (_) "(the stored message could not be decrypted)")])
+        (secret-unwrap ctx s))
+      s))
 
 (define FLOW-JOB-KIND "flow.step")
 (define FEATURE "workflows")
@@ -193,7 +207,7 @@
           ;; right rather than a dozen.
           'status (vr r 4) 'input (js (unseal (run-input-ctx (vr r 0)) (vr r 5)))
           'output (if (sql-null? (vr r 6)) 'null (js (unseal (run-output-ctx (vr r 0)) (vr r 6))))
-          'error (nz (vr r 7))
+          'error (if (sql-null? (vr r 7)) 'null (unseal-err (run-error-ctx (vr r 0)) (vr r 7)))
           'cursor (js (unseal (run-cursor-ctx (vr r 0)) (vr r 8)))
           'steps_used (vr r 9)
           'created_at (vr r 10) 'started_at (nz (vr r 11)) 'finished_at (nz (vr r 12))
@@ -211,7 +225,8 @@
           ;; …and the one read path for a step.
           'input (if (sql-null? (vr r 7)) 'null (js (unseal (step-input-ctx (vr r 0)) (vr r 7))))
           'output (if (sql-null? (vr r 8)) 'null (js (unseal (step-output-ctx (vr r 0)) (vr r 8))))
-          'error (nz (vr r 9)) 'started_at (nz (vr r 10)) 'finished_at (nz (vr r 11))
+          'error (if (sql-null? (vr r 9)) 'null (unseal-err (step-error-ctx (vr r 0)) (vr r 9)))
+          'started_at (nz (vr r 10)) 'finished_at (nz (vr r 11))
           'parent_id (nz (vr r 12))))
 
 (define (run-steps conn run-id)
@@ -313,7 +328,7 @@
 (define (finish! conn id status #:error [err #f] #:output [out #f])
   (query-exec conn
     "UPDATE workflow_runs SET status = ?, error = ?, output = ?, cursor_json = '{}', finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-    status (or err sql-null)
+    status (if err (seal (run-error-ctx id) err) sql-null)
     (if out (seal (run-output-ctx id) (jsexpr->string out)) sql-null) id))
 
 ;; ---- the reducer -------------------------------------------------------------
@@ -567,19 +582,21 @@
   (cond
     [(< attempt allowed)
      (query-exec conn "UPDATE workflow_steps SET status = 'queued', attempt = ?, error = ? WHERE id = ?"
-                 (add1 attempt) message srow-id)
+                 (add1 attempt) (seal (step-error-ctx srow-id) message) srow-id)
      (enqueue-step! conn run srow-id)
      (hasheq 'retrying (add1 attempt) 'error message)]
     [else
      (query-exec conn
        "UPDATE workflow_steps SET status = 'error', error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-       message srow-id)
+       (seal (step-error-ctx srow-id) message) srow-id)
      ;; one bad item fails the whole fan-out, and the fan-out fails the run: the
      ;; siblings still in flight find the run no longer `running` and no-op
      (when (parent-of st)
        (query-exec conn
          "UPDATE workflow_steps SET status = 'error', error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-         message (parent-of st)))
+         ;; the AAD is the row being written, not the child that failed — a
+         ;; ciphertext moved between rows must not open (#19)
+         (seal (step-error-ctx (parent-of st)) message) (parent-of st)))
      (finish! conn (hash-ref run 'id) "error"
               #:error (format "step '~a' failed: ~a" (hash-ref st 'step_id) message))
      (hasheq 'failed (hash-ref st 'step_id) 'error message)]))

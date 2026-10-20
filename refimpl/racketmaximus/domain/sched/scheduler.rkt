@@ -48,7 +48,7 @@
          (only-in "../../config.rkt" content-encryption-enabled?))
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
-         seal-payload seal-result unseal-payload unseal-result
+         seal-payload seal-result unseal-payload unseal-result seal-error unseal-error
          purge-job-content! PURGEABLE-STATUSES
          job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-STATUSES LIVE-IN
          process-one! start-scheduler! set-cap-for! set-hold-reason! set-on-hold! set-record!!
@@ -79,11 +79,23 @@
 ;; #19's claim is narrow about defending a dump and not a host.
 (define (payload-context id) (string-append "jobs.payload:" id))
 (define (result-context id) (string-append "jobs.result:" id))
+;; `error` is sealed for the SAME reason, and it was missed in slice 2 because an
+;; enumeration of "where does content live" does not naturally land on a
+;; diagnostic column. It is `(exn-message e)` from an ARBITRARY handler, and the
+;; messages this platform's own tools raise quote what they choked on — the strict
+;; renderer names the placeholder, the schema refusal names the path, the
+;; knowledge-graph extractor refuses a snippet that is not a verbatim substring of
+;; the text. #59 already clears it on a purge for exactly this reason ("a
+;; handler's message can quote the input it choked on"); sealing it is the same
+;; observation applied to the row that has not been purged yet.
+(define (error-context id) (string-append "jobs.error:" id))
 
 (define (seal-payload id s)
   (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (payload-context id) s) s))
 (define (seal-result id s)
   (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (result-context id) s) s))
+(define (seal-error id s)
+  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (error-context id) s) s))
 
 ;; Unsealing is NOT conditional on the switch — a row sealed while it was on must
 ;; still open after it is off, or turning it off would make every queued job
@@ -92,6 +104,15 @@
   (if (string? s) (secret-unwrap (payload-context id) s) s))
 (define (unseal-result id s)
   (if (string? s) (secret-unwrap (result-context id) s) s))
+;; An error is read by a PERSON, so a value that will not open must not take the
+;; whole listing down with it: a rotated key should cost the diagnostic, never the
+;; job's status. Payload and result raise (loudly, as the note above says) because
+;; a handler running on an unreadable payload is worse than a refusal.
+(define (unseal-error id s)
+  (if (string? s)
+      (with-handlers ([exn:fail? (lambda (_) "(the stored message could not be decrypted)")])
+        (secret-unwrap (error-context id) s))
+      s))
 
 (define (vr r i) (vector-ref r i))
 (define (now) (current-seconds))
@@ -223,7 +244,8 @@
                         ;; unseal happens outside the handler's fallback
                         (let ([plain (unseal-result (vr r 0) x)])
                           (with-handlers ([exn:fail? (lambda (_) plain)]) (string->jsexpr plain)))))
-          'error (nz (vr r 5)) 'created_at (vr r 6) 'started_at (nz (vr r 7)) 'finished_at (nz (vr r 8))
+          'error (let ([e (vr r 5)]) (if (sql-null? e) 'null (unseal-error (vr r 0) e)))
+          'created_at (vr r 6) 'started_at (nz (vr r 7)) 'finished_at (nz (vr r 8))
           'executor_id (nz (vr r 9)) 'attempt (vr r 10) 'parent_job_id (nz (vr r 11))
           ;; `purged_at` is reported because WITHOUT it an empty payload and a
           ;; purged one are the same thing to a reader (issue #59). A caller that
@@ -460,7 +482,7 @@
     (string-append "UPDATE jobs SET status=?, result=?, error=?, lease_until=NULL, claim_token=NULL, "
                    "finished_at=CURRENT_TIMESTAMP WHERE id = ? AND status='running'"
                    (if token " AND claim_token = ?" "") " RETURNING id")
-    status (if result (seal-result id result) sql-null) (or err sql-null) id
+    status (if result (seal-result id result) sql-null) (if err (seal-error id err) sql-null) id
     (if token (list token) '())))
   (and (rows-result? r) (pair? (rows-result-rows r))))
 
@@ -487,8 +509,9 @@
      (query-exec conn
        (string-append "UPDATE jobs SET status='canceling', error=? WHERE id = ? AND "
                       LIVE-IN " AND claim_token = ?")
-       (~a "exceeded the instance's maximum job run time ("
-           "TELEMACHUS_MAX_JOB_SECONDS=" (or (max-job-seconds) "never") ")")
+       (seal-error id
+         (~a "exceeded the instance's maximum job run time ("
+             "TELEMACHUS_MAX_JOB_SECONDS=" (or (max-job-seconds) "never") ")"))
        id token)
      'timed-out]
     [else
