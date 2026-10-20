@@ -1260,7 +1260,39 @@
       ;; a job that has never been purged reads exactly as it did before.
       (exec* conn "ALTER TABLE jobs ADD COLUMN purged_at BIGINT"))))
 
+(define m-0045-legal-hold
+  (migration "0045-legal-hold"
+    (lambda (conn)
+      ;; A LEGAL HOLD on an object: deletion by RULE is refused while it is set
+      ;; (issue #86 r4's flag, built here because r3 needs it).
+      ;;
+      ;; WHY IT ARRIVES WITH THE RETENTION RULES rather than after them. A rule
+      ;; that deletes on a schedule is a one-way door, and a hold is the only
+      ;; thing that can stop one. Shipping the engine first and the veto later
+      ;; means every instance that configures a rule in between has no way to
+      ;; exempt a document under litigation — which is the single case holds
+      ;; exist for. The full r4 surface (holds on a PREFIX, the release
+      ;; workflow, its own audit trail) is still its own slice; this is the flag
+      ;; and the veto.
+      ;;
+      ;; Epoch seconds when placed, NULL for no hold — like every time column
+      ;; since 0038, because the TEXT CURRENT_TIMESTAMP ones differ by dialect.
+      ;; Nothing is backfilled: no existing object is on hold.
+      (exec* conn "ALTER TABLE repo_objects ADD COLUMN legal_hold BIGINT")
+      ;; An object's AGE, for `max_age_days` (#86 r3). `repo_versions.created_at`
+      ;; is TEXT CURRENT_TIMESTAMP and its format differs by dialect — the trap
+      ;; migrations 0038 through 0041 each name — so an age computed from it is
+      ;; invisibly wrong on one backend. Epoch seconds, stamped in repo-put!.
+      ;;
+      ;; NOTHING IS BACKFILLED, and the rule reads NULL as "age unknown, never
+      ;; stale". The other direction is the worst bug this feature could have:
+      ;; with `COALESCE(epoch, 0)` a pre-existing version reads as infinitely
+      ;; old, so the first instance to configure a policy would delete every
+      ;; document it already had. Unknown must mean exempt (0041 took the same
+      ;; line: a pre-migration job reports `null`, never a guess).
+      (exec* conn "ALTER TABLE repo_versions ADD COLUMN created_epoch BIGINT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold))
