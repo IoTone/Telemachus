@@ -196,6 +196,41 @@ assert "the link works with no credentials at all" "$CODE" "200"
 cmp -s "$TMP/doc.pdf" "$TMP/pre.bin" && ok "presigned download is byte-identical" \
   || bad "presigned download is byte-identical" "bytes differ"
 
+# ---- issue #84: the acceptance criterion, over the real wire ------------------------
+# "After a presigned download, the audit export shows issuance and redemption with
+# distinct timestamps and the redeeming client IP."
+#
+# This is the one assertion that cannot be made in a unit test: the redemption
+# arrives at the S3 LISTENER with no bearer token, and its client address comes
+# from the socket. A mock cannot produce that, which is why it is here beside the
+# curl that follows the link.
+READS=$(curl -s "$B/api/repo-obj/$OID/reads" -H "Authorization: Bearer $TOK")
+assert "the audit records the presign ISSUANCE" "$READS" '"repo.presign.issued"'
+assert "…and the REDEMPTION, as its own action" "$READS" '"repo.presign.redeemed"'
+# the redeeming client's address, from the socket the listener accepted
+assert "…with the redeeming client's IP" \
+  "$(printf '%s' "$READS" | python3 -c "
+import json,sys
+rs=json.load(sys.stdin)['reads']
+r=next(r for r in rs if r['action']=='repo.presign.redeemed')
+print(r['client_ip'] or 'MISSING')")" "127.0.0.1"
+# distinct timestamps (issue #47's at_us never repeats in a process), and the
+# order a reader expects: the link is minted before it is followed
+assert "…issued before redeemed, as distinct events" \
+  "$(printf '%s' "$READS" | python3 -c "
+import json,sys
+rs=[r['action'] for r in json.load(sys.stdin)['reads']]
+# the listing is newest-first
+print('ok' if rs.index('repo.presign.issued') > rs.index('repo.presign.redeemed') else 'OUT-OF-ORDER')")" "ok"
+# r2: the entry names ids, never the key — an object key routinely carries a name
+assert "…and the record carries no object key" \
+  "$(printf '%s' "$READS" | python3 -c "
+import json,sys
+print('clean' if 'q3.pdf' not in json.dumps(json.load(sys.stdin)['reads']) else 'LEAKED')")" "clean"
+# the S3 GetObject earlier in this run came through its own door
+# `write-json` emits no space after a colon, so the needle has none either
+assert "an S3 GetObject is recorded as such" "$READS" '"via":"s3"'
+
 # tampering with a signed link must not work
 TAMPER=$(printf '%s' "$URL" | sed 's/X-Amz-Expires=900/X-Amz-Expires=604800/')
 assert "a stretched expiry is refused" \

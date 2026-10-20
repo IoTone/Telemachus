@@ -722,6 +722,59 @@ assert "traces: no versions remain"                "$TRACES" '"versions":0'
 assert "traces: no bytes remain"                   "$TRACES" '"blobs":0'
 assert "traces: no derivation rows remain"         "$TRACES" '"derivation_rows":0'
 
+echo "== audit reads (issue #84) =="
+# Its OWN object: $RID was deleted by the repository block above, and this needs
+# one that still exists. PRIVATE, so bob's read is refused and r4 has an event.
+APUT=$(curl -s -X PUT "$B/api/repo/audited/ssn-444-55-6666.txt?filename=a.txt&visibility=private" \
+        -H "Authorization: Bearer $OP" -H 'Content-Type: text/plain' --data-binary 'audited body')
+AOID=$(printf '%s' "$APUT" | grep -oP '"id":"\K[^"]+' | head -1)
+# THE CONTENT ROUTE, not the metadata one. `GET /api/repo-obj/:id` answers
+# metadata and is deliberately NOT audited — auditing it would bury the reads
+# that matter under rows about rendering a table. `/content` is the GET that
+# returns the document, which is what r1 means by "API GET".
+curl -s -o /dev/null "$B/api/repo-obj/$AOID/content" -H "Authorization: Bearer $OP" \
+  -H "X-Request-Id: smoke-read-1" -H "User-Agent: telemachus-smoke/1"
+AR=$(curl -s "$B/api/repo-obj/$AOID/reads" -H "Authorization: Bearer $OP")
+assert "reads: the API read is recorded"            "$AR" '"action":"repo.read"'
+assert "reads: ...through the api door"             "$AR" '"via":"api"'
+assert "reads: ...with the client's own request id" "$AR" 'smoke-read-1'
+assert "reads: ...and its user agent"               "$AR" 'telemachus-smoke/1'
+assert "reads: ...and the loopback client address"  "$AR" '"client_ip":"127.0.0.1"'
+# metadata is NOT a content read, and the absence is asserted rather than assumed
+MBEFORE=$(printf '%s' "$AR" | grep -o '"action"' | wc -l | tr -d ' ')
+curl -s -o /dev/null "$B/api/repo-obj/$AOID" -H "Authorization: Bearer $OP"
+MAFTER=$(curl -s "$B/api/repo-obj/$AOID/reads" -H "Authorization: Bearer $OP" | grep -o '"action"' | wc -l | tr -d ' ')
+assert "reads: a METADATA get is not a content read" "$MBEFORE" "$MAFTER"
+# r2: ids, never the key — this key carries something that looks like an SSN
+assert "reads: the record carries no object key" \
+  "$(printf '%s' "$AR" | python3 -c "
+import json,sys
+print('LEAKED' if '444-55-6666' in json.dumps(json.load(sys.stdin)['reads']) else 'clean')")" "clean"
+# ...while the id on the entry still resolves to it, under that table's own gate
+assert "reads: ...and the id still resolves to the key" \
+  "$(curl -s "$B/api/repo-obj/$AOID" -H "Authorization: Bearer $OP")" '444-55-6666'
+# r4: a REFUSED read is the event an auditor is looking for. The object is
+# private, so a colleague is refused -- private is private from admins too.
+curl -s -o /dev/null "$B/api/repo-obj/$AOID/content" -H "Authorization: Bearer $BOB"
+AR2=$(curl -s "$B/api/repo-obj/$AOID/reads" -H "Authorization: Bearer $OP")
+assert "reads: a refused read is recorded too"      "$AR2" '"result":"denied"'
+assert "reads: ...naming what was lacking"          "$AR2" 'files:read'
+# Who may read the RECORD is narrower than who may read the DOCUMENT: who has
+# looked is information about the people, so `object-reads` requires
+# files:manage (DSH-2's "you decide who sees this") even though the ROUTE asks
+# only for files:read.
+#
+# On THIS object the refusal comes one step earlier and says files:read, because
+# the object is private and `repo-get` refuses before the listing is reached —
+# which is the honest answer and the reason the assertion names it rather than
+# the permission the listing would have asked for. The two-tier case (a
+# TEAM-VISIBLE document a colleague may read but may not see the readers of) is
+# pinned in test/audit-read-tests.rkt, where both principals exist in one
+# fixture.
+assert "reads: a member may not enumerate who looked" \
+  "$(curl -s "$B/api/repo-obj/$AOID/reads" -H "Authorization: Bearer $BOB")" \
+  'Forbidden: files:read'
+
 echo "== object metadata =="
 assert "a member may not define the team's fields" \
   "$(curl -s -X PUT $B/api/repo-fields -H "Authorization: Bearer $BOB" -d '{"fields":[]}')" \

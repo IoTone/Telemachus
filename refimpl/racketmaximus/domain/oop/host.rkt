@@ -26,7 +26,8 @@
          "../authz/authz.rkt"
          "../notes/notes.rkt"
          "../repo/repo.rkt"
-         (only-in "../repo/extract.rkt" extract-text))
+         (only-in "../repo/extract.rkt" extract-text)
+         (only-in "../audit/reads.rkt" read-context with-read-context))
 
 (provide (struct-out oop-plugin)
          connect-oop-plugins! loaded-oop-plugins
@@ -77,8 +78,16 @@
 (define (cap-object conn p args)
   (define id (jget args 'object))
   (when (string=? id "") (error 'repo "an object id is required"))
-  (define-values (o in) (repo-open conn p id #:version (let ([v (jget args 'version)])
-                                                         (and (not (string=? v "")) v))))
+  ;; issue #84: a sandboxed plugin is its own door. The read is still the
+  ;; caller's — the double gate decided it — but the entry says a plugin asked,
+  ;; which is the difference between a person opening a document and an
+  ;; out-of-process pipeline being handed its bytes.
+  (define-values (o in)
+    (with-read-context
+      (read-context "plugin" #f #f #f #f #f #f)
+      (lambda ()
+        (repo-open conn p id #:version (let ([v (jget args 'version)])
+                                         (and (not (string=? v "")) v))))))
   (unless in (error 'repo "no such document, or not yours to read: ~a" id))
   (values o in))
 

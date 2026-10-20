@@ -1751,6 +1751,14 @@
       "text": "Resumes {when}.",
       "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
     },
+    "doc.route.get.api.members": {
+      "text": "The team's members and roles.",
+      "hash": "32197624e684dac944e94da479c4c79400a6ba47"
+    },
+    "doc.route.get.api.repo-obj.id.reads": {
+      "text": "Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts.",
+      "hash": "fb8f0287fa7e3905f018843b6c17fbc2cfbd127c"
+    },
     "http.unauthorized": {
       "text": "Authentication required.",
       "hash": "9e44e0b469b3f09dfbc94fb5d8c035be66f7aa0d"
@@ -1786,10 +1794,6 @@
     "ui.addtrigger": {
       "text": "Add trigger",
       "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
-    },
-    "doc.route.get.api.members": {
-      "text": "The team's members and roles.",
-      "hash": "32197624e684dac944e94da479c4c79400a6ba47"
     },
     "doc.route.get.api.beta.experience": {
       "text": "The team's draft onboarding experience, including the judge prompt.",

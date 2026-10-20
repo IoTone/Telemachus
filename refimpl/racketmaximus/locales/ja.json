@@ -1792,6 +1792,10 @@
       "text": "チームのメンバーと役割",
       "hash": "32197624e684dac944e94da479c4c79400a6ba47"
     },
+    "doc.route.get.api.repo-obj.id.reads": {
+      "text": "この文書を誰がいつどこから読んだか：読み取り、署名付きリンクの発行と利用、拒否された試行を含む。",
+      "hash": "fb8f0287fa7e3905f018843b6c17fbc2cfbd127c"
+    },
     "doc.route.get.api.beta.experience": {
       "text": "チームの下書きのオンボーディング体験（判定プロンプトを含む）。",
       "hash": "c3f2aec9df503e476f868327fba76ede78146862"

@@ -705,6 +705,35 @@ columns and would pass a scan for entirely the wrong reason.
   r1's wording and are searched by `search.rkt` — the same ENC‑2 trade, decided
   the same way, but a separate column pair.
 
+### AUD‑1…9 — who read a document (issue #84, slice 1)
+
+`audit_log` recorded create / update / delete / share / visibility for repo
+objects and recorded READS nowhere. "Who viewed this document, when, from where"
+is the question a regulated deployment is actually asked, and the platform could
+not answer it at all.
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| **AUD‑1** | Where the read is recorded | **At `repo-open`, the ONE seam that produces bytes** · vs at each of the nine call sites | Every door arrives there: the console download and the API GET, the S3 listener's GetObject / HeadObject / CopyObject source, LAY‑6's out-of-process `repo.get`, PULL‑9's worker read, the indexer, and `doc_text` inside a workflow step. Nine call sites would be nine chances to forget, and the tenth — written later — would be silent. `repo-put!`'s trigger hook is there for the same reason. The claim is TESTED, not asserted: a read through a door that was never taught to audit anything still appears. |
+| **AUD‑2** | How the door is known | **A `current-read-context` parameter** · vs a new argument on `repo-open` | Nine signatures would change and a caller that forgot would read as the wrong door. The default is `"internal"`, which is honest — a read from a path that set no context is not an API read, and guessing `"api"` would put a client in the record that never existed. `READ-DOORS` is a CLOSED vocabulary, like `WORKER-STATES`: an export groups by it. |
+| **AUD‑3** | What counts as a content read | **`repo-open` only; metadata GETs are not audited** · vs every `repo-get` | `repo-get` answers a listing, a share dialog, a "Processed by" panel. Auditing it would bury the reads that matter under rows about rendering a table — and r1's "API GET" is the GET that returns the document. The absence is ASSERTED in `server-smoke.sh` (the entry count does not move) so it is a decision rather than an oversight. |
+| **AUD‑4** | A refused read | **Recorded, with the same shape, and the exception re-raised unchanged** · vs record only successes | r4, and it is the event an auditor is looking for. It has to be CAUGHT rather than inferred, because `repo-get` RAISES on a permission failure while answering `#f` for a miss. The entry is written even where the API deliberately collapses the two into one answer (the knowledge graph's rule, PULL‑9's, the derive warrant's): the caller is told one thing, the record keeps them apart. |
+| **AUD‑5** | Actor, when a machine asked | **Principal stays the job's user; `actor_type`/`actor_id` name the machine** · vs one field | Two different questions. `can?` answered for the person, and an auditor needs to see that an executor or a run asked on their behalf, and which one. r1 says exactly this: "actor = the run, with the triggering actor recorded". `tool-run!`'s `#:run` is the one place a step invokes a tool, so it is the one place that carries it. |
+| **AUD‑6** | The object key | **Never in the entry; ids only** · vs record the key for readability | r2. A key is operator-authored and routinely carries a name, a case number or a national id (`inbox/tanaka-hiroshi/…`). The entry stores the object and version ids and lets the key be joined from `repo_objects` under the access control that table already has. Both halves are asserted: the key is absent AND the id still resolves, or the rule would have cost the record its usefulness rather than only its risk. ENC‑20 took the same line for the trigger-failure entry. |
+| **AUD‑7** | The byte range | **The REQUESTED range header, verbatim, beside the object's size** · vs the satisfied range | `aws s3 cp` issues parallel ranged GETs, and what an auditor needs is what each client ASKED for. The satisfied range is derivable from the request and the size, both of which the entry carries; the request's own words are what the client is accountable for. |
+| **AUD‑8** | Who may read the RECORD | **`files:manage` on the object** · vs `files:read` | Who has looked at a document is information about the PEOPLE, not about the document: a colleague with a view grant must not be able to enumerate everyone else who opened it. `manage` is already what DSH‑2 requires to re-share or to change visibility — the permission that means "you decide who sees this" — so it is the right one for "you may see who did". On a PRIVATE object the refusal comes one step earlier and names `files:read`, which is the honest answer. |
+| **AUD‑9** | `org_id` on the entry | **Denormalized onto the row** · vs joined through the team | The export is by org and date range (r3), a team can in principle be re-parented, and the audit log is the one table that must still read when the rows it describes are gone — DEL‑7 keeps it through an erasure, so it cannot depend on a join to a deleted team. |
+
+**r5 (no sampling) is satisfied by construction** and is worth saying out loud:
+nothing samples, nothing batches, and there is no knob that could. r6's ceiling is
+met — one insert per read, and the two indexes migration 0046 adds serve the
+reads an auditor makes rather than the write path.
+
+**What slice 1 does NOT do**: r3's hash chain and JSONL export. Those are AUD‑10+
+and are their own slice, because the chain is a per-org linked list with its own
+verify command and the export is a streaming endpoint — neither is a field on an
+event, and folding them in would have made one unreviewable change.
+
 ### ENC‑19…22 — the ERROR columns, and the logs (issue #83 r4, slice 4)
 
 | # | Question | Decision · alternatives | Why |

@@ -62,6 +62,8 @@
          "../domain/s3/sigv4.rkt"                 ; …and presigned links (slice 53)
          "../domain/s3/creds.rkt"                 ; …and its access keys
          "../domain/repo/repo.rkt"                ; the document repository (slices 49-50)
+         "../domain/audit/reads.rkt"              ; who read a document (issue #84)
+         (only-in "../domain/db/id.rkt" new-id)
          (only-in "../domain/repo/extract.rkt" repo-spans-for spans-covering)   ; LAY-5
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
          (only-in "../domain/repo/doc-tools.rkt")  ; registers the document-pipeline tools (slice 57)
@@ -1609,7 +1611,22 @@
     ;; ONB-7 read-only, now org-aware: a suspended COMPANY freezes every team in it
     [(and (tenant-read-only? db-conn (principal-team-id p)) (not (GET? (request-method req))))
      (err "tenant suspended — writes are disabled; contact your administrator" 402)]
-    [else (parameterize ([current-request-principal p]) (proc p))]))
+    [else
+     ;; issue #84: every API request carries the client's address and agent, and a
+     ;; request id, into whatever reads it performs. Set HERE rather than in each
+     ;; handler for the reason the audit itself sits at one seam — a handler added
+     ;; later inherits it instead of forgetting it. An inbound `X-Request-Id` is
+     ;; honoured so a proxy's correlation id is the one in the record.
+     (parameterize ([current-request-principal p]
+                    [current-read-context
+                     (read-context "api"
+                                   (with-handlers ([exn:fail? (lambda (_) #f)])
+                                     (request-client-ip req))
+                                   (req-header req #"user-agent")
+                                   (or (req-header req #"x-request-id") (new-id))
+                                   (req-header req #"range")
+                                   #f #f)])
+       (proc p))]))
 
 (define (ep-notes-create req)
   (with-auth req (lambda (p)
@@ -2681,6 +2698,27 @@
 ;; the console can hand a PDF straight to the viewer. Signed with the CALLER'S OWN
 ;; newest S3 key, which means the link can never do more than that key can, and
 ;; revoking the key kills every link made with it.
+;; "Who viewed this document, when, from where" (issue #84) — the question the
+;; issue opens with, and the reason the events need a surface at all.
+;;
+;; The ROUTE's permission is `files:read`, which only gets you as far as the
+;; object; `object-reads` then requires `files:manage` ON THAT OBJECT, because who
+;; has looked at a document is information about the PEOPLE rather than about the
+;; document. A colleague with a view grant must not be able to enumerate everyone
+;; else who opened it. `manage` is already what DSH-2 requires to re-share or to
+;; change visibility — the permission that means "you decide who sees this".
+(define (ep-repo-reads req id)
+  (with-auth req (lambda (p)
+    (define o (repo-get db-conn p id))
+    (cond
+      [(not o) (err "not found" 404)]
+      [else
+       (define lim (max 1 (min 500 (or (string->number (query-param req 'limit "100")) 100))))
+       (define off (max 0 (or (string->number (query-param req 'offset "0")) 0)))
+       (json-response (hasheq 'object_id id
+                              'reads (object-reads db-conn p o #:resource (obj->resource o)
+                                                   #:limit lim #:offset off)))]))))
+
 (define (ep-repo-presign req id)
   (with-auth req (lambda (p)
     (define o (repo-get db-conn p id))
@@ -2701,6 +2739,11 @@
        (define qs (presign-query #:method "GET" #:path path
                                  #:access-key (car cred) #:secret (cdr cred)
                                  #:region (s3-region) #:host host #:expires secs))
+       ;; r1: issuance is its own event, recorded where the expiry is known. An
+       ;; outstanding link is the one read capability that outlives the request
+       ;; that made it, so "who minted a link to this, and for how long" is a
+       ;; question only this call site can answer.
+       (audit-presign-issued! db-conn p o #:expires-in secs)
        (json-response (hasheq 'url (format "http://~a~a?~a" host path qs)
                               'expires_in secs
                               'key (hash-ref o 'key)))]))))
@@ -3112,6 +3155,7 @@
    'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants
    'repo-derivations ep-repo-derivations 'repo-processing ep-repo-processing 'share-targets ep-share-targets
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign
+   'repo-reads ep-repo-reads
    'repo-meta ep-repo-meta 'repo-delete ep-repo-delete 'repo-put ep-repo-put
    'repo-traces ep-repo-traces 'repo-delete-prefix ep-repo-delete-prefix
    'retention-get ep-retention-get 'retention-put ep-retention-put
