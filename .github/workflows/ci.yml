@@ -67,7 +67,7 @@ jobs:
         env:
           PGPASSWORD: telemachus
         run: |
-          for d in tmx_unit tmx_smoke tmx_mt tmx_pull tmx_s3 tmx_ocr; do
+          for d in tmx_unit tmx_smoke tmx_mt tmx_pull tmx_s3 tmx_ocr tmx_blob; do
             psql -h 127.0.0.1 -U telemachus -d tmx -c "CREATE DATABASE $d" >/dev/null
             echo "created $d"
           done
@@ -153,6 +153,19 @@ jobs:
         env:
           DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_s3' || '' }}
         run: bash test/s3-smoke.sh
+
+      # Issue #82's blob store, over a real socket to a real SigV4 verifier —
+      # which is THIS server's own S3 API, because it is the only S3-compatible
+      # target that needs no external service. Deliberately NOT a MinIO service
+      # container, which is what the issue asks for: MinIO's images are no longer
+      # freely pullable (docker.io and quay.io both answer `unauthorized`, and
+      # `:latest` is unpublished — checked 20 Oct 2026), so a job naming one
+      # would fail for every fork. The suite's section 5 runs against a real
+      # bucket when MINIO_ENDPOINT is set, and skips loudly when it is not.
+      - name: S3 blob store smoke (signing, streaming, migration)
+        env:
+          DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgres://telemachus:telemachus@127.0.0.1:5432/tmx_blob' || '' }}
+        run: bash test/s3-blobstore-smoke.sh
 
       # The two gates below read the SOURCE, not the database, so running them on
       # both legs would only buy a second identical answer.

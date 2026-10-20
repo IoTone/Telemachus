@@ -16,12 +16,38 @@
 # each called out at its line: the database password is in the file, no TLS
 # terminates in front of the app, and there is no backup of the `data` volume.
 #
-# On MinIO: issue #89 asks for it here, and it is deliberately absent. Telemachus
-# SERVES an S3 API (set TELEMACHUS_S3_PORT) but cannot yet STORE blobs in a
-# bucket — an S3-compatible blob-store backend is issue #82, unbuilt. A MinIO
-# container in this file today would be a service nothing talks to, which reads
-# as a broken example rather than a staged one. When #82 lands, add it here and
-# set TELEMACHUS_BLOB_STORE=s3.
+# On object storage: issue #82 has LANDED, so document bytes can live in a bucket
+# (`TELEMACHUS_BLOB_STORE=s3`) rather than on the data volume. There is still no
+# bucket service in this file, and the reason has changed — it is no longer
+# "nothing would talk to it":
+#
+#   MinIO's container images are no longer freely pullable. Both
+#   `docker.io/minio/minio` and `quay.io/minio/minio` answer `unauthorized`
+#   (checked 20 Oct 2026; `:latest` is not published at all any more), so a
+#   compose file naming one would fail for every reader without MinIO
+#   credentials — worse than its absence, because it fails at `up` rather than
+#   being a documented gap.
+#
+# To evaluate the S3 store, run any S3-compatible server you can pull and point
+# the app at it. `localstack/localstack` and `adobe/s3mock` are both pullable
+# today; the first also emulates KMS, which is what lets SSE-KMS be exercised.
+# Uncomment the block below and the four variables in the app's environment.
+#
+#   s3:
+#     image: localstack/localstack:4.0
+#     environment: { SERVICES: "s3,kms" }
+#     ports: ["4566:4566"]
+#
+# …and on the app:
+#   TELEMACHUS_BLOB_STORE: s3
+#   TELEMACHUS_S3_BLOB_ENDPOINT: http://s3:4566
+#   TELEMACHUS_S3_BLOB_BUCKET: telemachus     # create it first; nothing here does
+#   TELEMACHUS_S3_BLOB_ACCESS_KEY: test
+#   TELEMACHUS_S3_BLOB_SECRET_KEY: test
+#   TELEMACHUS_S3_BLOB_SSE: s3
+#
+# The default remains the local `rs3` store, which needs no second service and is
+# the right default for an evaluation.
 
 services:
   postgres:

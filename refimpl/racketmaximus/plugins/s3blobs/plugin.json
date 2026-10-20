@@ -1,0 +1,7 @@
+{
+  "id": "s3blobs",
+  "name": "s3 — object-storage blob store",
+  "version": "0.1.0",
+  "description": "Stores document bytes in any S3-compatible bucket (AWS S3, MinIO, Ceph RGW), addressed by their SHA-256, encrypted server-side by default.",
+  "entry": "main.rkt"
+}

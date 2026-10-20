@@ -174,6 +174,95 @@ working if `curl` is ever dropped from it. The `startupProbe` is generous
 because the first boot migrates the schema — 43 transactions on an empty
 database.
 
+## Object storage for document bytes
+
+Document bytes live on the data volume by default (the `rs3` store). With the
+`s3blobs` plugin and `TELEMACHUS_BLOB_STORE=s3` they live in a bucket instead,
+which is what removes the `ReadWriteOnce` coupling that keeps the Kubernetes
+example at `replicas: 1`. Every variable is in
+[configuration.md](configuration.md#object-storage-blob-store-the-s3blobs-plugin-issue-82).
+
+The layout is `<prefix>/<org>/<sha256>`. **The org segment is load-bearing**, not
+tidiness: deduplicating identical bytes inside one company is a feature, and
+deduplicating them across companies is an existence oracle — "my upload finished
+suspiciously fast" tells you another tenant holds that exact file (DOC‑6).
+
+### The IAM policy
+
+Least privilege is Get/Put/Delete on the prefix and nothing else. Telemachus
+never lists the bucket, never reads another prefix, and never creates the bucket,
+so none of those permissions are needed.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "Blobs",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::my-bucket/blobs/*" },
+    { "Sid": "EnvelopeKey",
+      "Effect": "Allow",
+      "Action": ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey"],
+      "Resource": "arn:aws:kms:eu-west-1:111122223333:key/<key-id>" }
+  ]
+}
+```
+
+`kms:GenerateDataKey` is required for SSE‑KMS even though Telemachus never calls
+KMS itself — S3 calls it on the caller's behalf, so the permission is checked
+against this identity. Drop the whole second statement with
+`TELEMACHUS_S3_BLOB_SSE=s3` (SSE‑S3 needs no KMS grant) or `=none`.
+
+**Deny unencrypted writes in the bucket policy as well**, because the
+application-side check can only see what the bucket reports:
+
+```json
+{ "Effect": "Deny", "Principal": "*", "Action": "s3:PutObject",
+  "Resource": "arn:aws:s3:::my-bucket/*",
+  "Condition": { "StringNotEquals": { "s3:x-amz-server-side-encryption": "aws:kms" } } }
+```
+
+With that in place a PUT that somehow omitted the header is refused by S3; with
+`TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION` on, one that *succeeds* without
+reporting encryption is refused by Telemachus. The two catch different failures
+and both are worth having.
+
+### Moving existing blobs in
+
+```sh
+racket cli/telemachus-blobs.rkt plan              # what is on disk, by org
+racket cli/telemachus-blobs.rkt migrate --verify  # copy, re-hashing each blob
+racket cli/telemachus-blobs.rkt verify            # read back out of the bucket
+```
+
+Safe to run while the instance is up, and resumable: **no database row moves**,
+because `repo_versions` stores the digest and the store is addressed by it, so
+the same rows describe the blobs wherever they live. A re-run skips what is
+already present, since a content-addressed object of the right length *is* the
+right object.
+
+It **re-hashes every blob before copying it**. `rs3` takes a blob's digest from
+its path, so a file whose bytes have rotted still looks correct to anything that
+does not hash it — a copy that trusted the filename would propagate the rot to
+the bucket under a name that lies about it. A blob whose bytes disagree with its
+name is reported and **left alone**: its row points at a digest nothing can
+satisfy, which is a data-loss question for an operator rather than something a
+copy tool should paper over. Nothing is deleted from local disk; that is a
+separate decision for after you have verified.
+
+### On MinIO
+
+The issue that asked for this store asks for MinIO in CI, and that is no longer
+possible without credentials: **MinIO's container images are not freely
+pullable** — `docker.io/minio/minio` and `quay.io/minio/minio` both answer
+`unauthorized`, and `:latest` is no longer published (checked 20 Oct 2026). The
+store is not MinIO-specific; path-style addressing is the default here precisely
+because MinIO and Ceph RGW need it. To exercise it against a real bucket, set
+`MINIO_ENDPOINT` (and `MINIO_BUCKET`/`MINIO_KEY`/`MINIO_SECRET`) and
+`test/s3-blobstore-smoke.sh` section 5 will use it; without it that section
+skips and says so.
+
 ## OCR is not in the image, and what to do about it
 
 The `ocr` plugin (issue #92) ships in the image like every other plugin, but

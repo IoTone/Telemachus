@@ -47,20 +47,27 @@ kind: Deployment
 metadata:
   name: telemachus
 spec:
-  # ONE replica, on purpose, for two reasons that both have to be fixed before
-  # this number goes up:
+  # ONE replica, because of the PVC below and NOT because of the database: the
+  # job scheduler is safe in several processes (every claim is an atomic
+  # `UPDATE … WHERE status='queued' RETURNING id`, and the graceful drain hands
+  # back only the attempts THIS process holds, tracked in memory rather than
+  # inferred from `executor_id IS NULL`, precisely so one replica's restart
+  # cannot steal a sibling's work). The limit is storage.
   #
-  #  1. the PVC above is ReadWriteOnce, so a second pod on another node cannot
-  #     mount it. With `rs3` the blob store is a local directory; two replicas
-  #     need a shared store, which is issue #82.
-  #  2. nothing here is a correctness problem for the DATABASE — the job
-  #     scheduler is safe to run in several processes (every claim is an atomic
-  #     `UPDATE … WHERE status='queued' RETURNING id`, and the graceful drain
-  #     hands back only the attempts THIS process holds, tracked in memory
-  #     rather than inferred from `executor_id IS NULL`, precisely so a restart
-  #     cannot steal a sibling's work).
+  # ISSUE #82 HAS LANDED, so that limit is now removable: with
+  # TELEMACHUS_BLOB_STORE=s3 the bytes live in a bucket, every replica reaches
+  # them, and neither this PVC nor the Recreate strategy below is needed. To
+  # scale out:
   #
-  # So the limit is storage, not concurrency.
+  #   1. configure the s3 store (docs/ops/configuration.md) and migrate existing
+  #      blobs in with `racket cli/telemachus-blobs.rkt migrate --verify`;
+  #   2. delete the PVC, its volume and volumeMount, and this `strategy` block
+  #      (RollingUpdate becomes correct once no pod holds a ReadWriteOnce volume);
+  #   3. raise this number.
+  #
+  # It is left at 1 here because that is right for the DEFAULT configuration this
+  # file ships, which is the local store — a manifest whose comments describe a
+  # setup it does not apply would be worse than a conservative one.
   replicas: 1
   strategy:
     # Not RollingUpdate while the PVC is ReadWriteOnce: the new pod would wait
