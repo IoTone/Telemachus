@@ -202,6 +202,44 @@
                (with-handlers ([(lambda (_) #t) void]) (tcp-close listener))
                (kill-thread server))))
 
+;; A server that answers 200 with CHUNKED framing. The bytes would otherwise be
+;; handed back with their length prefixes still in them — a blob corrupted by its
+;; own framing, which a digest check downstream would catch only after the write.
+(define (with-chunked-server proc)
+  (define listener (tcp-listen 0 8 #t "127.0.0.1"))
+  (define-values (_h port _ph _pp) (tcp-addresses listener #t))
+  (define stop? (box #f))
+  (define server
+    (thread
+     (lambda ()
+       (let loop ()
+         (unless (unbox stop?)
+           (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
+             (define-values (in out) (tcp-accept listener))
+             (let head () (define l (read-line in 'return-linefeed))
+                          (unless (or (eof-object? l) (string=? l "")) (head)))
+             (write-string "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" out)
+             (write-string "4\r\nabcd\r\n0\r\n\r\n" out)
+             (flush-output out) (close-output-port out) (close-input-port in))
+           (loop))))))
+  (dynamic-wind void (lambda () (proc port))
+    (lambda () (set-box! stop? #t)
+               (with-handlers ([(lambda (_) #t) void]) (tcp-close listener))
+               (kill-thread server))))
+
+(test-case "a chunked response is REFUSED, not read as blob bytes"
+  (with-chunked-server
+    (lambda (port)
+      (define c (s3-config (format "http://127.0.0.1:~a" port) "b" "us-east-1" "p"
+                           "AK" "SK" "none" #f #f #t 1 10))
+      (define e (with-handlers ([exn:fail:s3? (lambda (e) e)])
+                  (s3-get-stream c "p/o/d")
+                  #f))
+      (check-true (exn:fail:s3? e) "a chunked 200 must raise, not return a port")
+      (check-equal? (exn:fail:s3-code e) "chunked-response")
+      ;; and the message has to say WHY, because the operator's fix is upstream
+      (check-true (regexp-match? #px"corrupt" (exn-message e))))))
+
 (test-case "a GET retries, and a PUT is attempted exactly ONCE"
   (with-counting-500-server
     (lambda (port connections)

@@ -375,6 +375,21 @@
       (define-values (status headers body out) (s3-send cfg "GET" key))
       (cond
         [(and (>= status 200) (< status 300))
+         ;; A CHUNKED response is REFUSED rather than read. This reader frames the
+         ;; body by Content-Length or by the connection closing, so chunked bytes
+         ;; would be handed back WITH their framing — a blob silently corrupted
+         ;; by its own length prefixes, which is the worst failure this store can
+         ;; have, and one that would survive as far as a digest check. S3 itself
+         ;; does not chunk a GET response; an intermediary can, so this answers by
+         ;; name instead of de-framing a case no bucket produces.
+         (when (header-ref headers "transfer-encoding")
+           (close-input-port body) (close-output-port out)
+           (s3-error status "chunked-response"
+                     (string-append "GET ~a came back with Transfer-Encoding: ~a. This client "
+                                    "frames a body by Content-Length, so reading it would "
+                                    "corrupt the blob — refusing instead. Something between "
+                                    "here and the bucket is re-framing responses.")
+                     key (header-ref headers "transfer-encoding")))
          (define len (let ([v (header-ref headers "content-length")])
                        (and v (string->number v))))
          (streamed-body body out len)]
