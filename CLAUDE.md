@@ -3098,6 +3098,17 @@ Automation firing on an upload; against the scripted mock model, see slice 59)
 gets caught even when no assertion names it. The screenshot *tours* do not assert and
 will photograph a broken page — use this to gate a deploy.
 
+## Working with `gh`
+
+- **`gh run list --json databaseId --template` prints the id in SCIENTIFIC
+  NOTATION** (`3.9375597644e+10`), because the template renderer treats it as a
+  float. Passing that to `gh run watch` fails with `HTTP 404` and `gh` still
+  exits 0, so a watch that never watched looks exactly like a watch that passed.
+  Use `--jq '.[0].databaseId'` instead, which prints the integer.
+- `gh issue view <n>` without `--json` fails on this repo with a Projects-classic
+  deprecation error from the GraphQL API. `--json number,title,body,comments`
+  with a `--template` works.
+
 ## Git
 
 - Commit/push only when asked. Branch before committing on the default branch.
