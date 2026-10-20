@@ -38,6 +38,15 @@ assert(){ # <label> <haystack> <needle>
   if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1"; else echo "  FAIL $1 — expected to contain: $3 — got: $2"; fail=1; fi
 }
 
+# <label> <haystack> <needle-that-must-be-ABSENT>. The other smokes have had this
+# for a while and this one did not, so a `refute` written here ran as an unknown
+# command: bash said "command not found" on stderr, nothing set `fail`, and the
+# suite reported PASS with the assertion silently absent. It was asserting that a
+# purged job no longer quotes its payload — the one property that mattered most.
+refute(){
+  if printf '%s' "$2" | grep -qF -- "$3"; then echo "  FAIL $1 — must NOT contain: $3 — got: $2"; fail=1; else echo "  ok   $1"; fi
+}
+
 racket server/main.rkt >/tmp/tmx-smoke.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"' EXIT
@@ -370,6 +379,36 @@ assert "cancel: an admin may cancel somebody else's" \
   "$(curl -s -X POST $B/api/jobs/$QJID/cancel -H "Authorization: Bearer $OP")" '"status":"canceled"'
 assert "cancel: an unknown job is a 404" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/jobs/00000000-0000-0000-0000-000000000000/cancel -H "Authorization: Bearer $OP")" '404'
+# Issue #59: purge a settled job's content. BJID was just canceled above, so it is
+# settled — and `canceled` is deliberately purgeable, because the work stopped and
+# the input it was given can go. The payload here is bob's prompt, which stands in
+# for the document text an `infer.chat` payload actually carries.
+assert "purge: a member cannot purge the operator's job" \
+  "$(curl -s -X DELETE $B/api/jobs/$QJID/content -H "Authorization: Bearer $BOB")" 'forbidden: jobs:purge'
+assert "purge: …but may always purge their own" \
+  "$(curl -s -X DELETE $B/api/jobs/$BJID/content -H "Authorization: Bearer $BOB")" '"purged":true'
+assert "purge: …and the prompt is gone from the job" \
+  "$(curl -s $B/api/jobs/$BJID -H "Authorization: Bearer $BOB")" '"result":null'
+# NOT "the payload text is gone from this response": `row->job` has no payload
+# key, so the API never carried it and that assertion would pass for the wrong
+# reason. The row-level property — that NO column still quotes the text — is
+# asserted in test/scheduler-tests.rkt, where the row is actually visible.
+# What is worth pinning here is the surface itself: if payload ever joins this
+# response, a purge stops being purely a database concern and this fails.
+refute "purge: the job API never exposes a payload at all" \
+  "$(curl -s $B/api/jobs/$BJID -H "Authorization: Bearer $BOB")" '"payload"'
+assert "purge: …while the row stays accountable" \
+  "$(curl -s $B/api/jobs/$BJID -H "Authorization: Bearer $BOB")" '"status":"canceled"'
+assert "purge: …and says it was purged, which '{}' alone cannot" \
+  "$(curl -s $B/api/jobs/$BJID -H "Authorization: Bearer $BOB")" '"purged_at":'
+assert "purge: a second call is honest that it did nothing" \
+  "$(curl -s -X DELETE $B/api/jobs/$BJID/content -H "Authorization: Bearer $BOB")" '"purged":false'
+assert "purge: an admin may purge somebody else's" \
+  "$(curl -s -X DELETE $B/api/jobs/$QJID/content -H "Authorization: Bearer $OP")" '"purged":true'
+assert "purge: an unknown job is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/jobs/00000000-0000-0000-0000-000000000000/content -H "Authorization: Bearer $OP")" '404'
+assert "purge: the audit entry names the act and not the content" \
+  "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'job.purge'
 assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP")" '"users"'
 assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
 

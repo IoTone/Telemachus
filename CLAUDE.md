@@ -1402,6 +1402,53 @@ staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
 STORAGE limit, not a concurrency one: the scheduler is safe in several processes,
 which is what the in-flight register exists for.
 
+## Purging a job's content (PURGE, issue #59)
+
+Built 20 Oct 2026. `DELETE /api/jobs/:id/content`; `purge-job-content!` in
+`domain/sched/scheduler.rkt`; migration `0044-job-purge`; decisions
+**PURGE‑1…8** in `docs/design/decisions.md`.
+
+```sh
+raco test test/scheduler-tests.rkt   # the two purge cases
+bash test/server-smoke.sh            # the "purge:" block, 10 assertions
+```
+
+- **It is the LEVER, not the policy.** The horizon and what evaluates it are
+  #86's retention rules; a scheduled sweep calls `purge-job-content!` per row and
+  needs nothing new. #59 was open as a *decision* and the answer came from a
+  caller: an application honouring a deletion request can clear its own rows, and
+  the document text stays in `jobs.payload` for ever.
+- **`error` is cleared too**, not just payload and result: a handler's message can
+  quote the input it choked on, so leaving it leaves the copy most likely to be
+  read by a human.
+- **The row is NOT deleted.** Status, timings, attempts, executor and audit
+  references survive — the audit log is the record (QUOTA‑3, FLEET‑1), the job row
+  need not be. A DELETE would also take FLEET‑1's lease-trail anchor and make a
+  team's own history lie about how much work it ran.
+- **`purged_at` exists because `'{}'` is ambiguous.** `payload` is `NOT NULL
+  DEFAULT '{}'`, so a purge sets it to exactly what a job with no payload looks
+  like. Without the marker nothing can show that a deletion request was honoured,
+  a sweep cannot skip what it has done, and two concurrent purges cannot settle to
+  one audit entry. The guard is `purged_at IS NULL … RETURNING id`.
+- **Only `done`/`error`/`canceled`.** A queued or running job's payload is the
+  input a handler is about to read; clearing it mid-flight fails the job as if it
+  were corrupt. `canceled` IS purgeable — the work stopped, so its input can go.
+- **Owner-ok OR `jobs:purge`**, cancel's shape with its own permission: stopping a
+  colleague's work loses nothing, destroying what it recorded does. Admin holds
+  it; a member needs neither for their own.
+- **The audit entry carries no content.** The point of the call is that the
+  content stops existing; a row quoting it would be the copy left behind.
+- **`GET /api/jobs/:id` reports `purged_at` and has never reported `payload`.**
+  So "the text is gone" is a ROW-level property and is asserted in
+  `test/scheduler-tests.rkt` over `SELECT *`, not over the API — an HTTP
+  assertion for it passes because the field was never there, which is worse than
+  no assertion. The smoke pins the surface instead: if `payload` ever joins that
+  response, it fails.
+- **`test/server-smoke.sh` had no `refute`** until this slice, so a `refute`
+  written in it ran as an unknown command — bash said "command not found" on
+  stderr, nothing set `fail`, and the suite reported PASS with the assertion
+  silently absent. It is defined now; check a helper exists before using it.
+
 ## Document bytes in a bucket (BLOB, issue #82)
 
 Built 20 Oct 2026. `domain/s3/client.rkt` + `plugins/s3blobs/` +

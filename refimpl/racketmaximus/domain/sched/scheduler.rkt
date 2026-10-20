@@ -45,6 +45,7 @@
          "../authz/authz.rkt")     ; user-principal
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
+         purge-job-content! PURGEABLE-STATUSES
          job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-STATUSES LIVE-IN
          process-one! start-scheduler! set-cap-for! set-hold-reason! set-on-hold! set-record!!
          remote-kind? remote-kinds remote-kind-validator
@@ -174,10 +175,16 @@
   (hasheq 'id (vr r 0) 'kind (vr r 1) 'status (vr r 2) 'priority (vr r 3)
           'result (let ([x (vr r 4)]) (if (sql-null? x) 'null (with-handlers ([exn:fail? (lambda (_) x)]) (string->jsexpr x))))
           'error (nz (vr r 5)) 'created_at (vr r 6) 'started_at (nz (vr r 7)) 'finished_at (nz (vr r 8))
-          'executor_id (nz (vr r 9)) 'attempt (vr r 10) 'parent_job_id (nz (vr r 11))))
+          'executor_id (nz (vr r 9)) 'attempt (vr r 10) 'parent_job_id (nz (vr r 11))
+          ;; `purged_at` is reported because WITHOUT it an empty payload and a
+          ;; purged one are the same thing to a reader (issue #59). A caller that
+          ;; honoured a deletion request needs to be able to show that it was
+          ;; honoured, and `payload = '{}'` cannot show that on its own.
+          'purged_at (nz (vr r 12))))
 
 (define JSELECT
-  "SELECT id, kind, status, priority, result, error, created_at, started_at, finished_at, executor_id, attempt, parent_job_id FROM jobs")
+  (string-append "SELECT id, kind, status, priority, result, error, created_at, started_at, "
+                 "finished_at, executor_id, attempt, parent_job_id, purged_at FROM jobs"))
 
 (define (get-job conn id team)
   (define r (query-maybe-row conn (string-append JSELECT " WHERE id = ? AND team_id = ?") id team))
@@ -224,6 +231,63 @@
                                           "AND status='running' RETURNING id") id))
      (if (and (rows-result? r) (pair? (rows-result-rows r))) #t 'not-cancelable)]
     [else 'not-cancelable]))                        ; done/error/canceled
+
+;; ---- purging a settled job's content (issue #59) --------------------------------
+;; `payload` holds whatever a kind needs, and for `infer.chat` and the document
+;; pipeline that is the document's own text; `result` holds the model's reply.
+;; Nothing removed them, ever — so a downstream application that deletes a
+;; document a user never confirmed could clear its own rows and the text stayed
+;; here, in a table nobody reads once the run has finished.
+;;
+;; This is the per-job LEVER, not a retention policy. The horizon, whether it is
+;; per-team or per-instance, and what evaluates it belong to #86's retention
+;; rules; a scheduled sweep would call exactly this function. Building the lever
+;; first means the sweep has something to call and the policy is still open.
+;;
+;; WHAT IS KEPT, and why the row is not deleted: status, timings, attempt counts,
+;; executor and the audit references all survive. The audit log is the record of
+;; what happened (QUOTA-3's rule, FLEET-1's rule); the job row need not be. A
+;; DELETE would also take the FLEET-1 lease trail's anchor and make a team's
+;; own history lie about how much work it ran.
+;;
+;; ONLY A SETTLED JOB. A queued or running one is refused rather than purged: its
+;; payload is the INPUT a handler is about to read or is reading, so clearing it
+;; mid-flight would fail the job in a way that looks like corruption. The caller
+;; cancels first — which is why `cancel-job!` sits directly above.
+(define PURGEABLE-STATUSES '("done" "error" "canceled"))
+
+;; -> #t purged now · 'already-purged · 'not-settled · #f no such job in this team
+(define (purge-job-content! conn id team)
+  (define row (query-maybe-row conn
+                (string-append "SELECT status, purged_at FROM jobs "
+                               "WHERE id = ? AND team_id = ?") id team))
+  (cond
+    [(not row) #f]
+    [else
+     (define st (vector-ref row 0))
+     (define already (vector-ref row 1))
+     (cond
+       [(not (member st PURGEABLE-STATUSES)) 'not-settled]
+       ;; Saying so rather than reporting a second success: a caller honouring a
+       ;; deletion request wants to know whether THIS call did it, and a sweep
+       ;; wants to count what it actually cleared.
+       [(and already (not (sql-null? already))) 'already-purged]
+       [else
+        ;; Guarded on `purged_at IS NULL`, which is what makes two concurrent
+        ;; purges settle to ONE winner and therefore ONE audit entry. The status
+        ;; is re-checked too, though a settled status is terminal and cannot
+        ;; change under us — it costs nothing and the guard then states the whole
+        ;; precondition in one place rather than half here and half above.
+        ;;
+        ;; `error` is cleared as well: a handler's message can quote the input it
+        ;; choked on, so a purge that left it behind would leave the one copy of
+        ;; the text most likely to be read by a human.
+        (define r (query conn
+                    (string-append "UPDATE jobs SET payload = '{}', result = NULL, error = NULL, "
+                                   "purged_at = ? WHERE id = ? AND purged_at IS NULL "
+                                   "AND status IN ('done', 'error', 'canceled') RETURNING id")
+                    (current-seconds) id))
+        (if (and (rows-result? r) (pair? (rows-result-rows r))) #t 'already-purged)])]))
 
 ;; Is this job on its way out? The cooperative half of cancellation: a handler
 ;; that runs in steps (an agent loop, a batch) polls this at a step boundary and

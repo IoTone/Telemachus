@@ -80,6 +80,12 @@
               "localization:manage"
               "reviews:read" "reviews:decide"
               "jobs:cancel"
+              ;; jobs:purge (issue #59): clear a SETTLED job's payload and result.
+              ;; Separate from jobs:cancel because the authorities differ —
+              ;; stopping a colleague's work is reversible in the sense that
+              ;; nothing is lost, and destroying the input and output it recorded
+              ;; is not. Owner-ok covers your own job, so a member needs neither.
+              "jobs:purge"
               "workflows:read" "workflows:write" "workflows:run")
    ;; use AI + own resources
    "member" '("chat:use" "tools:invoke" "research:use"
@@ -143,6 +149,7 @@
    ;; stop their own — but stopping work already RUNNING is a different act: it
    ;; discards a result somebody is waiting for, and may cut a tool call in half.
    "jobs:cancel"    "Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first."
+   "jobs:purge"     "Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not."
    "reviews:read"   "See the team's review queue and the decisions already recorded."
    "reviews:decide" "Approve, send back or reject an item waiting for review, with a rationale."
    "models:serve"   "Register a model executor for the team."

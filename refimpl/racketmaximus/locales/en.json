@@ -863,6 +863,10 @@
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
+    "doc.route.delete.api.jobs.id.content": {
+      "text": "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.",
+      "hash": "9d189ecf693750416b1c4e3cb6036348589dbe1c"
+    },
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
@@ -1146,6 +1150,10 @@
     "ui.l10ndraft": {
       "text": "AI draft",
       "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
+    },
+    "doc.perm.jobs:purge": {
+      "text": "Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not.",
+      "hash": "60247ae2461e8f3963ef7a63792bbadf58d0ab28"
     },
     "doc.route.post.api.quota": {
       "text": "Set a quota limit for the caller's team (dimension, limit, window).",

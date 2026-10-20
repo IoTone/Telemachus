@@ -2353,6 +2353,38 @@
          [(eq? r 'not-cancelable) (err "the job has already finished — nothing to cancel" 409)]
          [else (err "not found" 404)])]))))
 
+;; Purge a settled job's content (issue #59). Mirrors ep-job-cancel's shape: the
+;; route carries no #:perm and the finer rule lives here, because "your own" and
+;; "somebody else's" need different authorities and the table cannot express that.
+(define (ep-job-purge req id)
+  (with-auth req (lambda (p)
+    (define team (principal-team-id p))
+    (define owner (query-maybe-value db-conn "SELECT user_id FROM jobs WHERE id = ? AND team_id = ?" id team))
+    (cond
+      [(not owner) (err "not found" 404)]
+      [(and (not (equal? owner (principal-user-id p)))
+            (not (can? db-conn p "jobs:purge")))
+       (err "forbidden: jobs:purge (you may always purge your own job)" 403)]
+      [else
+       (define r (purge-job-content! db-conn id team))
+       (cond
+         [(eq? r #t)
+          ;; Audited with NO CONTENT in the entry — the point of the call is that
+          ;; the content stops existing, and an audit row quoting it would be the
+          ;; one copy left behind. The action, the actor and the job id are the
+          ;; record that a deletion request was honoured.
+          (audit! db-conn #:action "job.purge" #:actor-type "user" #:actor-id (principal-user-id p)
+                  #:team-id team #:resource-type "job" #:resource-id id)
+          (json-response (hasheq 'ok #t 'id id 'purged #t))]
+         ;; Not an error: the caller asked for the content to be gone and it is.
+         ;; `purged: #f` says THIS call did not do it, which a caller reconciling
+         ;; a deletion request wants to know.
+         [(eq? r 'already-purged) (json-response (hasheq 'ok #t 'id id 'purged #f))]
+         [(eq? r 'not-settled)
+          (err (string-append "the job is still queued, running or canceling — its payload is the input "
+                              "a handler is about to read. Cancel it first, then purge.") 409)]
+         [else (err "not found" 404)])]))))
+
 ;; ---- document repository (slices 49-50) --------------------------------------
 ;; The data plane is deliberately NOT JSON: a document is bytes, and base64 inside a
 ;; JSON envelope costs a third of the wire and forces the whole file into memory at
@@ -2960,6 +2992,7 @@
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
+   'job-purge ep-job-purge
    'worker-document ep-worker-document
    'worker-derive ep-worker-derive
    'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants

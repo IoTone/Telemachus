@@ -1235,7 +1235,32 @@
       (exec* conn "ALTER TABLE jobs ADD COLUMN released_by TEXT")
       (exec* conn "ALTER TABLE jobs ADD COLUMN release_after BIGINT"))))
 
+(define m-0044-job-purge
+  (migration "0044-job-purge"
+    (lambda (conn)
+      ;; A settled job's payload and result can be PURGED on demand (issue #59).
+      ;;
+      ;; `jobs.payload` holds whatever a kind needs, and for the document
+      ;; pipeline and `infer.chat` that is the document's own text; `result` holds
+      ;; the model's reply. Nothing removed them, ever. The case that forced this
+      ;; is a downstream application deleting a document a user never confirmed:
+      ;; it can remove its own rows, and the text stayed here in a table nobody
+      ;; reads after the run finished.
+      ;;
+      ;; WHY A COLUMN AT ALL, rather than just clearing the fields. `payload` is
+      ;; NOT NULL DEFAULT '{}', so a purge sets it to '{}' — which is exactly what
+      ;; a job with no payload looks like. Without a marker, "purged" and "never
+      ;; had anything" are the same row, so nothing can tell an operator whether
+      ;; a deletion request was honoured, and a retention sweep (#86) cannot skip
+      ;; what it has already done. It is also the only thing that makes two
+      ;; concurrent purges settle to ONE audit entry.
+      ;;
+      ;; Epoch seconds, like every other time column added since 0038: the TEXT
+      ;; CURRENT_TIMESTAMP ones differ by dialect. Nullable, nothing backfilled —
+      ;; a job that has never been purged reads exactly as it did before.
+      (exec* conn "ALTER TABLE jobs ADD COLUMN purged_at BIGINT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge))
