@@ -391,6 +391,10 @@
       "text": "The team's runs, newest first.",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
     },
+    "doc.route.put.api.retention": {
+      "text": "Set the TEAM's retention rules: `max_age_days`, `delete_derived_after_days`, `purge_job_payloads_after_days`. Each is a whole number of days or null. **0 is refused** — it would delete a document on arrival — and a field nobody defined is refused rather than dropped, because a rule that does nothing while you believe data is being deleted is the worst way to be wrong. A team may only SHORTEN what its org and the instance allow.",
+      "hash": "30a37e5b3494e3964175947d7f9d26a41709dd34"
+    },
     "ui.newversion": {
       "text": "Saved as a new version",
       "hash": "b9dcda73378ea2eefe58d13865d4e79407f77d6c"
@@ -702,6 +706,10 @@
     "doc.route.delete.api.doc-triggers.id": {
       "text": "Delete a trigger and its history; the runs it started remain.",
       "hash": "afe84f89cbf1f9cf94cca53d96bb0aea6890ed7e"
+    },
+    "doc.route.get.api.retention": {
+      "text": "The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing.",
+      "hash": "c9231f778313d4e931e44e514ab8f69f3968987a"
     },
     "beta.field_required": {
       "text": "{field} is required",
@@ -1347,6 +1355,10 @@
       "text": "Testing tools",
       "hash": "3d3998625037d01c3f0c18b46c8e2f6a0db08edf"
     },
+    "doc.route.post.api.repo-obj.id.legal-hold": {
+      "text": "Place or release a legal hold on an object: `{\"hold\": true|false}`. While held, deletion BY RULE is refused — a retention sweep skips it and says how many it skipped. This is the flag r4 will build a prefix-level surface on; it ships with the rules because a schedule that deletes is a one-way door and a hold is the only thing that can stop one.",
+      "hash": "c571267be0e2aa366a173a800e261cbeb9b57829"
+    },
     "ui.requestaccess": {
       "text": "Request access",
       "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
@@ -1486,6 +1498,10 @@
     "ui.qshowing": {
       "text": "{from}–{to} of {total}",
       "hash": "1d79d3c3f0867cec319181decf537a23d774d2b6"
+    },
+    "doc.route.get.api.org.retention": {
+      "text": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
+      "hash": "09db09e9244a119710bf5d37fa9712d3f411a02f"
     },
     "doc.route.post.api.tools.name": {
       "text": "Enable or disable a tool for the team.",
@@ -2111,6 +2127,10 @@
       "text": "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).",
       "hash": "354b1a6e317ec7aa48339cc2917f15b416b7f18b"
     },
+    "doc.route.get.api.retention.plan": {
+      "text": "What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch.",
+      "hash": "da6cf2e104ab373fa890106ae02c2c864aca8673"
+    },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
       "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
@@ -2254,6 +2274,10 @@
     "ui.download": {
       "text": "Download",
       "hash": "a479c9c34e878d07b4d67a73a48f432ad7dc53c8"
+    },
+    "doc.route.put.api.org.retention": {
+      "text": "Set the company's retention rules. Same vocabulary and same refusals as the team route; the effective value for a team is the shortest of instance, org and team.",
+      "hash": "5ba096d4acfe3546f0865de072a8ba5b9dc2c1a2"
     },
     "ui.nosharedwithme": {
       "text": "Nothing has been shared with you yet.",

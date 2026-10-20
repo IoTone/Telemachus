@@ -1493,6 +1493,51 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
 - **`(require "/abs/path.rkt")` is a bad module path**; an absolute path needs
   `(require (file "/abs/path.rkt"))`.
 
+## Retention rules on a schedule (DEL‑9…16, issue #86 r3)
+
+Built 20 Oct 2026. `domain/retention/retention.rkt`; migration `0045-legal-hold`;
+`GET/PUT /api/retention`, `GET /api/retention/plan`, `GET/PUT /api/org/retention`,
+`POST /api/repo-obj/:id/legal-hold`. The sweep rides `set-reaper!` hourly.
+
+```sh
+raco test test/retention-tests.rkt   # 6 cases, safety properties first
+bash test/server-smoke.sh            # the "retention rules" block, 12 assertions
+```
+
+- **This is where #83 and #59 converge.** #59 built the per-job lever and left the
+  policy open; #83 asked for a horizon. The sweep calls `purge-job-content!` and
+  `repo-delete-tree!` — it reimplements neither.
+- **AN UNKNOWN AGE MEANS NEVER STALE.** The first version used
+  `COALESCE(created_epoch, 0)`, which reads a version written before 0045 as
+  *infinitely old*. The migration backfills nothing, so the first instance to
+  configure a policy would have **deleted every document it already had**. It is
+  `IS NOT NULL`, and the test fails against the `COALESCE` version — the same
+  rule applies to `jobs.created_epoch` from 0041.
+- **Nothing applies unless configured.** A deliberate deviation from #83's
+  "default 7 days": a real default means an upgrade silently starts deleting on a
+  timer everywhere. 7 days is the recommendation, and the value you get when you
+  enable payload purging without naming a horizon.
+- **The hold ships WITH the engine, not after it** (r4's flag). A schedule that
+  deletes is a one-way door and a hold is the only brake; shipping the engine
+  first leaves anyone who configures a rule in between unable to exempt a
+  document under litigation. A hold blocks the RULE, never the object's own
+  steward — otherwise nobody could release it by deleting on purpose.
+- **The layers tighten: SHORTEST per field, `null` loses.** SESS‑4's rule, where
+  tighter means shorter. A team may shorten what its org allows and never extend
+  it. `retention-sources` says which layer won.
+- **The sweep acts as the team's own owner/admin**, so every deletion still
+  passes `can?`. There is no "system deletes anything" principal.
+- **0 days is refused rather than defaulted** (it would delete on arrival), and an
+  unknown FIELD is refused rather than dropped.
+- **`?lifecycle` still answers 501** and the mapping is documented as NOT thin:
+  S3 lifecycle is prefixes and storage classes, these rules are a team's objects,
+  its derived objects and its job payloads — two with no S3 equivalent.
+- **`repo_versions` had no epoch column** before 0045, and the membership table is
+  `memberships`, not `team_members`. Both were guesses that cost a compile.
+- **A `with-mt` + `with-auth` handler needs FIVE closing parens** (define, with-mt,
+  lambda, with-auth, lambda); four gives 207 paren problems and a confusing
+  `read-syntax` at the top of the file.
+
 ## Deleting a document and everything it produced (DEL, issue #86 slice 1)
 
 Built 20 Oct 2026. `domain/repo/repo.rkt`; `?cascade=`/`?detach=`/`?dry_run=` on

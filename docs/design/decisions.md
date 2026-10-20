@@ -732,11 +732,35 @@ This is slice 1 of #86: cascade (r1), prefix (r2), the blob-reference guarantee
 | 🔑 **DEL‑7** | The verification read | **`GET /api/repo-obj/:id/traces`, and `audit` is NOT a trace** · vs trusting the DELETE's 200 | "I called DELETE and got a 200" is not evidence that a deletion request was honoured; a count per table a trace could hide in is. `audit` is reported precisely so an operator can see that it is the one thing deliberately left — an erasure keeps it (TEN‑2g, #86 r5) — rather than chasing it to zero. |
 | **DEL‑8** | One audit event or many | **One for the tree** · vs one per object | The question an auditor asks is "was this deletion request honoured", and that is a question about the tree. The event names the key, the counts and the bytes. |
 
-**Not built in this slice, and named rather than implied:** legal hold (r4) —
-a flag blocking deletion by rule or API, which needs a decision about whether it
-binds the prefix path too; the retention rule engine (r3), which is where #59's
-`purge-job-content!` sweep and #83's 7-day horizon both belong, as one answer;
-and org erasure (r5). `?lifecycle` on the S3 listener still answers 501 by
+### Slice 2 — the retention rule engine (r3) and the hold flag, 20 Oct 2026
+
+This is where **#83's "purge job payloads after N days" and #59's per-job lever
+become ONE answer**. #59 built the lever and deliberately left the policy open;
+#83 asked for a horizon; #86 r3 asked for the rule set. The sweep calls
+`purge-job-content!` and `repo-delete-tree!` and implements neither again.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **DEL‑9** | An unknown age | **`IS NOT NULL` — unknown means NEVER STALE** · vs `COALESCE(epoch, 0)` | The first version used `COALESCE(epoch, 0)`, which reads a version written before migration 0045 as **infinitely old**. The migration backfills nothing, so the first instance to configure a policy would have **deleted every document it already had**. Positive-controlled: against that version the test fails on "a version with NO KNOWN AGE is never stale". The same applies to `jobs.created_epoch`, which 0041 also added without a backfill — and it is the line FLEET‑4 already took by reporting `null` rather than guessing. |
+| 🔑 **DEL‑10** | Does anything apply by default? | **NO. An unconfigured instance deletes nothing** · vs #83's literal "default 7 days" | A real default means an upgrade silently begins deleting every existing instance's job payloads on a timer. 7 days is the documented recommendation and the value you get when you switch payload purging on without naming a horizon. Deliberate deviation from #83's wording, for the reason CLAUDE.md keeps giving: a change that breaks every existing deployment is not a default. |
+| 🔑 **DEL‑11** | The hold arrives WITH the engine | **Build the flag and the veto now; r4's surface later** · vs ship the engine first | A rule that deletes on a schedule is a one-way door, and a hold is the only thing that can stop one. Shipping the engine first leaves every instance that configures a rule in between with no way to exempt a document under litigation — the single case holds exist for. r4's prefix holds, release workflow and its own trail are still its own slice. |
+| 🔑 **DEL‑12** | How the layers combine | **The SHORTEST per field; `null` loses** · vs longest wins · vs most specific wins outright | SESS‑4's rule, where "tighter" means shorter. The instance sets a ceiling, an org may shorten it for its own data, a team may shorten further for its own — and a team cannot extend past its company's obligation. `retention-sources` reports WHICH layer won, because "why is my data going after 30 days" is the question an operator asks and three documents to diff by hand is a poor answer. |
+| **DEL‑13** | Who the sweep acts as | **The team's own owner/admin** · vs a privileged system principal | Every deletion still passes `can?`, so a rule cannot remove what the team itself could not. There is deliberately no "system deletes anything" principal. |
+| **DEL‑14** | A hold vs a deliberate delete | **A hold blocks the RULE, not the steward** · vs block all deletion | Blocking the object's own steward would mean a hold nobody could release by deleting the document on purpose. The retention engine is the thing that cannot be argued with; a person with `files:delete` can be. |
+| **DEL‑15** | 0 days | **Refused outright** · vs fall back to a default | Every interval knob here falls back rather than reaching 0, because 0 means "immediately". A retention of 0 days deletes a document on arrival, and there is no safe horizon to substitute — so it is an error, not a fallback. An unknown FIELD is refused too (the theme-token call): a rule that does nothing while an operator believes data is being deleted is the worst way to be wrong. |
+| **DEL‑16** | The sweep's cadence | **Hourly, on the existing `set-reaper!` seam** · vs its own thread · vs every tick | These rules are expressed in DAYS; a sweep running more often would re-scan the same teams to decide the same nothing. It rides the seam `reap-uploads!` already uses, with its own handler so one unreachable object cannot take the lease reaper down — and the lease reaper is the one thing on that tick that must never be skipped. |
+
+**`?lifecycle` on the S3 listener still answers 501**, and r3's "expose the same
+via `?lifecycle` as a thin mapping, or document why not" is answered with: not
+yet, and the reason is that the mapping is not thin. S3 lifecycle is expressed
+over key prefixes with transitions between storage classes; these rules are
+expressed over a team's objects, its DERIVED objects, and its job payloads — two
+of which have no S3 equivalent at all. A partial mapping that silently ignored
+`delete_derived_after_days` would be worse than the honest 501 DOC‑13 already
+gives.
+
+**Still r4 and r5:** the hold's PREFIX surface and release workflow, and org
+erasure. `?lifecycle` on the S3 listener still answers 501 by
 design (DOC‑13) and r3's mapping question is open with it.
 
 ## Purging a job's content (PURGE) — **decided and BUILT 20 Oct 2026** (issue #59)

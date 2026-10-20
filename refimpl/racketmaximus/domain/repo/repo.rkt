@@ -32,6 +32,7 @@
          repo-set-visibility! repo-delete! repo-usage
          blob-referenced? release-blob-if-unreferenced!
          derived-closure repo-delete-tree! repo-delete-prefix! repo-traces
+         repo-legal-hold!
          repo-share! repo-unshare! repo-grants
          repo-inherit! repo-derivations
          CAPABILITIES capability-permissions permissions->capability
@@ -245,9 +246,12 @@
                      "VALUES (?, ?, ?, ?, ?, ?)")
       oid org team (principal-user-id p) (or vis "team") key))
   (query-exec conn
-    (string-append "INSERT INTO repo_versions (id, object_id, seq, digest, size, content_type, filename, created_by) "
-                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    vid oid seq digest size content-type filename (principal-user-id p))
+    ;; `created_epoch` beside the TEXT `created_at` (migration 0045): an object's
+    ;; AGE is what a retention rule tests, and an age from a TEXT
+    ;; CURRENT_TIMESTAMP is invisibly wrong on one of the two dialects.
+    (string-append "INSERT INTO repo_versions (id, object_id, seq, digest, size, content_type, filename, created_by, created_epoch) "
+                   "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    vid oid seq digest size content-type filename (principal-user-id p) (current-seconds))
   (query-exec conn
     "UPDATE repo_objects SET current_version_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
     vid oid)
@@ -632,6 +636,30 @@
          (hasheq 'source_object_id (vector-ref r 0) 'source_version_id (nz (vector-ref r 1))
                  'version_id (nz (vector-ref r 2)) 'run_id (nz (vector-ref r 3))
                  'step_id (nz (vector-ref r 4)) 'created_at (format "~a" (vector-ref r 5))))))
+
+;; ---- the legal hold (issue #86 r4's flag, needed by r3) ---------------------------
+;; Deletion BY RULE is refused while a hold is set. It lives here rather than in
+;; the retention module because the permission check needs `obj->resource`, and
+;; because a hold is a STEWARDSHIP act on an object — the same `files:manage`
+;; sharing and visibility use (DSH-2). An owner holds it by owner-ok; a team admin
+;; by role; anyone else needs a `manage` grant.
+;;
+;; It does NOT block a deliberate DELETE by a person who may delete. A hold is a
+;; brake on the unattended sweep, not a lock against the object's own steward —
+;; conflating the two would mean a hold nobody could ever release by deleting the
+;; document on purpose, and the retention engine is the thing that cannot be
+;; argued with.
+(define (repo-legal-hold! conn p id on?)
+  (define o (repo-get conn p id))
+  (and o
+       (let ()
+         (require-perm conn p "files:manage" #:resource (obj->resource o))
+         (query-exec conn "UPDATE repo_objects SET legal_hold = ? WHERE id = ?"
+                     (if on? (current-seconds) sql-null) id)
+         (audit! conn #:action (if on? "repo.hold.placed" "repo.hold.released")
+                 #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:team-id (hash-ref o 'team_id) #:resource-type "repo" #:resource-id id)
+         #t)))
 
 ;; ---- the derivation closure (issue #86 r1) ----------------------------------------
 ;; Everything produced FROM this object, transitively. `repo-derivations` reads the

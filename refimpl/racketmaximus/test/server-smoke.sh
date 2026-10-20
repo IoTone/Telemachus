@@ -654,6 +654,39 @@ assert_content "search now matches the document's CONTENT" \
 
 # ---- LAY-4/LAY-5: what a team asserts, and where the text came from ---------------
 echo
+echo "== retention rules and the legal hold (issue #86 r3) =="
+assert "retention: an unconfigured instance has no rules" \
+  "$(curl -s "$B/api/retention" -H "Authorization: Bearer $OP")" '"max_age_days":null'
+assert "retention: …and its plan is empty" \
+  "$(curl -s "$B/api/retention/plan" -H "Authorization: Bearer $OP")" '"objects":[]'
+# 0 days would delete a document on arrival
+assert "retention: 0 days is refused" \
+  "$(curl -s -X PUT "$B/api/retention" -H "Authorization: Bearer $OP" -d '{"max_age_days":0}')" 'at least 1 day'
+assert "retention: a field nobody defined is refused, not dropped" \
+  "$(curl -s -X PUT "$B/api/retention" -H "Authorization: Bearer $OP" -d '{"keep_forever":1}')" 'unknown field'
+assert "retention: a valid policy is accepted" \
+  "$(curl -s -X PUT "$B/api/retention" -H "Authorization: Bearer $OP" -d '{"purge_job_payloads_after_days":7}')" '"ok":true'
+assert "retention: …and reads back, naming which layer set it" \
+  "$(curl -s "$B/api/retention" -H "Authorization: Bearer $OP")" '"purge_job_payloads_after_days":"team"'
+assert "retention: a plain member cannot set the team's rules" \
+  "$(curl -s -X PUT "$B/api/retention" -H "Authorization: Bearer $BOB" -d '{"max_age_days":1}')" 'Forbidden'
+# the hold: placed through the stewardship permission, and audited
+HOLDOBJ=$(curl -s -X PUT "$B/api/repo/holdme.txt" -H "Authorization: Bearer $OP" \
+          -H 'Content-Type: text/plain' --data-binary 'under litigation')
+HOLDID=$(printf '%s' "$HOLDOBJ" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
+assert "hold: can be placed" \
+  "$(curl -s -X POST "$B/api/repo-obj/$HOLDID/legal-hold" -H "Authorization: Bearer $OP" -d '{"hold":true}')" '"ok":true'
+assert "hold: …and is reported on the object" \
+  "$(curl -s -X POST "$B/api/repo-obj/$HOLDID/legal-hold" -H "Authorization: Bearer $OP" -d '{"hold":true}')" '"legal_hold":'
+assert "hold: …and the plan counts what it protects" \
+  "$(curl -s "$B/api/retention/plan" -H "Authorization: Bearer $OP")" '"held":1'
+assert "hold: can be released" \
+  "$(curl -s -X POST "$B/api/repo-obj/$HOLDID/legal-hold" -H "Authorization: Bearer $OP" -d '{"hold":false}')" '"legal_hold":null'
+assert "hold: placing one is audited" \
+  "$(curl -s "$B/api/audit?limit=30" -H "Authorization: Bearer $OP")" 'repo.hold'
+# put the team's policy back so nothing downstream runs under a retention rule
+curl -s -o /dev/null -X PUT "$B/api/retention" -H "Authorization: Bearer $OP" -d '{}'
+
 echo "== cascade and prefix delete (issue #86) =="
 # A source with one derived output, then the cascade, then the verification read.
 CSRC=$(curl -s -X PUT "$B/api/repo/purgeme/src.txt" -H "Authorization: Bearer $OP" \

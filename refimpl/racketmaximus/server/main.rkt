@@ -65,7 +65,8 @@
          (only-in "../domain/repo/extract.rkt" repo-spans-for spans-covering)   ; LAY-5
          "../domain/repo/index-tools.rkt"         ; registers the doc-indexing tools (slice 54)
          (only-in "../domain/repo/doc-tools.rkt")  ; registers the document-pipeline tools (slice 57)
-         "../domain/repo/triggers.rkt"            ; upload triggers on repo-put!'s seam (slice 58)
+         "../domain/repo/triggers.rkt"
+         "../domain/retention/retention.rkt"            ; upload triggers on repo-put!'s seam (slice 58)
          "routes.rkt"                             ; the declared HTTP surface (slice 60)
          "../domain/kg/kg.rkt"                    ; the knowledge graph (slice 61)
          (only-in "../domain/kg/kg-tools.rkt")     ; registers its tools
@@ -811,6 +812,73 @@
                            'bounds (hasheq 'idle_min IDLE-MIN 'idle_max IDLE-MAX
                                            'absolute_min ABSOLUTE-MIN 'absolute_max ABSOLUTE-MAX
                                            'warn_max WARN-MAX))))))
+
+;; ---- retention rules (#86 r3) ----------------------------------------------------
+;; The team's own org, needed for the effective policy. `caller-org` is the
+;; multi-tenant accessor; single-tenant instances have none and the org layer is
+;; simply absent, which `effective-retention` already handles.
+(define (team-org-of p)
+  (define o (query-maybe-value db-conn "SELECT org_id FROM teams WHERE id = ?" (principal-team-id p)))
+  (and o (not (sql-null? o)) o))
+
+(define (ep-retention-get req)
+  (with-auth req (lambda (p)
+    (define team (principal-team-id p))
+    (define org (team-org-of p))
+    (json-response
+     (hasheq 'policy (effective-retention db-conn team org)
+             ;; which LAYER set each value. Three documents an operator has to
+             ;; diff by hand is a poor answer to "why is my data going".
+             'sources (retention-sources db-conn team org)
+             'team (retention-ref db-conn 'team team)
+             'org (if org (retention-ref db-conn 'org org) 'null)
+             'instance (retention-ref db-conn 'instance)
+             'recommended_payload_days DEFAULT-PAYLOAD-DAYS)))))
+
+(define (ep-retention-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "settings:manage")
+    (define b (read-json-body req))
+    (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+      (retention-set! db-conn 'team (principal-team-id p) (if (hash? b) b (hasheq)))
+      (audit! db-conn #:action "retention.policy" #:actor-type "user"
+              #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+              #:resource-type "team" #:resource-id (principal-team-id p))
+      (json-response (hasheq 'ok #t
+                             'policy (effective-retention db-conn (principal-team-id p)
+                                                          (team-org-of p))))))))
+
+(define (ep-retention-plan-get req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (json-response
+     (hash-set (retention-plan db-conn (principal-team-id p) (team-org-of p)) 'ok #t)))))
+
+(define (ep-legal-hold-put req id)
+  (with-auth req (lambda (p)
+    ;; The check and the audit live in `repo-legal-hold!`, beside the object
+    ;; rows — `obj->resource` is internal to repo.rkt, and a second copy of the
+    ;; stewardship rule here would be a second thing to keep in step.
+    (define b (read-json-body req))
+    (define on? (and (hash? b) (eq? (hash-ref b 'hold #t) #t)))
+    (if (repo-legal-hold! db-conn p id on?)
+        (json-response (hasheq 'ok #t 'id id 'legal_hold (or (legal-hold-of db-conn id) 'null)))
+        (err "not found" 404)))))
+
+(define (ep-my-org-retention-get req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (json-response (hasheq 'policy (retention-ref db-conn 'org (caller-org p)))))))))
+
+(define (ep-my-org-retention-put req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (define b (read-json-body req))
+      (with-handlers ([exn:fail:user? (lambda (e) (err (exn-message e) 400))])
+        (retention-set! db-conn 'org (caller-org p) (if (hash? b) b (hasheq)))
+        (json-response (hasheq 'ok #t 'policy (retention-ref db-conn 'org (caller-org p))))))))))
 
 (define (ep-session-policy-put req)
   (with-auth req (lambda (p)
@@ -3046,6 +3114,9 @@
    'repo-visibility ep-repo-visibility 'repo-get ep-repo-get 'repo-presign ep-repo-presign
    'repo-meta ep-repo-meta 'repo-delete ep-repo-delete 'repo-put ep-repo-put
    'repo-traces ep-repo-traces 'repo-delete-prefix ep-repo-delete-prefix
+   'retention-get ep-retention-get 'retention-put ep-retention-put
+   'retention-plan-get ep-retention-plan-get 'legal-hold-put ep-legal-hold-put
+   'my-org-retention-get ep-my-org-retention-get 'my-org-retention-put ep-my-org-retention-put
    's3-creds ep-s3-creds 's3-cred-create ep-s3-cred-create 's3-cred-revoke ep-s3-cred-revoke
    'workflows-create ep-workflows-create 'workflows-list ep-workflows-list 'workflow-schema ep-workflow-schema
    'workflow-run ep-workflow-run
@@ -3321,6 +3392,13 @@
   ;; otherwise hold those bytes for ever.
   (define last-upload-sweep (box 0))
   (define UPLOAD-SWEEP-EVERY 600)
+  ;; The retention sweep (#86 r3) rides the SAME seam, on its own long interval.
+  ;; An hour, not ten minutes: these rules are expressed in DAYS, so a sweep that
+  ;; ran more often would only re-scan the same teams to decide the same nothing.
+  ;; An instance with no policy configured does not scan at all — `retention-sweep!`
+  ;; finds its teams from the policy documents that exist.
+  (define last-retention-sweep (box 0))
+  (define RETENTION-SWEEP-EVERY 3600)
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -3331,6 +3409,17 @@
          (define dropped (reap-uploads! conn))
          (when (> dropped 0)
            (printf "reaped ~a abandoned multipart upload(s)\n" dropped))))
+     (when (> (- (current-seconds) (unbox last-retention-sweep)) RETENTION-SWEEP-EVERY)
+       (set-box! last-retention-sweep (current-seconds))
+       ;; Its own handler, like the upload sweep's: one team's unreachable object
+       ;; must not take the lease reaper down with it, and the lease reaper is the
+       ;; one thing on this tick that must never be skipped.
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "retention sweep: ~a\n" (exn-message e)))])
+         (define-values (deleted purged) (retention-sweep! conn))
+         (when (or (> deleted 0) (> purged 0))
+           (printf "retention: deleted ~a object tree(s), purged ~a job payload(s)\n"
+                   deleted purged))))
      n))
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker
