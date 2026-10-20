@@ -38,7 +38,10 @@
          ;; loopback-bind? normalizes before delegating. Do not grow a second
          ;; predicate here — the two would drift and the TLS warning would start
          ;; disagreeing with the identity-header gate about what is private.
-         (only-in "../domain/authz/peer.rkt" loopback-address?))
+         (only-in "../domain/authz/peer.rkt" loopback-address?)
+         ;; issue #83: the switch, so the one combination that silently does
+         ;; nothing can be refused here rather than discovered later
+         (only-in "../config.rkt" content-encryption-enabled?))
 
 (provide startup-problems
          blob-store-problem
@@ -170,6 +173,20 @@
     (list
      (and conn migrations (schema-problem conn migrations))
      (and blob-root (blob-store-problem blob-root))
+     ;; ALWAYS FATAL, unlike the two advisories below: an operator who set
+     ;; TELEMACHUS_ENCRYPT_CONTENT has said they want derived document content
+     ;; sealed, and without a key `secret-wrap` passes plaintext STRAIGHT THROUGH
+     ;; by design (#19, so that adopting a key needs no migration). So this
+     ;; combination writes exactly the plaintext the operator asked to prevent,
+     ;; reports healthy, and loses content search into the bargain. Refusing is
+     ;; the only answer that is not a lie.
+     (and (content-encryption-enabled?) (not secrets?)
+          (startup-problem 'error 'encrypt-without-key
+                           (string-append
+                            "TELEMACHUS_ENCRYPT_CONTENT is on but there is no TELEMACHUS_SECRET_KEY."
+                            "\n  Derived document content would be written in PLAINTEXT anyway — a"
+                            "\n  wrap with no key passes the value through, so the switch would do"
+                            "\n  nothing while reporting success. Set a key, or unset the switch.")))
      (and (not secrets?)
           (startup-problem advisory 'no-secret-key
                            (string-append

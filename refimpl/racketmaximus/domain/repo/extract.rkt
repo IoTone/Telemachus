@@ -26,7 +26,11 @@
          db-kit/portable
          ;; `current-plugin` is the loader's parameter; it lives in the scheduler
          ;; because job-kind ownership needed it first, and both registries read it.
-         (only-in "../sched/scheduler.rkt" current-plugin))
+         (only-in "../sched/scheduler.rkt" current-plugin)
+         ;; issue #83: the extracted text is sealed with the same seam the three
+         ;; replayable credentials use, under the same table.column:row AAD
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
+         (only-in "../../config.rkt" content-encryption-enabled?))
 
 (provide extract-text extract-text/spans extractable? EXTRACT-CAP EXTRACT-REASONS
          span-problem spans-covering
@@ -286,6 +290,32 @@
     [else (values #f 'unsupported)]))
 
 ;; ---- the index rows -------------------------------------------------------------
+;; ---- sealing the extracted text (issue #83 r1) -----------------------------------
+;; The text pulled out of a document is as sensitive as the document, and it sat
+;; here in plaintext. Sealed with the same AES-256-GCM seam the three replayable
+;; credentials use (#19), under the same `<table>.<column>:<row-id>` AAD — so a
+;; ciphertext moved between rows does not open — and with the same storage form,
+;; which means a row written before the switch was turned on still reads.
+;;
+;; OPT-IN, via `content-encryption-enabled?`. Sealing this column makes CONTENT
+;; SEARCH impossible: the match is a SQL `LIKE` over it. #83 r3 permits exactly
+;; this ("or be an explicit opt-in per instance"), and `search.rkt` SAYS that
+;; content matching is unavailable rather than quietly returning fewer rows.
+;;
+;; `spans` is sealed too, because OCR page structure is derived content (r1 names
+;; it) and a bbox list plus page numbers is a map of where the words are.
+(define (text-context object-id) (string-append "repo_text.content:" object-id))
+(define (spans-context object-id) (string-append "repo_text.spans:" object-id))
+
+(define (seal-text object-id s)
+  (if (content-encryption-enabled?) (secret-wrap (text-context object-id) s) s))
+(define (unseal-text object-id s)
+  ;; NOT conditional on the switch: a row sealed while it was on must still open
+  ;; after it is turned off, or turning the switch off would lose every document's
+  ;; text. `secret-unwrap` returns anything unwrapped as-is, so this is safe on a
+  ;; plaintext row too.
+  (if (string? s) (secret-unwrap (text-context object-id) s) s))
+
 (define (repo-text-upsert! conn object-id version-id content #:spans [spans '()])
   (query-exec conn
     (string-append "INSERT INTO repo_text (object_id, version_id, content, spans, extracted_at) "
@@ -293,7 +323,10 @@
                    "ON CONFLICT(object_id) DO UPDATE SET "
                    "version_id = excluded.version_id, content = excluded.content, "
                    "spans = excluded.spans, extracted_at = CURRENT_TIMESTAMP")
-    object-id version-id content (jsexpr->string (clean-spans spans))))
+    object-id version-id
+    (seal-text object-id content)
+    (let ([j (jsexpr->string (clean-spans spans))])
+      (if (content-encryption-enabled?) (secret-wrap (spans-context object-id) j) j))))
 
 ;; the stored provenance for an object, or '() — never #f, so a caller that asks
 ;; about a document extracted before provenance existed gets an empty answer
@@ -303,10 +336,12 @@
   (cond
     [(or (not v) (sql-null? v)) '()]
     [else (with-handlers ([exn:fail? (lambda (_) '())])
-            (let ([j (string->jsexpr v)]) (if (list? j) j '())))]))
+            (let ([j (string->jsexpr (secret-unwrap (spans-context object-id) v))])
+              (if (list? j) j '())))]))
 
 (define (repo-text-delete! conn object-id)
   (query-exec conn "DELETE FROM repo_text WHERE object_id = ?" object-id))
 
 (define (repo-text-for conn object-id)
-  (query-maybe-value conn "SELECT content FROM repo_text WHERE object_id = ?" object-id))
+  (unseal-text object-id
+    (query-maybe-value conn "SELECT content FROM repo_text WHERE object_id = ?" object-id)))

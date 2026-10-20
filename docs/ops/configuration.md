@@ -96,6 +96,37 @@ Conventions used throughout:
 | `TELEMACHUS_OOP` | `<impl>/oop.json` | Out-of-process (sandboxed) plugin config file. |
 | `TELEMACHUS_LOCALES` | `locales` | Directory of `*.json` catalogs. The export **writes** here, so point it at a writable copy in a test. |
 
+## Encrypting document-derived content at rest (issue #83)
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TELEMACHUS_ENCRYPT_CONTENT` | off | Boolean. Seals `repo_text.content` and `repo_text.spans` with AES‑256‑GCM under `TELEMACHUS_SECRET_KEY`, using the same stored form and the same `<table>.<column>:<row-id>` AAD as the three replayable credentials. **Set without a secret key it REFUSES TO START** — a wrap with no key passes the value through by design, so the switch would write the plaintext it was enabled to prevent while reporting success. |
+
+**It costs content search, which is why it is a separate switch.** The match is a
+SQL `LIKE` over `repo_text.content`; sealed, it matches ciphertext and therefore
+nothing. So `GET /api/search` drops that clause (a key or filename match still
+works) and reports **`content_search: false`** on every reply — a search that
+quietly stopped looking inside documents would read as "there is no such
+document", and a caller must be able to tell those apart.
+
+This is deliberately **not** `TELEMACHUS_SECRET_KEY`. That key seals the three
+replayable credentials and is wanted on every instance; this decides whether
+derived document content is sealed too, and it costs a capability. A deployment
+holding regulated documents wants both. One that needs to search its documents
+wants only the first.
+
+Turning the switch **off again does not lose anything**: unsealing is not
+conditional on it, so rows sealed while it was on still read. `racket
+cli/telemachus-secrets.rkt status` lists the content columns **only when the
+switch is on**, and `rewrap` seals them only then — otherwise a rotation would
+silently remove search from an instance that had chosen to keep it.
+
+**Database-level encryption is necessary but not sufficient.** RDS or EBS
+encryption protects a stolen disk. It does not protect a `pg_dump`, a logical
+replica, a backup copied to object storage, or anything read by a process that
+already has the volume mounted — which is every path a tenant's extracted text
+actually travels. This seals the column, so the ciphertext travels with the dump.
+
 ## Object-storage blob store (the `s3blobs` plugin, issue #82)
 
 Document bytes in an S3-compatible bucket instead of on local disk. Selected with

@@ -31,10 +31,27 @@
 
 ;; Every replayable secret in the database, as (table, column, id-column, context).
 ;; Adding a secret to the platform means adding a row here — the CLI is the list.
-(define SECRETS
+(define CREDENTIAL-SECRETS
   (list (list "users"             "totp_secret" "id" "users.totp_secret")
         (list "repo_credentials"  "secret_key"  "id" "repo_credentials.secret_key")
         (list "executors"         "secret_key"  "id" "executors.secret_key")))
+
+;; Document-derived CONTENT (issue #83), which is a different kind of thing and
+;; is therefore conditional. The three above are replayable credentials: if a key
+;; exists they should be sealed, always, and `rewrap` sealing them is the whole
+;; point. Content is sealed only when the operator asked for it, because sealing
+;; it COSTS CONTENT SEARCH — so a `rewrap` that swept these in unconditionally
+;; would silently remove a capability from an instance that had deliberately
+;; chosen to keep it. `status` lists them separately for the same reason: an
+;; instance with the switch off is not "leaking" its extracted text, it is
+;; running the documented default.
+(define CONTENT-SECRETS
+  (list (list "repo_text" "content" "object_id" "repo_text.content")
+        (list "repo_text" "spans"   "object_id" "repo_text.spans")))
+
+(define (SECRETS)
+  (append CREDENTIAL-SECRETS
+          (if (content-encryption-enabled?) CONTENT-SECRETS '())))
 
 (define (rows-of conn table col idcol)
   (query-rows conn (format "SELECT ~a, ~a FROM ~a WHERE ~a IS NOT NULL" idcol col table col)))
@@ -44,7 +61,7 @@
   (when (current-previous-secret-key)
     (printf "previous   : configured — a rotation is in progress\n"))
   (define totals
-    (for/list ([spec (in-list SECRETS)])
+    (for/list ([spec (in-list (SECRETS))])
       (define rows (rows-of conn (car spec) (cadr spec) (caddr spec)))
       (define sealed (for/sum ([r (in-list rows)]) (if (wrapped-secret? (vector-ref r 1)) 1 0)))
       (printf "~a.~a: ~a stored, ~a sealed, ~a in the clear\n"
@@ -62,7 +79,7 @@
   (unless (secrets-enabled?)
     (die "TELEMACHUS_SECRET_KEY is not set — there is nothing to seal secrets with."))
   (define changed
-    (for/sum ([spec (in-list SECRETS)])
+    (for/sum ([spec (in-list (SECRETS))])
       (define-values (table col idcol prefix) (apply values spec))
       (for/sum ([r (in-list (rows-of conn table col idcol))])
         (define id (vector-ref r 0))

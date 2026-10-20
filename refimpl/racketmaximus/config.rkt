@@ -5,12 +5,12 @@
 ;; THIS app's database. Everything reusable lives in the cli-kit/db-kit/web-kit
 ;; packages under pkgs/; this is the only app-branded shared module.
 
-(require racket/runtime-path
+(require racket/runtime-path racket/string
          db-kit
          (only-in web-kit default-max-body-length))
 
 (provide app-version impl-root data-dir database-url call-with-app-db anchor-path
-         max-upload-bytes)
+         max-upload-bytes content-encryption-enabled?)
 
 (define app-version "0.1.0")
 
@@ -67,3 +67,25 @@
   (define raw (getenv "TELEMACHUS_MAX_UPLOAD"))
   (define n (and raw (string->number raw)))
   (if (and n (exact-positive-integer? n)) n default-max-body-length))
+
+;; ---- encrypting document-derived content at rest (issue #83) --------------------
+;; OPT-IN, and it has to be: sealing `repo_text.content` makes CONTENT SEARCH
+;; impossible, because the match is a SQL `LIKE` over that column. Turning this on
+;; for every instance that sets a secret key — which is the recommended posture —
+;; would silently remove a feature people use. #83 r3 allows exactly this shape:
+;; an index that holds no plaintext, "or be an explicit opt-in per instance".
+;;
+;; It is NOT the same switch as TELEMACHUS_SECRET_KEY. That key seals the three
+;; replayable credentials (#19) and is wanted on every instance; this decides
+;; whether DERIVED DOCUMENT CONTENT is sealed too, and costs a capability. A
+;; deployment holding regulated documents wants both; one that wants to search its
+;; documents wants only the first.
+;;
+;; Enabled without a key, this would silently do nothing — `secret-wrap` passes
+;; plaintext through when no key is configured, by design, so adoption needs no
+;; migration. `server/startup.rkt` therefore REFUSES to serve in that combination
+;; rather than leaving an operator believing their text is encrypted.
+(define (content-encryption-enabled?)
+  (and (member (string-downcase (string-trim (or (getenv "TELEMACHUS_ENCRYPT_CONTENT") "")))
+               '("1" "yes" "true" "on"))
+       #t))

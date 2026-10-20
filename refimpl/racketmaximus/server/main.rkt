@@ -2292,9 +2292,16 @@
   (with-auth req (lambda (p)
     (require-feature p "search")
     (define q (string-trim (query-param req 'q)))
+    ;; `content_search` says whether document TEXT is being matched (issue #83).
+    ;; With the extracted text sealed it cannot be, and a search that quietly
+    ;; stopped looking inside documents would read as "we have no such document"
+    ;; — the caller must be able to tell the two apart. Reported on every reply,
+    ;; not only when off, so a client can branch on it without guessing.
+    (define content? (not (content-encryption-enabled?)))
     (if (< (string-length q) 2)
-        (json-response (hasheq 'query q 'results '()))
-        (json-response (hasheq 'query q 'results (search-all db-conn p q #:scope (scope-of req))))))))
+        (json-response (hasheq 'query q 'results '() 'content_search content?))
+        (json-response (hasheq 'query q 'content_search content?
+                               'results (search-all db-conn p q #:scope (scope-of req))))))))
 
 (define (ep-audit req)
   (with-auth req (lambda (p)
