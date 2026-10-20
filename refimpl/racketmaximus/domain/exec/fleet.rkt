@@ -80,7 +80,10 @@
                                           "ORDER BY finished_at DESC LIMIT ?")
                            ex-id lim))])
     (hasheq 'job_id (vector-ref r 0) 'kind (vector-ref r 1) 'attempt (vector-ref r 3)
-            'error (let ([v (vector-ref r 2)]) (if (sql-null? v) 'null v)))))
+            ;; sealed since the error column joined #83 (a handler's message can
+            ;; quote what it choked on), so it is unsealed on the way out here too
+            'error (let ([v (vector-ref r 2)])
+                     (if (sql-null? v) 'null (unseal-error (vector-ref r 0) v))))))
 
 ;; Jobs this executor STARTED inside the window, by outcome.
 ;;

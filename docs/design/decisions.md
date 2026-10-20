@@ -704,6 +704,29 @@ columns and would pass a scan for entirely the wrong reason.
 - **`translations.source_text` / `result_text`**, which are derived content by
   r1's wording and are searched by `search.rkt` — the same ENC‑2 trade, decided
   the same way, but a separate column pair.
+
+### ENC‑19…22 — the ERROR columns, and the logs (issue #83 r4, slice 4)
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| **ENC‑19** | Are the four `error` columns content? | **Yes — sealed like payload and result** (`jobs`, `workflow_runs`, `workflow_steps`, `doc_trigger_fires`) · vs leave them, as diagnostics | An error is `(exn-message e)` from an ARBITRARY handler, and this platform's own tools quote what they choked on BY DESIGN: the strict renderer names the placeholder, DWF‑5's extraction names the path, the knowledge-graph extractor refuses a snippet that is not a verbatim substring of the text. #59 had already written the reason down — it clears `error` on a purge because "a handler's message can quote the input it choked on" — and the column stayed plaintext until that purge, which for a failed job may be never. |
+| **ENC‑20** | The audit log's copy | **The message is NOT copied into `audit_log.meta`** · vs seal the audit log · vs leave it | A failing trigger wrote `(exn-message e)` into the audit meta, and the audit log is the ONE table a retention sweep deliberately never clears (DEL‑7: the log IS the record). That copy therefore outlived every other, including the fire row #59 purges. Sealing the log instead would fight #84 r3's export. So: ONE home for the diagnostic (the fire row, sealed and purgeable), one for the event (the audit entry, ids only) — #59's own rule that "the audit entry carries no content", and #84 r2's rule that ids go in the log and the key is joined separately. |
+| **ENC‑21** | A stored message that will not open | **Reads as `(the stored message could not be decrypted)`** · vs raise, as payload and result do | Asymmetric on purpose. A payload that will not open must raise: a handler running on an unreadable payload is worse than a refusal. An error is read by a PERSON debugging a failure, and a rotated key should cost them the diagnostic, never the job's STATUS — raising would take the whole listing down with it. |
+| **ENC‑22** | What proves r4 | **A failure probe plus a captured-log scan, both positive-controlled** · vs inspect the code | The three existing leak cases could not see this at all: every job they run SUCCEEDS, so the scan walked four `error` columns finding nothing and said so. The new control fails a job AND a workflow step quoting the needle and asserts the scanner finds it in all three columns with the switch off; the acceptance case then asserts `'()` with it on, plus `current-output-port`/`current-error-port` captured and searched — a message sealed in the database and printed to the console is not protected, and a container's logs are the copy most likely to be read by a person and shipped onward. The audit‑meta assertion in `doc-triggers-tests.rkt` was controlled the same way: restoring the old meta fails it. |
+
+**The functional half is asserted first**, as ENC‑18's note says: the failure must
+still be RECORDED (`status = 'error'` on both the job and the run) and still be
+READABLE through the API, needle and all. "No text anywhere" would otherwise pass
+for a build that had stopped recording failures, which is the same answer for the
+opposite reason — and sealing a diagnostic into illegibility would be a different
+bug wearing this one's clothes.
+
+**r6 is a documentation claim and is now made**: `docs/ops/secrets-at-rest-runbook.md`
+§2b says why volume encryption is necessary and not sufficient — a running
+database decrypts for anyone it answers, so `pg_dump`, a read replica, a restore
+onto a shared-key host and any account with `SELECT` all travel in plaintext
+however the disk is encrypted. The two layers compose; the column is the one that
+survives being `SELECT`ed.
 - **A blind index**, the alternative to losing search. A keyed token hash would
   keep matching without storing plaintext, and it leaks token frequency and
   co-occurrence; r3's "an index that does not store plaintext" arguably permits

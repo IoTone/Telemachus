@@ -1492,6 +1492,36 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
   would pass a scan for the wrong reason.
 - **`(require "/abs/path.rkt")` is a bad module path**; an absolute path needs
   `(require (file "/abs/path.rkt"))`.
+- **Slice 4 sealed the four `error` columns** (ENC‑19…22), which completes r4 and
+  with it all of #83. `jobs.error`, `workflow_runs.error`, `workflow_steps.error`
+  and `doc_trigger_fires.error` are `(exn-message e)` from an ARBITRARY handler,
+  and this platform's own tools quote what they choked on BY DESIGN — the strict
+  renderer names the placeholder, DWF‑5's extraction names the path, the KG
+  extractor refuses a snippet that is not a verbatim substring. #59 already said
+  so (it clears `error` on a purge for exactly this reason) and the column was
+  plaintext until that purge, which for a failed job may be never.
+- **The worst copy was in `audit_log.meta`.** A failing trigger wrote the exn
+  message there — the one table a retention sweep deliberately never clears
+  (DEL‑7) — so it outlived every other copy including the fire row #59 purges.
+  The entry now carries `object_id`/`version_id` and no prose: ONE home for the
+  diagnostic (sealed, purgeable), one for the event. Sealing the audit log
+  instead would fight #84's export.
+- **A stored message that will not open reads as a note saying so**, where a
+  payload RAISES. Asymmetric on purpose: a handler running on an unreadable
+  payload is worse than a refusal, but a rotated key must cost a person the
+  diagnostic and never the job's STATUS.
+- **The three existing leak cases could not see any of this**, because every job
+  they run SUCCEEDS — the scan walked four `error` columns finding nothing and
+  said so. The new probe FAILS a job and a workflow step quoting the needle, and
+  r4's log half captures `current-output-port`/`current-error-port` and searches
+  them: a message sealed in the database and printed to the console is not
+  protected, and a container's log is the copy most likely to be read by a
+  person. Both halves are positive-controlled.
+- **r6 is answered in `docs/ops/secrets-at-rest-runbook.md` §2b**: volume
+  encryption is necessary and not sufficient, because a running database
+  decrypts for anyone it answers — `pg_dump`, a read replica, a restore onto a
+  shared-key host, any account with `SELECT`. The column is the layer that
+  survives being `SELECT`ed.
 
 ## Retention rules on a schedule (DEL‑9…16, issue #86 r3)
 

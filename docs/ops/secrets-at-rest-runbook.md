@@ -42,6 +42,45 @@ puts it back in the dump and buys nothing. Put it in the unit file, the secret
 manager, or the environment of the service — somewhere a database backup does not
 reach.
 
+## 2b. Volume encryption is necessary, and it is not sufficient
+
+The two claims point in opposite directions and both are true, so it is worth
+being plain about which does what.
+
+RDS encryption, an encrypted EBS volume or LUKS under the data directory defends
+**the disk at rest**: a drive pulled out of a rack, a decommissioned volume, a
+snapshot copied to another account. Turn it on. Nothing below is a reason not to.
+
+What it cannot defend is every path a dump actually takes, because **a running
+database decrypts for anyone it answers**:
+
+- `pg_dump` output, which is plaintext whatever the volume is encrypted with —
+  including the copy attached to a support ticket.
+- A read replica or a logical-replication subscriber, which receives decrypted
+  rows and may sit under a different, weaker key.
+- A backup restored onto a host that is encrypted with a key many people hold.
+- Anything with `SELECT` on the database: a reporting account, an ORM console, a
+  BI tool, an analyst, a compromised credential that is not the server's own.
+
+Those are the cases application-level sealing covers, because the ciphertext in
+the column travels with the row and the key does not travel with the dump. The
+two layers compose and neither replaces the other: the volume protects the disk,
+the column protects the *data*, and the column is the one that survives being
+`SELECT`ed.
+
+Two switches, deliberately separate (ENC-1):
+
+| Variable | Seals | Default |
+|---|---|---|
+| `TELEMACHUS_SECRET_KEY` | the three replayable credentials above | unset (plaintext — a supported choice) |
+| `TELEMACHUS_ENCRYPT_CONTENT` | document-derived content: `repo_text`, job payloads/results/errors, workflow run and step bindings and errors, translations, trigger-fire errors | off |
+
+`TELEMACHUS_ENCRYPT_CONTENT` is its own switch because sealing `repo_text.content`
+**removes content search** — the match is a SQL `LIKE` over that column — so it
+cannot ride along on a key every instance should set. Turning it on without a key
+refuses to start, because that combination writes the plaintext it was enabled to
+prevent *and* costs search, while reporting healthy.
+
 ## 3. Is this instance sealed?
 
 ```sh

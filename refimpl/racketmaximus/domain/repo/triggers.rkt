@@ -25,6 +25,7 @@
          ;; issue #83 slice 3: with a run's bindings sealed, the LIKE that finds a
          ;; hand-started run cannot match
          (only-in "../../config.rkt" content-encryption-enabled?)
+         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
          "repo.rkt")
 
 (provide trigger-create! trigger-list trigger-get trigger-update! trigger-delete!
@@ -144,6 +145,18 @@
                  #:team-id (hash-ref t 'team_id) #:resource-type "doc_triggers" #:resource-id id)
          #t)))
 
+;; The fire's `error` is a tool's or the engine's own message, which can quote the
+;; document (#83 r4) — sealed like every other error column. The AAD is the pair
+;; that identifies the row, since the table has no single id column.
+(define (fire-error-ctx tid vid) (string-append "doc_trigger_fires.error:" tid ":" vid))
+(define (seal-fire-error tid vid s)
+  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (fire-error-ctx tid vid) s) s))
+(define (unseal-fire-error tid vid s)
+  (if (string? s)
+      (with-handlers ([exn:fail? (lambda (_) "(the stored message could not be decrypted)")])
+        (secret-unwrap (fire-error-ctx tid vid) s))
+      s))
+
 ;; what a trigger did, newest first: which version, which run, or why not
 (define (trigger-fires conn p id #:limit [lim 50])
   (define t (trigger-get conn p id))
@@ -154,7 +167,9 @@
                              "WHERE f.trigger_id = ? ORDER BY f.fired_ms DESC, f.version_id DESC LIMIT ?")
               id lim))])
          (hasheq 'version_id (vector-ref r 0) 'object_id (vector-ref r 1)
-                 'run_id (nz (vector-ref r 2)) 'error (nz (vector-ref r 3))
+                 'run_id (nz (vector-ref r 2))
+                 'error (let ([e (vector-ref r 3)])
+                          (if (sql-null? e) 'null (unseal-fire-error id (vector-ref r 0) e)))
                  'fired_at (format "~a" (vector-ref r 4)) 'key (nz (vector-ref r 5))))))
 
 ;; ---- matching ------------------------------------------------------------------------
@@ -216,11 +231,21 @@
     (with-handlers ([exn:fail?
                      (lambda (e)
                        (query-exec conn "UPDATE doc_trigger_fires SET error = ? WHERE trigger_id = ? AND version_id = ?"
-                                   (exn-message e) tid vid)
+                                   (seal-fire-error tid vid (exn-message e)) tid vid)
+                       ;; THE MESSAGE IS NOT COPIED INTO THE AUDIT LOG. It used to
+                       ;; be, and that is the one home a retention sweep
+                       ;; deliberately never clears (DEL-7: the audit log IS the
+                       ;; record), so a tool message quoting a document outlived
+                       ;; every other copy of it — including the fire row #59
+                       ;; purges. One home for the diagnostic (the row above,
+                       ;; sealed), one for the event (here, no content) — #59's
+                       ;; rule that "the audit entry carries no content".
                        (audit! conn #:action "doc.trigger.error" #:actor-type "user" #:actor-id (principal-user-id p)
                                #:team-id (hash-ref obj 'team_id) #:resource-type "doc_triggers" #:resource-id tid
                                #:result "error"
-                               #:meta (jsexpr->string (hasheq 'key (hash-ref obj 'key) 'error (exn-message e)))))])
+                               ;; ids, which a reader can join under access control
+                               #:meta (jsexpr->string (hasheq 'object_id (hash-ref obj 'id)
+                                                              'version_id vid))))])
       ;; say the useful thing first: an S3 key issued with the default files:*
       ;; scopes cannot start a workflow, and "forbidden: workflows:read" from the
       ;; lookup below would not tell an operator which scope to add

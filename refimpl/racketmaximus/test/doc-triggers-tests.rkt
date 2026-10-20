@@ -169,6 +169,16 @@
   (check-equal? (hash-ref nf 'key) "inbox/from-a-key.txt")
   (check-equal? (hash-ref nf 'run_id) 'null "no run was started")
   (check-true (regexp-match? #rx"workflows:run" (hash-ref nf 'error)) "…and the trigger's history says why")
+  ;; …and the AUDIT entry does NOT repeat it (#83 r4). The fire row above is the
+  ;; one home for the message, and #59 purges it; the audit log is deliberately
+  ;; kept through an erasure (DEL-7), so a tool message quoting a document used to
+  ;; outlive every other copy of it there. The entry carries ids a reader can join
+  ;; under access control, which is #84 r2's rule, and no prose.
+  (let ([meta (query-value conn (string-append "SELECT meta FROM audit_log WHERE action = 'doc.trigger.error' "
+                                               "ORDER BY at DESC, at_us DESC LIMIT 1"))])
+    (check-false (regexp-match? #rx"workflows:run" meta)
+                 (format "the failure message reached the audit log: ~a" meta))
+    (check-true (regexp-match? #rx"version_id" meta) "…while still naming what it happened to"))
   (check-equal? (length (runs)) before)
   ;; the same key WITH the scope fires
   (define-values (raw2 _tid2) (issue-token! conn #:user bob-id #:team tid
