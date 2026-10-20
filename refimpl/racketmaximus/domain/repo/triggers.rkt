@@ -25,7 +25,7 @@
          ;; issue #83 slice 3: with a run's bindings sealed, the LIKE that finds a
          ;; hand-started run cannot match
          (only-in "../../config.rkt" content-encryption-enabled?)
-         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
+         (only-in "../authz/sealed.rkt" define-sealed-column)
          "repo.rkt")
 
 (provide trigger-create! trigger-list trigger-get trigger-update! trigger-delete!
@@ -148,14 +148,8 @@
 ;; The fire's `error` is a tool's or the engine's own message, which can quote the
 ;; document (#83 r4) — sealed like every other error column. The AAD is the pair
 ;; that identifies the row, since the table has no single id column.
-(define (fire-error-ctx tid vid) (string-append "doc_trigger_fires.error:" tid ":" vid))
-(define (seal-fire-error tid vid s)
-  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (fire-error-ctx tid vid) s) s))
-(define (unseal-fire-error tid vid s)
-  (if (string? s)
-      (with-handlers ([exn:fail? (lambda (_) "(the stored message could not be decrypted)")])
-        (secret-unwrap (fire-error-ctx tid vid) s))
-      s))
+(define-sealed-column "doc_trigger_fires.error"
+                      (seal-fire-error unseal-fire-error) (trigger-id version-id) #:forgiving)
 
 ;; what a trigger did, newest first: which version, which run, or why not
 (define (trigger-fires conn p id #:limit [lim 50])

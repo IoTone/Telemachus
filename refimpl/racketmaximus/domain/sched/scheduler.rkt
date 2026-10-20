@@ -44,8 +44,7 @@
          "../db/id.rkt"
          "../authz/authz.rkt"      ; user-principal
          ;; issue #83 r2: a job's payload and result are the document's own words
-         (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
-         (only-in "../../config.rkt" content-encryption-enabled?))
+         (only-in "../authz/sealed.rkt" define-sealed-column))
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
          seal-payload seal-result unseal-payload unseal-result seal-error unseal-error
@@ -77,8 +76,8 @@
 ;; wire is unchanged, and `worker-claim!` unseals before answering. The protection
 ;; here is of the DATABASE — a dump, a replica, a volume snapshot — exactly as
 ;; #19's claim is narrow about defending a dump and not a host.
-(define (payload-context id) (string-append "jobs.payload:" id))
-(define (result-context id) (string-append "jobs.result:" id))
+(define-sealed-column "jobs.payload" (seal-payload unseal-payload) (id))
+(define-sealed-column "jobs.result"  (seal-result  unseal-result)  (id))
 ;; `error` is sealed for the SAME reason, and it was missed in slice 2 because an
 ;; enumeration of "where does content live" does not naturally land on a
 ;; diagnostic column. It is `(exn-message e)` from an ARBITRARY handler, and the
@@ -88,31 +87,12 @@
 ;; the text. #59 already clears it on a purge for exactly this reason ("a
 ;; handler's message can quote the input it choked on"); sealing it is the same
 ;; observation applied to the row that has not been purged yet.
-(define (error-context id) (string-append "jobs.error:" id))
-
-(define (seal-payload id s)
-  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (payload-context id) s) s))
-(define (seal-result id s)
-  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (result-context id) s) s))
-(define (seal-error id s)
-  (if (and (content-encryption-enabled?) (string? s)) (secret-wrap (error-context id) s) s))
-
-;; Unsealing is NOT conditional on the switch — a row sealed while it was on must
-;; still open after it is off, or turning it off would make every queued job
-;; unrunnable. `secret-unwrap` passes an unwrapped value through.
-(define (unseal-payload id s)
-  (if (string? s) (secret-unwrap (payload-context id) s) s))
-(define (unseal-result id s)
-  (if (string? s) (secret-unwrap (result-context id) s) s))
-;; An error is read by a PERSON, so a value that will not open must not take the
-;; whole listing down with it: a rotated key should cost the diagnostic, never the
-;; job's status. Payload and result raise (loudly, as the note above says) because
-;; a handler running on an unreadable payload is worse than a refusal.
-(define (unseal-error id s)
-  (if (string? s)
-      (with-handlers ([exn:fail? (lambda (_) "(the stored message could not be decrypted)")])
-        (secret-unwrap (error-context id) s))
-      s))
+;;
+;; `#:forgiving` because an error is read by a PERSON: a value that will not open
+;; must not take the whole listing down with it, so a rotated key costs the
+;; diagnostic and never the job's status. Payload and result RAISE, because a
+;; handler running on an unreadable payload is worse than a refusal (ENC-21).
+(define-sealed-column "jobs.error" (seal-error unseal-error) (id) #:forgiving)
 
 (define (vr r i) (vector-ref r i))
 (define (now) (current-seconds))
