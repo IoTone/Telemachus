@@ -259,7 +259,7 @@ pullable** — `docker.io/minio/minio` and `quay.io/minio/minio` both answer
 `unauthorized`, and `:latest` is no longer published (checked 20 Oct 2026). The
 store is not MinIO-specific; path-style addressing is the default here precisely
 because MinIO and Ceph RGW need it. To exercise it against a real bucket, set
-`MINIO_ENDPOINT` (and `MINIO_BUCKET`/`MINIO_KEY`/`MINIO_SECRET`) and
+`S3_TEST_ENDPOINT` (with `S3_TEST_BUCKET`/`S3_TEST_KEY`/`S3_TEST_SECRET`) and
 `test/s3-blobstore-smoke.sh` section 5 will use it; without it that section
 skips and says so.
 

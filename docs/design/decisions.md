@@ -701,7 +701,10 @@ for a second backend has existed since DOC‑5 and nothing had used it.
   (checked 20 Oct 2026). `localstack/localstack:latest` now requires a licence
   too. So CI runs the suite against THIS server's own S3 API — a real,
   independent SigV4 verifier over a real socket — and the suite's section 5 uses
-  a real bucket when `MINIO_ENDPOINT` is set, skipping loudly when it is not.
+  a real bucket when `S3_TEST_ENDPOINT` is set, skipping loudly when it is not.
+  Those knobs are deliberately NOT named after a vendor: they were `MINIO_*`
+  first, which pointed a reader at the single unavailable option and defaulted
+  the credentials to `minioadmin` besides.
   **The SSE round trip is therefore unproven against a real bucket**, and the
   refusal half (a bucket that does not report encryption) is what is covered.
 

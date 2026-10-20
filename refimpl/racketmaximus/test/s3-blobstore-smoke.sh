@@ -260,34 +260,46 @@ echo "== 5. a REAL bucket, when one is offered =================================
 # Sections 1-4 ran against this server's own S3 API, which is the only target
 # reachable with no Docker and no cloud account — and which does not implement
 # SSE, so it can only prove the REFUSAL half of requirement 2. Point
-# MINIO_ENDPOINT at an S3-compatible bucket and this section proves the other
+# S3_TEST_ENDPOINT at any S3-compatible bucket and this section proves the other
 # half: that encryption actually arrives and the object reads back.
 #
-# CI sets it. Locally it is skipped, LOUDLY, because a silently skipped section
-# is how the aws-cli path went unexercised for a year (issue #25).
-if [ -z "${MINIO_ENDPOINT:-}" ]; then
-  echo "     SKIP — set MINIO_ENDPOINT (plus MINIO_BUCKET/KEY/SECRET) to run it."
+# NOT named after a vendor, deliberately. These were MINIO_* at first, which was
+# wrong twice over: the variables are generic (AWS, Ceph RGW, s3mock and MinIO
+# all work), and MinIO is the one target a reader CANNOT currently obtain — its
+# images are no longer freely pullable. Naming the knob after it, and defaulting
+# the credentials to `minioadmin`, pointed people at the single unavailable
+# option.
+#
+# Skipped LOUDLY when unset, because a silently skipped section is how the
+# aws-cli path went unexercised for a year (issue #25).
+if [ -z "${S3_TEST_ENDPOINT:-}" ]; then
+  echo "     SKIP — set S3_TEST_ENDPOINT, S3_TEST_BUCKET, S3_TEST_KEY, S3_TEST_SECRET."
   echo "     Sections 1-4 cannot prove encryption ARRIVES, only that its absence is refused."
+elif [ -z "${S3_TEST_KEY:-}" ] || [ -z "${S3_TEST_SECRET:-}" ]; then
+  # No vendor default: a wrong-but-plausible credential fails as SignatureDoesNotMatch,
+  # which reads as a signing bug in this client rather than as missing configuration.
+  echo "  FAIL S3_TEST_ENDPOINT is set but S3_TEST_KEY/S3_TEST_SECRET are not"
+  fail=1
 else
-  OUT5=$(TELEMACHUS_S3_BLOB_ENDPOINT="$MINIO_ENDPOINT" \
-         TELEMACHUS_S3_BLOB_BUCKET="${MINIO_BUCKET:-telemachus}" \
-         TELEMACHUS_S3_BLOB_ACCESS_KEY="${MINIO_KEY:-minioadmin}" \
-         TELEMACHUS_S3_BLOB_SECRET_KEY="${MINIO_SECRET:-minioadmin}" \
-         TELEMACHUS_S3_BLOB_SSE="${MINIO_SSE:-s3}" \
+  OUT5=$(TELEMACHUS_S3_BLOB_ENDPOINT="$S3_TEST_ENDPOINT" \
+         TELEMACHUS_S3_BLOB_BUCKET="${S3_TEST_BUCKET:-telemachus}" \
+         TELEMACHUS_S3_BLOB_ACCESS_KEY="$S3_TEST_KEY" \
+         TELEMACHUS_S3_BLOB_SECRET_KEY="$S3_TEST_SECRET" \
+         TELEMACHUS_S3_BLOB_SSE="${S3_TEST_SSE:-s3}" \
          TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION=1 \
          racket -e "
 (require racket/port (file \"$PLUG\") (file \"$BLOBS\"))
 (init!)
 (define bs (make-bytes 65536 77))
 (define-values (d n) (digest-of-port (open-input-bytes bs)))
-(blob-put! \"org-minio\" d (open-input-bytes bs) n)
+(blob-put! \"org-s3test\" d (open-input-bytes bs) n)
 (printf \"encrypted-put ok\n\")
-(printf \"stat ~a\n\" (blob-size \"org-minio\" d))
-(define in (blob-get \"org-minio\" d))
+(printf \"stat ~a\n\" (blob-size \"org-s3test\" d))
+(define in (blob-get \"org-s3test\" d))
 (define back (port->bytes in)) (close-input-port in)
 (printf \"roundtrip ~a\n\" (if (equal? back bs) \"IDENTICAL\" \"DIFFERENT\"))
-(blob-delete! \"org-minio\" d)
-(printf \"cleaned ~a\n\" (blob-size \"org-minio\" d))" 2>&1)
+(blob-delete! \"org-s3test\" d)
+(printf \"cleaned ~a\n\" (blob-size \"org-s3test\" d))" 2>&1)
   echo "$OUT5" | sed 's/^/     /' | tail -6
   # The PUT only succeeds under REQUIRE_ENCRYPTION=1 if the bucket reported the
   # header, so this single assertion is the encryption round trip.

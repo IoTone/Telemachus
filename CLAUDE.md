@@ -1462,8 +1462,9 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   answer `unauthorized`; `:latest` unpublished, checked 20 Oct 2026), and
   `localstack/localstack:latest` now needs a licence. So the acceptance criterion
   as written in #82 cannot be met: CI drives the suite against THIS server's own
-  S3 API instead, and section 5 uses a real bucket only when `MINIO_ENDPOINT` is
-  set. **The SSE round trip is unproven against a real bucket**; what is covered
+  S3 API instead, and section 5 uses a real bucket only when `S3_TEST_ENDPOINT`
+  is set (vendor-neutral on purpose — these knobs were `MINIO_*` at first, which
+  named the one target a reader cannot obtain). **The SSE round trip is unproven against a real bucket**; what is covered
   is the refusal when a bucket does not report encryption.
 - Multipart is **not** built: a single signed PUT handles anything up to S3's
   documented 5 GiB ceiling, and multipart would need each part buffered to hash
