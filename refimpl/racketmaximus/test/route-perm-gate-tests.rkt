@@ -33,7 +33,8 @@
 ;; permission appears nowhere.
 
 (require rackunit racket/list racket/string racket/set racket/path
-         "../server/routes.rkt")
+         "../server/routes.rkt"
+         "../domain/authz/permissions.rkt")
 
 ;; ---- reading a module as data ----------------------------------------------------
 (define (module-body path)
@@ -225,3 +226,122 @@
       (format "~a ~a declares ~a at ROLE scope — a grant would stop admitting"
               (rt-method r) (rt-path r) (rt-perm r))))
   (check-equal? dangerous '()))
+
+
+;; ---- the OTHER direction: is every granted permission reachable? (issue #113) ----
+;;
+;; The check above asks "is the permission a route DECLARES enforced?". It cannot
+;; see the opposite failure, and that one shipped: `quota:manage` is granted to
+;; the team owner and to both company-admin roles, no route declared it, nothing
+;; read it, and `POST /api/quota` demanded `instance:manage` instead — so a team
+;; that hit its 2,000-token daily default could be unblocked only by the instance
+;; operator. Reported from outside as issue #113, a year after the permission was
+;; written into the catalog.
+;;
+;; A granted permission nothing enforces is a promise the role listing makes and
+;; the server does not keep, and `GET /api/roles` publishes it. So: every
+;; permission in the catalog must be enforced somewhere reachable from a route's
+;; handler, or be listed here WITH A REASON.
+;;
+;; The list fails in BOTH directions — an unreachable permission that is not
+;; listed, and a listed permission that has since become reachable — which is the
+;; shape `scripts/check-config-reference.sh` already uses for the configuration
+;; reference. A one-directional allowlist rots into a list of excuses.
+(define UNREACHABLE-BY-DESIGN
+  (hash
+   ;; Documented as granted-and-inert. RBAC-5b: custom team roles are not in v1,
+   ;; and the permission's own description says so, which is the condition for
+   ;; leaving it in the catalog at all.
+   "roles:manage"    "RBAC-5b: custom team roles are not in v1; its description says so"
+   "roles:read"      "the role catalog is public to any authenticated caller; nothing gates it"
+   ;; Features that have no implementation at all. The permission exists so the
+   ;; role data does not have to change when they are built.
+   "tasks:read"      "no task subsystem is built"
+   "tasks:write"     "no task subsystem is built"
+   "tasks:delete"    "no task subsystem is built"
+   "memory:read"     "no memory subsystem is built"
+   "memory:write"    "no memory subsystem is built"
+   "research:use"    "no research surface is built; chat:use gates the model paths"
+   "models:serve"    "no inbound model-serving surface is built; executors are configured, not served"
+   "webhooks:manage" "outbound webhooks are issue #85, unbuilt"
+   ;; The company plane uses its OWN tier (`org:read` / `org:manage`) rather than
+   ;; the team-tier permission a company admin also happens to hold — see the
+   ;; routes under /api/org. These three are the team-tier spellings that the
+   ;; plane does not use. Keeping them granted costs nothing and removing them
+   ;; would be a role change; what matters is that no route silently depends on
+   ;; one while declaring another.
+   "team:read"       "the company plane gates team reads with org:read"
+   "team:write"      "the company plane gates team writes with org:manage"
+   "features:manage" "the feature switches gate on settings:manage / instance:manage / org:manage (#63)"
+   "quota:read"      "GET /api/usage is deliberately ungated: a plain member does NOT hold quota:read, and declaring it would stop them reading their own team's usage"
+   ;; Vestigial since migration 0022 folded the `documents` table into the
+   ;; repository: a text document IS a repo object, so /api/documents/* enforces
+   ;; `files:read` / `files:write` / `files:delete`. Worth knowing that this is
+   ;; NOT purely cosmetic — these three are offered in the API-token SCOPE
+   ;; vocabulary too, and a token scoped to `documents:write` is capped away from
+   ;; the only routes that write a document. Retiring them, or mapping them onto
+   ;; the `files:*` triple, is its own decision; what this entry buys is that the
+   ;; situation is written down instead of inferred.
+   "documents:read"   "the 0022 fold: /api/documents/* enforces files:read"
+   "documents:write"  "the 0022 fold: /api/documents/* enforces files:write"
+   "documents:delete" "the 0022 fold: /api/documents/* enforces files:delete"
+   ;; No route deletes a team, deliberately — the same call TEN-2g makes for
+   ;; companies (`there is no DELETE /api/orgs`). The permission is what `*:*`
+   ;; would reach if one were ever built.
+   "team:delete"      "no team-delete route exists, as TEN-2g decided for orgs"))
+
+(test-case "every permission the catalog grants is enforced somewhere, or is listed with a reason"
+  (define (reachable? perm)
+    (for/or ([r (in-list ROUTES)])
+      (define fn (hash-ref HANDLER-OF (rt-handler r) #f))
+      (and fn (enforces? fn perm))))
+  ;; A WILDCARD is excluded, not excused. `*:*`, `*:read`, `instance:*` and
+   ;; `org:*` are what a role HOLDS; `perm-matches?` expands them against what a
+   ;; route REQUIRES. Asking whether one is enforced is a category error — and
+   ;; the walk answers yes for the wrong reason, because it matches string
+   ;; literals and `"*:*"` appears as a token SCOPE in bootstrap. So they are
+   ;; partitioned out, and the partition is asserted rather than assumed.
+  (define-values (wildcards catalog)
+    (partition (lambda (p) (regexp-match? #rx"[*]" p)) (all-permissions)))
+  (check-equal? (sort wildcards string<?) '("*:*" "*:read" "instance:*" "org:*")
+                "the wildcard grants are the four known ones")
+  ;; the gate's own input, first — see the note at the top of this file
+  (check-true (> (length catalog) 40) (format "permissions in the catalog: ~a" (length catalog)))
+  (define unreachable (filter (lambda (p) (not (reachable? p))) catalog))
+  (define unlisted (filter (lambda (p) (not (hash-has-key? UNREACHABLE-BY-DESIGN p))) unreachable))
+  (check-equal? unlisted '()
+                (string-append "\n  granted and enforced NOWHERE:\n  "
+                               (string-join unlisted "\n  ")
+                               "\n  Either a route must enforce it, or add it to"
+                               " UNREACHABLE-BY-DESIGN with the reason."))
+  ;; and the reverse: a listed permission that IS now reachable
+  (define stale
+    (for/list ([(perm _reason) (in-hash UNREACHABLE-BY-DESIGN)]
+               #:when (and (member perm catalog) (reachable? perm)))
+      perm))
+  (check-equal? (sort stale string<?) '()
+                (string-append "\n  listed as unreachable but now enforced (drop the entry):\n  "
+                               (string-join (sort stale string<?) "\n  ")))
+  ;; a listed permission that has left the catalog entirely
+  (define gone
+    (for/list ([(perm _reason) (in-hash UNREACHABLE-BY-DESIGN)]
+               #:unless (member perm catalog))
+      perm))
+  (check-equal? (sort gone string<?) '()
+                (string-append "\n  listed but no longer in the catalog:\n  "
+                               (string-join (sort gone string<?) "\n  "))))
+
+;; The one the issue was about, pinned by name so a revert is loud.
+(test-case "POST /api/quota is gated by quota:manage, not the operator tier (#113)"
+  (define r (for/or ([r (in-list ROUTES)])
+              (and (equal? (rt-method r) "POST") (equal? (rt-path r) "/api/quota") r)))
+  (check-not-false r "POST /api/quota is in the table")
+  (check-equal? (rt-perm r) "quota:manage")
+  (check-true (enforces? (hash-ref HANDLER-OF (rt-handler r)) "quota:manage")
+              "and the handler enforces it")
+  ;; the company plane's per-team route, which is what an org admin uses
+  (define o (for/or ([r (in-list ROUTES)])
+              (and (equal? (rt-path r) "/api/org/teams/:ref/quota") r)))
+  (check-not-false o "POST /api/org/teams/:ref/quota is in the table")
+  (check-equal? (rt-auth o) 'org-admin)
+  (check-equal? (rt-perm o) "org:manage"))

@@ -1517,6 +1517,35 @@
 ;; TEN-2h: promote or demote a person within the company — the only way to make an
 ;; existing user an org_reader (or take it away), since the org role is set on
 ;; creation otherwise. Only users of the caller's own org; never the caller.
+(define (ep-my-org-team-quota req ref)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")      ; the tier gate
+      (require-perm db-conn p "quota:manage")
+      (define b (read-json-body req))
+      (define dim (hash-ref b 'dimension #f))
+      (define limit (hash-ref b 'limit #f))
+      (define tid (org-team-resolve db-conn (caller-org p) ref))
+      (cond
+        ;; the 404 comes FIRST: whether this team exists is the thing a caller
+        ;; outside the company must not learn, and a 400 about a missing
+        ;; `dimension` would confirm it.
+        [(not tid) (err "not found" 404)]
+        [(or (not dim) (not limit)) (err "dimension and limit required" 400)]
+        [else
+         (define w (hash-ref b 'window "day"))
+         (set-limit! db-conn "team" tid (format "~a" dim) limit #:window (format "~a" w))
+         ;; #:team-id is the team whose budget changed, not the caller's acting
+         ;; team: `org-audit` INNER JOINs `teams` on it, so an entry without one
+         ;; is written and then invisible in the company's own trail — the gap
+         ;; QUOTA-3 names and `user.2fa.reset` still has. test/multitenant-demo.sh
+         ;; caught it. Naming the subject team also puts the event in the trail of
+         ;; the team it is about, which is where somebody would look for it.
+         (audit! db-conn #:action "org.team.quota" #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:team-id tid #:resource-type "team" #:resource-id tid
+                 #:meta (jsexpr->string (hasheq 'dimension dim 'limit limit 'window w)))
+         (json-response (hasheq 'ok #t 'team_id tid 'dimension dim 'limit limit 'window w))]))))))
+
 (define (ep-my-org-member-role req uid)
   (with-mt req (lambda ()
     (with-auth req (lambda (p)
@@ -3217,7 +3246,13 @@
 
 (define (ep-quota-set req)
   (with-auth req (lambda (p)
-    (require-perm db-conn p "instance:manage")
+    ;; issue #113: `quota:manage`, not `instance:manage`. The catalog has always
+    ;; granted it to the team steward and to the company admins, and no route
+    ;; read it — so a team that hit its 2,000-token daily default could only be
+    ;; unblocked by the INSTANCE operator. The company's own limit still caps
+    ;; whatever a team asks for: `tenant-quota-check` takes the org decision
+    ;; first and lets it refuse, so this cannot widen a tenant's actual budget.
+    (require-perm db-conn p "quota:manage")
     (define b (read-json-body req))
     (define dim (hash-ref b 'dimension #f))
     (define limit (hash-ref b 'limit #f))
@@ -3350,6 +3385,7 @@
    'org-quota ep-org-quota 'org-get ep-org-get 'org-update ep-org-update
    'seed-tenants ep-seed-tenants
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
+   'my-org-team-quota ep-my-org-team-quota
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
    'session-policy-get ep-session-policy-get 'session-policy-put ep-session-policy-put
    'my-org-session-policy-get ep-my-org-session-policy-get

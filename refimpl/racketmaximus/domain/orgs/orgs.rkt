@@ -21,7 +21,7 @@
          "../authz/authz.rkt"
          "../quota/quota.rkt")
 
-(provide org-slugify org-plan? org-resolve
+(provide org-slugify org-plan? org-resolve org-team-resolve
          org-create! org-update! org-list org-get
          org-set-domain! org-by-domain normalize-domain
          org-set-status! org-suspended? tenant-read-only?
@@ -115,6 +115,16 @@
        (or (query-maybe-value conn "SELECT id FROM orgs WHERE id = ?" ref)
            (query-maybe-value conn "SELECT id FROM orgs WHERE slug = ?" ref))))
 
+;; id-or-slug -> team id, WITHIN one org (issue #113). Both branches carry
+;; `org_id`, which is the whole security property: `teams.slug` is unique per org
+;; but an ID is instance-global, so a resolver that looked an id up without the
+;; org would hand a company admin a team belonging to another company. The caller
+;; then answers 404 — a team outside your company does not exist for you.
+(define (org-team-resolve conn org-id ref)
+  (and ref org-id
+       (or (query-maybe-value conn "SELECT id FROM teams WHERE id = ? AND org_id = ?" ref org-id)
+           (query-maybe-value conn "SELECT id FROM teams WHERE slug = ? AND org_id = ?" ref org-id))))
+
 ;; ---- reading ----------------------------------------------------------------
 (define (org-row->jsexpr conn r)
   (define oid (vector-ref r 0))
@@ -205,7 +215,11 @@
      (string-append "SELECT a.id, a.action, a.actor_type, a.actor_id, a.resource_type, "
                     "       a.resource_id, a.result, a.at, t.slug "
                     "FROM audit_log a JOIN teams t ON t.id = a.team_id "
-                    "WHERE t.org_id = ? ORDER BY a.at DESC, a.id DESC LIMIT ? OFFSET ?")
+                    ;; issue #47's ordering key, which this read was missing while
+                    ;; `audit-list` had it: `at` is CURRENT_TIMESTAMP with SECOND
+                    ;; resolution and `id` is a random UUID, so a burst inside one
+                    ;; second came back in an order unrelated to what happened.
+                    "WHERE t.org_id = ? ORDER BY a.at DESC, a.at_us DESC, a.id DESC LIMIT ? OFFSET ?")
      org-id lim off))])
     (hasheq 'id (vector-ref r 0) 'action (vector-ref r 1)
             'actor_type (nz (vector-ref r 2)) 'actor_id (nz (vector-ref r 3))

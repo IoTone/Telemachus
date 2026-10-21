@@ -166,6 +166,7 @@
    (R "GET" "/api/org" 'my-org #:auth 'org-admin #:perm "org:read" #:doc "The caller's own company.")
    (R "GET" "/api/org/teams" 'my-org-teams #:auth 'org-admin #:perm "org:read" #:doc "The teams in the caller's company.")
    (R "POST" "/api/org/teams" 'my-org-team-create #:auth 'org-admin #:perm "org:manage" #:doc "Create a team in the caller's company.")
+   (R "POST" "/api/org/teams/:ref/quota" 'my-org-team-quota #:auth 'org-admin #:perm "org:manage" #:doc "Set ONE team's quota limit from the company plane (issue #113): {dimension, limit, window?} for a team of the caller's own company, named by id or slug. The team-tier POST /api/quota only ever sets the caller's OWN team, so without this an org admin administering several teams had to hold a token in each. A team outside the company answers 404 — it does not exist for this caller.")
    (R "POST" "/api/org/members" 'my-org-member-add #:auth 'org-admin #:perm "org:manage" #:doc "Add a person to a team in the caller's company, optionally with an org role (org_admin, org_owner, org_reader).")
    (R "PATCH" "/api/org/members/:id" 'my-org-member-role #:auth 'org-admin #:perm "org:manage" #:doc "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.")
    (R "GET" "/api/org/audit" 'my-org-audit #:auth 'org-admin #:perm "org:read" #:doc "The company's audit trail.")
@@ -224,7 +225,7 @@
 
    ;; ---- quotas, tools, tokens, search, audit, jobs -------------------------------------
    (R "GET" "/api/usage" 'usage #:doc "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).")
-   (R "POST" "/api/quota" 'quota-set #:perm "instance:manage" #:doc "Set a quota limit for the caller's team (dimension, limit, window).")
+   (R "POST" "/api/quota" 'quota-set #:perm "quota:manage" #:doc "Set a quota limit for the caller's team (dimension, limit, window). `quota:manage` and NOT `instance:manage` (issue #113): a team owner sets their own team's limit, and an org admin may too, because the company's own limit still caps whatever a team asks for (admission takes the org decision first). A team ADMIN deliberately does not hold it — spending is the steward's call.")
    (R "GET" "/api/tools" 'tools-list #:doc "Every registered tool with its permission, source and per-team enabled state.")
    (R "POST" "/api/tokens" 'tokens-create #:perm "settings:manage" #:doc "Issue an API token, optionally scoped, with a ttl in seconds (default 90 days; \"never\" for a long-lived machine token); the raw token is shown once.")
    (R "GET" "/api/tokens" 'tokens-list #:perm "settings:manage" #:doc "The team's API tokens.")
