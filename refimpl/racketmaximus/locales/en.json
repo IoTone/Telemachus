@@ -871,13 +871,17 @@
       "text": "Drop the company's session timeouts; its users fall back to the instance policy.",
       "hash": "31f74f2824b4a25e07c1aa68ac60f5ae9f5d1ea2"
     },
-    "ui.l10nall": {
-      "text": "All statuses",
-      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
+    "doc.route.get.console.path": {
+      "text": "One of the console's own script files (static/console/*.js), served same-origin so the console's `script-src 'self'` policy admits it with no inline block and no nonce.",
+      "hash": "445e4a4dc5015fd7411c38950bee5d917e5cd2b3"
     },
     "doc.route.delete.api.jobs.id.content": {
       "text": "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.",
       "hash": "9d189ecf693750416b1c4e3cb6036348589dbe1c"
+    },
+    "ui.l10nall": {
+      "text": "All statuses",
+      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",

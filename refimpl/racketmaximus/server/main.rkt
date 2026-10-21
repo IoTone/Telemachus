@@ -110,14 +110,35 @@
 (define HANDLERS
   (hasheq
    'ui (lambda (req)
-         ;; one nonce per response, in the HTML and in the header that admits it
-         (define nonce (new-nonce))
+         ;; the console's own policy, stricter than the baseline: no inline script
+         ;; at all since #110 r6, so no 'unsafe-inline' and no nonce either
          (response/output #:mime-type #"text/html; charset=utf-8"
                           #:headers (list (make-header #"Content-Security-Policy"
-                                                       (string->bytes/utf-8 (console-csp nonce))))
-                          (lambda (out) (write-string (ui-html-branded req nonce) out))))
+                                                       (string->bytes/utf-8 (console-csp))))
+                          (lambda (out) (write-string (ui-html-branded req) out))))
    'health (lambda (req) (ep-health))
    'beta-sdk (lambda (req) (serve-file (build-path impl-root "static" "beta-sdk.js")))
+   ;; #110 r6: the console's own script, one file per area. `safe-seg?` on every
+   ;; segment is what keeps this from climbing out of static/console — `..` and a
+   ;; slash are not names — and the directory holds nothing but the console's
+   ;; scripts, so there is nothing else under it to reach.
+   'console-file (lambda (req path)
+                   (define segs (filter (lambda (s) (not (string=? s "")))
+                                        (string-split (or path "") "/")))
+                   (if (and (pair? segs) (andmap safe-seg? segs))
+                       ;; `no-store`, not serve-file's 5-minute default. These
+                       ;; files used to be INLINE in a document nothing caches, so
+                       ;; a browser re-fetched them on every navigation anyway and
+                       ;; this is not a regression — but a cached script WOULD be:
+                       ;; the shell is uncached, so after a deploy a returning
+                       ;; visitor could run a new shell against a stale script for
+                       ;; five minutes, and the two disagreeing about a DOM id is
+                       ;; a console that half works. Content-hashed names are the
+                       ;; other answer and they need the build step #110 r6 exists
+                       ;; to avoid.
+                       (serve-file (apply build-path impl-root "static" "console" segs)
+                                   #:cache #"no-store")
+                       (err "not found" 404)))
    'bundle-file (lambda (req plugin path)
                   (define f (bundle-file-path (request-path req)))
                   (if f (serve-file f) (err "not found" 404)))
@@ -389,34 +410,40 @@
 ;; for the console is a separate audit (it has inline scripts); the download path
 ;; already sends a denying one per object. A route that sets one of these itself
 ;; wins — headers already present are left alone.
-;; The console's Content-Security-Policy (issue #11, part 2). What it buys: no
-;; script, style, image, font, frame or connection from any origin but our own,
-;; no plugins, no <base> hijack, no form posting elsewhere, no framing by other
-;; origins — so an injected payload cannot load remote code or beacon data out.
-;; What it does NOT buy yet: `'unsafe-inline'` for scripts and styles, because
-;; the console is one HTML file with ~136 inline event handlers and ~245 style
-;; attributes; a nonce would disable 'unsafe-inline' and break every one of
-;; them. Moving the handlers to delegated listeners is the follow-up that lets
-;; this become a nonce policy. The e2e gate fails on console errors, and a CSP
-;; violation is one, so the gate proves the console runs under this policy.
-;; Downloads keep their own, stricter, per-object CSP (present headers win).
-;; What this buys now (issue #27): script-src carries a per-request NONCE instead
-;; of 'unsafe-inline', so an injected <script> — the payload that matters — cannot
-;; run, and neither can an inline event handler, because attributes cannot be
-;; nonced. That is why the console's 141 inline handlers moved to delegated
-;; listeners first; the policy could not be tightened while they existed.
+;; The console's Content-Security-Policy (issue #11 part 2, #27, and #110 r6).
 ;;
-;; style-src KEEPS 'unsafe-inline', deliberately: the console still has ~250 style
-;; attributes, and injected CSS is a far smaller prize than injected script. That
-;; is the next tranche, not a blocker for this one.
-(define (console-csp nonce)
+;; What it buys: no script, style, image, font, frame or connection from any
+;; origin but our own, no plugins, no <base> hijack, no form posting elsewhere,
+;; no framing by other origins — so an injected payload can neither load remote
+;; code nor beacon data out. Downloads keep their own, stricter, per-object CSP
+;; (a header already present wins).
+;;
+;; THE CONSOLE NOW HAS NO INLINE SCRIPT AT ALL, so `script-src` is plain
+;; `'self'`. The history is worth keeping because each step depended on the one
+;; before it: the policy could not drop `'unsafe-inline'` while 141 inline event
+;; handlers existed (an attribute cannot be nonced), so #27 moved them to
+;; delegated listeners and the policy became a per-request NONCE over one inline
+;; block; #110 r6 moved that block into static/console/*.js, which `'self'`
+;; already permitted. A nonce only ever authorized OUR OWN inline script — it
+;; protects nothing on its own — so with none left it authorizes nothing and is
+;; gone. An injected inline script was blocked by the absence of
+;; `'unsafe-inline'` before and is blocked by it now.
+;;
+;; `inline?` is for the BASELINE policy every OTHER response carries, which keeps
+;; `'unsafe-inline'`: a plugin's own bundle page may legitimately ship inline
+;; script, and that page is not the console.
+;;
+;; style-src keeps `'unsafe-inline'` either way, deliberately: there are still
+;; ~250 style attributes in the console, and injected CSS is a far smaller prize
+;; than injected script. That is a separate tranche.
+(define (console-csp [inline? #f])
   (string-append "default-src 'self'; "
-                 "script-src 'self' " (if nonce (string-append "'nonce-" nonce "'") "'unsafe-inline'") "; "
+                 "script-src 'self'" (if inline? " 'unsafe-inline'" "") "; "
                  "style-src 'self' 'unsafe-inline'; "
                  "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
                  "frame-src 'self' blob: data:; frame-ancestors 'self'; form-action 'self'; "
                  "base-uri 'self'; object-src 'none'"))
-(define CONSOLE-CSP (console-csp #f))
+(define CONSOLE-CSP (console-csp #t))
 (define BASE-SECURITY-HEADERS
   (list (make-header #"X-Content-Type-Options" #"nosniff")
         (make-header #"Referrer-Policy" #"strict-origin-when-cross-origin")

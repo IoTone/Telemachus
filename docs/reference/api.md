@@ -12,6 +12,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/activate` | public | — | — | — | The console, on the magic-link activation screen (hosted mode). |
 | GET | `/health` | public | — | — | — | Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status. |
 | GET | `/beta-sdk.js` | public | — | — | — | The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta). |
+| GET | `/console/*path` | public | — | — | — | One of the console's own script files (static/console/*.js), served same-origin so the console's `script-src 'self'` policy admits it with no inline block and no nonce. |
 | GET | `/beta/bundle/:plugin/*path` | public | — | — | — | A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in. |
 | POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | — | Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path. |
 | GET | `/api/x/:plugin/bundle/*path` | handler | — | — | — | A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache. |

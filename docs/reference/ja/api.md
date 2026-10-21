@@ -12,6 +12,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/activate` | public | — | — | — | マジックリンク認証画面（ホストモード）のコンソール. |
 | GET | `/health` | public | — | — | — | 死活確認：{ok, multitenant} のみ — バージョン、KDF、TLS の状態は GET /api/admin/status にあります。 |
 | GET | `/beta-sdk.js` | public | — | — | — | Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。 |
+| GET | `/console/*path` | public | — | — | — | コンソール自身のスクリプトファイル（static/console/*.js）。同一オリジンで配信されるため、コンソールの `script-src 'self'` ポリシーがインラインブロックも nonce もなしに許可する。 |
 | GET | `/beta/bundle/:plugin/*path` | public | — | — | — | Tier-B オンボーディングプラグインの公開ランディングバンドル（plugins/<id>/landing/）内のファイル。見込み客がサインイン前に見るファネルです。 |
 | POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | — | このプラグインの認証付きバンドル用に、短命のチケットを発行します。ブラウザでページを開けるようにするためです（issue #43）。最初の応答で、そのバンドルのパスに限定したクッキーとして設定されます。 |
 | GET | `/api/x/:plugin/bundle/*path` | handler | — | — | — | 読み込まれたプラグインの認証付きバンドル（plugins/<id>/bundle/）内のファイル。ベアラートークン、または bundle-ticket が発行したチケット（?ticket= か、それが設定するクッキー）が必要で、応答が共有キャッシュに保存されることはありません。 |

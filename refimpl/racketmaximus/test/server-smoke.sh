@@ -1135,13 +1135,26 @@ assert "a plugin with a page says so"            "$(curl -s $B/api/plugins -H "A
 
 # ---- issue #27: the console runs under a NONCE, not 'unsafe-inline'
 CSPH=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -i '^content-security-policy:')
-assert "the console's CSP carries a nonce"   "$CSPH" "script-src 'self' 'nonce-"
-assert "…and no longer allows inline script" "$(printf '%s' "$CSPH" | grep -c "script-src 'self' 'unsafe-inline'" || true)" '0'
+# #110 r6: the console has NO inline script, so its policy is a plain
+# `script-src 'self'` — no 'unsafe-inline' AND no nonce. The nonce #27 introduced
+# only ever authorized our own inline block; with none left it authorizes
+# nothing. These four assertions are what stop that becoming a loosening by
+# accident: no 'unsafe-inline', no nonce, no inline block, and the external
+# script really is served.
+assert "the console's CSP allows only same-origin script" "$CSPH" "script-src 'self';"
+assert "…with no 'unsafe-inline'"            "$(printf '%s' "$CSPH" | grep -c "script-src 'self' 'unsafe-inline'" || true)" '0'
+assert "…and no nonce, because there is nothing inline to authorize" \
+  "$(printf '%s' "$CSPH" | grep -c "nonce-" || true)" '0'
 assert "…while styles keep theirs (~250 attributes)" "$CSPH" "style-src 'self' 'unsafe-inline'"
-assert "the nonce is in the page too"       "$(curl -s $B/ | grep -c '<script nonce="' || true)" '1'
-N1=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -oE "nonce-[0-9a-f]+" | head -1)
-N2=$(curl -s -D- -o /dev/null $B/ | tr -d '\r' | grep -oE "nonce-[0-9a-f]+" | head -1)
-assert "…and it is fresh per response"      "$([ "$N1" != "$N2" ] && echo different || echo same)" 'different'
+assert "the shell carries no inline script block" "$(curl -s $B/ | grep -c '<script>' || true)" '0'
+assert "…and loads its script from /console/"     "$(curl -s $B/)" '<script src="/console/01-base.js">'
+# the file is really there: a 404 here is a console that renders an empty shell
+assert "a console script file is served"      "$(curl -s $B/console/01-base.js)" 'function H(fn)'
+assert "…uncached, so a deploy cannot leave a stale script against a new shell" \
+  "$(curl -s -D- -o /dev/null $B/console/01-base.js | tr -d '\r' | grep -i '^cache-control:')" 'no-store'
+# the traversal guard, on the raw path so curl does not collapse it first
+assert "…and the path cannot climb out of static/console" \
+  "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/console/../index.html")" '404'
 
 # ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
 assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'

@@ -21,8 +21,6 @@
          racket/file
          racket/system
          racket/port
-         (only-in racket/random crypto-random-bytes)      ; the console's CSP nonce (issue #27)
-         (only-in file/sha1 bytes->hex-string)
          (only-in net/url url-query)
          db-kit
          db-kit/portable
@@ -223,13 +221,7 @@
 ;; replacement throughout: regexp-replace* expands `&` and `\<n>` in a STRING
 ;; replacement, so a branded title like "A & B" would corrupt the markup.
 (define DEFAULT-DESCRIPTION "A self-hosted, privacy-first platform for a team's AI tools and documents.")
-;; issue #27: the console's script runs under a per-request NONCE now, so the CSP
-;; no longer needs `script-src 'unsafe-inline'` — which is the directive that lets
-;; an injected <script> execute. A nonce cannot authorize an inline event handler,
-;; which is why all 141 of them became delegated listeners first.
-(define (new-nonce) (bytes->hex-string (crypto-random-bytes 16)))
-
-(define (ui-html-branded [req #f] [nonce #f])
+(define (ui-html-branded [req #f])
   (define b (branding-for db-conn (request-org req)))
   (define title (let ([t (hash-ref b 'title "")]) (if (string=? t "") "Telemachus" t)))
   (define tagline (string-normalize-spaces (hash-ref b 'tagline "")))
@@ -250,12 +242,11 @@
   (define with-title
     (regexp-replace* #px"<title>.*?</title>" UI-HTML
                      (lambda _ (string-append "<title>" (html-escape title) "</title>" meta))))
-  ;; …and the nonce. A procedural replacement, like the title: a string
-  ;; replacement would expand `&` in the value.
-  (if nonce
-      (regexp-replace #px"<script>" with-title
-                      (lambda _ (string-append "<script nonce=\"" nonce "\">")))
-      with-title))
+  ;; #110 r6 removed a second rewrite here, which stamped a per-request nonce
+  ;; onto the one inline <script>. The console's script is static/console/*.js
+  ;; now, loaded with `src`, which `script-src 'self'` already permitted — so
+  ;; there is no inline block to authorize and no nonce to stamp.
+  with-title)
 (define (html-response s)
   (response/output #:mime-type #"text/html; charset=utf-8"
                    (lambda (out) (write-string s out))))
