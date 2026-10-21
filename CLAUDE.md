@@ -849,8 +849,8 @@ is ROLE-scoped — `rt-perm`, before the handler runs. The table was documentati
   parens, got 83 top-level forms out of ~1,600 and passed its way to a wrong
   answer — caught only by its own "can the walk find a permission that IS
   enforced" assertion, which is why that assertion leads the file.
-- The walk is a call graph BY NAME, 4 levels, over main.rkt + `domain/` +
-  `pkgs/`. It is an approximation and sound in the safe direction: something
+- The walk is a call graph BY NAME, 4 levels, over every module under `server/`
+  (`main.rkt` alone until #110 r3 moved the handlers out) + `domain/` + `pkgs/`. It is an approximation and sound in the safe direction: something
   enforced where the walk cannot reach is a false PASS, never a false failure, so
   the gate cannot block a correct change.
 - **Eleven HANDLERS entries are an inline `lambda`**, not a named handler; the
@@ -939,6 +939,63 @@ raco test test/route-perm-gate-tests.rkt   # 7 cases; the reverse direction is t
   missing r2's whole "Checked" column and both the OCR and s3blobs plugins.
   Re-render it (`render --locale ja`) whenever the English changes, and expect a
   large diff the first time after a gap.
+
+## main.rkt is the dispatcher, not the server (#110 r3)
+
+main.rkt was 4,065 lines and 43 feature areas. It is **873** now: the `HANDLERS`
+table, the dispatcher r2 built, the plugin-route mount, the security headers and
+the boot sequence. Nothing else moved — every handler body is byte-identical,
+and a line-for-line bag comparison of the old region against the new modules is
+how that was checked rather than asserted.
+
+- **`server/kit.rkt` is the hoist the split needed first**, and it had to come
+  first: 456 handler bodies closed over `db-conn` and the request/response
+  helpers defined above them, so without it every handler would have had to be
+  REWRITTEN to move. It holds the pool, the request accessors, `with-auth` /
+  `with-mt` / `require-feature`, the response constructors, the static-file and
+  bundle-ticket machinery, `fmt`, and the five method predicates. **`db-conn`
+  lives there deliberately** — threading it through every signature would have
+  been a behaviour-changing refactor wearing a mechanical one's clothes. The
+  pool is lazy, so requiring kit costs nothing until a query runs.
+- **`server/admission.rkt`** is what a metered endpoint passes before it costs
+  anything: the governor, `quota-429`, the hold reason QUOTA-3 reports, and the
+  idempotency key. It is separate from kit because kit is HTTP plumbing and this
+  is policy; both are shared, for different reasons.
+- **`server/api/*.rkt`, eighteen modules, 56–464 lines.** The issue's plan was
+  "each `;; ---- <area>` section becomes `server/api/<area>.rkt`" — **43 modules
+  at a median of 50 lines, which is worse than one navigable file.** Grouped by
+  domain instead. The file's own order mostly matched its domains; the handlers
+  that did not (`ep-whoami` sat in the brand-assets section, `ep-login` in the
+  org plane, `ep-i18n-catalog` above `;; ---- endpoints`) were moved to where
+  they belong, which is behaviour-neutral because module-level definition order
+  is not.
+- **main.rkt's own `require` list went from 70 modules to what it uses**, and
+  that is where the one real trap of this slice is: **three requires exist for
+  their SIDE EFFECT.** `index-tools.rkt`, `doc-tools.rkt` and `kg-tools.rkt`
+  register tools on instantiation and export nothing anybody imports, so a
+  computed import list drops all three with no compile error and no failing unit
+  test (a test requires the tool module itself). They are back, with the reason
+  at the require. The control is subtler than it looks: dropping one leaves the
+  tool registered anyway, because the plugin that owns the matching workflow
+  requires it too — so the lines matter only for an instance that does NOT load
+  those plugins, which is exactly the case nothing tests.
+- **`test/route-perm-gate-tests.rkt` names a DIRECTORY now, not main.rkt.**
+  `SOURCES` was `server/main.rkt` plus `domain/` and `pkgs/`; it walks every
+  module under `server/` instead, or it would have gone on passing while reading
+  a module that no longer holds the handler bodies — the false PASS the gate
+  exists to avoid. Positive-controlled across the new boundary: with
+  `ep-retention-get`'s `require-perm` stripped in `server/api/policy.rkt`, the
+  gate still names `GET /api/retention`.
+- **main.rkt's `req-header` had been SHADOWING `web-kit/http1`'s** for as long as
+  both existed. Every handler in the file always used the web-server-request one;
+  it is `(except-in web-kit/http1 req-header)` now, so that stays true by
+  declaration rather than by accident of definition order.
+- **The require lists were computed, not guessed.** A throwaway script read each
+  extracted fragment as data, collected its free symbols (skipping `(quote …)`,
+  or `'tool` in a `hasheq` literal reads as a use of the `tool` export), and
+  intersected them with each candidate module's real exports via
+  `module->exports` — restricted by the same `only-in`/`except-in` main.rkt
+  already carried, so no handler could acquire a binding from somewhere new.
 
 ## The route table and the generated reference (slice 60)
 

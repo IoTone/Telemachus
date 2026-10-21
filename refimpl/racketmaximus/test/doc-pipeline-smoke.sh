@@ -87,6 +87,11 @@ CARJ=$(P /api/members '{"username":"carol","role":"member"}'); CAROL=$(printf '%
 P /api/quota '{"dimension":"ai.tokens.total","limit":1000000,"window":"day"}' >/dev/null
 assert "workflow arrived from the plugin" "$(G /api/workflows)" '"slug":"process-upload"'
 assert "the four tools are registered"   "$(G /api/tools)" '"name":"doc_extract_fields"'
+# The tool registries (index-tools, doc-tools, kg-tools) register on load and
+# export nothing, so an import-pruning pass drops them without a compile error.
+# The assertion above covers doc-tools and the one at the end of the file covers
+# kg-tools; `repo_extract_text` had neither, so it gets one here.
+assert "...and so is the indexer's"       "$(G /api/tools)" '"name":"repo_extract_text"'
 
 echo
 echo "== 1. a PRIVATE invoice shared with bob, and a form template ==================="

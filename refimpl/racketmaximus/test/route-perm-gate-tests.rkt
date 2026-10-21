@@ -64,10 +64,16 @@
           (append (rkt-files-under p) acc)]
          [else acc]))]))
 
+;; EVERY module under server/, not main.rkt by name. #110 r3 moved the handlers
+;; out of main.rkt into server/api/*.rkt and the shared wrappers into
+;; server/kit.rkt, so a named-file list would have gone on passing while walking
+;; a module that no longer holds the handler bodies — the shape of false PASS
+;; this gate exists to avoid. The HANDLERS table is still read from main.rkt by
+;; name below, because that table is what main.rkt keeps.
 (define SOURCES
-  (cons (build-path 'up "server" "main.rkt")
-        (append (rkt-files-under (build-path 'up "domain"))
-                (rkt-files-under (build-path 'up "pkgs")))))
+  (append (rkt-files-under (build-path 'up "server"))
+          (rkt-files-under (build-path 'up "domain"))
+          (rkt-files-under (build-path 'up "pkgs"))))
 
 ;; name (symbol) -> list of body datums, for every (define (name . args) body ...)
 (define DEFS
