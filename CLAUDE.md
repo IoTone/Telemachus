@@ -2234,10 +2234,19 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   header, so two copies drifting would fail every request with
   `SignatureDoesNotMatch` and nothing in the message would name which copy was
   wrong. `s3-object-url` calls it rather than recomputing.
-- **The boot health check is `startup.rkt`'s existing probe.** It writes a blob,
-  reads it back and deletes it, fatally — which through this store checks
-  reachability, credentials, bucket existence, permissions and the encryption
-  posture at once. Do not add a second health mechanism.
+- **THE BOOT HEALTH CHECK DOES NOT EXIST, and this note claimed it did.**
+  Reported from outside as #119 and verified: `blob-store-problem` in
+  `server/startup.rkt` takes a filesystem PATH, `make-directory*`s it and writes
+  a probe FILE into it, and `main.rkt` passes `(blob-root)` — the local rs3 root,
+  computed without reference to `TELEMACHUS_BLOB_STORE`. It never obtains a
+  store, so it cannot call `s3-put!`. #82's requirement 5 was recorded as
+  satisfied "with no new code" on the strength of that claim, which is the #113
+  shape and worse: the false declaration was the argument for not writing the
+  check. The fix is to make the probe a function of the ACTIVE STORE's
+  put/get/delete rather than of a path — patching the call site to pass a
+  different path does not fix it — and it must run after `load-plugins!`,
+  because a plugin registers the store. `docs/ops/configuration.md` and
+  `plugins/s3blobs/main.rkt` carried the same false claim and are corrected too.
 - **The migration moves NO database rows**, because `repo_versions` stores the
   digest and the store is addressed by it. That is what makes it resumable and
   safe on a live instance. It **re-hashes every blob**: rs3 takes the digest from
