@@ -19,7 +19,8 @@
          racket/string
          "../db/id.rkt"
          "../authz/authz.rkt"
-         "../quota/quota.rkt")
+         "../quota/quota.rkt"
+         "../db/nulls.rkt")
 
 (provide org-slugify org-plan? org-resolve org-team-resolve
          org-create! org-update! org-list org-get
@@ -31,7 +32,6 @@
          org-plan-quotas)
 
 ;; ---- helpers ----------------------------------------------------------------
-(define (nz x) (if (sql-null? x) 'null x))
 
 (define (org-slugify s)
   (define base (regexp-replace* #rx"[^a-z0-9]+" (string-downcase (format "~a" s)) "-"))

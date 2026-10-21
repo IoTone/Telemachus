@@ -24,7 +24,12 @@
          sha2-kit                 ; hmac-sha256 (libcrypto) — the token hash
          (only-in "secretbox.rkt" secret-wrap secret-unwrap)   ; secrets at rest (issue #19)
          "session-policy.rkt"     ; idle + absolute session timeouts (issue #38)
-         (only-in "crypto.rkt" constant-time=?))
+         (only-in "crypto.rkt" constant-time=?)
+         ;; #110 r5: `nz`, `nz/false` and `nz/string` were three hand-written
+         ;; copies in THIS file alone — and two of them were both called `nz`,
+         ;; the module-level one answering #f and a local one inside
+         ;; `audit-list` answering 'null.
+         "../db/nulls.rkt")
 
 (provide (struct-out principal)
          (struct-out exn:fail:forbidden)
@@ -59,15 +64,14 @@
 
 (struct exn:fail:forbidden exn:fail (permission) #:transparent)
 
-(define (nz v) (and v (not (sql-null? v)) v))
 
 (define (user-principal conn user-id team-id)
   (define row (query-maybe-row conn
     "SELECT is_operator, org_id, org_role_key FROM users WHERE id = ?" user-id))
   (define op (and row (vector-ref row 0)))
   (principal user-id (and (number? op) (not (zero? op))) team-id #f
-             (and row (nz (vector-ref row 1)))
-             (and row (nz (vector-ref row 2)))))
+             (and row (nz/false (vector-ref row 1)))
+             (and row (nz/false (vector-ref row 2)))))
 
 ;; resolve a trusted (username, team-slug) pair to a direct-user principal
 ;; team slugs are unique per ORG (slice 45), so resolve the slug inside the user's
@@ -75,7 +79,7 @@
 (define (principal-for conn username team-slug)
   (define row (query-maybe-row conn "SELECT id, org_id FROM users WHERE username = ?" username))
   (define uid (and row (vector-ref row 0)))
-  (define oid (and row (nz (vector-ref row 1))))
+  (define oid (and row (nz/false (vector-ref row 1))))
   (define tid (or (and oid (query-maybe-value conn
                              "SELECT id FROM teams WHERE slug = ? AND org_id = ?" team-slug oid))
                   (query-maybe-value conn "SELECT id FROM teams WHERE slug = ?" team-slug)))
@@ -111,10 +115,10 @@
   oid)
 
 (define (team-org conn team-id)
-  (and team-id (nz (query-maybe-value conn "SELECT org_id FROM teams WHERE id = ?" team-id))))
+  (and team-id (nz/false (query-maybe-value conn "SELECT org_id FROM teams WHERE id = ?" team-id))))
 
 (define (user-org conn user-id)
-  (and user-id (nz (query-maybe-value conn "SELECT org_id FROM users WHERE id = ?" user-id))))
+  (and user-id (nz/false (query-maybe-value conn "SELECT org_id FROM users WHERE id = ?" user-id))))
 
 ;; promote/demote a user within their company. role-key: #f | org_admin | org_owner
 (define (set-user-org-role! conn user-id role-key)
@@ -607,7 +611,7 @@
             'expires_at (if exp (epoch->iso8601 exp) 'null)
             ;; issue #38: which credential this is, so an operator can tell a
             ;; browser session from a machine token before revoking one
-            'kind (nz* (vector-ref r 8)))))
+            'kind (nz/string (vector-ref r 8)))))
 
 (define (epoch->iso8601 secs)
   (define d (seconds->date secs #f))
@@ -639,14 +643,14 @@
      (define urow (query-maybe-row conn
        "SELECT is_operator, org_id, org_role_key FROM users WHERE id = ?" user-id))
      (define op (and urow (vector-ref urow 0)))
-     (define org-id (and urow (nz (vector-ref urow 1))))
+     (define org-id (and urow (nz/false (vector-ref urow 1))))
      ;; issue #38: the session clocks, evaluated against the policy in force RIGHT
      ;; NOW rather than against anything frozen into the row at issue time — so
      ;; tightening the policy takes effect on the next request, not on the next
      ;; sign-in. OWASP: server-side invalidation is the mandatory half.
      (define reason
        (session-timeout-reason (session-policy-for conn org-id)
-                               (nz* (vector-ref row 6))
+                               (nz/string (vector-ref row 6))
                                (epoch-col (vector-ref row 7))
                                (epoch-col (vector-ref row 8))))
      (cond
@@ -665,10 +669,9 @@
         (principal user-id (and (number? op) (not (zero? op))) team-id
                    (if (list? scopes) scopes '())
                    org-id
-                   (and urow (nz (vector-ref urow 2))))])]))
+                   (and urow (nz/false (vector-ref urow 2))))])]))
 
 ;; a TEXT column that should hold a word, as a string ("" when NULL)
-(define (nz* v) (if (or (not v) (sql-null? v)) "" (format "~a" v)))
 ;; a BIGINT epoch column, as an integer or #f. Postgres hands back an integer and
 ;; SQLite may hand back a string for the same column, so both are accepted.
 (define (epoch-col v)
@@ -738,7 +741,6 @@
 
 ;; recent audit events for a team (newest first), for the management UI.
 (define (audit-list conn team-id #:limit [lim 50] #:offset [off 0])
-  (define (nz x) (if (sql-null? x) 'null x))
   (for/list ([r (in-list (query-rows conn
      (string-append "SELECT id, action, actor_type, actor_id, resource_type, resource_id, result, at, "
                     "client_ip, user_agent, request_id "

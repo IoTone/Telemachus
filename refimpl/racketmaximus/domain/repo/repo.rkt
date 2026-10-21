@@ -26,7 +26,8 @@
          "../fields/fields.rkt"           ; one validation vocabulary, shared with the funnel
          ;; issue #84: reads are audited at the ONE seam that produces bytes
          (only-in "../audit/reads.rkt" audit-read! audit-read-denied!)
-         "blobs.rkt")
+         "blobs.rkt"
+         "../db/nulls.rkt")
 
 (provide repo-put! set-put-hook! set-delete-hook!
          repo-fields repo-fields-set! repo-set-attributes!
@@ -96,7 +97,6 @@
                  "v.digest, v.size, v.content_type, v.filename, v.seq, v.created_at "
                  "FROM repo_objects o LEFT JOIN repo_versions v ON v.id = o.current_version_id"))
 
-(define (nz x) (if (sql-null? x) 'null x))
 
 (define (row->obj r)
   (hasheq 'id (vector-ref r 0) 'org_id (vector-ref r 1) 'team_id (vector-ref r 2)

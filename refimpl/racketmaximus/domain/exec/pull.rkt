@@ -31,7 +31,8 @@
          (only-in "../../config.rkt" max-upload-bytes)
          racket/port net/base64
          (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
-         "federation.rkt")
+         "federation.rkt"
+         "../db/nulls.rkt")
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          load-push-executors!
@@ -94,7 +95,6 @@
 ;; NOT one of them — retiring revokes the worker token and is irreversible, and
 ;; the whole point of draining is that it is neither.
 (define ADMIN-STATES '("active" "drained"))
-(define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- executors --------------------------------------------------------------------
 ;; a push executor's key is sealed at rest like the other replayable secrets

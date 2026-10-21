@@ -44,7 +44,8 @@
          "../db/id.rkt"
          "../authz/authz.rkt"      ; user-principal
          ;; issue #83 r2: a job's payload and result are the document's own words
-         (only-in "../authz/sealed.rkt" define-sealed-column))
+         (only-in "../authz/sealed.rkt" define-sealed-column)
+         "../db/nulls.rkt")
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
          seal-payload seal-result unseal-payload unseal-result seal-error unseal-error
@@ -96,7 +97,6 @@
 
 (define (vr r i) (vector-ref r i))
 (define (now) (current-seconds))
-(define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- kind registry ----------------------------------------------------------
 ;; A kind is in-process (a handler) or REMOTE (slice 66): no handler here, never

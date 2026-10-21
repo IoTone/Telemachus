@@ -997,6 +997,27 @@ how that was checked rather than asserted.
   `module->exports` — restricted by the same `only-in`/`except-in` main.rkt
   already carried, so no handler could acquire a binding from somewhere new.
 
+## One SQL-NULL rule, under three names (#110 r5)
+
+`domain/db/nulls.rkt`. `nz` was hand-written **fourteen** times (the issue
+counted eleven), and it is not the mechanical win that count suggests, because
+the copies were not all the same function:
+
+- **`nz`** — SQL NULL becomes `'null`, the jsexpr null. Eleven of the fourteen,
+  which is what a row being rendered into JSON wants.
+- **`nz/false`** — SQL NULL becomes `#f`, for a caller that branches in Racket.
+  It was spelled two ways, `(if (sql-null? v) #f v)` in review.rkt and
+  `(and v (not (sql-null? v)) v)` in authz.rkt, and **those are the same
+  function on every input** — the second only looks stricter.
+- **`nz/string`** — `#f` or SQL NULL becomes `""`, else formatted. One caller,
+  and a different job: building a string, not answering whether there was a
+  value.
+
+A single `nz` would have been wrong for eleven call sites or for three, so there
+are three names. What that bought beyond the de-duplication: **authz.rkt had two
+different functions both called `nz`** — the module-level one answering `#f` and
+a local one inside `audit-list` answering `'null`, shadowing it. That is gone.
+
 ## The route table and the generated reference (slice 60)
 
 `server/routes.rkt` DECLARES every HTTP route: method, path pattern, handler key,

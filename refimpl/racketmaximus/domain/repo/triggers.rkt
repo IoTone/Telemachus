@@ -26,13 +26,13 @@
          ;; hand-started run cannot match
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../authz/sealed.rkt" define-sealed-column)
-         "repo.rkt")
+         "repo.rkt"
+         "../db/nulls.rkt")
 
 (provide trigger-create! trigger-list trigger-get trigger-update! trigger-delete!
          trigger-fires trigger-matches? fire-triggers!
          object-processing)
 
-(define (nz x) (if (sql-null? x) 'null x))
 (define (bool x) (and (number? x) (not (zero? x))))
 
 (define TSELECT

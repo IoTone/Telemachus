@@ -29,14 +29,14 @@
          "../db/id.rkt"
          (only-in sha2-kit sha256-hex)
          "../authz/authz.rkt"                        ; principal-*, audit!
-         (only-in "../flow/spec.rkt" REVIEW-VERDICTS))  ; one frozen vocabulary
+         (only-in "../flow/spec.rkt" REVIEW-VERDICTS)
+         (only-in "../db/nulls.rkt" nz/false))  ; one frozen vocabulary
 
 (provide review-open! review-list review-get review-decide! review-cancel-run!
          set-resume-hook! review-count-pending answers-problem
          review-verify review-stats)
 
 (define (now-ms) (inexact->exact (floor (current-inexact-milliseconds))))
-(define (nz v) (if (sql-null? v) #f v))
 (define (js s) (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                  (let ([j (string->jsexpr (if (sql-null? s) "{}" s))]) (if (or (hash? j) (list? j)) j (hasheq)))))
 
@@ -54,25 +54,25 @@
 
 (define (row->review r)
   (hasheq 'id (vector-ref r 0) 'team_id (vector-ref r 1)
-          'run_id (or (nz (vector-ref r 2)) 'null)
-          'step_row_id (or (nz (vector-ref r 3)) 'null)
-          'step_id (or (nz (vector-ref r 4)) 'null)
+          'run_id (or (nz/false (vector-ref r 2)) 'null)
+          'step_row_id (or (nz/false (vector-ref r 3)) 'null)
+          'step_id (or (nz/false (vector-ref r 4)) 'null)
           'title (vector-ref r 5)
-          'instructions (or (nz (vector-ref r 6)) "")
+          'instructions (or (nz/false (vector-ref r 6)) "")
           'subject (js (vector-ref r 7))
           'checklist (js (vector-ref r 8))
           'four_eyes (not (zero? (vector-ref r 9)))
-          'author_user_id (or (nz (vector-ref r 10)) 'null)
+          'author_user_id (or (nz/false (vector-ref r 10)) 'null)
           'status (vector-ref r 11)
-          'verdict (or (nz (vector-ref r 12)) 'null)
-          'rationale (or (nz (vector-ref r 13)) "")
+          'verdict (or (nz/false (vector-ref r 12)) 'null)
+          'rationale (or (nz/false (vector-ref r 13)) "")
           'answers (js (vector-ref r 14))
-          'requested_by (or (nz (vector-ref r 15)) 'null)
-          'decided_by (or (nz (vector-ref r 16)) 'null)
+          'requested_by (or (nz/false (vector-ref r 15)) 'null)
+          'decided_by (or (nz/false (vector-ref r 16)) 'null)
           'requested_ms (vector-ref r 17)
-          'decided_ms (or (nz (vector-ref r 18)) 'null)
-          'hash (or (nz (vector-ref r 19)) 'null)
-          'prev_hash (or (nz (vector-ref r 20)) 'null)))
+          'decided_ms (or (nz/false (vector-ref r 18)) 'null)
+          'hash (or (nz/false (vector-ref r 19)) 'null)
+          'prev_hash (or (nz/false (vector-ref r 20)) 'null)))
 
 ;; ---- validation --------------------------------------------------------------
 ;; Unknown keys are refused rather than dropped, the same call the workflow spec
