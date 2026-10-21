@@ -429,3 +429,14 @@
        (proc p))]))
 
 (define (scope-of req) (if (equal? (query-param req 'scope "") "org") 'org 'team))
+
+;; ---- odds and ends every surface uses ---------------------------------------
+;; A JSON field as a string, whatever arrived. 44 call sites across the surface
+;; before #110 r3 split them into eight modules, which is why it lives here.
+(define (fmt b k) (format "~a" (hash-ref b k "")))
+
+;; the token pepper shares the fallback chain (TELEMACHUS_TOKEN_PEPPER → TELEMACHUS_SECRET);
+;; running on the dev default is loud at boot, not silent
+(define (warn-dev-pepper!)
+  (when (token-pepper-is-default?)
+    (printf "WARNING: TELEMACHUS_SECRET / TELEMACHUS_TOKEN_PEPPER not set — tokens are hashed with the dev pepper; set one in production\n")))
