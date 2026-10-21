@@ -9,10 +9,27 @@
 ;; not all 141 handlers), so it is pinned here, statically, where it is cheap.
 ;;   raco test test/console-tests.rkt
 
-(require rackunit racket/file racket/string racket/runtime-path)
+(require rackunit racket/file racket/string racket/list racket/runtime-path)
 
 (define-runtime-path console-html "../static/index.html")
-(define html (file->string console-html))
+(define-runtime-path console-dir "../static/console")
+(define shell (file->string console-html))
+
+;; #110 r6 moved the console's 2,295 lines of inline script into
+;; static/console/*.js. This file named static/index.html and nothing else, so a
+;; named-file read would have gone on passing while looking at a shell that no
+;; longer holds a single handler — the same false PASS r3 had to fix in
+;; test/route-perm-gate-tests.rkt. `html` is the shell PLUS every script it
+;; loads, which is what the browser actually gets.
+(define script-files
+  (sort (for/list ([p (in-list (directory-list console-dir))]
+                   #:when (regexp-match? #rx"[.]js$" (path->string p)))
+          (path->string p))
+        string<?))
+(define html
+  (string-join (cons shell (for/list ([n (in-list script-files)])
+                             (file->string (build-path console-dir n))))
+               "\n"))
 
 (test-case "the console has no inline event handlers"
   ;; the delegated dispatcher replaced every one of them; adding a new
@@ -50,6 +67,20 @@
   ;; stranded button.
   (void))
 
-(test-case "the shell has exactly one script block, so one nonce covers it"
-  (check-equal? (length (regexp-match* #px"<script" html)) 1)
-  (check-equal? (length (regexp-match* #px"</script>" html)) 1))
+(test-case "the shell has NO inline script, and loads exactly the files on disk"
+  ;; Since #110 r6 there is no inline block, which is why the console's CSP is a
+  ;; plain `script-src 'self'` with neither 'unsafe-inline' nor a nonce. A bare
+  ;; `<script>` reintroduced here would be silently DEAD under that policy, so it
+  ;; is refused statically rather than discovered in a browser.
+  (check-equal? (regexp-match* #px"<script>" shell) '()
+                "no inline script: the console's CSP has no 'unsafe-inline' and no nonce")
+  ;; …and the two sides agree. A file added to static/console/ but never loaded
+  ;; is dead code that looks live; a tag naming a file that is not there is a 404
+  ;; the console cannot recover from. Both directions, like the config gate.
+  (define loaded
+    (for/list ([m (in-list (regexp-match* #px"<script src=\"/console/([^\"]+)\">" shell
+                                          #:match-select cadr))])
+      (bytes->string/utf-8 (if (bytes? m) m (string->bytes/utf-8 m)))))
+  (check-equal? loaded script-files
+                "every file in static/console/ is loaded, in name order, and nothing else is")
+  (check-true (> (length script-files) 1) "…and the split really happened"))

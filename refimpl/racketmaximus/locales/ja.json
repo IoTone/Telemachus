@@ -2224,6 +2224,10 @@
       "text": "Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。",
       "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
     },
+    "doc.route.get.console.path": {
+      "text": "コンソール自身のスクリプトファイル（static/console/*.js）。同一オリジンで配信されるため、コンソールの `script-src 'self'` ポリシーがインラインブロックも nonce もなしに許可する。",
+      "hash": "445e4a4dc5015fd7411c38950bee5d917e5cd2b3"
+    },
     "doc.route.get.api.oop": {
       "text": "接続済みのサンドボックス化（プロセス外）プラグインと、それらが要求できる機能。",
       "hash": "0e0b67a716848dba7d3d889f5b9896b861229066"

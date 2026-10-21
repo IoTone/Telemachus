@@ -75,6 +75,7 @@
    (R "GET" "/activate"    'ui #:auth 'public #:doc "The console, on the magic-link activation screen (hosted mode).")
    (R "GET" "/health"      'health #:auth 'public #:doc "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.")
    (R "GET" "/beta-sdk.js" 'beta-sdk #:auth 'public #:doc "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).")
+   (R "GET" "/console/*path" 'console-file #:auth 'public #:doc "One of the console's own script files (static/console/*.js), served same-origin so the console's `script-src 'self'` policy admits it with no inline block and no nonce.")
    (R "GET" "/beta/bundle/:plugin/*path" 'bundle-file #:auth 'public #:doc "A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in.")
    ;; issue #20: the authenticated counterpart. `bundle/` is reserved by the
    ;; platform under every plugin's prefix, and core routes match before plugin

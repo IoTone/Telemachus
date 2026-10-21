@@ -90,7 +90,9 @@ racket server/main.rkt
   simulated: a pull worker answers it or `run-chat` refuses it by name. The doc
   tools, the knowledge graph and `/api/agent` still refuse outright, because an
   echo is useless to them.
-- The server **caches `static/index.html` at startup** — restart to pick up UI edits.
+- The server **caches `static/index.html` at startup** — restart to pick up a change
+  to the SHELL. The console's script is `static/console/*.js` since #110 r6 and is
+  read per request with `no-store`, so a change there needs only a reload.
 - Local model: ollama on `:11434`, `qwen2.5:7b` (tool-calling works; avoid qwen3.5
   "reasoning" models — the answer lands in a `reasoning` field). Warm it before e2e.
 
@@ -996,6 +998,47 @@ how that was checked rather than asserted.
   intersected them with each candidate module's real exports via
   `module->exports` — restricted by the same `only-in`/`except-in` main.rkt
   already carried, so no handler could acquire a binding from somewhere new.
+
+## The console's script is files now, and the nonce is gone (#110 r6)
+
+`static/index.html` was 2,431 lines, 2,295 of them one inline `<script>`. It is
+**148** lines and loads `static/console/*.js` — thirteen files, 69–317 lines,
+numbered so the load order is in the filename.
+
+- **The cut is CONTIGUOUS, and that is the whole safety argument.** Classic
+  scripts share one global scope and run in order, so concatenating the thirteen
+  files in name order reproduces the original block **byte for byte** — which is
+  asserted, not assumed. A grouping that moved code around would have risked the
+  one thing that differs between one file and many: a top-level `const`/`let`
+  does NOT hoist across files, so a reordered declaration is a `ReferenceError`
+  at load with nothing but a browser to catch it.
+- **No build step and no policy change were needed**, because `script-src
+  'self'` already permitted a same-origin file. One new route serves them:
+  `GET /console/*path`, `safe-seg?` on every segment.
+- **THE NONCE IS GONE, and that is a tightening.** Issue #27 earned
+  `script-src 'self' 'nonce-…'` by moving 141 inline handlers to delegated
+  listeners; the nonce existed solely to authorize OUR OWN inline block. With no
+  inline script left it authorizes nothing, so the console's policy is now plain
+  `script-src 'self'` — an injected inline script was blocked by the absence of
+  `'unsafe-inline'` before and is blocked by it now. `new-nonce`,
+  `ui-html-branded`'s `<script>` rewrite and the `nonce` argument are all gone.
+  The **baseline** policy every other response carries still has
+  `'unsafe-inline'` (`console-csp #t`), because a plugin's own bundle page may
+  legitimately ship inline script and that page is not the console.
+- **`test/console-tests.rkt` read `static/index.html` by name.** It reads the
+  shell PLUS every file in `static/console/`, or it would have gone on passing
+  while looking at a shell that no longer holds a single handler — r3's `SOURCES`
+  lesson again. Its last case is stronger than the one it replaced: no inline
+  `<script>` at all, and the `src` tags match the directory listing **in both
+  directions**, so a file added but never loaded (dead code that looks live) and
+  a tag naming a file that is not there (a 404 the console cannot recover from)
+  both fail. Positive-controlled both ways.
+- **Adding a route adds a `doc.route.*` string**, so the localization gate fails
+  until Japanese exists for it — `--required en,ja`. Insert the one entry into
+  `locales/ja.json` **textually, beside its neighbour**: rebuilding the file in
+  `en.json`'s key order reorders it and turns a one-string change into 155
+  changed lines, which is the churn the "do not tidy a catalog by sorting it"
+  rule exists to prevent. The `hash` is `sha1` of the English, no salt.
 
 ## An export is a claim; a kit's export is its API (#110 r4)
 
@@ -3374,16 +3417,18 @@ model role at any executor name**, including another org's, because
 - **`/health` is `{ok, multitenant}` and nothing else** (#11). Version, KDF, TLS and the
   codename moved to `GET /api/admin/status` (instance:manage). Do not put them
   back: the beta instance is a public front door.
-- **The console runs under a per-request NONCE** (#11 part 2, then issue #27;
+- **The console has NO inline script** (#11 part 2, then #27, then #110 r6;
   `console-csp`): same-origin everything, `object-src 'none'`, `base-uri 'self'`,
   `frame-ancestors 'self'`, `form-action 'self'`, `img-src` also `data: blob:`,
-  and **`script-src 'self' 'nonce-…'` — no `'unsafe-inline'`**, which is the
-  directive that lets an injected script tag run. `style-src` keeps
-  `'unsafe-inline'` on purpose: ~250 style attributes remain and injected CSS is a
-  far smaller prize. Every other response still gets the baseline CSP with
-  `'unsafe-inline'` — a plugin bundle page may carry inline script of its own.
-- **All 141 inline handlers are delegated now** (issue #27), because a nonce
-  cannot authorize an `onclick` attribute. A render writes
+  and **`script-src 'self'` — no `'unsafe-inline'` and no nonce**. The per-request
+  nonce #27 introduced existed only to authorize our own inline block; r6 moved
+  that block to `static/console/*.js` and the nonce is gone with it (see "The
+  console's script is files now"). `style-src` keeps `'unsafe-inline'` on
+  purpose: ~250 style attributes remain and injected CSS is a far smaller prize.
+  Every other response still gets the baseline CSP with `'unsafe-inline'` — a
+  plugin bundle page may carry inline script of its own.
+- **All 141 inline handlers are delegated** (issue #27), because no CSP source
+  can authorize an `onclick` attribute. A render writes
   `data-h-click="${H((el,ev)=>doThing(row.id))}"`; `H` parks the closure and
   returns its index; one document listener per event type dispatches. `this` is
   `el`, `event` is `ev`, and a handler returning `false` still gets

@@ -164,6 +164,7 @@
   "doc.route.get.beta-sdk.js": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
   "doc.route.get.beta.bundle.plugin.path": "A file from a Tier-B onboarding plugin's PUBLIC landing bundle (plugins/<id>/landing/) — the funnel a prospect sees before signing in.",
   "doc.route.get.beta.template": "The Tier-C sandboxed HTML template, localized by the experience overlay.",
+  "doc.route.get.console.path": "One of the console's own script files (static/console/*.js), served same-origin so the console's `script-src 'self'` policy admits it with no inline block and no nonce.",
   "doc.route.get.health": "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.",
   "doc.route.get.index.html": "The console.",
   "doc.route.get.login": "The console, sign-in first — a URL that never depends on the beta landing.",
