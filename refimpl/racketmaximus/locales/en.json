@@ -1176,8 +1176,8 @@
       "hash": "60247ae2461e8f3963ef7a63792bbadf58d0ab28"
     },
     "doc.route.post.api.quota": {
-      "text": "Set a quota limit for the caller's team (dimension, limit, window).",
-      "hash": "465a2ad05cf18995a51999bd06272b6772b32e52"
+      "text": "Set a quota limit for the caller's team (dimension, limit, window). `quota:manage` and NOT `instance:manage` (issue #113): a team owner sets their own team's limit, and an org admin may too, because the company's own limit still caps whatever a team asks for (admission takes the org decision first). A team ADMIN deliberately does not hold it — spending is the steward's call.",
+      "hash": "3584da118f2eee5a87c1b3e613127645d2ba0269"
     },
     "doc.route.get.api.repo-obj.id.traces": {
       "text": "What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — \"I called DELETE and got a 200\" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure.",
@@ -2099,6 +2099,14 @@
       "text": "The workflow spec format: version, step kinds, binding references, predicates.",
       "hash": "5b7f95b61ad9613c47931f31046e2e5c7152fb46"
     },
+    "doc.route.patch.api.orgs.ref": {
+      "text": "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).",
+      "hash": "354b1a6e317ec7aa48339cc2917f15b416b7f18b"
+    },
+    "doc.route.post.api.org.teams.ref.quota": {
+      "text": "Set ONE team's quota limit from the company plane (issue #113): {dimension, limit, window?} for a team of the caller's own company, named by id or slug. The team-tier POST /api/quota only ever sets the caller's OWN team, so without this an org admin administering several teams had to hold a token in each. A team outside the company answers 404 — it does not exist for this caller.",
+      "hash": "4147b2236637c37de9c8866749d27afe22e2aebc"
+    },
     "doc.route.get.health": {
       "text": "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.",
       "hash": "c614ac05e5f95db5aef973fb0d9099bcae50d0ef"
@@ -2150,10 +2158,6 @@
     "ui.s3created": {
       "text": "Key created",
       "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
-    },
-    "doc.route.patch.api.orgs.ref": {
-      "text": "Rename a company, change its plan (re-applies the plan's caps), and/or set its hostname ({domain}, null to clear): the console on that host wears the company's branding before sign-in (TEN-2d).",
-      "hash": "354b1a6e317ec7aa48339cc2917f15b416b7f18b"
     },
     "doc.route.get.api.retention.plan": {
       "text": "What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch.",

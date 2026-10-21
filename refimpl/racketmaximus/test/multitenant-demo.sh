@@ -301,6 +301,39 @@ assert "acme clears its own switches" \
 assert "...and translate is back for acme" "$(g /api/features $ACME_DEV)" '{"enabled":true,"feature":"translate"}'
 
 echo
+echo "== 8e. issue #113 — a company admin sets ONE team's budget ======================"
+# The team-tier POST /api/quota only ever sets the CALLER'S OWN team, so without
+# this route an org admin administering several teams had to hold a token in each.
+# `quota:manage` was granted to both company-admin roles for a year with no route
+# reading it — which is the half of the route-table gate that did not exist.
+assert "an org admin sets the engineering team's budget" \
+  "$(pj /api/org/teams/engineering/quota $HR_TOK '{"dimension":"ai.tokens.total","limit":123456,"window":"day"}')" \
+  '"ok":true'
+assert "...and the team itself sees the new limit" \
+  "$(g /api/usage $ACME_DEV)" '"limit":123456'
+assert "...named by team id as well as slug" \
+  "$(pj /api/org/teams/$ACME_TEAM/quota $HR_TOK '{"dimension":"ai.tokens.total","limit":123457,"window":"day"}')" \
+  '"ok":true'
+# BOTH companies run a team whose slug is "engineering" (section 2), so the slug
+# branch has to resolve inside the caller's own company
+GLBX_TEAMS=$(g /api/org/teams $GLBX_OWNER)
+GLBX_ENG=$(jget 'd["teams"][0]["id"]' <<<"$GLBX_TEAMS")
+assert "globex's own team resolves for globex" \
+  "$(pj /api/org/teams/engineering/quota $GLBX_OWNER '{"dimension":"ai.tokens.total","limit":999,"window":"day"}')" \
+  '"ok":true'
+assert "...and acme's limit is untouched by it" "$(g /api/usage $ACME_DEV)" '"limit":123457'
+# the branch that would leak without the org clause: an ID is instance-global
+assert "a team of ANOTHER company is 404, not 403" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/org/teams/$GLBX_ENG/quota -H "Authorization: Bearer $HR_TOK" -d '{"dimension":"ai.tokens.total","limit":1}')" \
+  '404'
+assert "an unknown team is 404" \
+  "$(pj /api/org/teams/no-such-team/quota $HR_TOK '{"dimension":"ai.tokens.total","limit":1}')" 'not found'
+# the company READER administers nothing — TEN-2a
+assert "an org reader cannot set a budget" \
+  "$(pj /api/org/teams/engineering/quota $RD_TOK '{"dimension":"ai.tokens.total","limit":1}')" 'Forbidden'
+assert "the write is in the company's audit trail" "$(g /api/org/audit $ACME_OWNER)" 'org.team.quota'
+
+echo
 echo "== 9. suspending a company freezes only that company ==========================="
 assert "suspend acme" "$(pj /api/orgs/$ACME_ORG/suspend $ROOT)" '"status":"suspended"'
 assert "acme writes blocked"  "$(curl -s -X POST $B/api/notes -H "Authorization: Bearer $ACME_DEV" -d '{"title":"nope"}')" 'tenant suspended'

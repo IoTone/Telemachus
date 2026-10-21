@@ -13,6 +13,7 @@
          "../domain/authz/authz.rkt"
          "../domain/authz/permissions.rkt"
          "../domain/orgs/orgs.rkt"
+         "../domain/quota/quota.rkt"
          "../domain/branding/branding.rkt"
          "../domain/notes/notes.rkt"
          "../domain/apps/search.rkt")
@@ -211,6 +212,76 @@
   (check-false (hash-ref (tenant-quota-check conn admin "ai.requests" 1) 'allowed))
   ;; the other company is unaffected
   (check-true (hash-ref (tenant-quota-check conn (hash-ref globex 'dev-p) "ai.requests" 1) 'allowed)))
+
+;; ---- issue #113: who may set a team's limit ---------------------------------
+;; `quota:manage` was granted to the team steward and to both company-admin roles
+;; and NO route read it, so a team that hit its 2,000-token daily default could be
+;; unblocked only by the instance operator. These are the rules the fix relies on.
+(test-case "quota:manage reaches the team steward and the company admins, and no further"
+  (define-values (conn root acme globex) (instance))
+  ;; the team owner holds it through `*:*` — the catalog's own comment says the
+  ;; steward's wildcard includes quota:manage
+  (check-true (can? conn (hash-ref acme 'owner-p) "quota:manage"))
+  ;; the org_admin holds it at the ORG tier, which can?'s team-tier branch unions
+  ;; in — and note their TEAM role is "admin", which deliberately does NOT have it,
+  ;; so this proves the union rather than the role
+  (check-true (can? conn (hash-ref acme 'admin-p) "quota:manage"))
+  ;; a plain member does not
+  (check-false (can? conn (hash-ref acme 'dev-p) "quota:manage"))
+  ;; the operator passes everything team-tier, as before the change
+  (check-true (can? conn root "quota:manage")))
+
+(test-case "a team admin may NOT set the budget (the catalog says so, so the gate must)"
+  (define-values (conn root acme globex) (instance))
+  ;; `admin` is listed in permissions.rkt as "manage without destroying — no
+  ;; team:delete / quota:manage / roles:manage". A team admin in a company with no
+  ;; org role is the case that isolates it: build one in the engineering team.
+  (define eng (hash-ref acme 'eng))
+  (define a (hash-ref (org-attach-member! conn (hash-ref acme 'owner-p) (hash-ref acme 'org)
+                                          #:username "teamadmin@acme" #:team eng #:role "admin")
+                      'user_id))
+  (define p (user-principal conn a eng))
+  (check-true (can? conn p "members:manage"))        ; it IS an admin
+  (check-false (can? conn p "quota:manage")))        ; and still not a spender
+
+(test-case "raising a team's own limit cannot escape the company's cap"
+  ;; The security claim of the whole change: POST /api/quota writes the TEAM limit,
+  ;; and `tenant-quota-check` takes the ORG decision first and lets it refuse. So
+  ;; handing the limit to a team owner widens who can configure a team, never how
+  ;; much a tenant may actually spend.
+  (define-values (conn root acme globex) (instance))
+  (define owner (hash-ref acme 'owner-p))
+  (set-org-limit! conn (hash-ref acme 'org) "ai.requests" 2)
+  (tenant-quota-record! conn owner "ai.requests" 2)
+  ;; the owner now does what the fix permits — sets their own team's limit high
+  (set-limit! conn "team" (principal-team-id owner) "ai.requests" 1000000)
+  (define d (tenant-quota-check conn owner "ai.requests" 1))
+  (check-false (hash-ref d 'allowed) "the company's cap still refuses")
+  (check-equal? (hash-ref d 'subject) "org")
+  ;; and on a single-tenant instance there is no tier above the team, which is
+  ;; stated rather than implied: the team limit is then the only one there is.
+  (define c2 (fresh))
+  (define-values (uid tid) (bootstrap! c2 #:username "solo"))
+  (define sp (user-principal c2 uid tid))
+  (set-limit! c2 "team" tid "ai.requests" 5)
+  (check-equal? (hash-ref (tenant-quota-check c2 sp "ai.requests" 1) 'subject) "team"))
+
+(test-case "org-team-resolve is scoped to the company, by id AND by slug"
+  (define-values (conn root acme globex) (instance))
+  (define a-org (hash-ref acme 'org))
+  ;; both companies have a team whose slug is "engineering" (slugs are unique per
+  ;; org, not globally), so the slug branch has to be org-scoped or it is a
+  ;; coin toss which company's team an admin edits
+  (check-equal? (org-team-resolve conn a-org "engineering") (hash-ref acme 'eng))
+  (check-equal? (org-team-resolve conn (hash-ref globex 'org) "engineering")
+                (hash-ref globex 'eng))
+  ;; an ID is instance-global, so this is the branch that would leak without the
+  ;; org clause: Globex's team id, asked for as Acme
+  (check-false (org-team-resolve conn a-org (hash-ref globex 'eng)))
+  (check-equal? (org-team-resolve conn a-org (hash-ref acme 'eng)) (hash-ref acme 'eng))
+  (check-false (org-team-resolve conn a-org "no-such-team"))
+  (check-false (org-team-resolve conn a-org #f))
+  (check-false (org-team-resolve conn #f "engineering")))
 
 ;; ---- single-tenant parity ---------------------------------------------------
 (test-case "single-tenant still works: one implicit org, gate trivially true"

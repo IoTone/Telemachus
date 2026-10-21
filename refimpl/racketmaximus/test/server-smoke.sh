@@ -259,6 +259,47 @@ assert "translate hist"  "$(curl -s $B/api/translate -H "Authorization: Bearer $
 assert "executors local" "$(curl -s $B/api/executors -H "Authorization: Bearer $OP")" '"name":"local"'
 assert "executor gated"  "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $BOB" -d '{"prompt":"hi","executor":"gpu-node"}')" 'Forbidden: instance:manage'
 assert "usage report"    "$(curl -s $B/api/usage -H "Authorization: Bearer $OP")" 'ai.tokens.total'
+
+# ---- who may set a team's budget (issue #113) ---------------------------------
+# `POST /api/quota` demanded `instance:manage`, so a team that hit its 2,000-token
+# daily default could be unblocked only by the INSTANCE operator — while the
+# catalog had been granting `quota:manage` to the team steward and to both
+# company-admin roles all along, with nothing reading it. Reported from outside.
+#
+# The refusal MESSAGE is the pinned part: it names the permission, so a revert to
+# `instance:manage` fails here and not merely in the route-table gate.
+assert "a member cannot set the team budget" \
+  "$(curl -s -X POST $B/api/quota -H "Authorization: Bearer $BOB" -d '{"dimension":"ai.requests","limit":500000,"window":"day"}')" \
+  'Forbidden: quota:manage'
+# a team OWNER can, which is the whole point of the issue
+MO=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"frank","role":"owner"}')
+FRANK=$(printf '%s' "$MO" | grep -oP '"token":\s*"\K[^"]+')
+FRANK_ID=$(printf '%s' "$MO" | grep -oP '"user_id":\s*"\K[^"]+')
+assert "an owner-role token was minted" "$MO" '"role":"owner"'
+assert "a team owner sets the team budget" \
+  "$(curl -s -X POST $B/api/quota -H "Authorization: Bearer $FRANK" -d '{"dimension":"ai.requests","limit":500000,"window":"day"}')" \
+  '"ok":true'
+assert "…and the limit reads back" \
+  "$(curl -s $B/api/usage -H "Authorization: Bearer $FRANK")" \
+  '"limit":500000'
+# the operator still passes, as it did before the change
+assert "the operator still sets it" \
+  "$(curl -s -X POST $B/api/quota -H "Authorization: Bearer $OP" -d '{"dimension":"ai.requests","limit":500000,"window":"day"}')" \
+  '"ok":true'
+# Frank goes again, and that is not tidiness: a SECOND owner makes alice no
+# longer the last one, and the membership block below asserts that the last owner
+# can be neither demoted nor removed. Leaving him behind turned those two
+# assertions green-to-red in a block that has nothing to do with quotas — which is
+# how this fixture announced that it was changing global state.
+assert "the second owner is removed again, so alice is the last one" \
+  "$(curl -s -X DELETE $B/api/members/$FRANK_ID -H "Authorization: Bearer $OP")" \
+  '"tokens_revoked":'
+# the company plane's per-team route is multi-tenancy-gated: INVISIBLE when the
+# flag is off (404), never a 403 that admits the route exists. Same assertion the
+# other two org-plane routes carry.
+assert "org team quota 404 single-tenant" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/org/teams/engineering/quota -H "Authorization: Bearer $OP" -d '{"dimension":"ai.requests","limit":1}')" \
+  '404'
 # ---- workflows (slice 46) -----------------------------------------------------
 # Deliberately BEFORE the quota throttling below: a workflow step is a scheduler
 # job, so a zeroed token budget would (correctly) leave its steps deferred forever.

@@ -12,7 +12,9 @@ A plugin is a directory under `plugins/` with a `plugin.json` manifest (`id`, `n
 | Example Tools (`example-tools`) | 0.1.0 | `word_count` | — | `GET /word-count`, `POST /word-count` | `x.example-tools.word-count` | `application/rtf` | サードパーティ製プラグインのサンプル：word_count ツールを追加します。 |
 | Integrator demo (`integrator-demo`) | 0.1.0 | `shipment_eta` | — | `GET /eta`, `POST /eta` | `x.integrator-demo.lane-report` | — | docs/integrators-guide.md の実装例：ツール、認証付きルート、バックグラウンドジョブ種別、テーマを適用した画面。 |
 | Knowledge Graph (`knowledge-graph`) | 0.1.0 | — | `index-knowledge` | — | — | — | チームのインデックスド文書から知識グラフへエンティティや関係を抽出するワークフロー。すべての事実は元となる文書とバージョンに追溯可能。変更があった部分のみが影響を受けます。再実行可能です。 |
+| OCR (`ocr`) | 0.1.0 | — | — | — | — | — | 写真やスキャンされた PDF から Tesseract でテキストを読み取り、単語単位でページと領域の由来を記録します。 |
 | rs3 — local content-addressed blob store (`rs3`) | 0.1.0 | — | — | — | — | — | 文書のバイト列を SHA-256 でアドレス指定してローカルファイルシステムに保存します。文書リポジトリの既定の保存先です。 |
+| s3 — object-storage blob store (`s3blobs`) | 0.1.0 | — | — | — | — | — | SHA-256 でアドレス指定し、既定でサーバー側暗号化を行って、S3 互換バケット（AWS S3、MinIO、Ceph RGW）に文書のバイト列を保存します。 |
 | Translate Chat (`translate-chat`) | 0.1.0 | `chat_message`, `translate_text` | `translate-chat` | — | — | — | デモワークフロープラグイン：一度チャットし、返答をスペイン語/オランダ語/アイスランド語に拡散させ、それぞれをユーザーの母国語に戻す |
 
 ## The seams a plugin may fill

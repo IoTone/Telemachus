@@ -1,193 +1,211 @@
 # HTTP API
 
-Every route the server dispatches, in matching order, from the declared route table (`server/routes.rkt`). `auth` is how a route authenticates: **public** needs no credential; **bearer** a session or API token; **provision** the hosted-mode provisioning token; **superadmin** and **org-admin** the two multi-tenancy planes. The permission is the one the handler enforces on its main path — owner-ok and resource grants may admit a caller the role would not. A feature flag, when named, must be on for the team.
+Every route the server dispatches, in matching order, from the declared route table (`server/routes.rkt`). `auth` is how a route authenticates: **public** needs no credential; **bearer** a session or API token; **provision** the hosted-mode provisioning token; **superadmin** and **org-admin** the two multi-tenancy planes. The permission column says what a caller needs. A **role** permission is checked by the dispatcher before the handler runs, so the table is the enforcement and not a description of it. A **resource** permission is weighed against the particular note or document by `can?`, which also admits the OWNER and anyone holding a matching grant — so a caller whose role does not carry it may still be admitted for one object, which is what sharing is. A feature flag, when named, must be on for the team.
 
 Path segments written `:name` are parameters; `*name` takes the rest of the path.
 
-| Method | Path | Auth | Permission | Feature | Description |
-|---|---|---|---|---|---|
-| GET | `/` | public | — | — | コンソール（TELEMACHUS_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。 |
-| GET | `/index.html` | public | — | — | コンソール |
-| GET | `/login` | public | — | — | コンソール、まずサインイン — ベータのランディングに依存しない URL。 |
-| GET | `/activate` | public | — | — | マジックリンク認証画面（ホストモード）のコンソール. |
-| GET | `/health` | public | — | — | 死活確認：{ok, multitenant} のみ — バージョン、KDF、TLS の状態は GET /api/admin/status にあります。 |
-| GET | `/beta-sdk.js` | public | — | — | Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。 |
-| GET | `/beta/bundle/:plugin/*path` | public | — | — | Tier-B オンボーディングプラグインの公開ランディングバンドル（plugins/<id>/landing/）内のファイル。見込み客がサインイン前に見るファネルです。 |
-| POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | このプラグインの認証付きバンドル用に、短命のチケットを発行します。ブラウザでページを開けるようにするためです（issue #43）。最初の応答で、そのバンドルのパスに限定したクッキーとして設定されます。 |
-| GET | `/api/x/:plugin/bundle/*path` | bearer | — | — | 読み込まれたプラグインの認証付きバンドル（plugins/<id>/bundle/）内のファイル。ベアラートークン、または bundle-ticket が発行したチケット（?ticket= か、それが設定するクッキー）が必要で、応答が共有キャッシュに保存されることはありません。 |
-| GET | `/beta/template` | public | — | — | Tier-C のサンドボックス化 HTML テンプレート。体験オーバーレイでローカライズされます。 |
-| GET | `/api/config` | public | — | — | 公開インスタンス設定：ホームモード、マルチテナントフラグ、ローカライゼーションポリシー（既定ロケール、利用可能なロケール、切り替えの可否）。サインイン画面はトークンを持つ前に読み込みます。 |
-| GET | `/api/branding` | public | — | — | タイトル、タグライン、ロゴ、テーマトークン。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。 |
-| PUT | `/api/branding` | bearer | `instance:manage` | — | インスタンスのタイトル、タグライン、テーマを設定します。不明な、不正な、または WCAG のコントラスト下限を下回るテーマトークンは、その名前を示す 400 になります。 |
-| GET | `/api/session-policy` | bearer | `instance:manage` | — | インスタンスのセッションタイムアウト（issue #38）：idle_seconds、absolute_seconds、warn_seconds と、出荷時の既定値および許容範囲。 |
-| PUT | `/api/session-policy` | bearer | `instance:manage` | — | インスタンスのセッションタイムアウトを設定する。フィールドに null を指定するとその軸に上限を設けない。会社はこれを厳しくできるが、緩めることはできない。 |
-| POST | `/api/branding/logo` | bearer | `instance:manage` | — | インスタンスロゴをアップロード（マークとワードマークを置き換えます） |
-| GET | `/api/i18n/catalog` | public | — | — | ?locale= に対するコンソールの文字列。サーバー側でフォールバックチェーンを通して解決済み。公開：サインイン画面が必要とします。 |
-| PUT | `/api/i18n` | bearer | `instance:manage` | — | インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。 |
-| GET | `/api/l10n/coverage` | bearer | `localization:read` | — | ローカライゼーションマネージャーのカタログのロケール別カバレッジ：総数、承認済み、機械翻訳、未翻訳、古いもの。 |
-| GET | `/api/l10n/messages` | bearer | `localization:read` | — | 1つのロケールのメッセージ。?status=、?ns=、?q= で絞り込み、ページ送りできます。 |
-| POST | `/api/l10n/import` | bearer | `localization:manage` | — | ディスク上のカタログをマネージャーのテーブルに取り込む。 |
-| POST | `/api/l10n/export` | bearer | `localization:manage` | — | ロケールの承認済み文字列を locales/<locale>.json に書き戻す。承認済みが何もないロケールは拒否します。 |
-| POST | `/api/l10n/draft` | bearer | `localization:manage` | — | ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。 |
-| POST | `/api/l10n/discard` | bearer | `localization:manage` | — | ロケールの機械翻訳の下書きを削除する（人の作業には触れません）。 |
-| PUT | `/api/l10n/messages/:id` | bearer | `localization:translate` | — | 1メッセージの翻訳を提出します。 |
-| POST | `/api/l10n/review/:id` | bearer | `localization:review` | — | 翻訳を承認または差し戻す。翻訳者は自分の翻訳を承認できません。 |
-| GET | `/api/beta/config` | public | — | — | 公開されたオンボーディング体験の公共セグメント（フィールド、コピー、テーマ）が1つの言語で表示されます。 |
-| OPTIONS | `/api/beta/signup` | public | — | — | サンドボックス化された Tier-C テンプレートのための CORS プリフライト。 |
-| OPTIONS | `/api/beta/config` | public | — | — | サンドボックス化された Tier-C テンプレートのための CORS プリフライト。 |
-| OPTIONS | `/api/beta/challenge` | public | — | — | サンドボックス化された Tier-C テンプレートのための CORS プリフライト。 |
-| GET | `/api/beta/experience` | bearer | — | — | チームの下書きのオンボーディング体験（判定プロンプトを含む）。 |
-| PUT | `/api/beta/experience` | bearer | — | — | オンボーディング体験のドラフトを保存します。 |
-| POST | `/api/beta/experience/publish` | bearer | — | — | 保存済みの下書きを公開する；以後は環境変数で投入された既定値より優先されます。 |
-| POST | `/api/beta/assets` | bearer | — | — | オンボーディング資産（ロゴ、ヒーロー画像、フォント）をアップロード（base64でJSON形式）、2MiBまで |
-| GET | `/api/beta/assets` | bearer | — | — | チームのオンボーディング資産をリストします。 |
-| GET | `/api/beta/asset/:id` | public | — | — | オンボーディングアセットを1つ配信する。公開：申込フローとブランディングロゴはトークンなしで読み込みます。 |
-| DELETE | `/api/beta/asset/:id` | bearer | — | — | オンボーディングアセットを削除します。 |
-| GET | `/api/beta/challenge` | public | — | — | 申込前に申込フローが解く proof-of-work チャレンジ。 |
-| POST | `/api/beta/signup` | public | — | — | オンボーディングフォームを送信する：公開された体験に対して検証され、不正利用対策で制限され、モデルが設定されていればモデルが判定します。 |
-| GET | `/api/beta/prospects` | bearer | — | — | 申込フローが捕捉した見込み客を、シグナルと判定とともに一覧する。 |
-| POST | `/api/beta/prospects/:id/decide` | bearer | — | — | 見込み客を受け入れる、または辞退する。 |
-| POST | `/api/bootstrap` | public | — | — | 初回のみ：オペレーター、最初の組織とチームを作成する。オペレーターのトークンを返します。インスタンスにユーザーがいれば拒否します。 |
-| POST | `/api/provision` | provision | — | — | ホストモード：このインスタンスに所有者1名とマジックアクティベーションリンクをプロビジョニングする。 |
-| POST | `/api/activate` | public | — | — | ホストモード：アクティベーショントークンを交換し、所有者のパスワードを設定します |
-| POST | `/api/instance/suspend` | provision | — | — | ホストモード：テナントを一時停止（書き込みは402で拒否されます） |
-| POST | `/api/instance/resume` | provision | — | — | ホストモード：一時停止したテナントを再開 |
-| POST | `/api/instance/quota` | provision | — | — | ホストモード：テナントチームのクォータ制限を設定します。 |
-| POST | `/api/login` | public | — | — | ユーザー名とパスワードでサインインする（2FA が有効なら TOTP コードも）。ベアラートークンを返します。 |
-| POST | `/api/2fa/enable` | bearer | — | — | 呼び出し元の TOTP 二要素認証を有効にします。シークレットと単回使用のリカバリコード一組を、一度だけ返します。 |
-| POST | `/api/2fa/recovery-codes` | bearer | — | — | 単回使用のリカバリコードを新しく一組発行し、未使用のものはすべて無効化します。一度だけ返されます（issue #26）。 |
-| GET | `/api/2fa/recovery-codes` | bearer | — | — | 呼び出し元のリカバリコードのうち、未使用のものが何件残っているか。コード自体は返しません。 |
-| DELETE | `/api/2fa` | bearer | — | — | 呼び出し元自身の TOTP を無効化します。古いシードとそのリカバリコードは使えなくなり、再登録が必要です。 |
-| DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | — | ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。 |
-| POST | `/api/password` | bearer | — | — | 呼び出し元のパスワードを変更する。古いパスワードで発行され得たセッションは、この呼び出し自身のものも含めてすべて失効するため、再度サインインが必要です。マシン用トークン（api、worker）はそのまま残ります。 |
-| GET | `/api/whoami` | bearer | — | — | 呼び出し元：ユーザー、チーム、オペレーターフラグ、組織、組織ロール、ロケール、権限。 |
-| POST | `/api/profile` | bearer | — | — | 呼び出し元のプロフィール(表示名、ロケール)を更新します。 |
-| POST | `/api/members` | bearer | `members:manage` | — | 呼び出し元のチームに役割を付けてメンバーを追加；新しいメンバーの最初のトークンを返します。 |
-| GET | `/api/members` | bearer | — | — | チームのメンバーと役割 |
-| PATCH | `/api/members/:id` | bearer | `members:manage` | — | メンバーのチームロールを変更する：{role}。最後のオーナーは降格できません — オーナーのいないチームは、それを修正する権限を誰にも付与できないためです。 |
-| DELETE | `/api/members/:id` | bearer | `members:manage` | — | メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。 |
-| GET | `/api/admin/status` | bearer | `instance:manage` | — | インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。 |
-| POST | `/api/orgs` | superadmin | `instance:manage` | — | 会社を作成：org、最初のチーム、所有者。明示的なスラッグは自然キーです（再実行で409エラー） |
-| GET | `/api/orgs` | superadmin | `instance:manage` | — | インスタンス上のすべての組織をリスト表示します。 |
-| POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | — | 会社（id またはスラッグ）を停止する；その中のすべてのチームが読み取り専用になります。 |
-| POST | `/api/orgs/:ref/resume` | superadmin | `instance:manage` | — | 一時停止中の企業を再開します。 |
-| POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | — | 組織レベルのクォータを設定；チームはその下に配置されます |
-| GET | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 1つの会社、そのチームとクォータ。 |
-| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
-| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | — | サインインできなくなったユーザーのパスワードを設定する：{new_password}。そのユーザーのセッションは失効します。リセットリンクを送るメール送信手段がないため、サインインできない人にとって唯一の復帰手段です。 |
-| POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
-| GET | `/api/org` | org-admin | `org:read` | — | 呼び出し元の会社 |
-| GET | `/api/org/teams` | org-admin | `org:read` | — | 呼び出し元の会社のチーム。 |
-| POST | `/api/org/teams` | org-admin | `org:manage` | — | 呼び元の会社でチームを作成します。 |
-| POST | `/api/org/members` | org-admin | `org:manage` | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。 |
-| PATCH | `/api/org/members/:id` | org-admin | `org:manage` | — | 人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。 |
-| GET | `/api/org/audit` | org-admin | `org:read` | — | 会社の監査ログ。 |
-| GET | `/api/org/session-policy` | org-admin | `org:read` | — | 会社自身のセッションタイムアウト、インスタンスのもの、そしてインスタンスの下限を適用した実効ポリシー。 |
-| PUT | `/api/org/session-policy` | org-admin | `org:manage` | — | 会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。 |
-| DELETE | `/api/org/session-policy` | org-admin | `org:manage` | — | 会社のセッションタイムアウトを取り下げる；そのユーザーはインスタンスのポリシーに戻ります。 |
-| GET | `/api/org/branding` | org-admin | `org:read` | — | 会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。 |
-| PUT | `/api/org/branding` | org-admin | `org:manage` | — | 会社のタイトル・タグライン・ロゴ・テーマを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。テーマトークンはインスタンスの場合とまったく同じように検証され、コントラストの下限で制限されます。 |
-| DELETE | `/api/org/branding` | org-admin | `org:manage` | — | 会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。 |
-| POST | `/api/org/branding/logo` | org-admin | `org:manage` | — | 会社のロゴをアップロードし（base64）、会社のマークにする。 |
-| POST | `/api/notes` | bearer | `notes:write` | — | 公開範囲を指定してノートを作成する。 |
-| GET | `/api/notes` | bearer | `notes:read` | — | 呼び出し元が読めるノートを一覧する；?scope=org は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。 |
-| POST | `/api/documents` | bearer | `files:write` | — | テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。 |
-| GET | `/api/documents` | bearer | `files:read` | — | 文書をリスト表示します。 |
-| GET | `/api/documents/:id` | bearer | `files:read` | — | 一つのテキストドキュメントとその本文。 |
-| PUT | `/api/documents/:id` | bearer | `files:write` | — | テキスト文書のタイトル・本文・公開範囲を更新する（新しいバージョン）。 |
-| DELETE | `/api/documents/:id` | bearer | `files:delete` | — | テキストドキュメントを削除します。 |
-| POST | `/api/notes/:id/share` | bearer | `notes:manage` | — | ユーザー（所有者、またはnotes:manage）とメモを共有します。与えられた権限はnotes:*のものでなければなりません。 |
-| GET | `/api/notes/:id` | bearer | `notes:read` | — | 1件のノート。 |
-| PUT | `/api/notes/:id` | bearer | `notes:write` | — | ノートを更新します。 |
-| DELETE | `/api/notes/:id` | bearer | `notes:delete` | — | ノートを削除します。 |
-| POST | `/api/ai/echo` | bearer | `chat:use` | — | クォータの動作確認用の、モデルを使わない計量付きエコー。 |
-| POST | `/api/ai/chat` | bearer | `chat:use` | `chat` | モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text\|json_object\|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。 |
-| POST | `/api/ai/chat/stream` | bearer | `chat:use` | `chat` | 同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。モデルが一切応答していない場合は `simulated: true` が入ります。 |
-| POST | `/api/agent` | bearer | `chat:use` | `agent` | チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。 |
-| POST | `/api/translate/catalog` | bearer | `chat:use` | `translate` | ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。 |
-| POST | `/api/translate` | bearer | `chat:use` | `translate` | 目標言語にテキストを翻訳し、チーム用語集を使用します。 |
-| GET | `/api/translate` | bearer | `chat:use` | — | チームの翻訳履歴 |
-| POST | `/api/glossary` | bearer | `settings:manage` | — | 対象言語の用語集に用語を追加または更新する。 |
-| GET | `/api/glossary` | bearer | `chat:use` | — | チーム用語集. |
-| GET | `/api/ai/model` | bearer | — | — | 設定されているモデル（またはシミュレーションの代替が使われていること）。 |
-| GET | `/api/model-roles` | bearer | — | — | チームの一括処理をロールごとにどのエグゼキュータへ送るか（utility：知識グラフとフィールド抽出、翻訳の下書き）、およびインスタンスの既定値。 |
-| PUT | `/api/model-roles` | bearer | `settings:manage` | — | チームのモデルロールを設定する：{roles: {utility: <エグゼキュータ名> \| null}}。エグゼキュータは存在している必要があります；null はインスタンスの既定値に戻り、それもなければローカルモデルになります。 |
-| GET | `/api/executors` | bearer | — | — | ローカルエグゼキュータ、環境変数で設定されたプッシュ型、API で作成されたもの（プッシュ型、またはワーカー付きのプル型）を、状態とともに。 |
-| POST | `/api/executors` | bearer | `instance:manage` | — | エグゼキュータを作成する：{name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}。プル型エグゼキュータのワーカートークンはこのレスポンスに含まれ、二度と表示されません。 |
-| DELETE | `/api/executors/:id` | bearer | `instance:manage` | — | エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。 |
-| GET | `/api/admin/workers` | bearer | `instance:manage` | — | ワーカー群（FLEET-2）：各エグゼキュータの稼動状態、ワーカー自身の申告、保持中のジョブ、一定期間（?hours=、既定 24）の処理結果とリース失効の回数、直近の失敗 — さらにキュー：種別ごとの件数、最も古い待機ジョブの経過時間、そして稼動中のどのエグゼキュータでも実行できないリモートジョブの件数。この最後の数値は、深いキューを他の方法では説明できないものである：停止したワーカー群と稼動中のワーカー群は、件数だけでは同じように見える。すべての数値は導出され、クォータで保留されているジョブは実行不能には数えない — それは GET /api/jobs が `waiting` としてすでに示している。 |
-| GET | `/api/admin/queue` | bearer | `instance:manage` | — | キューを全チーム横断でジョブ単位に表示する（FLEET-4）：各行の待機時間、試行回数、保持しているホスト、リースの残り時間、そして待機中のジョブについては、プラットフォームがなぜ保留しているか（`waiting`、GET /api/jobs が返すものと同じ理由）と、そもそも稼働中のワーカーで実行できるのか（`runnable`）。絞り込みは `kind`、`status`、`executor`、`team`。`limit`（最大200）と `offset` でページングし、`total` は絞り込み後の総件数である。`status=queued` を指定した場合、並び順は要求処理そのものの順序になるため、先頭が本当に次のジョブである — どの並び順になったかは `order` が示す。ペイロードと結果は含まない：キューは種別、待機時間、チーム、保持しているホストで管理するものであり、この読み取りはインスタンス上のすべてのチームにまたがる。 |
-| POST | `/api/executors/:id/drain` | bearer | `instance:manage` | — | プルエグゼキュータをローテーションから外す（FLEET-3）：新しい仕事は渡されず、トークンは保持されるため、要求とハートビートを続け、稼働していることが見える状態を保つ。トークンを失効させる廃止とは異なり、元に戻せる。すでに保持しているジョブはそのまま実行される — 実行中の作業を止めるのはキャンセルの役目である。 |
-| POST | `/api/executors/:id/resume` | bearer | `instance:manage` | — | 停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。 |
-| POST | `/api/org/executors` | org-admin | `org:manage` | — | 呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。 |
-| POST | `/api/workers/claim` | bearer | `jobs:execute` | — | プル型ワーカーが実行可能な次のリモートジョブを取得する：{kinds, models, max_wait}；何もなければ 204。ジョブにはリースと claim_token が付き、以降そのジョブに対する書き込みはすべてこの claim_token を返送する必要があります。 |
-| POST | `/api/workers/state` | bearer | `jobs:execute` | — | プル型ワーカーが自分の状態を報告する：{state} — ready、busy、paused のいずれか。ジョブを保持していないワーカーが使える唯一の経路です：停止中のホストは取得を止めており、ハートビートを送るジョブも持たないため、これが無ければその沈黙を障害と区別できません。`state` は claim とハートビートでも受け付けるので、通常のループに追加のリクエストは不要です。state を指定しない呼び出しは、保存済みの状態をそのまま残します。 |
-| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | — | このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。 |
-| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | — | 結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。 |
-| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | — | 失敗を報告する：{error, claim_token}。現在のリース保持者、かつその試行からのみ受け付けます。 |
-| POST | `/api/workers/jobs/:id/release` | bearer | `jobs:execute` | — | 試行回数を消費せずにジョブを返却する（issue #61）：{claim_token, reason?} — busy、unsupported、shutdown のいずれか。それ以外は拒否せず `other` として記録する。ワーカーはすでにそのジョブを実行できないと申告しているためである。ジョブは直ちにキューへ戻り、他のワーカーはすぐに取得できる一方、返却したエグゼキュータには30秒間そのジョブを渡さない — これが返却ループの歯止めであり、試行回数を変えないこの経路では他に止めるものがない。10回を超えて返却された場合はジョブを失敗とし、返却したホストの名前を記録する：どのワーカーも実行しない作業には人の判断が必要である。 |
-| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | — | このジョブが指定したドキュメントを読む：{object, claim_token, version?, as?}。新しい認可コードは不要で、条件は3つ — 呼び出し元がこの試行を保持していること、オブジェクト ID がそのジョブ自身のペイロードに現れること、そして読み取りがそのジョブのユーザーとして行われること（公開範囲・付与・組織ゲートがすべて適用されます）。`as: "bytes"`（base64、上限は TELEMACHUS_MAX_UPLOAD）または `as: "text"` で、スキャンの場合は {text: null, reason: "needs-ocr"} を返します。 |
-| GET | `/api/usage` | bearer | — | — | チームのクォータ指標を、使用量・上限・残量・期間のリセット時刻とともに返す。さらに `held` が、現在このチームのキュー内ジョブを保留している上限を示します（保留がなければ null）。 |
-| POST | `/api/quota` | bearer | `instance:manage` | — | 呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。 |
-| GET | `/api/tools` | bearer | — | — | 登録済みのツールとその権限、ソースおよびチーム別に有効化された状態。 |
-| POST | `/api/tokens` | bearer | `settings:manage` | — | API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには "never"）を指定；生のトークンは一度だけ表示されます。 |
-| GET | `/api/tokens` | bearer | `settings:manage` | — | チームのAPIトークン |
-| DELETE | `/api/tokens/:id` | bearer | `settings:manage` | — | API トークンを失効させる。 |
-| GET | `/api/search` | bearer | — | `search` | ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。 |
-| GET | `/api/audit` | bearer | `settings:manage` | — | チームの最近の監査イベント。 |
-| POST | `/api/jobs` | bearer | `chat:use` | — | 登録された種類のスケジューラジョブをキューイングします。 |
-| GET | `/api/jobs` | bearer | — | — | チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: "quota"\|"concurrency", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。 |
-| POST | `/api/jobs/:id/cancel` | bearer | — | — | ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。 |
-| GET | `/api/jobs/:id` | bearer | — | — | 1件のジョブと、その結果またはエラー。プラットフォームが保留している場合は `waiting` も含みます（GET /api/jobs を参照）。 |
-| GET | `/api/repo` | bearer | `files:read` | — | リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。 |
-| POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | — | 組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view\|edit\|manage, expires_at?}。{user_id} は従来どおり view を意味します。 |
-| POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | — | プリンシパルがそのオブジェクトに持つすべての権限付与を取り消す。 |
-| GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | — | 1つのプリンシパルにつき1行: 能力、権限、授与者、期限、期限切れ |
-| GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | — | 由来: 文書がどの実行とステップから派生したか |
-| GET | `/api/repo-fields` | bearer | `files:read` | — | チームのオブジェクトメタデータ項目：ドキュメントに付与できる情報（プロジェクト、場所、期間、ステータスなど）。検証は required / digits / minlength / maxlength のみで、正規表現は使いません。 |
-| PUT | `/api/repo-fields` | bearer | `settings:manage` | — | チームのオブジェクトメタデータ項目を定義する：{fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}。項目の追加にマイグレーションは不要です。 |
-| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | — | ドキュメントにチーム定義のメタデータを設定する：{attributes: {key: value}}。そのドキュメントに対する files:write が必要です。チームが定義していないキーは保存されずに拒否され、空の値は設定を解除します。 |
-| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | — | 抽出したテキストの出典：各断片のページと領域（LAY-5）。?at=<文字オフセット> を付けると、その位置を含む範囲だけを返します。抽出した値から、それが読み取られた箇所へレビュー担当者が辿るための仕組みです。 |
-| GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | — | 「処理履歴」：派生した文書、元の文書、そしてこの文書に触れたすべての実行。 |
-| GET | `/api/share-targets` | bearer | `files:read` | — | 文書を誰と共有できるか：チームのメンバーと組織内のチーム。 |
-| POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | — | プライベート、チームまたは共有に設定します。 |
-| GET | `/api/repo-obj/:id/content` | bearer | `files:read` | — | バイト列をダウンロードする（履歴は ?version=）。型がインライン許可リストにない限り、添付ファイルとして nosniff 付きで返します。 |
-| POST | `/api/repo-obj/:id/presign` | bearer | `files:read` | — | 呼び出し元自身の最新の S3 キーで署名された、期限付きの事前署名 S3 URL。 |
-| GET | `/api/repo-obj/:id` | bearer | `files:read` | — | バージョン付きのオブジェクトメタデータ |
-| DELETE | `/api/repo-obj/:id` | bearer | `files:delete` | — | オブジェクトを削除する（他のバージョンから参照されなくなったブロブは解放されます）。 |
-| PUT | `/api/repo/*key` | bearer | `files:write` | — | 生のボディをキーにアップロードする（?filename=, ?visibility=）；既存のキーへの書き込みはバージョンを追加します。トリガーはここで評価されます。 |
-| GET | `/api/s3/credentials` | bearer | — | — | 呼び出し元の S3 アクセスキー（シークレットは二度と表示されません）と、それを使うエンドポイント／バケット。 |
-| POST | `/api/s3/credentials` | bearer | — | — | S3アクセスキーを発行し、オプションで範囲指定（トリガーが発生するプレフィックスに対してworkflows:runを追加します）。 |
-| DELETE | `/api/s3/credentials/:id` | bearer | — | — | S3アクセスキーを無効にする；そのアクセスキーで署名されたプレシグナードリンクも無効になります。 |
-| POST | `/api/workflows` | bearer | `workflows:write` | `workflows` | ワークフロー仕様を公開する（検証済み；未知のフィールドは拒否）；同じスラッグの再公開はバージョンを上げます。 |
-| GET | `/api/workflows` | bearer | `workflows:read` | `workflows` | チームのワークフロー定義。プラグイン提供のものは初回参照時に実体化されます。 |
-| GET | `/api/workflows/schema` | public | — | — | ワークフロー仕様フォーマット：バージョン、ステップ種類、バインディング参照、述語 |
-| POST | `/api/workflows/:slug/run` | bearer | `workflows:run` | `workflows` | {input} で実行を開始する；宣言された入力は必須で型付きです。202 と実行を返します。 |
-| GET | `/api/doc-triggers` | bearer | `workflows:read` | `workflows` | チームのアップロードトリガーと、チームの残り AI 予算。 |
-| POST | `/api/doc-triggers` | bearer | `workflows:write` | `workflows` | トリガーを作成：workflow_slug, match_prefix, match_types, input, fire_on_derived. |
-| GET | `/api/doc-triggers/:id` | bearer | `workflows:read` | — | 1つのトリガーとその発火履歴（どのバージョン、どの実行、あるいはなぜ発火しなかったか）。 |
-| PATCH | `/api/doc-triggers/:id` | bearer | `workflows:write` | — | トリガーのフィールドを変更；存在しないフィールドはそのままにします。 |
-| DELETE | `/api/doc-triggers/:id` | bearer | `workflows:write` | — | トリガーとその履歴を削除します；開始した実行は残ります。 |
-| GET | `/api/workflows/:slug` | bearer | `workflows:read` | `workflows` | 1つのワークフロー定義とその仕様 |
-| GET | `/api/runs` | bearer | `workflows:read` | `workflows` | チームの実行、新しい順。 |
-| POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | `workflows` | 実行を取消；既に実行中のステップが終了し、次のステップは開始しません。 |
-| GET | `/api/runs/:id` | bearer | `workflows:read` | `workflows` | 1つの実行とそのステップ、インプット、アウトプット、およびエラー |
-| GET | `/api/reviews` | bearer | `reviews:read` | — | チームのレビューキュー、新しい順。?status=pending（既定）、decided、canceled、all。 |
-| GET | `/api/reviews/stats` | bearer | `reviews:read` | — | AI の出力をレビュー担当者がそのまま承認した割合：ワークフローとステップごとの承認・差し戻し・却下の件数と、判断までの平均時間。別個の評価システムではなく、すでに記録済みの判断に対する集計です。?since=<エポックミリ秒> で期間を絞れます。 |
-| GET | `/api/reviews/verify` | bearer | `audit:read` | — | チームの判断チェーンを再計算して検証し、保存されたハッシュが内容と一致しない最初の判断を示します。records の改ざんや中間の削除は検出しますが、テーブルに書き込める者による書き換えは検出できません（以降のリンクを再計算できるため）。それには外部のアンカーが必要です。 |
-| GET | `/api/reviews/:id` | bearer | `reviews:read` | — | 1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。 |
-| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | — | レビューを判断する：{verdict: approve\|revise\|reject, rationale, answers}。差し戻しと却下には理由が必須です。ダブルチェック指定のレビューは作成者本人を拒否します。待機していた実行は、判定が示す分岐へ進んで再開します。 |
-| GET | `/api/kg/entities` | bearer | `files:read` | — | ?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。 |
-| GET | `/api/kg/entities/:id` | bearer | `files:read` | — | 1つのエンティティとその関係・言及。各言及は元文書の公開範囲でフィルタされます。 |
-| POST | `/api/kg/extract` | bearer | `workflows:run` | `workflows` | チームの未抽出文書をインデックス化するワークフローをキューに追加します。 |
-| POST | `/api/admin/seed` | bearer | `settings:manage` | — | 呼び出し元のチームにサンプルのノートと文書を投入する。 |
-| GET | `/api/metrics` | bearer | `instance:manage` | — | 運用メトリクス。 |
-| GET | `/api/features` | bearer | — | — | チームの機能フラグ |
-| POST | `/api/features/:name` | bearer | `settings:manage` | — | チーム用の機能を有効にする/無効にする |
-| GET | `/api/plugins` | bearer | — | — | 読み込まれたプラグインと、そのツールおよびワークフロー。 |
-| GET | `/api/mcp` | bearer | — | — | 接続されたMCPサーバー |
-| GET | `/api/oop` | bearer | — | — | 接続済みのサンドボックス化（プロセス外）プラグインと、それらが要求できる機能。 |
-| POST | `/api/tools/:name` | bearer | `settings:manage` | — | チーム用のツールを有効にする/無効にする |
+| Method | Path | Auth | Permission | Checked | Feature | Description |
+|---|---|---|---|---|---|---|
+| GET | `/` | public | — | — | — | コンソール（TELEMACHUS_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。 |
+| GET | `/index.html` | public | — | — | — | コンソール |
+| GET | `/login` | public | — | — | — | コンソール、まずサインイン — ベータのランディングに依存しない URL。 |
+| GET | `/activate` | public | — | — | — | マジックリンク認証画面（ホストモード）のコンソール. |
+| GET | `/health` | public | — | — | — | 死活確認：{ok, multitenant} のみ — バージョン、KDF、TLS の状態は GET /api/admin/status にあります。 |
+| GET | `/beta-sdk.js` | public | — | — | — | Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。 |
+| GET | `/beta/bundle/:plugin/*path` | public | — | — | — | Tier-B オンボーディングプラグインの公開ランディングバンドル（plugins/<id>/landing/）内のファイル。見込み客がサインイン前に見るファネルです。 |
+| POST | `/api/x/:plugin/bundle-ticket` | bearer | — | — | — | このプラグインの認証付きバンドル用に、短命のチケットを発行します。ブラウザでページを開けるようにするためです（issue #43）。最初の応答で、そのバンドルのパスに限定したクッキーとして設定されます。 |
+| GET | `/api/x/:plugin/bundle/*path` | handler | — | — | — | 読み込まれたプラグインの認証付きバンドル（plugins/<id>/bundle/）内のファイル。ベアラートークン、または bundle-ticket が発行したチケット（?ticket= か、それが設定するクッキー）が必要で、応答が共有キャッシュに保存されることはありません。 |
+| GET | `/beta/template` | public | — | — | — | Tier-C のサンドボックス化 HTML テンプレート。体験オーバーレイでローカライズされます。 |
+| GET | `/api/config` | public | — | — | — | 公開インスタンス設定：ホームモード、マルチテナントフラグ、ローカライゼーションポリシー（既定ロケール、利用可能なロケール、切り替えの可否）。サインイン画面はトークンを持つ前に読み込みます。 |
+| GET | `/api/branding` | public | — | — | — | タイトル、タグライン、ロゴ、テーマトークン。公開：サインイン画面が描画します。会社のホスト名では、またはその会社のサインイン済みユーザーには、会社自身のもの（TEN-2d）。 |
+| PUT | `/api/branding` | bearer | `instance:manage` | role | — | インスタンスのタイトル、タグライン、テーマを設定します。不明な、不正な、または WCAG のコントラスト下限を下回るテーマトークンは、その名前を示す 400 になります。 |
+| GET | `/api/retention` | bearer | `files:read` | role | — | 呼び出し元に実際に適用される保持ポリシーと、各値をどの層（インスタンス・組織・チーム）が設定したかを示す `sources`。層は常に厳しくなる方向にのみ作用します。短い保持期間が優先され、`null`（永久保持）は任意の数値に負けるため、チームは所属組織が許す期間より長くデータを保持できません。ルールが設定されていなければ何も削除されず、未設定のインスタンスは一切スイープしません。 |
+| PUT | `/api/retention` | bearer | `settings:manage` | role | — | チームの保持ルールを設定します：`max_age_days`、`delete_derived_after_days`、`purge_job_payloads_after_days`。それぞれ日数の整数か null です。**0 は拒否されます**（アップロード直後に削除されてしまうため）。定義されていないフィールドも、黙って無視せず拒否します。データが削除されていると信じている一方で実際には何も起きていない状態が最悪の誤りだからです。チームは組織とインスタンスが許す範囲で短縮のみ可能です。 |
+| GET | `/api/retention/plan` | bearer | `files:read` | role | — | 現在のポリシーが削除する「予定」のみを返し、実際には何も変更しません。対象のオブジェクトツリー、派生オブジェクト、ジョブのペイロード、そしてリーガルホールドによって保護されている件数を示します。保持ルールは無人で実行されるため、ドライランが最も必要な操作です。リーガルホールド中のオブジェクトは後から除外されるのではなく計画自体に現れないため、ルールが触れられないものを計画が約束することはありません。 |
+| POST | `/api/repo-obj/:id/legal-hold` | bearer | `files:manage` | resource | — | オブジェクトにリーガルホールドを設定または解除します：`{"hold": true\|false}`。ホールド中は「ルールによる」削除が拒否され、保持スイープはそのオブジェクトを飛ばし、件数を報告します。これは r4 がプレフィックス単位の操作を構築する土台となるフラグであり、保持ルールと同時に提供されます。削除をともなうスケジュールは一方通行であり、それを止められるのはホールドだけだからです。 |
+| GET | `/api/session-policy` | bearer | `instance:manage` | role | — | インスタンスのセッションタイムアウト（issue #38）：idle_seconds、absolute_seconds、warn_seconds と、出荷時の既定値および許容範囲。 |
+| PUT | `/api/session-policy` | bearer | `instance:manage` | role | — | インスタンスのセッションタイムアウトを設定する。フィールドに null を指定するとその軸に上限を設けない。会社はこれを厳しくできるが、緩めることはできない。 |
+| POST | `/api/branding/logo` | bearer | `instance:manage` | role | — | インスタンスロゴをアップロード（マークとワードマークを置き換えます） |
+| GET | `/api/i18n/catalog` | public | — | — | — | ?locale= に対するコンソールの文字列。サーバー側でフォールバックチェーンを通して解決済み。公開：サインイン画面が必要とします。 |
+| PUT | `/api/i18n` | bearer | `instance:manage` | role | — | インスタンスのデフォルト言語と、ユーザーが切り替える可否を設定します。 |
+| GET | `/api/l10n/coverage` | bearer | `localization:read` | role | — | ローカライゼーションマネージャーのカタログのロケール別カバレッジ：総数、承認済み、機械翻訳、未翻訳、古いもの。 |
+| GET | `/api/l10n/messages` | bearer | `localization:read` | role | — | 1つのロケールのメッセージ。?status=、?ns=、?q= で絞り込み、ページ送りできます。 |
+| POST | `/api/l10n/import` | bearer | `localization:manage` | role | — | ディスク上のカタログをマネージャーのテーブルに取り込む。 |
+| POST | `/api/l10n/export` | bearer | `localization:manage` | role | — | ロケールの承認済み文字列を locales/<locale>.json に書き戻す。承認済みが何もないロケールは拒否します。 |
+| POST | `/api/l10n/draft` | bearer | `localization:manage` | role | — | ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。 |
+| POST | `/api/l10n/discard` | bearer | `localization:manage` | role | — | ロケールの機械翻訳の下書きを削除する（人の作業には触れません）。 |
+| PUT | `/api/l10n/messages/:id` | bearer | `localization:translate` | role | — | 1メッセージの翻訳を提出します。 |
+| POST | `/api/l10n/review/:id` | bearer | `localization:review` | role | — | 翻訳を承認または差し戻す。翻訳者は自分の翻訳を承認できません。 |
+| GET | `/api/beta/config` | public | — | — | — | 公開されたオンボーディング体験の公共セグメント（フィールド、コピー、テーマ）が1つの言語で表示されます。 |
+| OPTIONS | `/api/beta/signup` | public | — | — | — | サンドボックス化された Tier-C テンプレートのための CORS プリフライト。 |
+| OPTIONS | `/api/beta/config` | public | — | — | — | サンドボックス化された Tier-C テンプレートのための CORS プリフライト。 |
+| OPTIONS | `/api/beta/challenge` | public | — | — | — | サンドボックス化された Tier-C テンプレートのための CORS プリフライト。 |
+| GET | `/api/beta/experience` | bearer | — | — | — | チームの下書きのオンボーディング体験（判定プロンプトを含む）。 |
+| PUT | `/api/beta/experience` | bearer | — | — | — | オンボーディング体験のドラフトを保存します。 |
+| POST | `/api/beta/experience/publish` | bearer | — | — | — | 保存済みの下書きを公開する；以後は環境変数で投入された既定値より優先されます。 |
+| POST | `/api/beta/assets` | bearer | — | — | — | オンボーディング資産（ロゴ、ヒーロー画像、フォント）をアップロード（base64でJSON形式）、2MiBまで |
+| GET | `/api/beta/assets` | bearer | — | — | — | チームのオンボーディング資産をリストします。 |
+| GET | `/api/beta/asset/:id` | public | — | — | — | オンボーディングアセットを1つ配信する。公開：申込フローとブランディングロゴはトークンなしで読み込みます。 |
+| DELETE | `/api/beta/asset/:id` | bearer | — | — | — | オンボーディングアセットを削除します。 |
+| GET | `/api/beta/challenge` | public | — | — | — | 申込前に申込フローが解く proof-of-work チャレンジ。 |
+| POST | `/api/beta/signup` | public | — | — | — | オンボーディングフォームを送信する：公開された体験に対して検証され、不正利用対策で制限され、モデルが設定されていればモデルが判定します。 |
+| GET | `/api/beta/prospects` | bearer | — | — | — | 申込フローが捕捉した見込み客を、シグナルと判定とともに一覧する。 |
+| POST | `/api/beta/prospects/:id/decide` | bearer | — | — | — | 見込み客を受け入れる、または辞退する。 |
+| POST | `/api/bootstrap` | public | — | — | — | 初回のみ：オペレーター、最初の組織とチームを作成する。オペレーターのトークンを返します。インスタンスにユーザーがいれば拒否します。 |
+| POST | `/api/provision` | provision | — | — | — | ホストモード：このインスタンスに所有者1名とマジックアクティベーションリンクをプロビジョニングする。 |
+| POST | `/api/activate` | public | — | — | — | ホストモード：アクティベーショントークンを交換し、所有者のパスワードを設定します |
+| POST | `/api/instance/suspend` | provision | — | — | — | ホストモード：テナントを一時停止（書き込みは402で拒否されます） |
+| POST | `/api/instance/resume` | provision | — | — | — | ホストモード：一時停止したテナントを再開 |
+| POST | `/api/instance/quota` | provision | — | — | — | ホストモード：テナントチームのクォータ制限を設定します。 |
+| POST | `/api/login` | public | — | — | — | ユーザー名とパスワードでサインインする（2FA が有効なら TOTP コードも）。ベアラートークンを返します。 |
+| POST | `/api/2fa/enable` | bearer | — | — | — | 呼び出し元の TOTP 二要素認証を有効にします。シークレットと単回使用のリカバリコード一組を、一度だけ返します。 |
+| POST | `/api/2fa/recovery-codes` | bearer | — | — | — | 単回使用のリカバリコードを新しく一組発行し、未使用のものはすべて無効化します。一度だけ返されます（issue #26）。 |
+| GET | `/api/2fa/recovery-codes` | bearer | — | — | — | 呼び出し元のリカバリコードのうち、未使用のものが何件残っているか。コード自体は返しません。 |
+| DELETE | `/api/2fa` | bearer | — | — | — | 呼び出し元自身の TOTP を無効化します。古いシードとそのリカバリコードは使えなくなり、再登録が必要です。 |
+| DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | role | — | ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。 |
+| POST | `/api/password` | bearer | — | — | — | 呼び出し元のパスワードを変更する。古いパスワードで発行され得たセッションは、この呼び出し自身のものも含めてすべて失効するため、再度サインインが必要です。マシン用トークン（api、worker）はそのまま残ります。 |
+| GET | `/api/whoami` | bearer | — | — | — | 呼び出し元：ユーザー、チーム、オペレーターフラグ、組織、組織ロール、ロケール、権限。 |
+| POST | `/api/profile` | bearer | — | — | — | 呼び出し元のプロフィール(表示名、ロケール)を更新します。 |
+| POST | `/api/members` | bearer | `members:manage` | role | — | 呼び出し元のチームに役割を付けてメンバーを追加；新しいメンバーの最初のトークンを返します。 |
+| GET | `/api/members` | bearer | — | — | — | チームのメンバーと役割 |
+| PATCH | `/api/members/:id` | bearer | `members:manage` | role | — | メンバーのチームロールを変更する：{role}。最後のオーナーは降格できません — オーナーのいないチームは、それを修正する権限を誰にも付与できないためです。 |
+| DELETE | `/api/members/:id` | bearer | `members:manage` | role | — | メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。 |
+| GET | `/api/admin/status` | bearer | `instance:manage` | role | — | インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。 |
+| POST | `/api/orgs` | superadmin | `instance:manage` | role | — | 会社を作成：org、最初のチーム、所有者。明示的なスラッグは自然キーです（再実行で409エラー） |
+| GET | `/api/orgs` | superadmin | `instance:manage` | role | — | インスタンス上のすべての組織をリスト表示します。 |
+| POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | role | — | 会社（id またはスラッグ）を停止する；その中のすべてのチームが読み取り専用になります。 |
+| POST | `/api/orgs/:ref/resume` | superadmin | `instance:manage` | role | — | 一時停止中の企業を再開します。 |
+| POST | `/api/orgs/:ref/quota` | superadmin | `instance:manage` | role | — | 組織レベルのクォータを設定；チームはその下に配置されます |
+| GET | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 1つの会社、そのチームとクォータ。 |
+| PATCH | `/api/orgs/:ref` | superadmin | `instance:manage` | role | — | 会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。 |
+| POST | `/api/admin/users/:id/password` | bearer | `instance:manage` | role | — | サインインできなくなったユーザーのパスワードを設定する：{new_password}。そのユーザーのセッションは失効します。リセットリンクを送るメール送信手段がないため、サインインできない人にとって唯一の復帰手段です。 |
+| POST | `/api/admin/seed-tenants` | superadmin | `instance:manage` | role | — | 既知の開発用パスワードで Acme と Globex を投入する — デモ用の固定データのみ。 |
+| GET | `/api/org` | org-admin | `org:read` | role | — | 呼び出し元の会社 |
+| GET | `/api/org/teams` | org-admin | `org:read` | role | — | 呼び出し元の会社のチーム。 |
+| POST | `/api/org/teams` | org-admin | `org:manage` | role | — | 呼び元の会社でチームを作成します。 |
+| POST | `/api/org/teams/:ref/quota` | org-admin | `org:manage` | role | — | 組織管理プレーンから単一チームのクォータ上限を設定する（issue #113）: 呼び出し元自身の会社に属するチームを id または slug で指定し、{dimension, limit, window?} を渡します。チーム層の POST /api/quota は常に呼び出し元自身のチームにしか設定しないため、これがないと複数チームを管理する組織管理者はチームごとにトークンを持つ必要がありました。会社外のチームは 404 を返します — この呼び出し元にとっては存在しません。 |
+| POST | `/api/org/members` | org-admin | `org:manage` | role | — | 呼び出し元の会社のチームに人物を追加します。オプションで組織ロール（org_admin, org_owner, org_reader）も指定できます。 |
+| PATCH | `/api/org/members/:id` | org-admin | `org:manage` | role | — | 人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。 |
+| GET | `/api/org/audit` | org-admin | `org:read` | role | — | 会社の監査ログ。 |
+| GET | `/api/org/retention` | org-admin | `org:read` | role | — | 会社自身の保持ルール（#86 r3）。組織は自社のデータについてインスタンスが許す期間を短縮できますが、延長はできません。 |
+| PUT | `/api/org/retention` | org-admin | `org:manage` | role | — | 会社の保持ルールを設定します。語彙と拒否条件はチーム向けの経路と同一で、チームに適用される実効値はインスタンス・組織・チームのうち最短のものになります。 |
+| GET | `/api/org/session-policy` | org-admin | `org:read` | role | — | 会社自身のセッションタイムアウト、インスタンスのもの、そしてインスタンスの下限を適用した実効ポリシー。 |
+| PUT | `/api/org/session-policy` | org-admin | `org:manage` | role | — | 会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。 |
+| DELETE | `/api/org/session-policy` | org-admin | `org:manage` | role | — | 会社のセッションタイムアウトを取り下げる；そのユーザーはインスタンスのポリシーに戻ります。 |
+| GET | `/api/org/branding` | org-admin | `org:read` | role | — | 会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。 |
+| PUT | `/api/org/branding` | org-admin | `org:manage` | role | — | 会社のタイトル・タグライン・ロゴ・テーマを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。テーマトークンはインスタンスの場合とまったく同じように検証され、コントラストの下限で制限されます。 |
+| DELETE | `/api/org/branding` | org-admin | `org:manage` | role | — | 会社のブランディングを取り下げる；そのユーザーには再びインスタンスのものが表示されます。 |
+| POST | `/api/org/branding/logo` | org-admin | `org:manage` | role | — | 会社のロゴをアップロードし（base64）、会社のマークにする。 |
+| POST | `/api/notes` | bearer | `notes:write` | role | — | 公開範囲を指定してノートを作成する。 |
+| GET | `/api/notes` | bearer | `notes:read` | role | — | 呼び出し元が読めるノートを一覧する；?scope=org は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。 |
+| POST | `/api/documents` | bearer | `files:write` | role | — | テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。 |
+| GET | `/api/documents` | bearer | `files:read` | role | — | 文書をリスト表示します。 |
+| GET | `/api/documents/:id` | bearer | `files:read` | resource | — | 一つのテキストドキュメントとその本文。 |
+| PUT | `/api/documents/:id` | bearer | `files:write` | resource | — | テキスト文書のタイトル・本文・公開範囲を更新する（新しいバージョン）。 |
+| DELETE | `/api/documents/:id` | bearer | `files:delete` | resource | — | テキストドキュメントを削除します。 |
+| POST | `/api/notes/:id/share` | bearer | `notes:manage` | resource | — | ユーザー（所有者、またはnotes:manage）とメモを共有します。与えられた権限はnotes:*のものでなければなりません。 |
+| GET | `/api/notes/:id` | bearer | `notes:read` | resource | — | 1件のノート。 |
+| PUT | `/api/notes/:id` | bearer | `notes:write` | resource | — | ノートを更新します。 |
+| DELETE | `/api/notes/:id` | bearer | `notes:delete` | resource | — | ノートを削除します。 |
+| POST | `/api/ai/echo` | bearer | `chat:use` | role | — | クォータの動作確認用の、モデルを使わない計量付きエコー。 |
+| POST | `/api/ai/chat` | bearer | `chat:use` | role | `chat` | モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text\|json_object\|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。 |
+| POST | `/api/ai/chat/stream` | bearer | `chat:use` | role | `chat` | 同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。モデルが一切応答していない場合は `simulated: true` が入ります。 |
+| POST | `/api/agent` | bearer | `chat:use` | role | `agent` | チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。 |
+| POST | `/api/translate/catalog` | bearer | `chat:use` | role | `translate` | ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。 |
+| POST | `/api/translate` | bearer | `chat:use` | role | `translate` | 目標言語にテキストを翻訳し、チーム用語集を使用します。 |
+| GET | `/api/translate` | bearer | `chat:use` | role | — | チームの翻訳履歴 |
+| POST | `/api/glossary` | bearer | `settings:manage` | role | — | 対象言語の用語集に用語を追加または更新する。 |
+| GET | `/api/glossary` | bearer | `chat:use` | role | — | チーム用語集. |
+| GET | `/api/ai/model` | bearer | — | — | — | 設定されているモデル（またはシミュレーションの代替が使われていること）。 |
+| GET | `/api/model-roles` | bearer | — | — | — | チームの一括処理をロールごとにどのエグゼキュータへ送るか（utility：知識グラフとフィールド抽出、翻訳の下書き）、およびインスタンスの既定値。 |
+| PUT | `/api/model-roles` | bearer | `settings:manage` | role | — | チームのモデルロールを設定する：{roles: {utility: <エグゼキュータ名> \| null}}。エグゼキュータは存在している必要があります；null はインスタンスの既定値に戻り、それもなければローカルモデルになります。 |
+| GET | `/api/executors` | bearer | — | — | — | ローカルエグゼキュータ、環境変数で設定されたプッシュ型、API で作成されたもの（プッシュ型、またはワーカー付きのプル型）を、状態とともに。 |
+| POST | `/api/executors` | bearer | `instance:manage` | role | — | エグゼキュータを作成する：{name, mode: pull\|push, model?, url?, key?, capabilities?, org_id?}。プル型エグゼキュータのワーカートークンはこのレスポンスに含まれ、二度と表示されません。 |
+| DELETE | `/api/executors/:id` | bearer | `instance:manage` | role | — | エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。 |
+| GET | `/api/admin/workers` | bearer | `instance:manage` | role | — | ワーカー群（FLEET-2）：各エグゼキュータの稼動状態、ワーカー自身の申告、保持中のジョブ、一定期間（?hours=、既定 24）の処理結果とリース失効の回数、直近の失敗 — さらにキュー：種別ごとの件数、最も古い待機ジョブの経過時間、そして稼動中のどのエグゼキュータでも実行できないリモートジョブの件数。この最後の数値は、深いキューを他の方法では説明できないものである：停止したワーカー群と稼動中のワーカー群は、件数だけでは同じように見える。すべての数値は導出され、クォータで保留されているジョブは実行不能には数えない — それは GET /api/jobs が `waiting` としてすでに示している。 |
+| GET | `/api/admin/queue` | bearer | `instance:manage` | role | — | キューを全チーム横断でジョブ単位に表示する（FLEET-4）：各行の待機時間、試行回数、保持しているホスト、リースの残り時間、そして待機中のジョブについては、プラットフォームがなぜ保留しているか（`waiting`、GET /api/jobs が返すものと同じ理由）と、そもそも稼働中のワーカーで実行できるのか（`runnable`）。絞り込みは `kind`、`status`、`executor`、`team`。`limit`（最大200）と `offset` でページングし、`total` は絞り込み後の総件数である。`status=queued` を指定した場合、並び順は要求処理そのものの順序になるため、先頭が本当に次のジョブである — どの並び順になったかは `order` が示す。ペイロードと結果は含まない：キューは種別、待機時間、チーム、保持しているホストで管理するものであり、この読み取りはインスタンス上のすべてのチームにまたがる。 |
+| POST | `/api/executors/:id/drain` | bearer | `instance:manage` | role | — | プルエグゼキュータをローテーションから外す（FLEET-3）：新しい仕事は渡されず、トークンは保持されるため、要求とハートビートを続け、稼働していることが見える状態を保つ。トークンを失効させる廃止とは異なり、元に戻せる。すでに保持しているジョブはそのまま実行される — 実行中の作業を止めるのはキャンセルの役目である。 |
+| POST | `/api/executors/:id/resume` | bearer | `instance:manage` | role | — | 停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。 |
+| POST | `/api/org/executors` | org-admin | `org:manage` | role | — | 呼び出し元の会社に紐づくエグゼキュータを作成する（TEN-2e）：その会社のチームにだけ提供されます。 |
+| POST | `/api/workers/claim` | bearer | `jobs:execute` | role | — | プル型ワーカーが実行可能な次のリモートジョブを取得する：{kinds, models, max_wait}；何もなければ 204。ジョブにはリースと claim_token が付き、以降そのジョブに対する書き込みはすべてこの claim_token を返送する必要があります。 |
+| POST | `/api/workers/state` | bearer | `jobs:execute` | role | — | プル型ワーカーが自分の状態を報告する：{state} — ready、busy、paused のいずれか。ジョブを保持していないワーカーが使える唯一の経路です：停止中のホストは取得を止めており、ハートビートを送るジョブも持たないため、これが無ければその沈黙を障害と区別できません。`state` は claim とハートビートでも受け付けるので、通常のループに追加のリクエストは不要です。state を指定しない呼び出しは、保存済みの状態をそのまま残します。 |
+| POST | `/api/workers/jobs/:id/heartbeat` | bearer | `jobs:execute` | role | — | このワーカーが保持するジョブのリースを延長する：{claim_token}、取得時に返されたトークン。トークンが無い、または古い場合は 409 になります。 |
+| POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | role | — | 結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。 |
+| POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | role | — | 失敗を報告する：{error, claim_token}。現在のリース保持者、かつその試行からのみ受け付けます。 |
+| POST | `/api/workers/jobs/:id/release` | bearer | `jobs:execute` | role | — | 試行回数を消費せずにジョブを返却する（issue #61）：{claim_token, reason?} — busy、unsupported、shutdown のいずれか。それ以外は拒否せず `other` として記録する。ワーカーはすでにそのジョブを実行できないと申告しているためである。ジョブは直ちにキューへ戻り、他のワーカーはすぐに取得できる一方、返却したエグゼキュータには30秒間そのジョブを渡さない — これが返却ループの歯止めであり、試行回数を変えないこの経路では他に止めるものがない。10回を超えて返却された場合はジョブを失敗とし、返却したホストの名前を記録する：どのワーカーも実行しない作業には人の判断が必要である。 |
+| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | role | — | このジョブが指定したドキュメントを読む：{object, claim_token, version?, as?}。新しい認可コードは不要で、条件は3つ — 呼び出し元がこの試行を保持していること、オブジェクト ID がそのジョブ自身のペイロードに現れること、そして読み取りがそのジョブのユーザーとして行われること（公開範囲・付与・組織ゲートがすべて適用されます）。`as: "bytes"`（base64、上限は TELEMACHUS_MAX_UPLOAD）または `as: "text"` で、スキャンの場合は {text: null, reason: "needs-ocr"} を返します。 |
+| POST | `/api/workers/jobs/:id/derive` | bearer | `jobs:execute` | role | — | このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TELEMACHUS_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。 |
+| GET | `/api/usage` | bearer | — | — | — | チームのクォータ指標を、使用量・上限・残量・期間のリセット時刻とともに返す。さらに `held` が、現在このチームのキュー内ジョブを保留している上限を示します（保留がなければ null）。 |
+| POST | `/api/quota` | bearer | `quota:manage` | role | — | 呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。必要な権限は `instance:manage` ではなく `quota:manage` です（issue #113）: チームのオーナーが自チームの上限を設定でき、組織管理者も設定できます。チームがいくら要求しても会社自身の上限が依然として効く（受け入れ判定は組織の判断を先に取る）ためです。チームの ADMIN は意図的にこの権限を持ちません — 支出はオーナーの判断です。 |
+| GET | `/api/tools` | bearer | — | — | — | 登録済みのツールとその権限、ソースおよびチーム別に有効化された状態。 |
+| POST | `/api/tokens` | bearer | `settings:manage` | role | — | API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには "never"）を指定；生のトークンは一度だけ表示されます。 |
+| GET | `/api/tokens` | bearer | `settings:manage` | role | — | チームのAPIトークン |
+| DELETE | `/api/tokens/:id` | bearer | `settings:manage` | role | — | API トークンを失効させる。 |
+| GET | `/api/search` | bearer | — | — | `search` | ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。 |
+| GET | `/api/audit` | bearer | `settings:manage` | role | — | チームの最近の監査イベント。 |
+| POST | `/api/jobs` | bearer | `chat:use` | role | — | 登録された種類のスケジューラジョブをキューイングします。 |
+| GET | `/api/jobs` | bearer | — | — | — | チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: "quota"\|"concurrency", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。 |
+| POST | `/api/jobs/:id/cancel` | bearer | — | — | — | ジョブをキャンセルする。自分のものであればキュー内でも実行中でも可能で、他人のものには jobs:cancel が必要です。キュー内のジョブは直ちにキャンセルされ、実行中のジョブは `canceling` に移ります — 結果は即座に破棄され、ハンドラが実際に停止した時点でチームの同時実行枠が解放されます。 |
+| DELETE | `/api/jobs/:id/content` | bearer | — | — | — | 確定済みジョブのペイロードと結果を削除し、行自体は保持します。自分のジョブは常に可能で、他人のジョブには jobs:purge が必要です。`infer.chat` や文書パイプラインではペイロードが文書本文そのもの、結果がモデルの応答にあたるため、削除要求に応じる呼び出し側が必要とする操作です。queued・running・canceling のジョブでは拒否されます（ペイロードはハンドラがこれから読む入力のため、まずキャンセルしてください）。ステータス・時刻・試行回数・監査記録はすべて残り、ジョブには `purged_at` が報告されるので、空のペイロードと削除済みのペイロードを区別できます。 |
+| GET | `/api/jobs/:id` | bearer | — | — | — | 1件のジョブと、その結果またはエラー。プラットフォームが保留している場合は `waiting` も含みます（GET /api/jobs を参照）。 |
+| DELETE | `/api/repo` | bearer | `files:delete` | resource | — | `?prefix=` 配下のすべてのオブジェクトを削除し、各オブジェクトの派生物にもカスケードします（#86）。既定はドライランです。`confirm=1` がなければ何も削除せず、削除対象となる件数・バイト数・ID を返します。プレフィックスが空または未指定の場合は「チームの全オブジェクト」とは解釈せず拒否します。`?cascade=0` は列挙されたオブジェクトのみを削除し、派生物は残します。対象は呼び出し側自身の一覧取得を通じて決まるため、可視性・共有・組織ゲートは `GET /api/repo?prefix=` と同一に適用され、削除ごとにオブジェクト単位の権限確認が再実行されます。 |
+| GET | `/api/repo` | bearer | `files:read` | role | — | リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。 |
+| POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | resource | — | 組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view\|edit\|manage, expires_at?}。{user_id} は従来どおり view を意味します。 |
+| POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | resource | — | プリンシパルがそのオブジェクトに持つすべての権限付与を取り消す。 |
+| GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | resource | — | 1つのプリンシパルにつき1行: 能力、権限、授与者、期限、期限切れ |
+| GET | `/api/repo-obj/:id/derivations` | bearer | `files:read` | resource | — | 由来: 文書がどの実行とステップから派生したか |
+| GET | `/api/repo-fields` | bearer | `files:read` | role | — | チームのオブジェクトメタデータ項目：ドキュメントに付与できる情報（プロジェクト、場所、期間、ステータスなど）。検証は required / digits / minlength / maxlength のみで、正規表現は使いません。 |
+| PUT | `/api/repo-fields` | bearer | `settings:manage` | role | — | チームのオブジェクトメタデータ項目を定義する：{fields: [{key, label, required?, digits?, minlength?, maxlength?, help?}]}。項目の追加にマイグレーションは不要です。 |
+| PATCH | `/api/repo-obj/:id/attributes` | bearer | `files:read` | resource | — | ドキュメントにチーム定義のメタデータを設定する：{attributes: {key: value}}。そのドキュメントに対する files:write が必要です。チームが定義していないキーは保存されずに拒否され、空の値は設定を解除します。 |
+| GET | `/api/repo-obj/:id/spans` | bearer | `files:read` | resource | — | 抽出したテキストの出典：各断片のページと領域（LAY-5）。?at=<文字オフセット> を付けると、その位置を含む範囲だけを返します。抽出した値から、それが読み取られた箇所へレビュー担当者が辿るための仕組みです。 |
+| GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | resource | — | 「処理履歴」：派生した文書、元の文書、そしてこの文書に触れたすべての実行。 |
+| GET | `/api/admin/audit/verify` | bearer | `instance:manage` | role | — | 1つの組織の監査ログのハッシュチェーンを検証し、最初に壊れたエントリを示す。 |
+| GET | `/api/admin/audit/export` | bearer | `instance:manage` | role | — | 1つの組織の監査ログを日付範囲で JSONL として書き出す。チェーンのフィールドを含む。 |
+| GET | `/api/repo-obj/:id/reads` | bearer | `files:read` | resource | — | この文書を誰がいつどこから読んだか：読み取り、署名付きリンクの発行と利用、拒否された試行を含む。 |
+| GET | `/api/share-targets` | bearer | `files:read` | role | — | 文書を誰と共有できるか：チームのメンバーと組織内のチーム。 |
+| POST | `/api/repo-obj/:id/visibility` | bearer | `files:manage` | resource | — | プライベート、チームまたは共有に設定します。 |
+| GET | `/api/repo-obj/:id/content` | bearer | `files:read` | resource | — | バイト列をダウンロードする（履歴は ?version=）。型がインライン許可リストにない限り、添付ファイルとして nosniff 付きで返します。 |
+| POST | `/api/repo-obj/:id/presign` | bearer | `files:read` | resource | — | 呼び出し元自身の最新の S3 キーで署名された、期限付きの事前署名 S3 URL。 |
+| GET | `/api/repo-obj/:id/traces` | bearer | `files:read` | resource | — | オブジェクトに何が残っているか：バージョン、抽出テキスト、派生文書、派生関係の行、共有、残存するブロブ、そしてペイロードや結果がその ID をまだ含むジョブ。削除要求に対する検証用の読み取りです（#86）。「DELETE を呼んで 200 が返った」ことは証拠になりませんが、これは証拠になります。`audit` は報告されますが、ゼロにすべき痕跡ではありません。監査ログは消去後も意図的に残るものです。 |
+| GET | `/api/repo-obj/:id` | bearer | `files:read` | resource | — | バージョン付きのオブジェクトメタデータ |
+| DELETE | `/api/repo-obj/:id` | bearer | `files:delete` | resource | — | オブジェクトを削除します。バイト列は、同一組織内で参照が一切なくなった時点で解放されます（別バージョン、別オブジェクト、または進行中アップロードのステージ済みパート）。`?cascade=1` はそのオブジェクトから派生したすべて（抽出 JSON、記入済みフォーム、各翻訳）を再帰的に削除し、単一の監査対象操作として扱います。`?detach=1` を併用すると派生物は保持し、代わりに派生関係の行を削除するため、存在しないものを出自として主張する記録が残りません。`?dry_run=1` は削除対象を報告するだけで何も変更しません。カスケードは権限について全か無かです。削除権限のないオブジェクトがツリーに含まれる場合、操作全体を名前付きで拒否します。途中まで実行されたツリーは完了したツリーと区別できないためです。 |
+| PUT | `/api/repo/*key` | bearer | `files:write` | resource | — | 生のボディをキーにアップロードする（?filename=, ?visibility=）；既存のキーへの書き込みはバージョンを追加します。トリガーはここで評価されます。 |
+| GET | `/api/s3/credentials` | bearer | — | — | — | 呼び出し元の S3 アクセスキー（シークレットは二度と表示されません）と、それを使うエンドポイント／バケット。 |
+| POST | `/api/s3/credentials` | bearer | — | — | — | S3アクセスキーを発行し、オプションで範囲指定（トリガーが発生するプレフィックスに対してworkflows:runを追加します）。 |
+| DELETE | `/api/s3/credentials/:id` | bearer | — | — | — | S3アクセスキーを無効にする；そのアクセスキーで署名されたプレシグナードリンクも無効になります。 |
+| POST | `/api/workflows` | bearer | `workflows:write` | role | `workflows` | ワークフロー仕様を公開する（検証済み；未知のフィールドは拒否）；同じスラッグの再公開はバージョンを上げます。 |
+| GET | `/api/workflows` | bearer | `workflows:read` | role | `workflows` | チームのワークフロー定義。プラグイン提供のものは初回参照時に実体化されます。 |
+| GET | `/api/workflows/schema` | public | — | — | — | ワークフロー仕様フォーマット：バージョン、ステップ種類、バインディング参照、述語 |
+| POST | `/api/workflows/:slug/run` | bearer | `workflows:run` | role | `workflows` | {input} で実行を開始する；宣言された入力は必須で型付きです。202 と実行を返します。 |
+| GET | `/api/doc-triggers` | bearer | `workflows:read` | role | `workflows` | チームのアップロードトリガーと、チームの残り AI 予算。 |
+| POST | `/api/doc-triggers` | bearer | `workflows:write` | role | `workflows` | トリガーを作成：workflow_slug, match_prefix, match_types, input, fire_on_derived. |
+| GET | `/api/doc-triggers/:id` | bearer | `workflows:read` | resource | — | 1つのトリガーとその発火履歴（どのバージョン、どの実行、あるいはなぜ発火しなかったか）。 |
+| PATCH | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | トリガーのフィールドを変更；存在しないフィールドはそのままにします。 |
+| DELETE | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | トリガーとその履歴を削除します；開始した実行は残ります。 |
+| GET | `/api/workflows/:slug` | bearer | `workflows:read` | resource | `workflows` | 1つのワークフロー定義とその仕様 |
+| GET | `/api/runs` | bearer | `workflows:read` | role | `workflows` | チームの実行、新しい順。 |
+| POST | `/api/runs/:id/cancel` | bearer | `workflows:run` | role | `workflows` | 実行を取消；既に実行中のステップが終了し、次のステップは開始しません。 |
+| GET | `/api/runs/:id` | bearer | `workflows:read` | resource | `workflows` | 1つの実行とそのステップ、インプット、アウトプット、およびエラー |
+| GET | `/api/reviews` | bearer | `reviews:read` | role | — | チームのレビューキュー、新しい順。?status=pending（既定）、decided、canceled、all。 |
+| GET | `/api/reviews/stats` | bearer | `reviews:read` | role | — | AI の出力をレビュー担当者がそのまま承認した割合：ワークフローとステップごとの承認・差し戻し・却下の件数と、判断までの平均時間。別個の評価システムではなく、すでに記録済みの判断に対する集計です。?since=<エポックミリ秒> で期間を絞れます。 |
+| GET | `/api/reviews/verify` | bearer | `audit:read` | role | — | チームの判断チェーンを再計算して検証し、保存されたハッシュが内容と一致しない最初の判断を示します。records の改ざんや中間の削除は検出しますが、テーブルに書き込める者による書き換えは検出できません（以降のリンクを再計算できるため）。それには外部のアンカーが必要です。 |
+| GET | `/api/reviews/:id` | bearer | `reviews:read` | role | — | 1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。 |
+| POST | `/api/reviews/:id/decide` | bearer | `reviews:decide` | role | — | レビューを判断する：{verdict: approve\|revise\|reject, rationale, answers}。差し戻しと却下には理由が必須です。ダブルチェック指定のレビューは作成者本人を拒否します。待機していた実行は、判定が示す分岐へ進んで再開します。 |
+| GET | `/api/kg/entities` | bearer | `files:read` | role | — | ?q= と ?type= でエンティティを検索する；呼び出し元が読める言及を持つものだけ。 |
+| GET | `/api/kg/entities/:id` | bearer | `files:read` | resource | — | 1つのエンティティとその関係・言及。各言及は元文書の公開範囲でフィルタされます。 |
+| POST | `/api/kg/extract` | bearer | `workflows:run` | role | `workflows` | チームの未抽出文書をインデックス化するワークフローをキューに追加します。 |
+| POST | `/api/admin/seed` | bearer | `settings:manage` | role | — | 呼び出し元のチームにサンプルのノートと文書を投入する。 |
+| GET | `/api/metrics` | bearer | `instance:manage` | role | — | 運用メトリクス。 |
+| GET | `/api/features` | bearer | — | — | — | チームの機能フラグ |
+| POST | `/api/features/:name` | bearer | `settings:manage` | role | — | チームの機能を有効または無効にする。チームは上位の層が許可する範囲で厳しくできるが、緩めることはできない。 |
+| GET | `/api/instance-features` | bearer | `instance:manage` | role | — | インスタンスがどの機能を許可しているか。キーが無い場合は許可。 |
+| PUT | `/api/instance-features` | bearer | `instance:manage` | role | — | インスタンス全体で機能を無効にする。組織もチームも再び有効にはできない。 |
+| GET | `/api/org/features` | bearer | `org:read` | role | — | 呼び出し元の会社がどの機能を許可しているか。 |
+| PUT | `/api/org/features` | bearer | `org:manage` | role | — | 呼び出し元の会社で機能を無効にする。その配下のチームは再び有効にはできない。 |
+| GET | `/api/plugins` | bearer | — | — | — | 読み込まれたプラグインと、そのツールおよびワークフロー。 |
+| GET | `/api/mcp` | bearer | — | — | — | 接続されたMCPサーバー |
+| GET | `/api/oop` | bearer | — | — | — | 接続済みのサンドボックス化（プロセス外）プラグインと、それらが要求できる機能。 |
+| POST | `/api/tools/:name` | bearer | `settings:manage` | role | — | チーム用のツールを有効にする/無効にする |
 
 ## Plugin routes
 

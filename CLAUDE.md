@@ -859,6 +859,87 @@ is ROLE-scoped — `rt-perm`, before the handler runs. The table was documentati
 - Positive-controlled: with the `require-perm` removed again, the gate fails and
   names `GET /api/retention`.
 
+## A granted permission nothing enforces (issue #113)
+
+The gate above asks "is the permission a route DECLARES enforced?". It cannot see
+the opposite failure, and that one shipped: **`quota:manage` was granted to the
+team steward and to both company-admin roles, no route declared it, nothing read
+it, and `POST /api/quota` demanded `instance:manage`** — so a team that hit its
+2,000-token daily default could be unblocked only by the INSTANCE operator.
+Reported from outside, a year after the permission was written into the catalog.
+
+```sh
+raco test test/route-perm-gate-tests.rkt   # 7 cases; the reverse direction is the last two
+```
+
+- **`POST /api/quota` is `quota:manage`.** A team owner sets their own team's
+  limit (the catalog's `*:*` always said so), and an org admin may too —
+  `can?`'s team-tier branch unions `user-org-permissions`. A team **ADMIN**
+  deliberately does not hold it: `permissions.rkt` says "manage without
+  destroying — no team:delete / quota:manage / roles:manage", and spending is the
+  steward's call.
+- **It cannot widen what a tenant may spend**, which is why it is safe:
+  `tenant-quota-check` takes the ORG decision FIRST and lets it refuse, so a team
+  raising its own limit still hits the company's cap. Pinned in
+  `test/tenancy-tests.rkt`. On a SINGLE-TENANT instance there is no tier above
+  the team, so there the team limit is the only one there is — stated rather
+  than implied, because no instance-tier quota subject exists.
+- **`POST /api/org/teams/:ref/quota`** is the company plane's per-team write,
+  because the team-tier route only ever sets the CALLER'S OWN team and an org
+  admin administering several teams would otherwise need a token in each. It is
+  `org:manage` + `quota:manage`, id or slug, **404 for a team outside the
+  company**.
+- **`org-team-resolve` carries `org_id` in BOTH branches.** `teams.slug` is
+  unique per org but an ID is instance-global, so the id branch without the org
+  clause hands a company admin another company's team. The unit test fails
+  against exactly that version.
+- **A granted permission nothing enforces is a promise the role listing makes
+  and the server does not keep**, and `GET /api/roles` publishes it. So every
+  catalog permission must be enforced somewhere reachable from a route handler,
+  or be listed in `UNREACHABLE-BY-DESIGN` **with a reason**. The list fails in
+  BOTH directions — unlisted-and-unreachable, and listed-but-now-enforced —
+  which is the shape `scripts/check-config-reference.sh` uses. A one-directional
+  allowlist rots into a list of excuses.
+- **A WILDCARD is excluded, not excused.** `*:*`, `*:read`, `instance:*` and
+  `org:*` are what a role HOLDS; asking whether one is "enforced" is a category
+  error, and the walk answers yes for the wrong reason because `"*:*"` appears
+  as a token SCOPE in bootstrap. The partition is asserted, not assumed.
+- What the check found besides #113, all now listed with reasons: **`documents:read`
+  /`:write`/`:delete` are vestigial** since the 0022 fold (`/api/documents/*`
+  enforces `files:*`) — and that is not cosmetic, because those three are offered
+  in the API-token SCOPE vocabulary, so **a token scoped to `documents:write`
+  is capped away from the only routes that write a document**; `team:read`
+  /`team:write`/`features:manage` are the team-tier spellings the company plane
+  does not use (it gates on `org:read`/`org:manage`); `team:delete` has no route,
+  as TEN-2g decided for orgs.
+- **Positive-controlled, and the control is the issue itself**: with both
+  `require-perm` lines removed the gate prints `granted and enforced NOWHERE:
+  quota:manage` — the exact state #113 was filed against.
+
+### Three traps this slice paid for again
+
+- **`audit!`'s `#:team-id` defaults to ABSENT and `org-audit` INNER JOINs
+  `teams` on it**, so the first `org.team.quota` entry was written and invisible
+  in the company's own trail. Third appearance of this shape (QUOTA-3's rule;
+  `user.2fa.reset` still has it). Pass the team the event is ABOUT, not the
+  caller's acting team — it also puts the event in the trail of the team whose
+  budget changed, which is where somebody would look.
+- **`org-audit` was missing issue #47's ordering key** while `audit-list` had it:
+  `at` is `CURRENT_TIMESTAMP` at second resolution and `id` is a random UUID, so
+  a burst inside one second came back in an order unrelated to what happened.
+  Now `at DESC, at_us DESC, id DESC`, like its sibling.
+- **A smoke fixture that changes GLOBAL state breaks a distant block.** Minting a
+  second team owner made alice no longer the LAST owner, and the membership block
+  300 lines below asserts that the last owner can be neither demoted nor removed
+  — six red assertions in a block with nothing to do with quotas. The new block
+  removes its own owner again. (`dana` was also already taken, and
+  `POST /api/members` answers `{role, token, user_id}` with no `username`.)
+- **`telemachus-docs check` does not cover `docs/reference/ja/`.** CI runs it
+  without `--locale`, so the Japanese reference had silently drifted: it was
+  missing r2's whole "Checked" column and both the OCR and s3blobs plugins.
+  Re-render it (`render --locale ja`) whenever the English changes, and expect a
+  large diff the first time after a gap.
+
 ## The route table and the generated reference (slice 60)
 
 `server/routes.rkt` DECLARES every HTTP route: method, path pattern, handler key,

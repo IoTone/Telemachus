@@ -22,6 +22,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `instance:manage` | instance | インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス |
 | `jobs:cancel` | team | すでに実行中のジョブをキャンセルする（キュー内のジョブに限りません）。キャンセルは協調的で、ジョブは次のステップ境界で停止し、先に完了した場合でもその結果は破棄されます。 |
 | `jobs:execute` | team | プル型エグゼキュータに提供されたジョブの取得・ハートビート・完了・失敗報告。ワーカートークンのみが保持し、1つのエグゼキュータに紐づきます；チームのデータには届かず、実行も開始しません。 |
+| `jobs:purge` | team | 他人の確定済みジョブのペイロードと結果を削除し、与えられた入力と生成された出力を破棄します。自分のジョブは常に削除できます。行・ステータス・時刻・監査記録は残ります。何が起きたかの記録は監査ログであるため、削除後もジョブの説明責任は保たれ、内容だけが失われます。 |
 | `localization:manage` | team | カタログのインポートとエクスポート、AIドラフトのキュー管理、機械ドラフトの破棄 |
 | `localization:read` | team | ローカライゼーションマネージャーのカバレッジとメッセージを見る。 |
 | `localization:review` | team | 同僚の翻訳を承認または差し戻す（自分のものは不可）。 |
@@ -65,7 +66,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Role | Tier | Grants |
 |---|---|---|
 | Owner (`owner`) | team | `*:*` |
-| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `workflows:read`, `workflows:write`, `workflows:run` |
+| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `jobs:purge`, `workflows:read`, `workflows:write`, `workflows:run` |
 | Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
@@ -91,6 +92,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `instance:manage` |  |  |  |  |  |  |  |
 | `jobs:cancel` | ✓ | ✓ |  |  |  |  |  |
 | `jobs:execute` | ✓ |  |  |  |  |  |  |
+| `jobs:purge` | ✓ | ✓ |  |  |  |  |  |
 | `localization:manage` | ✓ | ✓ |  |  |  |  |  |
 | `localization:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `localization:review` | ✓ | ✓ |  |  |  |  |  |
