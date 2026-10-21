@@ -6,7 +6,7 @@
 
 (require "../domain/i18n/i18n.rkt")
 
-(provide msg-forbidden msg-bootstrap-done msg-note-saved
+(provide msg-forbidden msg-bootstrap-done
          msg-unauthorized msg-already-init
          msg-beta-not-ready msg-beta-rate msg-beta-challenge msg-beta-verify
          msg-beta-email msg-beta-work-email

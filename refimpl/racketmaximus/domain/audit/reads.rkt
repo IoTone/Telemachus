@@ -25,11 +25,12 @@
 (require racket/string db-kit/portable
          (only-in "../authz/authz.rkt" audit! principal-user-id require-perm)
          (only-in "../db/id.rkt" new-id)
-         json)
+         json
+         (only-in "../db/nulls.rkt" nz))
 
 (provide current-read-context (struct-out read-context) with-read-context
          audit-read! audit-read-denied! audit-presign-issued!
-         object-reads READ-DOORS)
+         object-reads )
 
 ;; The doors a read can arrive through. A CLOSED vocabulary, like WORKER-STATES
 ;; and EXTRACT-REASONS: an export groups by it, so a door invented in passing
@@ -152,7 +153,6 @@
        ;; before at_us existed, then the microsecond, then the id
        "ORDER BY at DESC, at_us DESC, id DESC LIMIT ? OFFSET ?")
       (hash-ref obj 'id) lim off))])
-    (define (nz x) (if (sql-null? x) 'null x))
     (define m (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                 (let ([v (vector-ref r 8)]) (if (sql-null? v) (hasheq) (string->jsexpr v)))))
     (hasheq 'action (vector-ref r 0)

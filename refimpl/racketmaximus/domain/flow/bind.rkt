@@ -22,8 +22,8 @@
 
 (require racket/string racket/list json)
 
-(provide ref-segments valid-ref? ref-step-id ref-root item-ref?
-         binding-refs whole-binding
+(provide valid-ref? ref-step-id item-ref?
+         binding-refs
          resolve-value resolve-hash make-context
          predicate-keys predicate? eval-predicate)
 

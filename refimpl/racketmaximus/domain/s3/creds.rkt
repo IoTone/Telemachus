@@ -30,7 +30,7 @@
          "../authz/authz.rkt")
 
 (provide s3-cred-issue! s3-cred-list s3-cred-revoke! s3-cred-resolve
-         s3-cred-principal access-key-id? s3-cred-newest)
+         s3-cred-principal s3-cred-newest)
 
 ;; Shaped like an AWS key so a client that validates the format is happy: 20
 ;; characters, uppercase alphanumeric, conventional prefix.

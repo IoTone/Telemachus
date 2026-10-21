@@ -30,11 +30,11 @@
          "../sched/scheduler.rkt"        ; purge-job-content!, PURGEABLE-STATUSES
          "../repo/repo.rkt")             ; repo-delete-tree!
 
-(provide retention-fields DEFAULT-PAYLOAD-DAYS
+(provide DEFAULT-PAYLOAD-DAYS
          retention-ref retention-set! retention-problem
          effective-retention retention-sources
          retention-plan retention-apply! retention-sweep!
-         legal-hold-set! legal-hold-of)
+         legal-hold-of)
 
 ;; The three rules #86 r3 names. `max_age` is the whole object; `derived` is only
 ;; what a workflow produced from one, which a team may want gone long before the

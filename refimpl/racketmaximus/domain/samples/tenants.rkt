@@ -16,7 +16,7 @@
          "../orgs/orgs.rkt"
          "../notes/notes.rkt")
 
-(provide seed-tenants! demo-tenants tenants-seeded?)
+(provide seed-tenants! tenants-seeded?)
 
 ;; (org-name slug plan owner-username owner-password member-username member-password)
 (define demo-tenants

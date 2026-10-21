@@ -11,7 +11,7 @@
          "../db/id.rkt"
          "../authz/authz.rkt")
 
-(provide asset-mime-ok? asset-kind-for asset-limit
+(provide asset-mime-ok? asset-kind-for
          asset-store! asset-get asset-list asset-delete!)
 
 ;; allowlisted content types → kind, with per-kind byte caps

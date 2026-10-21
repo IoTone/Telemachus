@@ -16,7 +16,7 @@
 (provide (struct-out tool)
          register-tool! all-tools tool-by-name
          tool-enabled? set-tool-enabled!
-         enabled-tools enabled-tool-schemas tool-settings-for)
+         enabled-tool-schemas tool-settings-for)
 
 (struct tool (name schema perm handler source) #:transparent)
 

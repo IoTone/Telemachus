@@ -44,20 +44,21 @@
          "../db/id.rkt"
          "../authz/authz.rkt"      ; user-principal
          ;; issue #83 r2: a job's payload and result are the document's own words
-         (only-in "../authz/sealed.rkt" define-sealed-column))
+         (only-in "../authz/sealed.rkt" define-sealed-column)
+         "../db/nulls.rkt")
 
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
          seal-payload seal-result unseal-payload unseal-result seal-error unseal-error
          purge-job-content! PURGEABLE-STATUSES
-         job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-STATUSES LIVE-IN
+         job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-IN
          process-one! start-scheduler! set-cap-for! set-hold-reason! set-on-hold! set-record!!
          remote-kind? remote-kinds remote-kind-validator
          scheduler-cap-for scheduler-hold-reason scheduler-on-hold scheduler-record!
-         team-hold job-waiting
+         team-hold
          set-reaper! current-job
          claim-job! finish! reap-orphans! POOL-LEASE-SECONDS
          drain-scheduler! scheduler-inflight-count drain-seconds
-         current-plugin registered-job-kinds job-kinds-of-plugin plugin-kind-prefix)
+         current-plugin registered-job-kinds job-kinds-of-plugin )
 
 ;; ---- sealing a job's payload and result (issue #83 r2) --------------------------
 ;; `payload` is the INPUT a kind was given and `result` is what it produced, and
@@ -96,7 +97,6 @@
 
 (define (vr r i) (vector-ref r i))
 (define (now) (current-seconds))
-(define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- kind registry ----------------------------------------------------------
 ;; A kind is in-process (a handler) or REMOTE (slice 66): no handler here, never
@@ -254,8 +254,15 @@
 ;; ones, with the cap reading as satisfied throughout). `finish!` deliberately
 ;; does NOT use this list — its guard stays `running` alone, which is what fences
 ;; a canceled job's result out.
+;; SCHED-8's two live statuses, and the SQL that tests for them — DERIVED from
+;; the list rather than spelled a second time. They were two independent
+;; literals, which is #110 r1's shape in miniature: nothing stopped one from
+;; gaining a status the other did not.
 (define LIVE-STATUSES '("running" "canceling"))
-(define LIVE-IN "status IN ('running','canceling')")
+(define LIVE-IN
+  (string-append "status IN ("
+                 (string-join (for/list ([st (in-list LIVE-STATUSES)]) (format "'~a'" st)) ",")
+                 ")"))
 
 ;; Cancel a job (SCHED-8). A QUEUED job is canceled outright — no work has
 ;; started, so there is nothing to fence and nothing to wait for. A RUNNING one

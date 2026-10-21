@@ -6,7 +6,7 @@
 
 (require racket/random)
 
-(provide uuid4 new-id random-token byte->hex)
+(provide uuid4 new-id random-token )
 
 (define (byte->hex b)
   (define s (number->string b 16))

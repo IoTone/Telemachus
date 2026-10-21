@@ -31,15 +31,16 @@
          (only-in "../../config.rkt" max-upload-bytes)
          racket/port net/base64
          (only-in "../authz/secretbox.rkt" secret-wrap secret-unwrap)
-         "federation.rkt")
+         "federation.rkt"
+         "../db/nulls.rkt")
 
 (provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! worker-release! reap-leases!
          worker-document worker-derive! worker-report-state! executor-set-admin-state!
-         executor-can-run? executor-secret executor-context
-         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES ADMIN-STATES
-         RELEASE-REASONS MAX-RELEASES RELEASE-BACKOFF
+         executor-can-run?
+         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
+         MAX-RELEASES RELEASE-BACKOFF
          pull-dispatch!)
 
 (define LEASE-SECONDS 120)      ; a worker heartbeats every LEASE/3
@@ -94,7 +95,6 @@
 ;; NOT one of them — retiring revokes the worker token and is irreversible, and
 ;; the whole point of draining is that it is neither.
 (define ADMIN-STATES '("active" "drained"))
-(define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- executors --------------------------------------------------------------------
 ;; a push executor's key is sealed at rest like the other replayable secrets

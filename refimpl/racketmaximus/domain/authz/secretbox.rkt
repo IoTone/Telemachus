@@ -49,8 +49,8 @@
 
 (provide aes-256-gcm-encrypt aes-256-gcm-decrypt
          secrets-enabled? secret-key-id secret-wrap secret-unwrap wrapped-secret?
-         current-secret-key current-previous-secret-key parse-secret-key
-         KEY-BYTES NONCE-BYTES TAG-BYTES)
+         current-previous-secret-key parse-secret-key
+         KEY-BYTES NONCE-BYTES )
 
 (define KEY-BYTES 32)
 (define NONCE-BYTES 12)          ; GCM's standard IV length — no EVP_CTRL_GCM_SET_IVLEN needed

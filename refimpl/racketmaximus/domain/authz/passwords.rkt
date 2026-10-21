@@ -17,7 +17,7 @@
          racket/promise
          "crypto.rkt")
 
-(provide hash-password verify-password kdf-name DEFAULT-ITERS
+(provide hash-password verify-password kdf-name
          new-totp-secret totp-uri totp-valid?)
 
 (define DEFAULT-ITERS

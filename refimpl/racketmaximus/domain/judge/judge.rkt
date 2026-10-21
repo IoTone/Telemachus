@@ -33,7 +33,7 @@
          (only-in "../orgs/orgs.rkt" tenant-quota-record!)
          (only-in "../repo/repo.rkt" repo-get repo-put! repo-inherit!))
 
-(provide register-judge-kind! judge judge-via-chat JUDGE-KIND JUDGE-WAIT-SECONDS
+(provide register-judge-kind! judge judge-via-chat JUDGE-KIND
          judge-result-problem    ; exported for its tests
          judgments-in-result)    ; what the biller counts (JUDGE-10)
 

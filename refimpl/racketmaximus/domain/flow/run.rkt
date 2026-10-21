@@ -30,13 +30,13 @@
          "../agent/registry.rkt"
          "spec.rkt"
          "bind.rkt"
-         "../review/review.rkt")   ; LAY-1: a step that parks the run for a person
+         "../review/review.rkt"
+         "../db/nulls.rkt")   ; LAY-1: a step that parks the run for a person
 
 (provide flow-publish! flow-defs flow-def-get flow-def-by-slug
          flow-run-start! flow-run-get flow-runs flow-run-cancel!
-         flow-advance! flow-step-execute!
          register-plugin-workflow! plugin-workflows
-         FLOW-JOB-KIND)
+         )
 
 ;; ---- sealing a run's bindings (issue #83 r1, slice 3) -----------------------------
 ;; A run's `input`, each step's `input` and `output`, the run's `output`, and the
@@ -74,7 +74,6 @@
 (define FEATURE "workflows")
 
 (define (vr r i) (vector-ref r i))
-(define (nz x) (if (sql-null? x) 'null x))
 (define (js s) (if (or (not s) (sql-null? s)) (hasheq)
                    (with-handlers ([exn:fail? (lambda (_) (hasheq))]) (string->jsexpr s))))
 

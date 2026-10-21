@@ -41,10 +41,11 @@
 
 (require db-kit/portable json racket/string
          (only-in sha2-kit sha256-hex)
-         (only-in "../authz/authz.rkt" audit!))
+         (only-in "../authz/authz.rkt" audit!)
+         (only-in "../db/nulls.rkt" nz))
 
 (provide audit-chain-seal! audit-chain-verify audit-chain-status
-         audit-export-jsonl CHAIN-VERSION)
+         audit-export-jsonl )
 
 (define CHAIN-VERSION "telemachus.audit.v1")
 
@@ -202,18 +203,17 @@
   (define rows (apply query-rows conn
     (string-append SELECT-COLS clauses " ORDER BY at_us ASC, id ASC LIMIT ?") args))
   (for ([r (in-list rows)])
-    (define (nz i) (let ([v (vector-ref r i)]) (if (sql-null? v) 'null v)))
     (write-json
      (hasheq 'id (vector-ref r 0) 'at_us (vector-ref r 1) 'at (format "~a" (vector-ref r 16))
              'action (vector-ref r 2)
-             'actor_type (nz 3) 'actor_id (nz 4) 'team_id (nz 5) 'org_id (nz 6)
-             'resource_type (nz 7) 'resource_id (nz 8) 'result (nz 9)
+             'actor_type (nz (vector-ref r 3)) 'actor_id (nz (vector-ref r 4)) 'team_id (nz (vector-ref r 5)) 'org_id (nz (vector-ref r 6))
+             'resource_type (nz (vector-ref r 7)) 'resource_id (nz (vector-ref r 8)) 'result (nz (vector-ref r 9))
              ;; meta is carried VERBATIM as the string it was stored as. Parsing
              ;; and re-emitting it would reorder its keys, and the digest covers
              ;; the stored bytes — so a re-serialized copy would not verify.
-             'meta (nz 10)
-             'client_ip (nz 11) 'user_agent (nz 12) 'request_id (nz 13)
-             'chain_prev (nz 14) 'chain_hash (nz 15))
+             'meta (nz (vector-ref r 10))
+             'client_ip (nz (vector-ref r 11)) 'user_agent (nz (vector-ref r 12)) 'request_id (nz (vector-ref r 13))
+             'chain_prev (nz (vector-ref r 14)) 'chain_hash (nz (vector-ref r 15)))
      out)
     (newline out))
   (length rows))

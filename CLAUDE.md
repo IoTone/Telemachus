@@ -997,6 +997,63 @@ how that was checked rather than asserted.
   `module->exports` — restricted by the same `only-in`/`except-in` main.rkt
   already carried, so no handler could acquire a binding from somewhere new.
 
+## An export is a claim; a kit's export is its API (#110 r4)
+
+89 bindings were `provide`d with no consumer anywhere in the tree — not another
+module, not a test, not a plugin. 84 are narrowed out and five are deliberately
+kept, and the line between them is the useful part:
+
+- **`domain/`, `server/`, `surface/` — narrow it.** An export there is a claim
+  about this application's internal structure, and one nothing imports is a
+  thing the next reader has to assume is load-bearing.
+- **`pkgs/` — leave it.** `db-kit`, `web-kit`, `sha2-kit` are reusable kits;
+  an export with no in-tree caller is their API, not dead weight. `open-sqlite`,
+  `sha256-port`, `serve-http1`, `req-header*` and `DEFAULT-LIMITS` stay for that
+  reason. The exception is a kit export a NEWER kit module superseded, which is
+  why #110 named db-kit's six coercion helpers (`sql->str`, `sql->int`,
+  `sqlite-datetime->iso`, …) specifically: `db-kit/portable` replaced them and
+  nothing called any of the six. Those are deleted.
+- **`LIVE-STATUSES` and `LIVE-IN` in scheduler.rkt were two independent
+  literals** saying which job statuses are live — r1's shape in miniature, where
+  nothing stopped one from gaining a status the other did not. `LIVE-IN` is
+  built from the list now.
+- **Two unenforced closed vocabularies turned up and are NOT fixed here**:
+  `READ-DOORS` (audit/reads.rkt) and `QUESTION-TYPES` (judge/wire.rkt) are
+  declared, commented as closed, and referenced by nothing at all — not even the
+  module that defines them. That is #113's shape, and enforcing them is a
+  behaviour change rather than an export change, so they are named rather than
+  quietly deleted.
+- **`msg-note-saved` and `inbox-summary` are dead and still here.** They are
+  localized-message functions, so removing one is a CATALOG change — `extract`
+  rewrites `locales/en.json`, `ja.json` gains an orphan, and
+  `scripts/build-l10n-review.py` treats a note for a key that no longer exists
+  as a build error. Not an export slice's job.
+- **Do not fold a lone `)` onto the previous line** when editing a `provide`
+  programmatically. That line often ends in a `;;` comment, which swallows the
+  paren — `domain/judge/wire.rkt` failed to read exactly that way, and the error
+  points at the `(provide`, four lines above the damage.
+
+## One SQL-NULL rule, under three names (#110 r5)
+
+`domain/db/nulls.rkt`. `nz` was hand-written **fourteen** times (the issue
+counted eleven), and it is not the mechanical win that count suggests, because
+the copies were not all the same function:
+
+- **`nz`** — SQL NULL becomes `'null`, the jsexpr null. Eleven of the fourteen,
+  which is what a row being rendered into JSON wants.
+- **`nz/false`** — SQL NULL becomes `#f`, for a caller that branches in Racket.
+  It was spelled two ways, `(if (sql-null? v) #f v)` in review.rkt and
+  `(and v (not (sql-null? v)) v)` in authz.rkt, and **those are the same
+  function on every input** — the second only looks stricter.
+- **`nz/string`** — `#f` or SQL NULL becomes `""`, else formatted. One caller,
+  and a different job: building a string, not answering whether there was a
+  value.
+
+A single `nz` would have been wrong for eleven call sites or for three, so there
+are three names. What that bought beyond the de-duplication: **authz.rkt had two
+different functions both called `nz`** — the module-level one answering `#f` and
+a local one inside `audit-list` answering `'null`, shadowing it. That is gone.
+
 ## The route table and the generated reference (slice 60)
 
 `server/routes.rkt` DECLARES every HTTP route: method, path pattern, handler key,

@@ -12,7 +12,7 @@
          "icu.rkt")
 
 (provide (struct-out localizer)
-         current-localizer current-locale
+         current-localizer
          empty-localizer load-localizer locale-chain
          t no-i18n)
 
@@ -21,7 +21,6 @@
 
 (define empty-localizer (localizer "en" '("en") (hash)))
 (define current-localizer (make-parameter empty-localizer))
-(define (current-locale) (localizer-locale (current-localizer)))
 
 ;; "es-419" → '("es-419" "es" "en"); "ja" → '("ja" "en"); "en" → '("en")
 (define (locale-chain locale)

@@ -14,26 +14,13 @@
 (require db racket/string)
 
 (provide sqlite-path open-sqlite call-with-sqlite
-         sql-or-empty sql-or-null sql->str sql->bool sql->int sqlite-datetime->iso
          db-connector postgres-params redact-db-url)
 
-;; ---- SQL value coercion helpers (shared by DB-backed CLIs) -----------------
-(define (sql-or-empty v) (if (sql-null? v) "" v))         ; NULL -> ""
-(define (sql-or-null  v) (if (sql-null? v) 'null v))      ; NULL -> JSON null
-(define (sql->str v) (if (sql-null? v) "" (format "~a" v)))
-(define (sql->bool v) (cond [(sql-null? v) #f]
-                            [(number? v) (not (zero? v))]
-                            [else (and v #t)]))
-(define (sql->int v) (cond [(sql-null? v) 0] [(number? v) v] [else 0]))
-
-;; SQLAlchemy stores DateTime in SQLite as TEXT "YYYY-MM-DD HH:MM:SS[.ffffff]".
-;; Match Python's datetime.isoformat(): space->T, and drop a zero ".000000"
-;; fraction (isoformat omits microseconds when they're zero). NULL -> "".
-(define (sqlite-datetime->iso v)
-  (cond [(sql-null? v) ""]
-        [(not (string? v)) (format "~a" v)]
-        [else (regexp-replace #rx"\\.000000$"
-                              (regexp-replace #rx" " v "T") "")]))
+;; SIX COERCION HELPERS LIVED HERE and are gone (#110 r4): sql-or-empty,
+;; sql-or-null, sql->str, sql->bool, sql->int and sqlite-datetime->iso.
+;; db-kit/portable superseded them — it rewrites the query and hands back values
+;; the caller converts at the edge of its own read, which since #110 r5 is
+;; domain/db/nulls.rkt. Nothing in the tree called any of the six.
 
 ;; Resolve a sqlite URL to a filesystem path, mirroring SQLAlchemy's
 ;; `DATABASE_URL.replace("sqlite:///", "")`. Relative paths resolve against

@@ -23,10 +23,11 @@
          racket/string racket/list
          "../db/id.rkt"
          "../authz/authz.rkt"
-         "../repo/repo.rkt")
+         "../repo/repo.rkt"
+         "../db/nulls.rkt")
 
 (provide STARTER-TYPES normalize-name normalize-predicate
-         kg-upsert! kg-forget! kg-mark-extracted! kg-list-unextracted
+         kg-upsert! kg-mark-extracted! kg-list-unextracted
          kg-entity kg-find kg-neighbourhood kg-stats)
 
 (define STARTER-TYPES '("person" "organization" "product" "place" "event" "concept"))
@@ -46,7 +47,6 @@
   (define u (regexp-replace* #px"[^a-z0-9]+" t "_"))
   (string-trim u "_"))
 
-(define (nz x) (if (sql-null? x) 'null x))
 
 ;; ---- write path ------------------------------------------------------------------------
 (define (entity-id! conn team type name description)

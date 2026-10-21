@@ -14,7 +14,7 @@
 (require racket/list
          racket/path)
 
-(provide analyze-file analyze-json-file analyze-paths rkt-files-under)
+(provide analyze-file analyze-paths rkt-files-under)
 
 ;; ---- JSON surfaces ------------------------------------------------------------
 ;; A flat {"id": "English text"} object. This is how a frontend that is not

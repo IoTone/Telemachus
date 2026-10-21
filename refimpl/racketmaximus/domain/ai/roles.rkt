@@ -15,7 +15,7 @@
 (require racket/string
          "../settings/settings.rkt")
 
-(provide ROLES model-role-executor model-roles-get model-roles-set! current-utility-executor)
+(provide model-role-executor model-roles-get model-roles-set! current-utility-executor)
 
 (define ROLES '("utility"))
 

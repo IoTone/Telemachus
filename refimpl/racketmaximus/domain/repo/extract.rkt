@@ -33,9 +33,9 @@
 
 (provide extract-text extract-text/spans extractable? EXTRACT-CAP EXTRACT-REASONS
          span-problem spans-covering
-         strip-tags pdftotext-available?
+         pdftotext-available?
          register-extractor! unregister-extractor! registered-extractors extractors-of-plugin
-         repo-text-upsert! repo-text-delete! repo-text-for repo-spans-for)
+         repo-text-upsert! repo-text-for repo-spans-for)
 
 (define EXTRACT-CAP 200000)   ; characters, ~50 printed pages — plenty for search
 

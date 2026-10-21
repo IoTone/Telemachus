@@ -37,10 +37,9 @@
          "../db/id.rkt"
          "../settings/settings.rkt")   ; the generic instance_settings accessor
 
-(provide branding-get branding-set! branding-defaults
+(provide branding-get branding-set!
          org-branding-get org-branding-set! org-branding-clear! branding-for
-         branding-title-max branding-tagline-max
-         theme-defaults theme-problem theme-tokens contrast-ratio)
+         theme-defaults theme-problem contrast-ratio)
 
 (define KEY "branding")
 

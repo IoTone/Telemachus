@@ -18,7 +18,7 @@
          "../authz/authz.rkt"
          "beta.rkt")   ; active-onboarding (provider registry), judge-system-prompt fallback
 
-(provide experience-file-config base-experience experience-active-key
+(provide base-experience experience-active-key
          resolve-experience resolve-experience-public experience-judge-system
          experience-draft experience-save! experience-publish! experience-list
          experience-landing

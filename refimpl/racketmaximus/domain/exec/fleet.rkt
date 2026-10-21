@@ -34,7 +34,8 @@
          json
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
-         "pull.rkt")
+         "pull.rkt"
+         (only-in "../db/nulls.rkt" nz))
 
 (provide fleet-report queue-listing FLEET-WINDOW-HOURS QUEUE-PAGE-MAX)
 
@@ -321,11 +322,11 @@
      (define base
        (hasheq 'id (vector-ref r 0) 'kind kd 'status st
                'priority (vector-ref r 3)
-               'team_id (nz* (vector-ref r 4)) 'team (nz* (vector-ref r 12)) 'org (nz* (vector-ref r 13))
+               'team_id (nz (vector-ref r 4)) 'team (nz (vector-ref r 12)) 'org (nz (vector-ref r 13))
                'attempt (vector-ref r 5) 'max_attempts MAX-ATTEMPTS
                'sub_job sub?
                'remote remote?
-               'executor (nz* (vector-ref r 14))
+               'executor (nz (vector-ref r 14))
                'age_seconds (let ([v (vector-ref r 7)]) (if (sql-null? v) 'null (- (now) v)))
                'created_at (format "~a" (vector-ref r 10))
                'lease_seconds_left (let ([v (vector-ref r 8)])
@@ -333,7 +334,7 @@
                ;; issue #61: a release spends no attempt, so `attempt` cannot show
                ;; a job workers keep handing back. This is the column that can.
                'releases (let ([v (vector-ref r 15)]) (if (sql-null? v) 0 v))
-               'error (nz* (vector-ref r 9))))
+               'error (nz (vector-ref r 9))))
      ;; `waiting` only where it can mean anything, and ABSENT when nothing holds
      ;; the job (QUOTA-3): nothing here can know whether a worker for a remote
      ;; kind exists, and a reason nothing stands behind is how a reader stops
@@ -351,7 +352,6 @@
                        #:kind kd #:team tid #:requirements req)))
          with-hold))))
 
-(define (nz* v) (if (sql-null? v) 'null v))
 (define (caps-list e k)
   (let ([v (hash-ref (let ([c (hash-ref e 'capabilities (hasheq))]) (if (hash? c) c (hasheq))) k '())])
     (if (list? v) (filter string? v) '())))
