@@ -47,7 +47,6 @@
          blob-store-problem
          schema-problem
          loopback-bind?
-         strict-startup?
          report-startup-problems!
          (struct-out startup-problem))
 

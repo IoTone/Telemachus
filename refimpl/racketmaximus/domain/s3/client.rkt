@@ -35,7 +35,7 @@
 
 (provide (struct-out s3-config) s3-endpoint-parts s3-object-url
          s3-signed-headers s3-request-target
-         s3-send s3-put-stream s3-get-stream s3-head s3-delete
+         s3-put-stream s3-get-stream s3-head s3-delete
          (struct-out exn:fail:s3) s3-retryable-status? s3-sse-headers
          EMPTY-SHA256)
 

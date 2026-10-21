@@ -33,7 +33,7 @@
          (only-in "../db/nulls.rkt" nz/false))  ; one frozen vocabulary
 
 (provide review-open! review-list review-get review-decide! review-cancel-run!
-         set-resume-hook! review-count-pending answers-problem
+         set-resume-hook! review-count-pending
          review-verify review-stats)
 
 (define (now-ms) (inexact->exact (floor (current-inexact-milliseconds))))

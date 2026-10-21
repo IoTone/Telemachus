@@ -24,13 +24,12 @@
 (require json
          (for-syntax racket/base syntax/parse))
 
-(provide define-tool tool->jsexpr all-tool-schemas reset-tools! tool-ref)
+(provide define-tool reset-tools! tool-ref)
 
 ;; ---- registry --------------------------------------------------------------
 (define *tools* (box '()))                       ; list of (cons name jsexpr), reversed
 (define (reset-tools!) (set-box! *tools* '()))
 (define (register! name jsx) (set-box! *tools* (cons (cons name jsx) (unbox *tools*))) jsx)
-(define (all-tool-schemas) (map cdr (reverse (unbox *tools*))))
 (define (tool-ref name)                          ; fetch one tool's jsexpr by name
   (cond [(assoc name (unbox *tools*)) => cdr] [else #f]))
 

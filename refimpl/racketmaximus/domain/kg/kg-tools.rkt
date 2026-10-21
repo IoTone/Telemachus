@@ -32,7 +32,7 @@
          "../ai/roles.rkt"                ; the team's utility executor
          "kg.rkt")
 
-(provide validate-extraction extract-knowledge LIST-BATCH EXTRACT-TEXT-CAP)
+(provide validate-extraction extract-knowledge LIST-BATCH )
 
 (define LIST-BATCH 40)
 ;; a 7B model's window; the first ~12k characters of a document carry its named things

@@ -38,9 +38,9 @@
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! worker-release! reap-leases!
          worker-document worker-derive! worker-report-state! executor-set-admin-state!
-         executor-can-run? executor-secret executor-context
-         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES ADMIN-STATES
-         RELEASE-REASONS MAX-RELEASES RELEASE-BACKOFF
+         executor-can-run?
+         LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
+         MAX-RELEASES RELEASE-BACKOFF
          pull-dispatch!)
 
 (define LEASE-SECONDS 120)      ; a worker heartbeats every LEASE/3

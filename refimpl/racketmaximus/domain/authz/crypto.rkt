@@ -11,7 +11,7 @@
 (require file/sha1)                       ; sha1-bytes, bytes->hex-string, hex-string->bytes
 
 (provide hmac-sha1 pbkdf2-hmac-sha1
-         hotp totp base32-decode base32-encode
+         totp base32-decode base32-encode
          bytes->hex hex->bytes constant-time=?)
 
 ;; Comparing secrets with string=? leaks their common prefix through timing. One

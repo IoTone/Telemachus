@@ -30,7 +30,7 @@
 
 (provide current-read-context (struct-out read-context) with-read-context
          audit-read! audit-read-denied! audit-presign-issued!
-         object-reads READ-DOORS)
+         object-reads )
 
 ;; The doors a read can arrive through. A CLOSED vocabulary, like WORKER-STATES
 ;; and EXTRACT-REASONS: an export groups by it, so a door invented in passing

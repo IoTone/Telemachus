@@ -34,7 +34,7 @@
          canonical-request string-to-sign signing-key sigv4-signature
          sigv4-verify amz-date->seconds
          presign-parse presign-verify presign-query
-         UNSIGNED-PAYLOAD MAX-SKEW-SECONDS streaming-payload? seconds->amz-date)
+         UNSIGNED-PAYLOAD streaming-payload? seconds->amz-date)
 
 (define ALGORITHM "AWS4-HMAC-SHA256")
 (define UNSIGNED-PAYLOAD "UNSIGNED-PAYLOAD")

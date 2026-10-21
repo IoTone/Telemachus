@@ -16,7 +16,7 @@
          "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!
          "../quota/quota.rkt")      ; set-limit!
 
-(provide provision! activate! suspend! resume! team-suspended? plan-quotas
+(provide provision! activate! suspend! resume! team-suspended?
          provisioned-team set-tenant-quota!)
 
 (define tok-salt "telemachus-activation-v0")   ; prototype pepper; swap with the KDF seam

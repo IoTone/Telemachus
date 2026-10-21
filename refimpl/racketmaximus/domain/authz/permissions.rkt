@@ -9,9 +9,9 @@
 
 (require racket/string)
 
-(provide perm-matches? instance-perm? org-perm? split-perm
+(provide perm-matches? instance-perm? org-perm?
          builtin-role-keys builtin-role-names builtin-role-perms
-         builtin-org-role-keys org-role-key?
+         org-role-key?
          permission-doc permission-tier all-permissions
          DATA-READ-PERMS)
 

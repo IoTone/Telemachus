@@ -29,7 +29,6 @@
 
 (provide l10n-import! l10n-export l10n-coverage l10n-list l10n-locales
          l10n-submit! l10n-review! l10n-message-ref
-         l10n-status-of l10n-statuses
          draft-acceptable? l10n-discard-machine!)
 
 ;; The stored lifecycle. `missing` and `stale` are computed, so they are not here.

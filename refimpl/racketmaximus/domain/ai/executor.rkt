@@ -19,7 +19,7 @@
          "../exec/federation.rkt")      ; executor-config — route to a named backend
 
 (provide model-configured? model-info chat-simulated? run-chat run-chat-stream parse-chat-response estimate-tokens
-         model-url model-name model-key pull-router
+         model-name pull-router
          model-exchange response-tokens)
 
 ;; PULL-5: a named executor that is not a push backend may be a PULL executor. The

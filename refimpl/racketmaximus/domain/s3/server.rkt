@@ -32,7 +32,7 @@
          "creds.rkt"
          (only-in "../../config.rkt" max-upload-bytes))
 
-(provide make-s3-handler s3-region xml-escape reap-uploads! upload-reap-seconds)
+(provide make-s3-handler s3-region reap-uploads! upload-reap-seconds)
 
 (define (s3-region) (or (getenv "TELEMACHUS_S3_REGION") "us-east-1"))
 (define MAX-KEYS-DEFAULT 1000)

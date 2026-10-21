@@ -20,7 +20,7 @@
 
 (require racket/string)
 
-(provide field-problem field-def-problem field-key?)
+(provide field-problem field-def-problem )
 
 (define (field-key? k)
   (and (string? k) (regexp-match? #px"^[a-z][a-z0-9_]{0,39}$" k)))

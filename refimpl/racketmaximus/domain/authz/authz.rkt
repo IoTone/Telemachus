@@ -35,11 +35,11 @@
          (struct-out exn:fail:forbidden)
          user-principal principal-for
          create-user! create-team! add-member!
-         create-org! team-org user-org set-user-org-role! user-org-permissions
+         create-org! team-org user-org set-user-org-role!
          seed-builtin-roles! bootstrap!
-         user-role-key user-permissions
+         user-permissions
          can? require-perm
-         issue-token! resolve-token list-tokens revoke-token! SESSION-TTL API-TOKEN-TTL
+         issue-token! resolve-token list-tokens revoke-token! API-TOKEN-TTL
          ;; issue #38: callers name the kind of credential they are minting
          (all-from-out "session-policy.rkt")
          hash-token legacy-hash-token token-pepper-is-default?
@@ -47,7 +47,7 @@
          audit! audit-list
          set-password! change-password! authenticate enable-2fa! reset-2fa! first-team-for
          member-role team-owner-count set-member-role! deactivate-member!
-         revoke-user-team-tokens! revoke-user-sessions!
+         revoke-user-sessions!
          issue-recovery-codes! recovery-codes-remaining RECOVERY-CODE-COUNT
          user-locale set-user-locale! org-data-reader? org-teams-of)
 

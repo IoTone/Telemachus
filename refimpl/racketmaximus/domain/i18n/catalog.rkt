@@ -17,7 +17,7 @@
          cli-kit)                       ; jsexpr->pretty-string
 
 (provide source-hash
-         make-catalog catalog-locale catalog-fallback catalog-messages
+         make-catalog catalog-locale catalog-messages
          catalog-ref msg-text msg-hash
          read-catalog write-catalog catalog-exists?
          build-en-catalog sync-target

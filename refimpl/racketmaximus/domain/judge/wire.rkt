@@ -42,7 +42,7 @@
          verdict-problem
          (struct-out jobj)     ; an ordered JSON object: a list of pairs that SAYS so
          ordered-json          ; the writer, exported for its tests
-         QUESTION-TYPES)
+         )
 
 (define QUESTION-TYPES '("noul" "choice" "score"))
 

@@ -27,7 +27,7 @@
          "../db/nulls.rkt")
 
 (provide STARTER-TYPES normalize-name normalize-predicate
-         kg-upsert! kg-forget! kg-mark-extracted! kg-list-unextracted
+         kg-upsert! kg-mark-extracted! kg-list-unextracted
          kg-entity kg-find kg-neighbourhood kg-stats)
 
 (define STARTER-TYPES '("person" "organization" "product" "place" "event" "concept"))

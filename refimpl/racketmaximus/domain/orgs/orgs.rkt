@@ -25,9 +25,9 @@
 (provide org-slugify org-plan? org-resolve org-team-resolve
          org-create! org-update! org-list org-get
          org-set-domain! org-by-domain normalize-domain
-         org-set-status! org-suspended? tenant-read-only?
-         org-teams org-members org-audit org-add-team! org-attach-member!
-         org-usage set-org-limit! org-quota
+         org-set-status! tenant-read-only?
+         org-teams org-audit org-add-team! org-attach-member!
+         set-org-limit! org-quota
          tenant-quota-check tenant-quota-record!
          org-plan-quotas)
 

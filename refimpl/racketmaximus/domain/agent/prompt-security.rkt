@@ -16,7 +16,7 @@
 (require racket/string)
 
 (provide untrusted-context-message
-         untrusted-context-header guard-open guard-close
+         guard-open guard-close
          escape-guard-markers sanitize-label)
 
 (define untrusted-context-header

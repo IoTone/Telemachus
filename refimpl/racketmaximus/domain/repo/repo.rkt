@@ -42,7 +42,7 @@
          repo-legal-hold!
          repo-share! repo-unshare! repo-grants
          repo-inherit! repo-derivations
-         CAPABILITIES capability-permissions permissions->capability
+         capability-permissions permissions->capability
          expiry->seconds seconds->iso8601
          VISIBILITIES valid-key? inline-safe? STORAGE-DIMENSION)
 

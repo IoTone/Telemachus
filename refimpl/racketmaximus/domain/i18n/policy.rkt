@@ -32,8 +32,8 @@
 (require racket/string racket/list
          "../settings/settings.rkt")
 
-(provide i18n-policy i18n-policy-set! i18n-defaults
-         available-locales resolve-locale)
+(provide i18n-policy i18n-policy-set!
+         resolve-locale)
 
 (define KEY "i18n")
 

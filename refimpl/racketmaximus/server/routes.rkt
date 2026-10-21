@@ -35,7 +35,7 @@
 (require racket/string racket/list)
 
 (provide (struct-out rt) R ROUTES match-route match-routes route-params
-         PLUGIN-ROUTE-PREFIX plugin-route-path)
+         plugin-route-path)
 
 ;; Plugin-contributed routes (slice 63) live under ONE platform-fixed prefix that
 ;; carries the plugin id — /api/x/<plugin-id>/… — so a plugin cannot shadow a core

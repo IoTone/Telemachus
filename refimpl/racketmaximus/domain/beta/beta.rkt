@@ -19,13 +19,13 @@
          prospect-create! prospect-list prospect-get prospect-decide! set-prospect-judge!
          default-team team-owner-id count-recent-email count-recent-domain
          ;; extensible model: reserved (typed) keys vs. the attributes blob
-         reserved-field-keys reserved-field? prospect-field
+         reserved-field? prospect-field
          ;; per-field validation, driven by the experience document
          structural-field? field-problem   ; field-problem now lives in domain/fields
          ;; onboarding provider registry (SDK seam)
          register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names
          ;; judge-reply parsing (robust against small-model formatting)
-         parse-verdict VERDICT-SCHEMA)
+         parse-verdict )
 
 ;; ---- onboarding provider registry -------------------------------------------
 (define *providers* (box (hash)))
