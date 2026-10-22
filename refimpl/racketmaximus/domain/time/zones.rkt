@@ -82,10 +82,21 @@
                       [(tzif-file? full) (list (string-append prefix name))]
                       [else '()]))))
                string<?)))
-        (set-box! names-cache out)
-        out)))
+        ;; UTC is in the list even with no database behind it, for the reason
+        ;; `zone-exists?` says.
+        (set-box! names-cache (if (member "UTC" out) out (cons "UTC" out)))
+        (unbox names-cache))))
 
-(define (zone-exists? z) (and (zone-of z) #t))
+
+;; UTC IS ALWAYS KNOWN, with or without a database. It needs no data — the offset
+;; is zero by definition — and it is the documented fallback every layer ends at,
+;; so an instance refusing to let anybody SET the value it is already using would
+;; be incoherent. Found by the Nix build sandbox, which has no tz database at all:
+;; `timezone-problem "UTC"` refused, and on such a box nobody could set a
+;; timezone at all.
+(define (zone-exists? z)
+  (or (and (string? z) (string=? z "UTC"))
+      (and (zone-of z) #t)))
 
 ;; ---- the file -----------------------------------------------------------------
 ;; transitions : vector of epoch seconds, ascending

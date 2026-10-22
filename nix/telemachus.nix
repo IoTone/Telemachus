@@ -22,10 +22,18 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [ makeWrapper racket ];
 
+  # #137: the zone database is a BUILD input as well as a runtime one, so the
+  # unit suite's timezone vectors actually run in the sandbox. Without it they
+  # skip — and a skip is how a path goes unexercised for a year (the S3 smoke's
+  # lesson), which is exactly what happened here: the sandbox has no tz database,
+  # so the first version of this slice shipped a `zone-exists?` that refused UTC.
+  buildInputs = [ tzdata ];
+
   # raco writes compiled/ next to sources and racket wants a writable HOME
   preBuild = ''
     export HOME=$TMPDIR
     export PLTCOLLECTS="$PWD/pkgs:"
+    export TZDIR="${tzdata}/share/zoneinfo"
   '';
 
   buildPhase = ''
@@ -37,7 +45,7 @@ stdenv.mkDerivation (finalAttrs: {
   doCheck = true;
   checkPhase = ''
     runHook preCheck
-    export HOME=$TMPDIR PLTCOLLECTS="$PWD/pkgs:"
+    export HOME=$TMPDIR PLTCOLLECTS="$PWD/pkgs:" TZDIR="${tzdata}/share/zoneinfo"
     # `*-tests.rkt`, never `*.rkt`: the wider glob pulls in test/mock-*.rkt, which
     # are mock SERVERS that block forever. Both suites here are hermetic — no
     # network, and no model (the LLM path falls back to a deterministic reply when

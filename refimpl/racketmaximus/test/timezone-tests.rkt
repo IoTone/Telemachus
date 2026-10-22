@@ -51,7 +51,12 @@
   ;; A box with no tz database answers UTC for everything, by design; there is
   ;; nothing to compare there, so say so rather than passing vacuously.
   (cond
-    [(not (zoneinfo-dir)) (check-true #t "no tz database on this box — vectors skipped")]
+    [(not (zoneinfo-dir))
+     ;; LOUD, because a silent skip is how a path goes unexercised. The build
+     ;; sandbox and the container both carry tzdata now (nix/telemachus.nix), so
+     ;; this branch means somebody removed it.
+     (eprintf "timezone-tests: NO TZ DATABASE — the IANA vectors did not run\n")
+     (check-true #t)]
     [else
      (for ([v (in-list VECTORS)])
        (for ([c (in-list (cadr v))])
@@ -62,7 +67,9 @@
 
 (test-case "a local wall-clock time becomes an instant, and says when it cannot"
   (cond
-    [(not (zoneinfo-dir)) (check-true #t "skipped")]
+    [(not (zoneinfo-dir))
+     (eprintf "timezone-tests: NO TZ DATABASE — the local->epoch cases did not run\n")
+     (check-true #t)]
     [else
      ;; (zone y m d hh mm expected-epoch expected-status), oracle as above
      (define cases
@@ -114,6 +121,10 @@
     (check-true (and (member "Asia/Tokyo" (available-zones)) #t))))
 
 (test-case "an unknown zone is REFUSED, never silently substituted"
+  ;; UTC is acceptable with or without a database: it needs no data and is the
+  ;; fallback every layer ends at. The Nix build sandbox has no tz database, and
+  ;; this assertion is what found that the first version refused it there — so
+  ;; the sandbox now gets tzdata AND this stays unguarded deliberately.
   (check-false (timezone-problem "UTC"))
   (check-true (string? (timezone-problem "")))
   (check-true (string? (timezone-problem "Europe/Berlín")))
