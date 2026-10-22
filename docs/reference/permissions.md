@@ -20,6 +20,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:write` | team | Upload documents and new versions. |
 | `instance:*` | instance | Everything at the instance tier; the operator (superadmin). |
 | `instance:manage` | instance | Instance administration: branding, localization policy, quotas, orgs, metrics. |
+| `instance:read` | instance | Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself. |
 | `jobs:cancel` | team | Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first. |
 | `jobs:execute` | team | Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run. |
 | `jobs:purge` | team | Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not. |
@@ -90,6 +91,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `files:write` | ✓ | ✓ | ✓ |  |  |  |  |
 | `instance:manage` |  |  |  |  |  |  |  |
+| `instance:read` |  |  |  |  |  |  |  |
 | `jobs:cancel` | ✓ | ✓ |  |  |  |  |  |
 | `jobs:execute` | ✓ |  |  |  |  |  |  |
 | `jobs:purge` | ✓ | ✓ |  |  |  |  |  |

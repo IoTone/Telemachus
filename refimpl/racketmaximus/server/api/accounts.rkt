@@ -161,9 +161,13 @@
   (cond
     [(not p) (unauthorized)]
     [else
-     (require-perm db-conn p "instance:manage")          ; operator-only → localized 403
+     ;; #124: `instance:read`. A monitoring credential needs the version, the KDF
+     ;; and the TLS state; it does not need to be able to reset a password, which
+     ;; `instance:manage` also permits. `instance:manage` implies this one, so an
+     ;; operator keeps the route.
+     (require-perm db-conn p "instance:read")            ; → localized 403
      (json-response (hasheq 'ok #t
-      ;; issue #11: what /health used to say, now behind instance:manage
+      ;; issue #11: what /health used to say, now behind instance:read
       'service "telemachus" 'version app-version 'tls (tls-on?) 'kdf (kdf-name)
                             ;; issue #19: is a dump of this database replayable?
                             'secrets (if (secrets-enabled?) "sealed" "plaintext")

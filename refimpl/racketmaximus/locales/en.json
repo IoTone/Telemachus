@@ -883,6 +883,10 @@
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
+    "doc.perm.instance:read": {
+      "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
+      "hash": "8b3e4319de14d9acdc7262dc02ad685abd3332c6"
+    },
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"

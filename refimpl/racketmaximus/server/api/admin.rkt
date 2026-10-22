@@ -34,7 +34,10 @@
 
 (define (ep-metrics req)
   (with-auth req (lambda (p)
-    (require-perm db-conn p "instance:manage")
+    ;; #124: `instance:read`, not `instance:manage` — the dispatcher gates this
+    ;; route on the read permission now, and a handler still demanding `manage`
+    ;; would refuse exactly the monitoring token the permission exists for.
+    (require-perm db-conn p "instance:read")
     (define (n q) (query-value db-conn q))
     (json-response (hasheq
       'users (n "SELECT COUNT(*) FROM users")

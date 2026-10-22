@@ -3541,6 +3541,48 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## A monitoring credential that cannot reset a password (#124)
+
+Every operational READ — `/api/admin/status`, `/api/metrics`,
+`/api/admin/workers`, `/api/admin/queue`, `/api/admin/audit/verify` — required
+`instance:manage`, and a token holding that can reset any user's password and
+rewrite instance settings. So a monitoring credential was a full operator
+credential, which is the one credential a monitoring system should never hold:
+it is the account most likely to sit in a config file on a box nobody hardened.
+
+- **The fix is a NARROWER PERMISSION, not a new tier.** `instance:read` is
+  instance-tier like its sibling, so it still answers only to an operator; the
+  monitoring credential is an operator-issued **token scoped to
+  `instance:read`**, and the scope is what caps it (RBAC‑4). Before this there
+  was no scope that could read the fleet without also permitting the reset.
+- **`instance:manage` implies `instance:read`, by name.** `perm-matches?`'s
+  wildcard rule cannot see it — `manage` and `read` are different actions — and
+  without the implication an operator whose token is scoped `instance:manage`
+  would be refused the very routes this opened up. **The implication goes one
+  way only**, and that asymmetry is the feature; TEN‑2h had to special-case the
+  OPPOSITE direction for `org:read-data`, so an error either way is a silent
+  privilege change. Both halves are tested.
+- **`GET /api/admin/audit/export` deliberately does NOT move.** Verify answers
+  "is the chain intact", which is a monitoring signal; export hands over the log
+  itself, which is the opposite of "no tenant names, no document content". It
+  stays `instance:manage`, and it already audits itself.
+- **A handler's own `require-perm` had to move too.** r2 left two layers on the
+  authorization path, so a route re-gated in `routes.rkt` while its handler still
+  demanded `instance:manage` would refuse exactly the token the permission exists
+  for — the dispatcher admits it and the handler throws it out.
+- **The 403's wording changes, and three existing smoke assertions pinned the old
+  one.** `Forbidden: instance:read` is now what a member sees on those routes,
+  because the message names the permission actually required. That is the point,
+  but it is a visible change for anyone matching on the string.
+- **Do not reach for `POST /api/orgs` as the "mutating route" control.** The
+  multi-tenancy flag gate answers **404 before any permission is consulted**
+  (r2's load-bearing order), so single-tenant that assertion passes for the wrong
+  reason. `PUT /api/session-policy` is a mutating route that is always on.
+- An OpenMetrics rendering of the same numbers is a reasonable follow-up and is
+  deliberately not here: the permission was the ask, a text format is a
+  convenience for one scraper, and the JSON already answers anything that can
+  read JSON.
+
 ## A 500 says nothing, and four refusals were riding on the leak (#123)
 
 `handle` answered `(err (exn-message e) 500)`, so **every** unhandled exception's

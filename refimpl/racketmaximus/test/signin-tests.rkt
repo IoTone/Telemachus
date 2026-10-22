@@ -244,3 +244,57 @@
      (putenv "TELEMACHUS_MAX_SESSIONS" "banana") (check-equal? (max-sessions) 10)
      (putenv "TELEMACHUS_MAX_SESSIONS" "-4")     (check-equal? (max-sessions) 10))
    (lambda () (if old (putenv "TELEMACHUS_MAX_SESSIONS" old) (putenv "TELEMACHUS_MAX_SESSIONS" "")))))
+
+;; ---- a monitoring credential (issue #124) -----------------------------------
+;; The operational read routes all required `instance:manage`, and a token with
+;; that permission can reset any user's password and rewrite instance settings —
+;; so a monitoring credential was a full operator credential, which is the one
+;; credential a monitoring system should never hold.
+;;
+;; The fix is a NARROWER PERMISSION, not a new tier: the monitoring credential is
+;; an operator-issued token SCOPED to `instance:read`. The scope is what caps it
+;; (RBAC-4), and before this there was no scope that let a token read the fleet
+;; without also permitting the password reset.
+(require (only-in "../domain/authz/permissions.rkt" perm-matches? all-permissions))
+
+(test-case "instance:manage implies instance:read, and NOT the other way"
+  ;; the asymmetry IS the feature. TEN-2h had to special-case the opposite
+  ;; direction for org:read-data, so an error either way is a silent privilege
+  ;; change — hence both halves.
+  (check-true  (perm-matches? "instance:manage" "instance:read"))
+  (check-false (perm-matches? "instance:read" "instance:manage")
+               "a monitoring token must not reach the mutating routes")
+  (check-true  (perm-matches? "instance:*" "instance:read"))
+  (check-true  (perm-matches? "*:*" "instance:read"))
+  ;; it must not leak sideways either
+  (check-false (perm-matches? "instance:read" "org:manage"))
+  (check-false (perm-matches? "instance:read" "files:read"))
+  (check-false (perm-matches? "org:*" "instance:read")))
+
+(test-case "instance:read is in the catalog, so GET /api/roles can describe it"
+  ;; a permission a built-in role grants without a description is a LOAD error,
+  ;; and #110 r4's reverse gate refuses one that no route enforces
+  (check-true (and (member "instance:read" (all-permissions)) #t)))
+
+(test-case "a token scoped to instance:read reads, and cannot administer"
+  (define-values (c owner team bob) (setup))
+  ;; the operator's own credential, narrowed by its scope list — this is what a
+  ;; monitoring system is given
+  (define-values (mon _m) (issue-token! c #:user owner #:team team #:name "monitoring"
+                                        #:scopes '("instance:read") #:ttl 'never))
+  (define p (resolve-token c mon))
+  (check-true (principal? p))
+  (check-true (can? c p "instance:read") "the operational reads")
+  (check-false (can? c p "instance:manage")
+               "…and not the password reset, the branding write, or POST /api/orgs")
+  (check-false (can? c p "org:manage"))
+  ;; the operator's UNSCOPED credential keeps everything, which is the
+  ;; compatibility half: no route an operator had is taken away
+  (define-values (full _f) (issue-token! c #:user owner #:team team #:scopes '("*:*") #:ttl 'never))
+  (define fp (resolve-token c full))
+  (check-true (can? c fp "instance:read"))
+  (check-true (can? c fp "instance:manage"))
+  ;; and a plain member reaches neither, with or without a scope
+  (define bp (user-principal c bob team))
+  (check-false (can? c bp "instance:read") "the instance tier is the operator's")
+  (disconnect c))

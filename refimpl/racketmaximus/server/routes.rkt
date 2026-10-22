@@ -160,7 +160,7 @@
    (R "GET" "/api/members" 'members-list #:doc "The team's members and roles.")
    (R "PATCH" "/api/members/:id" 'member-role #:perm "members:manage" #:doc "Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it.")
    (R "DELETE" "/api/members/:id" 'member-remove #:perm "members:manage" #:doc "Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed.")
-   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:manage" #:doc "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
+   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:read" #:doc "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
 
    ;; ---- multi-tenancy: superadmin plane, then org-admin plane ----------------------
    (R "POST" "/api/orgs" 'orgs-create #:auth 'superadmin #:perm "instance:manage" #:doc "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).")
@@ -218,8 +218,8 @@
    (R "GET" "/api/executors" 'executors #:doc "The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health.")
    (R "POST" "/api/executors" 'executor-create #:perm "instance:manage" #:doc "Create an executor: {name, mode: pull|push, model?, url?, key?, capabilities?, org_id?}. A pull executor's worker token is in this response and never again.")
    (R "DELETE" "/api/executors/:id" 'executor-retire #:perm "instance:manage" #:doc "Retire an executor: its worker token is revoked and any job it holds returns to the queue.")
-   (R "GET" "/api/admin/workers" 'admin-workers #:perm "instance:manage" #:doc "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.")
-   (R "GET" "/api/admin/queue" 'admin-queue #:perm "instance:manage" #:doc "The queue, job by job, across every team (FLEET-4): each row's age, attempt, holder, lease countdown, and — for a queued one — why the platform is holding it (`waiting`, the same reason GET /api/jobs gives) and whether any live worker can run it at all (`runnable`). Filters `kind`, `status`, `executor`, `team`; pages with `limit` (max 200) and `offset`; `total` is the count for the filter. Asked for `status=queued` the list is the claim's own order, so position 1 really is next — `order` says which ordering you got. It carries no payload and no result: a queue is managed by kind, age, team and holder, and this read crosses every team on the instance.")
+   (R "GET" "/api/admin/workers" 'admin-workers #:perm "instance:read" #:doc "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.")
+   (R "GET" "/api/admin/queue" 'admin-queue #:perm "instance:read" #:doc "The queue, job by job, across every team (FLEET-4): each row's age, attempt, holder, lease countdown, and — for a queued one — why the platform is holding it (`waiting`, the same reason GET /api/jobs gives) and whether any live worker can run it at all (`runnable`). Filters `kind`, `status`, `executor`, `team`; pages with `limit` (max 200) and `offset`; `total` is the count for the filter. Asked for `status=queued` the list is the claim's own order, so position 1 really is next — `order` says which ordering you got. It carries no payload and no result: a queue is managed by kind, age, team and holder, and this read crosses every team on the instance.")
    (R "POST" "/api/executors/:id/drain" 'executor-drain #:perm "instance:manage" #:doc "Take a pull executor out of rotation (FLEET-3): it is offered no new work and keeps its token, so it goes on polling and heartbeating and stays visibly alive. Reversible, unlike a retire, which revokes the token. A job it already holds is left running — stopping work in flight is what cancel is for.")
    (R "POST" "/api/executors/:id/resume" 'executor-resume #:perm "instance:manage" #:doc "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.")
    (R "POST" "/api/org/executors" 'org-executor-create #:auth 'org-admin #:perm "org:manage" #:doc "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.")
@@ -265,7 +265,7 @@
    (R "GET" "/api/repo-obj/:id/processing" 'repo-processing #:perm "files:read" #:scope 'resource #:doc "\"Processed by\": derived documents, sources, and every run that touched the document.")
    ;; the chain's own two routes sit above nothing that could swallow them, but
    ;; they are kept together so a reader finds the pair
-   (R "GET" "/api/admin/audit/verify" 'audit-verify #:perm "instance:manage" #:doc "Verify the audit log's hash chain for one org, naming the first broken entry.")
+   (R "GET" "/api/admin/audit/verify" 'audit-verify #:perm "instance:read" #:doc "Verify the audit log's hash chain for one org, naming the first broken entry.")
    (R "GET" "/api/admin/audit/export" 'audit-export #:perm "instance:manage" #:doc "Export one org's audit log as JSONL over a date range, chain fields included.")
    (R "GET" "/api/repo-obj/:id/reads" 'repo-reads #:perm "files:read" #:scope 'resource #:doc "Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts.")
    (R "GET" "/api/share-targets" 'share-targets #:perm "files:read" #:doc "Who a document can be shared with: the team's people and the org's teams.")
@@ -310,7 +310,7 @@
 
    ;; ---- administration ----------------------------------------------------------------
    (R "POST" "/api/admin/seed" 'admin-seed #:perm "settings:manage" #:doc "Seed sample notes and documents into the caller's team.")
-   (R "GET" "/api/metrics" 'metrics #:perm "instance:manage" #:doc "Operational metrics.")
+   (R "GET" "/api/metrics" 'metrics #:perm "instance:read" #:doc "Operational metrics.")
    (R "GET" "/api/features" 'features #:doc "The team's feature flags.")
    (R "POST" "/api/features/:name" 'feature-toggle #:perm "settings:manage" #:doc "Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it.")
    (R "GET" "/api/instance-features" 'instance-features #:perm "instance:manage" #:doc "Which features the instance allows at all; absence means allowed.")

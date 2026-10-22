@@ -20,6 +20,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:write` | team | ドキュメントと新バージョンをアップロードします。 |
 | `instance:*` | instance | インスタンス層のすべて；オペレーター（スーパー管理者）。 |
 | `instance:manage` | instance | インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス |
+| `instance:read` | instance | 読み取り専用のインスタンス運用操作 — ステータス、メトリクス、ワーカーフリート、キュー、監査チェーンの検証。監査ログそのものを渡すエクスポートは含まない。 |
 | `jobs:cancel` | team | すでに実行中のジョブをキャンセルする（キュー内のジョブに限りません）。キャンセルは協調的で、ジョブは次のステップ境界で停止し、先に完了した場合でもその結果は破棄されます。 |
 | `jobs:execute` | team | プル型エグゼキュータに提供されたジョブの取得・ハートビート・完了・失敗報告。ワーカートークンのみが保持し、1つのエグゼキュータに紐づきます；チームのデータには届かず、実行も開始しません。 |
 | `jobs:purge` | team | 他人の確定済みジョブのペイロードと結果を削除し、与えられた入力と生成された出力を破棄します。自分のジョブは常に削除できます。行・ステータス・時刻・監査記録は残ります。何が起きたかの記録は監査ログであるため、削除後もジョブの説明責任は保たれ、内容だけが失われます。 |
@@ -90,6 +91,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `files:write` | ✓ | ✓ | ✓ |  |  |  |  |
 | `instance:manage` |  |  |  |  |  |  |  |
+| `instance:read` |  |  |  |  |  |  |  |
 | `jobs:cancel` | ✓ | ✓ |  |  |  |  |  |
 | `jobs:execute` | ✓ |  |  |  |  |  |  |
 | `jobs:purge` | ✓ | ✓ |  |  |  |  |  |

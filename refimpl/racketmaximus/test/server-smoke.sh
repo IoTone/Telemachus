@@ -127,7 +127,9 @@ assert "admin status carries the version now" "$(curl -s $B/api/admin/status -H 
 MB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')
 assert "member token"    "$MB" '"token":"tk_'
 BOB=$(printf '%s' "$MB" | grep -oP '"token":\s*"\K[^"]+')
-assert "member 403 en"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
+# #124: the message names the permission actually required, which is now the
+# narrower one. A member reaches neither.
+assert "member 403 en"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 assert "member 403 ja"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja')" '権限がありません'
 # notes: ownership + sharing over HTTP
 CB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"carol","role":"member"}')
@@ -478,7 +480,8 @@ assert "purge: an unknown job is a 404" \
 assert "purge: the audit entry names the act and not the content" \
   "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'job.purge'
 assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP")" '"users"'
-assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
+# #124: /api/metrics is instance:read now
+assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 
 # ---- document repository (slices 49-50) --------------------------------------
 # Bytes over the wire, not base64 in JSON. The payload deliberately contains a NUL
@@ -1006,7 +1009,7 @@ assert "export: the export is itself recorded" \
 # an operator permission, not a team one
 assert "chain: a member cannot verify the instance's log" \
   "$(curl -s "$B/api/admin/audit/verify" -H "Authorization: Bearer $BOB")" \
-  'Forbidden: instance:manage'
+  'Forbidden: instance:read'
 assert "chain: ...nor export it" \
   "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $BOB")" \
   'Forbidden: instance:manage'
@@ -1155,6 +1158,41 @@ assert "…uncached, so a deploy cannot leave a stale script against a new shell
 # the traversal guard, on the raw path so curl does not collapse it first
 assert "…and the path cannot climb out of static/console" \
   "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/console/../index.html")" '404'
+
+# ---- a monitoring credential (issue #124) ------------------------------------
+# Every operational READ required instance:manage, and a token holding that can
+# reset any user's password. The fix is a narrower permission, not a new tier: a
+# monitoring system gets an operator-issued token SCOPED to instance:read.
+echo
+echo "== a monitoring credential reads and cannot administer ========================"
+MONTOK=$(curl -s -X POST $B/api/tokens -H "Authorization: Bearer $OP" \
+  -d '{"name":"monitoring","scopes":["instance:read"],"ttl":"never"}' | grep -oP '"token":\s*"\K[^"]+')
+assert "the monitoring token reads instance status" \
+  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $MONTOK")" '"ok":true'
+assert "…and the metrics"      "$(curl -s $B/api/metrics -H "Authorization: Bearer $MONTOK")" '"users":'
+assert "…and the worker fleet" "$(curl -s $B/api/admin/workers -H "Authorization: Bearer $MONTOK")" '"executors":'
+assert "…and the queue"        "$(curl -s $B/api/admin/queue -H "Authorization: Bearer $MONTOK")" '"jobs":'
+assert "…and can verify the audit chain" \
+  "$(curl -s "$B/api/admin/audit/verify" -H "Authorization: Bearer $MONTOK")" '"ok":'
+# BOTH HALVES. Only the second one is the bug: a credential that can read the
+# fleet and also reset a password is what was reported.
+assert "…but NOT reset a password"  \
+  "$(curl -s -X POST $B/api/admin/users/$CAROL_ID/password -H "Authorization: Bearer $MONTOK" -d '{"new_password":"hijacked1"}')" 'Forbidden: instance:manage'
+assert "…nor write instance branding" \
+  "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $MONTOK" -d '{"title":"nope"}')" 'Forbidden: instance:manage'
+# NOT /api/orgs: the multi-tenancy flag gate answers 404 before any permission
+# is consulted (#110 r2's load-bearing order), so single-tenant it would pass for
+# the wrong reason.
+assert "…nor tighten the instance session policy" \
+  "$(curl -s -X PUT $B/api/session-policy -H "Authorization: Bearer $MONTOK" -d '{"idle_seconds":60}')" 'Forbidden: instance:manage'
+# the audit EXPORT hands over the log itself, so it is deliberately NOT a read
+# this permission opens — "no tenant names, no document content" was the line
+assert "…and NOT the audit export, which hands over the log" \
+  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $MONTOK")" 'Forbidden: instance:manage'
+# the compatibility half: the operator keeps every route they had
+assert "an operator still reads the fleet" "$(curl -s $B/api/admin/workers -H "Authorization: Bearer $OP")" '"executors":'
+assert "…and still exports the audit log"  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" '"action":'
+assert "a plain member reaches none of it" "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 
 # ---- what a refusal and a 500 are allowed to say (issue #123) ----------------
 # A username that already exists used to reach `create-user!`, raise the UNIQUE

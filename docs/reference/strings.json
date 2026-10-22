@@ -13,6 +13,7 @@
   "doc.perm.files:write": "Upload documents and new versions.",
   "doc.perm.instance:*": "Everything at the instance tier; the operator (superadmin).",
   "doc.perm.instance:manage": "Instance administration: branding, localization policy, quotas, orgs, metrics.",
+  "doc.perm.instance:read": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
   "doc.perm.jobs:cancel": "Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first.",
   "doc.perm.jobs:execute": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
   "doc.perm.jobs:purge": "Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not.",

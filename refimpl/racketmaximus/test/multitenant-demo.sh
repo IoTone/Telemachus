@@ -119,7 +119,9 @@ else echo "  FAIL the two 'engineering' teams collided"; fail=1; fi
 
 echo
 echo "== 3. an org owner is NOT a superadmin ========================================="
-assert "no instance:manage"  "$(g /api/admin/status $ACME_OWNER)" 'Forbidden: instance:manage'
+# #124: admin/status is instance:read now — a company owner reaches neither, and
+# the message names the permission actually required
+assert "no instance:read"    "$(g /api/admin/status $ACME_OWNER)" 'Forbidden: instance:read'
 assert "cannot list orgs"    "$(g /api/orgs $ACME_OWNER)"         'Forbidden: instance:manage'
 assert "cannot see globex"   "$(g /api/orgs/$GLBX_ORG $ACME_OWNER)" 'Forbidden: instance:manage'
 assert "cannot seed"         "$(pj /api/admin/seed-tenants $ACME_OWNER)" 'Forbidden: instance:manage'
@@ -168,7 +170,7 @@ TV_ID=$(jget 'd["id"]' <<<"$TV")
 assert "org admin ✗ other team's note" "$(g /api/notes/$TV_ID $HR_TOK)" 'Forbidden'
 assert "org admin ✓ org audit"         "$(g /api/org/audit $HR_TOK)"    '"events"'
 assert "org admin ✓ org teams"         "$(g /api/org/teams $HR_TOK)"    '"slug":"engineering"'
-assert "org admin ✗ instance"          "$(g /api/admin/status $HR_TOK)" 'Forbidden: instance:manage'
+assert "org admin ✗ instance"          "$(g /api/admin/status $HR_TOK)" 'Forbidden: instance:read'
 refute "org audit is acme-only"        "$(g /api/org/audit $HR_TOK)"    'globex'
 
 echo
