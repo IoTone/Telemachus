@@ -703,6 +703,48 @@ assert "schedule: a patch cannot get round the interval floor" \
 refute "schedule: the principal is not patchable" \
   "$(curl -s -X PATCH $B/api/schedules/$SCHID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
       -d '{"user_id":"somebody-else"}')" 'somebody-else'
+# A WALL-CLOCK cadence (#140): "07:00" is the case an interval cannot express.
+assert "schedule: a wall-clock cadence needs the minute of the local day" \
+  "$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"kind":"chat","cadence":"daily"}')" 'at_minute must be the whole minute'
+assert "schedule: weekly needs its weekday set" \
+  "$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"kind":"chat","cadence":"weekly","at_minute":420}')" 'days_of_week must be'
+assert "schedule: an unknown cadence is refused, not treated as an interval" \
+  "$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"kind":"chat","cadence":"hourly","at_minute":420}')" 'cadence must be one of'
+# The zone DEFAULTS to the caller's own (#137) — nobody should have to think
+# about it — and is then stored on the schedule.
+DAILY=$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"kind":"chat","cadence":"daily","at_minute":420,"name":"morning briefing"}')
+DAILYID=$(printf '%s' "$DAILY" | grep -oP '"id":"\K[^"]+')
+# Europe/London here is the INSTANCE DEFAULT the timezone block above set — the
+# assertion is deliberately that value, because it proves the #137 resolution is
+# what supplied it rather than a hardcoded UTC. It is also a fixture dependency
+# on an earlier block, which is the shape that has broken distant assertions in
+# this file before: if that block changes the default, change this too.
+assert "schedule: a daily cadence stores its own timezone, defaulted from the caller" "$DAILY" '"timezone":"Europe/London"'
+assert "schedule: …and the minute of the local day" "$DAILY" '"at_minute":420'
+# `interval_seconds` is hidden for a cadence it does not drive: the column is NOT
+# NULL and carries a nominal value, and a number nothing computes with is how a
+# reader comes to believe the wrong thing.
+assert "schedule: interval_seconds is not reported for a wall-clock cadence" "$DAILY" '"interval_seconds":null'
+assert "schedule: the first firing is not immediate" "$DAILY" '"fired":0'
+# A patch is validated AS THE SCHEDULE WOULD BE, so it cannot reach a state a
+# create could not.
+assert "schedule: a patch cannot switch to weekly without the days" \
+  "$(curl -s -X PATCH $B/api/schedules/$DAILYID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"cadence":"weekly"}')" 'days_of_week must be'
+WEEKLY=$(curl -s -X PATCH $B/api/schedules/$DAILYID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"cadence":"weekly","days_of_week":"1,2,3,4,5"}')
+assert "schedule: …and does switch when they are supplied" "$WEEKLY" '"cadence":"weekly"'
+assert "schedule: the weekday set comes back as sent" "$WEEKLY" '"days_of_week":"1,2,3,4,5"'
+assert "schedule: an unknown timezone on a schedule is refused" \
+  "$(curl -s -X PATCH $B/api/schedules/$DAILYID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"timezone":"Mars/Olympus"}')" 'is not a timezone this instance has data for'
+assert "schedule: the cadence vocabulary is published" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $OP")" '"cadences"'
+curl -s -o /dev/null -X DELETE $B/api/schedules/$DAILYID -H "Authorization: Bearer $OP"
 assert "schedule: the trail names the create" \
   "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'job.schedule.created'
 assert "schedule: deleted" \

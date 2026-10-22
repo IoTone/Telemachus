@@ -11,10 +11,13 @@
 
 (require db-kit/portable
          web-kit
-         (only-in "../../domain/authz/authz.rkt" audit! can? principal-team-id principal-user-id require-perm)
+         (only-in "../../domain/authz/authz.rkt" audit! can? principal-org-id principal-team-id principal-user-id require-perm)
          (only-in "../../domain/sched/scheduler.rkt" cancel-job! enqueue-job! get-job list-jobs purge-job-content!)
-         (only-in "../../domain/sched/schedules.rkt" SCHEDULE-MIN-INTERVAL schedule-create! schedule-delete!
-                  schedule-get schedule-list schedule-problem schedule-update!)
+         (only-in "../../domain/sched/schedules.rkt" CADENCES SCHEDULE-MIN-INTERVAL schedule-create!
+                  schedule-delete! schedule-get schedule-list schedule-problem schedule-update!)
+         ;; #140: a wall-clock cadence defaults to the CREATOR's zone, resolved
+         ;; here at the edge — schedules.rkt stays free of the settings layer.
+         (only-in "../../domain/time/tz-policy.rkt" timezone-for)
          json
          "../kit.rkt"
          "../admission.rkt")
@@ -122,22 +125,40 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "jobs:schedule")
     (json-response (hasheq 'schedules (schedule-list db-conn (principal-team-id p))
-                           'min_interval_seconds SCHEDULE-MIN-INTERVAL)))))
+                           'min_interval_seconds SCHEDULE-MIN-INTERVAL
+                           'cadences CADENCES)))))
 
 (define (ep-schedules-create req)
   (with-auth req (lambda (p)
     (require-perm db-conn p "jobs:schedule")
     (define b (read-json-body req))
     (define kind (let ([k (hash-ref b 'kind #f)]) (and k (format "~a" k))))
+    (define cadence (format "~a" (hash-ref b 'cadence "interval")))
     (define interval (hash-ref b 'interval_seconds #f))
+    (define at-minute (let ([v (hash-ref b 'at_minute #f)]) (and (exact-integer? v) v)))
+    (define days (let ([v (hash-ref b 'days_of_week #f)]) (and v (format "~a" v))))
+    ;; The zone is DEFAULTED from the creator's own effective zone (#137), so
+    ;; nobody has to think about it — and then STORED on the row, because a
+    ;; schedule is a standing instruction: if its author travels and changes
+    ;; their profile, "07:00 before the morning meeting" must not silently move
+    ;; for everybody else.
+    (define tz (let ([v (hash-ref b 'timezone #f)])
+                 (if v (format "~a" v)
+                     (timezone-for db-conn #:user (principal-user-id p) #:org (principal-org-id p)))))
     (define payload (hash-ref b 'payload (hasheq)))
-    (define problem (schedule-problem #:kind (or kind "") #:interval interval #:payload payload))
+    (define problem (schedule-problem #:kind (or kind "") #:interval interval #:payload payload
+                                      #:cadence cadence #:at-minute at-minute
+                                      #:days days #:timezone tz))
     (cond
       [problem (err problem 400)]
       [else
        (define id (schedule-create! db-conn
                                     #:team (principal-team-id p) #:user (principal-user-id p)
-                                    #:kind kind #:interval interval #:payload payload
+                                    #:kind kind #:payload payload
+                                    #:cadence cadence
+                                    #:interval (if (exact-integer? interval) interval 86400)
+                                    #:at-minute at-minute #:days days
+                                    #:timezone (and (not (string=? cadence "interval")) tz)
                                     #:requirements (let ([r (hash-ref b 'requirements (hasheq))])
                                                      (if (hash? r) r (hasheq)))
                                     #:priority (let ([x (hash-ref b 'priority 0)]) (if (exact-integer? x) x 0))
@@ -147,7 +168,7 @@
        (audit! db-conn #:action "job.schedule.created" #:actor-type "user"
                #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
                #:resource-type "job_schedule" #:resource-id id
-               #:meta (jsexpr->string (hasheq 'kind kind 'interval_seconds interval)))
+               #:meta (jsexpr->string (hasheq 'kind kind 'cadence cadence)))
        (json-response (schedule-get db-conn id (principal-team-id p)) #:code 201)]))))
 
 (define (ep-schedule-get req id)
@@ -160,31 +181,64 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "jobs:schedule")
     (define b (read-json-body req))
-    (define interval (hash-ref b 'interval_seconds 'same))
+    (define cur (schedule-get db-conn id (principal-team-id p)))
     (cond
-      ;; The floor is the same floor create enforces — a patch is not a way
-      ;; round it.
-      [(and (not (eq? interval 'same))
-            (not (and (exact-integer? interval) (>= interval SCHEDULE-MIN-INTERVAL))))
-       (err (format "interval_seconds must be a whole number of seconds, at least ~a" SCHEDULE-MIN-INTERVAL) 400)]
+      [(not cur) (err "no such schedule" 404)]
       [else
-       (define s (schedule-update! db-conn id (principal-team-id p)
-                                   #:interval interval
-                                   #:paused? (let ([v (hash-ref b 'paused 'same)])
-                                               (if (boolean? v) v 'same))
-                                   #:payload (let ([v (hash-ref b 'payload 'same)])
-                                               (if (hash? v) v 'same))
-                                   #:priority (hash-ref b 'priority 'same)
-                                   #:name (let ([v (hash-ref b 'name 'same)])
-                                            (if (eq? v 'same) 'same (format "~a" v)))))
+       ;; Validate the schedule AS IT WOULD BE, not the fields in isolation:
+       ;; switching an interval schedule to `daily` in the same request that
+       ;; supplies `at_minute` must be accepted, and switching without one must
+       ;; be refused. The same `schedule-problem` the create goes through, so a
+       ;; patch cannot reach a state a create could not.
+       (define (pick key cur-key [conv (lambda (v) v)])
+         (if (hash-has-key? b key) (conv (hash-ref b key)) (hash-ref cur cur-key)))
+       (define (or-false v) (if (eq? v 'null) #f v))
+       (define cadence (format "~a" (pick 'cadence 'cadence)))
+       (define interval (let ([v (pick 'interval_seconds 'interval_seconds)])
+                          (if (exact-integer? v) v (and (string=? cadence "interval") #f))))
+       (define at-minute (let ([v (or-false (pick 'at_minute 'at_minute))])
+                           (and (exact-integer? v) v)))
+       (define days (let ([v (or-false (pick 'days_of_week 'days_of_week))]) (and v (format "~a" v))))
+       (define tz (let ([v (or-false (pick 'timezone 'timezone))])
+                    (cond [v (format "~a" v)]
+                          [(string=? cadence "interval") #f]
+                          ;; switching to a wall-clock cadence with no zone named
+                          ;; and none on the row: default from the caller, as the
+                          ;; create does
+                          [else (timezone-for db-conn #:user (principal-user-id p)
+                                             #:org (principal-org-id p))])))
+       (define problem (schedule-problem #:kind (hash-ref cur 'kind)
+                                         #:interval interval
+                                         #:payload (let ([v (hash-ref b 'payload (hasheq))])
+                                                     (if (hash? v) v (hasheq)))
+                                         #:cadence cadence #:at-minute at-minute
+                                         #:days days #:timezone tz))
        (cond
-         [(not s) (err "no such schedule" 404)]
+         [problem (err problem 400)]
          [else
+          (define s (schedule-update! db-conn id (principal-team-id p)
+                                      #:interval (if (hash-has-key? b 'interval_seconds) interval 'same)
+                                      #:cadence (if (hash-has-key? b 'cadence) cadence 'same)
+                                      #:at-minute (if (hash-has-key? b 'at_minute) (or at-minute 'same) 'same)
+                                      #:days (if (hash-has-key? b 'days_of_week) (or days 'same) 'same)
+                                      #:timezone (cond [(hash-has-key? b 'timezone) (or tz 'same)]
+                                                       ;; a cadence switch brings the
+                                                       ;; defaulted zone with it
+                                                       [(and (hash-has-key? b 'cadence)
+                                                             (not (string=? cadence "interval"))) (or tz 'same)]
+                                                       [else 'same])
+                                      #:paused? (let ([v (hash-ref b 'paused 'same)])
+                                                  (if (boolean? v) v 'same))
+                                      #:payload (let ([v (hash-ref b 'payload 'same)])
+                                                  (if (hash? v) v 'same))
+                                      #:priority (hash-ref b 'priority 'same)
+                                      #:name (let ([v (hash-ref b 'name 'same)])
+                                               (if (eq? v 'same) 'same (format "~a" v)))))
           (audit! db-conn #:action "job.schedule.updated" #:actor-type "user"
                   #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
                   #:resource-type "job_schedule" #:resource-id id
                   #:meta (jsexpr->string (hasheq 'paused (hash-ref s 'paused)
-                                                 'interval_seconds (hash-ref s 'interval_seconds))))
+                                                 'cadence (hash-ref s 'cadence))))
           (json-response s)])]))))
 
 (define (ep-schedule-delete req id)
