@@ -8,6 +8,7 @@
 ;;   references only   ${input.x}  ${steps.<id>.output.<path>}
 ;;                     ${run.id}   ${principal.team_id}  ${principal.user_id}
 ;;                     ${principal.locale}                  — the profile language
+;;                     ${principal.timezone}                — the profile timezone (#137)
 ;;                     ${item} ${item.<path>} ${index}      — INSIDE a `map` only,
 ;;                       which the spec validator enforces; the grammar here just
 ;;                       says what the shapes are.
@@ -76,12 +77,18 @@
 ;; cases, which is why the grammar above stays this small.
 (define (make-context #:input [input (hasheq)] #:outputs [outputs (hasheq)]
                       #:run-id [run-id ""] #:team-id [team-id ""] #:user-id [user-id ""]
-                      #:locale [locale "en"] #:item [item 'none] #:index [index 'none])
+                      #:locale [locale "en"] #:timezone [timezone "UTC"]
+                      #:item [item 'none] #:index [index 'none])
   (define base
     (hasheq 'input input
             'steps (for/hasheq ([(k v) (in-hash outputs)]) (values k (hasheq 'output v)))
             'run (hasheq 'id run-id)
-            'principal (hasheq 'team_id team-id 'user_id user-id 'locale locale)))
+            ;; #137: `timezone` is the locale's sibling — a step that renders a
+            ;; date for a person needs the clock on their wall, and deriving it
+            ;; inside a tool would make it the tool's business rather than the
+            ;; run's. Defaulted, so every existing caller is unchanged.
+            'principal (hasheq 'team_id team-id 'user_id user-id
+                               'locale locale 'timezone timezone)))
   (let* ([h (if (eq? item 'none)  base (hash-set base 'item item))]
          [h (if (eq? index 'none) h    (hash-set h 'index index))])
     h))

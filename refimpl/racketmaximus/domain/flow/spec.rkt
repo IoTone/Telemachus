@@ -313,7 +313,7 @@
                                'choice (for/list ([k (in-list CHOICE-KEYS)]) (symbol->string k))
                                'map (for/list ([k (in-list MAP-KEYS)]) (symbol->string k)))
           'references '("input.*" "steps.<id>.output.*" "run.id"
-                        "principal.team_id" "principal.user_id" "principal.locale"
+                        "principal.team_id" "principal.user_id" "principal.locale" "principal.timezone"
                         "item" "item.*" "index")
           'predicates (for/list ([k (in-list predicate-keys)]) (symbol->string k))
           'limits (hasheq 'max_steps_ceiling MAX-STEPS-CEILING 'default_max_steps DEFAULT-MAX-STEPS

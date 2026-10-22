@@ -7,7 +7,7 @@
 ;; needs — the pool, the request accessors, with-auth/with-mt, the response
 ;; constructors — is server/kit.rkt.
 
-(provide ep-whoami ep-profile ep-member-role ep-member-remove
+(provide ep-whoami ep-profile ep-timezones ep-member-role ep-member-remove
          ep-admin-password-reset ep-members-list ep-add-member
          ep-admin-status ep-login ep-password ep-2fa-reset ep-admin-2fa-reset
          ep-2fa-enable ep-2fa-codes-new ep-2fa-codes-get
@@ -24,6 +24,9 @@
          racket/string
          web-server/http
          (only-in "../../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
+         ;; #137: whose clock applies, and what it reads right now
+         (only-in "../../domain/time/tz-policy.rkt" set-user-timezone! timezone-problem timezone-report)
+         (only-in "../../domain/time/zones.rkt" available-zones)
          "../kit.rkt")
 
 (define (ep-whoami req)
@@ -46,20 +49,48 @@
                              ;; warns and signs out on these numbers; the server
                              ;; still enforces them independently in resolve-token,
                              ;; because a client-side timer is a courtesy.
-                             'session_policy (session-policy-for db-conn (principal-org-id p))))))
+                             'session_policy (session-policy-for db-conn (principal-org-id p))
+                             ;; The effective zone AND which layer answered it:
+                             ;; "why is this showing me Tokyo" should not need
+                             ;; three documents diffed by hand.
+                             'timezone (timezone-report db-conn #:user (principal-user-id p)
+                                                        #:org (principal-org-id p))))))
 
-;; the user's own language — the durable preference a workflow binds to as
-;; ${principal.locale}, as opposed to the per-request Accept-Language header
+;; The user's own language and their own TIMEZONE — the durable preferences a
+;; workflow binds to as ${principal.locale} / ${principal.timezone}, as opposed
+;; to a per-request Accept-Language header. #137 added the second, and either
+;; field may be sent alone: a body carrying only a timezone must not be refused
+;; for lacking a locale the caller never meant to change.
 (define (ep-profile req)
   (with-auth req (lambda (p)
     (define b (read-json-body req))
     (define loc (hash-ref b 'locale #f))
+    (define tz (hash-ref b 'timezone #f))
+    (define loc-bad?
+      (and loc (not (and (string? loc)
+                         (regexp-match #px"^[a-zA-Z]{2,3}([-_][A-Za-z0-9]{2,8})*$" loc)))))
+    (define tz-problem (and tz (timezone-problem (format "~a" tz))))
     (cond
-      [(not (and (string? loc) (regexp-match #px"^[a-zA-Z]{2,3}([-_][A-Za-z0-9]{2,8})*$" loc)))
-       (err "locale required, e.g. \"es\" or \"es-419\"" 400)]
+      [(and (not loc) (not tz)) (err "locale or timezone required" 400)]
+      [loc-bad? (err "locale required, e.g. \"es\" or \"es-419\"" 400)]
+      ;; An unknown zone is REFUSED, never silently substituted: somebody given
+      ;; UTC for a typo finds out from a report that arrives at the wrong hour.
+      [tz-problem (err tz-problem 400)]
       [else
-       (set-user-locale! db-conn (principal-user-id p) loc)
-       (json-response (hasheq 'ok #t 'locale loc))]))))
+       (when loc (set-user-locale! db-conn (principal-user-id p) loc))
+       (when tz (set-user-timezone! db-conn (principal-user-id p) (format "~a" tz)))
+       (json-response (hasheq 'ok #t
+                              'locale (or loc (user-locale db-conn (principal-user-id p)))
+                              'timezone (timezone-report db-conn #:user (principal-user-id p)
+                                                         #:org (principal-org-id p))))]))))
+
+;; The zones this instance has data for, DERIVED FROM DISK. A client cannot
+;; offer a picker without it, and hardcoding the list in a console would drift
+;; from the tzdata the server actually reads — the same argument that keeps
+;; `available` locales out of the source.
+(define (ep-timezones req)
+  (with-auth req (lambda (p)
+    (json-response (hasheq 'timezones (available-zones))))))
 
 ;; ---- membership stewardship (issue #54) ----------------------------------------
 (define (ep-member-role req uid)

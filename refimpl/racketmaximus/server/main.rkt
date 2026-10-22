@@ -225,6 +225,10 @@
    'my-org-team-quota ep-my-org-team-quota
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
    'session-policy-get ep-session-policy-get 'session-policy-put ep-session-policy-put
+   'timezones ep-timezones
+   'timezone-get ep-timezone-get 'timezone-put ep-timezone-put
+   'my-org-timezone-get ep-my-org-timezone-get 'my-org-timezone-put ep-my-org-timezone-put
+   'my-org-timezone-clear ep-my-org-timezone-clear
    'my-org-session-policy-get ep-my-org-session-policy-get
    'my-org-session-policy-put ep-my-org-session-policy-put
    'my-org-session-policy-clear ep-my-org-session-policy-clear
