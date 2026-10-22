@@ -17,7 +17,8 @@
 ;; the object id is the stable thing a grant and a URL point at, and history is what
 ;; makes "just re-upload it" safe advice.
 
-(require db-kit/portable json
+(require db-kit/portable
+         (only-in "../events/events.rkt" emit!) json
          racket/file racket/port racket/string racket/list racket/date racket/set
          "../db/id.rkt"
          "../authz/authz.rkt"
@@ -286,6 +287,15 @@
           #:meta (format "{\"key\":~s,\"size\":~a,\"version\":~a}" key size seq))
   (define obj (row->obj (obj-row conn oid)))
   ((unbox put-hook) conn p obj #:derived? derived?)
+  ;; #85: beside the trigger hook rather than inside it — `fire-triggers!` owns
+  ;; that single-slot box, and an event sink is not a trigger. The KEY is NOT in
+  ;; the payload: #84 r2 established that a repository key routinely carries a
+  ;; person's name or a national id, and this crosses the network.
+  (emit! conn "object.created" (hash-ref obj 'team_id)
+         (hasheq 'object_id (hash-ref obj 'id)
+                 'version_id (hash-ref obj 'version_id (hash-ref obj 'id))
+                 'derived (and derived? #t)
+                 'url (format "/api/repo-obj/~a" (hash-ref obj 'id))))
   obj)
 
 ;; ---- reading -------------------------------------------------------------------
@@ -902,6 +912,9 @@
          ;; portability), or a deleted document would keep matching searches
          (query-exec conn "DELETE FROM repo_text WHERE object_id = ?" id)
          ((unbox delete-hook) conn id)
+         ;; #85, and the KEY is deliberately absent here too (#84 r2)
+         (emit! conn "object.deleted" (hash-ref o 'team_id)
+                (hasheq 'object_id id))
          (define freed
            (for/sum ([r (in-list versions)])
              (define digest (vector-ref r 1))

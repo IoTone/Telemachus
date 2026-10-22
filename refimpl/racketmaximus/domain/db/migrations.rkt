@@ -1523,8 +1523,60 @@
       ;; `local-fields` all number it
       (exec* conn "ALTER TABLE job_schedules ADD COLUMN days_of_week TEXT")
       (exec* conn "ALTER TABLE job_schedules ADD COLUMN timezone TEXT"))))
+(define m-0054-webhooks
+  ;; 0054 and not 0053: #140's `0053-schedule-cadence` is in flight on its own
+  ;; branch, and two slices claiming one id would collide in `schema_migrations`
+  ;; on whichever instance applied the other first.
+  (migration "0054-webhooks"
+    (lambda (conn)
+      ;; issue #85: an integration had to POLL `GET /api/runs/:id` to learn that
+      ;; a run finished. `webhooks:manage` has been in the admin role and in
+      ;; `UNREACHABLE-BY-DESIGN` for a year — #113's shape, with the reason
+      ;; written down.
+      ;;
+      ;; The SECRET is sealed (#19's seam, the `webhooks.secret` AAD) and it is a
+      ;; CREDENTIAL, not content: it is an HMAC key a receiver verifies with, so
+      ;; it belongs in `CREDENTIAL-SECRETS` and is rotated unconditionally by
+      ;; `telemachus-secrets rewrap`, unlike the content columns.
+      (exec* conn (string-append
+        "CREATE TABLE webhooks ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  url TEXT NOT NULL,"
+        "  secret TEXT NOT NULL,"
+        ;; a comma-separated subset of WEBHOOK-EVENTS; "*" is every event
+        "  events TEXT NOT NULL DEFAULT '*',"
+        "  description TEXT,"
+        "  active INTEGER NOT NULL DEFAULT 1,"
+        "  created_by TEXT,"
+        "  created_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_webhooks_team ON webhooks (team_id)")
+      ;; One row per (event, subscription) — the unit of delivery, of retry and of
+      ;; the dead-letter list. The PAYLOAD carries ids, status and timestamps and
+      ;; NEVER document content or extracted fields (#85 requirement 2): the
+      ;; receiver fetches those under its own credentials, which is also why this
+      ;; column needs no sealing while `jobs.payload` does.
+      (exec* conn (string-append
+        "CREATE TABLE webhook_deliveries ("
+        "  id TEXT PRIMARY KEY,"
+        "  webhook_id TEXT NOT NULL,"
+        "  team_id TEXT NOT NULL,"
+        "  event TEXT NOT NULL,"
+        "  payload TEXT NOT NULL,"
+        ;; pending | delivered | dead
+        "  status TEXT NOT NULL DEFAULT 'pending',"
+        "  attempts INTEGER NOT NULL DEFAULT 0,"
+        "  next_attempt_epoch BIGINT,"
+        "  last_status_code INTEGER,"
+        "  last_error TEXT,"
+        "  last_latency_ms INTEGER,"
+        "  created_epoch BIGINT NOT NULL,"
+        "  delivered_epoch BIGINT)"))
+      ;; the sweep's own query: what is due, oldest first
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_wh_deliveries_due ON webhook_deliveries (status, next_attempt_epoch)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_wh_deliveries_team ON webhook_deliveries (team_id, created_epoch)"))))
 
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks))

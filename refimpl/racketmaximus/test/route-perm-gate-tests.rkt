@@ -269,7 +269,6 @@
    "memory:write"    "no memory subsystem is built"
    "research:use"    "no research surface is built; chat:use gates the model paths"
    "models:serve"    "no inbound model-serving surface is built; executors are configured, not served"
-   "webhooks:manage" "outbound webhooks are issue #85, unbuilt"
    ;; The company plane uses its OWN tier (`org:read` / `org:manage`) rather than
    ;; the team-tier permission a company admin also happens to hold — see the
    ;; routes under /api/org. These three are the team-tier spellings that the
