@@ -48,7 +48,7 @@
 (provide current-doc-chat
          extract-fields render-template render-docx docx-prepare
          render-pdf pdf-toolchain
-         DOCX-TYPE )
+         DOCX-TYPE)
 
 ;; ---- the model seam --------------------------------------------------------------
 ;; (chat prompt #:system sys) -> (values reply tokens). Temperature 0: extraction and

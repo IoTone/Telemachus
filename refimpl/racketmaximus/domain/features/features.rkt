@@ -34,7 +34,7 @@
          feature-scope
          instance-features instance-features-set!
          org-features org-features-set!
-         feature-problem )
+         feature-problem)
 
 (define known-features '("chat" "agent" "translate" "search" "workflows"))
 

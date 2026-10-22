@@ -25,7 +25,7 @@
 
 (require racket/string)
 
-(provide artifact artifact? artifact-of artifact->text )
+(provide artifact artifact? artifact-of artifact->text)
 
 (define ARTIFACT-KINDS '("document" "table" "text" "link" "image"))
 

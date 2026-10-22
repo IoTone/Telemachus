@@ -5,7 +5,10 @@
 ;;
 ;;   telemachus-docs describe                         # the model, as JSON, to stdout
 ;;   telemachus-docs render  [--out DIR] [--locale xx] [--locales DIR]
-;;   telemachus-docs check   [--out DIR] [--locales DIR]   # regenerate, diff, exit 1 on drift
+;;   telemachus-docs check   [--out DIR] [--locale xx] [--locales DIR]
+;;       regenerate, diff, exit 1 on drift. With no --locale it checks English
+;;       AND every locale directory committed under --out, derived from what is
+;;       there rather than from a list anybody has to remember.
 ;;
 ;; `describe` EVALUATES the modules — the tool registry, the plugin loader, the
 ;; workflow specs, the permission catalog, the route table — and emits one JSON
@@ -596,20 +599,69 @@
   (write-pages (render-all model locale (locales-dir opts)) dir)
   (printf "wrote ~a page(s) to ~a\n" (length (render-all model locale (locales-dir opts))) dir))
 
+;; EVERY COMMITTED LOCALE, not just English. `check` rendered with the locale
+;; hardcoded to #f, and `--locale` was parsed by the flag splitter and then
+;; silently ignored here — so `check --locale ja` reported "8 page(s) match the
+;; sources" with deliberate drift sitting in docs/reference/ja/api.md. That is
+;; how the Japanese reference lost #110 r2's whole "Checked" column and two
+;; plugins without anything failing, and it is why this was re-rendered by hand
+;; in five separate slices.
+;;
+;; The locale list is DERIVED from the directories that are committed under
+;; `out`, not from a list kept here or a flag CI has to remember: a translation
+;; that exists is a translation that is gated, and a new one is covered the day
+;; it is committed. Same rule as `available` locales being derived from the
+;; catalogs on disk rather than stored.
+(define (committed-locales out ldir)
+  (cond
+    [(not (directory-exists? out)) '()]
+    [else
+     (sort
+      (for/list ([e (in-list (directory-list out))]
+                 #:when (and (directory-exists? (build-path out e))
+                             ;; a locale directory is one with a catalog behind it,
+                             ;; so a stray folder under docs/reference is not
+                             ;; mistaken for a language
+                             (file-exists? (build-path ldir (string-append (path->string e) ".json")))))
+        (path->string e))
+      string<?)]))
+
+(define (drifted pages dir)
+  (for/list ([pg (in-list pages)]
+             #:unless (let ([f (build-path dir (car pg))])
+                        (and (file-exists? f) (string=? (file->string f) (cdr pg)))))
+    (car pg)))
+
 (define (cmd-check opts)
   (define model (describe))
   (define out (let ([o (hash-ref opts 'out #f)]) (if o (string->path o) (default-out))))
-  (define pages (render-all model #f (locales-dir opts)))
-  (define drift
-    (for/list ([pg (in-list pages)]
-               #:unless (let ([f (build-path out (car pg))])
-                          (and (file-exists? f) (string=? (file->string f) (cdr pg)))))
-      (car pg)))
+  (define ldir (locales-dir opts))
+  ;; `--locale xx` narrows to one; with none, every committed locale is checked
+  (define only (hash-ref opts 'locale #f))
+  (define locales
+    (cond [(and only (not (string=? only "en"))) (list only)]
+          [only '()]                                   ; --locale en: English alone
+          [else (committed-locales out ldir)]))
+  (define english (if (and only (not (string=? only "en"))) '() (list (cons #f out))))
+  (define targets (append english (for/list ([l (in-list locales)]) (cons l (build-path out l)))))
+  (define results
+    (for/list ([t (in-list targets)])
+      (define pages (render-all model (car t) ldir))
+      (cons (cons (or (car t) "en") (length pages)) (drifted pages (cdr t)))))
+  (define bad (filter (lambda (r) (pair? (cdr r))) results))
   (cond
-    [(null? drift) (printf "telemachus-docs: ~a page(s) match the sources\n" (length pages))]
+    [(null? bad)
+     (printf "telemachus-docs: ~a match the sources\n"
+             (string-join (for/list ([r (in-list results)])
+                            (format "~a page(s) in ~a" (cdar r) (caar r)))
+                          ", "))]
     [else
      (eprintf "telemachus-docs: DRIFT — regenerate with `racket cli/telemachus-docs.rkt render`:\n")
-     (for ([d (in-list drift)]) (eprintf "  ~a\n" d))
+     (for ([r (in-list bad)])
+       (define loc (caar r))
+       (eprintf "  ~a: ~a\n" loc (string-join (cdr r) " "))
+       (unless (string=? loc "en")
+         (eprintf "    racket cli/telemachus-docs.rkt render --locale ~a\n" loc)))
      (exit 1)]))
 
 (module+ main

@@ -58,7 +58,7 @@
          set-reaper! current-job
          claim-job! finish! reap-orphans! POOL-LEASE-SECONDS
          drain-scheduler! scheduler-inflight-count drain-seconds
-         current-plugin registered-job-kinds job-kinds-of-plugin )
+         current-plugin registered-job-kinds job-kinds-of-plugin)
 
 ;; ---- sealing a job's payload and result (issue #83 r2) --------------------------
 ;; `payload` is the INPUT a kind was given and `result` is what it produced, and

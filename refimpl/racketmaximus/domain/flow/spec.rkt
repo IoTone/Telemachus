@@ -30,7 +30,7 @@
          (struct-out exn:fail:spec)
          spec-slug spec-max-steps spec-steps spec-start
          step-ref step-kind step-tool-name step-next map-template
-         REVIEW-VERDICTS )
+         REVIEW-VERDICTS)
 
 (define SPEC-FORMAT-VERSION 1)
 (define MAX-STEPS-CEILING 1000)

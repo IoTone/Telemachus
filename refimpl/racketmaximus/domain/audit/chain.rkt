@@ -45,7 +45,7 @@
          (only-in "../db/nulls.rkt" nz))
 
 (provide audit-chain-seal! audit-chain-verify audit-chain-status
-         audit-export-jsonl )
+         audit-export-jsonl)
 
 (define CHAIN-VERSION "telemachus.audit.v1")
 

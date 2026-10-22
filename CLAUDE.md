@@ -936,11 +936,58 @@ raco test test/route-perm-gate-tests.rkt   # 7 cases; the reverse direction is t
   — six red assertions in a block with nothing to do with quotas. The new block
   removes its own owner again. (`dana` was also already taken, and
   `POST /api/members` answers `{role, token, user_id}` with no `username`.)
-- **`telemachus-docs check` does not cover `docs/reference/ja/`.** CI runs it
-  without `--locale`, so the Japanese reference had silently drifted: it was
-  missing r2's whole "Checked" column and both the OCR and s3blobs plugins.
-  Re-render it (`render --locale ja`) whenever the English changes, and expect a
-  large diff the first time after a gap.
+- **`telemachus-docs check` covers `docs/reference/ja/` now, and the way it did
+  not is worth remembering.** `cmd-check` rendered with the locale hardcoded to
+  `#f`, and `--locale` was parsed by the flag splitter and then **silently
+  ignored by `check`** — so `check --locale ja` reported "8 page(s) match the
+  sources" with deliberate drift sitting in `docs/reference/ja/api.md`. **I
+  asserted three times in one session that this was "one line in `ci.yml`"
+  without testing it, and the control proved it false.** That is how the
+  Japanese reference lost r2's whole "Checked" column and both the OCR and
+  s3blobs plugins without anything failing, and why it was re-rendered by hand in
+  five separate slices.
+  `check` now checks English **and every locale directory committed under
+  `--out`**, derived from what is on disk rather than from a flag CI has to
+  remember — so **`ci.yml` needed no change at all**, and a new translation is
+  gated the day it is committed. Same rule as `available` locales being derived
+  from the catalogs rather than stored. A drifted locale prints the exact
+  `render --locale xx` to fix it. Both directions are positive-controlled.
+
+## A closed vocabulary that nothing checked (#110 r4's leftovers)
+
+r4's reverse sweep found two constants that are declared, commented as CLOSED,
+and referenced by **nothing at all** — not another module, not a test, not even
+the module defining them: `READ-DOORS` (audit/reads.rkt) and `QUESTION-TYPES`
+(judge/wire.rkt). Each comment says a value invented in passing "would arrive as
+something nothing explains", and nothing was stopping one. That is #113's shape.
+
+```sh
+raco test test/vocabulary-tests.rkt   # 5 cases, both controlled
+```
+
+- **STATIC CHECKS, NOT RUNTIME VALIDATION, deliberately.** A `read-context` is
+  built on the path of every read, so raising there would turn a typo'd door into
+  a **500 on a document download** — worse than recording an odd string. Every
+  door in the tree is a platform-supplied literal, so reading the source and
+  comparing is sound, catches the whole class, and cannot break a request. It is
+  the route-permission gate's shape applied to a vocabulary. Control: a door
+  renamed to `wurker` in pull.rkt is reported by name.
+- **Both vocabularies are checked in BOTH directions** — nothing used that is
+  not declared, and nothing declared that no constructor produces. The second
+  half is the one #113 was about.
+- **The list itself is PINNED, not re-derived.** A test that rebuilt the list
+  from the source would agree with any change whatsoever; the point of a closed
+  vocabulary is that adding to it is a decision somebody makes on purpose.
+- **r4 had un-exported both as having no consumer.** That was true and was the
+  problem: they are exported again, FOR the gate, which is what makes "closed"
+  mean something. An export with a test behind it is not an over-wide export.
+- **A text scan over the tree reads its own comments.** This file's prose
+  describes the pattern it scans for, so the first run reported a door called
+  `<door>` that nobody uses — the same shape as r3's require analyser counting
+  `'tool` inside a quoted literal. Comment lines are skipped.
+- r4's narrowing also left a trailing `" )"` wherever the last name in a
+  `provide` was removed, in 12 modules. Cosmetic, tidied, and the lesson is that
+  a scripted edit to a form's last element wants a look at the result.
 
 ## main.rkt is the dispatcher, not the server (#110 r3)
 
