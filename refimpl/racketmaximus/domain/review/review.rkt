@@ -23,6 +23,7 @@
 ;; author may never decide their own.
 
 (require db-kit/portable
+         (only-in "../events/events.rkt" emit!)
          racket/string
          racket/list
          json
@@ -310,6 +311,14 @@
                                           #:resource-type "review" #:resource-id id
                                           #:meta (jsexpr->string (hasheq 'error (exn-message e)))))])
        ((unbox resume-hook) conn out))
+     ;; #85, AFTER the resume hook, so a subscriber that reacts by reading the run
+     ;; sees the run already moving rather than still parked. No rationale in the
+     ;; payload: it is a person's words about somebody's document, and this
+     ;; crosses the network — the verdict is the fact, the reasoning stays here.
+     (emit! conn "review.decided" (hash-ref rev 'team_id)
+            (hasheq 'review_id id 'verdict verdict
+                    'run_id (hash-ref rev 'run_id)
+                    'url (format "/api/reviews/~a" id)))
      out]))
 
 ;; A cancelled run leaves no pending review behind to answer.

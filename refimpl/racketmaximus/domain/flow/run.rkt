@@ -16,6 +16,7 @@
 ;; on every step against the principal the run pinned at start.
 
 (require db-kit/portable
+         (only-in "../events/events.rkt" emit!)
          (only-in "../time/tz-policy.rkt" timezone-for-team)
          ;; issue #83 slice 3: a run's bindings and a step's input/output are
          ;; derived document content for the pipeline
@@ -333,7 +334,20 @@
   (query-exec conn
     "UPDATE workflow_runs SET status = ?, error = ?, output = ?, cursor_json = '{}', finished_at = CURRENT_TIMESTAMP WHERE id = ?"
     status (if err (seal-run-error id err) sql-null)
-    (if out (seal-run-output id (jsexpr->string out)) sql-null) id))
+    (if out (seal-run-output id (jsexpr->string out)) sql-null) id)
+  ;; #85: the ONE place a run settles, which is why the event is emitted here and
+  ;; not at the three call sites. No output and no error text in the payload —
+  ;; the output is the document's own words for half the shipped workflows, and
+  ;; this crosses the network to somebody else's server. Ids and status, and the
+  ;; receiver fetches the rest under its own credentials.
+  (define r (run-row conn id))
+  (when r
+    (define run (row->run r))
+    (emit! conn (if (equal? status "done") "run.completed" "run.failed")
+           (hash-ref run 'team_id)
+           (hasheq 'run_id id 'status status
+                   'workflow (hash-ref run 'slug)
+                   'url (format "/api/runs/~a" id)))))
 
 ;; ---- the reducer -------------------------------------------------------------
 ;; advance : (conn run-id) -> void. Reads state from the DB, decides, enqueues.

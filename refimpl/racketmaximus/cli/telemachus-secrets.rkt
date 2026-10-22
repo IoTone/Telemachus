@@ -34,7 +34,11 @@
 (define CREDENTIAL-SECRETS
   (list (list "users"             "totp_secret" "id" "users.totp_secret")
         (list "repo_credentials"  "secret_key"  "id" "repo_credentials.secret_key")
-        (list "executors"         "secret_key"  "id" "executors.secret_key")))
+        (list "executors"         "secret_key"  "id" "executors.secret_key")
+        ;; #85: a webhook's signing secret. A CREDENTIAL, not content — it is an
+        ;; HMAC key a receiver verifies with — so it is here rather than in
+        ;; CONTENT-SECRETS and `rewrap` rotates it unconditionally.
+        (list "webhooks"          "secret"      "id" "webhooks.secret")))
 
 ;; Document-derived CONTENT (issue #83), which is a different kind of thing and
 ;; is therefore conditional. The three above are replayable credentials: if a key

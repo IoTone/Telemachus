@@ -38,6 +38,7 @@
 ;; Job kinds are registered by the server (kind → (conn principal payload) → jsexpr).
 
 (require db-kit/portable
+         (only-in "../events/events.rkt" emit!)
          json
          racket/string
          racket/format
@@ -471,7 +472,23 @@
                    (if token " AND claim_token = ?" "") " RETURNING id")
     status (if result (seal-result id result) sql-null) (if err (seal-error id err) sql-null) id
     (if token (list token) '())))
-  (and (rows-result? r) (pair? (rows-result-rows r))))
+  (define took? (and (rows-result? r) (pair? (rows-result-rows r))))
+  ;; #85: the ONE terminal write both the pool and a worker reach, and the fence
+  ;; is already here — so the event fires only when this attempt actually took
+  ;; the row. A reaped-and-re-claimed attempt lands no result and tells nobody,
+  ;; which is the same property SCHED-8 gives the result itself.
+  ;;
+  ;; `job.completed` names a job that FINISHED, whatever its outcome: a
+  ;; subscriber waiting on a document's processing needs to hear about the
+  ;; failure too, and `jobs.error` is sealed precisely because it can quote the
+  ;; input — so the status travels and the message does not.
+  (when took?
+    (define row (query-maybe-row conn "SELECT team_id, kind FROM jobs WHERE id = ?" id))
+    (when row
+      (emit! conn "job.completed" (vector-ref row 0)
+             (hasheq 'job_id id 'kind (vector-ref row 1) 'status status
+                     'url (format "/api/jobs/~a" id)))))
+  took?)
 
 ;; Keep the lease alive while the handler runs, and enforce SCHED-9's ceiling.
 ;; The refresher is a thread on the same connection (Racket serializes ops),

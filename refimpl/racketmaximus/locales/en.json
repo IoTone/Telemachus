@@ -1151,6 +1151,14 @@
       "text": "enabled",
       "hash": "3ea3f9802accf8817bacd6f3df46a73b93ccddec"
     },
+    "doc.route.get.api.webhooks": {
+      "text": "The team's outbound webhook subscriptions, plus the closed list of event names a subscription may filter on and how many delivery attempts a dead letter takes. A secret is never in a listing.",
+      "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
+    },
+    "doc.route.get.api.webhooks.id.deliveries": {
+      "text": "This subscription's delivery attempts, newest first: status (`pending`/`delivered`/`dead`), attempt count, the last response code, the last error, the latency, and when the next attempt is due. `?status=dead` is the dead-letter list.",
+      "hash": "3dfcd8b9e0f8246de6afe75e7ba7529869337e0e"
+    },
     "doc.route.get.api.instance-features": {
       "text": "Which features the instance allows at all; absence means allowed.",
       "hash": "29eb38bb2c4a51cf8f6b06de3068265748a091af"
@@ -1422,6 +1430,10 @@
     "doc.route.post.api.ai.chat.stream": {
       "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all.",
       "hash": "7e6e370303b6bcfec2968ccb380941f0555c1c91"
+    },
+    "doc.route.post.api.deliveries.id.redeliver": {
+      "text": "Send a dead or delivered event again. The attempt count is reset — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does NOT change, so a receiver that already applied it recognises the idempotency key.",
+      "hash": "b17affbdc8d6742b2e242a961b35b0b2ef2dd1d5"
     },
     "doc.tool.chat_message": {
       "text": "Send one chat message to the model and return its reply.",
@@ -2235,6 +2247,10 @@
       "text": "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.",
       "hash": "694bd265ddd63c495318b345499b233155933122"
     },
+    "doc.route.delete.api.webhooks.id": {
+      "text": "Delete a subscription and its delivery history. The audit entries survive.",
+      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
+    },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
       "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
@@ -2250,6 +2266,10 @@
     "doc.route.get.api.x.integrator-demo.eta": {
       "text": "Estimated days for ?lane=.",
       "hash": "2268d831fda2d55ab8ed18cab5d35a763a072dda"
+    },
+    "doc.route.get.api.webhooks.id": {
+      "text": "One subscription. Another team's id is a 404, not a 403.",
+      "hash": "f6934d6e7166ec99d4ff601abcb8f6846d8d674c"
     },
     "doc.route.get.api.l10n.messages": {
       "text": "The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged.",
@@ -2483,6 +2503,14 @@
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
+    "doc.perm.webhooks:manage": {
+      "text": "Configure outbound webhooks.",
+      "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
+    },
+    "doc.route.post.api.webhooks": {
+      "text": "Subscribe to events: `url` (http(s)) and `events` — `\"*\"` or a comma-separated subset of the names `GET /api/webhooks` lists. An unknown event name is refused rather than stored, because a subscription that silently never fires is worse than one that was rejected. The signing secret is in the reply and is SHOWN ONCE; rotate to replace it.",
+      "hash": "c3ef9dd6ce1f11fe10ed872188f931fe20ed1272"
+    },
     "ui.qempty": {
       "text": "Nothing in the queue.",
       "hash": "40996f618a89348d223f7e1c58562e5f21a17a92"
@@ -2518,6 +2546,10 @@
     "ui.file": {
       "text": "File",
       "hash": "2c3cafa4db3f3e1e51b3dff4303502dbe42b7a89"
+    },
+    "doc.route.post.api.webhooks.id.ping": {
+      "text": "Deliver a `ping` event to this subscription NOW, synchronously, and answer with what happened. The way to check a receiver's signature verification before a real event depends on it. Refused with 409 if the subscription is inactive or does not subscribe to `ping`.",
+      "hash": "42fe13e91181661959b4b37a92d2b84407b3f910"
     },
     "doc.route.post.api.notes.id.share": {
       "text": "Share a note with a user (owner, or notes:manage). The permission granted must be a notes:* one.",
@@ -2623,10 +2655,6 @@
       "text": "Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's.",
       "hash": "23fd5bd1c7e8fee805e5dd4078b9fd51b7cf2030"
     },
-    "doc.perm.webhooks:manage": {
-      "text": "Configure outbound webhooks.",
-      "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
-    },
     "ui.tagline": {
       "text": "Team AI platform — reference implementation",
       "hash": "376a8698238975b4eeda809c249ad17e73944eda"
@@ -2730,6 +2758,10 @@
     "doc.route.put.api.repo.key": {
       "text": "Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here.",
       "hash": "784e7b58fcc81205c89dbf99ed8044ef8f8fa28f"
+    },
+    "doc.route.patch.api.webhooks.id": {
+      "text": "Change `url`, `events`, `active` or `description`, and with `{\"rotate\": true}` mint a new signing secret — shown once, and the previous one immediately signs nothing. Validated as the subscription would be, so a patch cannot reach a state a create could not.",
+      "hash": "793ae732a359fb24feb79cfd7139124440862308"
     },
     "doc.perm.jobs:schedule": {
       "text": "Create, retune, pause and delete JOB SCHEDULES — recurring work. A schedule enqueues an ordinary job on an interval, running as whoever created it, so it commits the team's AI and storage budget to spending on a timer with nobody present to watch it. Reading one is held to the same permission as writing it, because a schedule's payload is the input of every job it fires.",

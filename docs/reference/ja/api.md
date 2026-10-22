@@ -156,6 +156,14 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/tokens` | bearer | `settings:manage` | role | — | チームのAPIトークン |
 | DELETE | `/api/tokens/:id` | bearer | `settings:manage` | role | — | API トークンを失効させる。 |
 | GET | `/api/search` | bearer | — | — | `search` | ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。 |
+| GET | `/api/webhooks` | bearer | `webhooks:manage` | role | — | チームの送信 Webhook 購読の一覧。あわせて購読がフィルタに使えるイベント名の閉じたリストと、デッドレターになるまでの配信試行回数を返します。シークレットが一覧に含まれることはありません。 |
+| POST | `/api/webhooks` | bearer | `webhooks:manage` | role | — | イベントを購読する: `url`（http(s)）と `events` — `"*"` または `GET /api/webhooks` が示す名前のカンマ区切り部分集合。未知のイベント名は保存されずに拒否されます。何も発火しない購読が黙って存在する方が、拒否されるより悪いからです。署名シークレットは応答に含まれ、一度だけ表示されます。置き換えるにはローテーションしてください。 |
+| GET | `/api/webhooks/:id` | bearer | `webhooks:manage` | role | — | 購読 1 件。他チームの ID は 403 ではなく 404 になります。 |
+| PATCH | `/api/webhooks/:id` | bearer | `webhooks:manage` | role | — | `url`、`events`、`active`、`description` を変更する。`{"rotate": true}` で新しい署名シークレットを発行します — 一度だけ表示され、以前のシークレットは直ちに何も署名しなくなります。検証は変更後の購読に対して行われるため、パッチで作成できない状態に到達することはありません。 |
+| DELETE | `/api/webhooks/:id` | bearer | `webhooks:manage` | role | — | 購読とその配信履歴を削除する。監査エントリは残ります。 |
+| POST | `/api/webhooks/:id/ping` | bearer | `webhooks:manage` | role | — | この購読に `ping` イベントを今すぐ同期的に配信し、その結果を返す。実際のイベントが依存する前に、受信側の署名検証を確認する手段です。購読が無効、または `ping` を購読していない場合は 409 で拒否されます。 |
+| GET | `/api/webhooks/:id/deliveries` | bearer | `webhooks:manage` | role | — | この購読の配信試行を新しい順に返す: 状態（`pending`/`delivered`/`dead`）、試行回数、最後の応答コード、最後のエラー、レイテンシ、次回試行予定。`?status=dead` がデッドレター一覧です。 |
+| POST | `/api/deliveries/:id/redeliver` | bearer | `webhooks:manage` | role | — | デッドまたは配信済みのイベントを再送する。試行回数はリセットされます — 再送を選んだ運用者は判断を下しており、10 回のうち既に消費された 1 回分しか残っていなければこの操作は役に立ちません。配信 ID は変わらないため、すでに適用した受信側は冪等キーとして認識できます。 |
 | GET | `/api/audit` | bearer | `settings:manage` | role | — | チームの最近の監査イベント。 |
 | POST | `/api/jobs` | bearer | `chat:use` | role | — | 登録された種類のスケジューラジョブをキューイングします。 |
 | GET | `/api/jobs` | bearer | — | — | — | チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: "quota"\|"concurrency", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。 |
