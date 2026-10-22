@@ -1496,7 +1496,35 @@
       ;; where only the rule can answer.
       (exec* conn "ALTER TABLE users ADD COLUMN timezone TEXT"))))
 
+(define m-0053-schedule-cadence
+  (migration "0053-schedule-cadence"
+    (lambda (conn)
+      ;; #140: an interval cannot say "07:00 on weekdays". 24h from an arbitrary
+      ;; create time drifts to whatever minute the row happened to be written,
+      ;; which is useless for anything a person reads at the start of their day —
+      ;; the case #114 asked for and #135 deliberately did not answer.
+      ;;
+      ;; NOT CRON, and the reason is a sublanguage rather than a feature: five
+      ;; fields with ranges, steps and lists is a parser, and this codebase has
+      ;; twice frozen one on purpose (the workflow bindings, the funnel's
+      ;; validation vocabulary). A time of day plus a set of weekdays covers both
+      ;; waiting callers with no grammar at all.
+      ;;
+      ;; `timezone` LIVES ON THE SCHEDULE, not resolved from the owner at firing
+      ;; time. A schedule is a standing instruction, and if the person who made it
+      ;; travels and changes their profile, "07:00 before the morning meeting"
+      ;; must not silently move for everybody else. It is DEFAULTED from the
+      ;; creator's effective zone (#137) so nobody has to think about it.
+      (exec* conn "ALTER TABLE job_schedules ADD COLUMN cadence TEXT NOT NULL DEFAULT 'interval'")
+      ;; minutes after LOCAL midnight: one integer, no parsing, and it survives a
+      ;; dialect that has no time type
+      (exec* conn "ALTER TABLE job_schedules ADD COLUMN at_minute INTEGER")
+      ;; a comma-separated subset of 0-6, Sunday = 0, as ISO/POSIX and
+      ;; `local-fields` all number it
+      (exec* conn "ALTER TABLE job_schedules ADD COLUMN days_of_week TEXT")
+      (exec* conn "ALTER TABLE job_schedules ADD COLUMN timezone TEXT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence))
