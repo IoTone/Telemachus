@@ -253,7 +253,9 @@
 (define (check-input! spec input)
   (for ([(k t) (in-hash (hash-ref spec 'input (hasheq)))])
     (define v (hash-ref input k 'missing))
-    (when (eq? v 'missing) (error 'flow "input '~a' is required" k))
+    ;; #123: the caller's own mistake — a missing input on a run they asked for.
+    ;; `error` made it a 500 whose body happened to carry the reason; it is a 400.
+    (when (eq? v 'missing) (raise-user-error 'flow "input '~a' is required" k))
     (define ok?
       (case t
         [("string") (string? v)] [("number") (real? v)] [("boolean") (boolean? v)]

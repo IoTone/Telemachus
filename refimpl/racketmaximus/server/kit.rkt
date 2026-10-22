@@ -176,6 +176,48 @@
 
 ;; ---- responses --------------------------------------------------------------
 (define (err msg code) (json-response (hasheq 'error msg) #:code code))
+
+;; ---- what a 500 is allowed to say (#123) ------------------------------------
+;; `handle` used to answer `(err (exn-message e) 500)`, so EVERY unhandled
+;; exception's message became the response body. The duplicate-username INSERT
+;; is how that was reported, and SQL is the least of it: #83 r4 sealed four
+;; stored `error` columns precisely because this platform's own code quotes what
+;; it choked on — the strict renderer names the missing placeholder, DWF-5's
+;; extraction names the JSON path AND the offending value, the knowledge-graph
+;; extractor refuses a snippet that is not a verbatim substring and quotes it.
+;; The reasoning that made those columns worth encrypting applies unchanged to a
+;; response body, and the wire was never looked at.
+;;
+;; So the body carries a generic refusal and a REQUEST ID, and the message goes
+;; to the log where an operator can find it by that id. That keeps the
+;; diagnostic — which is what putting the message in the body was buying —
+;; without putting it on the wire.
+;;
+;; `exn:fail:user?` and `exn:fail:spec?` keep their messages deliberately: those
+;; are the caller's own mistake and the detail is the whole point of refusing
+;; rather than ignoring.
+;;
+;; One request id per request: inbound `X-Request-Id` wins so a proxy's
+;; correlation id is the one in every record, and `with-auth` reads the same one
+;; rather than minting a second.
+(define current-request-id (make-parameter #f))
+(define (request-id-of req)
+  (or (current-request-id)
+      (and req (req-header req #"x-request-id"))
+      (new-id)))
+
+;; Extracted so the rule is unit-testable without a live server — peer.rkt's and
+;; startup.rkt's move, for the same reason: a smoke can only reach it by finding
+;; a request that still raises, and after the 409 fix there may not be one.
+(define (server-error-response e rid)
+  ;; the operator's copy. stderr, not the body: a container's log is where this
+  ;; is read, and the request id is what joins the two.
+  (eprintf "ERROR [~a] ~a\n" rid (if (exn? e) (exn-message e) e))
+  (json-response (hasheq 'error "internal error"
+                         ;; quote this id to an operator and they can find the
+                         ;; message; without it a 500 is unactionable
+                         'request_id rid)
+                 #:code 500))
 (define (unauthorized) (err (msg-unauthorized) 401))
 
 ;; CORS for the public beta API: a Tier-C template renders in a SANDBOXED, opaque-
@@ -414,7 +456,7 @@
                                    (with-handlers ([exn:fail? (lambda (_) #f)])
                                      (request-client-ip req))
                                    (req-header req #"user-agent")
-                                   (or (req-header req #"x-request-id") (new-id))
+                                   (request-id-of req)
                                    (req-header req #"range")
                                    #f #f)])
        (proc p))]))

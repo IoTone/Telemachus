@@ -3515,6 +3515,56 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## A 500 says nothing, and four refusals were riding on the leak (#123)
+
+`handle` answered `(err (exn-message e) 500)`, so **every** unhandled exception's
+message became the response body. The duplicate-username `INSERT` is how it was
+reported from outside, and SQL is the least of it: #83 r4 sealed four stored
+`error` columns precisely because this platform's own code quotes what it choked
+on — the strict renderer names the missing placeholder, DWF‑5's extraction names
+the JSON path **and the offending value**, the KG extractor quotes a snippet it
+refused. That reasoning applies unchanged to a response body, and the wire had
+never been looked at.
+
+```sh
+raco test test/error-response-tests.rkt   # 6 cases, positive-controlled
+```
+
+- **`server-error-response` lives in `server/kit.rkt`, not inside `handle`**, so
+  the rule is unit-testable without a live server — peer.rkt's and startup.rkt's
+  move, and here it is load-bearing: once the duplicate username answers 409
+  there may be **no request left that raises**, so a smoke assertion for the 500
+  path would pass by never reaching it.
+- **The body is `{error: "internal error", request_id}`** and the message goes to
+  **stderr** with the same id. That keeps the diagnostic — which is what putting
+  it in the body was buying — without putting it on the wire. The test asserts
+  the message IS in the log, because a version that merely dropped it would pass
+  every other check.
+- **One request id per request.** `request-id-of` in kit states the precedence
+  (a bound id, then inbound `X-Request-Id`, then fresh) once; `handle` binds it
+  and `with-auth` reads it instead of minting a second, so the 500 and the audit
+  entries agree about which request they belong to.
+- **FOUR DELIBERATE REFUSALS WERE REACHING CALLERS ONLY BECAUSE OF THE LEAK**,
+  and all four were really 400s — the leak was masking a misclassification:
+  `run-chat`'s "no model configured" (×3 sites), the engine's "input 'x' is
+  required", and "the reply does not honour response_format: $.total …". They
+  are `raise-user-error` now. **This is the half of the slice that mattered**: a
+  caller could not tell their own mistake from a server fault, which is #123's
+  actual complaint, and three suites failed in sequence until each was found.
+- **`exn:fail:user?` is caught in `handle`, and its clause must PRECEDE
+  `exn:fail?`** — `exn:fail:user` is a subtype and the first matching clause wins
+  (PULL‑14's ordering lesson). Catching it centrally is what makes the rule true
+  everywhere rather than wherever a handler remembered to wrap; seven handlers
+  already wrapped it one at a time and still do, as r2's two-layer habit.
+- **A 400 may carry a value a 500 may not, and the line is who supplied the
+  input.** The schema refusal names the value that failed, and that value came
+  from the model's reply to the CALLER's own prompt and schema — theirs to read.
+  The copy #83 sealed is different: a workflow step's stored `error` quotes
+  content out of a document somebody else may own.
+- **A duplicate username is a 409 on both planes now**, the same string and code
+  `POST /api/org/members` always used. Usernames are instance-global (TEN‑2b), so
+  the check is not team-scoped.
+
 ## Sign-in: the record, the throttle, and your own sessions (#116, #117, #118)
 
 Three reports, one code path. `ep-login` was nine lines that authenticated and

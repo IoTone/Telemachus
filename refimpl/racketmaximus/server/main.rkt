@@ -460,14 +460,32 @@
   (if (null? add) resp (struct-copy response resp [headers (append (response-headers resp) add)])))
 
 (define (handle req)
-  (parameterize ([current-localizer (localizer-for (request-locale req))])
+  ;; one id for this request, honouring an inbound X-Request-Id, bound before
+  ;; anything can raise so a 500 and the audit entries agree about which request
+  ;; they belong to
+  ;; `request-id-of` is kit's, so the precedence (inbound header, else fresh) is
+  ;; stated once rather than here and in `with-auth`
+  (define rid (request-id-of req))
+  (parameterize ([current-localizer (localizer-for (request-locale req))]
+                 [current-request-id rid])
     (with-security-headers
      (with-handlers ([exn:fail:forbidden?
                       (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
                      ;; a refused workflow spec is the caller's mistake — and the
                      ;; detail is the whole point of rejecting rather than ignoring
                      [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
-                     [exn:fail? (lambda (e) (err (exn-message e) 500))])
+                     ;; …and so is any `raise-user-error`, which several handlers
+                     ;; already caught one at a time. Catching it HERE is what
+                     ;; makes the rule true everywhere rather than wherever
+                     ;; somebody remembered to wrap: two deliberate refusals ("no
+                     ;; model configured", "input 'x' is required") were reaching
+                     ;; the caller only because the 500 below leaked
+                     ;; `exn-message`, and both are a 400. It must precede the
+                     ;; `exn:fail?` clause — exn:fail:user is a subtype, and the
+                     ;; first matching clause wins (PULL-14's ordering lesson).
+                     [exn:fail:user? (lambda (e) (err (exn-message e) 400))]
+                     ;; #123: NOT the exception's message. See server-error-response.
+                     [exn:fail? (lambda (e) (server-error-response e rid))])
        (route req)))))
 
 (module+ main

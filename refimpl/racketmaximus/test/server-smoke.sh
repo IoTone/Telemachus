@@ -1156,6 +1156,22 @@ assert "…uncached, so a deploy cannot leave a stale script against a new shell
 assert "…and the path cannot climb out of static/console" \
   "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/console/../index.html")" '404'
 
+# ---- what a refusal and a 500 are allowed to say (issue #123) ----------------
+# A username that already exists used to reach `create-user!`, raise the UNIQUE
+# violation, and come back as a 500 carrying the INSERT statement. The org plane
+# always answered 409; the two agree now.
+echo
+echo "== duplicate username, and what a 500 says ==================================="
+assert "a duplicate username is a 409 on the team plane" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')" '409'
+DUP=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')
+assert "…and says so in words a caller can act on" "$DUP" 'username already exists on this instance'
+refute "…with no SQL in the reply"                 "$DUP" 'INSERT'
+refute "…and no engine wording either"             "$DUP" 'constraint'
+# the generic-500 rule itself is unit-tested (test/error-response-tests.rkt),
+# because after this fix there may be no request left that still raises — a
+# smoke assertion for it would pass by never reaching the path.
+
 # ---- sign-in: the record, the throttle, and a person's own sessions ----------
 # Issues #116, #117 and #118. A dedicated user throughout: throttling `alice`
 # would leave her counter set and break every later block that signs in as her,

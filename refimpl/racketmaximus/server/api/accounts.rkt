@@ -139,6 +139,14 @@
      (define role (hash-ref body 'role "member"))
      (cond
        [(not username) (err "username required" 400)]
+       ;; #123: this went straight to `create-user!`, so a username that exists
+       ;; raised the UNIQUE violation and the dispatcher turned it into a 500
+       ;; carrying the INSERT. `POST /api/org/members` has always checked first
+       ;; and answered 409 — the same string and code, so the two planes agree.
+       ;; Usernames are instance-global (TEN-2b), which is why the check is not
+       ;; scoped to a team.
+       [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" (format "~a" username))
+        (err "username already exists on this instance" 409)]
        [else
          (define uid (create-user! db-conn #:username username #:password (hash-ref body 'password #f)))
          (add-member! db-conn #:user uid #:team (principal-team-id p) #:role role)
