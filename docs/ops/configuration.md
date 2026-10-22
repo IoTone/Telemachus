@@ -155,16 +155,23 @@ once, which is why the names differ.
 | `TELEMACHUS_S3_BLOB_RETRIES` | `3` | Attempts per operation. Only a 429 or a 5xx retries — a 4xx is our own request. Every operation is idempotent (the key *is* the content hash), so a retry needs no idempotency key. |
 | `TELEMACHUS_S3_BLOB_TIMEOUT` | `120` | Seconds for one operation. |
 
-**There is no boot check for this store yet** — see
-[issue #119](https://github.com/IoTone/Telemachus/issues/119). An earlier version
-of this page said `server/startup.rkt` probes the *active* store by writing a
-blob, reading it back and deleting it. It does not: that probe takes a
-filesystem path and writes a file under the local blob root, so with
-`TELEMACHUS_BLOB_STORE=s3` an instance whose bucket is unreachable, whose
-credentials are wrong or whose endpoint is unset **starts healthy and fails on
-the first upload**. Until #119 lands, verify the bucket out of band —
-`racket cli/telemachus-blobs.rkt verify` exercises the real store — and treat a
-first successful upload as part of the deployment check.
+**The boot check probes the store that is in use** (issue #119).
+`blob-store-probe` does a real put, get, digest compare and delete through
+whatever `TELEMACHUS_BLOB_STORE` selected, after plugins load, and **a failure
+refuses to serve** — so endpoint reachability, credentials, bucket existence and
+Get/Put/Delete permission are all verified before the instance accepts a
+request. For the S3 store the put also asserts the bucket reported server-side
+encryption, so the encryption posture is checked by the same probe.
+
+For most of this feature's life that paragraph was a lie: the probe took a
+filesystem path and wrote a file under the *local* blob root whatever this
+variable said, so a bucket store with a wrong endpoint started healthy and
+failed on the first upload. **The practical consequence of the fix is that an
+object-store outage at boot now stops a restart**, where before it started and
+failed per-upload. That is the right trade for a storage backend — an instance
+that reports healthy and loses documents is the worse failure — but it is a
+change in restart behaviour worth knowing about if your bucket and your app
+restart together.
 
 See [the IAM policy and migration notes](container.md#object-storage-for-document-bytes).
 

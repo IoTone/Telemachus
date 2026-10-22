@@ -42,7 +42,8 @@
          (only-in "../domain/idem/idem.rkt" idem-reap!)
          (only-in "../domain/retention/retention.rkt" retention-sweep!)
          "routes.rkt"                             ; the declared HTTP surface (slice 60)
-         (only-in "../domain/repo/blobs.rkt" blob-root blob-store-names)
+         (only-in "../domain/repo/blobs.rkt" blob-root blob-store-names blob-store-probe
+                  active-blob-store-name)
          (only-in "../domain/flow/spec.rkt" exn:fail:spec?)
          (only-in "../domain/ai/executor.rkt" estimate-tokens model-configured? pull-router run-chat)
          (only-in "../domain/ai/content.rkt" content->text)
@@ -557,15 +558,22 @@
                             "  TELEMACHUS_RS3_ROOT) to an absolute path.")
              r)))
   ;; issue #89: everything else an unattended deployment gets wrong silently.
-  ;; AFTER plugins, because the blob store the probe writes to is the one rs3 may
-  ;; have replaced — the same reason the two refusals above wait for them. The
-  ;; errors here refuse to serve; the warnings become refusals under
-  ;; TELEMACHUS_STRICT_STARTUP. See server/startup.rkt for why each is which.
+  ;; AFTER plugins, because the store that will be used is the one a plugin
+  ;; registered — the same reason the two refusals above wait for them.
+  ;;
+  ;; #119: `#:blob-probe` is the probe the documentation has described since the
+  ;; s3blobs slice and which did not exist. `#:blob-root` only ever wrote a file
+  ;; under the LOCAL root, whatever TELEMACHUS_BLOB_STORE said, so a bucket store
+  ;; with a wrong endpoint started healthy and failed on the first upload. Both
+  ;; run: the path check gives the better message for a missing data directory,
+  ;; and the probe is the one that actually exercises the store.
   (unless (report-startup-problems!
            (startup-problems #:bind-ip (bind-ip)
                              #:tls? (tls-on?)
                              #:secrets? (secrets-enabled?)
                              #:blob-root (blob-root)
+                             #:blob-probe blob-store-probe
+                             #:blob-store-name (active-blob-store-name)
                              #:conn db-conn
                              #:migrations all-migrations))
     (exit 1))

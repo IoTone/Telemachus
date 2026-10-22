@@ -2234,19 +2234,45 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   header, so two copies drifting would fail every request with
   `SignatureDoesNotMatch` and nothing in the message would name which copy was
   wrong. `s3-object-url` calls it rather than recomputing.
-- **THE BOOT HEALTH CHECK DOES NOT EXIST, and this note claimed it did.**
-  Reported from outside as #119 and verified: `blob-store-problem` in
-  `server/startup.rkt` takes a filesystem PATH, `make-directory*`s it and writes
-  a probe FILE into it, and `main.rkt` passes `(blob-root)` — the local rs3 root,
-  computed without reference to `TELEMACHUS_BLOB_STORE`. It never obtains a
-  store, so it cannot call `s3-put!`. #82's requirement 5 was recorded as
-  satisfied "with no new code" on the strength of that claim, which is the #113
-  shape and worse: the false declaration was the argument for not writing the
-  check. The fix is to make the probe a function of the ACTIVE STORE's
-  put/get/delete rather than of a path — patching the call site to pass a
-  different path does not fix it — and it must run after `load-plugins!`,
-  because a plugin registers the store. `docs/ops/configuration.md` and
-  `plugins/s3blobs/main.rkt` carried the same false claim and are corrected too.
+- **The boot health check is `blob-store-probe` in `domain/repo/blobs.rkt`, and
+  for most of this feature's life it did not exist while THIS NOTE SAID IT DID.**
+  Reported from outside as #119. The old check, `blob-store-problem`, takes a
+  filesystem PATH and writes a probe FILE into it; `main.rkt` passed
+  `(blob-root)`, the local rs3 root, computed without reference to
+  `TELEMACHUS_BLOB_STORE`. It never obtained a store, so it could not call
+  `s3-put!`. **#82's requirement 5 was recorded as satisfied "with no new code"
+  on the strength of the claim** — the #113 shape, and worse, because the false
+  declaration was the argument for not writing the check. Fixed: the probe is a
+  function of the ACTIVE STORE's put/get/delete (patching the call site to pass a
+  different path would not have fixed it), it runs after `load-plugins!` because
+  a plugin registers the store, and a failure REFUSES TO SERVE. Positive control
+  is the reporter's own repro: `TELEMACHUS_BLOB_STORE=s3` with no endpoint now
+  prints `blob store s3: s3blobs: TELEMACHUS_S3_BLOB_ENDPOINT is required` and
+  exits, where it used to start healthy and 500 on the first upload.
+- **The probe compares the DIGEST of what comes back**, not merely that
+  something did: a store that answers a GET with the wrong object is worse than
+  one that answers nothing, and digest equality is the only check this seam can
+  make without knowing anything else. It deletes the probe blob in a
+  `dynamic-wind`, including when the read failed — otherwise a write-only store
+  accumulates one per boot.
+- **`startup-problems` takes a THUNK (`#:blob-probe`), not the store.**
+  `server/startup.rkt` is deliberately free of the domain so it stays
+  unit-testable without a live server (peer.rkt's move), and `blobs.rkt` pulls
+  the scheduler in for `current-plugin`. Same seam `#:conn`/`#:migrations` use.
+- **Both checks run.** The path check still gives the better message for a
+  missing or root-owned data directory; the probe is the one that exercises the
+  store. The path one is no longer the thing that claims to cover a bucket.
+- **`register-blob-store!` refuses a name another plugin owns** (#120), naming
+  both plugins and telling the integrator to pick another name and select it with
+  `TELEMACHUS_BLOB_STORE`. It was a bare `hash-set`, and the reported direction is
+  the one that reads worst: a downstream plugin registered `s3`, the platform's
+  own s3blobs registered `s3` later in directory order, **the platform's won**,
+  and every upload failed with an error naming configuration the integrator never
+  set — a collision that reads as a platform bug rather than as their own clash.
+  Ownership comes from `current-plugin`, so a plugin may re-register its OWN name
+  (the loader may run twice in one process): `register-extractor!`'s rule, and the
+  reason it tracks the owner rather than just the name. Job kinds and plugin ids
+  already refused; this was the only plugin-owned registry that did not.
 - **The migration moves NO database rows**, because `repo_versions` stores the
   digest and the store is addressed by it. That is what makes it resumable and
   safe on a live instance. It **re-hashes every blob**: rs3 takes the digest from

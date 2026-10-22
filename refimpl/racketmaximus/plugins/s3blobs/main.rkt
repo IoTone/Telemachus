@@ -15,16 +15,18 @@
 ;; is an existence oracle, so two companies holding identical bytes hold two
 ;; objects, on purpose.
 ;;
-;; THERE IS NO BOOT HEALTH CHECK, AND THIS COMMENT CLAIMED THERE WAS (issue
-;; #119). Requirement 5 asks for one that verifies bucket access and encryption
-;; settings at boot, and it was recorded as satisfied by `server/startup.rkt`'s
-;; existing probe "which goes through `s3-put!` below". It does not: that probe
-;; takes a filesystem PATH and writes a file under the local blob root, so it
-;; never reaches this store at all. With the endpoint unset, an instance starts
-;; healthy and every upload answers 500. The fix is to make the probe a function
-;; of the active store's put/get/delete; `s3-put!` below does assert the bucket
-;; reported server-side encryption, so once the probe really runs through it the
-;; original claim becomes true.
+;; WHERE THE BOOT HEALTH CHECK IS — and it took issue #119 to make this comment
+;; true. Requirement 5 asks for one that verifies bucket access and encryption
+;; settings at boot. It was recorded as satisfied by `server/startup.rkt`'s
+;; existing probe, "which goes through `s3-put!` below"; it did not, because that
+;; probe took a filesystem PATH and wrote a file under the local blob root, so
+;; with the endpoint unset an instance started healthy and every upload answered
+;; 500. `blob-store-probe` (domain/repo/blobs.rkt) is the real one: a put, a get,
+;; a digest compare and a delete through the ACTIVE store, fatal on failure. It
+;; does go through `s3-put!` below, which asserts the bucket reported
+;; server-side encryption — so credentials, endpoint reachability, bucket
+;; existence, Put/Get/Delete permission and the encryption posture are all
+;; checked by one probe, which is what the original note wanted to be able to say.
 
 (require racket/port racket/string
          (only-in "../../domain/repo/blobs.rkt" register-blob-store!)
