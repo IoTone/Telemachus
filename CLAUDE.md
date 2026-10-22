@@ -3705,11 +3705,22 @@ never been looked at.
 raco test test/error-response-tests.rkt   # 6 cases, positive-controlled
 ```
 
-- **`server-error-response` lives in `server/kit.rkt`, not inside `handle`**, so
-  the rule is unit-testable without a live server — peer.rkt's and startup.rkt's
-  move, and here it is load-bearing: once the duplicate username answers 409
-  there may be **no request left that raises**, so a smoke assertion for the 500
-  path would pass by never reaching it.
+- **`server-error-response` lives in `server/errors.rkt`**, a module with NO
+  DATABASE in it — peer.rkt's and startup.rkt's move, and here it is
+  load-bearing: once the duplicate username answers 409 there may be **no
+  request left that raises**, so a smoke assertion for the 500 path would pass
+  by never reaching it.
+- **IT WAS IN `kit.rkt` FIRST, with a comment claiming it was "unit-testable
+  without a live server", AND THAT WAS FALSE.** Requiring kit instantiates the
+  connection POOL, which reads `DATABASE_URL` at module instantiation — and
+  **CI's SQLite leg sets `DATABASE_URL` to the EMPTY STRING**, which
+  `db-connector` refuses. So the test passed on every machine where that variable
+  is unset or valid and failed only in CI, with
+  `db-connector: unsupported DATABASE_URL` and no test name attached. **A unit
+  test must not require `server/kit.rkt`**; put the rule in a module that really
+  has no server in it, and reproduce CI's condition with
+  `DATABASE_URL="" raco test test/*-tests.rkt` before trusting a green run.
+  `req-header` and the request id moved with it.
 - **The body is `{error: "internal error", request_id}`** and the message goes to
   **stderr** with the same id. That keeps the diagnostic — which is what putting
   it in the body was buying — without putting it on the wire. The test asserts

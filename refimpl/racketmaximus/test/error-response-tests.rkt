@@ -19,7 +19,13 @@
 
 (require rackunit racket/port racket/string
          web-server/http
-         "../server/kit.rkt")
+         ;; errors.rkt and NOT kit.rkt: requiring kit instantiates the connection
+         ;; POOL, which reads DATABASE_URL at module instantiation — and CI's
+         ;; SQLite leg sets that to the EMPTY STRING, so this test failed there
+         ;; and passed everywhere the variable happens to be unset or valid. The
+         ;; comment claiming the rule was "unit-testable without a live server"
+         ;; was false until the rule moved to a module with no database in it.
+         "../server/errors.rkt")
 
 ;; the response's body, which is written by a procedure rather than stored
 (define (body-of resp)
