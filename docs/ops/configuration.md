@@ -153,11 +153,16 @@ once, which is why the names differ.
 | `TELEMACHUS_S3_BLOB_RETRIES` | `3` | Attempts per operation. Only a 429 or a 5xx retries — a 4xx is our own request. Every operation is idempotent (the key *is* the content hash), so a retry needs no idempotency key. |
 | `TELEMACHUS_S3_BLOB_TIMEOUT` | `120` | Seconds for one operation. |
 
-**The boot check is the one that was already there.** `server/startup.rkt`
-probes the active blob store by writing a blob, reading it back and deleting it,
-and treats failure as fatal — so endpoint reachability, credentials, bucket
-existence, Get/Put/Delete permission *and* the encryption posture are all
-verified before the instance serves, with no second mechanism to keep in step.
+**There is no boot check for this store yet** — see
+[issue #119](https://github.com/IoTone/Telemachus/issues/119). An earlier version
+of this page said `server/startup.rkt` probes the *active* store by writing a
+blob, reading it back and deleting it. It does not: that probe takes a
+filesystem path and writes a file under the local blob root, so with
+`TELEMACHUS_BLOB_STORE=s3` an instance whose bucket is unreachable, whose
+credentials are wrong or whose endpoint is unset **starts healthy and fails on
+the first upload**. Until #119 lands, verify the bucket out of band —
+`racket cli/telemachus-blobs.rkt verify` exercises the real store — and treat a
+first successful upload as part of the deployment check.
 
 See [the IAM policy and migration notes](container.md#object-storage-for-document-bytes).
 
