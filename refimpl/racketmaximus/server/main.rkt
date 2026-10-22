@@ -102,6 +102,7 @@
          "api/instance.rkt"
          "api/jobs.rkt"
          "api/webhooks.rkt"
+         "api/feeds.rkt"
          "api/localization.rkt"
          "api/orgs.rkt"
          "api/policy.rkt"
@@ -265,6 +266,10 @@
    'webhook-get ep-webhook-get 'webhook-patch ep-webhook-patch 'webhook-delete ep-webhook-delete
    'webhook-ping ep-webhook-ping 'webhook-deliveries ep-webhook-deliveries
    'delivery-redeliver ep-delivery-redeliver
+   ;; #114: external feed configuration. Nothing polls one yet — slice 4 is the
+   ;; adapter — so the probe is what answers "is this configured right".
+   'feeds-list ep-feeds-list 'feeds-create ep-feeds-create 'feed-get ep-feed-get
+   'feed-patch ep-feed-patch 'feed-delete ep-feed-delete 'feed-probe ep-feed-probe
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
    'job-purge ep-job-purge
    ;; #135: the clock. The firing itself is on the reaper seam below.

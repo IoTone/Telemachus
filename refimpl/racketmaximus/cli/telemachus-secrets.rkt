@@ -38,7 +38,10 @@
         ;; #85: a webhook's signing secret. A CREDENTIAL, not content — it is an
         ;; HMAC key a receiver verifies with — so it is here rather than in
         ;; CONTENT-SECRETS and `rewrap` rotates it unconditionally.
-        (list "webhooks"          "secret"      "id" "webhooks.secret")))
+        (list "webhooks"          "secret"      "id" "webhooks.secret")
+        ;; #114: a feed's API token, replayed against somebody else's source.
+        ;; Nullable — a public feed has none — and `rows-of` filters NULLs out.
+        (list "feeds"             "secret"      "id" "feeds.secret")))
 
 ;; Document-derived CONTENT (issue #83), which is a different kind of thing and
 ;; is therefore conditional. The three above are replayable credentials: if a key

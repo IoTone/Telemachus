@@ -44,7 +44,7 @@
 ;; verifies with — so it is in `CREDENTIAL-SECRETS` and `rewrap` rotates it
 ;; unconditionally, unlike the content columns, which only move when the
 ;; operator has turned content encryption on.
-(define-sealed-column "webhooks.secret" (seal-secret unseal-secret) (id))
+(define-sealed-column "webhooks.secret" (seal-secret unseal-secret) (id) #:credential)
 
 (define SIGNATURE-VERSION "v1")
 ;; Ten attempts with a 24h ceiling (#85 r3). 60 * 2^(n-1) reaches about 8.5 hours

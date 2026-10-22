@@ -1,7 +1,9 @@
 # External feeds, and a prioritised work queue
 
 *Requirements for [issue #114](https://github.com/IoTone/Telemachus/issues/114),
-an external customer requirement. **Nothing here is built.** Decisions FEED‑1…11.
+an external customer requirement. **Slices 1–3 are built** (FEED‑3 as #135/#140,
+FEED‑4 as #142, FEED‑5/‑6/‑12/‑13 as the feed configuration plane); slice 4, the
+adapter, is what the owner's first answer unblocks. Decisions FEED‑1…13.
 Every claim about what exists was checked against the code and carries a
 reference; where a claim in an earlier comment of mine turned out to be wrong,
 the correction is marked.*
@@ -157,6 +159,26 @@ descriptor leak), a deadline, a bounded retry on 429/5xx/timeout and **never on
 which `telemachus-secrets rewrap` silently skips it and a key rotation leaves it
 unopenable. #83's own notes call this the step people forget.
 
+**Built, and the registry row was not the only trap.** The macro's seal is
+conditional on `TELEMACHUS_ENCRYPT_CONTENT` — correct for #83's content columns,
+wrong for a credential — so #85's `webhooks.secret`, the first credential
+declared through it, was written in the clear on any instance with a key and the
+content switch off, which is the documented default. The macro has a
+`#:credential` form now (ENC‑23) and both columns use it.
+
+**The feed table is CORE, not the plugin's**, which revises FEED‑11's "slices
+3–6 are a plugin": the sealed-column machinery and `CREDENTIAL-SECRETS` are
+platform, and a plugin-owned sealed column would be precisely the
+silently-unrotatable case this decision exists to prevent. A plugin-registrable
+sealed column would move it and is not built.
+
+**Three auth modes, and one refusal** (FEED‑13): `bearer`, a named `header`, and
+`query` — the last supported deliberately, because refusing it only pushes the
+token into the `url` field where it would be unsealed. Userinfo in the URL
+(`https://user:pass@host/`) is refused outright: unambiguously a credential, with
+a sealed home available, and silently relocating it would leave the operator
+unsure which home was in use.
+
 ### FEED‑6 · A failing fetch records the host and the status, never the URL
 
 The customer's words are *"without spilling credentials in logs that go into the
@@ -242,9 +264,9 @@ source adapter.
 
 | # | Slice | Depends on | Acceptance |
 |---|---|---|---|
-| 1 | **Recurring jobs** — `schedules`, the reaper sweep, `POST /api/schedules` | — | A schedule fires once per interval; a missed week fires once, not 672 times; two concurrent sweeps produce one job (unit, both dialects); an overrunning run skips and reports |
-| 2 | **The outbound seam** — one client, two policies | — | `'untrusted` refuses 10.x/127.x/169.254.x and a DNS name resolving to them, with the connection pinned to the resolved address; `'configured` reaches a private host; the default is `'untrusted`; a fetch leaks no descriptor over 100 calls (measured, as `llm.rkt`'s was) |
-| 3 | **Feed configuration** — `feeds` row, sealed secret, `CREDENTIAL-SECRETS` | 2 | `telemachus-secrets rewrap` rotates a feed secret; a failing fetch records host + status and **not** the query string (positive-controlled with a token in the URL) |
+| 1 ✅ | **Recurring jobs** — `schedules`, the reaper sweep, `POST /api/schedules` | — | A schedule fires once per interval; a missed week fires once, not 672 times; two concurrent sweeps produce one job (unit, both dialects); an overrunning run skips and reports |
+| 2 ✅ | **The outbound seam** — one client, two policies | — | `'untrusted` refuses 10.x/127.x/169.254.x and a DNS name resolving to them, with the connection pinned to the resolved address; `'configured` reaches a private host; the default is `'untrusted`; a fetch leaks no descriptor over 100 calls (measured, as `llm.rkt`'s was) |
+| 3 ✅ | **Feed configuration** — `feeds` row, sealed secret, `CREDENTIAL-SECRETS`, the probe | 2 | `telemachus-secrets rewrap` rotates a feed secret; a failing fetch records host + status and **not** the query string (positive-controlled with a token in the URL) |
 | 4 | **The adapter** — one concrete source, items land as repo objects | 1,2,3 | An item becomes a repo object the configured user can read; an unchanged item on the next poll writes no new version; `feed.fetches` is charged and an over-budget team stops |
 | 5 | **The queue** — plugin table, route, screen | 4 | "The first actionable task" is one request, ordered by priority then due date, filtered by status, scoped by `can?` |
 | 6 | **Proposals** — the agent reads an item and proposes; a review gates it | 4,5 | A proposal is a document derived from the item; the act does not run until a person decides; the decision is in LAY‑11's chain |
