@@ -44,6 +44,7 @@
          "routes.rkt"                             ; the declared HTTP surface (slice 60)
          (only-in "../domain/repo/blobs.rkt" blob-root blob-store-names blob-store-probe
                   active-blob-store-name)
+         (only-in "../domain/repo/repo.rkt" reap-staged-blobs!)
          (only-in "../domain/flow/spec.rkt" exn:fail:spec?)
          (only-in "../domain/ai/executor.rkt" estimate-tokens model-configured? pull-router run-chat)
          (only-in "../domain/ai/content.rkt" content->text)
@@ -658,6 +659,14 @@
   (define AUDIT-SEAL-EVERY 60)
   (define last-idem-reap (box 0))
   (define IDEM-REAP-EVERY 600)
+  ;; The staged-blob sweep (#122) is the FIFTH thing on this seam. Ten minutes,
+  ;; like the upload reaper it is a sibling of: the age floor is an hour by
+  ;; default, so a sweep that ran more often would re-ask the same question about
+  ;; the same rows. It rides here rather than in the S3 listener for the same
+  ;; reason the upload reaper does — the listener is off by default, and these
+  ;; bytes come from the ordinary front door, not from it.
+  (define last-blob-sweep (box 0))
+  (define BLOB-SWEEP-EVERY 600)
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -688,6 +697,13 @@
                                     (eprintf "idempotency reaper: ~a\n" (exn-message e)))])
          (define gone (idem-reap! conn))
          (when (> gone 0) (printf "reaped ~a expired idempotency key(s)\n" gone))))
+     (when (> (- (current-seconds) (unbox last-blob-sweep)) BLOB-SWEEP-EVERY)
+       (set-box! last-blob-sweep (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "blob sweep: ~a\n" (exn-message e)))])
+         (define-values (collected _kept) (reap-staged-blobs! conn))
+         (when (> collected 0)
+           (printf "collected ~a orphaned blob(s)\n" collected))))
      (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
        (set-box! last-audit-seal (current-seconds))
        ;; its own handler too, for the reason the other two have one

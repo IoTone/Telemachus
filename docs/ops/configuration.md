@@ -51,6 +51,7 @@ Conventions used throughout:
 | `TELEMACHUS_BLOB_STORE` | `rs3` | Which registered blob store holds document bytes. A name that is not registered **refuses to boot** — a typo used to write every document to local disk while the instance reported healthy. |
 | `TELEMACHUS_RS3_ROOT` | `<data dir>/rs3` | Where the local filesystem blob store writes. A relative path **refuses to boot**: `serve/servlet` repoints the working directory while handling a request, so a relative root aims writes at the read-only Nix store. |
 | `TELEMACHUS_UPLOAD_REAP_HOURS` | `168` (7 days) | How long an abandoned S3 multipart upload is kept. `never` disables; a nonsense or non-positive value falls back to the default. The clock is the **newest part**, not the create time, so a slow 2 GB upload is not reaped mid-flight. |
+| `TELEMACHUS_BLOB_STAGE_REAP_MINUTES` | `60` | How long a blob may sit with nothing pointing at it before a sweep collects it (issue #122). An upload's bytes are written **before** admission — the size is not known until they are, and trusting a client-supplied `Content-Length` is not enforcement — so a refused or crashed upload leaves bytes with no row. **The floor is a correctness requirement, not tidiness:** the gap between the write and the version row is exactly when a legitimate blob has no row yet, so a shorter value risks collecting an upload in progress. `never` disables the sweep; `0`, a negative value or nonsense falls back to the default. A blob another object shares is never collected, whatever the age. |
 
 ## Secrets and authentication
 

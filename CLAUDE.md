@@ -3541,6 +3541,59 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## Bytes with nothing pointing at them (#122)
+
+A refused upload left its blob in the store for ever, and uncounted — so the
+quota that refused it was measuring the wrong number from then on.
+`release-blob-if-unreferenced!` runs from the DELETE path only, so nothing ever
+looked at those bytes again.
+
+```sh
+raco test test/blob-sweep-tests.rkt   # 5 cases, both safety properties controlled
+```
+
+- **The write cannot move, and the existing comment was half right.**
+  `repo-put!` stages the blob before admission because the size is not known
+  until it has, and a quota enforced on a client-supplied `Content-Length` is not
+  enforcement. The comment there accounted for the ROW it leaves behind and said
+  nothing of the BYTES; that is the whole bug.
+- **NOT delete-on-refusal, which is the obvious fix and is wrong.** Content is
+  stored once per ORG (DOC‑5/DOC‑6), so two teams in one company uploading the
+  same file share a blob, and team A over quota deleting "its" blob destroys what
+  team B's version row depends on. That is the NORMAL dedup path, not a corner
+  case — and #86 slice 1 already had to fix this exact class once, where
+  `repo-delete!` never consulted `repo_upload_parts` and destroyed the bytes a
+  live multipart upload needed.
+- **A TABLE, not a scan of the store** (`repo_blob_staging`, migration 0050).
+  The blob-store seam is put/get/delete/stat with **no list**, so the issue's
+  "sweep every blob no version points at" cannot be written against a bucket at
+  all. A row per in-flight stage makes the sweep read rows instead — bounded by
+  what is actually in flight — and it covers the crash between the write and the
+  version row, which no refusal handling can.
+- **The age floor is a CORRECTNESS requirement.** The gap between `blob-stage!`
+  and the version INSERT is exactly when a legitimate blob has no row yet, so a
+  sweep with no floor deletes bytes an upload is about to reference.
+  `TELEMACHUS_BLOB_STAGE_REAP_MINUTES`, default 60, `never` off, and 0 falls back
+  to the default rather than being honoured. **Positive-controlled: with the
+  floor set to 0 the "nothing is collected inside the floor" case fails.**
+- **`blob-referenced?` is asked for every row — the ONE rule, not a second one.**
+  It counts version rows AND `repo_upload_parts` in that org, which is what #86
+  slice 1 consolidated, and asking it is what makes the sweep safe where
+  delete-on-refusal was not. **Also positive-controlled: stub it to `#f` and the
+  shared-blob case fails, bytes destroyed.**
+- **NO QUOTA REFUND, and that is not an oversight.** `quota-record!` runs AFTER
+  admission, so a refused upload was never charged and a crash before that point
+  never charged either — there is nothing to give back. The staged PARTS of a
+  multipart upload are the opposite case (charged on arrival, refunded in
+  `drop-upload!`, S3‑8), so copying that pattern here would double-count.
+- **Fifth thing on the `set-reaper!` seam**, ten minutes, beside the upload
+  reaper it is a sibling of. Not in the S3 listener, for the listener's own
+  reason: it is off by default, and these bytes come from the ordinary front door.
+- A stray insertion put this block INSIDE the idempotency reaper's `when` form
+  and it still compiled as far as the paren balance went. `raco make` caught it
+  only because the inner `define` then referenced a name out of scope; read the
+  surrounding form after a scripted insert into a nested `cond`/`when`.
+
 ## A monitoring credential that cannot reset a password (#124)
 
 Every operational READ — `/api/admin/status`, `/api/metrics`,

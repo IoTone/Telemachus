@@ -30,6 +30,8 @@
          "../db/nulls.rkt")
 
 (provide repo-put! set-put-hook! set-delete-hook!
+         ;; issue #122: bytes with nothing pointing at them
+         reap-staged-blobs! stage-reap-seconds stage-blob! unstage-blob!
          repo-fields repo-fields-set! repo-set-attributes!
          repo-get repo-open repo-list repo-versions
          ;; the ONE implementation of the triple can? reads for an object —
@@ -230,6 +232,12 @@
   (when prior (require-perm conn p "files:write" #:resource (obj->resource prior)))
 
   (define-values (digest size) (blob-stage! org in #:max-bytes max-bytes))
+  ;; issue #122: the bytes are now IN the store and nothing points at them yet.
+  ;; Record that before anything below can refuse, so the sweep can collect them
+  ;; if it does — a refused upload used to leave them for ever, uncounted, with
+  ;; no path that would ever look at them again (`release-blob-if-unreferenced!`
+  ;; runs from the delete path only).
+  (stage-blob! conn org digest)
   (when (and (zero? size) (not allow-empty?)) (raise-user-error 'repo "empty upload"))
   ;; Admission runs after the bytes are in the store, because the size is not known
   ;; until they are. An over-budget upload therefore costs one write and leaves no
@@ -266,6 +274,10 @@
   (when (and prior vis)
     (query-exec conn "UPDATE repo_objects SET visibility = ? WHERE id = ?" vis oid))
 
+  ;; a version row points at the blob now, so it is no longer orphan-able and the
+  ;; staging row goes. `blob-referenced?` would say the same thing, but leaving
+  ;; the row would make every later sweep ask that question again for ever.
+  (unstage-blob! conn org digest)
   (quota-record! conn "team" team STORAGE-DIMENSION size)
   (when org (quota-record! conn "org" org STORAGE-DIMENSION size))
   (audit! conn #:action (if prior "repo.update" "repo.create")
@@ -774,6 +786,94 @@
                      "WHERE pt.digest = ? AND u.org_id = ?")
       digest org))
   (or (> versions 0) (> parts 0)))
+
+;; ---- bytes with nothing pointing at them (issue #122) -----------------------
+;; `repo-put!` writes the blob BEFORE admission, because the size is not known
+;; until it has, and the alternative is trusting a client-supplied
+;; Content-Length — which is not enforcement. So an over-budget upload costs one
+;; write; what was missing is anything that ever collects it. The comment there
+;; accounted for the ROW it leaves behind and said nothing of the BYTES.
+;;
+;; WHY NOT DELETE ON REFUSAL, which is the obvious fix: content is stored once
+;; per ORG (DOC-5/DOC-6), so two teams in one company uploading the same file
+;; share a blob, and team A over quota deleting "its" blob would destroy the
+;; bytes team B's version row depends on. That is not a corner case — it is the
+;; normal dedup path — and #86 slice 1 already had to fix this exact class once,
+;; where `repo-delete!` never consulted `repo_upload_parts` and destroyed the
+;; bytes a live multipart upload needed. A synchronous delete walks back into it.
+;;
+;; WHY A TABLE AND NOT A SCAN: the blob-store seam is put/get/delete/stat with no
+;; LIST, so "sweep every blob no version points at" cannot be written against a
+;; bucket. A row per in-flight stage makes the sweep read rows instead, bounded
+;; by what is actually in flight — and it covers the crash between the write and
+;; the version row, which no amount of careful refusal handling can.
+(define (stage-blob! conn org digest)
+  (define now (current-seconds))
+  ;; the LATEST stage wins, which is the conservative direction: it delays
+  ;; collection rather than advancing it
+  (if (query-maybe-value conn
+        "SELECT digest FROM repo_blob_staging WHERE org_id = ? AND digest = ?" org digest)
+      (query-exec conn
+        "UPDATE repo_blob_staging SET staged_epoch = ? WHERE org_id = ? AND digest = ?"
+        now org digest)
+      (query-exec conn
+        "INSERT INTO repo_blob_staging (org_id, digest, staged_epoch) VALUES (?, ?, ?)"
+        org digest now)))
+
+(define (unstage-blob! conn org digest)
+  (query-exec conn "DELETE FROM repo_blob_staging WHERE org_id = ? AND digest = ?" org digest))
+
+;; How long a blob may sit with nothing pointing at it before it is collected.
+;; THE FLOOR IS A CORRECTNESS REQUIREMENT, not tidiness: the window between
+;; `blob-stage!` and the version INSERT is exactly when a legitimate blob has no
+;; row yet, so a sweep with no floor would delete bytes an upload in progress is
+;; about to reference. `never` disables it; anything unparseable falls back to
+;; the default, never to 0 — the platform's rule for every interval knob.
+(define DEFAULT-STAGE-REAP-MINUTES 60)
+(define (stage-reap-seconds)
+  (define raw (getenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES"))
+  (cond
+    [(or (not raw) (string=? raw "")) (* 60 DEFAULT-STAGE-REAP-MINUTES)]
+    [(string=? raw "never") #f]
+    [(let ([n (string->number raw)]) (and (exact-integer? n) (positive? n) (* 60 n)))]
+    [else (* 60 DEFAULT-STAGE-REAP-MINUTES)]))
+
+;; -> (values collected kept). `kept` is the rows whose blob turned out to be
+;; referenced after all: the upload completed, or another object shares the
+;; digest. Those rows go too, but the BYTES stay.
+(define STAGE-REAP-BATCH 500)
+(define (reap-staged-blobs! conn)
+  (define horizon (stage-reap-seconds))
+  (cond
+    [(not horizon) (values 0 0)]
+    [else
+     (define cutoff (- (current-seconds) horizon))
+     (define rows (query-rows conn
+       (string-append "SELECT org_id, digest FROM repo_blob_staging WHERE staged_epoch < ? "
+                      "ORDER BY staged_epoch ASC LIMIT ?")
+       cutoff STAGE-REAP-BATCH))
+     (for/fold ([collected 0] [kept 0]) ([r (in-list rows)])
+       (define org (vector-ref r 0))
+       (define digest (vector-ref r 1))
+       ;; THE ONE RULE, not a second one: `blob-referenced?` counts version rows
+       ;; AND `repo_upload_parts` in this org, which is what #86 slice 1
+       ;; consolidated. Asking it here is what makes the sweep safe against the
+       ;; dedup path a synchronous delete could not survive.
+       (define referenced? (blob-referenced? conn org digest))
+       (unless referenced?
+         (with-handlers ([exn:fail? (lambda (e)
+                                      ;; a store that cannot delete must not wedge
+                                      ;; the sweep for every other row
+                                      (eprintf "blob sweep: ~a/~a: ~a\n" org digest (exn-message e)))])
+           (blob-delete! org digest)))
+       (query-exec conn "DELETE FROM repo_blob_staging WHERE org_id = ? AND digest = ?" org digest)
+       ;; NO QUOTA REFUND, and that is not an oversight: `quota-record!` runs
+       ;; AFTER admission, so a refused upload was never charged and a crash
+       ;; before that point never charged either. There is nothing to give back.
+       ;; The staged PARTS of a multipart upload are different — those are charged
+       ;; on arrival and refunded in `drop-upload!` (S3-8).
+       (if referenced? (values collected (add1 kept)) (values (add1 collected) kept)))]))
+
 
 ;; Release the bytes if nothing in this org still points at them. `#:except-object`
 ;; is for a caller that has already tombstoned an object but not yet removed its
