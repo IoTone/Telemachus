@@ -34,11 +34,13 @@
          "federation.rkt"
          "../db/nulls.rkt")
 
-(provide executor-create! executor-list executor-retire! executor-by-token executor-by-name
+(provide executor-create! executor-list executor-retire! executor-by-token executor-by-name executor-by-id
          load-push-executors!
          worker-claim! worker-heartbeat! worker-complete! worker-fail! worker-release! reap-leases!
          worker-document worker-derive! worker-report-state! executor-set-admin-state!
          executor-can-run?
+         rotate-worker-token! worker-token-status worker-token-seconds
+         WORKER-TOKEN-OVERLAP WORKER-ROTATE-MIN-AGE
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
          MAX-RELEASES RELEASE-BACKOFF
          pull-dispatch!)
@@ -95,6 +97,53 @@
 ;; NOT one of them — retiring revokes the worker token and is irreversible, and
 ;; the whole point of draining is that it is neither.
 (define ADMIN-STATES '("active" "drained"))
+
+;; ---- the worker token's lifetime (issue #60) --------------------------------------
+;; A worker token was `ttl 'never` on purpose: the session timeouts are not
+;; applied to machine credentials (SESS-1), because idling one out is a silent
+;; outage. The cost was the one credential this platform issues that never
+;; expires, held by a box in somebody else's rack.
+;;
+;; Expiry alone would only move the outage: at the horizon every worker stops at
+;; once. So expiry comes WITH an overlap — two live tokens per executor for a
+;; window, the new one minted before the old lapses, which is what makes an
+;; unattended rotation possible.
+;;
+;; IT IS OFF UNLESS CONFIGURED, and that is the retention rule's call (DEL-9): a
+;; real default here means an upgrade silently starts expiring credentials on
+;; every instance, including the third-party workers that cannot rotate
+;; themselves. 90 days is the recommendation, written in the configuration
+;; reference, not the shipped value. An unparseable or non-positive value falls
+;; back to "never" rather than to 0 — which would expire a token as it was
+;; minted, taking every executor on the instance down on the next deploy.
+(define (worker-token-seconds)
+  (define t (let ([v (getenv "TELEMACHUS_WORKER_TOKEN_DAYS")]) (and v (string-trim v))))
+  (cond
+    [(or (not t) (string=? t "") (string-ci=? t "never")) #f]
+    [else (define n (string->number t))
+          (and (real? n) (> n 0) (inexact->exact (floor (* n 86400))))]))
+
+;; How long the OLD token keeps working after a rotation. A constant, not a knob:
+;; the platform tells a worker to rotate a third of its token's life before the
+;; horizon, so the overlap is not what a healthy worker depends on — it is the
+;; margin for a host that rotated and then restarted before it had persisted the
+;; new token. A longer window would only extend the life of a credential that is
+;; being retired, which is the opposite of the point.
+(define WORKER-TOKEN-OVERLAP 3600)
+
+;; A worker may not rotate twice inside this window. A buggy loop would
+;; otherwise mint a token per poll; at most two are ever live, so the damage is
+;; rows rather than authority, but a credential churning once a second is not a
+;; state an operator should have to read an audit log to discover. The OPERATOR
+;; plane passes 0: rotating a token you believe is leaked must never be refused
+;; because something already rotated it.
+(define WORKER-ROTATE-MIN-AGE 300)
+
+;; When the platform starts asking for a rotation: a third of the token's life
+;; before it expires, which leaves a worker checking hourly many chances. There
+;; is no floor at a day, deliberately — a short TTL is how this gets tested, and
+;; a floor would make a 10-minute token un-rotatable and so silently fatal.
+(define (renew-window ttl) (max 60 (quotient ttl 3)))
 
 ;; ---- executors --------------------------------------------------------------------
 ;; a push executor's key is sealed at rest like the other replayable secrets
@@ -179,7 +228,7 @@
 
 (define ESELECT
   (string-append "SELECT id, org_id, name, mode, url, model, capabilities, token_id, status, last_seen_at, created_at, created_by, "
-                 "worker_state, state_epoch, admin_state "
+                 "worker_state, state_epoch, admin_state, prev_token_id "
                  "FROM executors"))
 
 (define (row->executor r)
@@ -209,6 +258,12 @@
           'capabilities (with-handlers ([exn:fail? (lambda (_) (hasheq))])
                           (let ([j (string->jsexpr (vector-ref r 6))]) (if (hash? j) j (hasheq))))
           'token_id (nz (vector-ref r 7))
+          ;; issue #60: the previous worker token, still live for the overlap
+          ;; window after a rotation. Reported beside `token_id` because the
+          ;; two slots are the whole mechanism — an operator asking why an old
+          ;; credential still works should be able to see that it is the one
+          ;; being retired, not a second credential nobody tracked.
+          'prev_token_id (nz (vector-ref r 15))
           'status status
           'worker_state (if (and said fresh?) said 'null)
           'state_at (let ([v (vector-ref r 13)]) (if (or (sql-null? v) (not (and said fresh?))) 'null v))
@@ -245,7 +300,12 @@
   (define-values (raw tid)
     (if (equal? mode "pull")
         (issue-token! conn #:user (principal-user-id p) #:team (principal-team-id p)
-                      #:name (string-append "worker:" name) #:scopes '("jobs:execute") #:ttl 'never #:kind WORKER-KIND)
+                      #:name (string-append "worker:" name) #:scopes '("jobs:execute")
+                      ;; issue #60: `never` unless the instance asked for a
+                      ;; lifetime. NOT #f — that is issue-token!'s "the default
+                      ;; for this kind", which is 30 days, so a forgotten knob
+                      ;; would silently expire every worker on the instance.
+                      #:ttl (or (worker-token-seconds) 'never) #:kind WORKER-KIND)
         (values #f #f)))
   (query-exec conn
     (string-append "INSERT INTO executors (id, org_id, name, mode, url, model, secret_key, capabilities, token_id, created_by) "
@@ -346,8 +406,12 @@
          ;; a push executor serves out of the in-memory registry, so the row alone
          ;; would leave it taking traffic until the next restart
          (when (equal? (hash-ref e 'mode) "push") (unregister-executor! (hash-ref e 'name)))
-         (when (string? (hash-ref e 'token_id))
-           (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" (hash-ref e 'token_id)))
+         ;; BOTH slots (issue #60): a retire that left the previous token alive
+         ;; would leave a live jobs:execute credential for a host the operator
+         ;; has just taken away.
+         (for ([k (in-list '(token_id prev_token_id))])
+           (when (string? (hash-ref e k))
+             (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" (hash-ref e k))))
          ;; a job this host holds goes back to the queue right away
          (query-exec conn (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
                                          "claim_token = NULL WHERE executor_id = ? AND status = 'running'") id)
@@ -355,13 +419,131 @@
                  #:resource-type "executor" #:resource-id id)
          #t)))
 
+;; Either slot resolves (issue #60): during the overlap a host may still be
+;; holding the token it is replacing, and refusing it there would turn the
+;; rotation into exactly the outage the overlap exists to prevent. `resolve-token`
+;; has already refused an EXPIRED row before this is reached, so the overlap's
+;; end is enforced by the token's own expiry and not by a second rule here.
 (define (executor-by-token conn token-id)
-  (define r (query-maybe-row conn (string-append ESELECT " WHERE token_id = ? AND status <> 'retired'") token-id))
+  (define r (query-maybe-row conn (string-append ESELECT " WHERE (token_id = ? OR prev_token_id = ?) AND status <> 'retired'")
+                             token-id token-id))
+  (and r (row->executor r)))
+
+(define (executor-by-id conn id)
+  (define r (query-maybe-row conn (string-append ESELECT " WHERE id = ? AND status <> 'retired'") id))
   (and r (row->executor r)))
 
 (define (executor-by-name conn name)
   (define r (query-maybe-row conn (string-append ESELECT " WHERE name = ? AND status <> 'retired'") name))
   (and r (row->executor r)))
+
+;; ---- rotating a worker token (issue #60) -----------------------------------------
+;; The expiry's other half. Two askers, one implementation:
+;;
+;;   the WORKER itself, through POST /api/workers/token — the case that makes an
+;;     expiry survivable without a person. It holds a valid credential, so it may
+;;     trade it for the next one; the reference worker does this when the platform
+;;     tells it to, and persists the result before using it.
+;;   the OPERATOR, through POST /api/executors/:id/rotate-token — for a
+;;     third-party worker that cannot rotate itself, and for a token believed
+;;     leaked. It passes #:min-age 0: a rotation somebody asked for on purpose is
+;;     never refused because something rotated recently.
+;;
+;; The new token inherits the OLD ROW's user, team and scopes, not the caller's.
+;; Rotation replaces a credential; it must not quietly re-attribute it to the
+;; operator who happened to press the button, or the next audit entry about that
+;; host would name the wrong person and `can?` would answer about the wrong team.
+;;
+;; -> a raw token string, or a symbol: 'not-pull, 'no-token, 'too-soon.
+(define (rotate-worker-token! conn ex #:actor-id [actor-id #f] #:actor-type [actor-type "user"]
+                              #:min-age [min-age 0])
+  (define id (hash-ref ex 'id))
+  (define cur (hash-ref ex 'token_id))
+  (cond
+    [(not (equal? (hash-ref ex 'mode) "pull")) 'not-pull]
+    [(not (string? cur)) 'no-token]
+    [else
+     (define r (query-maybe-row conn "SELECT user_id, team_id, name, created_epoch FROM api_tokens WHERE id = ?" cur))
+     (cond
+       [(not r) 'no-token]
+       ;; The minimum interval NEVER refuses a rotation the platform asked for.
+       ;; It bounds an UNSOLICITED loop — a worker misreading its own clock, or a
+       ;; retry storm — and a floor that could refuse the renewal the platform is
+       ;; requesting would be a scheduled outage with a rate limiter in front of
+       ;; it. Found by the smoke: a short test lifetime puts a token inside its
+       ;; renewal window while it is still younger than the floor, and the
+       ;; reference worker was told to rotate and then refused.
+       [(and (> min-age 0)
+             (not (hash-ref (worker-token-status conn ex) 'rotate))
+             (let ([ce (vector-ref r 3)])
+               (and (not (sql-null? ce))
+                    (< (- (now) (if (number? ce) ce (or (string->number (format "~a" ce)) 0))) min-age))))
+        'too-soon]
+       [else
+        (define ttl (worker-token-seconds))
+        (define-values (raw tid)
+          (issue-token! conn #:user (vector-ref r 0) #:team (vector-ref r 1)
+                        #:name (let ([n (vector-ref r 2)])
+                                 (if (sql-null? n) (string-append "worker:" (hash-ref ex 'name)) n))
+                        #:scopes '("jobs:execute") #:ttl (or ttl 'never) #:kind WORKER-KIND))
+        ;; The third token retires IMMEDIATELY. Two slots is the contract: a
+        ;; host that rotates twice before it finishes deploying has told us the
+        ;; oldest credential is not the one in use, and keeping it would make
+        ;; "how many live tokens does this executor have" unanswerable.
+        (define older (hash-ref ex 'prev_token_id))
+        (when (string? older)
+          (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" older))
+        ;; The outgoing token keeps working for the overlap — SHORTENED to it,
+        ;; never extended: a token with a year left does not get a year more of
+        ;; life because it was replaced, and one already inside the window keeps
+        ;; the earlier of the two horizons.
+        (define horizon (+ (now) WORKER-TOKEN-OVERLAP))
+        (define have (let ([v (query-maybe-value conn "SELECT expires_at FROM api_tokens WHERE id = ?" cur)])
+                       (and v (not (sql-null? v)) (string->number (format "~a" v)))))
+        (query-exec conn "UPDATE api_tokens SET expires_at = ? WHERE id = ?"
+                    (number->string (if (and have (< have horizon)) have horizon)) cur)
+        (query-exec conn "UPDATE executors SET token_id = ?, prev_token_id = ? WHERE id = ?" tid cur id)
+        ;; #:team-id is the TOKEN's team — the fifth appearance of this shape
+        ;; (QUOTA-3's rule): `audit-list` filters `WHERE team_id = ?`, so an
+        ;; entry written without one is in the log and invisible to everybody
+        ;; who would look. The smoke is what caught it, again.
+        (audit! conn #:action "executor.token.rotate" #:actor-type actor-type #:actor-id actor-id
+                #:team-id (vector-ref r 1)
+                #:resource-type "executor" #:resource-id id
+                ;; the token IDS, never a prefix of either: the id is what the
+                ;; token listing already shows and the raw token is the one
+                ;; thing this platform never writes down twice
+                #:meta (jsexpr->string (hasheq 'name (hash-ref ex 'name)
+                                               'token_id tid 'previous_token_id cur
+                                               'overlap_seconds WORKER-TOKEN-OVERLAP
+                                               'expires_at (if ttl (+ (now) ttl) 'null))))
+        raw])]))
+
+;; What a worker needs to know about its own credential, and the ONE channel it
+;; learns it through (GET /api/workers/token). Deliberately not a field riding on
+;; the claim: an idle worker's claim answers 204, which carries no body, so the
+;; case that most needs telling — a host with no work whose token is about to
+;; lapse — is the one a claim field cannot reach.
+;;
+;; `rotate` is the platform's answer, not the worker's own arithmetic: one
+;; boolean means every worker in every language takes the same decision, and the
+;; window can be changed here without re-deploying a fleet.
+(define (worker-token-status conn ex)
+  (define cur (hash-ref ex 'token_id))
+  (define exp (and (string? cur)
+                   (let ([v (query-maybe-value conn "SELECT expires_at FROM api_tokens WHERE id = ?" cur)])
+                     (and v (not (sql-null? v)) (string->number (format "~a" v))))))
+  (define ttl (worker-token-seconds))
+  ;; With no TTL configured but a finite expiry on the row — the knob was set,
+  ;; a token was minted, the knob was turned off again — the window falls back to
+  ;; the overlap. The row's horizon is real whatever the knob says now, and a
+  ;; worker that is never told to rotate before it stops at one is the outage
+  ;; this whole slice is about.
+  (define window (if ttl (renew-window ttl) WORKER-TOKEN-OVERLAP))
+  (hasheq 'expires_at (or exp 'null)
+          'rotate (and exp (<= (- exp (now)) window) #t)
+          'overlap_seconds WORKER-TOKEN-OVERLAP
+          'ttl_seconds (or ttl 'null)))
 
 ;; ---- the worker protocol ------------------------------------------------------------
 (define claim-lock (make-semaphore 1))

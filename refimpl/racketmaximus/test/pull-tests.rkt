@@ -710,3 +710,166 @@
   (check-equal? (worker-release! c ex j #:token (hash-ref cl2 'claim_token)) 'canceled)
   (check-equal? (hash-ref (get-job c j tid) 'status) "canceled" "settled, never re-queued")
   (disconnect c))
+
+;; ---- issue #60: the worker token expires, and a rotation overlaps -----------------
+;;
+;; The knob is process-global, so every case that sets it restores it in a
+;; dynamic-wind: a failing check raises, and a leaked TELEMACHUS_WORKER_TOKEN_DAYS
+;; would silently change what every later test in this file mints (the trap
+;; set-cap-for! set in test/fleet-tests.rkt).
+(define (with-token-days days thunk)
+  (define had (getenv "TELEMACHUS_WORKER_TOKEN_DAYS"))
+  (dynamic-wind
+    (lambda () (putenv "TELEMACHUS_WORKER_TOKEN_DAYS" days))
+    thunk
+    (lambda () (putenv "TELEMACHUS_WORKER_TOKEN_DAYS" (or had "")))))
+
+(define (token-expiry c tok-id)
+  (define v (query-maybe-value c "SELECT expires_at FROM api_tokens WHERE id = ?" tok-id))
+  (and v (not (sql-null? v)) (string->number (format "~a" v))))
+(define (token-status-of c tok-id)
+  (query-value c "SELECT status FROM api_tokens WHERE id = ?" tok-id))
+
+(test-case "#60: with the knob unset a worker token still never expires"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "gpu-1" #:model "m"))
+  ;; The whole upgrade-safety argument: nothing anybody has deployed stops
+  ;; working, because expiry is opt-in per instance (the retention rule, DEL-9).
+  ;; `#:ttl #f` would be issue-token!'s "default for this kind" — 30 days — so
+  ;; this case fails against the obvious spelling of the change.
+  (check-false (token-expiry c (hash-ref ex 'token_id)) "no expiry unless the instance asked for one")
+  (define st (worker-token-status c ex))
+  (check-equal? (hash-ref st 'expires_at) 'null)
+  (check-false (hash-ref st 'rotate) "nothing to rotate for")
+  (check-equal? (hash-ref st 'ttl_seconds) 'null)
+  ;; and the token works, which is the point
+  (check-equal? (hash-ref (executor-by-token c (hash-ref ex 'token_id)) 'name) "gpu-1")
+  (check-true (string? tok))
+  (disconnect c))
+
+(test-case "#60: the knob sets a horizon, and the platform says when to rotate"
+  (with-token-days "30" (lambda ()
+    (define c (fresh))
+    (define-values (uid tid) (bootstrap! c #:username "root"))
+    (define p (user-principal c uid tid))
+    (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+    (define exp (token-expiry c (hash-ref ex 'token_id)))
+    (check-true (and exp (> exp (+ (current-seconds) (* 29 86400)))) "~30 days out")
+    (check-false (hash-ref (worker-token-status c ex) 'rotate) "not yet — a month of life left")
+    ;; the window is a third of the token's life, so a token 20 days from its
+    ;; horizon is still fine and one 60 seconds away is not
+    (query-exec c "UPDATE api_tokens SET expires_at = ? WHERE id = ?"
+                (number->string (+ (current-seconds) (* 20 86400))) (hash-ref ex 'token_id))
+    (check-false (hash-ref (worker-token-status c (executor-by-id c (hash-ref ex 'id))) 'rotate))
+    (query-exec c "UPDATE api_tokens SET expires_at = ? WHERE id = ?"
+                (number->string (+ (current-seconds) 60)) (hash-ref ex 'token_id))
+    (check-true (hash-ref (worker-token-status c (executor-by-id c (hash-ref ex 'id))) 'rotate)
+                "inside the window the platform asks for a rotation")
+    (disconnect c))))
+
+(test-case "#60: a rotation OVERLAPS — both tokens work, and the old one is shortened"
+  (with-token-days "30" (lambda ()
+    (define c (fresh))
+    (define-values (uid tid) (bootstrap! c #:username "root"))
+    (define p (user-principal c uid tid))
+    (define-values (ex old-raw) (executor-create! c p #:name "gpu-1" #:model "m"))
+    (define old-id (hash-ref ex 'token_id))
+    (define new-raw (rotate-worker-token! c ex #:actor-id uid))
+    (check-true (string? new-raw) "a raw token, shown once")
+    (check-false (equal? new-raw old-raw))
+    (define after (executor-by-id c (hash-ref ex 'id)))
+    (check-false (equal? (hash-ref after 'token_id) old-id) "the new token is the current one")
+    (check-equal? (hash-ref after 'prev_token_id) old-id "…and the old one is in the second slot")
+    ;; THE OVERLAP: the host may still be presenting the token it is replacing,
+    ;; and refusing it here would make the rotation the outage it exists to avoid
+    (check-equal? (hash-ref (executor-by-token c old-id) 'id) (hash-ref ex 'id)
+                  "the outgoing token still resolves to its executor")
+    (check-equal? (hash-ref (executor-by-token c (hash-ref after 'token_id)) 'id) (hash-ref ex 'id))
+    ;; both are live credentials with the worker's scope, not merely rows
+    (for ([raw (in-list (list old-raw new-raw))])
+      (define rp (resolve-token c raw))
+      (check-true (and rp #t) "both tokens resolve to a principal")
+      (check-true (and (member "jobs:execute" (principal-token-scopes rp)) #t) "…with the worker scope"))
+    ;; SHORTENED to the overlap, never extended: a token with 30 days left does
+    ;; not get a year more life because something replaced it
+    (define oexp (token-expiry c old-id))
+    (check-true (and oexp (<= oexp (+ (current-seconds) WORKER-TOKEN-OVERLAP)))
+                "the outgoing token now expires within the overlap")
+    (check-true (> oexp (current-seconds)) "…but not yet")
+    ;; the audit entry names both ids and never a token
+    (define meta (string->jsexpr
+                  (query-value c (string-append "SELECT meta FROM audit_log WHERE action = 'executor.token.rotate' "
+                                                "AND resource_id = ?") (hash-ref ex 'id))))
+    (check-equal? (hash-ref meta 'previous_token_id) old-id)
+    (check-false (regexp-match? (regexp-quote new-raw) (format "~a" meta)) "the raw token is never written down")
+    (disconnect c))))
+
+(test-case "#60: two slots and no more; the identity is the row's, not the caller's"
+  (with-token-days "30" (lambda ()
+    (define c (fresh))
+    (define-values (uid tid) (bootstrap! c #:username "root"))
+    (define p (user-principal c uid tid))
+    ;; a SECOND operator, to prove a rotation does not re-attribute the credential
+    (define other (create-user! c #:username "ops2" #:password "pw-ops2-x"))
+    (define-values (ex a-raw) (executor-create! c p #:name "gpu-1" #:model "m"))
+    (define a (hash-ref ex 'token_id))
+    (void (rotate-worker-token! c (executor-by-id c (hash-ref ex 'id)) #:actor-id other))
+    (define e2 (executor-by-id c (hash-ref ex 'id)))
+    (define b (hash-ref e2 'token_id))
+    (check-equal? (query-value c "SELECT user_id FROM api_tokens WHERE id = ?" b) uid
+                  "the new token belongs to whoever the old one did, never to the operator who pressed the button")
+    (check-equal? (query-value c "SELECT team_id FROM api_tokens WHERE id = ?" b) tid)
+    (check-equal? (string->jsexpr (query-value c "SELECT scopes FROM api_tokens WHERE id = ?" b)) '("jobs:execute"))
+    ;; a third token retires the oldest at once: "how many live credentials does
+    ;; this executor have" must have an answer, and it is two
+    (void (rotate-worker-token! c e2 #:actor-id uid))
+    (check-equal? (token-status-of c a) "revoked" "the oldest is revoked, not left to run out")
+    (check-false (resolve-token c a-raw) "…and no longer resolves at all")
+    (define e3 (executor-by-id c (hash-ref ex 'id)))
+    (check-equal? (hash-ref e3 'prev_token_id) b)
+    (check-equal? (token-status-of c b) "active")
+    (disconnect c))))
+
+(test-case "#60: the worker plane may not rotate in a loop; the operator always may"
+  (with-token-days "30" (lambda ()
+    (define c (fresh))
+    (define-values (uid tid) (bootstrap! c #:username "root"))
+    (define p (user-principal c uid tid))
+    (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+    ;; a buggy worker polling once a second would otherwise mint a token a second
+    (check-equal? (rotate-worker-token! c ex #:actor-id uid #:min-age WORKER-ROTATE-MIN-AGE) 'too-soon)
+    ;; …while a rotation somebody asked for on purpose — a token believed leaked —
+    ;; is never refused because something rotated recently
+    (check-true (string? (rotate-worker-token! c ex #:actor-id uid #:min-age 0)))
+    ;; …and the floor NEVER refuses a rotation the platform asked for. This is
+    ;; the exception that is the rule: a floor that can refuse the renewal the
+    ;; platform is requesting is a scheduled outage with a rate limiter in front
+    ;; of it. The smoke found it — a short lifetime puts a token inside its
+    ;; renewal window while it is still younger than the floor.
+    (with-token-days "0.0005" (lambda ()   ; 43 seconds: always inside its window
+      (define-values (short _s) (executor-create! c p #:name "gpu-2" #:model "m"))
+      (check-true (hash-ref (worker-token-status c short) 'rotate) "the platform is asking")
+      (check-true (string? (rotate-worker-token! c short #:actor-id uid #:min-age WORKER-ROTATE-MIN-AGE))
+                  "…so a seconds-old token rotates anyway")))
+    ;; a push executor has no worker token at all
+    (define-values (push _k) (executor-create! c p #:name "push-1" #:mode "push" #:url "http://127.0.0.1:1/v1/chat/completions"))
+    (check-equal? (rotate-worker-token! c push #:actor-id uid) 'not-pull)
+    (disconnect c))))
+
+(test-case "#60: retiring an executor revokes BOTH slots"
+  (with-token-days "30" (lambda ()
+    (define c (fresh))
+    (define-values (uid tid) (bootstrap! c #:username "root"))
+    (define p (user-principal c uid tid))
+    (define-values (ex a-raw) (executor-create! c p #:name "gpu-1" #:model "m"))
+    (define a (hash-ref ex 'token_id))
+    (define b-raw (rotate-worker-token! c (executor-by-id c (hash-ref ex 'id)) #:actor-id uid))
+    (check-true (executor-retire! c p (hash-ref ex 'id)))
+    ;; a retire that left the OLD token alive would leave a live jobs:execute
+    ;; credential for a host the operator has just taken away
+    (check-equal? (token-status-of c a) "revoked")
+    (check-false (resolve-token c a-raw))
+    (check-false (resolve-token c b-raw) "…and the current one too")
+    (disconnect c))))

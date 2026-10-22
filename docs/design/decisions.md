@@ -1373,3 +1373,33 @@ can do this one". **Nothing is built.** Full reasoning and the slice plan are in
 first (it decides what `external-id` and `priority` mean, and whether auth is a
 token, OAuth or nothing); whether a plugin screen is acceptable for the queue or
 it must be the core console; and whether FEED‑10's gate is acceptable for v1.
+
+## A worker token expires, and a rotation overlaps (PULL‑15) — **decided and BUILT 22 Oct 2026** (issue #60)
+
+The last of issue #54's four deferred questions. A worker token was minted with
+`ttl 'never` on purpose — the session timeouts are deliberately not applied to
+machine credentials (SESS‑1), because idling one out is a silent outage — and
+the cost was that the longest-lived credential this platform issues is the one
+held by a box in somebody else's rack, with `jobs:execute` on it for ever.
+
+Expiry alone only moves the outage: at the horizon every worker stops at once.
+So the expiry ships WITH the overlap and with a way for a host to renew itself,
+and the three parts are one decision.
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| 🔑 **PULL‑15a** | The default lifetime | **No expiry unless configured** (`TELEMACHUS_WORKER_TOKEN_DAYS`, 90 recommended) · vs a shipped 90 days · vs refusing `never` | The retention rule's call (DEL‑9): a real default means an upgrade silently starts expiring credentials on every instance, including the third-party workers that cannot rotate themselves. The recommendation lives in the configuration reference, where an operator adopting it can read what adopting it requires. An unparseable or non-positive value falls back to `never`, never to `0` — which would expire a token as it was minted and take every executor down on the next deploy. |
+| 🔑 **PULL‑15b** | How an expiry avoids an outage | **Two live tokens per executor for an overlap window** · vs one token and a flag day · vs a keyring | Two slots (`executors.prev_token_id`, migration 0055) is what makes an unattended rotation possible: the new token is minted before the old lapses, and a host still presenting the one it is replacing keeps working. A keyring was rejected — it lets a leaked credential survive indefinitely behind "but something might still hold it", and makes "how many live credentials does this host have" unanswerable. A third rotation revokes the oldest outright. |
+| **PULL‑15c** | The overlap's length | **One hour, a CONSTANT** · vs a knob · vs the outgoing token's own remaining life | The platform asks for a rotation a third of the token's life early, so a healthy worker never depends on the overlap — it is the margin for a host that rotated and then restarted before it had persisted the new token. A longer window only extends the life of a credential being retired, which is the opposite of the point. The outgoing token's expiry is SHORTENED to the window, never extended: a token with a year left does not get a year more because something replaced it. |
+| 🔑 **PULL‑15d** | Who may rotate | **The worker itself, and the operator** · vs the operator alone | The worker is the case that makes an expiry survivable without a person: it holds a valid credential for this executor, so it may trade it for the next one — PULL‑9's read and PULL‑13's write run on the same warrant. The operator plane (`POST /api/executors/:id/rotate-token`) is for a third-party worker that cannot rotate itself, and for a token believed leaked. |
+| 🔑 **PULL‑15e** | How a worker learns | **`GET /api/workers/token`, and the platform decides** · vs a field on the claim · vs the worker computing it | An idle worker's claim answers **204, which carries no body**, so the host that most needs telling — no work, and a token that lapses tonight — is the one a claim field cannot reach. `rotate` is the platform's answer rather than the worker's arithmetic, so every worker in every language takes the same decision and the window can move without redeploying a fleet. One read an hour beside a claim every twenty seconds. |
+| 🔑 **PULL‑15f** | A worker with nowhere to keep a token | **It must NOT rotate, and says so once** · vs rotating anyway · vs refusing to start | A worker that rotates and forgets would go on working on the outgoing credential until the overlap ended — a rotation it asked for, turned into the outage the overlap exists to prevent. So `TELEMACHUS_WORKER_TOKEN_FILE` is written FIRST and the in-memory token is swapped only if that succeeded; with no file configured the worker says once that an operator has to rotate for it. Refusing to start would break every existing deployment, which configures no file. |
+| **PULL‑15g** | Bounding an unsolicited rotation | **Five minutes, and never against a rotation the platform ASKED for** · vs no floor · vs a flat floor | A buggy loop would otherwise mint a credential per poll. The exception is the whole rule: a floor that could refuse the renewal the platform is requesting is a scheduled outage with a rate limiter in front of it. The smoke found exactly that — a short test lifetime puts a token inside its renewal window while it is still younger than the floor, and the reference worker was told to rotate and then refused. The operator plane passes no floor at all: a leak is not a reason to wait five minutes. It is a **429 with `Retry-After`**, not a 409 — nothing is in conflict, the caller is asking too often, and a worker written to back off on 429 already does the right thing. |
+| **PULL‑15h** | Whose credential the new token is | **The OLD ROW's user, team and scopes** · vs the rotating caller's | Rotation replaces a credential; it must not quietly re-attribute it to the operator who pressed the button, or the next audit entry about that host would name the wrong person and `can?` would answer about the wrong team. |
+| **PULL‑15i** | What a retire does now | **Revokes BOTH slots** · vs the current one | A retire that left the previous token alive would leave a live `jobs:execute` credential for a host the operator has just taken away. |
+
+Not built, and deliberately: nothing warns an operator that an executor's token
+is approaching its horizon with no rotation in sight. The information is there
+(`GET /api/executors` carries both slots, the token listing carries the expiry)
+and a fleet-level "this host will stop in three days" belongs with FLEET‑2's
+report rather than in the slice that creates the horizon.

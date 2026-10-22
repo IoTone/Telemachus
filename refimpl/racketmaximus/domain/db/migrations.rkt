@@ -1576,7 +1576,29 @@
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_wh_deliveries_due ON webhook_deliveries (status, next_attempt_epoch)")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_wh_deliveries_team ON webhook_deliveries (team_id, created_epoch)"))))
 
+;; issue #60: a worker token expires, and a rotation OVERLAPS so it can expire
+;; without an outage. `prev_token_id` is the second slot: a rotation mints a new
+;; token, moves the current one here, and the host keeps working on either for
+;; the overlap window. Two slots and no more — a keyring would let a leaked
+;; credential survive indefinitely behind "but something might still hold it".
+;;
+;; Nullable, no backfill: a worker token issued before this migration carries a
+;; NULL `expires_at`, which `resolve-token` reads as "never", so nothing anybody
+;; has deployed stops working. Expiry is opt-in per instance
+;; (TELEMACHUS_WORKER_TOKEN_DAYS) — the retention rule's call (DEL-9), where a
+;; real default means an upgrade silently starts ending things on a timer.
+(define m-0055-worker-token-rotation
+  ;; 0055 and not 0054: #85's `0054-webhooks` is in flight on its own branch, and
+  ;; two slices claiming one id would collide in `schema_migrations` on whichever
+  ;; instance applied the other first.
+  (migration "0055-worker-token-rotation"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE executors ADD COLUMN prev_token_id TEXT"
+       ;; the claim path resolves a bearer to an executor through EITHER slot
+       "CREATE INDEX idx_executors_prev_token ON executors(prev_token_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation))

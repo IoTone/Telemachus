@@ -198,11 +198,18 @@ Model routing:
   `worker-claim!` takes only them. `infer.chat` is the one shipped kind; its
   validator requires a string `reply` and a numeric `tokens_used`, and a bad
   shape FAILS the job as the worker's mistake.
-- **The worker token** is an ordinary API token, scope `jobs:execute`, `ttl
-  'never`, returned once by `POST /api/executors`. A worker endpoint finds its
-  executor through the token's own id (`executors.token_id`), so a token can
-  never speak for another host; the operator's token, which passes every
-  team-tier permission, is still refused with "not bound to an executor".
+- **The worker token** is an ordinary API token, scope `jobs:execute`, returned
+  once by `POST /api/executors`. A worker endpoint finds its executor through the
+  token's own id (`executors.token_id`), so a token can never speak for another
+  host; the operator's token, which passes every team-tier permission, is still
+  refused with "not bound to an executor". It was `ttl 'never` unconditionally
+  until **PULL‑15** (issue #60): it still is unless the instance sets
+  `TELEMACHUS_WORKER_TOKEN_DAYS`, and when it does, a rotation OVERLAPS — two
+  live tokens per executor (`executors.prev_token_id`) for an hour, so a host
+  renews itself with no window in which it is dead. `GET /api/workers/token`
+  says when; `POST /api/workers/token` does it; `POST
+  /api/executors/:id/rotate-token` is the operator's lever for a worker that
+  cannot rotate itself.
 - **Sub-jobs are exempt from the team cap.** `run-chat #:executor <pull>`
   enqueues `infer.chat` with `parent_job_id` set (or a top-level job on the
   request path) and waits, polling every 250 ms up to 300 s. Without the

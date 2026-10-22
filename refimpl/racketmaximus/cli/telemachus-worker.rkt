@@ -36,7 +36,18 @@
 
 (define (env k [d #f]) (let ([v (getenv k)]) (if (and v (not (string=? v ""))) v d)))
 (define BASE  (regexp-replace #rx"/+$" (env "TELEMACHUS_URL" "http://127.0.0.1:8835") ""))
-(define TOKEN (env "TELEMACHUS_WORKER_TOKEN"))
+;; issue #60: a worker token may now EXPIRE, and a worker that can persist the
+;; next one rotates itself. The file is the durable home and the environment
+;; variable is the bootstrap: the token minted when the executor was created goes
+;; in the environment, and the first rotation writes the file that every later
+;; start reads. With no file configured this worker behaves exactly as before and
+;; says so the first time the platform asks it to rotate.
+(define TOKEN-FILE (env "TELEMACHUS_WORKER_TOKEN_FILE"))
+(define (read-token-file)
+  (and TOKEN-FILE (file-exists? TOKEN-FILE)
+       (let ([t (string-trim (call-with-input-file TOKEN-FILE port->string))])
+         (and (not (string=? t "")) t))))
+(define TOKEN (or (read-token-file) (env "TELEMACHUS_WORKER_TOKEN")))
 (define MODEL-URL (env "TELEMACHUS_WORKER_MODEL_URL"))
 (define MODEL-KEY (env "TELEMACHUS_WORKER_MODEL_KEY"))
 (define MODELS (let ([m (env "TELEMACHUS_WORKER_MODELS" "")]) (filter (lambda (s) (not (string=? s ""))) (map string-trim (string-split m ",")))))
@@ -72,9 +83,14 @@
   (eprintf "set TELEMACHUS_WORKER_MODEL_URL (an OpenAI-compatible chat endpoint) and/or TELEMACHUS_WORKER_LAYA_URL (a loopback laya_serve.py)\n")
   (exit 2))
 
-(define auth (list (string-append "Authorization: Bearer " TOKEN) "Content-Type: application/json"))
+;; The bearer is a BOX because a rotation replaces it mid-loop (issue #60), so
+;; every request builds its headers from the current value rather than from a
+;; list computed once at startup — the shape that would have gone on presenting
+;; the retired token until the process restarted.
+(define token (box TOKEN))
+(define (auth) (list (string-append "Authorization: Bearer " (unbox token)) "Content-Type: application/json"))
 (define (post path body)
-  (http-post-json (string-append BASE path) body auth))
+  (http-post-json (string-append BASE path) body (auth)))
 
 ;; ---- "this host cannot serve the job" is not the job's fault (issue #93) -----
 
@@ -129,14 +145,14 @@
 ;;     worse outage than the one the gate exists to survive. The request runs
 ;;     under its own custodian and the timeout shuts it down — killing the
 ;;     thread alone would leave the socket open.
-(define (http-get-code url #:timeout [secs 10])
+(define (http-get url #:timeout [secs 10] #:headers [headers '()])
   (define cust (make-custodian))
   (define ch (make-channel))
   (define t (parameterize ([current-custodian cust])
               (thread (lambda ()
                         (channel-put
                          ch
-                         (with-handlers ([(lambda (_) #t) (lambda (_) 0)])
+                         (with-handlers ([(lambda (_) #t) (lambda (_) (cons 0 ""))])
                            (define-values (host port ssl? prefix) (url-bits url))
                            (define hc (http-conn-open host #:ssl? ssl? #:port port))
                            (dynamic-wind
@@ -144,16 +160,29 @@
                              (lambda ()
                                (define-values (status _h in)
                                  (http-conn-sendrecv! hc (if (string=? prefix "") "/" prefix)
-                                                      #:method #"GET"))
-                               (void (port->string in))
+                                                      #:method #"GET" #:headers headers))
+                               (define body (port->string in))
                                (close-input-port in)
-                               (let ([m (regexp-match #px#"\\b([0-9]{3})\\b" status)])
-                                 (if m (string->number (bytes->string/utf-8 (cadr m))) 0)))
+                               (cons (let ([m (regexp-match #px#"\\b([0-9]{3})\\b" status)])
+                                       (if m (string->number (bytes->string/utf-8 (cadr m))) 0))
+                                     body))
                              (lambda () (http-conn-close! hc)))))))))
   (define r (sync/timeout secs ch))
   (custodian-shutdown-all cust)
-  (cond [r r]
-        [else (kill-thread t) 0]))
+  (cond [r (values (car r) (cdr r))]
+        [else (kill-thread t) (values 0 "")]))
+
+(define (http-get-code url #:timeout [secs 10])
+  (define-values (code _body) (http-get url #:timeout secs))
+  code)
+
+;; …and the same call read as JSON, for this worker's own credential plane
+;; (issue #60). A body that will not parse is the same answer as no body: this
+;; is a periodic check, and one that raised would take the claim loop down.
+(define (http-get-json url #:headers [headers '()])
+  (define-values (code body) (http-get url #:headers headers))
+  (values code (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                 (let ([j (string->jsexpr body)]) (if (hash? j) j (hasheq))))))
 
 ;; Can this host take a job right now? With no READY_URL set the answer is
 ;; always yes, which is what makes this change invisible to every worker and
@@ -321,6 +350,70 @@
                                      (hasheq 'result result 'claim_token token)))
     (printf "job ~a (~a): ~a\n" id kind (if (= code 200) "done" (format "complete refused (HTTP ~a)" code)))))
 
+;; ---- rotating this host's own credential (issue #60) -------------------------
+
+;; How often to ask. One request an hour is nothing beside a claim every twenty
+;; seconds, and the platform tells us to rotate a third of the token's life
+;; early, so an hourly check leaves many chances even for a short lifetime. An
+;; unparseable or non-positive value falls back to the default, never to 0 — the
+;; platform's rule for every interval knob.
+(define TOKEN-CHECK
+  (let* ([raw (env "TELEMACHUS_WORKER_TOKEN_CHECK")]
+         [n (and raw (string->number (string-trim raw)))])
+    (if (and (real? n) (> n 0)) (inexact->exact (floor n)) 3600)))
+(define last-token-check (box 0))
+(define warned-no-file (box #f))
+
+;; A worker that cannot persist a new token MUST NOT rotate. It would receive
+;; one, forget it, and go on working on the outgoing credential until the overlap
+;; ended — turning a rotation it asked for into the outage the overlap exists to
+;; prevent. So the file is written FIRST and the token is swapped only if that
+;; succeeded; a failure leaves the old token in place, which still works.
+(define (persist-token! t)
+  (define tmp (string-append TOKEN-FILE ".new"))
+  (call-with-output-file tmp #:exists 'truncate (lambda (o) (displayln t o)))
+  ;; rename, so a reader never sees a half-written credential and a crash
+  ;; between the two leaves the previous file intact
+  (rename-file-or-directory tmp TOKEN-FILE #t)
+  ;; the file is a credential: nobody else on the box needs to read it
+  (with-handlers ([exn:fail? void]) (file-or-directory-permissions TOKEN-FILE #o600)))
+
+(define (rotate-token!)
+  (define-values (code resp) (post "/api/workers/token" (hasheq)))
+  (cond
+    [(and (= code 200) (hash? resp) (string? (hash-ref resp 'token #f)))
+     (define new (hash-ref resp 'token))
+     (with-handlers ([exn:fail? (lambda (e)
+                                  (eprintf "telemachus-worker: the new token could NOT be written to ~a (~a) — still using the old one\n"
+                                           TOKEN-FILE (exn-message e)))])
+       (persist-token! new)
+       (set-box! token new)
+       (printf "telemachus-worker: worker token rotated~a\n"
+               (let ([e (hash-ref resp 'expires_at 'null)])
+                 (if (number? e) (format " (expires in ~as)" (max 0 (- e (current-seconds)))) ""))))]
+    ;; 429 is "you asked too soon" and is not an error worth a line every hour
+    [(= code 429) (void)]
+    [else (eprintf "telemachus-worker: token rotation refused (HTTP ~a)\n" code)]))
+
+;; Ask the platform, not the clock: `rotate` is its decision, so every worker in
+;; every language takes the same one and the window can move without redeploying
+;; a fleet.
+(define (check-token!)
+  (when (> (- (current-seconds) (unbox last-token-check)) TOKEN-CHECK)
+    (set-box! last-token-check (current-seconds))
+    (define-values (code resp)
+      (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq)))])
+        (http-get-json (string-append BASE "/api/workers/token") #:headers (auth))))
+    (when (and (= code 200) (hash? resp) (eq? (hash-ref resp 'rotate #f) #t))
+      (cond
+        [TOKEN-FILE (rotate-token!)]
+        [(not (unbox warned-no-file))
+         (set-box! warned-no-file #t)
+         (eprintf (string-append "telemachus-worker: this token expires soon and TELEMACHUS_WORKER_TOKEN_FILE is not set, "
+                                 "so this worker cannot keep a new one — set it, or have an operator run "
+                                 "POST /api/executors/<id>/rotate-token and redeploy\n"))]
+        [else (void)]))))
+
 (printf "telemachus-worker → ~a  models ~a  kinds ~a\n" BASE (if (null? MODELS) "(any)" (string-join MODELS ",")) (string-join KINDS ","))
 
 ;; Say so on the way out (issue #58). A worker that is stopped — Ctrl-C, a
@@ -384,6 +477,11 @@
      (unless ONCE? (sleep READY-INTERVAL) (loop))]
     [else
      (stand-up!)
+     ;; before the claim, because the claim is what the token is FOR: a rotation
+     ;; that lands between a claim and its completion would leave the result
+     ;; posted with a credential this host has just replaced (it still works —
+     ;; the overlap — but the ordering costs nothing and removes the question).
+     (check-token!)
      (let-values ([(code resp)
                    (with-handlers ([exn:fail? (lambda (e) (values 0 (hasheq 'error (exn-message e))))])
                      (post "/api/workers/claim" (hasheq 'kinds KINDS 'models MODELS 'max_wait 20

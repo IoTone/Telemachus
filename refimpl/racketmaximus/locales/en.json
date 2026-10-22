@@ -895,6 +895,10 @@
       "text": "One of the console's own script files (static/console/*.js), served same-origin so the console's `script-src 'self'` policy admits it with no inline block and no nonce.",
       "hash": "445e4a4dc5015fd7411c38950bee5d917e5cd2b3"
     },
+    "doc.route.post.api.executors.id.rotate-token": {
+      "text": "Mint a new worker token for a pull executor (issue #60). The new token is in this response and never again; the one it replaces keeps working for `overlap_seconds`, so the host can be redeployed without a window in which it is dead. For a worker that cannot rotate itself, and for a token believed leaked — unlike the worker's own call this one is never refused for rotating too often.",
+      "hash": "38d77552b5539b6307050a65fe765aae7eb3ef6d"
+    },
     "doc.route.delete.api.jobs.id.content": {
       "text": "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.",
       "hash": "9d189ecf693750416b1c4e3cb6036348589dbe1c"
@@ -1859,6 +1863,10 @@
       "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
       "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
     },
+    "doc.route.post.api.workers.token": {
+      "text": "Trade the token this worker is holding for the next one (issue #60): {token, expires_at, overlap_seconds}. The warrant is the credential it already holds, as for PULL-9's read and PULL-13's write. The old token keeps working for the overlap, so a worker must PERSIST the new one before using it — one that cannot persist it must not rotate, or it will stop when the overlap ends. Rotating twice inside five minutes is a 429 with Retry-After.",
+      "hash": "abc29f3c75523fdb9b265a0d3a5b2839bbbdd6d5"
+    },
     "ui.wklocal": {
       "text": "local",
       "hash": "939bb46a04c3640c8c427e92b1b557e882e2d2a0"
@@ -1947,13 +1955,17 @@
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
     },
-    "ui.qrecentorder": {
-      "text": "newest first",
-      "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
+    "doc.route.get.api.workers.token": {
+      "text": "What this worker's own credential is doing (issue #60): {expires_at, rotate, overlap_seconds, ttl_seconds}. `rotate` is the platform's answer, so every worker takes the same decision and the window can change without redeploying a fleet; a worker checks this periodically and acts on the one boolean. It is a read rather than a field on the claim because an idle worker's claim answers 204, which carries no body — and a host with no work whose token lapses tonight is exactly the one that needs telling.",
+      "hash": "6b5353cf5f53470b1607d48ce68bf0a9d6adf6e6"
     },
     "doc.perm.research:use": {
       "text": "Use the research surfaces.",
       "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
+    },
+    "ui.qrecentorder": {
+      "text": "newest first",
+      "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
     },
     "ui.thfont": {
       "text": "Font",
