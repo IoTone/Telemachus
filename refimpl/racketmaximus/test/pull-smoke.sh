@@ -15,8 +15,12 @@ export PORT="${PORT:-8845}"; MOCK_PORT="${MOCK_PORT:-8905}"
 # A mock that REFUSES (issue #93), and a port with nothing on it at all — the two
 # shapes of "this host cannot serve the job" that must not cost a job an attempt.
 MOCK503_PORT="${MOCK503_PORT:-8906}"; MOCK500_PORT="${MOCK500_PORT:-8908}"; DEAD_PORT="${DEAD_PORT:-8907}"
+# issue #60: a SECOND instance, booted with a worker-token lifetime set, because
+# the knob is read from the process environment and the shipped default here —
+# and everywhere — is no expiry.
+ROT_PORT="${ROT_PORT:-8909}"
 port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
-for p in "$PORT" "$MOCK_PORT" "$MOCK503_PORT" "$MOCK500_PORT" "$DEAD_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done
+for p in "$PORT" "$MOCK_PORT" "$MOCK503_PORT" "$MOCK500_PORT" "$DEAD_PORT" "$ROT_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done
 export TELEMACHUS_DATA_DIR="$(mktemp -d)"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/t.db}"
 export TELEMACHUS_BIND=127.0.0.1
@@ -30,8 +34,8 @@ MOCK_PORT="$MOCK500_PORT" MOCK_STATUS=500 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
   racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock500.log" 2>&1 & MOCK500=$!
 unset TELEMACHUS_MODEL_URL
 racket server/main.rkt >"$TELEMACHUS_DATA_DIR/server.log" 2>&1 & SRV=$!
-WORKER=""
-cleanup(){ kill $SRV $MOCK $MOCK503 $MOCK500 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"; }
+WORKER=""; SRV2=""
+cleanup(){ kill $SRV $MOCK $MOCK503 $MOCK500 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; [ -n "$SRV2" ] && kill $SRV2 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR" "${ROT_DIR:-/nonexistent-rot}"; }
 trap cleanup EXIT
 until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do :; done; exec 3>&- 2>/dev/null || true
 fail=0
@@ -386,6 +390,107 @@ assert "…while status still says active"             "$(G /api/executors)" '"s
 W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
     TELEMACHUS_WORKER_READY_URL="http://127.0.0.1:$PORT/health"
 assert "…and a ready host claims and runs it"      "$(G /api/jobs/$GJ)" '"status":"done"'
+
+echo
+echo "== 8e. issue #60: a worker token may expire, and a rotation OVERLAPS =="
+# This instance has no lifetime configured, which is the shipped default and the
+# whole upgrade-safety argument: nothing anybody has deployed stops working.
+WTOK(){ curl -s $B/api/workers/token -H "Authorization: Bearer ${1:-$WT}"; }
+claim_code(){ curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/claim \
+                -H "Authorization: Bearer $1" -d '{"kinds":["infer.chat"],"max_wait":0}'; }
+assert "a worker reads its own credential"   "$(WTOK)" '"expires_at":null'
+assert "…and is told there is nothing to do" "$(WTOK)" '"rotate":false'
+assert "…and what the instance configured"   "$(WTOK)" '"ttl_seconds":null'
+# the credential plane is the WORKER's: an operator token is not bound to a host
+assert "a user token is not a worker"        "$(WTOK "$TOK")" 'not bound to an executor'
+
+# An UNSOLICITED rotation inside the floor is refused. This instance configured
+# no lifetime, so the platform is asking for nothing, and a worker rotating
+# anyway in a loop would mint a credential per poll. The floor never refuses a
+# rotation the platform ASKED for — section 8f is that case, and it is what the
+# reference worker does.
+assert "an unsolicited rotation is rate-limited" \
+  "$(curl -s -X POST $B/api/workers/token -H "Authorization: Bearer $WT" -d '{}')" 'less than 300 seconds ago'
+assert "…with the code a worker backs off on" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/workers/token -H "Authorization: Bearer $WT" -d '{}')" '429'
+assert "…and says when to come back"         \
+  "$(curl -s -D - -o /dev/null -X POST $B/api/workers/token -H "Authorization: Bearer $WT" -d '{}' | tr -d '\r')" 'Retry-After: 300'
+
+# The operator's plane, for a third-party worker that cannot rotate itself and
+# for a token believed leaked. It is NEVER refused for rotating too often —
+# a leak is not a reason to wait five minutes.
+WT_A="$WT"
+OROT=$(P /api/executors/$EXID/rotate-token)
+assert "an operator may rotate for the host" "$OROT" '"token":"tk_'
+WT_B=$(printf '%s' "$OROT" | jq_ 'd["token"]')
+assert "…a different credential"             "$([ -n "$WT_B" ] && [ "$WT_B" != "$WT_A" ] && echo differs)" 'differs'
+assert "…saying the old one still works"     "$OROT" 'shown once'
+assert "the new token claims"                "$(claim_code "$WT_B")" '204'
+# THE OVERLAP, over the wire: a host that has not finished deploying the new
+# credential is still working, which is what makes an expiry survivable at all.
+assert "…and the one it replaced still does" "$(claim_code "$WT_A")" '204'
+assert "…which now has a horizon"            "$(WTOK "$WT_A")" '"overlap_seconds":3600'
+# Two slots and no more: a third rotation revokes the oldest outright, so "how
+# many live credentials does this host have" has an answer, and it is two.
+OROT2=$(P /api/executors/$EXID/rotate-token)
+assert "an operator rotation is never too soon" "$OROT2" '"token":"tk_'
+WT=$(printf '%s' "$OROT2" | jq_ 'd["token"]')
+assert "the token it replaced keeps working" "$(claim_code "$WT_B")" '204'
+assert "…while the one before that is dead"  "$(claim_code "$WT_A")" '401'
+assert "every rotation is in the trail"      "$(G '/api/audit?limit=5')" 'executor.token.rotate'
+assert "the new credential still claims"     "$(claim_code "$WT")" '204'
+
+echo
+echo "== 8f. issue #60: the reference worker rotates itself, and refuses to without a file =="
+# A second instance, booted with a 43-second worker-token lifetime: the knob is
+# read from the server's environment, so this cannot be done to the one above
+# without expiring every token the earlier sections depend on.
+ROT_DIR=$(mktemp -d)
+env TELEMACHUS_DATA_DIR="$ROT_DIR" DATABASE_URL="sqlite:///$ROT_DIR/t.db" \
+    PORT="$ROT_PORT" TELEMACHUS_WORKER_TOKEN_DAYS=0.0005 \
+    racket server/main.rkt >"$ROT_DIR/server.log" 2>&1 & SRV2=$!
+until (exec 3<>/dev/tcp/127.0.0.1/$ROT_PORT) 2>/dev/null; do :; done; exec 3>&- 2>/dev/null || true
+B2="localhost:$ROT_PORT"
+TOK2=$(curl -s -X POST $B2/api/bootstrap -d '{"username":"ops","password":"pw-pw-pw1"}' | jq_ 'd["token"]')
+curl -s -X POST $B2/api/quota -H "Authorization: Bearer $TOK2" -d '{"dimension":"ai.tokens.total","limit":1000000,"window":"day"}' >/dev/null
+EX2=$(curl -s -X POST $B2/api/executors -H "Authorization: Bearer $TOK2" \
+       -d '{"name":"rotator","mode":"pull","model":"mock","capabilities":{"kinds":["infer.chat"]}}')
+WT_R=$(printf '%s' "$EX2" | jq_ 'd["worker_token"]')
+assert "a configured lifetime reaches the token" \
+  "$(curl -s $B2/api/workers/token -H "Authorization: Bearer $WT_R")" '"ttl_seconds":43'
+assert "…and the platform asks for a rotation at once" \
+  "$(curl -s $B2/api/workers/token -H "Authorization: Bearer $WT_R")" '"rotate":true'
+
+W60(){ env TELEMACHUS_URL="http://127.0.0.1:$ROT_PORT" TELEMACHUS_WORKER_TOKEN="$WT_R" \
+        TELEMACHUS_WORKER_MODELS=mock TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
+        "$@" racket cli/telemachus-worker.rkt --once >>"$ROT_DIR/worker.log" 2>&1; }
+newjob2(){ curl -s -X POST $B2/api/jobs -H "Authorization: Bearer $TOK2" \
+             -d "{\"kind\":\"infer.chat\",\"payload\":{\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}]}}" | jq_ 'd["id"]'; }
+
+# A WORKER THAT CANNOT PERSIST A NEW TOKEN MUST NOT ROTATE. It would receive
+# one, forget it, and go on working on the outgoing credential until the overlap
+# ended — a rotation it asked for, turned into the outage the overlap prevents.
+RJ1=$(newjob2 "before rotation")
+W60 TELEMACHUS_WORKER_TOKEN_FILE=
+assert "with no token file the worker does not rotate" \
+  "$(curl -s $B2/api/executors -H "Authorization: Bearer $TOK2")" '"prev_token_id":null'
+assert "…and says an operator has to rotate for it" "$(cat $ROT_DIR/worker.log)" 'cannot keep a new one'
+assert "…while still doing its work"                "$(curl -s $B2/api/jobs/$RJ1 -H "Authorization: Bearer $TOK2")" '"status":"done"'
+
+# With somewhere to put it, the host rotates itself: no person, no outage.
+RJ2=$(newjob2 "after rotation")
+W60 TELEMACHUS_WORKER_TOKEN_FILE="$ROT_DIR/token"
+assert "with a token file it rotates itself"  "$(cat $ROT_DIR/worker.log)" 'worker token rotated'
+assert "…persisting the new token"            "$([ -s "$ROT_DIR/token" ] && echo yes)" 'yes'
+assert "…which is not the one it started with" "$([ "$(cat $ROT_DIR/token)" != "$WT_R" ] && echo differs)" 'differs'
+assert "…and the server agrees it rotated"    "$(curl -s $B2/api/executors -H "Authorization: Bearer $TOK2")" '"prev_token_id":"'
+assert "…and the job still ran"               "$(curl -s $B2/api/jobs/$RJ2 -H "Authorization: Bearer $TOK2")" '"status":"done"'
+# the persisted token is the durable home: a restart reads the FILE, not the
+# bootstrap variable, which is what makes the next rotation possible
+assert "the persisted token is a live credential" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B2/api/workers/claim \
+      -H "Authorization: Bearer $(cat $ROT_DIR/token)" -d '{"kinds":["infer.chat"],"max_wait":0}')" '204'
+kill $SRV2 2>/dev/null; SRV2=""
 
 echo
 assert "retired" "$(curl -s -X DELETE $B/api/executors/$EXID -H "Authorization: Bearer $TOK")" '"ok":true'

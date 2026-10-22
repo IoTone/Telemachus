@@ -1622,13 +1622,80 @@ Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
 - ~~A worker cannot report ready/paused.~~ **Built as PULL‑11** — see below.
   ~~A releasable claim that does not spend an attempt.~~ **Built as PULL‑12**
   (#61). ~~Writable derived objects from a worker result.~~ **Built as PULL‑13**
-  (#62) — see below. Still open: #59 (purge a finished job's payload), #60
-  (worker-token expiry with a rotation overlap).
+  (#62) — see below. ~~Worker-token expiry with a rotation overlap.~~ **Built as
+  PULL‑15** (#60) — see below. #59 (purge a finished job's payload) was built
+  too, so **all four of #54's deferred questions are closed**.
 
 ```sh
 raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, the refund
 bash test/s3-smoke.sh                  # the live multipart path, with the real aws CLI
 ```
+
+## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
+
+Built 22 Oct 2026 — the last of #54's four deferred questions. Migration
+`0055-worker-token-rotation` adds `executors.prev_token_id`;
+`GET`/`POST /api/workers/token` is the worker's own credential plane and
+`POST /api/executors/:id/rotate-token` the operator's. Decisions PULL‑15a…i.
+
+```sh
+raco test test/pull-tests.rkt   # 6 cases, five of them positive-controlled
+bash test/pull-smoke.sh         # sections 8e and 8f, 29 assertions
+```
+
+- **IT IS OFF UNLESS CONFIGURED** (`TELEMACHUS_WORKER_TOKEN_DAYS`, 90
+  recommended, `never` by default). The retention rule's call: a real default
+  means an upgrade silently starts expiring credentials everywhere, including
+  the third-party workers that cannot rotate themselves. Pre-existing rows carry
+  a NULL `expires_at`, which `resolve-token` reads as never, so nothing anybody
+  has deployed stops working.
+- **`#:ttl (or (worker-token-seconds) 'never)`, NEVER `#:ttl #f`** at the create
+  site. `#f` is `issue-token!`'s "the default for this kind", which is 30 days —
+  so the obvious spelling of this change would have expired every worker token
+  on every instance. A unit case pins the NULL.
+- **Two slots and no more.** A rotation mints a new token, moves the current one
+  to `prev_token_id`, and `executor-by-token` resolves EITHER — during the
+  overlap a host may still be presenting the token it is replacing, and refusing
+  it there turns the rotation into the outage the overlap exists to prevent. A
+  third rotation revokes the oldest outright; a keyring would let a leaked
+  credential survive behind "but something might still hold it".
+- **The overlap ENDS by the token's own expiry, not by a second rule.**
+  `resolve-token` has already refused an expired row before `executor-by-token`
+  is reached. The outgoing token is SHORTENED to `WORKER-TOKEN-OVERLAP` (1 h) and
+  never extended: a token with a year left does not get a year more because
+  something replaced it, and one already inside the window keeps the earlier
+  horizon.
+- **The platform says WHEN, and it says it on a read.** `rotate` on
+  `GET /api/workers/token` is the platform's decision, so every worker in every
+  language takes the same one. It is not a field on the claim because **an idle
+  worker's claim answers 204, which carries no body** — the host with no work
+  whose token lapses tonight is exactly the one that needs telling.
+- **A worker that cannot persist a new token MUST NOT rotate.** It would receive
+  one, forget it, and work on the outgoing credential until the overlap ended.
+  `TELEMACHUS_WORKER_TOKEN_FILE` is the durable home (`TELEMACHUS_WORKER_TOKEN`
+  is the bootstrap; a start reads the file when it exists); it is written and
+  renamed BEFORE the in-memory token is swapped, and with no file configured the
+  worker says once that an operator has to rotate for it.
+- **The five-minute floor never applies to a rotation the platform ASKED for.**
+  That exception is the rule, not a softening of it: a floor that can refuse the
+  renewal the platform is requesting is a scheduled outage with a rate limiter in
+  front of it. **The smoke found it** — a short test lifetime puts a token inside
+  its renewal window while it is still younger than the floor, so the reference
+  worker was told to rotate and then refused. A 429 with `Retry-After`, never a
+  409: nothing is in conflict, the caller is asking too often.
+- **The new token is the OLD ROW's** user, team and scopes, not the rotating
+  caller's — otherwise the next audit entry about that host names the operator
+  who pressed the button and `can?` answers about the wrong team.
+- **`executor-retire!` revokes BOTH slots**, or a retired host keeps a live
+  `jobs:execute` credential.
+- **The rotation audit entry needs `#:team-id`** (the token's team) — FIFTH
+  appearance of that shape: `audit-list` filters `WHERE team_id = ?`, so the
+  first version wrote every rotation into a log where nobody could see it. The
+  smoke caught it, again.
+- A worker-token lifetime under three minutes is permanently inside its own
+  renewal window (the window is `max(60, ttl/3)`), so it rotates on every check.
+  The knob is days, so only a deliberately absurd value gets there; the smoke
+  uses one on purpose.
 
 ## A worker says whether it is taking work (PULL‑11, issue #58)
 

@@ -13,7 +13,8 @@
          ep-model-roles-put ep-worker-claim ep-worker-heartbeat
          ep-worker-state ep-worker-complete ep-worker-document
          ep-worker-derive ep-worker-fail ep-worker-release ep-ai-chat
-         ep-ai-model ep-ai-chat-stream ep-agent)
+         ep-ai-model ep-ai-chat-stream ep-agent
+         ep-executor-rotate-token ep-worker-token-get ep-worker-token-rotate)
 
 (require db-kit/portable
          json
@@ -30,6 +31,10 @@
          (only-in "../../domain/ai/roles.rkt" model-roles-get model-roles-set!)
          (only-in "../../domain/agent/run.rkt" agent-configured? run-agent-flow)
          (only-in "../../domain/i18n/i18n.rkt" t)
+         ;; make-header ONLY (issue #60's 429 carries Retry-After): web-server's
+         ;; req-header would shadow web-kit's, which main.rkt already had to
+         ;; declare its way out of once.
+         (only-in web-server/http make-header)
          "../kit.rkt"
          "../admission.rkt")
 
@@ -182,6 +187,30 @@
 (define (ep-executor-drain req id) (set-admin-state req id "drained"))
 (define (ep-executor-resume req id) (set-admin-state req id "active"))
 
+;; issue #60: the operator's rotation. For a third-party worker that cannot
+;; rotate itself, and for a token believed leaked — which is why it does NOT
+;; apply the worker plane's minimum interval: a rotation somebody asked for on
+;; purpose must never be refused because something rotated five minutes ago.
+;;
+;; The new token is in this response and never again, exactly as at create. The
+;; OLD one keeps working for the overlap, which is the whole point: the operator
+;; can deploy the new credential without a window where the host is dead.
+(define (ep-executor-rotate-token req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define ex (executor-by-id db-conn id))
+    (cond
+      [(not ex) (err "not found" 404)]
+      [else
+       (define r (rotate-worker-token! db-conn ex #:actor-id (principal-user-id p) #:min-age 0))
+       (cond
+         [(string? r)
+          (json-response (hasheq 'ok #t 'token r 'executor (executor-by-id db-conn id)
+                                 'overlap_seconds WORKER-TOKEN-OVERLAP
+                                 'token_note "the previous token keeps working for overlap_seconds; this token is shown once"))]
+         [(eq? r 'not-pull) (err "only a pull executor has a worker token" 409)]
+         [else (err "this executor has no worker token to rotate" 409)])]))))
+
 ;; ---- model roles (slice 67) ----------------------------------------------------------
 (define (ep-model-roles-get req)
   (with-auth req (lambda (p) (json-response (model-roles-get db-conn (principal-team-id p))))))
@@ -269,6 +298,46 @@
       (define st (worker-report-state! db-conn ex (let ([v (hash-ref (read-json-body req) 'state #f)])
                                                     (if (string? v) v ""))))
       (json-response (hasheq 'ok #t 'state st))))))
+;; issue #60: the worker's own credential plane.
+;;
+;; GET is the ONE channel a worker learns about its token through, and it is a
+;; read rather than a field on the claim because an idle worker's claim answers
+;; 204 — a body-less response cannot tell the host with no work that its
+;; credential lapses tonight, which is precisely the host this exists for.
+;; `rotate` is the platform's decision; a worker reads one boolean.
+(define (ep-worker-token-get req)
+  (with-worker req (lambda (p ex)
+    (json-response (worker-token-status db-conn ex)))))
+
+;; POST trades the credential it is holding for the next one. A worker may do
+;; this because it already holds a valid token for this executor — the same
+;; warrant PULL-9's read and PULL-13's write run on, where the authority is the
+;; claim the caller already has and not a new one.
+;;
+;; `too_soon` is a 429 with Retry-After: a buggy loop would otherwise mint a
+;; token per poll. It is NOT a 409 — nothing is in conflict, the caller is simply
+;; asking too often, and a worker written to back off on 429 already does the
+;; right thing.
+(define (ep-worker-token-rotate req)
+  (with-worker req (lambda (p ex)
+    (define r (rotate-worker-token! db-conn ex
+                                    #:actor-id (hash-ref ex 'id) #:actor-type "executor"
+                                    #:min-age WORKER-ROTATE-MIN-AGE))
+    (cond
+      [(string? r)
+       (define st (worker-token-status db-conn (executor-by-id db-conn (hash-ref ex 'id))))
+       (json-response (hasheq 'ok #t 'token r
+                              'expires_at (hash-ref st 'expires_at)
+                              'overlap_seconds WORKER-TOKEN-OVERLAP))]
+      [(eq? r 'too-soon)
+       (json-response (hasheq 'error (format "this token was issued less than ~a seconds ago" WORKER-ROTATE-MIN-AGE)
+                              'retry_after WORKER-ROTATE-MIN-AGE)
+                      #:code 429
+                      #:headers (list (make-header #"Retry-After"
+                                                   (string->bytes/utf-8 (number->string WORKER-ROTATE-MIN-AGE)))))]
+      [(eq? r 'not-pull) (err "only a pull executor has a worker token" 409)]
+      [else (err "this executor has no worker token to rotate" 409)]))))
+
 (define (ep-worker-complete req id)
   (with-worker req (lambda (p ex)
     (define b (read-json-body req))
