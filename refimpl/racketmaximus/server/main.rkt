@@ -38,6 +38,9 @@
          (only-in "../domain/quota/quota.rkt" get-limit quota-record!)
          (only-in "../domain/sched/scheduler.rkt" current-job drain-scheduler! drain-seconds register-job-kind! set-reaper! start-scheduler!)
          (only-in "../domain/sched/schedules.rkt" fire-due-schedules!)
+         ;; #85: the event sink and the delivery sweep
+         (only-in "../domain/hooks/webhooks.rkt" deliver-due! enqueue-event!)
+         (only-in "../domain/events/events.rkt" set-event-sink!)
          (only-in "../domain/s3/server.rkt" make-s3-handler reap-uploads! s3-region)
          (only-in "../domain/audit/chain.rkt" audit-chain-seal!)
          (only-in "../domain/idem/idem.rkt" idem-reap!)
@@ -98,6 +101,7 @@
          "api/flow.rkt"
          "api/instance.rkt"
          "api/jobs.rkt"
+         "api/webhooks.rkt"
          "api/localization.rkt"
          "api/orgs.rkt"
          "api/policy.rkt"
@@ -255,6 +259,10 @@
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
    'search ep-search 'audit ep-audit
+   'webhooks-list ep-webhooks-list 'webhooks-create ep-webhooks-create
+   'webhook-get ep-webhook-get 'webhook-patch ep-webhook-patch 'webhook-delete ep-webhook-delete
+   'webhook-ping ep-webhook-ping 'webhook-deliveries ep-webhook-deliveries
+   'delivery-redeliver ep-delivery-redeliver
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
    'job-purge ep-job-purge
    ;; #135: the clock. The firing itself is on the reaper seam below.
@@ -702,6 +710,18 @@
   ;; ONE seam, and a second timer would be a second thing to drain on shutdown.
   (define last-schedule-tick (box 0))
   (define SCHEDULE-TICK-EVERY 30)
+  ;; Webhook deliveries (#85) are the SEVENTH thing on this seam, and the
+  ;; shortest interval of the lot after the audit seal: the first retry is a
+  ;; minute away, so a sweep slower than that would make the backoff a lie. A
+  ;; FIRST attempt does not wait for it — `enqueue-event!` makes the row due
+  ;; immediately and the next tick is at most this far off, which is what #85's
+  ;; "within 2 seconds" acceptance needs.
+  (define last-webhook-sweep (box 0))
+  (define WEBHOOK-SWEEP-EVERY 1)
+  ;; #85: ONE sink for every emitter — a run settling, a job finishing, an object
+  ;; arriving or going, a review decided. Installed here rather than inside
+  ;; webhooks.rkt so the domain module stays something a test can drive directly.
+  (set-event-sink! (lambda (conn event team data) (void (enqueue-event! conn event team data))))
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -746,6 +766,12 @@
          (define-values (fired skipped) (fire-due-schedules! conn))
          (when (or (> fired 0) (> skipped 0))
            (printf "schedules: fired ~a, skipped ~a\n" fired skipped))))
+     (when (> (- (current-seconds) (unbox last-webhook-sweep)) WEBHOOK-SWEEP-EVERY)
+       (set-box! last-webhook-sweep (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "webhook sweep: ~a\n" (exn-message e)))])
+         (define-values (sent _retried dead) (deliver-due! conn))
+         (when (> dead 0) (printf "webhooks: ~a delivered, ~a dead-lettered\n" sent dead))))
      (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
        (set-box! last-audit-seal (current-seconds))
        ;; its own handler too, for the reason the other two have one

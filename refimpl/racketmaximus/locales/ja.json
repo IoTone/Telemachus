@@ -536,6 +536,38 @@
       "text": "会社の既定タイムゾーンを削除する。所属ユーザーはインスタンス既定にフォールバックします。",
       "hash": "4b71bb9d8519778cf1de73736581c538e4029782"
     },
+    "doc.route.get.api.webhooks": {
+      "text": "チームの送信 Webhook 購読の一覧。あわせて購読がフィルタに使えるイベント名の閉じたリストと、デッドレターになるまでの配信試行回数を返します。シークレットが一覧に含まれることはありません。",
+      "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
+    },
+    "doc.route.post.api.webhooks": {
+      "text": "イベントを購読する: `url`（http(s)）と `events` — `\"*\"` または `GET /api/webhooks` が示す名前のカンマ区切り部分集合。未知のイベント名は保存されずに拒否されます。何も発火しない購読が黙って存在する方が、拒否されるより悪いからです。署名シークレットは応答に含まれ、一度だけ表示されます。置き換えるにはローテーションしてください。",
+      "hash": "c3ef9dd6ce1f11fe10ed872188f931fe20ed1272"
+    },
+    "doc.route.get.api.webhooks.id": {
+      "text": "購読 1 件。他チームの ID は 403 ではなく 404 になります。",
+      "hash": "f6934d6e7166ec99d4ff601abcb8f6846d8d674c"
+    },
+    "doc.route.patch.api.webhooks.id": {
+      "text": "`url`、`events`、`active`、`description` を変更する。`{\"rotate\": true}` で新しい署名シークレットを発行します — 一度だけ表示され、以前のシークレットは直ちに何も署名しなくなります。検証は変更後の購読に対して行われるため、パッチで作成できない状態に到達することはありません。",
+      "hash": "793ae732a359fb24feb79cfd7139124440862308"
+    },
+    "doc.route.delete.api.webhooks.id": {
+      "text": "購読とその配信履歴を削除する。監査エントリは残ります。",
+      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
+    },
+    "doc.route.post.api.webhooks.id.ping": {
+      "text": "この購読に `ping` イベントを今すぐ同期的に配信し、その結果を返す。実際のイベントが依存する前に、受信側の署名検証を確認する手段です。購読が無効、または `ping` を購読していない場合は 409 で拒否されます。",
+      "hash": "42fe13e91181661959b4b37a92d2b84407b3f910"
+    },
+    "doc.route.get.api.webhooks.id.deliveries": {
+      "text": "この購読の配信試行を新しい順に返す: 状態（`pending`/`delivered`/`dead`）、試行回数、最後の応答コード、最後のエラー、レイテンシ、次回試行予定。`?status=dead` がデッドレター一覧です。",
+      "hash": "3dfcd8b9e0f8246de6afe75e7ba7529869337e0e"
+    },
+    "doc.route.post.api.deliveries.id.redeliver": {
+      "text": "デッドまたは配信済みのイベントを再送する。試行回数はリセットされます — 再送を選んだ運用者は判断を下しており、10 回のうち既に消費された 1 回分しか残っていなければこの操作は役に立ちません。配信 ID は変わらないため、すでに適用した受信側は冪等キーとして認識できます。",
+      "hash": "b17affbdc8d6742b2e242a961b35b0b2ef2dd1d5"
+    },
     "doc.route.get.api.jobs": {
       "text": "チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: \"quota\"|\"concurrency\", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。",
       "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"

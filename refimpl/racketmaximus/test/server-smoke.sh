@@ -74,6 +74,12 @@ differ(){
   if [ "$2" != "$3" ]; then echo "  ok   $1"; else echo "  FAIL $1 — both were: $2"; fail=1; fi
 }
 
+# #85/#142: the webhook block below runs a receiver on loopback, and the fetcher
+# refuses private address space unless the OPERATOR allowed that network. Setting
+# it here is the operator's decision, made explicitly, which is the whole shape
+# of EGR-2 — and it is what lets the smoke assert the refusal for an address
+# OUTSIDE the allowance (169.254/16) rather than for everything.
+export TELEMACHUS_EGRESS_ALLOW="127.0.0.0/8"
 racket server/main.rkt >/tmp/tmx-smoke.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"' EXIT
@@ -538,6 +544,123 @@ assert "timezone: an empty profile write is refused rather than a silent no-op" 
       -d '{}')" 'locale or timezone required'
 assert "timezone: the trail names the instance write" \
   "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'instance.timezone'
+
+# ---- outbound webhooks (#85) -------------------------------------------------
+# A REAL RECEIVER, in Python, which also VERIFIES THE SIGNATURE the way an
+# integrator's would — the HTTP layer is where this feature can be wrong, and a
+# receiver that merely answered 200 would prove only that we can POST.
+WH_DIR=$(mktemp -d)
+cat > "$WH_DIR/receiver.py" <<'PYEOF'
+import hashlib, hmac, http.server, json, os, sys, threading
+SECRET = os.environ["WH_SECRET"].encode()
+LOG = os.environ["WH_LOG"]
+FAIL_FIRST = os.environ.get("WH_FAIL_FIRST") == "1"
+state = {"calls": 0}
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("content-length", 0)))
+        ts = self.headers.get("x-telemachus-timestamp", "")
+        want = "v1=" + hmac.new(SECRET, (ts + ".").encode() + body, hashlib.sha256).hexdigest()
+        got = self.headers.get("x-telemachus-signature", "")
+        state["calls"] += 1
+        # A PLAIN LINE, not json.dumps: that writes `"k": v` with a space, where
+        # every needle in this suite assumes the spacing `jsexpr->string` uses —
+        # three assertions here failed on that space alone. The body is appended
+        # verbatim, so an assertion about the PAYLOAD still reads real bytes.
+        with open(LOG, "a") as f:
+            f.write("event=%s delivery=%s signature_ok=%s call=%d body=%s\n"
+                    % (self.headers.get("x-telemachus-event"),
+                       self.headers.get("x-telemachus-delivery"),
+                       "true" if hmac.compare_digest(want, got) else "FALSE",
+                       state["calls"],
+                       body.decode("utf-8", "replace")))
+        # the first call fails, so the smoke can watch a retry recover (#85's
+        # second acceptance criterion)
+        if FAIL_FIRST and state["calls"] == 1:
+            self.send_response(500); self.end_headers(); self.wfile.write(b"no")
+            return
+        self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H)
+srv.serve_forever()
+PYEOF
+WH_PORT=8899
+WH_SECRET_PLACEHOLDER=unset
+# The receiver is on loopback, which #142's fetcher refuses unless the OPERATOR
+# allowed that network — so the server under test was started with it allowed
+# (see the export above the boot), and this asserts the refusal too.
+WH_LOG="$WH_DIR/log.jsonl"; : > "$WH_LOG"
+# create the subscription first: the secret is shown ONCE and the receiver needs it
+WH=$(curl -s -X POST $B/api/webhooks -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d "{\"url\":\"http://127.0.0.1:$WH_PORT/hook\",\"events\":\"ping,object.created\"}")
+WHID=$(printf '%s' "$WH" | grep -oP '"id":"\K[^"]+')
+WHSEC=$(printf '%s' "$WH" | grep -oP '"secret":"\K[^"]+')
+assert "webhook: created, and the secret is in the reply" "$WH" '"secret_note"'
+assert "webhook: …and says it is shown once" "$WH" 'Shown once'
+refute "webhook: the listing never carries a secret" \
+  "$(curl -s $B/api/webhooks -H "Authorization: Bearer $OP")" '"secret"'
+assert "webhook: the closed event vocabulary is published" \
+  "$(curl -s $B/api/webhooks -H "Authorization: Bearer $OP")" '"events":['
+assert "webhook: an unknown event name is refused, not stored" \
+  "$(curl -s -X POST $B/api/webhooks -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"https://example.com/h","events":"run.finished"}')" 'events must be'
+assert "webhook: a member may not configure one" \
+  "$(curl -s $B/api/webhooks -H "Authorization: Bearer $BOB")" 'Forbidden: webhooks:manage'
+WH_SECRET="$WHSEC" WH_LOG="$WH_LOG" WH_FAIL_FIRST=1 python3 "$WH_DIR/receiver.py" $WH_PORT &
+WH_PID=$!
+tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$WH_PORT) 2>/dev/null; do tries=$((tries+1)); [ $tries -gt 20000 ] && break; done; exec 3>&- 2>/dev/null || true
+# #85 r6: the ping is synchronous, so the answer says what happened. The first
+# call is answered 500 by the receiver, so this ping RETRIES rather than
+# delivering — which is the acceptance criterion, not a failure.
+PING=$(curl -s -X POST $B/api/webhooks/$WHID/ping -H "Authorization: Bearer $OP")
+assert "webhook: the ping is delivered synchronously and reports the outcome" "$PING" '"outcome":"retry"'
+assert "webhook: the receiver saw it" "$(cat "$WH_LOG")" 'event=ping'
+# THE SIGNATURE VERIFIES, computed independently by the receiver
+assert "webhook: the signature verifies at the receiver" "$(cat "$WH_LOG")" 'signature_ok=true'
+# The body is appended verbatim now rather than nested inside JSON, so the
+# quotes are NOT escaped — the mirror of the audit-export trap this file already
+# records, where they are.
+assert "webhook: the payload carries ids and status" "$(cat "$WH_LOG")" '"delivery_id":'
+refute "webhook: …and no document content" "$(cat "$WH_LOG")" 'content'
+assert "webhook: the attempt is recorded with the response code" \
+  "$(curl -s $B/api/webhooks/$WHID/deliveries -H "Authorization: Bearer $OP")" '"last_status_code":500'
+assert "webhook: …and a latency" \
+  "$(curl -s $B/api/webhooks/$WHID/deliveries -H "Authorization: Bearer $OP")" '"last_latency_ms"'
+# The retry is a minute out, so the smoke does not wait for the sweep: the
+# REDELIVER lever is the same path and answers now. Second acceptance criterion:
+# after the receiver stops failing, the event is marked delivered.
+DLV=$(curl -s $B/api/webhooks/$WHID/deliveries -H "Authorization: Bearer $OP" | grep -oP '"id":"\K[^"]+' | head -1)
+# A delivery awaiting its own retry is NOT redeliverable: there is nothing to
+# re-send, and resetting the count would quietly discard the backoff. The first
+# version of this block asserted the opposite and the smoke said so.
+assert "webhook: a delivery still awaiting its retry cannot be redelivered" \
+  "$(curl -s -X POST $B/api/deliveries/$DLV/redeliver -H "Authorization: Bearer $OP")" 'already pending' 
+PING2=$(curl -s -X POST $B/api/webhooks/$WHID/ping -H "Authorization: Bearer $OP")
+assert "webhook: …and the next delivery succeeds once the receiver stops failing" "$PING2" '"outcome":"delivered"'
+assert "webhook: the delivered row says so" \
+  "$(curl -s "$B/api/webhooks/$WHID/deliveries?status=delivered" -H "Authorization: Bearer $OP")" '"status":"delivered"'
+# an SSRF target is DEAD at once, not retried ten times
+WH2=$(curl -s -X POST $B/api/webhooks -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"http://169.254.169.254/hook","events":"ping"}')
+WH2ID=$(printf '%s' "$WH2" | grep -oP '"id":"\K[^"]+')
+assert "webhook: a delivery to link-local space is dead at once" \
+  "$(curl -s -X POST $B/api/webhooks/$WH2ID/ping -H "Authorization: Bearer $OP")" '"outcome":"dead"'
+assert "webhook: …and the reason names the policy, not a timeout" \
+  "$(curl -s $B/api/webhooks/$WH2ID/deliveries -H "Authorization: Bearer $OP")" 'refused-address'
+assert "webhook: rotating mints a new secret, shown once" \
+  "$(curl -s -X PATCH $B/api/webhooks/$WH2ID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"rotate":true}')" 'no longer signs anything'
+assert "webhook: an inactive subscription will not accept a ping" \
+  "$(curl -s -X PATCH $B/api/webhooks/$WH2ID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"active":false}' >/dev/null; curl -s -X POST $B/api/webhooks/$WH2ID/ping -H "Authorization: Bearer $OP")" \
+  'would not receive a ping'
+assert "webhook: the trail names the create" \
+  "$(curl -s "$B/api/audit?limit=30" -H "Authorization: Bearer $OP")" 'webhook.create'
+assert "webhook: deleted" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/webhooks/$WH2ID -H "Authorization: Bearer $OP")" '200'
+assert "webhook: an unknown id is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/webhooks/00000000-0000-0000-0000-000000000000 -H "Authorization: Bearer $OP")" '404'
+kill $WH_PID 2>/dev/null; rm -rf "$WH_DIR"
 
 # ---- recurring work (#135) ---------------------------------------------------
 # A schedule enqueues an ordinary job on an interval. Everything below the
