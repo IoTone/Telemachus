@@ -7,7 +7,12 @@
 # exactly as it does in a checkout.
 { lib, stdenv, makeWrapper, racket, openssl
 , poppler-utils
-, pandoc, tectonic }:   # PDF forms (DWF-6, slice 68): doc_render md/html -> pandoc -> tectonic
+, pandoc, tectonic   # PDF forms (DWF-6, slice 68): doc_render md/html -> pandoc -> tectonic
+, tzdata }:          # #137: the IANA zone database. TZDIR is SET, not prefixed onto
+                     # PATH: the image has no /usr/share/zoneinfo and no shell to
+                     # debug with, so an undeclared tz database would make every
+                     # zone resolve to UTC on a packaged install while working on
+                     # every developer's box.
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "telemachus";
@@ -17,10 +22,18 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [ makeWrapper racket ];
 
+  # #137: the zone database is a BUILD input as well as a runtime one, so the
+  # unit suite's timezone vectors actually run in the sandbox. Without it they
+  # skip — and a skip is how a path goes unexercised for a year (the S3 smoke's
+  # lesson), which is exactly what happened here: the sandbox has no tz database,
+  # so the first version of this slice shipped a `zone-exists?` that refused UTC.
+  buildInputs = [ tzdata ];
+
   # raco writes compiled/ next to sources and racket wants a writable HOME
   preBuild = ''
     export HOME=$TMPDIR
     export PLTCOLLECTS="$PWD/pkgs:"
+    export TZDIR="${tzdata}/share/zoneinfo"
   '';
 
   buildPhase = ''
@@ -32,7 +45,7 @@ stdenv.mkDerivation (finalAttrs: {
   doCheck = true;
   checkPhase = ''
     runHook preCheck
-    export HOME=$TMPDIR PLTCOLLECTS="$PWD/pkgs:"
+    export HOME=$TMPDIR PLTCOLLECTS="$PWD/pkgs:" TZDIR="${tzdata}/share/zoneinfo"
     # `*-tests.rkt`, never `*.rkt`: the wider glob pulls in test/mock-*.rkt, which
     # are mock SERVERS that block forever. Both suites here are hermetic — no
     # network, and no model (the LLM path falls back to a deterministic reply when
@@ -56,6 +69,7 @@ stdenv.mkDerivation (finalAttrs: {
         --add-flags "$out/share/telemachus/$path" \
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
         --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic ]} \
+        --set-default TZDIR "${tzdata}/share/zoneinfo" \
         --run 'export TELEMACHUS_DATA_DIR="''${TELEMACHUS_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
     done
     runHook postInstall

@@ -493,6 +493,52 @@ assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP
 # #124: /api/metrics is instance:read now
 assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 
+# ---- timezones (#137) --------------------------------------------------------
+# UTC is the last resort and is STATED: an instance that configures nothing
+# behaves exactly as it did before timezones existed.
+assert "timezone: nothing configured means UTC, and whoami says which layer answered" \
+  "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"source":"default"'
+assert "timezone: the zone list is derived from the tz database on disk" \
+  "$(curl -s $B/api/timezones -H "Authorization: Bearer $BOB")" 'Europe/London'
+# An unknown zone is REFUSED, never silently substituted — somebody quietly
+# given UTC for a typo finds out from a report that arrives at the wrong hour.
+assert "timezone: an unknown zone is refused on the profile" \
+  "$(curl -s -X POST $B/api/profile -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+      -d '{"timezone":"Europe/Berlin-ish"}')" 'is not a timezone this instance has data for'
+assert "timezone: an unknown zone is refused on the instance default" \
+  "$(curl -s -X PUT $B/api/timezone -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"timezone":"PST"}')" 'is not a timezone'
+assert "timezone: the instance default is an operator write" \
+  "$(curl -s -X PUT $B/api/timezone -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+      -d '{"timezone":"Europe/London"}')" 'Forbidden: instance:manage'
+# …and a monitoring credential may READ it (#124's split)
+assert "timezone: reading the instance default is instance:read" \
+  "$(curl -s -X PUT $B/api/timezone -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"timezone":"Europe/London"}')" '"timezone":"Europe/London"'
+assert "timezone: a member with no zone of their own inherits the instance's" \
+  "$(curl -s $B/api/whoami -H "Authorization: Bearer $BOB")" '"source":"instance"'
+# A PERSON'S OWN CHOICE WINS. The layers do not tighten: a timezone is not a
+# control, and nobody is protected by being forced into the wrong clock.
+assert "timezone: a person sets their own" \
+  "$(curl -s -X POST $B/api/profile -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+      -d '{"timezone":"Asia/Tokyo"}')" '"source":"user"'
+assert "timezone: …and it wins over the instance default" \
+  "$(curl -s $B/api/whoami -H "Authorization: Bearer $BOB")" '"timezone":"Asia/Tokyo"'
+assert "timezone: the offset and abbreviation come with it" \
+  "$(curl -s $B/api/whoami -H "Authorization: Bearer $BOB")" '"utc_offset_seconds":32400'
+# Either field alone: a body carrying only a timezone must not be refused for
+# lacking a locale the caller never meant to change, and vice versa.
+assert "timezone: a locale-only profile write still works" \
+  "$(curl -s -X POST $B/api/profile -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+      -d '{"locale":"ja"}')" '"locale":"ja"'
+assert "timezone: …and the zone it did not mention is untouched" \
+  "$(curl -s $B/api/whoami -H "Authorization: Bearer $BOB")" '"timezone":"Asia/Tokyo"'
+assert "timezone: an empty profile write is refused rather than a silent no-op" \
+  "$(curl -s -X POST $B/api/profile -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+      -d '{}')" 'locale or timezone required'
+assert "timezone: the trail names the instance write" \
+  "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'instance.timezone'
+
 # ---- recurring work (#135) ---------------------------------------------------
 # A schedule enqueues an ordinary job on an interval. Everything below the
 # enqueue is the job row's — admission, the org gate, cancel, the lease — so what

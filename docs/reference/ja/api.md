@@ -70,9 +70,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | role | — | ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。 |
 | POST | `/api/password` | bearer | — | — | — | 呼び出し元のパスワードを変更する。古いパスワードで発行され得たセッションは、この呼び出し自身のものも含めてすべて失効するため、再度サインインが必要です。マシン用トークン（api、worker）はそのまま残ります。 |
 | GET | `/api/whoami` | bearer | — | — | — | 呼び出し元：ユーザー、チーム、オペレーターフラグ、組織、組織ロール、ロケール、権限。 |
-| POST | `/api/profile` | bearer | — | — | — | 呼び出し元のプロフィール(表示名、ロケール)を更新します。 |
+| POST | `/api/profile` | bearer | — | — | — | 呼び出し元自身の永続的な設定を更新する: `locale` と `timezone`（IANA ゾーン名、例: "Europe/London"）。どちらか一方だけでも送信できます。未知のタイムゾーンは暗黙に置き換えられず拒否されます — 入力ミスで黙って UTC を割り当てられた人は、間違った時刻に届いたレポートで初めて気づくことになります。応答には有効なタイムゾーンと、どの層がそれを決めたかが含まれます。 |
 | POST | `/api/members` | bearer | `members:manage` | role | — | 呼び出し元のチームに役割を付けてメンバーを追加；新しいメンバーの最初のトークンを返します。 |
 | GET | `/api/members` | bearer | — | — | — | チームのメンバーと役割 |
+| GET | `/api/timezones` | bearer | — | — | — | このインスタンスがデータを持つすべての IANA タイムゾーン。ソース中のリストではなく、ディスク上の tz データベースから導出されるため、tzdata の更新にリリースは不要です。 |
 | PATCH | `/api/members/:id` | bearer | `members:manage` | role | — | メンバーのチームロールを変更する：{role}。最後のオーナーは降格できません — オーナーのいないチームは、それを修正する権限を誰にも付与できないためです。 |
 | DELETE | `/api/members/:id` | bearer | `members:manage` | role | — | メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。 |
 | GET | `/api/admin/status` | bearer | `instance:read` | role | — | インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。 |
@@ -94,6 +95,11 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/org/audit` | org-admin | `org:read` | role | — | 会社の監査ログ。 |
 | GET | `/api/org/retention` | org-admin | `org:read` | role | — | 会社自身の保持ルール（#86 r3）。組織は自社のデータについてインスタンスが許す期間を短縮できますが、延長はできません。 |
 | PUT | `/api/org/retention` | org-admin | `org:manage` | role | — | 会社の保持ルールを設定します。語彙と拒否条件はチーム向けの経路と同一で、チームに適用される実効値はインスタンス・組織・チームのうち最短のものになります。 |
+| GET | `/api/timezone` | bearer | `instance:read` | role | — | インスタンス既定のタイムゾーン、何も設定されていないときに使われるフォールバック（UTC）、およびこのインスタンスがデータを持つゾーン数。 |
+| PUT | `/api/timezone` | bearer | `instance:manage` | role | — | インスタンス既定のタイムゾーンを設定する: {timezone}。これは下限ではなくフォールバックです — タイムゾーンは制御ではなく、間違った時計を強制して守られる人はいないため、会社も個人もそれぞれ自分のものを選べます。 |
+| GET | `/api/org/timezone` | org-admin | `org:read` | role | — | 会社自身の既定タイムゾーン、インスタンスの既定、および自分で設定していないこの会社のメンバーに適用される値。 |
+| PUT | `/api/org/timezone` | org-admin | `org:manage` | role | — | 会社の既定タイムゾーンを設定する: {timezone}。ユーザー自身の選択は引き続きこれより優先されます。 |
+| DELETE | `/api/org/timezone` | org-admin | `org:manage` | role | — | 会社の既定タイムゾーンを削除する。所属ユーザーはインスタンス既定にフォールバックします。 |
 | GET | `/api/org/session-policy` | org-admin | `org:read` | role | — | 会社自身のセッションタイムアウト、インスタンスのもの、そしてインスタンスの下限を適用した実効ポリシー。 |
 | PUT | `/api/org/session-policy` | org-admin | `org:manage` | role | — | 会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。 |
 | DELETE | `/api/org/session-policy` | org-admin | `org:manage` | role | — | 会社のセッションタイムアウトを取り下げる；そのユーザーはインスタンスのポリシーに戻ります。 |

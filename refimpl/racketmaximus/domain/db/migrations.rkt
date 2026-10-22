@@ -1481,7 +1481,22 @@
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_job_schedules_due ON job_schedules (next_run_epoch)")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_job_schedules_team ON job_schedules (team_id)"))))
 
+(define m-0052-user-timezone
+  (migration "0052-user-timezone"
+    (lambda (conn)
+      ;; issue #137: every date computation in this tree was UTC, so nothing
+      ;; could schedule or render anything at an hour a person would recognise.
+      ;; `locale` (migration 0018) is the sibling column and this is deliberately
+      ;; its shape: nullable, no backfill, and absence means "fall back a layer".
+      ;; The org and instance defaults are `instance_settings` documents and need
+      ;; no migration, which is what 0023 exists for.
+      ;;
+      ;; An IANA zone NAME, never a stored offset: an offset is wrong for half
+      ;; the year in most of the world, and a schedule is asked about the FUTURE,
+      ;; where only the rule can answer.
+      (exec* conn "ALTER TABLE users ADD COLUMN timezone TEXT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone))

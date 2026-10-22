@@ -98,6 +98,7 @@ Conventions used throughout:
 | `TELEMACHUS_MCP` | `<impl>/mcp.json` | MCP server config file. |
 | `TELEMACHUS_OOP` | `<impl>/oop.json` | Out-of-process (sandboxed) plugin config file. |
 | `TELEMACHUS_LOCALES` | `locales` | Directory of `*.json` catalogs. The export **writes** here, so point it at a writable copy in a test. |
+| `TELEMACHUS_ZONEINFO` | `$TZDIR`, else `/usr/share/zoneinfo` | Directory of the IANA zone database (#137). Only for a deployment that ships its own copy; the packaged wrapper and the devShell both set `TZDIR` from the pinned `tzdata`, so this is normally unset. With no database found, every zone resolves to UTC — which is what the platform did before timezones existed, so nothing breaks, and nothing is in local time either. |
 
 ## Encrypting document-derived content at rest (issue #83)
 
