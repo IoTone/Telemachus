@@ -43,7 +43,7 @@
          ;; nothing can be refused here rather than discovered later
          (only-in "../config.rkt" content-encryption-enabled?))
 
-(provide startup-problems
+(provide startup-problems blob-probe-problem
          blob-store-problem
          schema-problem
          loopback-bind?
@@ -81,6 +81,16 @@
 ;; exact failure the relative-blob-root refusal was added for.
 ;;
 ;; -> #f, or a startup-problem
+;;
+;; #119: THIS ONE IS NOT THE PROBE THE DOCUMENTATION DESCRIBED. It takes a
+;; filesystem path and writes a file into it, so it says nothing at all about a
+;; store that is not the local filesystem — with TELEMACHUS_BLOB_STORE=s3 an
+;; instance whose bucket was unreachable started healthy and failed on the first
+;; upload. `blob-probe-problem` below is the real one, and it goes through the
+;; ACTIVE store's own put/get/delete. This is kept because it is still the right
+;; check for a filesystem root and gives the better message for one (a
+;; root-owned directory and a read-only mount are what it was written for), and
+;; because the directory has to exist before anything else looks at it.
 (define (blob-store-problem root)
   (define (problem fmt . args)
     (startup-problem 'error 'blob-store
@@ -107,6 +117,34 @@
      (lambda () (with-handlers ([exn:fail? void])
                   (when (file-exists? probe) (delete-file probe)))))))
 
+;; ---- …and the store that is ACTUALLY IN USE works (issue #119) --------------
+;; A THUNK, not the store itself: this module is deliberately free of the domain
+;; (it is unit-testable without a live server, peer.rkt's move), and
+;; `domain/repo/blobs.rkt` pulls the scheduler in for `current-plugin`. The
+;; caller passes `blob-store-probe`, which does a real put, get, compare and
+;; delete through whatever TELEMACHUS_BLOB_STORE selected. Same seam `#:conn`
+;; and `#:migrations` already use.
+;;
+;; ALWAYS FATAL. The documentation has promised this since the s3blobs slice, and
+;; the alternative is the behaviour #119 reported: an instance that reports
+;; healthy and loses every document. It does mean an object-store outage at boot
+;; stops a restart, where before it started and failed per-upload — which is the
+;; right trade for a storage backend and is called out in the runbook.
+(define (blob-probe-problem probe store-name)
+  (define reason
+    (with-handlers ([exn:fail? (lambda (e) (format "blob store probe raised: ~a" (exn-message e)))])
+      (probe)))
+  (and reason
+       (startup-problem
+        'error 'blob-store-unusable
+        (string-append
+         reason
+         (format "\n  The active blob store is ~a. Documents could not be stored."
+                 (or store-name "unknown"))
+         "\n  For a bucket store, check the endpoint, the credentials, that the"
+         "\n  bucket exists and that the key has Put/Get/Delete on it. For the"
+         "\n  local store, check that the data directory is writable."))))
+
 ;; ---- the schema is this build's ---------------------------------------------
 
 ;; After `migrate!`, two things can still be wrong, and they are opposites:
@@ -125,7 +163,16 @@
   (define known (map migration-id migrations))
   (define applied (applied-migrations conn))
   (define pending (map migration-id (pending-migrations conn migrations)))
-  (define ahead (filter (lambda (id) (not (member id known))) applied))
+  ;; A PLUGIN's migration id (`x.<plugin-id>.<name>`, issue #121) is not the
+  ;; platform's schema and says nothing about the platform's build, which is what
+  ;; "ahead" is about: old code against a new core schema writes rows the new
+  ;; code misreads. So those ids are excluded in BOTH directions — an applied one
+  ;; this build does not know about means a plugin was removed or is not loaded
+  ;; yet, which must not refuse to boot, and a pending one is the plugin runner's
+  ;; business, not this check's. Found by running it: the example plugin's first
+  ;; migration made a healthy instance report "migrated by a NEWER Telemachus".
+  (define (plugin-id? id) (string-prefix? id "x."))
+  (define ahead (filter (lambda (id) (and (not (member id known)) (not (plugin-id? id)))) applied))
   (cond
     [(pair? pending)
      (startup-problem 'error 'schema-pending
@@ -155,13 +202,17 @@
 ;; environment MEANS.
 ;;
 ;;   #:conn / #:migrations   when both are given, the schema is checked
-;;   #:blob-root            when given, the store is probed by writing
+;;   #:blob-root            when given, the local root is probed by writing a file
+;;   #:blob-probe           a thunk -> #f or a reason: the ACTIVE store's own
+;;                          put/get/delete (#119). Always fatal.
 ;;
 ;; -> (listof startup-problem), worst first
 (define (startup-problems #:bind-ip bind-ip
                           #:tls? tls?
                           #:secrets? secrets?
                           #:blob-root [blob-root #f]
+                          #:blob-probe [blob-probe #f]
+                          #:blob-store-name [blob-store-name #f]
                           #:conn [conn #f]
                           #:migrations [migrations #f]
                           #:strict? [strict? (strict-startup?)])
@@ -172,6 +223,10 @@
     (list
      (and conn migrations (schema-problem conn migrations))
      (and blob-root (blob-store-problem blob-root))
+     ;; …and then the store that is really in use (#119). The path check above
+     ;; runs first so a missing data directory is reported as that rather than as
+     ;; an opaque failure from inside a store.
+     (and blob-probe (blob-probe-problem blob-probe blob-store-name))
      ;; ALWAYS FATAL, unlike the two advisories below: an operator who set
      ;; TELEMACHUS_ENCRYPT_CONTENT has said they want derived document content
      ;; sealed, and without a key `secret-wrap` passes plaintext STRAIGHT THROUGH

@@ -51,6 +51,7 @@ Conventions used throughout:
 | `TELEMACHUS_BLOB_STORE` | `rs3` | Which registered blob store holds document bytes. A name that is not registered **refuses to boot** — a typo used to write every document to local disk while the instance reported healthy. |
 | `TELEMACHUS_RS3_ROOT` | `<data dir>/rs3` | Where the local filesystem blob store writes. A relative path **refuses to boot**: `serve/servlet` repoints the working directory while handling a request, so a relative root aims writes at the read-only Nix store. |
 | `TELEMACHUS_UPLOAD_REAP_HOURS` | `168` (7 days) | How long an abandoned S3 multipart upload is kept. `never` disables; a nonsense or non-positive value falls back to the default. The clock is the **newest part**, not the create time, so a slow 2 GB upload is not reaped mid-flight. |
+| `TELEMACHUS_BLOB_STAGE_REAP_MINUTES` | `60` | How long a blob may sit with nothing pointing at it before a sweep collects it (issue #122). An upload's bytes are written **before** admission — the size is not known until they are, and trusting a client-supplied `Content-Length` is not enforcement — so a refused or crashed upload leaves bytes with no row. **The floor is a correctness requirement, not tidiness:** the gap between the write and the version row is exactly when a legitimate blob has no row yet, so a shorter value risks collecting an upload in progress. `never` disables the sweep; `0`, a negative value or nonsense falls back to the default. A blob another object shares is never collected, whatever the age. |
 
 ## Secrets and authentication
 
@@ -62,6 +63,8 @@ Conventions used throughout:
 | `TELEMACHUS_TOKEN_PEPPER` | `TELEMACHUS_SECRET`, else a dev default | Peppers the HMAC-SHA-256 token hashes specifically. |
 | `TELEMACHUS_KDF` | argon2 when available | Set to `pbkdf2` to force PBKDF2 password hashing. |
 | `TELEMACHUS_PBKDF2_ITERS` | `100000` | PBKDF2 iteration count when that KDF is in use. |
+| `TELEMACHUS_MAX_SESSIONS` | `10` | How many browser sessions one identity may hold at once (issue #118). Reaching it **evicts the oldest**, audited as `user.session.evicted` — it never refuses a sign-in, because a full session table would otherwise become a lockout. `never` or `0` disables the cap; anything unparseable falls back to the default. Machine tokens (`api`, `worker`) are not sessions and are never counted or evicted. |
+| `TELEMACHUS_LOGIN_LOCK_FAILURES` | — (off) | Lock an account outright after this many failed sign-ins inside 15 minutes (issue #116), answering **423** until an operator clears it with `POST /api/admin/users/:id/password`. **Off by default on purpose:** a lock only an operator can clear is a denial-of-service primitive against a known username. With it unset, sign-in is still throttled — three failures are free, then a doubling delay capped at 60 seconds, answered as a 429 with `Retry-After`. |
 
 ## Model access
 
@@ -153,16 +156,23 @@ once, which is why the names differ.
 | `TELEMACHUS_S3_BLOB_RETRIES` | `3` | Attempts per operation. Only a 429 or a 5xx retries — a 4xx is our own request. Every operation is idempotent (the key *is* the content hash), so a retry needs no idempotency key. |
 | `TELEMACHUS_S3_BLOB_TIMEOUT` | `120` | Seconds for one operation. |
 
-**There is no boot check for this store yet** — see
-[issue #119](https://github.com/IoTone/Telemachus/issues/119). An earlier version
-of this page said `server/startup.rkt` probes the *active* store by writing a
-blob, reading it back and deleting it. It does not: that probe takes a
-filesystem path and writes a file under the local blob root, so with
-`TELEMACHUS_BLOB_STORE=s3` an instance whose bucket is unreachable, whose
-credentials are wrong or whose endpoint is unset **starts healthy and fails on
-the first upload**. Until #119 lands, verify the bucket out of band —
-`racket cli/telemachus-blobs.rkt verify` exercises the real store — and treat a
-first successful upload as part of the deployment check.
+**The boot check probes the store that is in use** (issue #119).
+`blob-store-probe` does a real put, get, digest compare and delete through
+whatever `TELEMACHUS_BLOB_STORE` selected, after plugins load, and **a failure
+refuses to serve** — so endpoint reachability, credentials, bucket existence and
+Get/Put/Delete permission are all verified before the instance accepts a
+request. For the S3 store the put also asserts the bucket reported server-side
+encryption, so the encryption posture is checked by the same probe.
+
+For most of this feature's life that paragraph was a lie: the probe took a
+filesystem path and wrote a file under the *local* blob root whatever this
+variable said, so a bucket store with a wrong endpoint started healthy and
+failed on the first upload. **The practical consequence of the fix is that an
+object-store outage at boot now stops a restart**, where before it started and
+failed per-upload. That is the right trade for a storage backend — an instance
+that reports healthy and loses documents is the worse failure — but it is a
+change in restart behaviour worth knowing about if your bucket and your app
+restart together.
 
 See [the IAM policy and migration notes](container.md#object-storage-for-document-bytes).
 

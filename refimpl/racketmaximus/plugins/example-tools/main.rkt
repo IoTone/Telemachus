@@ -10,7 +10,7 @@
          (only-in "../../domain/sched/scheduler.rkt" register-job-kind!)
          (only-in "../../domain/repo/extract.rkt" register-extractor!))
 
-(provide tools routes init!)
+(provide tools routes init! migrations)
 
 (define word-count-schema
   (hasheq 'type "function"
@@ -27,6 +27,33 @@
 (define (word-count conn principal args)
   (define text (let ([v (hash-ref args 'text "")]) (if (string? v) v "")))
   (format "~a words" (length (string-split text))))
+
+;; ---- a plugin that owns data (issue #121) -----------------------------------
+;; `migrations` is a list of (list name sql ...). The platform applies them
+;; through its OWN runner, so they are ordered, recorded in `schema_migrations`
+;; as `x.example-tools.<name>`, each inside a transaction, and run once — rather
+;; than raced with `CREATE TABLE IF NOT EXISTS` on the first request, which is
+;; what a plugin had to do before and which loses on PostgreSQL under
+;; concurrency.
+;;
+;; EVERY TABLE AND INDEX MUST BE NAMED `x_example-tools_…` with the dashes turned
+;; into underscores — `x_example_tools_*`. The loader refuses anything else, so a
+;; plugin cannot land on a core table or on another plugin's, and an operator
+;; reading `\dt` can see who owns what.
+;;
+;; The SQL has to be dialect-neutral: SQLite and PostgreSQL both ship. That is
+;; the same obligation the platform's own migrations carry and nothing can check
+;; it for you — `raco test test/migration-tests.rkt` is what catches it for the
+;; platform, and a plugin wants its own equivalent.
+(define migrations
+  (list
+   (list "notes-seen"
+         (string-append "CREATE TABLE x_example_tools_seen ("
+                        "  id TEXT PRIMARY KEY,"
+                        "  team_id TEXT NOT NULL,"
+                        "  word_count INTEGER NOT NULL,"
+                        "  at_epoch BIGINT NOT NULL)")
+         "CREATE INDEX x_example_tools_seen_team ON x_example_tools_seen (team_id)")))
 
 (define tools
   (list (list "word_count" word-count-schema "chat:use" word-count)))

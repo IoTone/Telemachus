@@ -2234,19 +2234,45 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   header, so two copies drifting would fail every request with
   `SignatureDoesNotMatch` and nothing in the message would name which copy was
   wrong. `s3-object-url` calls it rather than recomputing.
-- **THE BOOT HEALTH CHECK DOES NOT EXIST, and this note claimed it did.**
-  Reported from outside as #119 and verified: `blob-store-problem` in
-  `server/startup.rkt` takes a filesystem PATH, `make-directory*`s it and writes
-  a probe FILE into it, and `main.rkt` passes `(blob-root)` — the local rs3 root,
-  computed without reference to `TELEMACHUS_BLOB_STORE`. It never obtains a
-  store, so it cannot call `s3-put!`. #82's requirement 5 was recorded as
-  satisfied "with no new code" on the strength of that claim, which is the #113
-  shape and worse: the false declaration was the argument for not writing the
-  check. The fix is to make the probe a function of the ACTIVE STORE's
-  put/get/delete rather than of a path — patching the call site to pass a
-  different path does not fix it — and it must run after `load-plugins!`,
-  because a plugin registers the store. `docs/ops/configuration.md` and
-  `plugins/s3blobs/main.rkt` carried the same false claim and are corrected too.
+- **The boot health check is `blob-store-probe` in `domain/repo/blobs.rkt`, and
+  for most of this feature's life it did not exist while THIS NOTE SAID IT DID.**
+  Reported from outside as #119. The old check, `blob-store-problem`, takes a
+  filesystem PATH and writes a probe FILE into it; `main.rkt` passed
+  `(blob-root)`, the local rs3 root, computed without reference to
+  `TELEMACHUS_BLOB_STORE`. It never obtained a store, so it could not call
+  `s3-put!`. **#82's requirement 5 was recorded as satisfied "with no new code"
+  on the strength of the claim** — the #113 shape, and worse, because the false
+  declaration was the argument for not writing the check. Fixed: the probe is a
+  function of the ACTIVE STORE's put/get/delete (patching the call site to pass a
+  different path would not have fixed it), it runs after `load-plugins!` because
+  a plugin registers the store, and a failure REFUSES TO SERVE. Positive control
+  is the reporter's own repro: `TELEMACHUS_BLOB_STORE=s3` with no endpoint now
+  prints `blob store s3: s3blobs: TELEMACHUS_S3_BLOB_ENDPOINT is required` and
+  exits, where it used to start healthy and 500 on the first upload.
+- **The probe compares the DIGEST of what comes back**, not merely that
+  something did: a store that answers a GET with the wrong object is worse than
+  one that answers nothing, and digest equality is the only check this seam can
+  make without knowing anything else. It deletes the probe blob in a
+  `dynamic-wind`, including when the read failed — otherwise a write-only store
+  accumulates one per boot.
+- **`startup-problems` takes a THUNK (`#:blob-probe`), not the store.**
+  `server/startup.rkt` is deliberately free of the domain so it stays
+  unit-testable without a live server (peer.rkt's move), and `blobs.rkt` pulls
+  the scheduler in for `current-plugin`. Same seam `#:conn`/`#:migrations` use.
+- **Both checks run.** The path check still gives the better message for a
+  missing or root-owned data directory; the probe is the one that exercises the
+  store. The path one is no longer the thing that claims to cover a bucket.
+- **`register-blob-store!` refuses a name another plugin owns** (#120), naming
+  both plugins and telling the integrator to pick another name and select it with
+  `TELEMACHUS_BLOB_STORE`. It was a bare `hash-set`, and the reported direction is
+  the one that reads worst: a downstream plugin registered `s3`, the platform's
+  own s3blobs registered `s3` later in directory order, **the platform's won**,
+  and every upload failed with an error naming configuration the integrator never
+  set — a collision that reads as a platform bug rather than as their own clash.
+  Ownership comes from `current-plugin`, so a plugin may re-register its OWN name
+  (the loader may run twice in one process): `register-extractor!`'s rule, and the
+  reason it tracks the owner rather than just the name. Job kinds and plugin ids
+  already refused; this was the only plugin-owned registry that did not.
 - **The migration moves NO database rows**, because `repo_versions` stores the
   digest and the store is addressed by it. That is what makes it resumable and
   safe on a live instance. It **re-hashes every blob**: rs3 takes the digest from
@@ -3514,6 +3540,316 @@ model role at any executor name**, including another org's, because
   `localStorage.tmx_lang` back.** A stored choice legitimately wins over the
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
+
+## A plugin that owns data (#121)
+
+A plugin had no connection at load time, so one that keeps data worked around it:
+`CREATE TABLE IF NOT EXISTS` on first use, which on PostgreSQL **lost a
+duplicate-key race in 1 of 6 rounds at 48 concurrent first requests** and then
+needed a hand-rolled lock.
+
+```sh
+raco test test/plugin-migration-tests.rkt   # 8 cases; the prefix check is controlled
+```
+
+- **`(provide migrations)`, a list of `(list name sql ...)`.** The platform
+  applies them through its OWN runner after every plugin has loaded and before it
+  serves, so they are ordered, recorded in `schema_migrations` as
+  `x.<plugin-id>.<name>`, transactional and run once.
+- **PASSING A CONNECTION TO `init!` WOULD MOVE THE RACE, NOT REMOVE IT**, which
+  is why the issue's second option was declined. `load-plugins!` runs once per
+  PROCESS, so two replicas run the plugin's DDL concurrently anyway — the same
+  collision, in the platform's boot instead of the plugin's first request.
+- **DATA, NOT A THUNK, and the validation is the reason.** A plugin already runs
+  arbitrary code in `init!`, so a procedure would add no authority — but a list
+  of SQL strings can be CHECKED, and every table and index must be named
+  `x_<id>_…` (dashes to underscores). A thunk could `CREATE TABLE users` and
+  nothing could tell. Schema-qualified names are refused too, or `public.users`
+  would walk straight past a check written on the bare name. Positive-controlled:
+  with the prefix check stubbed true, `CREATE TABLE users` and
+  `ALTER TABLE api_tokens` are accepted.
+- **A bad migration fails THAT PLUGIN's load**, the rule `check-route!` and the
+  workflow validator already follow — not a request later.
+- **THE "MIGRATED BY A NEWER BUILD" CHECK HAD TO LEARN ABOUT THIS, and only
+  running it showed me.** `schema-problem` reported `x.example-tools.notes-seen`
+  as a migration from the future and a healthy instance refused to start. A
+  plugin's id is not the platform's schema and says nothing about the platform's
+  build, which is what that check is for; `x.` ids are excluded, in both
+  directions — an applied one this build does not know about means a plugin was
+  removed or is not loaded, and refusing to boot over an uninstalled plugin would
+  be a new way to take an instance down. The check still catches a real core id
+  from a newer build, and there is a test for both.
+- **Two replicas starting together can still collide** — one wins the
+  `schema_migrations` insert, the other's transaction rolls back and takes its DDL
+  with it. That is the property the PLATFORM's own migrations have always had, so
+  it is stated rather than papered over: a plugin's are not a new race class.
+- **A `format` string gained an argument and not a placeholder**, so every plugin
+  failed to load with "format string requires 7 arguments, given 8". #48's
+  plugin-failure reporting is what made that loud instead of one line in sixty.
+- **Recurring work is NOT solved by this and must not be bolted on.** A thread
+  started in `init!` has no team, no principal and no request context — that is
+  what makes it dangerous, not merely awkward: `can?` has nobody to answer about
+  and the org gate has no tenant to scope to. A job kind is the answer for
+  anything that acts; a RECURRING job has no primitive yet, and `set-reaper!` is
+  the platform's private seam, not a plugin-facing one. That wants its own issue
+  (what a missed tick does, whether two replicas both fire, what an overrunning
+  run does) and #114's feed poller needs the same thing.
+
+## Bytes with nothing pointing at them (#122)
+
+A refused upload left its blob in the store for ever, and uncounted — so the
+quota that refused it was measuring the wrong number from then on.
+`release-blob-if-unreferenced!` runs from the DELETE path only, so nothing ever
+looked at those bytes again.
+
+```sh
+raco test test/blob-sweep-tests.rkt   # 5 cases, both safety properties controlled
+```
+
+- **The write cannot move, and the existing comment was half right.**
+  `repo-put!` stages the blob before admission because the size is not known
+  until it has, and a quota enforced on a client-supplied `Content-Length` is not
+  enforcement. The comment there accounted for the ROW it leaves behind and said
+  nothing of the BYTES; that is the whole bug.
+- **NOT delete-on-refusal, which is the obvious fix and is wrong.** Content is
+  stored once per ORG (DOC‑5/DOC‑6), so two teams in one company uploading the
+  same file share a blob, and team A over quota deleting "its" blob destroys what
+  team B's version row depends on. That is the NORMAL dedup path, not a corner
+  case — and #86 slice 1 already had to fix this exact class once, where
+  `repo-delete!` never consulted `repo_upload_parts` and destroyed the bytes a
+  live multipart upload needed.
+- **A TABLE, not a scan of the store** (`repo_blob_staging`, migration 0050).
+  The blob-store seam is put/get/delete/stat with **no list**, so the issue's
+  "sweep every blob no version points at" cannot be written against a bucket at
+  all. A row per in-flight stage makes the sweep read rows instead — bounded by
+  what is actually in flight — and it covers the crash between the write and the
+  version row, which no refusal handling can.
+- **The age floor is a CORRECTNESS requirement.** The gap between `blob-stage!`
+  and the version INSERT is exactly when a legitimate blob has no row yet, so a
+  sweep with no floor deletes bytes an upload is about to reference.
+  `TELEMACHUS_BLOB_STAGE_REAP_MINUTES`, default 60, `never` off, and 0 falls back
+  to the default rather than being honoured. **Positive-controlled: with the
+  floor set to 0 the "nothing is collected inside the floor" case fails.**
+- **`blob-referenced?` is asked for every row — the ONE rule, not a second one.**
+  It counts version rows AND `repo_upload_parts` in that org, which is what #86
+  slice 1 consolidated, and asking it is what makes the sweep safe where
+  delete-on-refusal was not. **Also positive-controlled: stub it to `#f` and the
+  shared-blob case fails, bytes destroyed.**
+- **NO QUOTA REFUND, and that is not an oversight.** `quota-record!` runs AFTER
+  admission, so a refused upload was never charged and a crash before that point
+  never charged either — there is nothing to give back. The staged PARTS of a
+  multipart upload are the opposite case (charged on arrival, refunded in
+  `drop-upload!`, S3‑8), so copying that pattern here would double-count.
+- **Fifth thing on the `set-reaper!` seam**, ten minutes, beside the upload
+  reaper it is a sibling of. Not in the S3 listener, for the listener's own
+  reason: it is off by default, and these bytes come from the ordinary front door.
+- A stray insertion put this block INSIDE the idempotency reaper's `when` form
+  and it still compiled as far as the paren balance went. `raco make` caught it
+  only because the inner `define` then referenced a name out of scope; read the
+  surrounding form after a scripted insert into a nested `cond`/`when`.
+
+## A monitoring credential that cannot reset a password (#124)
+
+Every operational READ — `/api/admin/status`, `/api/metrics`,
+`/api/admin/workers`, `/api/admin/queue`, `/api/admin/audit/verify` — required
+`instance:manage`, and a token holding that can reset any user's password and
+rewrite instance settings. So a monitoring credential was a full operator
+credential, which is the one credential a monitoring system should never hold:
+it is the account most likely to sit in a config file on a box nobody hardened.
+
+- **The fix is a NARROWER PERMISSION, not a new tier.** `instance:read` is
+  instance-tier like its sibling, so it still answers only to an operator; the
+  monitoring credential is an operator-issued **token scoped to
+  `instance:read`**, and the scope is what caps it (RBAC‑4). Before this there
+  was no scope that could read the fleet without also permitting the reset.
+- **`instance:manage` implies `instance:read`, by name.** `perm-matches?`'s
+  wildcard rule cannot see it — `manage` and `read` are different actions — and
+  without the implication an operator whose token is scoped `instance:manage`
+  would be refused the very routes this opened up. **The implication goes one
+  way only**, and that asymmetry is the feature; TEN‑2h had to special-case the
+  OPPOSITE direction for `org:read-data`, so an error either way is a silent
+  privilege change. Both halves are tested.
+- **`GET /api/admin/audit/export` deliberately does NOT move.** Verify answers
+  "is the chain intact", which is a monitoring signal; export hands over the log
+  itself, which is the opposite of "no tenant names, no document content". It
+  stays `instance:manage`, and it already audits itself.
+- **A handler's own `require-perm` had to move too.** r2 left two layers on the
+  authorization path, so a route re-gated in `routes.rkt` while its handler still
+  demanded `instance:manage` would refuse exactly the token the permission exists
+  for — the dispatcher admits it and the handler throws it out.
+- **The 403's wording changes, and three existing smoke assertions pinned the old
+  one.** `Forbidden: instance:read` is now what a member sees on those routes,
+  because the message names the permission actually required. That is the point,
+  but it is a visible change for anyone matching on the string.
+- **Do not reach for `POST /api/orgs` as the "mutating route" control.** The
+  multi-tenancy flag gate answers **404 before any permission is consulted**
+  (r2's load-bearing order), so single-tenant that assertion passes for the wrong
+  reason. `PUT /api/session-policy` is a mutating route that is always on.
+- An OpenMetrics rendering of the same numbers is a reasonable follow-up and is
+  deliberately not here: the permission was the ask, a text format is a
+  convenience for one scraper, and the JSON already answers anything that can
+  read JSON.
+
+## A 500 says nothing, and four refusals were riding on the leak (#123)
+
+`handle` answered `(err (exn-message e) 500)`, so **every** unhandled exception's
+message became the response body. The duplicate-username `INSERT` is how it was
+reported from outside, and SQL is the least of it: #83 r4 sealed four stored
+`error` columns precisely because this platform's own code quotes what it choked
+on — the strict renderer names the missing placeholder, DWF‑5's extraction names
+the JSON path **and the offending value**, the KG extractor quotes a snippet it
+refused. That reasoning applies unchanged to a response body, and the wire had
+never been looked at.
+
+```sh
+raco test test/error-response-tests.rkt   # 6 cases, positive-controlled
+```
+
+- **`server-error-response` lives in `server/errors.rkt`**, a module with NO
+  DATABASE in it — peer.rkt's and startup.rkt's move, and here it is
+  load-bearing: once the duplicate username answers 409 there may be **no
+  request left that raises**, so a smoke assertion for the 500 path would pass
+  by never reaching it.
+- **IT WAS IN `kit.rkt` FIRST, with a comment claiming it was "unit-testable
+  without a live server", AND THAT WAS FALSE.** Requiring kit instantiates the
+  connection POOL, which reads `DATABASE_URL` at module instantiation — and
+  **CI's SQLite leg sets `DATABASE_URL` to the EMPTY STRING**, which
+  `db-connector` refuses. So the test passed on every machine where that variable
+  is unset or valid and failed only in CI, with
+  `db-connector: unsupported DATABASE_URL` and no test name attached. **A unit
+  test must not require `server/kit.rkt`**; put the rule in a module that really
+  has no server in it, and reproduce CI's condition with
+  `DATABASE_URL="" raco test test/*-tests.rkt` before trusting a green run.
+  `req-header` and the request id moved with it.
+- **The body is `{error: "internal error", request_id}`** and the message goes to
+  **stderr** with the same id. That keeps the diagnostic — which is what putting
+  it in the body was buying — without putting it on the wire. The test asserts
+  the message IS in the log, because a version that merely dropped it would pass
+  every other check.
+- **One request id per request.** `request-id-of` in kit states the precedence
+  (a bound id, then inbound `X-Request-Id`, then fresh) once; `handle` binds it
+  and `with-auth` reads it instead of minting a second, so the 500 and the audit
+  entries agree about which request they belong to.
+- **FOUR DELIBERATE REFUSALS WERE REACHING CALLERS ONLY BECAUSE OF THE LEAK**,
+  and all four were really 400s — the leak was masking a misclassification:
+  `run-chat`'s "no model configured" (×3 sites), the engine's "input 'x' is
+  required", and "the reply does not honour response_format: $.total …". They
+  are `raise-user-error` now. **This is the half of the slice that mattered**: a
+  caller could not tell their own mistake from a server fault, which is #123's
+  actual complaint, and three suites failed in sequence until each was found.
+- **`exn:fail:user?` is caught in `handle`, and its clause must PRECEDE
+  `exn:fail?`** — `exn:fail:user` is a subtype and the first matching clause wins
+  (PULL‑14's ordering lesson). Catching it centrally is what makes the rule true
+  everywhere rather than wherever a handler remembered to wrap; seven handlers
+  already wrapped it one at a time and still do, as r2's two-layer habit.
+- **A 400 may carry a value a 500 may not, and the line is who supplied the
+  input.** The schema refusal names the value that failed, and that value came
+  from the model's reply to the CALLER's own prompt and schema — theirs to read.
+  The copy #83 sealed is different: a workflow step's stored `error` quotes
+  content out of a document somebody else may own.
+- **A duplicate username is a 409 on both planes now**, the same string and code
+  `POST /api/org/members` always used. Usernames are instance-global (TEN‑2b), so
+  the check is not team-scoped.
+
+## Sign-in: the record, the throttle, and your own sessions (#116, #117, #118)
+
+Three reports, one code path. `ep-login` was nine lines that authenticated and
+minted a token: no attempt limit, no record of anything, and nothing anywhere to
+end a session with. #38 bounded how long a session CAN live and gave nobody a
+way to end one.
+
+```sh
+raco test test/signin-tests.rkt    # 14 cases; the timing pair is positive-controlled
+bash test/server-smoke.sh          # the "sign-in, sessions and the attempt throttle" block
+```
+
+- **#117's gap was 168 MILLISECONDS, measured, not estimated.** An unknown
+  username returned in **0.13 ms** and a wrong password in **168 ms**, because
+  `authenticate` answered `#f` before touching the KDF. That is not a subtle
+  oracle; it is a thousandfold difference, readable over any network. There were
+  **TWO** cheap paths, not the one reported: `(sql-null? ph)` short-circuits the
+  same way, and `POST /api/orgs` without `owner_password` creates exactly those
+  rows. Both now answer `(verify-absent-password password)`, which runs the live
+  KDF against a dummy hash and **always returns #f** — so it is the branch's
+  RESULT, not a side effect somebody can drop while "simplifying".
+- **The dummy hash is minted at first use from the live KDF**, not baked in as a
+  literal: the iteration count is read at runtime, so a literal would silently
+  stop matching the real cost the first time an operator raised
+  `TELEMACHUS_PBKDF2_ITERS`.
+- **A timing test is written as a RATIO, never an absolute.** `test/signin-tests.rkt`
+  asserts the cheap path costs at least 40% of a known-wrong-password call in the
+  same process. An absolute millisecond bound would flap under load; the ratio of
+  two identical operations does not. Positive-controlled: against the old code it
+  fails printing both figures.
+- **The attempt counter is a ROW (migration 0049), and the address throttle is
+  in memory.** Deliberately different: an address is a throttle, so a restart
+  clearing it costs nothing and an attacker changes address anyway; an ACCOUNT
+  lock is a control, so it must survive the restart an attacker can cause and
+  must not grant each replica its own allowance. This is also where QUOTA-3's
+  "ask the audit log instead of keeping a table" move does NOT apply — that
+  question is asked on a scheduler tick, this one on an unauthenticated public
+  endpoint, where a `meta LIKE` scan per request is a denial-of-service
+  amplifier the caller controls.
+- **A 429 with `Retry-After`, never a sleep.** A sleep holds a request thread,
+  which is a resource an unauthenticated caller could exhaust on purpose. Three
+  failures are free, then the delay doubles to a 60-second cap. **The throttle
+  refuses a CORRECT password too while the delay runs** — it has to, or it would
+  be an oracle of a different kind — which is exactly why it is capped.
+- **The hard lock is OFF unless `TELEMACHUS_LOGIN_LOCK_FAILURES` is set**, because
+  a lock only an operator can clear is a denial-of-service primitive against a
+  known username. The way back in is `POST /api/admin/users/:id/password`, which
+  #54 built for this, and which now clears the counter — **without that a locked
+  account has no recovery path at all**, since the lock refuses the sign-in that
+  would otherwise clear it.
+- **`user.login` is audited on success AND failure**, and the success half is the
+  more serious omission: the audit log is the record (DEL‑7 keeps it through an
+  erasure, #84 r3 chains it) and "who signed in, from where" was absent from it
+  entirely. The entry carries the attempted username and the address and nothing
+  else — never the password, never the body. The failure entry does NOT say which
+  of bad-password / unknown-account / bad-2FA it was: telling the log would hand
+  anyone who can read it the oracle #117 just closed.
+- **A person's own sessions are their own rows — no permission.** `GET /api/sessions`,
+  `POST /api/logout`, `DELETE /api/sessions` (everywhere else) and
+  `DELETE /api/sessions/:id`, all scoped by `user_id` AND `kind` **in the
+  statement**, so a member cannot reach a colleague's session or the team's
+  worker token by guessing an id. Deliberately NOT a widening of `GET /api/tokens`,
+  which is the TEAM's API tokens behind `settings:manage` — widening it would
+  have handed a member the team's machine credentials to read. `kind` (migration
+  0032) is what makes the two separable.
+- **Somebody else's session id is a 404, not a 403.** Whether another person
+  holds a given token id is not a question this route should answer.
+- **The cap EVICTS THE OLDEST and never refuses a sign-in** (`TELEMACHUS_MAX_SESSIONS`,
+  default 10, `never`/`0` off). "Refuse the N+1th" turns a full session table
+  into a lockout, and before this slice nothing ended a session early, so an
+  ordinary person on a laptop, a phone and a second browser would have reached it
+  within a week. Each eviction is audited (`user.session.evicted`): a session that
+  ends by itself with no record is indistinguishable, to its owner, from one that
+  was stolen.
+- **The cap is NOT inside `issue-token!`.** That function has 25 call sites and
+  the cap is a property of interactive SIGN-IN; `ep-login` calls
+  `enforce-session-cap!` itself, which also lets it audit what was evicted.
+  Returning a third value from `issue-token!` was tried first and reverted.
+- **The console's "log out" now logs you out.** It cleared `localStorage` and
+  called nothing, so the bearer it discarded stayed valid server-side for up to
+  the absolute cap — on a shared machine, 8 hours. The revoke is awaited and its
+  failure IGNORED on purpose: a network error must still sign you out of this
+  browser, and a token nobody holds is the lesser problem.
+- **A conditional SQL clause with a fixed argument list, for the fourth time.**
+  `revoke-other-sessions!` built `" AND id <> ?"` conditionally and passed two
+  parameters — written two lines under a comment quoting #86 slice 1's identical
+  bug. It is two statements now. `test/signin-tests.rkt` is what caught it, which
+  is the argument for the test file rather than for the comment.
+- **`created_epoch` is SECONDS, so two sessions minted in one second tie** and
+  come back in the engine's order. Cosmetic for a list a person reads, and the
+  reason a test must age its rows rather than assert on insertion order.
+- **A console card for sessions is NOT built** — the API is the contract and the
+  logout fix is the part a person can see. A card needs `ui.*` strings in two
+  catalogs and a tour update, which is its own slice.
+- **`grep -c` counts LINES.** `grep -c '"prefix"'` on a one-line JSON reply
+  answers 1 for any number of sessions; count occurrences with `grep -o | wc -l`.
+  And **`meta` rides in the audit EXPORT as a string**, so its quotes are
+  escaped — a smoke needle must be `username\":\"sven`, not the shape the
+  handler wrote. Both cost a red run.
 
 ## Session timeouts (issue #38, slice 70)
 

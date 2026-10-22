@@ -24,9 +24,14 @@
 ;; extensions). Installing one — placing it in the plugins dir — IS the consent.
 ;; Sandboxed/out-of-process plugins are future hardening (see THREAT model).
 
-(require (only-in "../repo/extract.rkt" extractors-of-plugin) json racket/list "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
+(require (only-in "../repo/extract.rkt" extractors-of-plugin) json racket/list racket/string
+         db-kit/portable
+         (only-in db-kit/migrate migration migration-id)
+         "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
 
-(provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures)
+(provide load-plugins! loaded-plugins plugin-routes plugin-dir plugin-failures
+         ;; issue #121: a plugin that owns data
+         plugin-migrations plugin-table-prefix check-migrations!)
 
 (define *loaded* (box '()))
 (define (loaded-plugins) (unbox *loaded*))
@@ -49,6 +54,10 @@
 ;; server turns them into dispatch entries and the docs CLI into api.md rows
 (define *routes* (box '()))
 (define (plugin-routes) (unbox *routes*))
+
+;; every loaded plugin's migrations, in load order, ready for `migrate!`
+(define *migrations* (box '()))
+(define (plugin-migrations) (unbox *migrations*))
 
 (define METHODS '("GET" "POST" "PUT" "PATCH" "DELETE"))
 (define (check-route! id r)
@@ -76,6 +85,75 @@
 ;; drift, so one developer's local symlink would otherwise write a customer's
 ;; routes and descriptions into the repository and break the gate on every
 ;; machine that does not have that link.
+;; ---- a plugin that owns data (issue #121) -----------------------------------
+;; A plugin had no connection at load time, so one that keeps data worked around
+;; it: `CREATE TABLE IF NOT EXISTS` on first use, which on PostgreSQL lost a
+;; duplicate-key race in 1 of 6 rounds at 48 concurrent first requests, and then
+;; needed a hand-rolled lock around the statements.
+;;
+;; WHY NOT JUST PASS A CONNECTION TO `init!`, which the issue offers as its second
+;; option: that does not remove the race, it MOVES it. `load-plugins!` runs once
+;; per process, so on two replicas two processes run `init!` concurrently and both
+;; run the plugin's DDL — the same collision, now in the platform's boot instead
+;; of the plugin's first request. The platform solved this for itself years ago
+;; and the machinery is sitting there: an ordered list, applied once, recorded in
+;; `schema_migrations`, each inside a transaction.
+;;
+;; So a plugin declares `(provide migrations)` and the platform runs them like its
+;; own. The id recorded is `x.<plugin-id>.<name>`, the same platform-fixed prefix
+;; job kinds and routes already carry, so a plugin's migration can never be
+;; mistaken for a core one or for another plugin's.
+;;
+;; DATA, NOT A PROCEDURE. A plugin already runs arbitrary code in `init!`, so a
+;; thunk would add no authority — but a list of SQL strings can be VALIDATED, and
+;; the validation is the point: every table and index a plugin creates must be
+;; named `x_<id>_…`, which is what keeps it off the platform's tables and out of
+;; another plugin's. A procedure could create `users` and nothing could tell.
+;;
+;; Shape: (list (list "name" "SQL" "SQL" ...) ...)
+;;
+;; The SQL must be dialect-neutral — the same obligation the platform's own
+;; migrations carry, and for the same reason (SQLite and PostgreSQL both ship).
+;; Nothing can enforce that here; `raco test test/migration-tests.rkt` is what
+;; catches it for the platform, and a plugin wants its own equivalent.
+(define (plugin-table-prefix id) (string-append "x_" (regexp-replace* #rx"[^a-z0-9]" id "_") "_"))
+
+;; every identifier this statement creates or alters, lower-cased
+(define (ddl-targets sql)
+  (define s (string-downcase sql))
+  (for*/list ([rx (in-list (list #px"create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 #px"create\\s+(?:unique\\s+)?index\\s+(?:if\\s+not\\s+exists\\s+)?([a-z0-9_\"\\.]+)"
+                                 #px"alter\\s+table\\s+([a-z0-9_\"\\.]+)"
+                                 #px"drop\\s+table\\s+(?:if\\s+exists\\s+)?([a-z0-9_\"\\.]+)"))]
+              [m (in-list (regexp-match* rx s #:match-select cadr))])
+    (regexp-replace* #rx"\"" m "")))
+
+;; -> (listof migration), or raises so THIS plugin fails to load rather than a
+;; request later — the rule `check-route!` and the workflow validator follow
+(define (check-migrations! id v)
+  (unless (list? v) (error 'plugins "~a: `migrations` must be a list" id))
+  (define prefix (plugin-table-prefix id))
+  (for/list ([entry (in-list v)] [i (in-naturals)])
+    (unless (and (list? entry) (>= (length entry) 2) (andmap string? entry))
+      (error 'plugins "~a: migration ~a must be (list name sql ...) of strings" id i))
+    (define name (car entry))
+    (define stmts (cdr entry))
+    (unless (regexp-match? #px"^[a-z0-9][a-z0-9-]*$" name)
+      (error 'plugins "~a: migration name ~s must be lower-case letters, digits and dashes" id name))
+    (for ([sql (in-list stmts)])
+      (for ([t (in-list (ddl-targets sql))])
+        ;; a bare table name only; a schema-qualified one would sidestep the prefix
+        (when (regexp-match? #rx"\\." t)
+          (error 'plugins "~a: migration ~s may not name a schema-qualified table (~a)" id name t))
+        (unless (regexp-match? (regexp (string-append "^" (regexp-quote prefix))) t)
+          (error 'plugins
+                 (string-append "~a: migration ~s creates or alters ~s, which is not named ~a*. "
+                                "A plugin's tables carry its own prefix so they cannot collide "
+                                "with the platform's or another plugin's.")
+                 id name t prefix))))
+    (migration (format "x.~a.~a" id name)
+               (lambda (conn) (for ([sql (in-list stmts)]) (query-exec conn sql))))))
+
 (define (load-plugins! dirs #:log [log void] #:skip-links? [skip-links? #f])
   (set-box! *loaded* '())
   (set-box! *routes* '())
@@ -137,12 +215,22 @@
             (for/list ([r (in-list (let ([v (dynamic-require entry 'routes (lambda () '()))]) (if (list? v) v '())))])
               (check-route! id r)))
           (set-box! *routes* (append (unbox *routes*) routes))
+          ;; #121: validated here, so a badly-named table fails THIS plugin's
+          ;; load. Applied by main.rkt after every plugin has loaded, through the
+          ;; platform's own `migrate!` — which is what makes them ordered,
+          ;; recorded and run once instead of raced on first use.
+          (define migs (check-migrations! id (dynamic-require entry 'migrations (lambda () '()))))
+          (set-box! *migrations* (append (unbox *migrations*) migs))
           (set-box! *loaded*
             (append (unbox *loaded*)
                     (list (hasheq 'id id 'name (hash-ref m 'name id) 'version (hash-ref m 'version "")
                                   'description (hash-ref m 'description "") 'tools names
                                   'workflows wf-slugs
                                   'job_kinds job-kinds
+                                  ;; #121: which tables this plugin owns, by id —
+                                  ;; an operator reading `\dt` should be able to
+                                  ;; tell who owns what
+                                  'migrations (for/list ([m (in-list migs)]) (migration-id m))
                                   ;; LAY-7: which content types this plugin claims
                                   ;; an extractor for. Reported for the same reason
                                   ;; job kinds are — an operator should be able to
@@ -156,8 +244,9 @@
                                   'routes (for/list ([r (in-list routes)])
                                             (string-append (hash-ref r 'method) " " (hash-ref r 'path)))))))
           (hash-set! *dirs* id pdir)
-          (log (format "~a v~a — ~a tool(s)~a~a~a~a" id (hash-ref m 'version "?") (length names)
+          (log (format "~a v~a — ~a tool(s)~a~a~a~a~a" id (hash-ref m 'version "?") (length names)
                        (if (null? wf-slugs) "" (format ", ~a workflow(s)" (length wf-slugs)))
                        (if (null? routes) "" (format ", ~a route(s)" (length routes)))
                        (if (null? job-kinds) "" (format ", ~a job kind(s)" (length job-kinds)))
+                       (if (null? migs) "" (format ", ~a migration(s)" (length migs)))
                        (if (procedure? init!) " +init" ""))))))))

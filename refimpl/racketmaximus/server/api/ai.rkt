@@ -102,7 +102,10 @@
 ;; operator has to decode, and there is nothing here to get wrong by guessing.
 (define (ep-admin-workers req)
   (with-auth req (lambda (p)
-    (require-perm db-conn p "instance:manage")
+    ;; #124: `instance:read`, not `instance:manage` — the dispatcher gates this
+    ;; route on the read permission now, and a handler still demanding `manage`
+    ;; would refuse exactly the monitoring token the permission exists for.
+    (require-perm db-conn p "instance:read")
     (define h (let* ([raw (query-param req 'hours)]
                      [n (and (string? raw) (string->number raw))])
                 (if (and (real? n) (> n 0)) (min 720 (inexact->exact (round n))) FLEET-WINDOW-HOURS)))
@@ -147,7 +150,10 @@
 ;; operator should not have to decode a 400 to see their queue.
 (define (ep-admin-queue req)
   (with-auth req (lambda (p)
-    (require-perm db-conn p "instance:manage")
+    ;; #124: `instance:read`, not `instance:manage` — the dispatcher gates this
+    ;; route on the read permission now, and a handler still demanding `manage`
+    ;; would refuse exactly the monitoring token the permission exists for.
+    (require-perm db-conn p "instance:read")
     (define (f k) (let ([v (query-param req k)]) (and (string? v) (not (string=? v "")) v)))
     (define (num k d) (let* ([raw (query-param req k)]
                              [n (and (string? raw) (string->number raw))])

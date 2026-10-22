@@ -163,7 +163,11 @@
   (let ([bad (if executor (capability-refusal executor needs) (local-capability-refusal needs))])
     (when bad (error who "~a" bad)))
   (define-values (url mdl key conf?) (backend executor))
-  (unless conf? (error who "no model configured (set TELEMACHUS_MODEL_URL)"))
+  ;; #123: raise-user-error, not `error`. This is a deliberate, documented
+  ;; refusal a CALLER has to see — and until the 500 stopped carrying
+  ;; exn-message, the only reason it reached them was that leak. It is the
+  ;; caller's mistake (or their operator's), so it is a 400.
+  (unless conf? (raise-user-error who "no model configured (set TELEMACHUS_MODEL_URL)"))
   (define body
     (for/fold ([b (hasheq 'model mdl 'messages (sanitize-wire-messages messages)
                           'temperature temp 'stream #f)])
@@ -195,7 +199,13 @@
   (define (verify! reply)
     (when rf
       (define-values (_parsed problem) (response-format-verify rf reply))
-      (when problem (error 'run-chat "the reply does not honour response_format: ~a" problem))))
+      ;; #123: the CALLER's own request — they supplied the prompt and the schema,
+      ;; and the value named here is from the model's reply to it, so the detail
+      ;; is theirs and this is a 400. Worth distinguishing from the copy #83
+      ;; sealed: a workflow STEP's stored `error` quotes content out of a document
+      ;; somebody else may own, and that one is not the requester's to read.
+      (when problem
+        (raise-user-error 'run-chat "the reply does not honour response_format: ~a" problem))))
   (cond
     [routed (verify! (car routed)) (values (car routed) (cdr routed))]   ; a pull executor answered
     ;; A NAMED executor that neither a pull worker nor the push registry owns must
@@ -207,7 +217,7 @@
     [(not conf?)
      ;; the simulated fallback cannot honour a schema, and pretending it did would
      ;; hand the caller an upper-cased echo as "conforming JSON"
-     (when rf (error 'run-chat "no model configured: response_format cannot be honoured"))
+     (when rf (raise-user-error 'run-chat "no model configured: response_format cannot be honoured"))
      (values (string-upcase prompt-text) (estimate-tokens prompt-text))]
     [else
      (define-values (resp _url _mdl)
@@ -231,7 +241,7 @@
   (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
   (cond
     [(not conf?)
-     (when rf (error 'run-chat "no model configured: response_format cannot be honoured"))
+     (when rf (raise-user-error 'run-chat "no model configured: response_format cannot be honoured"))
      (define reply (string-upcase prompt-text))                ; simulated: stream word by word
      (for ([w (in-list (string-split reply))]) (on-token (string-append w " ")) (sleep 0.06))
      (values (estimate-tokens prompt-text) reply)]

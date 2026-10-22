@@ -1379,7 +1379,57 @@
       ;; the reaper's own query: everything past the window, across all teams
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_idem_age ON idempotency_keys (created_epoch)"))))
 
+(define m-0049-login-throttle
+  (migration "0049-login-throttle"
+    (lambda (conn)
+      ;; issue #116: sign-in had no attempt limit and left no record. The record
+      ;; is the audit log; this table is only the COUNTER.
+      ;;
+      ;; A table rather than a query over `audit_log`, which is how QUOTA-3
+      ;; dedups its own entries. The difference is the caller: QUOTA-3 asks on a
+      ;; scheduler tick, this would have to ask on an UNAUTHENTICATED public
+      ;; endpoint, where a `meta LIKE '%"username":"…"%'` scan per request is a
+      ;; denial-of-service amplifier an attacker controls. Keyed by username so
+      ;; the check is one primary-key lookup.
+      ;;
+      ;; Epoch columns, not CURRENT_TIMESTAMP: the window is compared in SQL and
+      ;; the TEXT format differs by dialect — the trap 0038 through 0048 each name.
+      (exec* conn (string-append
+        "CREATE TABLE login_throttle ("
+        "  username TEXT PRIMARY KEY,"
+        "  failures INTEGER NOT NULL DEFAULT 0,"
+        "  first_failure_epoch BIGINT,"
+        "  last_failure_epoch BIGINT,"
+        "  locked_until_epoch BIGINT)")))))
+
+(define m-0050-blob-staging
+  (migration "0050-blob-staging"
+    (lambda (conn)
+      ;; issue #122: a refused upload left its bytes in the store for ever. The
+      ;; bytes are written BEFORE admission, deliberately — the size is not known
+      ;; until they are, and the alternative is trusting a client-supplied
+      ;; Content-Length, which is not enforcement. So the write cannot be avoided;
+      ;; what was missing is anything that ever looks at it again.
+      ;;
+      ;; A TABLE RATHER THAN A SCAN OF THE STORE, because the blob-store seam is
+      ;; put/get/delete/stat and has NO list: the issue's "sweep blobs no version
+      ;; points at" cannot be written against a bucket at all. This records a
+      ;; blob between its write and its version row, so the sweep reads rows
+      ;; instead of enumerating objects — bounded by what is in flight, and it
+      ;; covers the crash case no refusal handling can.
+      ;;
+      ;; Epoch, not CURRENT_TIMESTAMP: the age floor is compared in SQL and the
+      ;; TEXT format differs by dialect (the trap 0038 onward each name).
+      (exec* conn (string-append
+        "CREATE TABLE repo_blob_staging ("
+        "  org_id TEXT NOT NULL,"
+        "  digest TEXT NOT NULL,"
+        "  staged_epoch BIGINT NOT NULL,"
+        "  PRIMARY KEY (org_id, digest))"))
+      ;; the sweep's own query: everything past the floor, across all orgs
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_blob_staging_age ON repo_blob_staging (staged_epoch)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging))

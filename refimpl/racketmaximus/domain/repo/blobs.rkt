@@ -19,9 +19,11 @@
 
 (require racket/file racket/port racket/string
          (only-in "../../config.rkt" data-dir)
+         (only-in "../sched/scheduler.rkt" current-plugin)
          sha2-kit)
 
-(provide register-blob-store! blob-store-names active-blob-store-name
+(provide register-blob-store! blob-store-names blob-store-owners active-blob-store-name
+         blob-store-probe
          blob-put! blob-get blob-delete! blob-size blob-exists? blob-stage!
          digest-of-bytes digest-of-port valid-digest?
          current-blob-root blob-root)
@@ -34,8 +36,36 @@
 ;;   get     : (namespace digest) -> input-port or #f
 ;;   delete! : (namespace digest) -> void
 ;;   stat    : (namespace digest) -> exact-nonnegative-integer or #f
+;; A SECOND registration of a name another plugin owns is REFUSED and names both
+;; sides (issue #120). It used to be a bare `hash-set`, so a later plugin replaced
+;; an earlier one silently — and the direction that was reported is the one that
+;; reads worst: a downstream plugin registered "s3", the platform's own s3blobs
+;; registered "s3" later in directory order, the platform's won, and every upload
+;; then failed with an error naming configuration the integrator had never set. A
+;; collision that reads as a platform bug rather than as their own name clash.
+;;
+;; Re-registering your OWN name is fine: the loader may run twice in one process.
+;; That is `register-extractor!`'s rule, and the reason it tracks the OWNER rather
+;; than just the name — a flat "refuse any duplicate" breaks a reload. Job kinds
+;; (scheduler.rkt) and plugin ids (plugins.rkt) both refuse and name the
+;; collision too; this registry was the only plugin-owned one that did not.
+(define *store-owners* (box (hash)))
 (define (register-blob-store! name store)
+  (define pid (current-plugin))
+  (define owner (hash-ref (unbox *store-owners*) name 'none))
+  (when (and (not (eq? owner 'none)) (not (equal? owner pid)))
+    (error 'register-blob-store!
+           (string-append "blob store ~s is already registered by ~a, so ~a cannot claim it. "
+                          "Pick another name and select it with TELEMACHUS_BLOB_STORE.")
+           name (or owner "the platform") (or pid "the platform")))
+  (set-box! *store-owners* (hash-set (unbox *store-owners*) name pid))
   (set-box! *stores* (hash-set (unbox *stores*) name store)))
+
+;; name -> owning plugin id (#f for one registered outside a plugin), so
+;; GET /api/plugins can say who owns which store
+(define (blob-store-owners)
+  (for/list ([n (in-list (blob-store-names))])
+    (cons n (hash-ref (unbox *store-owners*) n #f))))
 
 (define (blob-store-names) (sort (hash-keys (unbox *stores*)) string<?))
 
@@ -48,6 +78,48 @@
 
 (define (active-store)
   (or (hash-ref (unbox *stores*) (active-blob-store-name) #f) BUILTIN))
+
+;; ---- is the store that is in use actually usable? (issue #119) ---------------
+;; `server/startup.rkt`'s probe took a filesystem PATH and wrote a file under the
+;; local blob root, so with TELEMACHUS_BLOB_STORE=s3 it never touched the store
+;; that would be used: an instance whose bucket was unreachable, whose
+;; credentials were wrong or whose endpoint was unset started HEALTHY and failed
+;; on the first upload. Three places — the ops documentation, s3blobs' own
+;; header and CLAUDE.md — claimed it probed the active store, and #82's
+;; requirement 5 was recorded as satisfied on the strength of that claim.
+;;
+;; This is the probe those three described: a real put, get, compare and delete
+;; through whatever store is selected. It lives HERE rather than in startup.rkt
+;; because the store seam is here, and a probe that takes a path instead of a
+;; store is the whole bug — handing the old one a different path would not fix it.
+;;
+;; -> #f when the store works, else a one-line reason.
+(define PROBE-NAMESPACE "startup-probe")
+(define (blob-store-probe)
+  (define name (active-blob-store-name))
+  (define body (string->bytes/utf-8 (format "telemachus blob store probe ~a" (current-milliseconds))))
+  (define digest (digest-of-bytes body))
+  (with-handlers ([exn:fail? (lambda (e) (format "blob store ~a: ~a" name (exn-message e)))])
+    (blob-put! PROBE-NAMESPACE digest (open-input-bytes body) (bytes-length body))
+    (define back
+      (dynamic-wind
+       void
+       (lambda ()
+         (define in (blob-get PROBE-NAMESPACE digest))
+         (and in (let ([bs (port->bytes in)]) (close-input-port in) bs)))
+       ;; the probe blob goes whatever happens, including when the read failed —
+       ;; otherwise a store that can write and not read accumulates one per boot
+       (lambda ()
+         (with-handlers ([exn:fail? (lambda (_) (void))])
+           (blob-delete! PROBE-NAMESPACE digest)))))
+    (cond
+      [(not back) (format "blob store ~a: wrote a blob and could not read it back" name)]
+      ;; not merely "some bytes came back": a store that answers a GET with the
+      ;; wrong object is worse than one that answers nothing, and digest equality
+      ;; is the one check this seam can make without knowing anything else
+      [(not (equal? (digest-of-bytes back) digest))
+       (format "blob store ~a: read back ~a bytes that are not what was written" name (bytes-length back))]
+      [else #f])))
 
 ;; ---- digests -----------------------------------------------------------------
 (define (digest-of-bytes bs) (sha256-hex bs))

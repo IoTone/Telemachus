@@ -127,7 +127,9 @@ assert "admin status carries the version now" "$(curl -s $B/api/admin/status -H 
 MB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')
 assert "member token"    "$MB" '"token":"tk_'
 BOB=$(printf '%s' "$MB" | grep -oP '"token":\s*"\K[^"]+')
-assert "member 403 en"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
+# #124: the message names the permission actually required, which is now the
+# narrower one. A member reaches neither.
+assert "member 403 en"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 assert "member 403 ja"   "$(curl -s $B/api/admin/status -H "Authorization: Bearer $BOB" -H 'Accept-Language: ja')" '権限がありません'
 # notes: ownership + sharing over HTTP
 CB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"carol","role":"member"}')
@@ -247,6 +249,16 @@ assert "beta decide"      "$(curl -s -X POST $B/api/beta/prospects/$PID/decide -
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
 assert "onboarding plug" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'beta-onboarding'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
+# issue #121: a plugin that owns data. The platform ran its migrations through
+# its own runner at boot, so the table is there before any request — the
+# alternative was CREATE TABLE IF NOT EXISTS on first use, which loses a
+# duplicate-key race on PostgreSQL under concurrency.
+assert "a plugin's migration is reported" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.example-tools.notes-seen"'
+# …and it really ran: the prefixed table answers a query. Not via a plugin route,
+# because the point is that the platform created it, not that the plugin can.
+assert "…and its table exists, prefixed with the plugin's id" \
+  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
 assert "mcp connected"   "$(curl -s $B/api/mcp -H "Authorization: Bearer $OP")" '"name":"mock"'
 assert "mcp tool"        "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'mcp__mock__add'
 assert "oop connected"   "$(curl -s $B/api/oop -H "Authorization: Bearer $OP")" 'notes-helper'
@@ -478,7 +490,8 @@ assert "purge: an unknown job is a 404" \
 assert "purge: the audit entry names the act and not the content" \
   "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'job.purge'
 assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP")" '"users"'
-assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
+# #124: /api/metrics is instance:read now
+assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 
 # ---- document repository (slices 49-50) --------------------------------------
 # Bytes over the wire, not base64 in JSON. The payload deliberately contains a NUL
@@ -1006,7 +1019,7 @@ assert "export: the export is itself recorded" \
 # an operator permission, not a team one
 assert "chain: a member cannot verify the instance's log" \
   "$(curl -s "$B/api/admin/audit/verify" -H "Authorization: Bearer $BOB")" \
-  'Forbidden: instance:manage'
+  'Forbidden: instance:read'
 assert "chain: ...nor export it" \
   "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $BOB")" \
   'Forbidden: instance:manage'
@@ -1155,6 +1168,139 @@ assert "…uncached, so a deploy cannot leave a stale script against a new shell
 # the traversal guard, on the raw path so curl does not collapse it first
 assert "…and the path cannot climb out of static/console" \
   "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/console/../index.html")" '404'
+
+# ---- a monitoring credential (issue #124) ------------------------------------
+# Every operational READ required instance:manage, and a token holding that can
+# reset any user's password. The fix is a narrower permission, not a new tier: a
+# monitoring system gets an operator-issued token SCOPED to instance:read.
+echo
+echo "== a monitoring credential reads and cannot administer ========================"
+MONTOK=$(curl -s -X POST $B/api/tokens -H "Authorization: Bearer $OP" \
+  -d '{"name":"monitoring","scopes":["instance:read"],"ttl":"never"}' | grep -oP '"token":\s*"\K[^"]+')
+assert "the monitoring token reads instance status" \
+  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $MONTOK")" '"ok":true'
+assert "…and the metrics"      "$(curl -s $B/api/metrics -H "Authorization: Bearer $MONTOK")" '"users":'
+assert "…and the worker fleet" "$(curl -s $B/api/admin/workers -H "Authorization: Bearer $MONTOK")" '"executors":'
+assert "…and the queue"        "$(curl -s $B/api/admin/queue -H "Authorization: Bearer $MONTOK")" '"jobs":'
+assert "…and can verify the audit chain" \
+  "$(curl -s "$B/api/admin/audit/verify" -H "Authorization: Bearer $MONTOK")" '"ok":'
+# BOTH HALVES. Only the second one is the bug: a credential that can read the
+# fleet and also reset a password is what was reported.
+assert "…but NOT reset a password"  \
+  "$(curl -s -X POST $B/api/admin/users/$CAROL_ID/password -H "Authorization: Bearer $MONTOK" -d '{"new_password":"hijacked1"}')" 'Forbidden: instance:manage'
+assert "…nor write instance branding" \
+  "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $MONTOK" -d '{"title":"nope"}')" 'Forbidden: instance:manage'
+# NOT /api/orgs: the multi-tenancy flag gate answers 404 before any permission
+# is consulted (#110 r2's load-bearing order), so single-tenant it would pass for
+# the wrong reason.
+assert "…nor tighten the instance session policy" \
+  "$(curl -s -X PUT $B/api/session-policy -H "Authorization: Bearer $MONTOK" -d '{"idle_seconds":60}')" 'Forbidden: instance:manage'
+# the audit EXPORT hands over the log itself, so it is deliberately NOT a read
+# this permission opens — "no tenant names, no document content" was the line
+assert "…and NOT the audit export, which hands over the log" \
+  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $MONTOK")" 'Forbidden: instance:manage'
+# the compatibility half: the operator keeps every route they had
+assert "an operator still reads the fleet" "$(curl -s $B/api/admin/workers -H "Authorization: Bearer $OP")" '"executors":'
+assert "…and still exports the audit log"  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" '"action":'
+assert "a plain member reaches none of it" "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
+
+# ---- what a refusal and a 500 are allowed to say (issue #123) ----------------
+# A username that already exists used to reach `create-user!`, raise the UNIQUE
+# violation, and come back as a 500 carrying the INSERT statement. The org plane
+# always answered 409; the two agree now.
+echo
+echo "== duplicate username, and what a 500 says ==================================="
+assert "a duplicate username is a 409 on the team plane" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')" '409'
+DUP=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')
+assert "…and says so in words a caller can act on" "$DUP" 'username already exists on this instance'
+refute "…with no SQL in the reply"                 "$DUP" 'INSERT'
+refute "…and no engine wording either"             "$DUP" 'constraint'
+# the generic-500 rule itself is unit-tested (test/error-response-tests.rkt),
+# because after this fix there may be no request left that still raises — a
+# smoke assertion for it would pass by never reaching the path.
+
+# ---- sign-in: the record, the throttle, and a person's own sessions ----------
+# Issues #116, #117 and #118. A dedicated user throughout: throttling `alice`
+# would leave her counter set and break every later block that signs in as her,
+# which is how the quota block announced it was changing global state once.
+echo
+echo "== sign-in, sessions and the attempt throttle ================================="
+SI=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"sven","password":"sven-pass-1","role":"member"}')
+SVEN=$(printf '%s' "$SI" | grep -oP '"token":\s*"\K[^"]+')
+SVEN_ID=$(printf '%s' "$SI" | grep -oP '"user_id":\s*"\K[^"]+')
+
+# #118: a member reads their OWN sessions with no permission at all. The team's
+# API tokens stay behind settings:manage, which is a different route.
+assert "a member is refused the team's tokens" \
+  "$(curl -s $B/api/tokens -H "Authorization: Bearer $SVEN")" 'Forbidden: settings:manage'
+SESS=$(curl -s $B/api/sessions -H "Authorization: Bearer $SVEN")
+assert "…but reads their own sessions"        "$SESS" '"sessions":['
+assert "…and the one they are holding is marked" "$SESS" '"current":true'
+assert "…with a prefix and no token"          "$SESS" '"prefix":"tk_'
+refute "the listing never carries a token"    "$SESS" '"token":'
+assert "…and it reports the cap"              "$SESS" '"max":'
+
+# a second session for the same person, so there is something to end
+S2=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+assert "a second sign-in works"               "$(curl -s $B/api/whoami -H "Authorization: Bearer $S2")" '"user_id":'
+# grep -c counts LINES and the reply is one line, so it would answer 1 for any
+# number of sessions. Count OCCURRENCES.
+assert "both sessions are listed"             "$(curl -s $B/api/sessions -H "Authorization: Bearer $S2" | grep -o '"prefix"' | wc -l | tr -d ' ')" '2'
+
+# "sign out everywhere else" keeps the caller's own
+assert "…everywhere else ends the other one"  "$(curl -s -X DELETE $B/api/sessions -H "Authorization: Bearer $S2")" '"ended":1'
+assert "…the caller's own still works"        "$(curl -s $B/api/whoami -H "Authorization: Bearer $S2")" '"user_id":'
+assert "…and the other one is dead"           "$(curl -s $B/api/whoami -H "Authorization: Bearer $SVEN")" 'Authentication required'
+
+# #118: logout ends THIS session — the console's button called nothing before
+S3=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+assert "logout answers ok"                    "$(curl -s -X POST $B/api/logout -H "Authorization: Bearer $S3")" '"ok":true'
+assert "…and the token really stops working"  "$(curl -s $B/api/whoami -H "Authorization: Bearer $S3")" 'Authentication required'
+
+# one of the caller's own, by id; somebody else's is a 404 and not a 403
+S4=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+S5=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+S4ID=$(curl -s $B/api/sessions -H "Authorization: Bearer $S4" | grep -oP '"id":"[^"]+","name":[^,]*,"prefix":"[^"]*","status":"active"' | head -1 | grep -oP '"id":"\K[^"]+')
+assert "a session ends by id"                 "$(curl -s -X DELETE $B/api/sessions/$S4ID -H "Authorization: Bearer $S5")" '"ok":true'
+OPSESS=$(curl -s $B/api/sessions -H "Authorization: Bearer $OP" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "…and somebody else's is a 404, not a 403" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/sessions/$OPSESS -H "Authorization: Bearer $S5")" '404'
+assert "…so the operator's session is untouched" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"user_id":'
+
+# #116: every attempt is audited. The operator reads the team trail.
+assert "a successful sign-in is recorded"     "$(curl -s $B/api/audit -H "Authorization: Bearer $OP")" '"action":"user.login"'
+assert "…and the logout too"                  "$(curl -s $B/api/audit -H "Authorization: Bearer $OP")" '"action":"user.logout"'
+
+# #116: the growing delay. Three failures are free, the fourth starts costing.
+for i in 1 2 3; do
+  curl -s -o /dev/null -X POST $B/api/login -d '{"username":"sven","password":"wrong"}'
+done
+assert "three failures still answer 401"      "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -d '{"username":"sven","password":"wrong"}')" '401'
+THROTTLED=$(curl -s -D- -X POST $B/api/login -d '{"username":"sven","password":"wrong"}' | tr -d '\r')
+assert "…then the next one is throttled"      "$THROTTLED" '429'
+assert "…with a retry-after the client can read" "$THROTTLED" 'retry_after'
+assert "…and the header form too"             "$(printf '%s' "$THROTTLED" | grep -ci '^retry-after:' || true)" '1'
+# The throttle refuses a CORRECT password too while the delay is running — it has
+# to, or it would be an account-existence oracle of a different kind — which is
+# exactly why the delay is capped at a minute and why a hard lock is opt-in.
+assert "…and it refuses the right password too, while the delay runs" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}')" '429'
+# the fourth failure bought a 2-second delay; wait it out and the counter clears
+sleep 3
+assert "…then a correct password works and forgets the history" \
+  "$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}')" '"token":"tk_'
+assert "…so the next wrong password is a plain 401 again" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -d '{"username":"sven","password":"wrong"}')" '401'
+# the failures are in the trail as well, with the username that was tried and
+# never the password
+AUD=$(curl -s $B/api/admin/audit/export -H "Authorization: Bearer $OP")
+assert "a failed sign-in is recorded"      "$AUD" '"result":"failed"'
+# `meta` rides in the export as a STRING, so its own quotes are escaped — the
+# needle has to be the escaped form, not the shape the handler wrote.
+assert "…naming the account that was tried" "$AUD" 'username\":\"sven'
+refute "…and never the password"           "$AUD" 'sven-pass-1'
+refute "…nor the one that was guessed"     "$AUD" 'password\":\"wrong'
 
 # ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
 assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'

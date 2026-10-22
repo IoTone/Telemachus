@@ -42,7 +42,9 @@
          (only-in "../domain/idem/idem.rkt" idem-reap!)
          (only-in "../domain/retention/retention.rkt" retention-sweep!)
          "routes.rkt"                             ; the declared HTTP surface (slice 60)
-         (only-in "../domain/repo/blobs.rkt" blob-root blob-store-names)
+         (only-in "../domain/repo/blobs.rkt" blob-root blob-store-names blob-store-probe
+                  active-blob-store-name)
+         (only-in "../domain/repo/repo.rkt" reap-staged-blobs!)
          (only-in "../domain/flow/spec.rkt" exn:fail:spec?)
          (only-in "../domain/ai/executor.rkt" estimate-tokens model-configured? pull-router run-chat)
          (only-in "../domain/ai/content.rkt" content->text)
@@ -52,7 +54,10 @@
          (only-in "../domain/judge/judge.rkt" judgments-in-result register-judge-kind!)
          (only-in "../domain/ai/roles.rkt" model-role-executor)
          (only-in "../domain/agent/run.rkt" agent-configured? run-agent-flow)
-         (only-in "../domain/agent/plugins.rkt" load-plugins! plugin-failures plugin-routes)
+         (only-in "../domain/agent/plugins.rkt" load-plugins! plugin-failures plugin-routes
+                  plugin-migrations)
+         ;; #121: a plugin's tables go through the platform's own runner
+         (only-in db-kit/migrate migrate!)
          (only-in "../domain/mcp/connect.rkt" connect-mcp-servers!)
          (only-in "../domain/oop/host.rkt" connect-oop-plugins!)
          (only-in "../domain/i18n/i18n.rkt" current-localizer t)
@@ -204,6 +209,8 @@
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota
    'login ep-login '2fa-enable ep-2fa-enable '2fa-reset ep-2fa-reset
+   'sessions-list ep-sessions-list 'logout ep-logout
+   'sessions-revoke-others ep-sessions-revoke-others 'session-revoke ep-session-revoke
    '2fa-codes-new ep-2fa-codes-new '2fa-codes-get ep-2fa-codes-get
    'admin-2fa-reset ep-admin-2fa-reset 'password ep-password
    'whoami ep-whoami 'profile ep-profile 'add-member ep-add-member 'members-list ep-members-list
@@ -458,14 +465,32 @@
   (if (null? add) resp (struct-copy response resp [headers (append (response-headers resp) add)])))
 
 (define (handle req)
-  (parameterize ([current-localizer (localizer-for (request-locale req))])
+  ;; one id for this request, honouring an inbound X-Request-Id, bound before
+  ;; anything can raise so a 500 and the audit entries agree about which request
+  ;; they belong to
+  ;; `request-id-of` is kit's, so the precedence (inbound header, else fresh) is
+  ;; stated once rather than here and in `with-auth`
+  (define rid (request-id-of req))
+  (parameterize ([current-localizer (localizer-for (request-locale req))]
+                 [current-request-id rid])
     (with-security-headers
      (with-handlers ([exn:fail:forbidden?
                       (lambda (e) (err (msg-forbidden (exn:fail:forbidden-permission e)) 403))]
                      ;; a refused workflow spec is the caller's mistake — and the
                      ;; detail is the whole point of rejecting rather than ignoring
                      [exn:fail:spec? (lambda (e) (err (exn-message e) 400))]
-                     [exn:fail? (lambda (e) (err (exn-message e) 500))])
+                     ;; …and so is any `raise-user-error`, which several handlers
+                     ;; already caught one at a time. Catching it HERE is what
+                     ;; makes the rule true everywhere rather than wherever
+                     ;; somebody remembered to wrap: two deliberate refusals ("no
+                     ;; model configured", "input 'x' is required") were reaching
+                     ;; the caller only because the 500 below leaked
+                     ;; `exn-message`, and both are a 400. It must precede the
+                     ;; `exn:fail?` clause — exn:fail:user is a subtype, and the
+                     ;; first matching clause wins (PULL-14's ordering lesson).
+                     [exn:fail:user? (lambda (e) (err (exn-message e) 400))]
+                     ;; #123: NOT the exception's message. See server-error-response.
+                     [exn:fail? (lambda (e) (server-error-response e rid))])
        (route req)))))
 
 (module+ main
@@ -508,6 +533,21 @@
                                  #:skip-links? (not include-links?)
                                  #:log (lambda (s) (printf "  plugin: ~a\n" s))))
   (install-plugin-routes!)
+  ;; #121: a plugin's own tables, applied through the platform's own runner —
+  ;; ordered, recorded in `schema_migrations` under `x.<plugin-id>.<name>`, each
+  ;; in a transaction, run once. AFTER every plugin has loaded and BEFORE the
+  ;; startup checks, so a plugin's first request never finds a missing table and
+  ;; never has to race to create one. The loader has already refused any
+  ;; migration that names a table outside the plugin's own `x_<id>_` prefix.
+  ;;
+  ;; Two replicas starting together can still collide here — one wins the
+  ;; `schema_migrations` insert and the other's transaction rolls back, taking its
+  ;; DDL with it. That is exactly the property the PLATFORM's own migrations have
+  ;; had all along, so it is stated rather than papered over: a plugin's are not a
+  ;; new race class, and the remedy is the same one (start one replica first).
+  (let ([pm (plugin-migrations)])
+    (unless (null? pm)
+      (migrate! db-conn pm #:log (lambda (id) (printf "  plugin migration: ~a\n" id)))))
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
   ;; request, so a relative root aims writes at whatever that is — for a Nix
@@ -537,15 +577,22 @@
                             "  TELEMACHUS_RS3_ROOT) to an absolute path.")
              r)))
   ;; issue #89: everything else an unattended deployment gets wrong silently.
-  ;; AFTER plugins, because the blob store the probe writes to is the one rs3 may
-  ;; have replaced — the same reason the two refusals above wait for them. The
-  ;; errors here refuse to serve; the warnings become refusals under
-  ;; TELEMACHUS_STRICT_STARTUP. See server/startup.rkt for why each is which.
+  ;; AFTER plugins, because the store that will be used is the one a plugin
+  ;; registered — the same reason the two refusals above wait for them.
+  ;;
+  ;; #119: `#:blob-probe` is the probe the documentation has described since the
+  ;; s3blobs slice and which did not exist. `#:blob-root` only ever wrote a file
+  ;; under the LOCAL root, whatever TELEMACHUS_BLOB_STORE said, so a bucket store
+  ;; with a wrong endpoint started healthy and failed on the first upload. Both
+  ;; run: the path check gives the better message for a missing data directory,
+  ;; and the probe is the one that actually exercises the store.
   (unless (report-startup-problems!
            (startup-problems #:bind-ip (bind-ip)
                              #:tls? (tls-on?)
                              #:secrets? (secrets-enabled?)
                              #:blob-root (blob-root)
+                             #:blob-probe blob-store-probe
+                             #:blob-store-name (active-blob-store-name)
                              #:conn db-conn
                              #:migrations all-migrations))
     (exit 1))
@@ -630,6 +677,14 @@
   (define AUDIT-SEAL-EVERY 60)
   (define last-idem-reap (box 0))
   (define IDEM-REAP-EVERY 600)
+  ;; The staged-blob sweep (#122) is the FIFTH thing on this seam. Ten minutes,
+  ;; like the upload reaper it is a sibling of: the age floor is an hour by
+  ;; default, so a sweep that ran more often would re-ask the same question about
+  ;; the same rows. It rides here rather than in the S3 listener for the same
+  ;; reason the upload reaper does — the listener is off by default, and these
+  ;; bytes come from the ordinary front door, not from it.
+  (define last-blob-sweep (box 0))
+  (define BLOB-SWEEP-EVERY 600)
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -660,6 +715,13 @@
                                     (eprintf "idempotency reaper: ~a\n" (exn-message e)))])
          (define gone (idem-reap! conn))
          (when (> gone 0) (printf "reaped ~a expired idempotency key(s)\n" gone))))
+     (when (> (- (current-seconds) (unbox last-blob-sweep)) BLOB-SWEEP-EVERY)
+       (set-box! last-blob-sweep (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "blob sweep: ~a\n" (exn-message e)))])
+         (define-values (collected _kept) (reap-staged-blobs! conn))
+         (when (> collected 0)
+           (printf "collected ~a orphaned blob(s)\n" collected))))
      (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
        (set-box! last-audit-seal (current-seconds))
        ;; its own handler too, for the reason the other two have one

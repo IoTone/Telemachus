@@ -22,6 +22,7 @@ for the seams, [permissions.md](reference/permissions.md) for the permission cat
 | Your own screens | Served by the platform, behind a bearer token | §4 |
 | Your own API | Routes under a prefix that cannot collide | §5 |
 | Background work | Job kinds on the platform's queue and quotas | §6 |
+| Your own tables | Migrations the platform runs like its own | §6b |
 | Your marketing funnel | Three render tiers, fully skinnable | §7 |
 
 What is **not** available today, stated plainly so you do not design around it:
@@ -205,6 +206,61 @@ plugin — it comes from the row.
 For multi-step work, publish a **workflow** instead (`POST /api/workflows`): a
 validated spec whose steps are jobs, with fan-out and choice. See
 [workflows.md](reference/workflows.md).
+
+## 6b. Your own tables
+
+Declare them and the platform runs them like its own migrations:
+
+```racket
+(provide migrations)
+(define migrations
+  (list
+   (list "init"
+         (string-append "CREATE TABLE x_acme_lanes ("
+                        "  id TEXT PRIMARY KEY,"
+                        "  team_id TEXT NOT NULL,"
+                        "  eta_days INTEGER NOT NULL)")
+         "CREATE INDEX x_acme_lanes_team ON x_acme_lanes (team_id)")))
+```
+
+Each entry is `(list name sql ...)`. The platform applies them through its own
+runner after every plugin has loaded and before it accepts a request, so they are
+**ordered, recorded, transactional and run once** — the id lands in
+`schema_migrations` as `x.<your-plugin-id>.<name>`.
+
+**Every table and index you create must be named `x_<your_id>_…`**, with dashes
+turned into underscores (`doc-pipeline` → `x_doc_pipeline_`). A migration that
+names anything else fails **your plugin's load**, with a message saying so. That
+is deliberate: it is what keeps your tables off the platform's and out of
+another plugin's, and it is why `migrations` is data rather than a procedure — a
+thunk could `CREATE TABLE users` and nothing could tell.
+
+Three things to know before you design around this:
+
+- **Do not use `CREATE TABLE IF NOT EXISTS` on first use instead.** That is what
+  integrators did before this existed, and on PostgreSQL it loses a duplicate-key
+  race under concurrency — reported from the field at 48 simultaneous first
+  requests. The runner exists so you do not need a lock.
+- **Your SQL must be dialect-neutral.** SQLite and PostgreSQL both ship, so quote
+  reserved words (`"window"`), use epoch integers rather than
+  `CURRENT_TIMESTAMP` for anything you compare, and go through `db-kit/portable`
+  rather than `db` in your own queries (it rewrites `?` to `$n` on PostgreSQL —
+  forgetting is invisible on SQLite). Nothing checks this for you; the platform
+  has `test/migration-tests.rkt` for its own and you want the equivalent.
+- **Two replicas starting together can collide**, one winning the
+  `schema_migrations` insert while the other's transaction rolls back and takes
+  its DDL with it. This is the same property the platform's own migrations have
+  always had, not something new for plugins — start one replica first.
+
+`GET /api/plugins` reports the migration ids each plugin owns, so an operator
+reading `\dt` can tell who owns what.
+
+**Recurring work is a different question and is not solved by this.** A thread
+started in `init!` has no team, no principal and no request context, which is
+what makes it dangerous rather than merely awkward: `can?` has nobody to answer
+about and the org gate has no tenant to scope to. Use a job kind (§6) for
+anything that acts. A *recurring* job — "every N minutes" — has no primitive yet;
+`set-reaper!` is the platform's own private seam, not a plugin-facing one.
 
 ## 7. The signup funnel
 

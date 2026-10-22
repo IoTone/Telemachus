@@ -34,6 +34,16 @@
 (define (perm-matches? granted required)
   (or (string=? granted required)
       (string=? granted "*:*")
+      ;; issue #124: `instance:manage` implies `instance:read`. Stated by name
+      ;; because the wildcard rule cannot see it — `manage` and `read` are two
+      ;; different actions — and WITHOUT it an operator whose token is scoped
+      ;; `instance:manage` would be refused the very read routes this permission
+      ;; was added to open up. The implication only goes this way: a monitoring
+      ;; token scoped `instance:read` is refused `instance:manage`, which is the
+      ;; whole point. TEN-2h had to special-case the OPPOSITE direction for
+      ;; `org:read-data`, so getting this backwards is a silent privilege change
+      ;; either way — there is a test for both.
+      (and (string=? required "instance:read") (string=? granted "instance:manage"))
       ;; TEN-2h: `org:*` is the company-ADMINISTRATION wildcard; it does not
       ;; reach `org:read-data`, which is granted by name (the org_reader role)
       ;; so that reading a company's data is always a deliberate assignment
@@ -198,7 +208,12 @@
    "org:manage" "Administer the company: teams and members. Manages, does not read, team data (TEN-2a)."
    "org:read-data" "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role."
    "instance:*"      "Everything at the instance tier; the operator (superadmin)."
-   "instance:manage" "Instance administration: branding, localization policy, quotas, orgs, metrics."))
+   "instance:manage" "Instance administration: branding, localization policy, quotas, orgs, metrics."
+   ;; issue #124: the operational READS, so a monitoring credential need not be
+   ;; able to reset a password. An operator issues a token scoped to this and
+   ;; nothing else; `instance:manage` implies it, so an operator keeps every
+   ;; route they had. It carries no tenant names and no document content.
+   "instance:read"   "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself."))
 
 (define (permission-doc p)
   (hash-ref PERMISSION-DOCS p

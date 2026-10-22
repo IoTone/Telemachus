@@ -15,7 +15,9 @@
 ;; through every one of those call sites to say the same thing. The pool is lazy,
 ;; so requiring this module costs nothing until a query runs.
 
-(provide (all-defined-out))
+(provide (all-defined-out)
+         ;; re-exported so every handler keeps reaching them through kit
+         (all-from-out "errors.rkt"))
 
 (require racket/string
          racket/file
@@ -40,6 +42,7 @@
          "../domain/audit/reads.rkt"                      ; the read context a request carries (#84)
          "../domain/agent/plugins.rkt"                    ; plugin-dir — where a plugin's pages live
          (only-in "../domain/db/id.rkt" new-id random-token)
+         "errors.rkt"
          "../surface/messages.rkt")
 
 ;; ---- HTTP methods -----------------------------------------------------------
@@ -95,9 +98,7 @@
     (unless ok (error 'tls "openssl certificate generation failed"))))
 
 ;; ---- request helpers --------------------------------------------------------
-(define (req-header req name-bytes)
-  (define h (headers-assq* name-bytes (request-headers/raw req)))   ; case-insensitive
-  (and h (bytes->string/utf-8 (header-value h))))
+
 
 ;; locale: an explicit X-Telemachus-Locale header (the UI sets this — browsers
 ;; forbid setting Accept-Language from fetch) wins, else Accept-Language.
@@ -176,6 +177,12 @@
 
 ;; ---- responses --------------------------------------------------------------
 (define (err msg code) (json-response (hasheq 'error msg) #:code code))
+
+;; #123's error rule, the request id and `req-header` live in server/errors.rkt
+;; — a module with NO DATABASE in it, so a unit test can require them. Putting
+;; them here was wrong for a reason worth keeping: requiring THIS module
+;; instantiates the pool, and CI's SQLite leg sets DATABASE_URL to the empty
+;; string, so the test failed there and nowhere else.
 (define (unauthorized) (err (msg-unauthorized) 401))
 
 ;; CORS for the public beta API: a Tier-C template renders in a SANDBOXED, opaque-
@@ -414,7 +421,7 @@
                                    (with-handlers ([exn:fail? (lambda (_) #f)])
                                      (request-client-ip req))
                                    (req-header req #"user-agent")
-                                   (or (req-header req #"x-request-id") (new-id))
+                                   (request-id-of req)
                                    (req-header req #"range")
                                    #f #f)])
        (proc p))]))
