@@ -54,7 +54,10 @@
          (only-in "../domain/judge/judge.rkt" judgments-in-result register-judge-kind!)
          (only-in "../domain/ai/roles.rkt" model-role-executor)
          (only-in "../domain/agent/run.rkt" agent-configured? run-agent-flow)
-         (only-in "../domain/agent/plugins.rkt" load-plugins! plugin-failures plugin-routes)
+         (only-in "../domain/agent/plugins.rkt" load-plugins! plugin-failures plugin-routes
+                  plugin-migrations)
+         ;; #121: a plugin's tables go through the platform's own runner
+         (only-in db-kit/migrate migrate!)
          (only-in "../domain/mcp/connect.rkt" connect-mcp-servers!)
          (only-in "../domain/oop/host.rkt" connect-oop-plugins!)
          (only-in "../domain/i18n/i18n.rkt" current-localizer t)
@@ -530,6 +533,21 @@
                                  #:skip-links? (not include-links?)
                                  #:log (lambda (s) (printf "  plugin: ~a\n" s))))
   (install-plugin-routes!)
+  ;; #121: a plugin's own tables, applied through the platform's own runner —
+  ;; ordered, recorded in `schema_migrations` under `x.<plugin-id>.<name>`, each
+  ;; in a transaction, run once. AFTER every plugin has loaded and BEFORE the
+  ;; startup checks, so a plugin's first request never finds a missing table and
+  ;; never has to race to create one. The loader has already refused any
+  ;; migration that names a table outside the plugin's own `x_<id>_` prefix.
+  ;;
+  ;; Two replicas starting together can still collide here — one wins the
+  ;; `schema_migrations` insert and the other's transaction rolls back, taking its
+  ;; DDL with it. That is exactly the property the PLATFORM's own migrations have
+  ;; had all along, so it is stated rather than papered over: a plugin's are not a
+  ;; new race class, and the remedy is the same one (start one replica first).
+  (let ([pm (plugin-migrations)])
+    (unless (null? pm)
+      (migrate! db-conn pm #:log (lambda (id) (printf "  plugin migration: ~a\n" id)))))
   ;; Refuse to serve with a RELATIVE blob root. `serve/servlet` repoints
   ;; `current-directory` at the web server's own web root while it handles a
   ;; request, so a relative root aims writes at whatever that is — for a Nix

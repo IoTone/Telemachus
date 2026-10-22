@@ -163,7 +163,16 @@
   (define known (map migration-id migrations))
   (define applied (applied-migrations conn))
   (define pending (map migration-id (pending-migrations conn migrations)))
-  (define ahead (filter (lambda (id) (not (member id known))) applied))
+  ;; A PLUGIN's migration id (`x.<plugin-id>.<name>`, issue #121) is not the
+  ;; platform's schema and says nothing about the platform's build, which is what
+  ;; "ahead" is about: old code against a new core schema writes rows the new
+  ;; code misreads. So those ids are excluded in BOTH directions — an applied one
+  ;; this build does not know about means a plugin was removed or is not loaded
+  ;; yet, which must not refuse to boot, and a pending one is the plugin runner's
+  ;; business, not this check's. Found by running it: the example plugin's first
+  ;; migration made a healthy instance report "migrated by a NEWER Telemachus".
+  (define (plugin-id? id) (string-prefix? id "x."))
+  (define ahead (filter (lambda (id) (and (not (member id known)) (not (plugin-id? id)))) applied))
   (cond
     [(pair? pending)
      (startup-problem 'error 'schema-pending

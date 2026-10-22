@@ -3541,6 +3541,60 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## A plugin that owns data (#121)
+
+A plugin had no connection at load time, so one that keeps data worked around it:
+`CREATE TABLE IF NOT EXISTS` on first use, which on PostgreSQL **lost a
+duplicate-key race in 1 of 6 rounds at 48 concurrent first requests** and then
+needed a hand-rolled lock.
+
+```sh
+raco test test/plugin-migration-tests.rkt   # 8 cases; the prefix check is controlled
+```
+
+- **`(provide migrations)`, a list of `(list name sql ...)`.** The platform
+  applies them through its OWN runner after every plugin has loaded and before it
+  serves, so they are ordered, recorded in `schema_migrations` as
+  `x.<plugin-id>.<name>`, transactional and run once.
+- **PASSING A CONNECTION TO `init!` WOULD MOVE THE RACE, NOT REMOVE IT**, which
+  is why the issue's second option was declined. `load-plugins!` runs once per
+  PROCESS, so two replicas run the plugin's DDL concurrently anyway — the same
+  collision, in the platform's boot instead of the plugin's first request.
+- **DATA, NOT A THUNK, and the validation is the reason.** A plugin already runs
+  arbitrary code in `init!`, so a procedure would add no authority — but a list
+  of SQL strings can be CHECKED, and every table and index must be named
+  `x_<id>_…` (dashes to underscores). A thunk could `CREATE TABLE users` and
+  nothing could tell. Schema-qualified names are refused too, or `public.users`
+  would walk straight past a check written on the bare name. Positive-controlled:
+  with the prefix check stubbed true, `CREATE TABLE users` and
+  `ALTER TABLE api_tokens` are accepted.
+- **A bad migration fails THAT PLUGIN's load**, the rule `check-route!` and the
+  workflow validator already follow — not a request later.
+- **THE "MIGRATED BY A NEWER BUILD" CHECK HAD TO LEARN ABOUT THIS, and only
+  running it showed me.** `schema-problem` reported `x.example-tools.notes-seen`
+  as a migration from the future and a healthy instance refused to start. A
+  plugin's id is not the platform's schema and says nothing about the platform's
+  build, which is what that check is for; `x.` ids are excluded, in both
+  directions — an applied one this build does not know about means a plugin was
+  removed or is not loaded, and refusing to boot over an uninstalled plugin would
+  be a new way to take an instance down. The check still catches a real core id
+  from a newer build, and there is a test for both.
+- **Two replicas starting together can still collide** — one wins the
+  `schema_migrations` insert, the other's transaction rolls back and takes its DDL
+  with it. That is the property the PLATFORM's own migrations have always had, so
+  it is stated rather than papered over: a plugin's are not a new race class.
+- **A `format` string gained an argument and not a placeholder**, so every plugin
+  failed to load with "format string requires 7 arguments, given 8". #48's
+  plugin-failure reporting is what made that loud instead of one line in sixty.
+- **Recurring work is NOT solved by this and must not be bolted on.** A thread
+  started in `init!` has no team, no principal and no request context — that is
+  what makes it dangerous, not merely awkward: `can?` has nobody to answer about
+  and the org gate has no tenant to scope to. A job kind is the answer for
+  anything that acts; a RECURRING job has no primitive yet, and `set-reaper!` is
+  the platform's private seam, not a plugin-facing one. That wants its own issue
+  (what a missed tick does, whether two replicas both fire, what an overrunning
+  run does) and #114's feed poller needs the same thing.
+
 ## Bytes with nothing pointing at them (#122)
 
 A refused upload left its blob in the store for ever, and uncounted — so the

@@ -249,6 +249,16 @@ assert "beta decide"      "$(curl -s -X POST $B/api/beta/prospects/$PID/decide -
 assert "plugin loaded"   "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'example-tools'
 assert "onboarding plug" "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" 'beta-onboarding'
 assert "plugin tool"     "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'word_count'
+# issue #121: a plugin that owns data. The platform ran its migrations through
+# its own runner at boot, so the table is there before any request — the
+# alternative was CREATE TABLE IF NOT EXISTS on first use, which loses a
+# duplicate-key race on PostgreSQL under concurrency.
+assert "a plugin's migration is reported" \
+  "$(curl -s $B/api/plugins -H "Authorization: Bearer $OP")" '"x.example-tools.notes-seen"'
+# …and it really ran: the prefixed table answers a query. Not via a plugin route,
+# because the point is that the platform created it, not that the plugin can.
+assert "…and its table exists, prefixed with the plugin's id" \
+  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
 assert "mcp connected"   "$(curl -s $B/api/mcp -H "Authorization: Bearer $OP")" '"name":"mock"'
 assert "mcp tool"        "$(curl -s $B/api/tools -H "Authorization: Bearer $OP")" 'mcp__mock__add'
 assert "oop connected"   "$(curl -s $B/api/oop -H "Authorization: Bearer $OP")" 'notes-helper'
