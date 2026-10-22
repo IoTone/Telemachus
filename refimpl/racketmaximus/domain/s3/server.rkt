@@ -32,7 +32,15 @@
          "creds.rkt"
          (only-in "../../config.rkt" max-upload-bytes))
 
-(provide make-s3-handler s3-region reap-uploads! upload-reap-seconds)
+(provide make-s3-handler s3-region reap-uploads! upload-reap-seconds
+         ;; #110 r7: exported FOR test/s3-get-tests.rkt. GetObject is the deepest
+         ;; function in the tree and had no unit test at all — the only coverage
+         ;; was one ranged GET in s3-smoke.sh, which needs the real `aws` CLI and
+         ;; SKIPS without it, and CLAUDE.md already records that "a skip was how
+         ;; that path went unexercised in the first place". Four of its six
+         ;; outcomes were unexercised. An export with a test behind it is not an
+         ;; over-wide export (#110 r4).
+         op-get-object parse-range)
 
 (define (s3-region) (or (getenv "TELEMACHUS_S3_REGION") "us-east-1"))
 (define MAX-KEYS-DEFAULT 1000)
@@ -280,11 +288,16 @@
 ;; Seek if the store's port can, skip if it cannot. A future backend may hand back a
 ;; socket rather than a file, and a ranged read must still be correct there — just
 ;; slower.
+;; One name for the streaming chunk, which was the same bare literal in
+;; `seek-to!` and again in the ranged writer — LIVE-IN/LIVE-STATUSES' shape in
+;; miniature, where nothing stopped one from changing without the other.
+(define COPY-CHUNK (* 256 1024))
+
 (define (seek-to! in pos)
   (with-handlers ([exn:fail? (lambda (_)
                                (let loop ([left pos])
                                  (when (> left 0)
-                                   (define got (read-bytes (min left 262144) in))
+                                   (define got (read-bytes (min left COPY-CHUNK) in))
                                    (unless (eof-object? got)
                                      (loop (- left (bytes-length got)))))))])
     (file-position in pos)))
@@ -292,6 +305,39 @@
 ;; `aws s3 cp` downloads a large object with PARALLEL RANGED GETs. Ignoring Range and
 ;; returning the whole object for each of them produces a corrupt file that the client
 ;; reports as a success — which is exactly what happened before this existed.
+;; ---- the two ways a body reaches the wire (#110 r7) --------------------------
+;; Extracted from `op-get-object`, which was the deepest function in the tree:
+;; almost all of that depth was these two writers nested inside its `cond`. The
+;; `cond` itself is deliberately left alone — the ORDER of its arms is
+;; load-bearing (HEAD before range, the 416 before the satisfiable range), and
+;; splitting the arms into functions would hide exactly that, which is the same
+;; argument `dispatch` in main.rkt makes for being a `cond` rather than three
+;; independent checks.
+;;
+;; BOTH WRITERS MUST CLOSE THE PORT WHATEVER HAPPENS. This is the data plane, and
+;; a leaked port here is a descriptor leak under exactly the load that makes it
+;; hard to notice. It was written twice; it is stated once now.
+(define (closing-writer in write!)
+  (lambda (out)
+    (dynamic-wind void (lambda () (write! out)) (lambda () (close-input-port in)))))
+
+(define (whole-object-writer in)
+  (closing-writer in (lambda (out) (copy-port in out))))
+
+;; `len` bytes from `start`. Bounded by `left` rather than by EOF: a store that
+;; hands back more than was asked for must not be able to overrun the
+;; Content-Length that is already on the wire.
+(define (ranged-writer in start len)
+  (closing-writer in
+    (lambda (out)
+      (seek-to! in start)
+      (let loop ([left len])
+        (when (> left 0)
+          (define chunk (read-bytes (min left COPY-CHUNK) in))
+          (unless (eof-object? chunk)
+            (write-bytes chunk out)
+            (loop (- left (bytes-length chunk)))))))))
+
 (define (op-get-object conn p bucket key head? [range-header #f] [version-id #f])
   (define o (repo-get conn p key #:by-key (principal-team-id p)))
   (cond
@@ -320,26 +366,10 @@
                       (cons (cons #"Content-Range"
                                   (string->bytes/utf-8 (format "bytes ~a-~a/~a" start (cdr r) size)))
                             base)
-                      (lambda (out)
-                        (dynamic-wind
-                          void
-                          (lambda ()
-                            (seek-to! in start)
-                            (let loop ([left len])
-                              (when (> left 0)
-                                (define chunk (read-bytes (min left 262144) in))
-                                (unless (eof-object? chunk)
-                                  (write-bytes chunk out)
-                                  (loop (- left (bytes-length chunk)))))))
-                          (lambda () (close-input-port in))))
+                      (ranged-writer in start len)
                       #:content-length len)]
           [else
-           (http-res* 200 base
-                      (lambda (out)
-                        (dynamic-wind void
-                                      (lambda () (copy-port in out))
-                                      (lambda () (close-input-port in))))
-                      #:content-length size)])])]))
+           (http-res* 200 base (whole-object-writer in) #:content-length size)])])]))
 
 ;; PutObject. The body is the request port, so nothing is buffered, and the 100-continue
 ;; fires on the first read inside repo-put! — after `can?` has already been consulted.
