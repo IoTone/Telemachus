@@ -199,6 +199,17 @@ function toast(msg, ok=false){ const el=document.getElementById('toast'); el.tex
 function setLang(l){ if(!S.i18n.enabled) return; if((S.i18n.available||[]).indexOf(l)<0) return;
   S.lang=l; localStorage.setItem('tmx_lang',l); render(); }
 function setTok(tk){ S.token=tk; localStorage.setItem('tmx_token',tk); }
-function logout(){ S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.forceLogin=false; render(); }
+// issue #118: this used to clear localStorage and call NOTHING, so the bearer it
+// discarded stayed valid on the server until it expired — on a shared machine,
+// for up to the absolute cap. The revoke is awaited but its failure is ignored on
+// purpose: a network error must still sign you out of THIS browser, which is the
+// part the person can see, and a token nobody holds any more is the lesser
+// problem. Not `await`ed before clearing state either — the request carries the
+// token it is revoking, so it has to go out first.
+async function logout(){
+  const tok = S.token;
+  if (tok) { try { await api('/api/logout', {method:'POST'}); } catch (e) {} }
+  S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.forceLogin=false; render();
+}
 const val = id => document.getElementById(id).value.trim();
 

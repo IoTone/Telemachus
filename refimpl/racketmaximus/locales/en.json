@@ -856,8 +856,8 @@
       "hash": "2c46f3380d93d3e842b6c8bfd3d579e611841d94"
     },
     "doc.route.post.api.login": {
-      "text": "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token.",
-      "hash": "ecef017a0f8bcbc7c67490c35767564bbd76afad"
+      "text": "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. Attempts are throttled per address and per account with a growing delay (429 and `Retry-After`), every attempt is audited as `user.login`, and an account may be locked outright when the operator sets TELEMACHUS_LOGIN_LOCK_FAILURES (423, cleared by an operator password reset).",
+      "hash": "adc7eea2f8c26585c02629375a0bab24d243421c"
     },
     "doc.plugin.knowledge-graph": {
       "text": "A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed.",
@@ -1027,6 +1027,14 @@
       "text": "manage",
       "hash": "3f282fcba8933e03a65a6dc92a27de8396961e2f"
     },
+    "ui.sharewith": {
+      "text": "Share with",
+      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
+    },
+    "doc.route.get.api.sessions": {
+      "text": "The caller's own browser sessions — prefix, when each was created and last used, when it expires, and which one this request is holding. Never a token.",
+      "hash": "0875a01957e3e772a8b5b7b2352fc1e530e010af"
+    },
     "ui.deflocale": {
       "text": "Default language",
       "hash": "852814f288cc2951733962464a5ac17702f46f35"
@@ -1142,10 +1150,6 @@
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
-    },
-    "ui.sharewith": {
-      "text": "Share with",
-      "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
     },
     "doc.tool.doc_text": {
       "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
@@ -2163,9 +2167,17 @@
       "text": "Key created",
       "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
     },
+    "doc.route.delete.api.sessions": {
+      "text": "End every OTHER session of the caller — \"sign out everywhere else\". Not everywhere: a password change already ends them all, this one keeps the session you are using.",
+      "hash": "b3e9ec729c6cedf436582ffe64cf364774a2f0cd"
+    },
     "doc.route.get.api.retention.plan": {
       "text": "What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch.",
       "hash": "da6cf2e104ab373fa890106ae02c2c864aca8673"
+    },
+    "doc.route.delete.api.sessions.id": {
+      "text": "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.",
+      "hash": "694bd265ddd63c495318b345499b233155933122"
     },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
@@ -2290,6 +2302,10 @@
     "doc.route.post.api.instance.resume": {
       "text": "Hosted mode: resume a suspended tenant.",
       "hash": "2b96e0bd6c952152f27dce21e03f30f906c922d4"
+    },
+    "doc.route.post.api.logout": {
+      "text": "End the session this request is holding. The console's sign-out called nothing before this, so the bearer stayed valid until it expired.",
+      "hash": "574667b54d3eb3f4e23149c72279775c2f2a340b"
     },
     "ui.reviewrecorded": {
       "text": "Decision recorded",

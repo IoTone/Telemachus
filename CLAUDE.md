@@ -3515,6 +3515,106 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## Sign-in: the record, the throttle, and your own sessions (#116, #117, #118)
+
+Three reports, one code path. `ep-login` was nine lines that authenticated and
+minted a token: no attempt limit, no record of anything, and nothing anywhere to
+end a session with. #38 bounded how long a session CAN live and gave nobody a
+way to end one.
+
+```sh
+raco test test/signin-tests.rkt    # 14 cases; the timing pair is positive-controlled
+bash test/server-smoke.sh          # the "sign-in, sessions and the attempt throttle" block
+```
+
+- **#117's gap was 168 MILLISECONDS, measured, not estimated.** An unknown
+  username returned in **0.13 ms** and a wrong password in **168 ms**, because
+  `authenticate` answered `#f` before touching the KDF. That is not a subtle
+  oracle; it is a thousandfold difference, readable over any network. There were
+  **TWO** cheap paths, not the one reported: `(sql-null? ph)` short-circuits the
+  same way, and `POST /api/orgs` without `owner_password` creates exactly those
+  rows. Both now answer `(verify-absent-password password)`, which runs the live
+  KDF against a dummy hash and **always returns #f** — so it is the branch's
+  RESULT, not a side effect somebody can drop while "simplifying".
+- **The dummy hash is minted at first use from the live KDF**, not baked in as a
+  literal: the iteration count is read at runtime, so a literal would silently
+  stop matching the real cost the first time an operator raised
+  `TELEMACHUS_PBKDF2_ITERS`.
+- **A timing test is written as a RATIO, never an absolute.** `test/signin-tests.rkt`
+  asserts the cheap path costs at least 40% of a known-wrong-password call in the
+  same process. An absolute millisecond bound would flap under load; the ratio of
+  two identical operations does not. Positive-controlled: against the old code it
+  fails printing both figures.
+- **The attempt counter is a ROW (migration 0049), and the address throttle is
+  in memory.** Deliberately different: an address is a throttle, so a restart
+  clearing it costs nothing and an attacker changes address anyway; an ACCOUNT
+  lock is a control, so it must survive the restart an attacker can cause and
+  must not grant each replica its own allowance. This is also where QUOTA-3's
+  "ask the audit log instead of keeping a table" move does NOT apply — that
+  question is asked on a scheduler tick, this one on an unauthenticated public
+  endpoint, where a `meta LIKE` scan per request is a denial-of-service
+  amplifier the caller controls.
+- **A 429 with `Retry-After`, never a sleep.** A sleep holds a request thread,
+  which is a resource an unauthenticated caller could exhaust on purpose. Three
+  failures are free, then the delay doubles to a 60-second cap. **The throttle
+  refuses a CORRECT password too while the delay runs** — it has to, or it would
+  be an oracle of a different kind — which is exactly why it is capped.
+- **The hard lock is OFF unless `TELEMACHUS_LOGIN_LOCK_FAILURES` is set**, because
+  a lock only an operator can clear is a denial-of-service primitive against a
+  known username. The way back in is `POST /api/admin/users/:id/password`, which
+  #54 built for this, and which now clears the counter — **without that a locked
+  account has no recovery path at all**, since the lock refuses the sign-in that
+  would otherwise clear it.
+- **`user.login` is audited on success AND failure**, and the success half is the
+  more serious omission: the audit log is the record (DEL‑7 keeps it through an
+  erasure, #84 r3 chains it) and "who signed in, from where" was absent from it
+  entirely. The entry carries the attempted username and the address and nothing
+  else — never the password, never the body. The failure entry does NOT say which
+  of bad-password / unknown-account / bad-2FA it was: telling the log would hand
+  anyone who can read it the oracle #117 just closed.
+- **A person's own sessions are their own rows — no permission.** `GET /api/sessions`,
+  `POST /api/logout`, `DELETE /api/sessions` (everywhere else) and
+  `DELETE /api/sessions/:id`, all scoped by `user_id` AND `kind` **in the
+  statement**, so a member cannot reach a colleague's session or the team's
+  worker token by guessing an id. Deliberately NOT a widening of `GET /api/tokens`,
+  which is the TEAM's API tokens behind `settings:manage` — widening it would
+  have handed a member the team's machine credentials to read. `kind` (migration
+  0032) is what makes the two separable.
+- **Somebody else's session id is a 404, not a 403.** Whether another person
+  holds a given token id is not a question this route should answer.
+- **The cap EVICTS THE OLDEST and never refuses a sign-in** (`TELEMACHUS_MAX_SESSIONS`,
+  default 10, `never`/`0` off). "Refuse the N+1th" turns a full session table
+  into a lockout, and before this slice nothing ended a session early, so an
+  ordinary person on a laptop, a phone and a second browser would have reached it
+  within a week. Each eviction is audited (`user.session.evicted`): a session that
+  ends by itself with no record is indistinguishable, to its owner, from one that
+  was stolen.
+- **The cap is NOT inside `issue-token!`.** That function has 25 call sites and
+  the cap is a property of interactive SIGN-IN; `ep-login` calls
+  `enforce-session-cap!` itself, which also lets it audit what was evicted.
+  Returning a third value from `issue-token!` was tried first and reverted.
+- **The console's "log out" now logs you out.** It cleared `localStorage` and
+  called nothing, so the bearer it discarded stayed valid server-side for up to
+  the absolute cap — on a shared machine, 8 hours. The revoke is awaited and its
+  failure IGNORED on purpose: a network error must still sign you out of this
+  browser, and a token nobody holds is the lesser problem.
+- **A conditional SQL clause with a fixed argument list, for the fourth time.**
+  `revoke-other-sessions!` built `" AND id <> ?"` conditionally and passed two
+  parameters — written two lines under a comment quoting #86 slice 1's identical
+  bug. It is two statements now. `test/signin-tests.rkt` is what caught it, which
+  is the argument for the test file rather than for the comment.
+- **`created_epoch` is SECONDS, so two sessions minted in one second tie** and
+  come back in the engine's order. Cosmetic for a list a person reads, and the
+  reason a test must age its rows rather than assert on insertion order.
+- **A console card for sessions is NOT built** — the API is the contract and the
+  logout fix is the part a person can see. A card needs `ui.*` strings in two
+  catalogs and a tour update, which is its own slice.
+- **`grep -c` counts LINES.** `grep -c '"prefix"'` on a one-line JSON reply
+  answers 1 for any number of sessions; count occurrences with `grep -o | wc -l`.
+  And **`meta` rides in the audit EXPORT as a string**, so its quotes are
+  escaped — a smoke needle must be `username\":\"sven`, not the shape the
+  handler wrote. Both cost a red run.
+
 ## Session timeouts (issue #38, slice 70)
 
 `domain/authz/session-policy.rkt` — an **idle** timeout and an **absolute** cap,

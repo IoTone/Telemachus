@@ -204,6 +204,8 @@
    'tenant-resume (lambda (req) (ep-tenant req resume!))
    'instance-quota ep-instance-quota
    'login ep-login '2fa-enable ep-2fa-enable '2fa-reset ep-2fa-reset
+   'sessions-list ep-sessions-list 'logout ep-logout
+   'sessions-revoke-others ep-sessions-revoke-others 'session-revoke ep-session-revoke
    '2fa-codes-new ep-2fa-codes-new '2fa-codes-get ep-2fa-codes-get
    'admin-2fa-reset ep-admin-2fa-reset 'password ep-password
    'whoami ep-whoami 'profile ep-profile 'add-member ep-add-member 'members-list ep-members-list

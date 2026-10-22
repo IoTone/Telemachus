@@ -139,7 +139,15 @@
    (R "POST" "/api/instance/suspend" 'tenant-suspend #:auth 'provision #:doc "Hosted mode: suspend the tenant (writes are refused with 402).")
    (R "POST" "/api/instance/resume" 'tenant-resume #:auth 'provision #:doc "Hosted mode: resume a suspended tenant.")
    (R "POST" "/api/instance/quota" 'instance-quota #:auth 'provision #:doc "Hosted mode: set a quota limit for the tenant's team.")
-   (R "POST" "/api/login" 'login #:auth 'public #:doc "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token.")
+   (R "POST" "/api/login" 'login #:auth 'public #:doc "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. Attempts are throttled per address and per account with a growing delay (429 and `Retry-After`), every attempt is audited as `user.login`, and an account may be locked outright when the operator sets TELEMACHUS_LOGIN_LOCK_FAILURES (423, cleared by an operator password reset).")
+   ;; issue #118: a person's OWN sessions. No permission — these are the caller's
+   ;; own rows, scoped by user_id and kind in the statement itself. Deliberately
+   ;; not GET /api/tokens, which is the TEAM's API tokens behind settings:manage
+   ;; and would have handed a member the team's machine credentials to read.
+   (R "GET" "/api/sessions" 'sessions-list #:doc "The caller's own browser sessions — prefix, when each was created and last used, when it expires, and which one this request is holding. Never a token.")
+   (R "POST" "/api/logout" 'logout #:doc "End the session this request is holding. The console's sign-out called nothing before this, so the bearer stayed valid until it expired.")
+   (R "DELETE" "/api/sessions" 'sessions-revoke-others #:doc "End every OTHER session of the caller — \"sign out everywhere else\". Not everywhere: a password change already ends them all, this one keeps the session you are using.")
+   (R "DELETE" "/api/sessions/:id" 'session-revoke #:doc "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.")
    (R "POST" "/api/2fa/enable" '2fa-enable #:doc "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.")
    (R "POST" "/api/2fa/recovery-codes" '2fa-codes-new #:doc "Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26).")
    (R "GET" "/api/2fa/recovery-codes" '2fa-codes-get #:doc "How many of the caller's recovery codes are still unspent. Never the codes themselves.")

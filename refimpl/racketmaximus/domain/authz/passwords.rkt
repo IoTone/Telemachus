@@ -17,8 +17,28 @@
          racket/promise
          "crypto.rkt")
 
-(provide hash-password verify-password kdf-name
+(provide hash-password verify-password verify-absent-password kdf-name
          new-totp-secret totp-uri totp-valid?)
+
+;; issue #117: a sign-in that fails because the ACCOUNT does not exist must cost
+;; what one that fails on the password costs. `authenticate` used to return #f
+;; before any hashing for an unknown username AND for a user whose
+;; `password_hash` is NULL — `POST /api/orgs` without `owner_password` creates
+;; exactly those — so both were distinguishable from a real account by timing.
+;;
+;; The dummy hash is minted from the LIVE KDF at first use, not baked in as a
+;; literal: `kdf-name` and the iteration count are read at runtime, so a literal
+;; would silently stop matching the real cost the first time an operator raised
+;; TELEMACHUS_PBKDF2_ITERS. `delay` keeps the cost off module load, so a test
+;; that never signs in does not pay for it.
+;;
+;; It always answers #f. Callers use it as the RESULT of the not-found branch, so
+;; the branch cannot accidentally be written as a cheap #f again.
+(define absent-hash
+  (delay (hash-password (bytes->hex (crypto-random-bytes 16)))))
+(define (verify-absent-password pw)
+  (verify-password (if (string? pw) pw "") (force absent-hash))
+  #f)
 
 (define DEFAULT-ITERS
   (or (let ([v (getenv "TELEMACHUS_PBKDF2_ITERS")]) (and v (string->number v))) 100000))

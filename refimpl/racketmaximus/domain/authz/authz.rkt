@@ -40,6 +40,12 @@
          user-permissions
          can? require-perm
          issue-token! resolve-token list-tokens revoke-token! API-TOKEN-TTL
+         ;; issue #118: a person's own browser sessions, which are their own rows
+         token-id-for-bearer user-sessions revoke-session! revoke-other-sessions!
+         max-sessions enforce-session-cap!
+         ;; issue #116: the sign-in attempt throttle
+         login-throttle login-failed! login-succeeded! login-lock-clear!
+         login-delay-for login-lock-after
          ;; issue #38: callers name the kind of credential they are minting
          (all-from-out "session-policy.rkt")
          hash-token legacy-hash-token token-pepper-is-default?
@@ -350,13 +356,20 @@
   (define row (query-maybe-row conn
     "SELECT id, password_hash, totp_secret FROM users WHERE username = ? AND status = 'active'" username))
   (cond
-    [(not row) #f]
+    ;; issue #117: BOTH of these used to be a bare #f, which returned before any
+    ;; KDF work and so told a caller by timing whether the account existed. They
+    ;; verify against a dummy hash of the same cost now; `verify-absent-password`
+    ;; always answers #f, so it is the branch's result rather than a side effect
+    ;; somebody can drop. A NULL `password_hash` is the second case and is not
+    ;; hypothetical — `POST /api/orgs` without `owner_password` creates one.
+    [(not row) (verify-absent-password password)]
     [else
      (define uid (vector-ref row 0))
      (define ph (vector-ref row 1))
      (define secret (vector-ref row 2))
      (cond
-       [(or (sql-null? ph) (not (verify-password password ph))) #f]
+       [(sql-null? ph) (verify-absent-password password)]
+       [(not (verify-password password ph)) #f]
        [(and (not (sql-null? secret)) (string? secret) (not (string=? secret "")))
         ;; the stored seed may be sealed (issue #19); a row written before a key was
         ;; configured is plaintext and passes through unchanged
@@ -582,6 +595,11 @@
     ;; the idle clock starts at issue, not at first use: a session minted and then
     ;; abandoned should lapse on the same schedule as one that was used once
     now)
+  ;; The per-identity cap is NOT applied here, on purpose: `issue-token!` has 25
+  ;; call sites and the cap is a property of interactive SIGN-IN, not of minting
+  ;; a token. `ep-login` calls `enforce-session-cap!` itself, which also lets it
+  ;; audit what the eviction removed — a session that ends by itself with no
+  ;; record is indistinguishable, to its owner, from one that was stolen.
   (values raw tid))
 
 ;; the row's expires_at as epoch seconds, or #f for never. Tolerates the empty
@@ -623,6 +641,207 @@
 (define (revoke-token! conn token-id team-id)
   (define exists (query-maybe-value conn "SELECT id FROM api_tokens WHERE id = ? AND team_id = ?" token-id team-id))
   (and exists (begin (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" token-id) #t)))
+
+;; ---- the caller's own sessions (issue #118) ---------------------------------
+;; #38 bounded how long a session CAN live and gave nobody a way to end one. The
+;; console's sign-out cleared localStorage and called no route, so on a shared
+;; machine a valid bearer sat in that browser and a valid row sat here for up to
+;; the absolute cap.
+;;
+;; These are deliberately NOT on `list-tokens`/`revoke-token!`, which are the
+;; TEAM's API tokens behind `settings:manage`. A person's own browser sessions
+;; are their own rows — owner-ok, the rule notes and documents already live by —
+;; and widening the team route would have handed a member the team's machine
+;; credentials to look at. `kind` (migration 0032) is what makes the two
+;; separable: SESSION-KIND here, and nothing else.
+
+;; the id of the row a bearer names, for "which of these is the one I am holding"
+;; and for a logout that ends exactly this session. A separate query rather than a
+;; wider TOKEN-SELECT: `resolve-token` reads that row BY POSITION, so adding a
+;; column there would shift every index.
+(define (token-id-for-bearer conn bearer)
+  (and (string? bearer)
+       (let ([h (hash-token bearer)])
+         (or (query-maybe-value conn "SELECT id FROM api_tokens WHERE token_hash = ?" h)
+             (query-maybe-value conn "SELECT id FROM api_tokens WHERE token_hash = ?"
+                                (legacy-hash-token bearer))))))
+
+(define (user-sessions conn user-id #:current [current-id #f])
+  (for/list ([r (in-list (query-rows conn
+     (string-append "SELECT id, name, prefix, status, created_at, last_used_at, expires_at, "
+                    "created_epoch, last_used_epoch FROM api_tokens "
+                    ;; `created_epoch` is SECONDS, so two sessions minted inside
+                    ;; one second tie and come back in whatever order the engine
+                    ;; gives — cosmetic for a list a person reads, and the reason
+                    ;; a test must age its rows rather than assert on insertion
+                    ;; order (the trap doc_trigger_fires named with fired_ms).
+                    "WHERE user_id = ? AND kind = ? ORDER BY created_epoch DESC, created_at DESC")
+     user-id SESSION-KIND))])
+    (define exp (token-expiry (vector-ref r 6)))
+    (hasheq 'id (vector-ref r 0)
+            'name (nz (vector-ref r 1))
+            ;; the prefix, never the token: it is enough to tell two sessions
+            ;; apart in a list and useless as a credential
+            'prefix (vector-ref r 2)
+            'status (if (and (equal? (vector-ref r 3) "active") (token-expired? (vector-ref r 6)))
+                        "expired" (vector-ref r 3))
+            'created_at (vector-ref r 4)
+            'last_used_at (nz (vector-ref r 5))
+            'expires_at (if exp (epoch->iso8601 exp) 'null)
+            ;; which row the caller is holding right now, so a UI can label it and
+            ;; refuse to let somebody end it by accident while meaning another
+            'current (and current-id (equal? (vector-ref r 0) current-id)))))
+
+;; end ONE of the caller's own sessions. Scoped by user_id AND kind in the
+;; statement, not checked beforehand: a member must not be able to revoke a
+;; colleague's session or the team's worker token by guessing an id.
+(define (revoke-session! conn user-id session-id)
+  (define hit (query-maybe-value conn
+    "SELECT id FROM api_tokens WHERE id = ? AND user_id = ? AND kind = ?"
+    session-id user-id SESSION-KIND))
+  (and hit
+       (begin (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" session-id) #t)))
+
+;; end every OTHER session of this user — the "sign out everywhere else" case.
+;; `keep-id` #f ends them all, which is what a plain logout of the last one does.
+(define (revoke-other-sessions! conn user-id keep-id)
+  ;; TWO STATEMENTS, NOT ONE WITH AN INTERPOLATED CLAUSE. The first version of
+  ;; this built `" AND id <> ?"` conditionally and passed a fixed argument list,
+  ;; so the clause and its parameter came apart and every call raised "wrong
+  ;; number of parameters" — the exact trap #86 slice 1 paid for in
+  ;; `blob-referenced?`, written here in a comment two lines above the bug.
+  ;; test/signin-tests.rkt is what caught it.
+  (cond
+    [keep-id
+     (define n (query-value conn
+       (string-append "SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND kind = ? "
+                      "AND status = 'active' AND id <> ?")
+       user-id SESSION-KIND keep-id))
+     (query-exec conn
+       (string-append "UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND kind = ? "
+                      "AND status = 'active' AND id <> ?")
+       user-id SESSION-KIND keep-id)
+     n]
+    [else
+     (define n (query-value conn
+       "SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND kind = ? AND status = 'active'"
+       user-id SESSION-KIND))
+     (query-exec conn
+       "UPDATE api_tokens SET status = 'revoked' WHERE user_id = ? AND kind = ? AND status = 'active'"
+       user-id SESSION-KIND)
+     n]))
+
+;; How many sessions one identity may hold at once. The cap EVICTS THE OLDEST
+;; rather than refusing the newest, and that is the whole decision: "refuse the
+;; N+1th sign-in" turns a full session table into a lockout, and since nothing
+;; ended a session early before this slice, an ordinary person on a laptop, a
+;; phone and a second browser would have reached it within a week. Evicting
+;; bounds what a stolen token is worth without ever refusing a legitimate
+;; sign-in. `never`/0 disables it; anything unparseable falls back to the
+;; default, never to 0 — the platform's rule for every knob.
+(define DEFAULT-MAX-SESSIONS 10)
+(define (max-sessions)
+  (define raw (getenv "TELEMACHUS_MAX_SESSIONS"))
+  (cond
+    [(or (not raw) (string=? raw "")) DEFAULT-MAX-SESSIONS]
+    [(member raw '("never" "0" "unlimited")) #f]
+    [(let ([n (string->number raw)]) (and (exact-integer? n) (positive? n) n))]
+    [else DEFAULT-MAX-SESSIONS]))
+
+;; -> list of evicted session ids (so the caller can audit them)
+(define (enforce-session-cap! conn user-id)
+  (define cap (max-sessions))
+  (cond
+    [(not cap) '()]
+    [else
+     (define rows (query-rows conn
+       (string-append "SELECT id FROM api_tokens WHERE user_id = ? AND kind = ? AND status = 'active' "
+                      "ORDER BY created_epoch DESC, created_at DESC")
+       user-id SESSION-KIND))
+     (define extra (if (> (length rows) cap) (list-tail rows cap) '()))
+     (for/list ([r (in-list extra)])
+       (query-exec conn "UPDATE api_tokens SET status = 'revoked' WHERE id = ?" (vector-ref r 0))
+       (vector-ref r 0))]))
+
+;; ---- sign-in attempt throttling (issue #116) --------------------------------
+;; A GROWING DELAY expressed as a 429 with a retry-after, not a sleep: a sleep
+;; holds a request thread, which is a resource an unauthenticated caller could
+;; exhaust on purpose. The counter is a row (migration 0049) because a restart
+;; must not clear it and two replicas must not each grant the full allowance —
+;; the funnel's in-memory limiter is right for a public funnel and wrong for an
+;; account control.
+(define LOGIN-WINDOW 900)          ; failures older than this are forgotten
+(define LOGIN-FREE-TRIES 3)        ; typos are normal; the fourth starts costing
+(define LOGIN-MAX-DELAY 60)
+;; A HARD LOCK IS OFF BY DEFAULT, deliberately. A lock only an operator can clear
+;; is a denial-of-service primitive against a known username, so it is something
+;; an operator opts into — the shape TELEMACHUS_STRICT_STARTUP and the retention
+;; rules already use for a one-way door. Unset means "throttle only".
+(define (login-lock-after)
+  (define raw (getenv "TELEMACHUS_LOGIN_LOCK_FAILURES"))
+  (and raw (not (string=? raw ""))
+       (let ([n (string->number raw)]) (and (exact-integer? n) (positive? n) n))))
+(define LOCK-FOREVER (* 100 365 24 3600))   ; "until an operator clears it"
+
+(define (login-delay-for failures)
+  (if (<= failures LOGIN-FREE-TRIES)
+      0
+      (min LOGIN-MAX-DELAY (expt 2 (- failures LOGIN-FREE-TRIES)))))
+
+;; #f to proceed, 'locked, or (cons 'wait seconds)
+(define (login-throttle conn username)
+  (define now (current-seconds))
+  (define row (query-maybe-row conn
+    "SELECT failures, last_failure_epoch, locked_until_epoch FROM login_throttle WHERE username = ?"
+    username))
+  (cond
+    [(not row) #f]
+    [else
+     (define failures (let ([v (vector-ref row 0)]) (if (sql-null? v) 0 v)))
+     (define last (let ([v (vector-ref row 1)]) (and (not (sql-null? v)) v)))
+     (define locked (let ([v (vector-ref row 2)]) (and (not (sql-null? v)) v)))
+     (cond
+       [(and locked (> locked now)) 'locked]
+       ;; past the window the count is forgotten — an honest person who mistyped
+       ;; twice last Tuesday starts clean
+       [(or (not last) (< last (- now LOGIN-WINDOW))) #f]
+       [else
+        (define wait (- (+ last (login-delay-for failures)) now))
+        (if (> wait 0) (cons 'wait wait) #f)])]))
+
+(define (login-failed! conn username)
+  (define now (current-seconds))
+  (define row (query-maybe-row conn
+    "SELECT failures, last_failure_epoch FROM login_throttle WHERE username = ?" username))
+  (define prior
+    (cond [(not row) 0]
+          [else (define f (let ([v (vector-ref row 0)]) (if (sql-null? v) 0 v)))
+                (define last (let ([v (vector-ref row 1)]) (and (not (sql-null? v)) v)))
+                ;; the window applies to the COUNT as well as to the delay, or a
+                ;; lock would eventually trip on failures weeks apart
+                (if (and last (>= last (- now LOGIN-WINDOW))) f 0)]))
+  (define failures (add1 prior))
+  (define lock-at (login-lock-after))
+  (define locked (and lock-at (>= failures lock-at) (+ now LOCK-FOREVER)))
+  (if row
+      (query-exec conn
+        (string-append "UPDATE login_throttle SET failures = ?, last_failure_epoch = ?, "
+                       "locked_until_epoch = ? WHERE username = ?")
+        failures now (or locked sql-null) username)
+      (query-exec conn
+        (string-append "INSERT INTO login_throttle (username, failures, first_failure_epoch, "
+                       "last_failure_epoch, locked_until_epoch) VALUES (?, ?, ?, ?, ?)")
+        username failures now now (or locked sql-null)))
+  (values failures (and locked #t)))
+
+;; a success forgets the history. Also the ONLY thing that does, apart from an
+;; operator's password reset — which is the documented way back in for somebody
+;; a hard lock has shut out (#54 built that route for exactly this).
+(define (login-succeeded! conn username)
+  (query-exec conn "DELETE FROM login_throttle WHERE username = ?" username))
+
+(define (login-lock-clear! conn username)
+  (query-exec conn "DELETE FROM login_throttle WHERE username = ?" username))
 
 ;; bearer token -> principal (capped by scopes), or #f if unknown/inactive.
 (define (resolve-token conn bearer)

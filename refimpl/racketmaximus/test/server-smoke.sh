@@ -1156,6 +1156,88 @@ assert "…uncached, so a deploy cannot leave a stale script against a new shell
 assert "…and the path cannot climb out of static/console" \
   "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "$B/console/../index.html")" '404'
 
+# ---- sign-in: the record, the throttle, and a person's own sessions ----------
+# Issues #116, #117 and #118. A dedicated user throughout: throttling `alice`
+# would leave her counter set and break every later block that signs in as her,
+# which is how the quota block announced it was changing global state once.
+echo
+echo "== sign-in, sessions and the attempt throttle ================================="
+SI=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"sven","password":"sven-pass-1","role":"member"}')
+SVEN=$(printf '%s' "$SI" | grep -oP '"token":\s*"\K[^"]+')
+SVEN_ID=$(printf '%s' "$SI" | grep -oP '"user_id":\s*"\K[^"]+')
+
+# #118: a member reads their OWN sessions with no permission at all. The team's
+# API tokens stay behind settings:manage, which is a different route.
+assert "a member is refused the team's tokens" \
+  "$(curl -s $B/api/tokens -H "Authorization: Bearer $SVEN")" 'Forbidden: settings:manage'
+SESS=$(curl -s $B/api/sessions -H "Authorization: Bearer $SVEN")
+assert "…but reads their own sessions"        "$SESS" '"sessions":['
+assert "…and the one they are holding is marked" "$SESS" '"current":true'
+assert "…with a prefix and no token"          "$SESS" '"prefix":"tk_'
+refute "the listing never carries a token"    "$SESS" '"token":'
+assert "…and it reports the cap"              "$SESS" '"max":'
+
+# a second session for the same person, so there is something to end
+S2=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+assert "a second sign-in works"               "$(curl -s $B/api/whoami -H "Authorization: Bearer $S2")" '"user_id":'
+# grep -c counts LINES and the reply is one line, so it would answer 1 for any
+# number of sessions. Count OCCURRENCES.
+assert "both sessions are listed"             "$(curl -s $B/api/sessions -H "Authorization: Bearer $S2" | grep -o '"prefix"' | wc -l | tr -d ' ')" '2'
+
+# "sign out everywhere else" keeps the caller's own
+assert "…everywhere else ends the other one"  "$(curl -s -X DELETE $B/api/sessions -H "Authorization: Bearer $S2")" '"ended":1'
+assert "…the caller's own still works"        "$(curl -s $B/api/whoami -H "Authorization: Bearer $S2")" '"user_id":'
+assert "…and the other one is dead"           "$(curl -s $B/api/whoami -H "Authorization: Bearer $SVEN")" 'Authentication required'
+
+# #118: logout ends THIS session — the console's button called nothing before
+S3=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+assert "logout answers ok"                    "$(curl -s -X POST $B/api/logout -H "Authorization: Bearer $S3")" '"ok":true'
+assert "…and the token really stops working"  "$(curl -s $B/api/whoami -H "Authorization: Bearer $S3")" 'Authentication required'
+
+# one of the caller's own, by id; somebody else's is a 404 and not a 403
+S4=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+S5=$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}' | grep -oP '"token":\s*"\K[^"]+')
+S4ID=$(curl -s $B/api/sessions -H "Authorization: Bearer $S4" | grep -oP '"id":"[^"]+","name":[^,]*,"prefix":"[^"]*","status":"active"' | head -1 | grep -oP '"id":"\K[^"]+')
+assert "a session ends by id"                 "$(curl -s -X DELETE $B/api/sessions/$S4ID -H "Authorization: Bearer $S5")" '"ok":true'
+OPSESS=$(curl -s $B/api/sessions -H "Authorization: Bearer $OP" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "…and somebody else's is a 404, not a 403" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/sessions/$OPSESS -H "Authorization: Bearer $S5")" '404'
+assert "…so the operator's session is untouched" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"user_id":'
+
+# #116: every attempt is audited. The operator reads the team trail.
+assert "a successful sign-in is recorded"     "$(curl -s $B/api/audit -H "Authorization: Bearer $OP")" '"action":"user.login"'
+assert "…and the logout too"                  "$(curl -s $B/api/audit -H "Authorization: Bearer $OP")" '"action":"user.logout"'
+
+# #116: the growing delay. Three failures are free, the fourth starts costing.
+for i in 1 2 3; do
+  curl -s -o /dev/null -X POST $B/api/login -d '{"username":"sven","password":"wrong"}'
+done
+assert "three failures still answer 401"      "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -d '{"username":"sven","password":"wrong"}')" '401'
+THROTTLED=$(curl -s -D- -X POST $B/api/login -d '{"username":"sven","password":"wrong"}' | tr -d '\r')
+assert "…then the next one is throttled"      "$THROTTLED" '429'
+assert "…with a retry-after the client can read" "$THROTTLED" 'retry_after'
+assert "…and the header form too"             "$(printf '%s' "$THROTTLED" | grep -ci '^retry-after:' || true)" '1'
+# The throttle refuses a CORRECT password too while the delay is running — it has
+# to, or it would be an account-existence oracle of a different kind — which is
+# exactly why the delay is capped at a minute and why a hard lock is opt-in.
+assert "…and it refuses the right password too, while the delay runs" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}')" '429'
+# the fourth failure bought a 2-second delay; wait it out and the counter clears
+sleep 3
+assert "…then a correct password works and forgets the history" \
+  "$(curl -s -X POST $B/api/login -d '{"username":"sven","password":"sven-pass-1"}')" '"token":"tk_'
+assert "…so the next wrong password is a plain 401 again" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/login -d '{"username":"sven","password":"wrong"}')" '401'
+# the failures are in the trail as well, with the username that was tried and
+# never the password
+AUD=$(curl -s $B/api/admin/audit/export -H "Authorization: Bearer $OP")
+assert "a failed sign-in is recorded"      "$AUD" '"result":"failed"'
+# `meta` rides in the export as a STRING, so its own quotes are escaped — the
+# needle has to be the escaped form, not the shape the handler wrote.
+assert "…naming the account that was tried" "$AUD" 'username\":\"sven'
+refute "…and never the password"           "$AUD" 'sven-pass-1'
+refute "…nor the one that was guessed"     "$AUD" 'password\":\"wrong'
+
 # ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
 assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'
 # Inapplicable when a key IS configured, which TELEMACHUS_ENCRYPT_CONTENT requires.

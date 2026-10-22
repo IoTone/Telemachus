@@ -10,7 +10,9 @@
 (provide ep-whoami ep-profile ep-member-role ep-member-remove
          ep-admin-password-reset ep-members-list ep-add-member
          ep-admin-status ep-login ep-password ep-2fa-reset ep-admin-2fa-reset
-         ep-2fa-enable ep-2fa-codes-new ep-2fa-codes-get)
+         ep-2fa-enable ep-2fa-codes-new ep-2fa-codes-get
+         ;; issue #118: a person's own sessions
+         ep-sessions-list ep-logout ep-session-revoke ep-sessions-revoke-others)
 
 (require db-kit/portable
          json
@@ -18,6 +20,9 @@
          (only-in "../../config.rkt" app-version)
          "../../domain/authz/authz.rkt"
          (only-in "../../domain/authz/passwords.rkt" kdf-name)
+         (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
+         racket/string
+         web-server/http
          (only-in "../../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
          "../kit.rkt")
 
@@ -94,6 +99,13 @@
       [(not (query-maybe-value db-conn "SELECT id FROM users WHERE id = ?" uid)) (err "no such user" 404)]
       [else
        (set-password! db-conn uid new)
+       ;; issue #116: this is the documented way back in for somebody a hard lock
+       ;; has shut out (#54 built the route for exactly that), so it is also the
+       ;; one thing besides a successful sign-in that clears the attempt counter.
+       ;; Without this a locked account would have no recovery path at all: the
+       ;; lock refuses the sign-in that would otherwise clear it.
+       (let ([u (query-maybe-value db-conn "SELECT username FROM users WHERE id = ?" uid)])
+         (when (string? u) (login-lock-clear! db-conn u)))
        (define n (revoke-user-sessions! db-conn uid))
        ;; attributed to the ACTING operator's team: audit-list filters by team, and
        ;; the operator's trail is where "what did the operator do" is looked for.
@@ -153,21 +165,159 @@
                             'teams (query-value db-conn "SELECT COUNT(*) FROM teams")
                             'orgs (query-value db-conn "SELECT COUNT(*) FROM orgs")))]))
 
+;; ---- sign-in (issues #116, #117, #118) --------------------------------------
+;; What this handler did NOT do before: limit attempts, and leave any record at
+;; all — not of a failure and not of a SUCCESS, which is the more serious half.
+;; The audit log is this platform's record of who did what (DEL-7 keeps it
+;; through an erasure, #84 r3 chains and exports it) and "who signed in, from
+;; where" was absent from it entirely.
+(define (client-ip-of req)
+  (or (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)) "?"))
+
+;; The per-ADDRESS limiter is in memory and per process, deliberately, and the
+;; per-ACCOUNT one (a row, migration 0049) is not. An address is a throttle: a
+;; restart clearing it costs nothing and an attacker changing address defeats it
+;; anyway. An account lock is a control, so it has to survive a restart the
+;; attacker can cause, and must not grant each replica its own allowance.
+(define login-ip-limiter (make-limiter))
+(define LOGIN-IP-MAX 20)
+(define LOGIN-IP-WINDOW 60)
+
+;; `username` is recorded on a failure because an operator investigating a
+;; credential-stuffing run needs to know WHICH accounts were targeted, and it is
+;; the one field the caller supplied. Nothing else from the attempt is: never the
+;; password, never the body — #83 r4 sealed four stored `error` columns precisely
+;; because this platform's own code quotes what it choked on, and a login record
+;; is the last place to start a new copy of a credential.
+(define (audit-login! #:result result #:username u #:uid [uid #f] #:team [team #f] #:ip ip
+                      #:meta [extra (hasheq)])
+  (audit! db-conn #:action "user.login" #:actor-type "user"
+          #:actor-id (or uid sql-null)
+          #:team-id (or team sql-null)
+          #:result result
+          #:meta (jsexpr->string (hash-set* extra 'username (format "~a" u) 'ip ip))))
+
 (define (ep-login req)
   (define body (read-json-body req))
   (define username (hash-ref body 'username #f))
   (define password (hash-ref body 'password #f))
   (define code (hash-ref body 'code #f))
+  (define ip (client-ip-of req))
   (cond
     [(or (not username) (not password)) (err "username and password required" 400)]
+    ;; the address throttle comes FIRST and is not per-account, so a run against
+    ;; a thousand usernames from one host is bounded by something
+    [(not (limiter-allow? login-ip-limiter ip (current-seconds)
+                          #:max LOGIN-IP-MAX #:window LOGIN-IP-WINDOW))
+     (audit-login! #:result "throttled" #:username username #:ip ip)
+     (err "too many sign-in attempts from this address — wait a minute and try again" 429)]
     [else
-     (define uid (authenticate db-conn username password #:code code))
+     (define u (format "~a" username))
+     (define hold (login-throttle db-conn u))
      (cond
-       [(not uid) (unauthorized)]                       ; bad password / missing-or-bad 2FA code
+       ;; A LOCK, which only an operator's password reset clears (#54 built that
+       ;; route as the way back in). Off unless TELEMACHUS_LOGIN_LOCK_FAILURES is
+       ;; set, because a lock on a known username is a denial-of-service
+       ;; primitive — see `login-lock-after`.
+       [(eq? hold 'locked)
+        (audit-login! #:result "locked" #:username username #:ip ip)
+        (err "this account is locked after repeated failed sign-ins — ask an operator to reset it" 423)]
+       ;; the growing delay, as a 429 with a retry-after rather than a sleep: a
+       ;; sleep holds a request thread, which is a resource an unauthenticated
+       ;; caller could exhaust on purpose
+       [(pair? hold)
+        (audit-login! #:result "throttled" #:username username #:ip ip
+                      #:meta (hasheq 'retry_after (cdr hold)))
+        (json-response (hasheq 'error "too many failed sign-ins — try again shortly"
+                               'retry_after (cdr hold))
+                       #:code 429
+                       #:headers (list (make-header #"Retry-After"
+                                                    (string->bytes/utf-8 (number->string (cdr hold))))))]
        [else
-         (define tid (first-team-for db-conn uid))
-         (define-values (tok _t) (issue-token! db-conn #:user uid #:team tid #:name "login" #:scopes '("*:*") #:kind SESSION-KIND))
-         (json-response (hasheq 'token tok 'user_id uid 'team_id tid))])]))
+        (define uid (authenticate db-conn u password #:code code))
+        (cond
+          [(not uid)
+           ;; bad password, unknown account, or a missing/bad second factor — one
+           ;; answer for all three, as before. The RECORD distinguishes nothing
+           ;; either: telling the log which of the three it was would hand an
+           ;; attacker who can read it the account-existence oracle #117 closed.
+           (define-values (failures locked?) (login-failed! db-conn u))
+           (audit-login! #:result "failed" #:username username #:ip ip
+                         #:meta (hasheq 'failures failures))
+           (when locked?
+             (audit-login! #:result "locked" #:username username #:ip ip
+                           #:meta (hasheq 'failures failures)))
+           (unauthorized)]
+          [else
+           (login-succeeded! db-conn u)
+           (define tid (first-team-for db-conn uid))
+           (define-values (tok _t)
+             (issue-token! db-conn #:user uid #:team tid #:name "login" #:scopes '("*:*") #:kind SESSION-KIND))
+           ;; #118: the cap EVICTS THE OLDEST rather than refusing this sign-in,
+           ;; and each eviction is audited — a session that ends by itself with no
+           ;; record is indistinguishable, to its owner, from one that was stolen.
+           (for ([ev (in-list (enforce-session-cap! db-conn uid))])
+             (audit! db-conn #:action "user.session.evicted" #:actor-type "system"
+                     #:actor-id uid #:team-id tid #:resource-type "token" #:resource-id ev
+                     #:meta (jsexpr->string (hasheq 'reason "session cap" 'cap (max-sessions)))))
+           (audit-login! #:result "ok" #:username username #:uid uid #:team tid #:ip ip)
+           (json-response (hasheq 'token tok 'user_id uid 'team_id tid))])])]))
+
+;; ---- the caller's own sessions (#118) ---------------------------------------
+;; A member could not see or end a single one of their own sessions: GET
+;; /api/tokens is the TEAM's API tokens behind settings:manage, and there was no
+;; logout route at all — the console's sign-out cleared localStorage and called
+;; nothing, so on a shared machine the bearer and the row both stayed valid.
+;;
+;; These need no permission: they are the caller's own rows, scoped by user_id
+;; AND kind in the statement itself.
+(define (bearer-of req)
+  (define auth (req-header req #"authorization"))
+  (and auth (string-prefix? auth "Bearer ") (substring auth 7)))
+
+(define (ep-sessions-list req)
+  (with-auth req (lambda (p)
+    (define cur (token-id-for-bearer db-conn (bearer-of req)))
+    (json-response (hasheq 'sessions (user-sessions db-conn (principal-user-id p) #:current cur)
+                           'max (or (max-sessions) 'null))))))
+
+;; ends THIS session — what the console's sign-out button should always have done
+(define (ep-logout req)
+  (with-auth req (lambda (p)
+    (define cur (token-id-for-bearer db-conn (bearer-of req)))
+    (cond
+      ;; a caller authenticated by the trusted identity HEADERS holds no token,
+      ;; so there is nothing to revoke and saying "ok" would be a lie
+      [(not cur) (err "no session to end — this request carries no bearer token" 400)]
+      [else
+       (revoke-session! db-conn (principal-user-id p) cur)
+       (audit! db-conn #:action "user.logout" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "token" #:resource-id cur)
+       (json-response (hasheq 'ok #t))]))))
+
+(define (ep-session-revoke req id)
+  (with-auth req (lambda (p)
+    (cond
+      [(revoke-session! db-conn (principal-user-id p) id)
+       (audit! db-conn #:action "user.session.revoke" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p) #:resource-type "token" #:resource-id id)
+       (json-response (hasheq 'ok #t 'id id))]
+      ;; a session that is not the caller's own and one that does not exist are
+      ;; ONE answer: whether somebody else holds a given token id is not a
+      ;; question this route should answer
+      [else (err "not found" 404)]))))
+
+;; "sign out everywhere else" — deliberately NOT everywhere. A password change
+;; already ends every session including this one, and making the ordinary button
+;; do that would be a surprise on a shared account.
+(define (ep-sessions-revoke-others req)
+  (with-auth req (lambda (p)
+    (define cur (token-id-for-bearer db-conn (bearer-of req)))
+    (define n (revoke-other-sessions! db-conn (principal-user-id p) cur))
+    (audit! db-conn #:action "user.sessions.revoke_others" #:actor-type "user"
+            #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+            #:meta (jsexpr->string (hasheq 'ended n)))
+    (json-response (hasheq 'ok #t 'ended n)))))
 
 (define (ep-password req)
   (with-auth req (lambda (p)

@@ -58,7 +58,11 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/suspend` | provision | — | — | — | Hosted mode: suspend the tenant (writes are refused with 402). |
 | POST | `/api/instance/resume` | provision | — | — | — | Hosted mode: resume a suspended tenant. |
 | POST | `/api/instance/quota` | provision | — | — | — | Hosted mode: set a quota limit for the tenant's team. |
-| POST | `/api/login` | public | — | — | — | Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. |
+| POST | `/api/login` | public | — | — | — | Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. Attempts are throttled per address and per account with a growing delay (429 and `Retry-After`), every attempt is audited as `user.login`, and an account may be locked outright when the operator sets TELEMACHUS_LOGIN_LOCK_FAILURES (423, cleared by an operator password reset). |
+| GET | `/api/sessions` | bearer | — | — | — | The caller's own browser sessions — prefix, when each was created and last used, when it expires, and which one this request is holding. Never a token. |
+| POST | `/api/logout` | bearer | — | — | — | End the session this request is holding. The console's sign-out called nothing before this, so the bearer stayed valid until it expired. |
+| DELETE | `/api/sessions` | bearer | — | — | — | End every OTHER session of the caller — "sign out everywhere else". Not everywhere: a password change already ends them all, this one keeps the session you are using. |
+| DELETE | `/api/sessions/:id` | bearer | — | — | — | End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404. |
 | POST | `/api/2fa/enable` | bearer | — | — | — | Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once. |
 | POST | `/api/2fa/recovery-codes` | bearer | — | — | — | Issue a fresh set of single-use recovery codes, invalidating any outstanding ones; returned once (issue #26). |
 | GET | `/api/2fa/recovery-codes` | bearer | — | — | — | How many of the caller's recovery codes are still unspent. Never the codes themselves. |

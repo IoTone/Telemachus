@@ -62,6 +62,8 @@ Conventions used throughout:
 | `TELEMACHUS_TOKEN_PEPPER` | `TELEMACHUS_SECRET`, else a dev default | Peppers the HMAC-SHA-256 token hashes specifically. |
 | `TELEMACHUS_KDF` | argon2 when available | Set to `pbkdf2` to force PBKDF2 password hashing. |
 | `TELEMACHUS_PBKDF2_ITERS` | `100000` | PBKDF2 iteration count when that KDF is in use. |
+| `TELEMACHUS_MAX_SESSIONS` | `10` | How many browser sessions one identity may hold at once (issue #118). Reaching it **evicts the oldest**, audited as `user.session.evicted` — it never refuses a sign-in, because a full session table would otherwise become a lockout. `never` or `0` disables the cap; anything unparseable falls back to the default. Machine tokens (`api`, `worker`) are not sessions and are never counted or evicted. |
+| `TELEMACHUS_LOGIN_LOCK_FAILURES` | — (off) | Lock an account outright after this many failed sign-ins inside 15 minutes (issue #116), answering **423** until an operator clears it with `POST /api/admin/users/:id/password`. **Off by default on purpose:** a lock only an operator can clear is a denial-of-service primitive against a known username. With it unset, sign-in is still throttled — three failures are free, then a doubling delay capped at 60 seconds, answered as a 429 with `Retry-After`. |
 
 ## Model access
 

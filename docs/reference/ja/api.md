@@ -58,7 +58,11 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/suspend` | provision | — | — | — | ホストモード：テナントを一時停止（書き込みは402で拒否されます） |
 | POST | `/api/instance/resume` | provision | — | — | — | ホストモード：一時停止したテナントを再開 |
 | POST | `/api/instance/quota` | provision | — | — | — | ホストモード：テナントチームのクォータ制限を設定します。 |
-| POST | `/api/login` | public | — | — | — | ユーザー名とパスワードでサインインする（2FA が有効なら TOTP コードも）。ベアラートークンを返します。 |
+| POST | `/api/login` | public | — | — | — | ユーザー名とパスワード（2FA 有効時は TOTP コードも）でサインインする。ベアラートークンを返す。試行はアドレス単位とアカウント単位で制限され、遅延は段階的に伸びる（429 と `Retry-After`）。すべての試行は `user.login` として監査に記録される。運用者が TELEMACHUS_LOGIN_LOCK_FAILURES を設定した場合はアカウントがロックされる（423、解除は運用者によるパスワードリセット）。 |
+| GET | `/api/sessions` | bearer | — | — | — | 呼び出し元自身のブラウザセッション一覧 — プレフィックス、作成時刻と最終使用時刻、有効期限、そしてこのリクエストが使っているセッションの印。トークンそのものは返さない。 |
+| POST | `/api/logout` | bearer | — | — | — | このリクエストが使っているセッションを終了する。これ以前はコンソールのサインアウトが何も呼んでいなかったため、ベアラーは期限まで有効なままだった。 |
+| DELETE | `/api/sessions` | bearer | — | — | — | 呼び出し元の「他のすべて」のセッションを終了する（他の場所からサインアウト）。すべてではない — パスワード変更はすべてを終了するが、こちらは今使っているセッションを残す。 |
+| DELETE | `/api/sessions/:id` | bearer | — | — | — | 呼び出し元自身のセッションを 1 つ終了する。自分のものでないセッションと存在しないセッションは同じ 404 を返す。 |
 | POST | `/api/2fa/enable` | bearer | — | — | — | 呼び出し元の TOTP 二要素認証を有効にします。シークレットと単回使用のリカバリコード一組を、一度だけ返します。 |
 | POST | `/api/2fa/recovery-codes` | bearer | — | — | — | 単回使用のリカバリコードを新しく一組発行し、未使用のものはすべて無効化します。一度だけ返されます（issue #26）。 |
 | GET | `/api/2fa/recovery-codes` | bearer | — | — | — | 呼び出し元のリカバリコードのうち、未使用のものが何件残っているか。コード自体は返しません。 |
