@@ -3645,6 +3645,63 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## Whose clock it is (#137)
+
+`users.timezone` (migration 0052) plus org and instance defaults;
+`domain/time/zones.rkt` reads the IANA database, `domain/time/tz-policy.rkt`
+decides whose zone applies. `POST /api/profile` takes `timezone`,
+`GET /api/timezones` lists what is on disk, `GET/PUT /api/timezone` is the
+instance default and `GET/PUT/DELETE /api/org/timezone` the company's.
+Decisions TZ‑1…6.
+
+```sh
+raco test test/timezone-tests.rkt   # 7 cases, pinned to the IANA database
+bash test/server-smoke.sh           # the "timezone:" block, 14 assertions
+```
+
+- **An IANA NAME, never a stored offset.** An offset is wrong half the year in
+  most of the world, and a schedule asks about the FUTURE, where only the rule
+  can answer.
+- **THE LAYERS DO NOT TIGHTEN**: user → org → instance → UTC, a person's choice
+  winning. Branding's rule (TEN‑2d), deliberately not SESS‑4's — a session
+  timeout governs what is PERMITTED, a timezone governs how a number is
+  rendered, and nobody is protected by being forced into the wrong clock.
+  `timezone-report` names the layer that answered.
+- **tzdata is built "slim", and the FOOTER is the normal path here.** The
+  transition table stops where a zone's rule became regular (Europe/London's
+  last entry is in the 1990s); everything after it is a POSIX TZ string in the
+  file's footer. A reader that walks only the table answers today's question with
+  a rule from thirty years ago — and a scheduler only ever asks about the future.
+- **The POSIX offset sign is INVERTED** (`PST8` is UTC‑8). Negated once, at the
+  parse; getting it backwards is a sixteen-hour error that still looks like a
+  plausible time of day.
+- **`local->epoch` answers `ok` / `nonexistent` / `ambiguous`** because twice a
+  year an hour is skipped and an hour repeats, so "07:00 local" is not always one
+  instant. It uses TWO PROBES either side of the day: the offset depends on the
+  instant while the instant is what is being solved for, and a single round-trip
+  check cannot see the repeated hour at all — the first version silently reported
+  `ok` for London's SECOND 01:30, i.e. it would have fired an hour late.
+- **The oracle is Python's `zoneinfo` over the same tzdata**, carried in
+  `test/timezone-tests.rkt` as literals — sigv4.rkt's rule. The cases are what a
+  60-minute northern-hemisphere reader gets wrong: Lord Howe's **30-minute** DST
+  step, Chatham's **45-minute** offset, and a 2030 instant.
+- **`TZDIR` is declared in the Nix closure, and the CONTAINER is why.** The image
+  has no `/usr/share/zoneinfo` and no shell to debug with, so falling back to the
+  system path works on every developer's box and resolves everything to UTC in
+  production. `TELEMACHUS_ZONEINFO` overrides it. With no database found, every
+  zone is UTC — which is what the platform did before, so nothing breaks and
+  nothing is local either.
+- **An unknown zone is REFUSED, never substituted** — validated against what is
+  on disk, like `available` locales. Someone quietly given UTC for a typo finds
+  out from a report that arrives at the wrong hour.
+- **A zone name is whitelisted, not escaped**: it arrives from a database row and
+  becomes a PATH, so `..` is the whole point (blobs.rkt's digest rule).
+- **Stored timestamps stay UTC**, all of them — ONB‑8's line applied to time.
+  `${principal.timezone}` joins `${principal.locale}` in the bindings.
+- **An instance-tier audit entry still needs `#:team-id`** (the acting
+  operator's). The smoke caught `instance.timezone` being written and invisible —
+  the FOURTH appearance of that shape; `session.policy` still has it.
+
 ## The platform's clock (#135)
 
 Nothing ran work on a timer. A schedule is **a row that enqueues an ordinary

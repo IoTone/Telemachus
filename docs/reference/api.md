@@ -70,9 +70,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | DELETE | `/api/admin/users/:id/2fa` | bearer | `instance:manage` | role | — | Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment. |
 | POST | `/api/password` | bearer | — | — | — | Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone. |
 | GET | `/api/whoami` | bearer | — | — | — | The caller: user, team, operator flag, org, org role, locale, permissions. |
-| POST | `/api/profile` | bearer | — | — | — | Update the caller's profile (display name, locale). |
+| POST | `/api/profile` | bearer | — | — | — | Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. "Europe/London"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it. |
 | POST | `/api/members` | bearer | `members:manage` | role | — | Add a member to the caller's team with a role; returns the new member's first token. |
 | GET | `/api/members` | bearer | — | — | — | The team's members and roles. |
+| GET | `/api/timezones` | bearer | — | — | — | Every IANA timezone this instance has data for, derived from the tz database on disk rather than a list in the source, so a tzdata upgrade needs no release. |
 | PATCH | `/api/members/:id` | bearer | `members:manage` | role | — | Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it. |
 | DELETE | `/api/members/:id` | bearer | `members:manage` | role | — | Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed. |
 | GET | `/api/admin/status` | bearer | `instance:read` | role | — | Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
@@ -94,6 +95,11 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/org/audit` | org-admin | `org:read` | role | — | The company's audit trail. |
 | GET | `/api/org/retention` | org-admin | `org:read` | role | — | The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it. |
 | PUT | `/api/org/retention` | org-admin | `org:manage` | role | — | Set the company's retention rules. Same vocabulary and same refusals as the team route; the effective value for a team is the shortest of instance, org and team. |
+| GET | `/api/timezone` | bearer | `instance:read` | role | — | The instance default timezone, the fallback used when nothing is set (UTC), and how many zones this instance has data for. |
+| PUT | `/api/timezone` | bearer | `instance:manage` | role | — | Set the instance default timezone: {timezone}. It is a FALLBACK and not a floor — a company or a person may each choose their own, because a timezone is not a control and nobody is protected by being forced into the wrong clock. |
+| GET | `/api/org/timezone` | org-admin | `org:read` | role | — | The company's own default timezone, the instance's, and what a member of this company gets when they have set none themselves. |
+| PUT | `/api/org/timezone` | org-admin | `org:manage` | role | — | Set the company's default timezone: {timezone}. A user's own choice still wins over it. |
+| DELETE | `/api/org/timezone` | org-admin | `org:manage` | role | — | Drop the company's default timezone; its users fall back to the instance default. |
 | GET | `/api/org/session-policy` | org-admin | `org:read` | role | — | The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied. |
 | PUT | `/api/org/session-policy` | org-admin | `org:manage` | role | — | Set the company's session timeouts. Only tightening takes effect: a value looser than the instance's is answered with the instance's. |
 | DELETE | `/api/org/session-policy` | org-admin | `org:manage` | role | — | Drop the company's session timeouts; its users fall back to the instance policy. |

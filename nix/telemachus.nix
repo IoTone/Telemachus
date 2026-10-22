@@ -7,7 +7,12 @@
 # exactly as it does in a checkout.
 { lib, stdenv, makeWrapper, racket, openssl
 , poppler-utils
-, pandoc, tectonic }:   # PDF forms (DWF-6, slice 68): doc_render md/html -> pandoc -> tectonic
+, pandoc, tectonic   # PDF forms (DWF-6, slice 68): doc_render md/html -> pandoc -> tectonic
+, tzdata }:          # #137: the IANA zone database. TZDIR is SET, not prefixed onto
+                     # PATH: the image has no /usr/share/zoneinfo and no shell to
+                     # debug with, so an undeclared tz database would make every
+                     # zone resolve to UTC on a packaged install while working on
+                     # every developer's box.
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "telemachus";
@@ -56,6 +61,7 @@ stdenv.mkDerivation (finalAttrs: {
         --add-flags "$out/share/telemachus/$path" \
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
         --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic ]} \
+        --set-default TZDIR "${tzdata}/share/zoneinfo" \
         --run 'export TELEMACHUS_DATA_DIR="''${TELEMACHUS_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
     done
     runHook postInstall

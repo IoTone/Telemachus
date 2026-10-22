@@ -16,6 +16,7 @@
 ;; on every step against the principal the run pinned at start.
 
 (require db-kit/portable
+         (only-in "../time/tz-policy.rkt" timezone-for-team)
          ;; issue #83 slice 3: a run's bindings and a step's input/output are
          ;; derived document content for the pipeline
          (only-in "../authz/sealed.rkt" define-sealed-column)
@@ -270,6 +271,8 @@
                 #:team-id (hash-ref run 'team_id)
                 #:user-id (hash-ref run 'user_id)
                 #:locale (user-locale conn (hash-ref run 'user_id))
+                #:timezone (timezone-for-team conn (hash-ref run 'team_id)
+                                              #:user (hash-ref run 'user_id))
                 #:item item #:index index))
 
 (define (flow-run-start! conn p def #:input [input (hasheq)])

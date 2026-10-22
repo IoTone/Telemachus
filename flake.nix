@@ -43,6 +43,7 @@
             sqlite          # the default backend, plus its CLI for poking at a DB
             postgresql      # the OTHER dialect: migrations must pass on both
             openssl         # TELEMACHUS_TLS=1 shells out to it for a self-signed cert
+            tzdata          # #137: the IANA zone database; TZDIR below points at it
             poppler-utils   # pdftotext — PDF text extraction for the search index (slice 54);
                             # ALSO pdftoppm, which is how the OCR extractor renders a
                             # scanned PDF's pages to images (issue #92). One dependency
@@ -82,6 +83,12 @@
             export FONTCONFIG_FILE="${pkgs.makeFontsConf {
               fontDirectories = [ pkgs.noto-fonts-cjk-serif-static pkgs.noto-fonts-cjk-sans-static ];
             }}"
+            # #137: the zone database, so a devShell resolves zones identically to
+            # a packaged install. macOS HAS /usr/share/zoneinfo and Linux usually
+            # does, which is exactly why this is pinned: the fallback would hide a
+            # missing dependency on every developer's box and surface it only in
+            # the container, which has neither zoneinfo nor a shell to look with.
+            export TZDIR="${pkgs.tzdata}/share/zoneinfo"
             # The single most-repeated line in CLAUDE.md, now automatic. pkgs/{cli-kit,
             # db-kit,web-kit} must win over any linked copies from the old Odysseus tree.
             export PLTCOLLECTS="$PWD/refimpl/racketmaximus/pkgs:"

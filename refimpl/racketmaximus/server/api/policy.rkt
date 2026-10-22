@@ -11,9 +11,16 @@
          ep-retention-plan-get ep-legal-hold-put ep-my-org-retention-get
          ep-my-org-retention-put ep-session-policy-put
          ep-my-org-session-policy-get ep-my-org-session-policy-put
-         ep-my-org-session-policy-clear)
+         ep-my-org-session-policy-clear
+         ;; #137: the timezone layers
+         ep-timezone-get ep-timezone-put
+         ep-my-org-timezone-get ep-my-org-timezone-put ep-my-org-timezone-clear)
 
 (require db-kit/portable
+         json
+         (only-in "../../domain/time/tz-policy.rkt" DEFAULT-TIMEZONE clear-org-timezone! instance-timezone
+                  org-timezone set-instance-timezone! set-org-timezone! timezone-for timezone-problem)
+         (only-in "../../domain/time/zones.rkt" available-zones)
          web-kit
          "../../domain/authz/authz.rkt"
          (only-in "../../domain/repo/repo.rkt" repo-legal-hold!)
@@ -160,3 +167,78 @@
               #:actor-id (principal-user-id p) #:resource-type "org" #:resource-id (caller-org p))
       (json-response (hasheq 'policy 'null 'own #f
                              'effective (session-policy-for db-conn (caller-org p)))))))))
+
+;; ---- the timezone layers (#137) ----------------------------------------------
+;; The instance default and the company's, over the same `instance_settings`
+;; table session policy and branding already share. THE LAYERS DO NOT TIGHTEN,
+;; unlike session policy two screens up: a timezone is not a control, so a
+;; person's own choice wins over their company's and the company's over the
+;; instance's. That is branding's rule (TEN-2d), and getting it backwards would
+;; force somebody into the wrong clock to no one's benefit.
+(define (ep-timezone-get req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (json-response (hasheq 'timezone (or (instance-timezone db-conn) 'null)
+                           'default DEFAULT-TIMEZONE
+                           'available (length (available-zones)))))))
+
+(define (ep-timezone-put req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (define b (read-json-body req))
+    (define z (let ([v (hash-ref b 'timezone #f)]) (and v (format "~a" v))))
+    (define problem (timezone-problem (or z "")))
+    (cond
+      [problem (err problem 400)]
+      [else
+       (set-instance-timezone! db-conn z)
+;; `#:team-id` is the ACTING operator's team, which is #54's rule for an
+       ;; instance-tier act: `audit-list` filters on it, so an entry without one
+       ;; is invisible to every trail there is. The smoke caught exactly that —
+       ;; the fourth appearance of this shape, and `session.policy` two screens
+       ;; up still has it.
+       (audit! db-conn #:action "instance.timezone" #:actor-type "user" #:actor-id (principal-user-id p)
+               #:team-id (principal-team-id p)
+               #:resource-type "instance" #:resource-id "instance" #:meta (jsexpr->string (hasheq 'timezone z)))
+       (json-response (hasheq 'ok #t 'timezone z))]))))
+
+(define (ep-my-org-timezone-get req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:read")
+      (define own (org-timezone db-conn (caller-org p)))
+      (json-response (hasheq 'timezone (or own 'null)
+                             'own (and own #t)
+                             'instance (or (instance-timezone db-conn) 'null)
+                             ;; what a member of this company gets with no zone
+                             ;; of their own
+                             'effective (timezone-for db-conn #:org (caller-org p)))))))))
+
+(define (ep-my-org-timezone-put req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (define b (read-json-body req))
+      (define z (let ([v (hash-ref b 'timezone #f)]) (and v (format "~a" v))))
+      (define problem (timezone-problem (or z "")))
+      (cond
+        [problem (err problem 400)]
+        [else
+         (set-org-timezone! db-conn (caller-org p) z)
+         ;; `org-audit` INNER JOINs teams on team_id, so an org entry without
+         ;; one is written and then invisible in the company's own trail.
+         (audit! db-conn #:action "org.timezone" #:actor-type "user" #:actor-id (principal-user-id p)
+                 #:team-id (principal-team-id p)
+                 #:resource-type "org" #:resource-id (caller-org p)
+                 #:meta (jsexpr->string (hasheq 'timezone z)))
+         (json-response (hasheq 'ok #t 'timezone z))])))))) 
+
+(define (ep-my-org-timezone-clear req)
+  (with-mt req (lambda ()
+    (with-auth req (lambda (p)
+      (require-perm db-conn p "org:manage")
+      (clear-org-timezone! db-conn (caller-org p))
+      (audit! db-conn #:action "org.timezone.clear" #:actor-type "user" #:actor-id (principal-user-id p)
+              #:team-id (principal-team-id p)
+              #:resource-type "org" #:resource-id (caller-org p))
+      (json-response (hasheq 'ok #t 'effective (timezone-for db-conn #:org (caller-org p)))))))))

@@ -395,6 +395,10 @@
       "text": "The team's runs, newest first.",
       "hash": "59fac684098bbc8c94a0a2340ef9e4ce37ae8e51"
     },
+    "doc.route.put.api.timezone": {
+      "text": "Set the instance default timezone: {timezone}. It is a FALLBACK and not a floor — a company or a person may each choose their own, because a timezone is not a control and nobody is protected by being forced into the wrong clock.",
+      "hash": "3cf69d01b9cef4e848af666a5d0e81189e8f37ed"
+    },
     "doc.route.put.api.retention": {
       "text": "Set the TEAM's retention rules: `max_age_days`, `delete_derived_after_days`, `purge_job_payloads_after_days`. Each is a whole number of days or null. **0 is refused** — it would delete a document on arrival — and a field nobody defined is refused rather than dropped, because a rule that does nothing while you believe data is being deleted is the worst way to be wrong. A team may only SHORTEN what its org and the instance allow.",
       "hash": "30a37e5b3494e3964175947d7f9d26a41709dd34"
@@ -675,6 +679,10 @@
       "text": "The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex.",
       "hash": "3739bcc1b3eff310696351eccabb917b6928aae6"
     },
+    "doc.route.delete.api.org.timezone": {
+      "text": "Drop the company's default timezone; its users fall back to the instance default.",
+      "hash": "4b71bb9d8519778cf1de73736581c538e4029782"
+    },
     "authz.bootstrap_done": {
       "text": "Created operator {user} and team {team}.",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
@@ -942,6 +950,10 @@
     "doc.perm.jobs:cancel": {
       "text": "Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first.",
       "hash": "6125caf549aa3233fcdb41a561c9828c5b120c12"
+    },
+    "doc.route.put.api.org.timezone": {
+      "text": "Set the company's default timezone: {timezone}. A user's own choice still wins over it.",
+      "hash": "2ae0c1c741c3a7b83e79c762804d82a4547b2017"
     },
     "ui.loctoggle": {
       "text": "Let people choose their language",
@@ -1320,8 +1332,8 @@
       "hash": "f0005618dfc54747edeb17e48ae0fcfd56c23355"
     },
     "doc.route.post.api.profile": {
-      "text": "Update the caller's profile (display name, locale).",
-      "hash": "ae34766f1a6a412439af179c06803b91462967f0"
+      "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
+      "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
     },
     "ui.sharedwithme": {
       "text": "Shared with me",
@@ -1399,6 +1411,14 @@
       "text": "Request access",
       "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
     },
+    "doc.route.get.api.org.timezone": {
+      "text": "The company's own default timezone, the instance's, and what a member of this company gets when they have set none themselves.",
+      "hash": "f66056e9c2aa6897e0faea5a7bb94b5592402334"
+    },
+    "doc.route.post.api.ai.chat.stream": {
+      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all.",
+      "hash": "7e6e370303b6bcfec2968ccb380941f0555c1c91"
+    },
     "doc.tool.chat_message": {
       "text": "Send one chat message to the model and return its reply.",
       "hash": "2f5eee6d8e27557d3c465f31654c3faa6ae5dce0"
@@ -1434,6 +1454,14 @@
     "doc.tool.repo_extract_text": {
       "text": "Extract the text of one repository document into the search index.",
       "hash": "abc97e3c3258563662360c069c8ec834c527371f"
+    },
+    "doc.route.get.api.timezones": {
+      "text": "Every IANA timezone this instance has data for, derived from the tz database on disk rather than a list in the source, so a tzdata upgrade needs no release.",
+      "hash": "6bc03a33c62f0667f067b528bd9c62e4c34d5177"
+    },
+    "doc.route.get.api.timezone": {
+      "text": "The instance default timezone, the fallback used when nothing is set (UTC), and how many zones this instance has data for.",
+      "hash": "3ab98327b677b1fecbe38a6e10ed069ed0708414"
     },
     "ui.l10nstatus": {
       "text": "Status",
@@ -1474,10 +1502,6 @@
     "ui.cap_view": {
       "text": "view",
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
-    },
-    "doc.route.post.api.ai.chat.stream": {
-      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all.",
-      "hash": "7e6e370303b6bcfec2968ccb380941f0555c1c91"
     },
     "doc.route.post.api.workers.state": {
       "text": "A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone.",
