@@ -1429,7 +1429,59 @@
       ;; the sweep's own query: everything past the floor, across all orgs
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_blob_staging_age ON repo_blob_staging (staged_epoch)"))))
 
+(define m-0051-job-schedules
+  (migration "0051-job-schedules"
+    (lambda (conn)
+      ;; issue #135: the platform had no clock. Nothing ran work on a timer, and
+      ;; the workarounds each lose something the job row carries for free — a
+      ;; thread started in a plugin's `init!` has no team and no user, so `can?`
+      ;; has nobody to answer about and the org gate has no tenant to scope to.
+      ;;
+      ;; A SCHEDULE IS A ROW THAT ENQUEUES AN ORDINARY JOB. It is not a second
+      ;; execution path: the enqueued job inherits the team, the user, quota
+      ;; admission, the org gate, cancel, the lease, the fence and the whole
+      ;; FLEET surface from `jobs`, exactly as every other job does. So the
+      ;; columns here are a PRINCIPAL, a KIND and a CADENCE, and nothing about
+      ;; running anything.
+      ;;
+      ;; `user_id` is NOT NULL deliberately. A schedule with no user would be a
+      ;; system principal, and this platform has none (scheduler.rkt's job
+      ;; principal is `user-principal`); work that nobody is accountable for is
+      ;; work `can?` cannot weigh.
+      ;;
+      ;; Every clock here is epoch seconds, never the TEXT `created_at`: the due
+      ;; test is a SQL comparison and that format differs by dialect — the trap
+      ;; migrations 0038 through 0045 each name.
+      (exec* conn (string-append
+        "CREATE TABLE job_schedules ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  user_id TEXT NOT NULL,"
+        "  name TEXT,"
+        "  kind TEXT NOT NULL,"
+        "  payload TEXT NOT NULL DEFAULT '{}',"
+        "  requirements TEXT NOT NULL DEFAULT '{}',"
+        "  priority INTEGER NOT NULL DEFAULT 0,"
+        "  interval_seconds INTEGER NOT NULL,"
+        "  paused INTEGER NOT NULL DEFAULT 0,"
+        "  next_run_epoch BIGINT NOT NULL,"
+        "  last_run_epoch BIGINT,"
+        "  last_job_id TEXT,"
+        "  fired INTEGER NOT NULL DEFAULT 0,"
+        ;; A skipped tick is RECORDED rather than derived, because nothing
+        ;; re-computes it: the moment has passed. A schedule that quietly did
+        ;; nothing for a week is this feature's worst failure mode, so the row
+        ;; carries the count, the reason and when it last happened.
+        "  skipped INTEGER NOT NULL DEFAULT 0,"
+        "  last_skip_reason TEXT,"
+        "  last_skip_epoch BIGINT,"
+        "  created_by TEXT,"
+        "  created_epoch BIGINT NOT NULL)"))
+      ;; the tick's own query: what is due, cheapest first
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_job_schedules_due ON job_schedules (next_run_epoch)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_job_schedules_team ON job_schedules (team_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules))

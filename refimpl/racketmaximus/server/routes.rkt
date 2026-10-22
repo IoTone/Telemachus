@@ -249,6 +249,16 @@
    (R "DELETE" "/api/jobs/:id/content" 'job-purge #:doc "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.")
    (R "GET" "/api/jobs/:id" 'job-get #:doc "One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs).")
 
+
+   ;; ---- recurring work (#135) -----------------------------------------------------------
+   ;; A schedule enqueues an ordinary job, so everything below the enqueue —
+   ;; admission, the org gate, cancel, the lease, the fence — is the job row's,
+   ;; not a second execution path's.
+   (R "GET" "/api/schedules" 'schedules-list #:perm "jobs:schedule" #:doc "The team's job schedules, soonest first. Each carries its cadence, its principal, when it last fired and the job it fired, plus `skipped` and `last_skip_reason` — a tick the platform passed over because the previous run had not finished.")
+   (R "POST" "/api/schedules" 'schedules-create #:perm "jobs:schedule" #:doc "Create a job schedule: `kind` (a registered job kind), `interval_seconds` (at least 60), and optionally `payload`, `requirements`, `priority`, `name` and `paused`. The first firing is one interval away, not immediate. The schedule runs as the CALLER, whose authority every job it fires then spends — an unknown kind is refused here rather than enqueueing work nothing can run, for ever.")
+   (R "GET" "/api/schedules/:id" 'schedule-get #:perm "jobs:schedule" #:doc "One job schedule. Another team's id is a 404, not a 403.")
+   (R "PATCH" "/api/schedules/:id" 'schedule-patch #:perm "jobs:schedule" #:doc "Retune a schedule: `interval_seconds`, `paused`, `payload`, `priority`, `name`. The PRINCIPAL cannot be patched — changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing one interval out instead of catching up on every tick it missed.")
+   (R "DELETE" "/api/schedules/:id" 'schedule-delete #:perm "jobs:schedule" #:doc "Delete a job schedule. Jobs it already fired are ordinary jobs and are untouched.")
    ;; ---- document repository -------------------------------------------------------------
    ;; DELETE before GET on the same path is irrelevant (the method is matched too),
    ;; but it sits here so the two /api/repo entries read together.

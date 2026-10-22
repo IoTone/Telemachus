@@ -6,12 +6,16 @@
 ;; needs — the pool, the request accessors, with-auth/with-mt, the response
 ;; constructors — is server/kit.rkt.
 
-(provide ep-jobs-create ep-jobs-list ep-job-get ep-job-cancel ep-job-purge)
+(provide ep-jobs-create ep-jobs-list ep-job-get ep-job-cancel ep-job-purge
+         ep-schedules-list ep-schedules-create ep-schedule-get ep-schedule-patch ep-schedule-delete)
 
 (require db-kit/portable
          web-kit
          (only-in "../../domain/authz/authz.rkt" audit! can? principal-team-id principal-user-id require-perm)
          (only-in "../../domain/sched/scheduler.rkt" cancel-job! enqueue-job! get-job list-jobs purge-job-content!)
+         (only-in "../../domain/sched/schedules.rkt" SCHEDULE-MIN-INTERVAL schedule-create! schedule-delete!
+                  schedule-get schedule-list schedule-problem schedule-update!)
+         json
          "../kit.rkt"
          "../admission.rkt")
 
@@ -108,3 +112,88 @@
           (err (string-append "the job is still queued, running or canceling — its payload is the input "
                               "a handler is about to read. Cancel it first, then purge.") 409)]
          [else (err "not found" 404)])]))))
+
+;; ---- recurring work (#135) ---------------------------------------------------
+;; The clock, and nothing else: each handler reads or writes a `job_schedules`
+;; row, and the firing itself rides the pool's reaper seam in main.rkt. Every
+;; read and write is team-scoped IN THE STATEMENT, so another team's id is a
+;; miss rather than a refusal.
+(define (ep-schedules-list req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:schedule")
+    (json-response (hasheq 'schedules (schedule-list db-conn (principal-team-id p))
+                           'min_interval_seconds SCHEDULE-MIN-INTERVAL)))))
+
+(define (ep-schedules-create req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:schedule")
+    (define b (read-json-body req))
+    (define kind (let ([k (hash-ref b 'kind #f)]) (and k (format "~a" k))))
+    (define interval (hash-ref b 'interval_seconds #f))
+    (define payload (hash-ref b 'payload (hasheq)))
+    (define problem (schedule-problem #:kind (or kind "") #:interval interval #:payload payload))
+    (cond
+      [problem (err problem 400)]
+      [else
+       (define id (schedule-create! db-conn
+                                    #:team (principal-team-id p) #:user (principal-user-id p)
+                                    #:kind kind #:interval interval #:payload payload
+                                    #:requirements (let ([r (hash-ref b 'requirements (hasheq))])
+                                                     (if (hash? r) r (hasheq)))
+                                    #:priority (let ([x (hash-ref b 'priority 0)]) (if (exact-integer? x) x 0))
+                                    #:name (let ([n (hash-ref b 'name #f)]) (and n (format "~a" n)))
+                                    #:paused? (eq? #t (hash-ref b 'paused #f))
+                                    #:created-by (principal-user-id p)))
+       (audit! db-conn #:action "job.schedule.created" #:actor-type "user"
+               #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+               #:resource-type "job_schedule" #:resource-id id
+               #:meta (jsexpr->string (hasheq 'kind kind 'interval_seconds interval)))
+       (json-response (schedule-get db-conn id (principal-team-id p)) #:code 201)]))))
+
+(define (ep-schedule-get req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:schedule")
+    (define s (schedule-get db-conn id (principal-team-id p)))
+    (if s (json-response s) (err "no such schedule" 404)))))
+
+(define (ep-schedule-patch req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:schedule")
+    (define b (read-json-body req))
+    (define interval (hash-ref b 'interval_seconds 'same))
+    (cond
+      ;; The floor is the same floor create enforces — a patch is not a way
+      ;; round it.
+      [(and (not (eq? interval 'same))
+            (not (and (exact-integer? interval) (>= interval SCHEDULE-MIN-INTERVAL))))
+       (err (format "interval_seconds must be a whole number of seconds, at least ~a" SCHEDULE-MIN-INTERVAL) 400)]
+      [else
+       (define s (schedule-update! db-conn id (principal-team-id p)
+                                   #:interval interval
+                                   #:paused? (let ([v (hash-ref b 'paused 'same)])
+                                               (if (boolean? v) v 'same))
+                                   #:payload (let ([v (hash-ref b 'payload 'same)])
+                                               (if (hash? v) v 'same))
+                                   #:priority (hash-ref b 'priority 'same)
+                                   #:name (let ([v (hash-ref b 'name 'same)])
+                                            (if (eq? v 'same) 'same (format "~a" v)))))
+       (cond
+         [(not s) (err "no such schedule" 404)]
+         [else
+          (audit! db-conn #:action "job.schedule.updated" #:actor-type "user"
+                  #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+                  #:resource-type "job_schedule" #:resource-id id
+                  #:meta (jsexpr->string (hasheq 'paused (hash-ref s 'paused)
+                                                 'interval_seconds (hash-ref s 'interval_seconds))))
+          (json-response s)])]))))
+
+(define (ep-schedule-delete req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "jobs:schedule")
+    (cond
+      [(schedule-delete! db-conn id (principal-team-id p))
+       (audit! db-conn #:action "job.schedule.deleted" #:actor-type "user"
+               #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+               #:resource-type "job_schedule" #:resource-id id)
+       (json-response (hasheq 'ok #t))]
+      [else (err "no such schedule" 404)]))))

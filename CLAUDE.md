@@ -3645,6 +3645,60 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## The platform's clock (#135)
+
+Nothing ran work on a timer. A schedule is **a row that enqueues an ordinary
+job** — `domain/sched/schedules.rkt`, migration `0051-job-schedules`,
+`/api/schedules*`, `jobs:schedule`. Decisions SCHED‑10…14.
+
+```sh
+raco test test/schedule-tests.rkt   # 6 cases; the three load-bearing rules are controlled
+bash test/server-smoke.sh           # the "schedule:" block, 14 assertions
+```
+
+- **It is NOT a second execution path, and that is the whole design.** The job it
+  fires inherits the team, the user, quota admission, the org gate, cancel, the
+  lease, the fence, SCHED‑9's ceiling and the whole FLEET surface from `jobs`, so
+  the table holds a principal, a kind and a cadence and nothing about running.
+- **`user_id` is NOT NULL.** A schedule with no user is a system principal and
+  this platform has none — a job runs as `(user-principal conn user team)`. It is
+  also the complete answer to "who may see what this pulled".
+- **A MISSED TICK IS SKIPPED, NOT CAUGHT UP**: the next due time is computed from
+  NOW, so a box down for a day fires once rather than 1,440 times against a
+  budget sized for one. Resuming a paused schedule obeys the same rule.
+  Positive-controlled — advancing by `due + interval` fails the test.
+- **The claim is one guarded `UPDATE … RETURNING`, believed only if a row comes
+  back** (#17). Advancing the due time BEFORE deciding whether to fire makes a
+  crash between the claim and the enqueue cost a SKIPPED tick, never a duplicate
+  run. `claim-schedule-tick!` is exported FOR the test: an assertion over a
+  hand-copied UPDATE agrees with any change to the real one, and two SERIAL tick
+  calls cannot see the guard at all, because the first advances the due time —
+  that control passed against the unguarded version until the claim was
+  extracted.
+- **One at a time per schedule, and `queued` counts as outstanding.** That is
+  what BOUNDS the queue: admission defers at CLAIM and never at enqueue, so
+  without it an over-budget team's schedule enqueues a job every tick for ever.
+- **A firing is audited, a skip is not.** An overrunning schedule would write an
+  entry every tick (PULL‑11e); the row carries `skipped`, `last_skip_reason` and
+  `last_skip_epoch` instead. The firing entry names the SCHEDULE's team, or
+  `audit-list` cannot see it (QUOTA‑3, third appearance).
+- **The interval floor (60s) is a constant, not an env knob** — the tick rides
+  `set-reaper!` at 30 seconds, the SIXTH thing on that seam, so anything shorter
+  could not be honoured. Cron was declined: a parser plus a timezone question,
+  and the dialects already disagree about "day".
+- **`jobs:schedule` is an ADMIN permission**, and reading is held to the same one
+  as writing: the payload is the input of every job the schedule fires. It is
+  sealed like `jobs.payload` and **listed in `CONTENT-SECRETS`, where that one is
+  not** — a job row settles in minutes and #59 purges it, a schedule outlives key
+  rotations, and a sealed column `rewrap` does not walk is silently unrotatable.
+- **The principal is not patchable.** Changing whose authority a timer spends is a
+  new schedule, not an edit — an edit would leave every audit entry already
+  written naming the wrong person.
+- **`nz` renders SQL NULL as the jsexpr null, which is TRUTHY in Racket.** The
+  "has this ever fired" test therefore has to be `string?`: the first version
+  asked `jobs WHERE id = 'null` and the driver refused the parameter. The unit
+  test is what found it.
+
 ## A plugin that owns data (#121)
 
 A plugin had no connection at load time, so one that keeps data worked around it:

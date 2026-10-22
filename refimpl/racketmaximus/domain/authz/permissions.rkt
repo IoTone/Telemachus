@@ -96,6 +96,11 @@
               ;; nothing is lost, and destroying the input and output it recorded
               ;; is not. Owner-ok covers your own job, so a member needs neither.
               "jobs:purge"
+              ;; jobs:schedule (#135): commit the team to RECURRING work. Not a
+              ;; member's call — a schedule spends the team's budget on a timer
+              ;; with nobody watching, which is a stewardship act in the way
+              ;; enqueueing one job is not. Owner holds it through "*:*".
+              "jobs:schedule"
               "workflows:read" "workflows:write" "workflows:run")
    ;; use AI + own resources
    "member" '("chat:use" "tools:invoke" "research:use"
@@ -159,6 +164,7 @@
    ;; stop their own — but stopping work already RUNNING is a different act: it
    ;; discards a result somebody is waiting for, and may cut a tool call in half.
    "jobs:cancel"    "Cancel a job that is already RUNNING, not only a queued one. Cancellation is cooperative: the job stops at its next step boundary, and its result is discarded even if it finishes first."
+   "jobs:schedule"  "Create, retune, pause and delete JOB SCHEDULES — recurring work. A schedule enqueues an ordinary job on an interval, running as whoever created it, so it commits the team's AI and storage budget to spending on a timer with nobody present to watch it. Reading one is held to the same permission as writing it, because a schedule's payload is the input of every job it fires."
    "jobs:purge"     "Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not."
    "reviews:read"   "See the team's review queue and the decisions already recorded."
    "reviews:decide" "Approve, send back or reject an item waiting for review, with a rationale."

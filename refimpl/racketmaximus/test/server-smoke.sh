@@ -493,6 +493,54 @@ assert "metrics"         "$(curl -s $B/api/metrics -H "Authorization: Bearer $OP
 # #124: /api/metrics is instance:read now
 assert "metrics 403"     "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
 
+# ---- recurring work (#135) ---------------------------------------------------
+# A schedule enqueues an ordinary job on an interval. Everything below the
+# enqueue is the job row's — admission, the org gate, cancel, the lease — so what
+# is worth pinning over HTTP is the permission, the refusals, and that a create
+# does NOT fire immediately.
+assert "schedule: a member may not commit the team to recurring spend" \
+  "$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $BOB" -H 'Content-Type: application/json' \
+      -d '{"kind":"chat","interval_seconds":3600}')" 'Forbidden: jobs:schedule'
+assert "schedule: reading one is held to the same permission as writing it" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $BOB")" 'Forbidden: jobs:schedule'
+# An unknown kind would enqueue work nothing can run, on a timer, for ever —
+# refused where somebody is present to read the answer.
+assert "schedule: an unregistered kind is refused at create" \
+  "$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"kind":"no-such-kind","interval_seconds":3600}')" 'is not a registered job kind'
+assert "schedule: the interval floor is enforced" \
+  "$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"kind":"chat","interval_seconds":30}')" 'at least 60'
+SCH=$(curl -s -X POST $B/api/schedules -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"kind":"chat","interval_seconds":3600,"name":"hourly chat","payload":{"prompt":"tick"}}')
+SCHID=$(printf '%s' "$SCH" | grep -oP '"id":"\K[^"]+')
+assert "schedule: created, with its cadence and its principal" "$SCH" '"interval_seconds":3600'
+# The first firing is one interval away. A create that fired at once would make
+# every mistaken create cost a run.
+assert "schedule: a create does not fire immediately" "$SCH" '"fired":0'
+assert "schedule: it appears in the team's list" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $OP")" '"hourly chat"'
+assert "schedule: the list states the floor, so a client need not hardcode it" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $OP")" '"min_interval_seconds":60'
+assert "schedule: pausing is the brake" \
+  "$(curl -s -X PATCH $B/api/schedules/$SCHID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"paused":true}')" '"paused":true'
+assert "schedule: a patch cannot get round the interval floor" \
+  "$(curl -s -X PATCH $B/api/schedules/$SCHID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"interval_seconds":1}')" 'at least 60'
+# The principal is not patchable: changing whose authority a timer spends is a
+# new schedule, not an edit. Sending one is ignored, and the row still names the
+# operator who created it.
+refute "schedule: the principal is not patchable" \
+  "$(curl -s -X PATCH $B/api/schedules/$SCHID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"user_id":"somebody-else"}')" 'somebody-else'
+assert "schedule: the trail names the create" \
+  "$(curl -s "$B/api/audit?limit=20" -H "Authorization: Bearer $OP")" 'job.schedule.created'
+assert "schedule: deleted" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/schedules/$SCHID -H "Authorization: Bearer $OP")" '200'
+assert "schedule: an unknown id is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/schedules/00000000-0000-0000-0000-000000000000 -H "Authorization: Bearer $OP")" '404'
+
 # ---- document repository (slices 49-50) --------------------------------------
 # Bytes over the wire, not base64 in JSON. The payload deliberately contains a NUL
 # and invalid UTF-8, because "any format" is the requirement and a text-shaped
