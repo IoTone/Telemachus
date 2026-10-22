@@ -942,6 +942,63 @@ raco test test/route-perm-gate-tests.rkt   # 7 cases; the reverse direction is t
   Re-render it (`render --locale ja`) whenever the English changes, and expect a
   large diff the first time after a gap.
 
+## S3 GetObject: the tests were the missing half (#110 r7)
+
+r7 listed seven "complexity hotspots". Re-measured after r2 and r3 the table had
+moved — 10 functions over 60 lines and **zero over 100**, where the issue
+measured 13 and one, and both `main.rkt` entries had flattened out of it on their
+own. What was left at the top was `domain/s3/server.rkt:op-get-object`.
+
+```sh
+raco test test/s3-get-tests.rkt   # 12 cases, written BEFORE the refactor
+```
+
+- **THE REAL FINDING WAS NOT THE DEPTH: it had no unit test at all.** Its only
+  coverage was one ranged GET in `test/s3-smoke.sh`, which needs the real `aws`
+  CLI and **skips without it** — and this file already records that "a skip was
+  how that path went unexercised in the first place". **Four of its six outcomes
+  had nothing checking them**: HEAD, the 416, a suffix range, and a version that
+  does not exist. So the riskiest function in the tree had the least coverage,
+  and its failure mode is not an exception — it is `aws s3 cp` writing a corrupt
+  file and reporting success.
+- **Characterisation tests FIRST, extraction second.** The 12 cases were written
+  against the behaviour as it stood and passed against the unchanged function;
+  only then was anything moved. That is what makes "behaviour-preserving" a claim
+  rather than a hope.
+- **One test pins a deliberate asymmetry nobody had written down**: a malformed
+  `Range` is IGNORED and the whole object comes back (`rubbish`, `items=0-5`,
+  `bytes 0-5`), while a `bytes=` range that parses and satisfies nothing is a
+  416. RFC 7233 says to ignore a range unit you do not understand, so a refactor
+  that "tidied" these into 416 would break any client sending one.
+- **An `http-res` body is EITHER bytes or a procedure** — `s3-error` builds its
+  XML eagerly, the streaming arms hand back a writer so nothing is buffered. A
+  test helper has to handle both, and knowing it is a prerequisite for touching
+  either.
+- **What was extracted: the two body writers, and nothing else.** 48 lines → 32,
+  and out of the depth table altogether. `closing-writer` states ONCE that the
+  port is closed whatever happens — it was written twice, and a leaked port here
+  is a descriptor leak on the data plane under exactly the load that hides it.
+- **The `cond` is deliberately untouched.** The ORDER of its arms is load-bearing
+  (HEAD before range, the 416 before the satisfiable range) and splitting the arms
+  into functions would hide exactly that — the same argument `dispatch` makes for
+  being a `cond` rather than three independent checks.
+- `COPY-CHUNK` replaces the same bare literal in two places, LIVE-IN's shape in
+  miniature.
+- **`op-get-object` and `parse-range` are exported FOR the test.**
+  `make-s3-handler` was the module's only export, so the unit under test could
+  not be reached at all. An export with a test behind it is not an over-wide
+  export (r4).
+- **The other five rows are measured-and-declined**, with the numbers on the
+  issue: in each the complexity IS the subject matter (`worker-claim!` is the
+  claim protocol with its lease and fence, `validate-step!` is the spec's own
+  validation, `render-template` is 26 template arms), and splitting them buys
+  line count against the risk of changing behaviour — in a codebase whose own
+  audit opened by saying function-level complexity is healthy.
+- **An assertion that greps for a literal must not run against a comment
+  mentioning it.** Twice now: the db-kit note listing the helpers it removed, and
+  here a comment explaining which literal `COPY-CHUNK` replaced. Assert on the
+  CALL SITE, not on the digits.
+
 ## main.rkt is the dispatcher, not the server (#110 r3)
 
 main.rkt was 4,065 lines and 43 feature areas. It is **873** now: the `HANDLERS`
