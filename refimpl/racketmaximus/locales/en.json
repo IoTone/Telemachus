@@ -371,6 +371,10 @@
       "text": "too many requests from your organization — please reach out directly",
       "hash": "8c5b925c34a7ed9ee835ab7e2b7817d11becdf68"
     },
+    "doc.route.get.api.schedules": {
+      "text": "The team's job schedules, soonest first. Each carries its cadence, its principal, when it last fired and the job it fired, plus `skipped` and `last_skip_reason` — a tick the platform passed over because the previous run had not finished.",
+      "hash": "01f873718283e91b7604ef6c54539930fcb24719"
+    },
     "ui.l10nhint": {
       "text": "Translate the product. AI drafts, people approve — nothing reaches the product unreviewed.",
       "hash": "54dcaf928e06bf4c5f56f1fb0b9d65b0b64db7a5"
@@ -474,6 +478,10 @@
     "doc.perm.*:*": {
       "text": "Everything at the team tier. Never reaches instance:* or org:*.",
       "hash": "9858077204559abb30b4e1ca17cb76ef2d5d35f4"
+    },
+    "doc.route.post.api.schedules": {
+      "text": "Create a job schedule: `kind` (a registered job kind), `interval_seconds` (at least 60), and optionally `payload`, `requirements`, `priority`, `name` and `paused`. The first firing is one interval away, not immediate. The schedule runs as the CALLER, whose authority every job it fires then spends — an unknown kind is refused here rather than enqueueing work nothing can run, for ever.",
+      "hash": "1af995da22215f118b748676fcf8f19c76e6aded"
     },
     "ui.features": {
       "text": "Features",
@@ -698,6 +706,10 @@
     "doc.route.options.api.beta.challenge": {
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "doc.route.delete.api.schedules.id": {
+      "text": "Delete a job schedule. Jobs it already fired are ordinary jobs and are untouched.",
+      "hash": "f7bcf0ef722242b9a788ac5352d030d6ee1f76c4"
     },
     "ui.teamsec": {
       "text": "Team",
@@ -1891,6 +1903,14 @@
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "doc.route.get.api.schedules.id": {
+      "text": "One job schedule. Another team's id is a 404, not a 403.",
+      "hash": "0c0f2a4f2bf00e5141aecc747353e5481cad3b0c"
+    },
+    "doc.route.options.api.beta.config": {
+      "text": "CORS preflight for a sandboxed Tier-C template.",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
     "ui.qrecentorder": {
       "text": "newest first",
       "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
@@ -1982,10 +2002,6 @@
     "ui.wkpaused": {
       "text": "paused",
       "hash": "11b1b5ec9167678979a0e6e703210380431292a8"
-    },
-    "doc.route.options.api.beta.config": {
-      "text": "CORS preflight for a sandboxed Tier-C template.",
-      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
     },
     "doc.perm.notes:write": {
       "text": "Create and edit notes.",
@@ -2679,6 +2695,10 @@
       "text": "Upload a raw body to a key (?filename=, ?visibility=); writing an existing key adds a version. Triggers evaluate here.",
       "hash": "784e7b58fcc81205c89dbf99ed8044ef8f8fa28f"
     },
+    "doc.perm.jobs:schedule": {
+      "text": "Create, retune, pause and delete JOB SCHEDULES — recurring work. A schedule enqueues an ordinary job on an interval, running as whoever created it, so it commits the team's AI and storage budget to spending on a timer with nobody present to watch it. Reading one is held to the same permission as writing it, because a schedule's payload is the input of every job it fires.",
+      "hash": "25efd5797f94a419ab61c5506d28e2117747381a"
+    },
     "ui.chpw": {
       "text": "Change your password",
       "hash": "88dee350141b934bd32db882794a951a7a40d898"
@@ -2734,6 +2754,10 @@
     "ui.qsub": {
       "text": "sub",
       "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
+    },
+    "doc.route.patch.api.schedules.id": {
+      "text": "Retune a schedule: `interval_seconds`, `paused`, `payload`, `priority`, `name`. The PRINCIPAL cannot be patched — changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing one interval out instead of catching up on every tick it missed.",
+      "hash": "28b024605a1b895538e13780f2a09b58bd6dddda"
     },
     "doc.route.get.api.org": {
       "text": "The caller's own company.",

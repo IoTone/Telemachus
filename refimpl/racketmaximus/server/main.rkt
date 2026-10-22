@@ -37,6 +37,7 @@
          (only-in "../domain/saas/onboarding.rkt" provision! resume! suspend!)
          (only-in "../domain/quota/quota.rkt" get-limit quota-record!)
          (only-in "../domain/sched/scheduler.rkt" current-job drain-scheduler! drain-seconds register-job-kind! set-reaper! start-scheduler!)
+         (only-in "../domain/sched/schedules.rkt" fire-due-schedules!)
          (only-in "../domain/s3/server.rkt" make-s3-handler reap-uploads! s3-region)
          (only-in "../domain/audit/chain.rkt" audit-chain-seal!)
          (only-in "../domain/idem/idem.rkt" idem-reap!)
@@ -252,6 +253,9 @@
    'search ep-search 'audit ep-audit
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
    'job-purge ep-job-purge
+   ;; #135: the clock. The firing itself is on the reaper seam below.
+   'schedules-list ep-schedules-list 'schedules-create ep-schedules-create
+   'schedule-get ep-schedule-get 'schedule-patch ep-schedule-patch 'schedule-delete ep-schedule-delete
    'worker-document ep-worker-document
    'worker-derive ep-worker-derive
    'repo-list ep-repo-list 'repo-share ep-repo-share 'repo-unshare ep-repo-unshare 'repo-grants ep-repo-grants
@@ -685,6 +689,15 @@
   ;; bytes come from the ordinary front door, not from it.
   (define last-blob-sweep (box 0))
   (define BLOB-SWEEP-EVERY 600)
+  ;; The schedule tick (#135) is the SIXTH thing on this seam, and the shortest
+  ;; interval after the audit seal. A schedule's floor is 60 seconds, so the tick
+  ;; has to be finer than that or every minute-ly schedule is systematically
+  ;; late; 30 seconds bounds the drift at half a cadence. It is cheap — one
+  ;; indexed query that usually finds nothing. It rides here rather than in a
+  ;; thread of its own for the reason every other sweep does: `set-reaper!` is
+  ;; ONE seam, and a second timer would be a second thing to drain on shutdown.
+  (define last-schedule-tick (box 0))
+  (define SCHEDULE-TICK-EVERY 30)
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -722,6 +735,13 @@
          (define-values (collected _kept) (reap-staged-blobs! conn))
          (when (> collected 0)
            (printf "collected ~a orphaned blob(s)\n" collected))))
+     (when (> (- (current-seconds) (unbox last-schedule-tick)) SCHEDULE-TICK-EVERY)
+       (set-box! last-schedule-tick (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "schedule tick: ~a\n" (exn-message e)))])
+         (define-values (fired skipped) (fire-due-schedules! conn))
+         (when (or (> fired 0) (> skipped 0))
+           (printf "schedules: fired ~a, skipped ~a\n" fired skipped))))
      (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
        (set-box! last-audit-seal (current-seconds))
        ;; its own handler too, for the reason the other two have one

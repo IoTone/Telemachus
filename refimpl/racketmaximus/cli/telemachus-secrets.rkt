@@ -47,7 +47,15 @@
 ;; running the documented default.
 (define CONTENT-SECRETS
   (list (list "repo_text" "content" "object_id" "repo_text.content")
-        (list "repo_text" "spans"   "object_id" "repo_text.spans")))
+        (list "repo_text" "spans"   "object_id" "repo_text.spans")
+        ;; #135: a schedule's payload is the input of every job it fires, sealed
+        ;; under the same switch as `jobs.payload` and for the same reason. It is
+        ;; LISTED here where `jobs.payload` is not, and the difference is
+        ;; LIFETIME: a job row settles in minutes and #59 purges it, while a
+        ;; schedule is configuration that outlives key rotations. A sealed column
+        ;; `rewrap` does not walk is silently unrotatable — here that means every
+        ;; schedule stops firing for ever the first time the key is rotated.
+        (list "job_schedules" "payload" "id" "job_schedules.payload")))
 
 (define (SECRETS)
   (append CREDENTIAL-SECRETS

@@ -88,6 +88,10 @@ This is also the answer to "who can see a pulled item": whatever that user's
 
 ### FEED‑3 · Recurring work is a due time on a row, swept into a job — never a thread
 
+> **Built** (22 Oct 2026, issue #135, decisions SCHED‑10…14): `job_schedules` plus
+> `/api/schedules*`, gated on `jobs:schedule`. All three sub-rules below hold and
+> each is positive-controlled. Slice 1's half of this requirement is done.
+
 A `schedules` table (team, user, kind, payload, `every_seconds`,
 `next_due_epoch`, `last_job_id`), swept on the existing `set-reaper!` seam, whose
 only action is to **enqueue a job**. A thread started at load has no team, no
