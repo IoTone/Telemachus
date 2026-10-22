@@ -100,6 +100,7 @@ Conventions used throughout:
 | `TELEMACHUS_OOP` | `<impl>/oop.json` | Out-of-process (sandboxed) plugin config file. |
 | `TELEMACHUS_LOCALES` | `locales` | Directory of `*.json` catalogs. The export **writes** here, so point it at a writable copy in a test. |
 | `TELEMACHUS_ZONEINFO` | `$TZDIR`, else `/usr/share/zoneinfo` | Directory of the IANA zone database (#137). Only for a deployment that ships its own copy; the packaged wrapper and the devShell both set `TZDIR` from the pinned `tzdata`, so this is normally unset. With no database found, every zone resolves to UTC — which is what the platform did before timezones existed, so nothing breaks, and nothing is in local time either. |
+| `TELEMACHUS_EGRESS_ALLOW` | (empty) | Comma-separated IPv4 CIDRs (a bare address is `/32`) that a **trusted** outbound fetch may reach in private address space (#142) — a feed on your own network. It does NOT widen an untrusted fetch, which is public-only whatever this says, and `trusted` without an entry here still refuses every private address: the operator owns which networks are reachable, and a tenant naming a private URL would otherwise be reading this instance's cloud metadata. IPv6 CIDRs are refused at parse rather than silently ignored. |
 
 ## Encrypting document-derived content at rest (issue #83)
 

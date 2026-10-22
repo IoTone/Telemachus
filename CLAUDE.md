@@ -3712,6 +3712,46 @@ model role at any executor name**, including another org's, because
   instance default, so leaving one set silently broke the gate's later "console
   repaints in Japanese" assertion — the failure appears in an unrelated step.
 
+## A schedule at an hour somebody recognises (#140)
+
+`cadence` on `job_schedules` (migration 0053): `interval` (what #135 shipped,
+still the default), `daily` and `weekly`. Decisions SCHED‑15…18.
+
+```sh
+raco test test/schedule-tests.rkt   # 12 cases; the three new rules are controlled
+bash test/server-smoke.sh           # 12 more "schedule:" assertions
+```
+
+- **NOT CRON, and the reason is a sublanguage.** Five fields with ranges, steps
+  and lists is a parser; the workflow bindings and the funnel's validation
+  vocabulary were both frozen for the same reason. `at_minute` (minutes after
+  LOCAL midnight) plus `days_of_week` (0‑6, Sunday = 0) covers both waiting
+  callers with no grammar. A real crontab line gets a translation layer above
+  this, never a second scheduler.
+- **THE ZONE LIVES ON THE SCHEDULE**, defaulted from the creator's effective zone
+  and then fixed. A schedule is a standing instruction: if its author travels and
+  changes their profile, "07:00 before the morning meeting" must not silently
+  move for everybody else. The default is resolved in the HANDLER, so
+  `schedules.rkt` stays free of the settings layer.
+- **A local time the clocks jumped over passes the DAY over and records
+  `dst-gap`.** TZ‑5 says the caller decides; this is the caller deciding. Firing
+  at some other time that morning is a schedule that silently moved; inventing
+  the instant is a lie. The REPEATED hour needs no rule — TZ‑5 already yields the
+  first occurrence, which is the one to fire.
+- **`next-firing` is the ONE place "next" is computed** — create, tick, resume and
+  patch all call it. SCHED‑11's skip-don't-catch-up then falls out of the
+  arithmetic: the answer is always STRICTLY after the instant asked about.
+  Positive-controlled — `>=` instead of `>` fires twice and fails the test.
+- **A patch RECOMPUTES the due time**, and is validated AS THE SCHEDULE WOULD BE:
+  switching to `daily` in the same request that supplies `at_minute` is accepted,
+  switching without one is refused, so a patch cannot reach a state a create
+  could not. Without the recompute it fires once at the old hour and only then
+  obeys the edit, which reads as the edit not having taken.
+- **`interval_seconds` is reported only for the cadence it drives.** The column is
+  NOT NULL from 0051, so a daily row carries a nominal 86400; a number nothing
+  computes with is how a reader comes to believe the wrong thing (LIVE‑IN's
+  lesson, pointed the other way).
+
 ## Whose clock it is (#137)
 
 `users.timezone` (migration 0052) plus org and instance defaults;

@@ -38,7 +38,13 @@
          serve-http1 http1-listen
          req-header req-header* req-query
          text-res bytes-res
-         DEFAULT-LIMITS (struct-out http-limits))
+         DEFAULT-LIMITS (struct-out http-limits)
+         ;; Exported for the OUTBOUND fetcher (#142): RFC 7230 chunked framing is
+         ;; the same on a response as on a request, and a second decoder would be
+         ;; a second place for the trailer handling to be subtly wrong. Pass
+         ;; `void` as `on-first-read` — that hook exists for the server's lazy
+         ;; 100-continue and a client has nothing to defer.
+         make-chunked-body)
 
 ;; ---- shapes -------------------------------------------------------------------
 ;; `path` is the RAW, still-percent-encoded path: a signature is computed over what

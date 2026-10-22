@@ -15,7 +15,8 @@
          "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/sched/scheduler.rkt"
-         "../domain/sched/schedules.rkt")
+         "../domain/sched/schedules.rkt"
+         (only-in "../domain/time/zones.rkt" local-fields zoneinfo-dir))
 
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 
@@ -159,3 +160,143 @@
   (check-true (schedule-delete! c sid tid))
   (check-false (schedule-get c sid tid))
   (check-false (schedule-delete! c sid tid)))
+
+;; ---- a wall-clock cadence (#140) ----------------------------------------------
+;; An interval cannot say "07:00 on weekdays": 24h from an arbitrary create time
+;; drifts to whatever minute the row happened to be written. These cases carry
+;; the ANSWERS from Python's zoneinfo over the same tzdata, as literals — the
+;; rule test/timezone-tests.rkt states and for the same reason.
+
+(define BASE 1792659600)        ; 2026-10-22T09:00:00Z, a Thursday
+
+(define (sched cadence #:at [at 420] #:days [days #f] #:tz [tz "Europe/London"])
+  (hasheq 'cadence cadence 'interval_seconds 86400 'at_minute at
+          'days_of_week days 'timezone tz))
+
+(test-case "next-firing lands on the local hour asked for"
+  (cond
+    [(not (zoneinfo-dir))
+     (eprintf "schedule-tests: NO TZ DATABASE — the wall-clock cases did not run\n")
+     (check-true #t)]
+    [else
+     ;; 07:00 London, 07:00 Tokyo: the SAME wall-clock cadence is two different
+     ;; instants, which is the whole point of the slice
+     (check-equal? (let-values ([(t _g) (next-firing (sched "daily") #:after BASE)]) t) 1792735200)
+     (check-equal? (let-values ([(t _g) (next-firing (sched "daily" #:tz "Asia/Tokyo") #:after BASE)]) t)
+                   1792706400)
+     ;; weekdays only — the base is a Thursday, so the next weekday 07:00 is
+     ;; Friday's and the weekly answer coincides with the daily one
+     (check-equal? (let-values ([(t _g) (next-firing (sched "weekly" #:days "1,2,3,4,5") #:after BASE)]) t)
+                   1792735200)
+     ;; …and a Sunday-only schedule skips three days rather than firing tomorrow
+     (check-equal? (let-values ([(t _g) (next-firing (sched "weekly" #:at 1425 #:days "0") #:after BASE)]) t)
+                   1792971900)
+     ;; the answer is always STRICTLY after: asked at its own firing time, a
+     ;; daily schedule answers tomorrow, which is what stops a double fire
+     (define-values (t1 _g1) (next-firing (sched "daily") #:after BASE))
+     (define-values (t2 _g2) (next-firing (sched "daily") #:after t1))
+     (check-equal? (- t2 t1) 86400)]))
+
+(test-case "A LOCAL TIME THE CLOCKS JUMPED OVER IS PASSED OVER, AND SAID SO"
+  (cond
+    [(not (zoneinfo-dir)) (check-true #t)]
+    [else
+     ;; `daily 01:30 Europe/London`, asked on 27 March 2027. There is no 01:30 on
+     ;; the 28th — the clocks go straight from 01:00 to 02:00 — so the next
+     ;; firing is the 29th, and the gap is REPORTED so the row can record it.
+     ;; Inventing an hour that did not happen, or firing at a different time that
+     ;; morning, are both worse: the first is a lie and the second is a schedule
+     ;; that silently moved.
+     (define-values (t gap) (next-firing (sched "daily" #:at 90) #:after 1806148800))
+     (check-equal? t 1806280200)                      ; 2027-03-29T01:30 local
+     (check-equal? gap "dst-gap")
+     ;; an ordinary day reports no gap at all
+     (define-values (_t2 gap2) (next-firing (sched "daily" #:at 90) #:after BASE))
+     (check-false gap2)]))
+
+(test-case "a daily schedule is created, fires at its hour, and advances by a day"
+  (cond
+    [(not (zoneinfo-dir)) (check-true #t)]
+    [else
+     (define c (fresh))
+     (define-values (uid tid) (bootstrap! c #:username "alice"))
+     (define sid (schedule-create! c #:team tid #:user uid #:kind "sched-echo"
+                                   #:cadence "daily" #:at-minute 420 #:timezone "Europe/London"
+                                   #:name "morning briefing"))
+     (define row (schedule-get c sid tid))
+     (check-equal? (hash-ref row 'cadence) "daily")
+     (check-equal? (hash-ref row 'at_minute) 420)
+     (check-equal? (hash-ref row 'timezone) "Europe/London")
+     ;; `interval_seconds` is hidden for a cadence it does not drive: the column
+     ;; is NOT NULL and carries a nominal 86400, and a number nothing computes
+     ;; with is how a reader comes to believe the wrong thing.
+     (check-equal? (hash-ref row 'interval_seconds) 'null)
+     ;; the first firing is in the future and at the right local minute
+     (check-true (> (hash-ref row 'next_run_epoch) (current-seconds)))
+     (define-values (_y _m _d hh mm _s _dow)
+       (local-fields "Europe/London" (hash-ref row 'next_run_epoch)))
+     (check-equal? (list hh mm) '(7 0))
+     ;; firing advances to the NEXT local 07:00, not to "now plus a day"
+     (make-due! c sid)
+     (check-equal? (let-values ([(f _s) (fire-due-schedules! c)]) f) 1)
+     (define after (schedule-get c sid tid))
+     (define-values (_y2 _m2 _d2 hh2 mm2 _s2 _dow2)
+       (local-fields "Europe/London" (hash-ref after 'next_run_epoch)))
+     (check-equal? (list hh2 mm2) '(7 0))
+     (check-true (> (hash-ref after 'next_run_epoch) (current-seconds)))]))
+
+(test-case "the cadence vocabulary is closed, and each one is checked for what IT needs"
+  (check-equal? CADENCES '("interval" "daily" "weekly"))
+  ;; an unknown cadence is refused rather than treated as an interval
+  (check-true (string? (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                         #:cadence "hourly")))
+  ;; daily needs a minute of the day, and a zone
+  (check-true (string? (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                         #:cadence "daily" #:timezone "UTC")))
+  (check-true (string? (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                         #:cadence "daily" #:at-minute 1440 #:timezone "UTC")))
+  ;; "07:00" means nothing without saying whose 07:00
+  (check-true (string? (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                         #:cadence "daily" #:at-minute 420)))
+  (check-true (string? (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                         #:cadence "daily" #:at-minute 420 #:timezone "Mars/Olympus")))
+  (check-false (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                 #:cadence "daily" #:at-minute 420 #:timezone "UTC"))
+  ;; weekly needs the days as well
+  (check-true (string? (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                         #:cadence "weekly" #:at-minute 420 #:timezone "UTC")))
+  (check-false (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)
+                                 #:cadence "weekly" #:at-minute 420 #:days "1,5" #:timezone "UTC"))
+  ;; an interval schedule keeps #135's floor exactly, and needs none of the above
+  (check-false (schedule-problem #:kind "sched-echo" #:interval 60 #:payload (hasheq)))
+  (check-true (string? (schedule-problem #:kind "sched-echo" #:interval 30 #:payload (hasheq)))))
+
+(test-case "the weekday set is parsed, and nonsense is refused rather than ignored"
+  (check-equal? (parse-days "1,2,3,4,5") '(1 2 3 4 5))
+  (check-equal? (parse-days " 0 , 6 ") '(0 6))
+  (check-equal? (parse-days "3,3,1") '(1 3))           ; sorted and de-duplicated
+  (check-false (parse-days ""))
+  (check-false (parse-days "7"))                        ; Sunday is 0, not 7
+  (check-false (parse-days "-1"))
+  (check-false (parse-days "mon,tue"))
+  (check-false (parse-days #f)))
+
+(test-case "changing WHEN recomputes the due time rather than firing once at the old one"
+  (cond
+    [(not (zoneinfo-dir)) (check-true #t)]
+    [else
+     (define c (fresh))
+     (define-values (uid tid) (bootstrap! c #:username "alice"))
+     ;; an interval schedule, switched to a wall-clock cadence
+     (define sid (schedule-create! c #:team tid #:user uid #:kind "sched-echo" #:interval 3600))
+     (define before (hash-ref (schedule-get c sid tid) 'next_run_epoch))
+     (define s2 (schedule-update! c sid tid #:cadence "daily" #:at-minute 420 #:timezone "Asia/Tokyo"))
+     (check-equal? (hash-ref s2 'cadence) "daily")
+     (check-equal? (hash-ref s2 'interval_seconds) 'null)
+     (define-values (_y _m _d hh mm _s _dow)
+       (local-fields "Asia/Tokyo" (hash-ref s2 'next_run_epoch)))
+     (check-equal? (list hh mm) '(7 0))
+     ;; the stored due time was computed from something no longer true, so it
+     ;; must have moved: leaving it would fire once at the old time and only then
+     ;; obey the edit, which reads as the edit not having taken
+     (check-not-equal? (hash-ref s2 'next_run_epoch) before)]))
