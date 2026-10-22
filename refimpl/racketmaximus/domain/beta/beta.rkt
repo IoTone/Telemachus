@@ -25,7 +25,7 @@
          ;; onboarding provider registry (SDK seam)
          register-onboarding! onboarding-config active-onboarding judge-system-prompt onboarding-names
          ;; judge-reply parsing (robust against small-model formatting)
-         parse-verdict )
+         parse-verdict)
 
 ;; ---- onboarding provider registry -------------------------------------------
 (define *providers* (box (hash)))

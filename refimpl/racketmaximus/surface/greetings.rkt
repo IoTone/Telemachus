@@ -4,7 +4,7 @@
 
 (require "../domain/i18n/i18n.rkt")
 
-(provide greet )
+(provide greet)
 
 (define (greet name)
   (t "greeting.hello" #:default "Hello, {name}!" #:args (hasheq 'name name)))

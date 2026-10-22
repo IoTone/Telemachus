@@ -30,7 +30,12 @@
 
 (provide current-read-context (struct-out read-context) with-read-context
          audit-read! audit-read-denied! audit-presign-issued!
-         object-reads )
+         object-reads
+         ;; exported FOR test/vocabulary-tests.rkt, which is what makes this a
+         ;; closed vocabulary rather than a comment claiming to be one. #110 r4
+         ;; un-exported it as having no consumer — true, and that was the problem:
+         ;; the list is the contract and nothing was checking it.
+         READ-DOORS)
 
 ;; The doors a read can arrive through. A CLOSED vocabulary, like WORKER-STATES
 ;; and EXTRACT-REASONS: an export groups by it, so a door invented in passing

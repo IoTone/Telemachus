@@ -42,7 +42,10 @@
          verdict-problem
          (struct-out jobj)     ; an ordered JSON object: a list of pairs that SAYS so
          ordered-json          ; the writer, exported for its tests
-         )
+         ;; …and the question vocabulary, for the same reason READ-DOORS is:
+         ;; test/vocabulary-tests.rkt makes "closed" true in both directions —
+         ;; no constructor outside the list, no entry without one.
+         QUESTION-TYPES)
 
 (define QUESTION-TYPES '("noul" "choice" "score"))
 
