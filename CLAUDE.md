@@ -1631,6 +1631,77 @@ raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, t
 bash test/s3-smoke.sh                  # the live multipart path, with the real aws CLI
 ```
 
+## A region a person marked (LAY‑13…17, issue #65 piece 2)
+
+Built 22 Oct 2026 — the half of #65 that #92's OCR extractor did not close. LAY‑5
+is where a MACHINE says it read something; this is what a PERSON said about a
+place. Migration `0057-annotations`; `domain/repo/annotations.rkt`;
+`GET/POST /api/repo-obj/:id/annotations` and `GET/PATCH/DELETE /api/annotations/:id`.
+
+```sh
+raco test test/annotation-tests.rkt   # 9 cases, seven of them positive-controlled
+bash test/server-smoke.sh             # the "== annotations ==" block, 24 assertions
+```
+
+- **A SEPARATE TABLE FROM `repo_text.spans`, and the reason is lifetime.** A span
+  is a function of the bytes: an extractor reports it and a new version replaces
+  the set wholesale. A person's observation was true about the bytes they were
+  looking at, so it survives — bound to `version_id`, which is NOT NULL because a
+  region with no version is a region on unknown bytes.
+- **`stale` is DERIVED** against the object's current version. A column would be a
+  second copy of a decision the next upload re-makes, and re-uploading the same
+  bytes would leave a row saying "stale" about a version that is current again. A
+  listing defaults to the CURRENT version — a region drawn on replaced bytes must
+  not be shown as if it applied to what is on screen — and `?version=all` shows
+  every one with its flag.
+- **ANYONE WHO MAY READ MAY ANNOTATE** (LAY‑14). Requiring `files:write` would
+  mean a specialist handed a document to review could not mark it up, and `view`
+  (DSH‑1) is exactly what sharing for review gives them — the asymmetry would fall
+  on the one case the feature exists for. Nothing about the document changes and
+  the row records whose observation it is. The cost is real and stated: a
+  colleague may annotate your team-visible document and you cannot edit what they
+  wrote.
+- **EDITING IS A NARROWER POWER THAN DELETION**, which is the opposite of the
+  usual shape and is deliberate. Only the author may edit; the author or a
+  `files:manage` steward may delete. A steward may remove an annotation from their
+  document and may never put words in somebody's mouth. Somebody else's is a
+  **403, not a 404** — the request is fine, the person is wrong for it (LAY‑3's
+  four-eyes refusal).
+- **A place is REQUIRED**: a bbox with its page, a `start`/`end` range, or both.
+  Without one it is a comment on the document, which a note or a review rationale
+  already is, and "what is marked on page 3" would answer with rows that belong
+  nowhere.
+- **ONE bbox rule, two askers.** `bbox-problem` is extracted from
+  `span-problem` in `extract.rkt` and shared, because deriving it twice is
+  `executor-can-run?`'s drift. The platform still never INTERPRETS the numbers —
+  only the renderer knows whether they are PDF points or image pixels.
+- **`ANNOTATION-KINDS` is closed**: `note` needs a body, `highlight` does not, and
+  that behavioural difference is the bar for a second member. `redaction` was left
+  out because it would imply enforcement, and enforcement is #91's doc_redact.
+- **A refusal and a miss are ONE answer, in every entry point** — `readable` in
+  annotations.rkt is the single place that collapses them, so a caller cannot tell
+  them apart by picking a different function. `repo-get` raises on forbidden and
+  answers `#f` for a miss; nothing is lost from the record, because the audit seam
+  for reads is `repo-open`, which hands out bytes.
+- **The review link is a REFERENCE, not a second chain** (LAY‑16). LAY‑11 hashes
+  the decision; `annotations-for-review` reads cited regions back **per object**
+  under that object's own `can?`, because a review may legitimately cite a region
+  in a document the reader cannot see.
+- **An annotation dies with its document.** `repo-delete!` clears the rows beside
+  `repo_text`'s — a region naming a version that no longer exists, on a document
+  nobody can open, would leave a team's deletion request half honoured.
+- **The audit entry names the DOCUMENT's team and carries no body.** Sixth
+  appearance of the `#:team-id` shape; and the body stays out because the log is
+  chained, exported and kept through an erasure, so a copy there would outlive the
+  thing it describes.
+- **`repo-put!` answers the OBJECT, not an id.** Passing the hash where an id
+  belongs is "cannot convert given value to SQL type" at the first query, which is
+  how the first test run failed.
+- **Not built, deliberately**: resolution (marking an annotation addressed),
+  threaded replies, and a console canvas. The first two are workflow on top of
+  storage and the review queue already carries a decision with a rationale; the
+  canvas is a plugin's, exactly as LAY‑12 decided.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of

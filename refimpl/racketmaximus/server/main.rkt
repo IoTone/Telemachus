@@ -106,6 +106,7 @@
          "api/jobs.rkt"
          "api/webhooks.rkt"
          "api/feeds.rkt"
+         "api/annotations.rkt"
          "api/localization.rkt"
          "api/orgs.rkt"
          "api/policy.rkt"
@@ -273,6 +274,11 @@
    ;; adapter — so the probe is what answers "is this configured right".
    'feeds-list ep-feeds-list 'feeds-create ep-feeds-create 'feed-get ep-feed-get
    'feed-patch ep-feed-patch 'feed-delete ep-feed-delete 'feed-probe ep-feed-probe
+   ;; #65: a region a person marked. LAY-5's spans are where a machine says it
+   ;; read something; these are what somebody said about a place.
+   'annotations-list ep-annotations-list 'annotations-create ep-annotations-create
+   'annotation-get ep-annotation-get 'annotation-patch ep-annotation-patch
+   'annotation-delete ep-annotation-delete
    'jobs-create ep-jobs-create 'jobs-list ep-jobs-list 'job-cancel ep-job-cancel 'job-get ep-job-get
    'job-purge ep-job-purge
    ;; #135: the clock. The firing itself is on the reaper seam below.

@@ -1648,11 +1648,61 @@
       ;; items over each other. Unique per team, as `teams.slug` is per org.
       (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_feeds_team_slug ON feeds (team_id, slug)"))))
 
+(define m-0057-annotations
+  (migration "0057-annotations"
+    (lambda (conn)
+      ;; issue #65, piece 2. LAY-5's `repo_text.spans` is where a MACHINE says it
+      ;; read something; this is where a PERSON says something about a place. The
+      ;; two are deliberately separate tables with separate authority: a span is
+      ;; provenance an extractor reported and is replaced wholesale when a new
+      ;; version supersedes, while an annotation is somebody's own observation and
+      ;; survives — including on bytes that are no longer current, where it is
+      ;; reported as stale rather than quietly re-pointed at a page it was never
+      ;; drawn on.
+      ;;
+      ;; `version_id` is NOT NULL for that reason: a region with no version is a
+      ;; region on unknown bytes, and the one thing an annotation must not do is
+      ;; claim to mark a place in a document it has never seen.
+      ;;
+      ;; The BODY is not sealed, and that follows ENC's line rather than departing
+      ;; from it: what the platform retains by itself is sealed, a person's or a
+      ;; tool's deliberate product is not. `notes.title` and a review's rationale
+      ;; are plaintext for the same reason — an annotation exists only because
+      ;; somebody wrote it.
+      (exec* conn (string-append
+        "CREATE TABLE repo_annotations ("
+        "  id TEXT PRIMARY KEY,"
+        "  object_id TEXT NOT NULL,"
+        "  version_id TEXT NOT NULL,"
+        ;; denormalized so a listing and the audit trail do not depend on a join
+        ;; to a row an erasure may have removed (AUD-7's rule for `org_id`)
+        "  team_id TEXT NOT NULL,"
+        "  author_user_id TEXT NOT NULL,"
+        ;; one of ANNOTATION-KINDS, closed
+        "  kind TEXT NOT NULL,"
+        "  body TEXT,"
+        ;; the geometry: a page region, a character range, or both. Carried and
+        ;; never interpreted — only the renderer knows whether the numbers are
+        ;; PDF points or image pixels (LAY-5).
+        "  page INTEGER,"
+        "  bbox TEXT,"
+        "  start_offset INTEGER,"
+        "  end_offset INTEGER,"
+        ;; optional: the review decision this region was about. The DECISION is
+        ;; what LAY-11 hashes; this is a reference to it, not a second chain.
+        "  review_id TEXT,"
+        "  created_epoch BIGINT NOT NULL,"
+        "  updated_epoch BIGINT)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_annotations_object ON repo_annotations (object_id, version_id)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_annotations_team ON repo_annotations (team_id)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_annotations_review ON repo_annotations (review_id)"))))
+
 (define m-0058-anchor-receipts
-  ;; 0058 and not 0057: #65's `0057-annotations` is in flight on its own branch
-  ;; (PR #148), and two slices claiming one id would collide in
-  ;; `schema_migrations` on whichever instance applied the other first — the
-  ;; note 0055 carries, for the same reason.
+  ;; 0058 and not 0057: #65's `0057-annotations` was in flight on a parallel
+  ;; branch while this was written, and two slices claiming one id would collide
+  ;; in `schema_migrations` on whichever instance applied the other first — the
+  ;; note 0055 carries, for the same reason. It landed first; this stays 0058,
+  ;; because an id an instance has already applied is not renumberable.
   (migration "0058-anchor-receipts"
     (lambda (conn)
       ;; issue #66, ANCHOR-3/-9. A receipt is a signed MEASUREMENT of the two
@@ -1692,4 +1742,4 @@
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0058-anchor-receipts))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts))
