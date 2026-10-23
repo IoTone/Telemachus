@@ -691,6 +691,30 @@ class H(http.server.BaseHTTPRequestHandler):
                        self.headers.get("x-api-key"), ",".join(q.get("token", []))))
         if u.path == "/deny":
             self.send_response(401); self.end_headers(); self.wfile.write(b'{"error":"nope"}'); return
+        # the GitHub issues shape (#114 slice 4). Page one carries a `next`
+        # link; page two does not, so one poll walks both. `since` is echoed
+        # into the log, which is how the smoke sees the cursor move.
+        if u.path.startswith("/repos/"):
+            page = q.get("page", ["1"])[0]
+            def issue(n, title, updated):
+                return ('{"number":%d,"title":"%s","state":"open","updated_at":"%s",'
+                        '"body":"a devops ticket","html_url":"https://github.com/iotone/tmx/issues/%d",'
+                        '"repository_url":"http://127.0.0.1/repos/iotone/tmx",'
+                        '"labels":[{"name":"ops"}]}' % (n, title, updated, n))
+            with open(LOG, "a") as f:
+                f.write("gh page=%s since=%s sort=%s\n"
+                        % (page, ",".join(q.get("since", [])), ",".join(q.get("sort", []))))
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            if page == "1":
+                self.send_header("link", '<http://127.0.0.1:%s/repos/iotone/tmx/issues?page=2>; rel="next"'
+                                 % os.environ["FD_PORT"])
+            self.end_headers()
+            if page == "1":
+                self.wfile.write(("[" + issue(114, "the poller", "2026-10-20T10:00:00Z") + "]").encode())
+            else:
+                self.wfile.write(("[" + issue(115, "the queue", "2026-10-21T11:00:00Z") + "]").encode())
+            return
         if u.path == "/login":
             self.send_response(200)
             self.send_header("content-type", "text/html"); self.end_headers()
@@ -706,7 +730,7 @@ FD_LOG="$FD_DIR/log.txt"; : > "$FD_LOG"
 # FD_LOG must be EXPORTED, not merely set: `os.environ[...]` raises and the
 # source dies instantly, which reads as "the port is refused" ten assertions
 # later. The PORT trap in this file's own notes, in Python.
-FD_LOG="$FD_LOG" python3 "$FD_DIR/source.py" $FD_PORT & FD_PID=$!
+FD_LOG="$FD_LOG" FD_PORT="$FD_PORT" python3 "$FD_DIR/source.py" $FD_PORT & FD_PID=$!
 for _ in $(seq 1 40); do curl -s -o /dev/null "http://127.0.0.1:$FD_PORT/api/items" && break; sleep 0.25; done
 
 assert "feed: a member may not configure one" \
@@ -810,6 +834,81 @@ assert "feed: another team's id is a 404" \
   "$(curl -s -o /dev/null -w '%{http_code}' $B/api/feeds/00000000-0000-0000-0000-000000000000 -H "Authorization: Bearer $OP")" '404'
 assert "feed: deleted" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/feeds/$FHID -H "Authorization: Bearer $OP")" '200'
+# ---- the first feed adapter (#114 slice 4, FEED-14…22) -----------------------
+# What a unit test cannot see here is the whole round trip: a kind the registry
+# supplies, a poll over a real socket that walks TWO pages with the credential on
+# both, items that become searchable documents, and an unchanged item on the
+# second poll writing nothing.
+assert "feed: the pollable kinds are derived from the adapter registry" \
+  "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" '"pollable_kinds":["github.issues"]'
+assert "feed: …and the kind with no adapter says so rather than looking broken" \
+  "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" '"probe_only_kinds":["http.json"]'
+assert "feed: a cadence on a kind nothing can pull is refused, not stored" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"plain","kind":"http.json","url":"https://h/x","poll_seconds":900}')" 'probed but not polled'
+assert "feed: a probe-only kind refuses to be polled, naming what can be" \
+  "$(curl -s -X POST $B/api/feeds/$FDID/poll -H "Authorization: Bearer $OP")" 'github.issues'
+
+GH=$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d "{\"slug\":\"gh\",\"name\":\"GitHub\",\"kind\":\"github.issues\",\"url\":\"http://127.0.0.1:$FD_PORT/repos/iotone/tmx/issues\",\"auth\":\"bearer\",\"secret\":\"ghp_sm0ke\",\"poll_seconds\":900}")
+GHID=$(printf '%s' "$GH" | grep -oP '"id":"\K[^"]+')
+assert "feed: a kind with an adapter is pollable" "$GH" '"pollable":true'
+# FEED-21: the feed owns a schedule, and `polling` is DERIVED from it — so this
+# is the one field that cannot disagree with what actually fires.
+assert "feed: …and a cadence makes it poll, derived from the schedule it owns" "$GH" '"polling":true'
+assert "feed: the feed's schedule is the platform's kind, not the caller's" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $OP")" '"kind":"feed.poll"'
+
+GP=$(curl -s -X POST $B/api/feeds/$GHID/poll -H "Authorization: Bearer $OP")
+assert "feed: the poll walks both pages in one run" "$GP" '"requests":2'
+assert "feed: …and lands every item it saw" "$GP" '"created":2'
+assert "feed: the credential went with page two as well as page one" \
+  "$(grep -c 'authorization=Bearer ghp_sm0ke' "$FD_LOG")" '2'
+assert "feed: the source was asked to sort by update, or `since` cannot be walked" \
+  "$(cat "$FD_LOG")" 'sort=updated'
+# FEED-1/-17: an item IS a repository object, and its title is where search can
+# see it — `application/json` has no extractor, so the filename is the whole
+# answer to "which document is issue #114?".
+assert "feed: an item is a document under the feed's own prefix" \
+  "$(curl -s "$B/api/repo?prefix=feeds/gh/" -H "Authorization: Bearer $OP")" 'feeds/gh/iotone-tmx-114.json'
+assert "feed: …carrying the item's title, so it is searchable" \
+  "$(curl -s "$B/api/search?q=the%20poller" -H "Authorization: Bearer $OP")" 'feeds/gh/iotone-tmx-114'
+# LAY-4 refuses an undefined attribute key, so FEED-20's declaration is what
+# makes these present at all — and slice 5's queue reads exactly these.
+assert "feed: the item's attributes landed, which means the fields were declared" \
+  "$(curl -s "$B/api/repo?prefix=feeds/gh/&attr=feed_state:open" -H "Authorization: Bearer $OP")" 'iotone-tmx-114'
+assert "feed: the team's object fields gained the feed's, additively" \
+  "$(curl -s $B/api/repo-fields -H "Authorization: Bearer $OP")" 'feed_repo'
+# FEED-9: charged per REQUEST, not per item — the dimension protects the
+# source's rate limit as much as this instance.
+assert "feed: the fetches are metered" \
+  "$(curl -s $B/api/usage -H "Authorization: Bearer $OP")" '"dimension":"feed.fetches"'
+# FEED-19: the cursor is the newest item that LANDED, and the next request asks
+# for it in the source's own spelling.
+GP2=$(curl -s -X POST $B/api/feeds/$GHID/poll -H "Authorization: Bearer $OP")
+assert "feed: the second poll asks the source for what it has not seen" \
+  "$(cat "$FD_LOG")" 'since=2026-10-21T11:00:00Z'
+assert "feed: an unchanged item writes nothing" "$GP2" '"unchanged":2'
+assert "feed: …and creates nothing" "$GP2" '"created":0'
+# THE ASSERTION THAT MATTERS: a poller that versioned every item would report
+# `unchanged` quite happily. The version count is what cannot be faked.
+assert "feed: …so the document still has exactly one version" \
+  "$(curl -s "$B/api/repo?prefix=feeds/gh/" -H "Authorization: Bearer $OP" | grep -o '"version":1' | head -1)" '"version":1'
+assert "feed: the trail names the poll, in the team whose feed it is" \
+  "$(curl -s "$B/api/audit?limit=40" -H "Authorization: Bearer $OP")" 'feed.polled'
+refute "feed: …and carries no credential" \
+  "$(curl -s "$B/api/audit?limit=40" -H "Authorization: Bearer $OP")" 'ghp_sm0ke'
+# Stopping is one field, and it must stop the thing that actually fires.
+assert "feed: clearing the cadence stops the polling" \
+  "$(curl -s -X PATCH $B/api/feeds/$GHID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"poll_seconds":null}')" '"polling":false'
+refute "feed: …and takes the schedule with it" \
+  "$(curl -s $B/api/schedules -H "Authorization: Bearer $OP")" '"kind":"feed.poll"'
+# Deleting the CONFIGURATION must not delete the team's documents.
+assert "feed: deleting the feed leaves what it pulled" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/feeds/$GHID -H "Authorization: Bearer $OP"; \
+     curl -s "$B/api/repo?prefix=feeds/gh/" -H "Authorization: Bearer $OP")" 'iotone-tmx-114'
+
 kill $FD_PID 2>/dev/null; rm -rf "$FD_DIR"
 
 # ---- recurring work (#135) ---------------------------------------------------

@@ -1739,7 +1739,60 @@
        "CREATE UNIQUE INDEX idx_anchor_receipts_seq ON anchor_receipts(seq)"
        "CREATE INDEX idx_anchor_receipts_emitted ON anchor_receipts(emitted_epoch)"))))
 
+(define m-0059-feed-items
+  (migration "0059-feed-items"
+    (lambda (conn)
+      ;; issue #114 slice 4, FEED-16/-18/-19/-21. 0056 made a feed configurable;
+      ;; this is what a POLL needs to be idempotent.
+      ;;
+      ;; FEED-18: the hash is of the payload bytes AS THE ADAPTER COMPOSED THEM,
+      ;; not of the source's own `updated_at` — several of the six sources the
+      ;; owner named touch that field without changing anything, and `repo-put!`
+      ;; on an existing key writes a new VERSION, so believing them would version
+      ;; every item on every poll and make both the storage cost and the
+      ;; "updated" signal lie.
+      ;;
+      ;; The row OUTLIVES the document on purpose: deleting a pulled item is an
+      ;; ordinary repository delete, and a feed that re-created it on the next
+      ;; poll would make that delete undoable only by deleting the feed. So
+      ;; `object_id` is nullable, and a row whose object is gone is a tombstone
+      ;; the poll honours.
+      (exec* conn (string-append
+        "CREATE TABLE feed_items ("
+        "  id TEXT PRIMARY KEY,"
+        "  feed_id TEXT NOT NULL,"
+        ;; FEED-16: <owner>-<repo>-<number> for the GitHub adapter, sanitized to
+        ;; the key vocabulary — a repository name is somebody else's string.
+        "  external_id TEXT NOT NULL,"
+        "  content_hash TEXT NOT NULL,"
+        "  object_id TEXT,"
+        "  version_id TEXT,"
+        ;; the source's own notion of when the item last changed, as epoch
+        ;; seconds. Epochs, never TEXT CURRENT_TIMESTAMP, whose format differs by
+        ;; dialect (the trap 0038/0039/0041 each name).
+        "  item_epoch BIGINT,"
+        "  first_seen_epoch BIGINT NOT NULL,"
+        "  last_seen_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_feed_items_feed ON feed_items (feed_id)")
+      ;; one row per item per feed: this is the dedup key, and a second row for
+      ;; one item would make an unchanged poll write a version
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_feed_items_ext ON feed_items (feed_id, external_id)")
+
+      ;; FEED-19's cursor and FEED-21's schedule, on the feed itself.
+      ;;
+      ;; `cursor` is the newest `updated_at` among items that actually LANDED, so
+      ;; a write refused by a storage quota cannot be skipped past. `schedule_id`
+      ;; is the `job_schedules` row the feed owns; `polling` is DERIVED from it
+      ;; and never stored, the rule `missing`/`stale` and executor health live by.
+      (exec* conn "ALTER TABLE feeds ADD COLUMN cursor TEXT")
+      (exec* conn "ALTER TABLE feeds ADD COLUMN poll_seconds BIGINT")
+      (exec* conn "ALTER TABLE feeds ADD COLUMN schedule_id TEXT")
+      ;; what the last poll did, so a feed that is running and finding nothing can
+      ;; be told from one that is not running
+      (exec* conn "ALTER TABLE feeds ADD COLUMN last_items BIGINT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts
+                             m-0059-feed-items))

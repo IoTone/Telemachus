@@ -35,11 +35,16 @@
          "../db/id.rkt"
          (only-in "../authz/sealed.rkt" define-sealed-column)
          (only-in "../net/fetch.rkt" fetch safe-url exn:fail:egress? exn:fail:egress-reason)
+         (only-in "adapters.rkt" feed-adapter-for feed-adapter-kinds)
+         (only-in "../sched/schedules.rkt" schedule-create! schedule-delete! schedule-get
+                  schedule-update! SCHEDULE-MIN-INTERVAL)
          "../db/nulls.rkt")
 
-(provide FEED-KINDS FEED-AUTHS PROBE-TIMEOUT PROBE-MAX-BYTES
+(provide FEED-KINDS FEED-AUTHS PROBE-ONLY-KINDS POLL-KIND PROBE-TIMEOUT PROBE-MAX-BYTES
          feed-problem feed-create! feed-list feed-get feed-update! feed-delete!
-         feed-secret-of feed-request probe-feed! record-fetch!)
+         feed-secret-of feed-request feed-auth-apply probe-feed! record-fetch!
+         feed-by-id feed-cursor-set! feed-poll-recorded!
+         feed-item-ref feed-item-record! feed-item-forget! feed-items-count)
 
 ;; #19's seam. A feed's token is a CREDENTIAL — it is replayed against somebody
 ;; else's API — so it belongs in `CREDENTIAL-SECRETS` beside the webhook signing
@@ -47,11 +52,26 @@
 ;; operator turned content encryption on.
 (define-sealed-column "feeds.secret" (seal-secret unseal-secret) (id) #:credential)
 
-;; CLOSED vocabularies, as `WORKER-STATES`, `EXTRACT-REASONS` and
-;; `RELEASE-REASONS` are. `http.json` is the one kind v1 commits to: fetch a URL
-;; and read JSON. A second kind is an adapter decision, and the adapter registry
-;; the fourth or fifth kind will want is not built on the strength of one.
-(define FEED-KINDS '("http.json"))
+;; FEED-14: THE KIND LIST IS DERIVED FROM THE ADAPTER REGISTRY, never a second
+;; list beside it — the rule `available` locales live by, and the reason a
+;; configurable kind this build cannot pull is impossible rather than merely
+;; unlikely (#113's shape).
+;;
+;; `http.json` is the one kind with NO adapter, and it stays (FEED-15): a probe
+;; is the honest first step of configuring any source, so the kind is reachable
+;; by `probe` and refused by name by `poll`. Guessing where the items are in an
+;; unknown body — and which field is the identity — is what DWF-5 refuses on the
+;; model's own output, and here a wrong guess would write somebody else's data
+;; under an identity that is not theirs, which the dedup hash then makes
+;; permanent.
+(define PROBE-ONLY-KINDS '("http.json"))
+
+;; The job kind a feed's own schedule fires (FEED-21). Platform-set, never the
+;; caller's, which is what stops the feed plane being a way to schedule
+;; arbitrary work for somebody holding `feeds:manage` and not `jobs:schedule`.
+(define POLL-KIND "feed.poll")
+
+(define (FEED-KINDS) (sort (append PROBE-ONLY-KINDS (feed-adapter-kinds)) string<?))
 
 ;; How the stored secret is presented to the source.
 ;;
@@ -86,8 +106,8 @@
   (cond
     [(not (slug-ok? slug))
      "`slug` must be 1-63 characters of a-z, 0-9 and dashes, starting with a letter or digit — it is the key prefix pulled items land under"]
-    [(not (member kind FEED-KINDS))
-     (format "unknown feed kind `~a` — this build pulls: ~a" kind (string-join FEED-KINDS ", "))]
+    [(not (member kind (FEED-KINDS)))
+     (format "unknown feed kind `~a` — this build knows: ~a" kind (string-join (FEED-KINDS) ", "))]
     [(not (and parsed (url-host parsed) (member (url-scheme parsed) '("http" "https"))))
      "`url` must be an http(s) URL"]
     ;; `https://user:pass@host/…` is UNAMBIGUOUSLY a credential, and this row has
@@ -118,9 +138,9 @@
 (define SELECT
   (string-append "SELECT id, team_id, user_id, slug, name, kind, url, auth, auth_name, active, "
                  "created_by, created_epoch, last_fetch_epoch, last_ok_epoch, last_status, "
-                 "last_error, secret FROM feeds "))
+                 "last_error, secret, cursor, poll_seconds, schedule_id, last_items FROM feeds "))
 
-(define (row->feed r)
+(define (row->feed conn r)
   (hasheq 'id (vector-ref r 0)
           'team_id (vector-ref r 1)
           'user_id (vector-ref r 2)
@@ -145,18 +165,38 @@
           ;; NEVER the secret, in any read. Whether there IS one is configuration
           ;; the operator needs to see; the value is write-only after create.
           'has_secret (not (sql-null? (vector-ref r 16)))
-          ;; Stated rather than implied: the row is configuration until slice 4
-          ;; polls it, and a reader who cannot tell would conclude the feed is
-          ;; broken. `probe` is what answers today.
-          'polling #f))
+          'cursor (nz (vector-ref r 17))
+          'poll_seconds (nz (vector-ref r 18))
+          'last_items (nz (vector-ref r 20))
+          ;; Whether a kind can be polled at all is a property of the BUILD, not
+          ;; of the row (FEED-15): `http.json` is probe-only, and a reader who
+          ;; could not tell would configure a feed and wait for items that are
+          ;; never coming.
+          'pollable (and (feed-adapter-for (vector-ref r 5)) #t)
+          ;; FEED-21: `polling` is DERIVED from the schedule row the feed owns,
+          ;; never stored — the rule `missing`/`stale` and `worker_state` already
+          ;; live by. A stored flag could disagree with the row that actually
+          ;; fires, and then "polling: true" beside a feed nothing has polled for
+          ;; a week leaves nobody able to say which of the two is lying.
+          'polling (let* ([sid (vector-ref r 19)]
+                          [sched (and (not (sql-null? sid))
+                                      (schedule-get conn sid (vector-ref r 1)))])
+                     (and sched (not (hash-ref sched 'paused #f)) #t))))
 
 (define (feed-list conn team)
   (for/list ([r (in-list (query-rows conn (string-append SELECT "WHERE team_id = ? ORDER BY slug") team))])
-    (row->feed r)))
+    (row->feed conn r)))
 
 (define (feed-get conn id team)
   (define r (query-maybe-row conn (string-append SELECT "WHERE id = ? AND team_id = ?") id team))
-  (and r (row->feed r)))
+  (and r (row->feed conn r)))
+
+;; The poll runs from a JOB, which carries a feed id and no team — and the row
+;; itself is what says which team it belongs to. Team-scoped reads stay the API's
+;; (`feed-get`), so this is deliberately not a route's entry point.
+(define (feed-by-id conn id)
+  (define r (query-maybe-row conn (string-append SELECT "WHERE id = ?") id))
+  (and r (row->feed conn r)))
 
 (define (active-member? conn team user)
   (and (string? user)
@@ -168,7 +208,7 @@
 ;; -> id, or 'no-such-user / 'duplicate-slug
 (define (feed-create! conn #:team team #:user user #:slug slug #:name name #:kind kind
                       #:url url #:auth auth #:auth-name auth-name #:secret secret
-                      #:created-by created-by)
+                      #:created-by created-by #:poll-seconds [poll-seconds #f])
   (cond
     [(not (active-member? conn team user)) 'no-such-user]
     [(query-maybe-value conn "SELECT id FROM feeds WHERE team_id = ? AND slug = ?" team slug)
@@ -186,7 +226,38 @@
                  id team user slug (or name sql-null) kind url
                  (if secret (seal-secret id secret) sql-null)
                  auth (or auth-name sql-null) (or created-by sql-null) (now))
+     (when poll-seconds (feed-poll-set! conn id team poll-seconds))
      id]))
+
+;; ---- FEED-21: the feed owns its schedule -------------------------------------------
+;; A `poll_seconds` of #f REMOVES the schedule, so "stop polling" is one field and
+;; not a second plane to visit. The kind and the payload are PLATFORM-SET: a
+;; caller holding `feeds:manage` can schedule this feed's poll and nothing else,
+;; which is why this does not widen `jobs:schedule` even though the two sit in
+;; the same role today.
+(define (feed-poll-set! conn id team secs)
+  (define cur (query-maybe-value conn "SELECT schedule_id FROM feeds WHERE id = ?" id))
+  (define sid (and cur (not (sql-null? cur)) cur))
+  (define user (query-value conn "SELECT user_id FROM feeds WHERE id = ?" id))
+  (define name (format "feed poll: ~a" (query-value conn "SELECT slug FROM feeds WHERE id = ?" id)))
+  (cond
+    [(not secs)
+     (when sid (schedule-delete! conn sid team))
+     (query-exec conn "UPDATE feeds SET schedule_id = NULL, poll_seconds = NULL WHERE id = ?" id)]
+    [else
+     ;; The schedule's own floor applies — the tick rides `set-reaper!` at 30
+     ;; seconds, so anything shorter could not be honoured and a feed promising
+     ;; it would be lying about its own cadence.
+     (define every (max SCHEDULE-MIN-INTERVAL secs))
+     (define live (and sid (schedule-get conn sid team)))
+     (cond
+       [live (schedule-update! conn sid team #:interval every #:paused? #f)]
+       [else
+        (define new-sid
+          (schedule-create! conn #:team team #:user user #:kind POLL-KIND #:interval every
+                            #:payload (hasheq 'feed_id id) #:name name #:created-by user))
+        (query-exec conn "UPDATE feeds SET schedule_id = ? WHERE id = ?" new-sid id)])
+     (query-exec conn "UPDATE feeds SET poll_seconds = ? WHERE id = ?" every id)]))
 
 ;; Every field is 'same-by-default, so a patch touches what it names and nothing
 ;; else. `#:secret` of `'same` keeps the stored credential, a string replaces it,
@@ -194,7 +265,7 @@
 (define (feed-update! conn id team #:user [user 'same] #:slug [slug 'same] #:name [name 'same]
                       #:kind [kind 'same] #:url [url 'same] #:auth [auth 'same]
                       #:auth-name [auth-name 'same] #:secret [secret 'same]
-                      #:active? [active? 'same])
+                      #:active? [active? 'same] #:poll-seconds [poll-seconds 'same])
   (define cur (query-maybe-row conn (string-append SELECT "WHERE id = ? AND team_id = ?") id team))
   (cond
     [(not cur) #f]
@@ -217,11 +288,32 @@
      (unless (eq? secret 'same)
        (put! "secret" (if secret (seal-secret id secret) sql-null)))
      (when (boolean? active?) (put! "active" (if active? 1 0)))
+     ;; The user may have changed in this same patch, and the schedule runs as
+     ;; the feed's user — so the schedule is rewritten AFTER the columns, from
+     ;; the row as it now stands, rather than from the arguments.
+     (unless (eq? poll-seconds 'same) (feed-poll-set! conn id team poll-seconds))
+     ;; Deactivating a feed must stop the timer, or `active: false` would mean
+     ;; "not polled" everywhere except in the one place that polls it.
+     (when (and (boolean? active?) (not active?))
+       (let ([sid (query-maybe-value conn "SELECT schedule_id FROM feeds WHERE id = ?" id)])
+         (when (and sid (not (sql-null? sid))) (schedule-update! conn sid team #:paused? #t))))
+     (when (eq? active? #t)
+       (let ([sid (query-maybe-value conn "SELECT schedule_id FROM feeds WHERE id = ?" id)])
+         (when (and sid (not (sql-null? sid))) (schedule-update! conn sid team #:paused? #f))))
      (feed-get conn id team)]))
 
 (define (feed-delete! conn id team)
   (and (query-maybe-value conn "SELECT id FROM feeds WHERE id = ? AND team_id = ?" id team)
-       (begin (query-exec conn "DELETE FROM feeds WHERE id = ?" id) #t)))
+       (begin
+         ;; The schedule and the dedup rows go with it. The DOCUMENTS do not:
+         ;; what a feed pulled is an ordinary repository object with its own
+         ;; retention, grants and history, and deleting a configuration row must
+         ;; not be a way to delete a team's documents.
+         (let ([sid (query-maybe-value conn "SELECT schedule_id FROM feeds WHERE id = ?" id)])
+           (when (and sid (not (sql-null? sid))) (schedule-delete! conn sid team)))
+         (query-exec conn "DELETE FROM feed_items WHERE feed_id = ?" id)
+         (query-exec conn "DELETE FROM feeds WHERE id = ?" id)
+         #t)))
 
 ;; The one place a feed's credential is unsealed. A value that will not open
 ;; RAISES, as #19 requires — a feed quietly polling with no credential would be
@@ -238,8 +330,15 @@
 (define ACCEPT-JSON (list (cons "accept" "application/json")))
 
 (define (feed-request conn feed-row)
+  (feed-auth-apply conn feed-row (hash-ref feed-row 'url)))
+
+;; The same credential, applied to a url the ADAPTER composed — the first request
+;; of a poll carries a cursor, and the second is a `Link: rel="next"` the source
+;; chose. Separated from `feed-request` so pagination cannot quietly lose the
+;; credential on page two, which is a failure that looks like the source
+;; rate-limiting us.
+(define (feed-auth-apply conn feed-row target)
   (define id (hash-ref feed-row 'id))
-  (define target (hash-ref feed-row 'url))
   (define auth (hash-ref feed-row 'auth))
   (define nm (hash-ref feed-row 'auth_name))
   (define secret (and (hash-ref feed-row 'has_secret) (feed-secret-of conn id)))
@@ -319,3 +418,61 @@
                              [(not (hash-ref outcome 'json #f)) "the response was not JSON"]
                              [else "the source refused the request"])))
   outcome)
+
+;; ---- the poll's own bookkeeping (FEED-18, FEED-19) ---------------------------------
+;; One row per (feed, external-id), holding the hash of what this instance would
+;; store. It OUTLIVES the document deliberately: deleting a pulled item is an
+;; ordinary repository delete, and a poll that re-created it would make that
+;; delete undoable except by deleting the feed.
+(define (feed-item-ref conn feed-id external-id)
+  (define r (query-maybe-row conn (string-append
+                                   "SELECT id, content_hash, object_id, version_id, item_epoch "
+                                   "FROM feed_items WHERE feed_id = ? AND external_id = ?")
+                             feed-id external-id))
+  (and r (hasheq 'id (vector-ref r 0) 'content_hash (vector-ref r 1)
+                 'object_id (nz/false (vector-ref r 2)) 'version_id (nz/false (vector-ref r 3))
+                 'item_epoch (nz/false (vector-ref r 4)))))
+
+(define (feed-item-record! conn feed-id external-id #:hash hash #:object [object #f]
+                           #:version [version #f] #:epoch [epoch #f])
+  (define cur (feed-item-ref conn feed-id external-id))
+  (cond
+    [cur
+     ;; Column by column. One UPDATE with a conditional clause list and a fixed
+     ;; argument list is how a clause and its parameter come apart — six
+     ;; appearances of that bug are recorded in CLAUDE.md, one of them in this
+     ;; very module's sibling.
+     (query-exec conn "UPDATE feed_items SET content_hash = ?, last_seen_epoch = ? WHERE id = ?"
+                 hash (now) (hash-ref cur 'id))
+     (when object (query-exec conn "UPDATE feed_items SET object_id = ? WHERE id = ?" object (hash-ref cur 'id)))
+     (when version (query-exec conn "UPDATE feed_items SET version_id = ? WHERE id = ?" version (hash-ref cur 'id)))
+     (when epoch (query-exec conn "UPDATE feed_items SET item_epoch = ? WHERE id = ?" epoch (hash-ref cur 'id)))
+     (hash-ref cur 'id)]
+    [else
+     (define id (new-id))
+     (query-exec conn (string-append
+                       "INSERT INTO feed_items (id, feed_id, external_id, content_hash, object_id, "
+                       "version_id, item_epoch, first_seen_epoch, last_seen_epoch) "
+                       "VALUES (?,?,?,?,?,?,?,?,?)")
+                 id feed-id external-id hash (or object sql-null) (or version sql-null)
+                 (or epoch sql-null) (now) (now))
+     id]))
+
+;; Only for a feed whose dedup state an operator means to reset — not called by
+;; the poll, which is the point: forgetting an item makes the next poll store it
+;; again, and that is a decision somebody makes rather than a side effect.
+(define (feed-item-forget! conn feed-id external-id)
+  (query-exec conn "DELETE FROM feed_items WHERE feed_id = ? AND external_id = ?" feed-id external-id))
+
+(define (feed-items-count conn feed-id)
+  (query-value conn "SELECT COUNT(*) FROM feed_items WHERE feed_id = ?" feed-id))
+
+;; FEED-19: the cursor is the newest item that actually LANDED, so a write the
+;; storage quota refused cannot be skipped past. Stored as a string because the
+;; adapter decides what the source wants it to look like; it is epoch seconds
+;; here, which is the platform's own form.
+(define (feed-cursor-set! conn id cursor)
+  (query-exec conn "UPDATE feeds SET cursor = ? WHERE id = ?" (if cursor (format "~a" cursor) sql-null) id))
+
+(define (feed-poll-recorded! conn id items)
+  (query-exec conn "UPDATE feeds SET last_items = ? WHERE id = ?" items id))
