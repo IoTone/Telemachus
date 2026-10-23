@@ -1461,6 +1461,77 @@ assert "provenance answers empty rather than erroring" \
   "$(curl -s "$B/api/repo-obj/$MID/spans" -H "Authorization: Bearer $OP")" '"total":0'
 assert "an unknown document is a 404" \
   "$(curl -s "$B/api/repo-obj/nope/spans" -H "Authorization: Bearer $OP")" 'no such document'
+
+# ---- annotations: a region a person marked (#65) ---------------------------------
+# LAY-5's spans are where a MACHINE says it read something. These are what a
+# PERSON said about a place, and the HTTP layer is where the authority rules are
+# worth pinning: who may mark up, who may edit, who may remove.
+echo "== annotations =="
+assert "an annotation must name a place" \
+  "$(curl -s -X POST $B/api/repo-obj/$MID/annotations -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '{"kind":"note","body":"no place"}')" 'needs a place'
+assert "a note with nothing in it is refused" \
+  "$(curl -s -X POST $B/api/repo-obj/$MID/annotations -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '{"kind":"note","page":1,"bbox":[0,0,10,10]}')" 'needs a `body`'
+assert "an invented kind is refused, not stored" \
+  "$(curl -s -X POST $B/api/repo-obj/$MID/annotations -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '{"kind":"redaction","page":1,"bbox":[0,0,10,10],"body":"x"}')" 'unknown annotation kind'
+assert "a bbox that is not four numbers is refused" \
+  "$(curl -s -X POST $B/api/repo-obj/$MID/annotations -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '{"kind":"highlight","page":1,"bbox":[0,0,10]}')" 'four numbers'
+ANN=$(curl -s -X POST $B/api/repo-obj/$MID/annotations -H "Authorization: Bearer $OP" \
+       -H 'Content-Type: application/json' \
+       -d '{"kind":"note","page":2,"bbox":[10,20,110,60],"body":"the levee crest is 300mm low here"}')
+ANNID=$(printf '%s' "$ANN" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "a region is marked, and bound to the version it was drawn on" "$ANN" '"version_id"'
+assert "…and is not stale on the bytes it was drawn on" "$ANN" '"stale":false'
+assert "the listing returns it with its geometry" \
+  "$(curl -s "$B/api/repo-obj/$MID/annotations" -H "Authorization: Bearer $OP")" '"bbox":[10,20,110,60]'
+assert "…and publishes the closed kind vocabulary" \
+  "$(curl -s "$B/api/repo-obj/$MID/annotations" -H "Authorization: Bearer $OP")" '"kinds":['
+# A COLLEAGUE WHO MAY READ MAY MARK UP. This is the decision of the slice: a
+# reviewer handed a document holds `view`, and a surface they cannot annotate is
+# not a review surface.
+BANN=$(curl -s -X POST $B/api/repo-obj/$MID/annotations -H "Authorization: Bearer $BOB" \
+        -H 'Content-Type: application/json' -d '{"kind":"highlight","page":2,"bbox":[0,0,5,5]}')
+BANNID=$(printf '%s' "$BANN" | grep -oP '"id":"\K[^"]+' | head -1)
+assert "a colleague who may read the document may annotate it" "$BANN" '"kind":"highlight"'
+assert "…and the row records whose observation it is" "$BANN" '"author_user_id"'
+assert "the author may correct their own words" \
+  "$(curl -s -X PATCH $B/api/annotations/$BANNID -H "Authorization: Bearer $BOB" \
+      -H 'Content-Type: application/json' -d '{"page":4}')" '"page":4'
+# …AND NOBODY ELSE MAY, not even the document's owner. A correction to somebody
+# else's observation is your own annotation.
+assert "somebody else's annotation cannot be rewritten, even by the owner" \
+  "$(curl -s -X PATCH $B/api/annotations/$BANNID -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '{"body":"actually it is fine"}')" 'only the author'
+assert "…and the attempt changed nothing" \
+  "$(curl -s $B/api/annotations/$BANNID -H "Authorization: Bearer $OP")" '"page":4'
+assert "a patch cannot reach a state a create could not" \
+  "$(curl -s -X PATCH $B/api/annotations/$ANNID -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/json' -d '{"body":null}')" 'needs a `body`'
+# A NEW VERSION DOES NOT MOVE A REGION. It was true about bytes that are no longer
+# on screen, so it is not listed for the current version and is not deleted either.
+printf 'levee seven survey, revision B' > /tmp/tmx-smoke-meta2.txt
+curl -s -X PUT "$B/api/repo/surveys/levee7.txt" -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: text/plain' --data-binary @/tmp/tmx-smoke-meta2.txt > /dev/null
+assert "a new version does not carry the old version's regions" \
+  "$(curl -s "$B/api/repo-obj/$MID/annotations" -H "Authorization: Bearer $OP" | grep -c 'levee crest' || true)" '0'
+assert "…and the region still exists, reported as stale" \
+  "$(curl -s "$B/api/repo-obj/$MID/annotations?version=all" -H "Authorization: Bearer $OP")" '"stale":true'
+assert "a steward may remove a colleague's annotation" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/annotations/$BANNID -H "Authorization: Bearer $OP")" '200'
+assert "an author may remove their own" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/annotations/$ANNID -H "Authorization: Bearer $OP")" '200'
+assert "an unknown annotation is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/annotations/00000000-0000-0000-0000-000000000000 -H "Authorization: Bearer $OP")" '404'
+assert "a document the caller cannot read is a 404, never a 403" \
+  "$(curl -s $B/api/repo-obj/nope/annotations -H "Authorization: Bearer $OP")" 'no such document'
+assert "the trail names the annotation" \
+  "$(curl -s "$B/api/audit?limit=40" -H "Authorization: Bearer $OP")" 'repo.annotation.create'
+refute "…and carries no part of what was written" \
+  "$(curl -s "$B/api/audit?limit=40" -H "Authorization: Bearer $OP")" 'levee crest'
+rm -f /tmp/tmx-smoke-meta2.txt
 rm -f /tmp/tmx-smoke-meta.txt
 
 # ---- LAY-7: a plugin can claim a FILE FORMAT -------------------------------------

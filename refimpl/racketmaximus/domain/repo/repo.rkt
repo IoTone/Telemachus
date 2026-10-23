@@ -911,6 +911,11 @@
          ;; the extracted-text index row dies with the object (no FK cascade — SQLite
          ;; portability), or a deleted document would keep matching searches
          (query-exec conn "DELETE FROM repo_text WHERE object_id = ?" id)
+         ;; …and so do the regions people marked on it (#65). An annotation names a
+         ;; version that no longer exists and a document nobody can open, so keeping
+         ;; it would leave a team's own deletion request half honoured — DEL's rule
+         ;; that the audit log is what survives an erasure, not the content.
+         (query-exec conn "DELETE FROM repo_annotations WHERE object_id = ?" id)
          ((unbox delete-hook) conn id)
          ;; #85, and the KEY is deliberately absent here too (#84 r2)
          (emit! conn "object.deleted" (hash-ref o 'team_id)
