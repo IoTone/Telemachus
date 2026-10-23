@@ -259,4 +259,9 @@ Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every on
 | POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | {text} の単語数を数える。 |
 | GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | ?lane= で指定したレーンの推定日数。 |
 | POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | {lane} の推定日数。 |
+| GET | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | このチームの Matrix ルーム購読、絞り込みに使えるイベント名、そしてこのインスタンスにホームサーバーが設定されているかどうかを返します。 |
+| POST | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | ルームへ通知します: {room_id, events?, label?, user_id?}。room_id は Matrix のルーム ID（`!abc:example.org`）で、エイリアスは受け付けません。ボットがあらかじめそのルームに参加している必要があります。 |
+| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | 購読の `events`、`label`、`active` を変更します。 |
+| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | ルームへの通知をやめます。 |
+| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | `webhooks:manage` | テスト通知を送ります。実際の通知とまったく同じジョブを通ります。 |
 

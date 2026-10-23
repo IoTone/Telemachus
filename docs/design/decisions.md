@@ -1470,3 +1470,48 @@ with `curl` is the right shape for a specific remote. Also not built: a console
 card, for #116's reason (it would need `ui.*` strings in two catalogs and a tour
 update, which is its own slice), and anchoring the **feed** or **webhook**
 tables, which keep no chain to anchor.
+
+## Matrix notifications as an optional component (MTX‑1…9) — **decided and BUILT 23 Oct 2026** (issue #133)
+
+The whole ask: *"We find matrix to be useful for sending notifications to teams
+securely. Since we can run this on our own infrastructure, we feel this works as
+an integration tool."* So this is a **transport**, and the interesting decisions
+are about what it is not allowed to be.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **MTX‑1** | Where it lives | **A plugin, `plugins/matrix/`** · vs core · vs an out-of-process bridge | The issue says "optional component" and the seams for this all shipped: a plugin owns tables (#121), routes (slice 63), a job kind (#21) and now an event sink. Nothing about Matrix belongs in the core of a platform that may never speak it. |
+| 🔑 **MTX‑2** | How a second subscriber reaches the events | **The event sink becomes a REGISTRY of named sinks** · vs displacing webhooks · vs a hook of its own in each emitter | `events.rkt`'s own header promised that "the next consumer plugs in here rather than growing a box of its own" — and the box was **single-slot and taken by webhooks**, so the promise was not keepable. Sinks are named (re-adding your own replaces it, because the loader may run twice), and **each is wrapped separately**: with one shared handler the first sink to raise would swallow the rest, which is the failure nobody notices until the day it matters. Positive-controlled. |
+| 🔑 **MTX‑3** | Where the access token lives | **The ENVIRONMENT, as the operator's — never the database** · vs a sealed column · vs a plaintext column | A plugin **cannot** own a sealed column: FEED‑5 recorded that gap deliberately, because a plugin-owned sealed column is absent from `CREDENTIAL-SECRETS` and is therefore silently unrotatable. Storing it unsealed to get round that is the exact failure that rule exists to prevent. So the homeserver and the bot token are `TELEMACHUS_MATRIX_*`, the same trust as `TELEMACHUS_MODEL_URL`, and a team configures only *which room*. Three consequences, stated rather than discovered: one bot identity per instance (which is what a self-hosted notifier is), **a tenant admin never sees the token** (a property, not a limitation), and per-team credentials wait for the seam FEED‑5 named. |
+| **MTX‑4** | Whether the platform joins a room | **No — the bot is invited by a person** · vs joining by id on subscribe | Being invited keeps "who may be told" a decision made on the Matrix side, where it belongs, and makes a mistyped room a named error instead of a bot turning up somewhere. It also means an **alias is refused**: an alias is resolved by the homeserver and can be repointed at another room by whoever controls it, which would silently redirect a team's notifications. |
+| 🔑 **MTX‑5** | What the sink does | **ENQUEUES ONLY; a job sends** · vs posting from the sink | The sink runs inline in the emitter's thread, so sending from it would let a homeserver that has stopped answering hold a workflow run open for the timeout. A job inherits quota admission, the org gate, the lease, the fence, cancellation and the FLEET surface — and `jobs.payload` is sealed (ENC‑8…12), so the composed line is encrypted at rest with nothing added here. **The job row IS the pending state**, so the plugin needs no table for it. |
+| **MTX‑6** | How a re-delivery avoids a duplicate | **The Matrix transaction id IS the job's id** · vs a sent-table · vs accepting duplicates | A homeserver ignores a repeat of a `txnId` it has already seen on that access token, so a job the lease reaper re-queued, or the second of this plugin's own two attempts, cannot post the line twice. The idempotency is the protocol's rather than a table of ours — the same instinct FEED‑18 applies to a content hash. |
+| **MTX‑7** | How hard it tries | **Twice, a second apart, and then the room row records the failure** · vs webhooks' ten attempts with backoff · vs one attempt | Webhooks' retry schedule lives in a table built for it; duplicating that inside a plugin would be a second delivery subsystem. A notification is for PEOPLE, and a missed chat line is not a lost event — the audit log and the webhook path both still have it. So the limit is stated in the README rather than implied: **if you need delivery guarantees, use a webhook.** |
+| 🔑 **MTX‑8** | What a room is told | **Ids, status and a link — never content** · vs a readable summary with the document's title | #85 r2, and it matters MORE here: a webhook goes to a server, a room is read by **people** who may hold no `can?` on the subject, and Matrix rooms are routinely bridged somewhere else again. One composer, so there is no call site that can forget; the workflow SLUG earns its place because "run 3f2a finished" tells nobody which thing finished. Positive-controlled with a fixture carrying a patient name, a note body and a prompt. |
+| **MTX‑9** | Which permission | **`webhooks:manage`** · vs a `matrix:manage` of its own | It is the same question — where may this instance send notifications — and **a plugin cannot add a permission to the catalog**, which is #113's rule working rather than a limitation: `matrix:manage` would be a permission no role grants and `GET /api/roles` never mentions. |
+
+One correction from CI, worth the line because it is a rule and not a slip:
+**`init!` registers the job kind unconditionally and the SINK conditionally.**
+The first version put both behind the switch, and `docs/reference/plugins.md` is
+generated from the loaded plugins and gated on drift — so the reference said
+something different on a box with a homeserver configured than on one without,
+the committed copy had been rendered with the variables set, and the drift gate
+failed in CI while the whole suite passed locally. A generated, committed
+reference has to be a property of the BUILD. What the opt-in exists to protect
+is the emit path, which is the sink.
+
+Two limits worth recording because they are not obvious:
+
+- **The path goes out with the room id's `!` and `:` LITERAL.** The client-server
+  API's examples percent-encode the room id, and this plugin cannot: #142's
+  fetcher parses the URL and rebuilds the path from it, which decodes whatever
+  encoding was applied one layer up. Both characters are legal in a path
+  (RFC 3986) and Synapse accepts them — but a `/` would be rebuilt as a path
+  separator and address a different endpoint, so a room id containing one is
+  **refused**. Teaching the fetcher to carry a raw path was the alternative, and
+  it would weaken the one place every outbound request is normalized.
+- **No end-to-end encryption.** This sends through the client-server API, and E2EE
+  would need a device, key management and a megolm session — a different piece of
+  work. The README says so, next to the reminder that a notification carries ids
+  and a link rather than content, which is what makes a plaintext room an
+  acceptable destination in the first place.

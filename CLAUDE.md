@@ -1702,6 +1702,85 @@ bash test/server-smoke.sh             # the "== annotations ==" block, 24 assert
   storage and the review queue already carries a decision with a rationale; the
   canvas is a plugin's, exactly as LAY‑12 decided.
 
+## Matrix notifications, and the event sink that is now a registry (MTX, issue #133)
+
+Built 23 Oct 2026. `plugins/matrix/` (the plugin's own table, five routes, a job
+kind, an event sink) plus ONE platform change: `domain/events/events.rkt` holds
+several NAMED sinks. Decisions MTX‑1…9.
+
+```sh
+export TELEMACHUS_MATRIX_HOMESERVER=https://matrix.example.internal
+export TELEMACHUS_MATRIX_TOKEN=syt_...        # a bot account's token
+raco test test/matrix-tests.rkt               # 11 cases, eight controls
+bash test/server-smoke.sh                     # the "matrix:" block, 23 assertions
+```
+
+- **THE EVENT SINK IS A REGISTRY NOW, and the old header promised it.**
+  `events.rkt` said "the next consumer plugs in here rather than growing a box of
+  its own" while the box was single-slot and taken by webhooks. `add-event-sink!`
+  takes a NAME (re-adding your own replaces it — the loader may run twice), and
+  **each sink is wrapped separately**: with one handler round the loop the first
+  to raise swallows the rest. `set-event-sink!` survives as "clear and set one"
+  for the tests that predate this. Positive-controlled.
+- **THE ACCESS TOKEN IS IN THE ENVIRONMENT, NOT THE DATABASE** (MTX‑3), because a
+  plugin cannot own a sealed column — FEED‑5's recorded gap — and a credential
+  stored unsealed is the failure that rule exists to prevent. One bot identity
+  per instance, a tenant admin never sees the token, and per-team credentials
+  wait for that seam.
+- **THE SINK ONLY ENQUEUES** (MTX‑5). It runs inline in the emitter's thread, so
+  sending from it would let a dead homeserver hold a workflow run open for the
+  timeout. The JOB ROW is the pending state, so the plugin needs no table for it,
+  and `jobs.payload` is sealed, so the composed line is encrypted at rest with
+  nothing extra.
+- **THE MATRIX TRANSACTION ID IS THE JOB'S ID** (MTX‑6), so a re-claimed attempt
+  cannot post the line twice — the idempotency is the protocol's. `current-job`
+  is where it comes from; outside a job a fresh id is right, because there is no
+  attempt to be idempotent about.
+- **IDS, STATUS AND A LINK — NEVER CONTENT** (MTX‑8). Harder than for a webhook: a
+  room is read by PEOPLE who may hold no `can?` on the subject, and rooms are
+  routinely bridged onwards. One composer, so no call site can forget; the
+  control is a fixture carrying a patient name, a note body and a prompt.
+- **AN ALIAS IS REFUSED** (`#room:server`): it is resolved by the homeserver and
+  can be repointed at another room by whoever controls it. **A `/` in a room id is
+  refused too**, and that one is about our own stack: #142's fetcher parses the
+  URL and REBUILDS the path, so any percent-encoding this plugin applies is
+  decoded one layer down — `!` and `:` go out literal (legal per RFC 3986, and
+  Synapse accepts them) and a slash would become a path separator addressing
+  another endpoint. Do not "fix" that by hand-encoding here; it is defeated.
+- **`webhooks:manage`, not a permission of its own** (MTX‑9) — a plugin cannot add
+  one to the catalog, which is #113's rule working.
+- **TWO ATTEMPTS, A SECOND APART, AND THE LIMIT IS WRITTEN DOWN.** Webhooks' ten
+  with backoff live in a table built for them; a second delivery subsystem inside
+  a plugin is not worth it, and a missed chat line is not a lost event. The README
+  says to use a webhook if you need guarantees.
+- **OFF UNLESS CONFIGURED — BUT ONLY THE SINK.** `init!` with no homeserver adds
+  no event sink, so an instance that does not speak Matrix carries nothing in its
+  emit path (the OCR plugin's rule). The JOB KIND is registered either way, and
+  CI is what taught me the difference: **`docs/reference/plugins.md` is generated
+  from the loaded plugins and gated on drift**, so a kind that appeared only on a
+  configured box made that gate depend on the environment — the committed file
+  had been rendered in a shell where the variables were set, the suite passed
+  locally, and the drift gate failed in CI. A generated reference must be a
+  property of the BUILD. Registering an unused kind costs nothing; a sink in
+  every emitter does.
+- **A FIXED PORT IN A SMOKE MUST BE GREPPED FOR FIRST.** `MX_PORT=8899` collided
+  with the webhook receiver's, and the collision does not look like one: the
+  webhook POSTs landed on a handler implementing PUT only, so six assertions in a
+  block with nothing to do with Matrix failed with a 501.
+- **`string-downcase` on a whole header lower-cases the TOKEN too**, which is the
+  quiet way to write an assertion that cannot fail. Match the name
+  case-insensitively and the value as sent.
+- **A POSITIVE-CONTROL HARNESS THAT RESTORES FILES MUST INVALIDATE THE
+  BYTECODE.** `shutil.copy2` (and `cp -p`, and anything else that preserves
+  mtimes) puts the ORIGINAL file back looking OLDER than the `compiled/*.zo`
+  built from the mutated one, so `raco` keeps the stale bytecode and the restored
+  tree runs the CONTROL's code. Here that made "with no homeserver the plugin
+  registers nothing" fail against correct source, which reads as a real defect
+  and is not one; the same shape could as easily make a control look like it bit
+  when it did not. `rm -rf <dir>/compiled` after restoring, and re-run the
+  baseline before believing anything. Third appearance of stale `.zo` in these
+  notes, and the first where a harness caused it.
+
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 
 Built 22 Oct 2026 — the configuration half of the external-feed work, on top of

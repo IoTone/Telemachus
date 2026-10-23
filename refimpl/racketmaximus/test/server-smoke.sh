@@ -90,9 +90,42 @@ export TELEMACHUS_ANCHOR_KEY="${TELEMACHUS_ANCHOR_KEY:-4ccd089b28ff96da9db6c346e
 # move the sequence the assertions below count on. The emissions here are the
 # ones this block asks for.
 export TELEMACHUS_ANCHOR_EVERY=never
+# ---- a Matrix homeserver, before the server starts (#133) --------------------
+# The plugin registers its event sink in `init!` only when a homeserver is
+# configured, so the variable has to be set BEFORE the server boots — which is
+# why the port is fixed rather than asked of the kernel. The fake homeserver
+# logs every send, which is how the smoke sees that the credential went in a
+# header and that the line carries no content.
+MX_DIR=$(mktemp -d)
+# 8903 and NOT 8899: the webhook receiver two hundred lines down uses that one,
+# and a collision here does not look like a collision — the webhook POSTs land
+# on this handler, which implements PUT only, so six assertions in a block with
+# nothing to do with Matrix fail with a 501. Grep the file for a port before
+# taking one.
+MX_PORT=8903
+MX_LOG="$MX_DIR/log.txt"; : > "$MX_LOG"
+cat > "$MX_DIR/home.py" <<'PYEOF'
+import http.server, os, sys
+LOG = os.environ["MX_LOG"]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_PUT(self):
+        n = int(self.headers.get("content-length") or 0)
+        body = self.rfile.read(n).decode("utf-8") if n else ""
+        with open(LOG, "a") as f:
+            f.write("PUT %s auth=%s body=%s\n" % (self.path, self.headers.get("authorization"), body))
+        self.send_response(200)
+        self.send_header("content-type", "application/json"); self.end_headers()
+        self.wfile.write(b'{"event_id":"$1"}')
+    def log_message(self, *a): pass
+http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PYEOF
+MX_LOG="$MX_LOG" python3 "$MX_DIR/home.py" $MX_PORT & MX_PID=$!
+export TELEMACHUS_MATRIX_HOMESERVER="http://127.0.0.1:$MX_PORT"
+export TELEMACHUS_MATRIX_TOKEN="syt_sm0ke-t0ken"
+
 racket server/main.rkt >/tmp/tmx-smoke.log 2>&1 &
 SRV=$!
-trap 'kill $SRV 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"' EXIT
+trap 'kill $SRV $MX_PID 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR" "$MX_DIR"' EXIT
 tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do tries=$((tries+1)); [ $tries -gt 30000 ] && { echo "server never came up"; cat /tmp/tmx-smoke.log; exit 1; }; done; exec 3>&- 2>/dev/null || true
 
 B="localhost:$PORT"
@@ -2220,6 +2253,80 @@ assert "the org policy plane is invisible single-tenant" \
 # put it back so nothing downstream in this smoke runs under a 15-minute window
 curl -s -o /dev/null -X PUT "$B/api/session-policy" -H "Authorization: Bearer $OP" \
   -d '{"idle_seconds":1800,"absolute_seconds":28800,"warn_seconds":60}'
+
+# ---- Matrix notifications (#133) ---------------------------------------------
+# The plugin's own routes, and the whole round trip: an event this instance
+# emits, through the registry of sinks, through an ordinary job, to a room — with
+# a real socket at the far end so what is asserted is what went on the wire.
+echo "== matrix notifications (#133) =="
+MXR=$(curl -s "$B/api/x/matrix/rooms" -H "Authorization: Bearer $OP")
+assert "matrix: the read says the instance has a homeserver" "$MXR" '"configured":true'
+assert "matrix: …and publishes the closed event vocabulary to filter on" "$MXR" '"review.decided"'
+refute "matrix: the read never carries the access token" "$MXR" 'syt_sm0ke-t0ken'
+assert "matrix: a member may not decide where this instance sends notifications" \
+  "$(curl -s "$B/api/x/matrix/rooms" -H "Authorization: Bearer $BOB")" 'Forbidden: webhooks:manage'
+# An ALIAS can be repointed at another room by whoever controls it, which would
+# silently redirect a team's notifications.
+assert "matrix: an alias is refused, not resolved" \
+  "$(curl -s -X POST "$B/api/x/matrix/rooms" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"room_id":"#ops:example.internal"}')" 'not an alias'
+assert "matrix: an event invented in passing is refused, naming the vocabulary" \
+  "$(curl -s -X POST "$B/api/x/matrix/rooms" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"room_id":"!ops:example.internal","events":"run.exploded"}')" 'run.completed'
+
+MXC=$(curl -s -X POST "$B/api/x/matrix/rooms" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"room_id":"!ops:example.internal","label":"ops","events":"ping,object.created"}')
+MXID=$(printf '%s' "$MXC" | grep -oP '"id":"\K[^"]+')
+assert "matrix: a room is subscribed" "$MXC" '"room_id":"!ops:example.internal"'
+assert "matrix: a second subscription to one room is refused — it would post twice" \
+  "$(curl -s -X POST "$B/api/x/matrix/rooms" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"room_id":"!ops:example.internal"}')" 'already notifies'
+
+# #85's ping, through the SAME job a real notification takes — a test that took
+# another path would prove the wrong thing.
+assert "matrix: a test notification is queued" \
+  "$(curl -s -X POST "$B/api/x/matrix/rooms/$MXID/test" -H "Authorization: Bearer $OP")" '"queued":true'
+for _ in $(seq 1 60); do grep -q 'm.room.message' "$MX_LOG" && break; sleep 0.5; done
+MXSENT=$(cat "$MX_LOG")
+assert "matrix: …and reaches the homeserver's own idempotent send endpoint" \
+  "$MXSENT" '/_matrix/client/v3/rooms/!ops:example.internal/send/m.room.message/'
+assert "matrix: the credential travels in a header" "$MXSENT" 'auth=Bearer syt_sm0ke-t0ken'
+assert "matrix: the message is an m.text" "$MXSENT" '"msgtype":"m.text"'
+assert "matrix: the room row records the send" \
+  "$(curl -s "$B/api/x/matrix/rooms" -H "Authorization: Bearer $OP")" '"last_status":200'
+
+# THE WIRING ASSERTION: an event the platform emits by itself, with no Matrix
+# call anywhere near it. A document upload emits `object.created`.
+: > "$MX_LOG"
+curl -s -o /dev/null -X PUT "$B/api/repo/matrix/notified.txt" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: text/plain' --data-binary 'a document arriving'
+for _ in $(seq 1 60); do grep -q 'object.created' "$MX_LOG" && break; sleep 0.5; done
+MXEV=$(cat "$MX_LOG")
+assert "matrix: a platform event reaches the room through the sink registry" "$MXEV" 'object.created'
+# MTX-8, and the one that matters: a room is read by people who may hold no
+# can? on the subject, and a bridged room by people this instance never heard of.
+refute "matrix: …and the line carries no document key" "$MXEV" 'notified.txt'
+refute "matrix: …nor any document content" "$MXEV" 'a document arriving'
+assert "matrix: …while still carrying a link, so somebody can go and look" "$MXEV" '/api/repo-obj/'
+# The webhook sink is still delivering: two named sinks, wrapped separately.
+assert "matrix: the webhook subscriber is unaffected by the second sink" \
+  "$(curl -s "$B/api/webhooks" -H "Authorization: Bearer $OP")" '"events"'
+assert "matrix: the trail names the subscription" \
+  "$(curl -s "$B/api/audit?limit=40" -H "Authorization: Bearer $OP")" 'matrix.room.create'
+# An event the subscription does not filter on must not be sent at all.
+: > "$MX_LOG"
+curl -s -o /dev/null -X POST "$B/api/webhooks" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+  -d '{"url":"http://127.0.0.1:1/x","events":"ping"}'
+assert "matrix: stopping is one field" \
+  "$(curl -s -X PATCH "$B/api/x/matrix/rooms/$MXID" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"active":false}')" '"active":false'
+curl -s -o /dev/null -X PUT "$B/api/repo/matrix/quiet.txt" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: text/plain' --data-binary 'nobody is told about this'
+if grep -q 'm.room.message' "$MX_LOG"; then echo "  FAIL matrix: an inactive subscription was still notified"; fail=1; else echo "  ok   matrix: an inactive subscription is not notified"; fi
+assert "matrix: a subscription is removed" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$B/api/x/matrix/rooms/$MXID" -H "Authorization: Bearer $OP")" '200'
+assert "matrix: another team's id is a miss, not a refusal" \
+  "$(curl -s -X DELETE "$B/api/x/matrix/rooms/00000000-0000-0000-0000-000000000000" -H "Authorization: Bearer $OP")" 'no such room'
 
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail
