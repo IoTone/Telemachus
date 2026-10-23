@@ -1,9 +1,11 @@
 # External feeds, and a prioritised work queue
 
 *Requirements for [issue #114](https://github.com/IoTone/Telemachus/issues/114),
-an external customer requirement. **Slices 1–3 are built** (FEED‑3 as #135/#140,
-FEED‑4 as #142, FEED‑5/‑6/‑12/‑13 as the feed configuration plane); slice 4, the
-adapter, is what the owner's first answer unblocks. Decisions FEED‑1…13.
+an external customer requirement. **Slices 1–4 are built** (FEED‑3 as #135/#140,
+FEED‑4 as #142, FEED‑5/‑6/‑12/‑13 as the feed configuration plane, and
+FEED‑14…22 as the first adapter — GitHub issues, 23 Oct 2026). Slices 5 (the
+ranked queue) and 6 (proposals) remain, and FEED‑8 says both are the plugin's.
+Decisions FEED‑1…22.
 Every claim about what exists was checked against the code and carries a
 reference; where a claim in an earlier comment of mine turned out to be wrong,
 the correction is marked.*
@@ -267,12 +269,36 @@ source adapter.
 | 1 ✅ | **Recurring jobs** — `schedules`, the reaper sweep, `POST /api/schedules` | — | A schedule fires once per interval; a missed week fires once, not 672 times; two concurrent sweeps produce one job (unit, both dialects); an overrunning run skips and reports |
 | 2 ✅ | **The outbound seam** — one client, two policies | — | `'untrusted` refuses 10.x/127.x/169.254.x and a DNS name resolving to them, with the connection pinned to the resolved address; `'configured` reaches a private host; the default is `'untrusted`; a fetch leaks no descriptor over 100 calls (measured, as `llm.rkt`'s was) |
 | 3 ✅ | **Feed configuration** — `feeds` row, sealed secret, `CREDENTIAL-SECRETS`, the probe | 2 | `telemachus-secrets rewrap` rotates a feed secret; a failing fetch records host + status and **not** the query string (positive-controlled with a token in the URL) |
-| 4 | **The adapter** — one concrete source, items land as repo objects | 1,2,3 | An item becomes a repo object the configured user can read; an unchanged item on the next poll writes no new version; `feed.fetches` is charged and an over-budget team stops |
+| 4 ✅ | **The adapter** — one concrete source, items land as repo objects | 1,2,3 | An item becomes a repo object the configured user can read; an unchanged item on the next poll writes no new version; `feed.fetches` is charged and an over-budget team stops |
 | 5 | **The queue** — plugin table, route, screen | 4 | "The first actionable task" is one request, ordered by priority then due date, filtered by status, scoped by `can?` |
 | 6 | **Proposals** — the agent reads an item and proposes; a review gates it | 4,5 | A proposal is a document derived from the item; the act does not run until a person decides; the decision is in LAY‑11's chain |
 
 Slices 1 and 2 are the platform work and are what #121's reporter and RSCH both
 wait on. Slices 3–6 are a plugin.
+
+## The owner's answer, and what it changed (23 Oct 2026)
+
+The blocking question was answered, and it named **six** sources rather than
+one: a GitHub issue tracker, CERT advisories against the pinned BOM dependencies
+their own source scanning finds, Kuma uptime alerts, feeds from Discord servers
+they operate, Matrix chat notifications, and OTel server notifications.
+
+One consequence, and it is a design change rather than a scheduling one: **the
+adapter registry is built now** (FEED‑14). With one source a registry is
+speculative scaffolding; with six, five of which are "JSON over HTTP with a
+different item shape", a `cond` in the fetch loop is the thing #110 r1 kept
+finding — and it would put the next source's parser inside the code that spends
+the team's quota and writes its documents. So an adapter is a registry entry
+with LAY‑7's ownership rule, a plugin can contribute one under
+`x.<plugin-id>.<name>`, and `FEED-KINDS` is derived from what is registered.
+
+**GitHub issues is the one built**, because it was named first and because it is
+the only one of the five whose own API shape this repository can exercise. The
+sixth, Matrix, is not a shape but a protocol, and it is issue #133.
+
+The other two questions — a plugin screen or the core console for the queue, and
+whether FEED‑10's gate is acceptable for v1 — are still open and still do not
+block slice 5's design.
 
 ## Three questions that need the owner's answer
 

@@ -43,7 +43,12 @@
 ;; dimensions first, then the company's, and the first that refuses is the
 ;; answer, because that is the one somebody has to raise. `amount 1` is the
 ;; probe the admission itself makes — is there room for one more unit at all.
-(define QUOTA-HOLD-DIMS '("ai.requests" "ai.tokens.total" "ai.judgments.total"))
+;; `feed.fetches` is here for FEED-9's reason, which is not the same as the AI
+;; dimensions': it protects the SOURCE's rate limit as much as this instance. A
+;; team over its fetch budget must have its feeds STOP rather than keep hammering
+;; somebody else's API — and because a poll is an ordinary job, holding the queue
+;; is all that takes.
+(define QUOTA-HOLD-DIMS '("ai.requests" "ai.tokens.total" "ai.judgments.total" "feed.fetches"))
 
 ;; PURE, deliberately: the job listing calls this on every read (`team-hold` in
 ;; scheduler.rkt). The audit entry is `note-deferred!`'s business, and fires only

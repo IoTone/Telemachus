@@ -24,7 +24,8 @@
 ;; extensions). Installing one — placing it in the plugins dir — IS the consent.
 ;; Sandboxed/out-of-process plugins are future hardening (see THREAT model).
 
-(require (only-in "../repo/extract.rkt" extractors-of-plugin) json racket/list racket/string
+(require (only-in "../repo/extract.rkt" extractors-of-plugin)
+         (only-in "../feeds/adapters.rkt" feed-adapters-of-plugin) json racket/list racket/string
          db-kit/portable
          (only-in db-kit/migrate migration migration-id)
          "registry.rkt" "../flow/run.rkt" "../sched/scheduler.rkt")
@@ -236,6 +237,12 @@
                                   ;; job kinds are — an operator should be able to
                                   ;; see who reads which format before trusting it.
                                   'extractors (extractors-of-plugin id)
+                                  ;; FEED-14: which feed kinds this plugin can
+                                  ;; pull. Same reason again — a plugin that
+                                  ;; polls somebody's API on a timer, as this
+                                  ;; team's own user, should be visible from the
+                                  ;; listing and not only from its own source.
+                                  'feed_adapters (feed-adapters-of-plugin id)
                                   ;; issue #43: does this plugin have a page to open?
                                   ;; A boolean, never the path — the listing is JSON
                                   ;; on an API and the server's layout is not the

@@ -1714,12 +1714,14 @@ raco test test/feed-tests.rkt test/sealed-column-tests.rkt   # 11 + 7 cases, six
 bash test/server-smoke.sh                                     # the "feed:" block, 33 assertions
 ```
 
-- **NOTHING POLLS A FEED YET and every read says so** (`polling: false`). Slice 4
-  is the adapter that lands items as `feeds/<slug>/<external-id>`. Configuration
-  shipped first because the credential and its rotation are the half that has to
-  be right before a byte crosses the network — and the risk of that order, a feed
-  somebody configures and nobody polls, is answered by that field and by the
-  probe rather than left to be discovered.
+- **POLLING IS BUILT NOW** (23 Oct 2026, slice 4 — see "The first feed adapter"
+  below). `polling` is still in every read and is DERIVED from the schedule the
+  feed owns, so it answers honestly for a feed with no cadence; `pollable` says
+  whether the KIND has an adapter at all. Configuration shipped first because the
+  credential and its rotation are the half that has to be right before a byte
+  crosses the network, and the risk of that order — a feed somebody configures
+  and nobody polls — was answered by those fields and by the probe rather than
+  left to be discovered.
 - **`POST /api/feeds/:id/probe` fetches ONCE, synchronously, and stores only the
   outcome.** #85's ping, for #85's reason: a feed nobody can test is a feed
   nobody trusts. It creates no document, which is what keeps "am I configured
@@ -1794,6 +1796,98 @@ bash test/server-smoke.sh                                     # the "feed:" bloc
 - **`#rx` has no `{n,m}`** — bounded repetition needs `#px`. A slug regexp written
   with `#rx"…{0,62}$"` treats the braces as literals and refuses every valid
   slug, which is what the first test run reported.
+
+## The first feed adapter: GitHub issues (FEED‑14…22, issue #114 slice 4)
+
+Built 23 Oct 2026 — the slice the issue was waiting on. Migration
+`0059-feed-items`; `domain/feeds/adapters.rkt` (the registry) +
+`adapter-github.rkt` + `poll.rkt`; `POST /api/feeds/:id/poll`; `poll_seconds` on
+a feed, and the job kind **`feed.poll`**.
+
+```sh
+raco test test/feed-poll-tests.rkt   # 14 cases, nine controls (one cannot bite — see below)
+bash test/server-smoke.sh            # the slice-4 "feed:" block, 26 assertions
+```
+
+- **THE OWNER NAMED SIX SOURCES, NOT ONE**, which is why the REGISTRY is built
+  here rather than after the fourth `cond` arm: GitHub issues, CERT advisories
+  against pinned BOM dependencies, Kuma uptime alerts, Discord, Matrix and OTel.
+  Five are "JSON over HTTP with a different item shape"; the sixth is a protocol
+  (#133). `register-feed-adapter!` takes LAY‑7's ownership rule, a plugin
+  contributes one under `x.<id>.<name>`, and **`FEED-KINDS` is DERIVED from the
+  registry** — the `available` locales rule, so a kind this build cannot pull
+  cannot be configured.
+- **AN ADAPTER NEVER FETCHES AND NEVER WRITES.** It composes a request
+  (`prepare`) and reads a response (`parse`), which is what makes every adapter
+  testable with a byte string and no socket, and keeps the egress policy, both
+  quota tiers, `can?`, the dedup rule and the cursor in `poll.rkt` — once, for
+  every source anybody adds later.
+- **`http.json` is PROBE-ONLY and polling it is a named refusal** (FEED‑15). A
+  generic adapter would have to guess where the items are and which field is the
+  identity; a wrong guess writes somebody else's data under an identity that is
+  not theirs, and the dedup hash then makes it permanent. The message names the
+  kinds that CAN be polled, because the operator is one field away.
+- **`external-id` is `<owner>-<repo>-<number>`** (FEED‑16). The bare number
+  collides the moment the URL is a search, and a collision writes two issues over
+  one key — which the hash then reports as a document that changes every poll.
+  GitHub's global `id` cannot collide and cannot be found by a person. Composed
+  through `safe-id-part`, because a repository name is somebody else's string and
+  it becomes part of a KEY.
+- **The payload is the item's own JSON and the TITLE rides in the version's
+  `filename`** (FEED‑17). `application/json` has no extractor, so without that a
+  pulled item is invisible to search — and `0022-fold-documents` already settled
+  that a document's title lives there.
+- **THE STORED BYTES ARE SORTED, AND THE CONTROL FOR IT CANNOT BITE.**
+  `canonical-json` sorts object keys recursively because the dedup hash must be
+  stable ACROSS PROCESSES: an unstable rendering re-versions every item of every
+  feed for ever and bills the team's storage for it. Racket's own `write-json`
+  happens to sort in 9.3, so substituting `jsexpr->string` leaves all 14 cases
+  passing — which is the reason the guarantee is stated in `adapters.rkt` rather
+  than inherited, and the reason the test pins the sorted form as a LITERAL.
+- **The cursor advances only over items that LANDED, and the window stays
+  INCLUSIVE** (FEED‑19). Advancing to "now" loses anything that arrived while the
+  pages were processed, and loses an item outright when its write was refused —
+  which a storage quota will do. So `since` is asked inclusively, the newest item
+  comes back, dedup absorbs it, and a crash mid-page costs a re-read, never a gap.
+  Positive-controlled: advancing to `current-seconds` fails two cases.
+- **An adapter DECLARES the fields its items write, and the poll adds them to the
+  team's definitions** (FEED‑20). LAY‑4 refuses an undefined attribute key, so
+  without this every item's attributes would be refused and dropping them
+  silently would break slice 5's queue, which reads exactly those keys. Additive,
+  **never overwriting a team's own label**, all keys namespaced `feed_*`, and over
+  LAY‑4's forty-field cap it REFUSES BY NAME — before any request, so a poll that
+  could not store cannot spend the fetch budget.
+- **`poll_seconds` makes the feed own a `job_schedules` row of kind `feed.poll`,
+  and `polling` is DERIVED from it** (FEED‑21). The kind and payload are
+  platform-set, so the feed plane cannot schedule arbitrary work; clearing the
+  field, or deactivating the feed, stops the thing that actually fires.
+- **`feed.fetches` is charged PER REQUEST and BEFORE the request** (FEED‑9), and
+  it is in `QUOTA-HOLD-DIMS`. Per request because the dimension protects the
+  SOURCE's rate limit too; before, because metering only successes makes a failing
+  feed free to hammer somebody's API.
+- **`reason` separates "I cannot read this" from "I could not store it".** A
+  parse failure is the source doing something unexpected; a refused write is the
+  team's budget or a key somebody else owns, and the two have no remedy in
+  common. Both are REPORTED in the summary, not raised: a feed is expected to
+  fail sometimes and a failing poll must not fail the job that is only polling it.
+  `exn:fail:feed-store` is what keeps them apart.
+- **The response BODY is never stored.** FEED‑6 redacts the URL we send; an error
+  page is the source's own words and a great many of them quote the request back,
+  credential and all. The stored error is host, path and status.
+- **A deleted pulled document is NOT re-created.** The `feed_items` row outlives
+  the object as a tombstone, so deleting an item is an ordinary repository delete
+  rather than something only deleting the feed could achieve.
+- **`'null` IS TRUTHY IN RACKET**, and it bit again: `(hash-ref it 'pull_request #f)`
+  on a fixture carrying JSON null marked every issue a pull request. Ask for the
+  shape you need (`hash?`), not for truthiness.
+- **GitHub refuses a request with no `User-Agent`** (403, which reads as a
+  permission problem), and its default sort is `created DESC`, which cannot be
+  walked with `since` — the adapter sends a UA and `sort=updated&direction=asc`.
+  The issues endpoint returns PULL REQUESTS too; they are kept and marked
+  `feed_type`, because a PR is a work item in #114's sense.
+- **A route entry written without its closing paren**, for the fourth time. The
+  error names a line 300 lines away; `raco`'s "indentation suggests a missing `)`"
+  is the useful half.
 
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 

@@ -43,6 +43,11 @@
          (only-in "../domain/events/events.rkt" set-event-sink!)
          (only-in "../domain/s3/server.rkt" make-s3-handler reap-uploads! s3-region)
          (only-in "../domain/audit/chain.rkt" audit-chain-seal!)
+         ;; #114 slice 4: the feed poller, its first adapter, and the job kind a
+         ;; feed's schedule fires
+         (only-in "../domain/feeds/poll.rkt" poll-feed!)
+         (only-in "../domain/feeds/adapter-github.rkt" install-github-adapter!)
+         (only-in "../domain/feeds/feeds.rkt" POLL-KIND feed-by-id)
          ;; #66: the external anchor, emitted on the reaper seam
          (only-in "../domain/audit/anchor.rkt" anchor-emit!)
          (only-in "../domain/authz/signing.rkt" anchor-signing-enabled?)
@@ -274,6 +279,7 @@
    ;; adapter — so the probe is what answers "is this configured right".
    'feeds-list ep-feeds-list 'feeds-create ep-feeds-create 'feed-get ep-feed-get
    'feed-patch ep-feed-patch 'feed-delete ep-feed-delete 'feed-probe ep-feed-probe
+   'feed-poll ep-feed-poll
    ;; #65: a region a person marked. LAY-5's spans are where a machine says it
    ;; read something; these are what somebody said about a place.
    'annotations-list ep-annotations-list 'annotations-create ep-annotations-create
@@ -929,6 +935,26 @@
             (set-box! drafted (add1 (unbox drafted))))))
       (hasheq 'locale loc 'requested (length ids) 'drafted (unbox drafted)
               'tokens_used (unbox total-tokens))))
+  ;; #114 slice 4: the first adapter, and the kind a feed's own schedule fires.
+  ;;
+  ;; The adapter is installed BEFORE the job kind for a reason that is not
+  ;; ordering fussiness: `FEED-KINDS` is derived from the registry, so a feed of
+  ;; kind `github.issues` cannot be configured — or re-read — until this line has
+  ;; run. It is a platform adapter, so it registers with no `current-plugin` and
+  ;; owns an unprefixed name; a plugin's would be `x.<id>.<name>`.
+  (install-github-adapter!)
+  (register-job-kind! POLL-KIND
+    (lambda (conn p payload)
+      ;; The job carries the feed id and nothing else: the ROW is what says which
+      ;; URL, which credential and whose authority, and copying any of that into
+      ;; a payload would let an edited feed keep being polled as it used to be.
+      ;; A feed deleted since the tick is not an error — the schedule goes with
+      ;; the feed, so this is the race between the two, and failing the job would
+      ;; put a red row in the team's history for housekeeping working correctly.
+      (define fid (format "~a" (hash-ref payload 'feed_id "")))
+      (cond
+        [(not (feed-by-id conn fid)) (hasheq 'skipped "the feed was deleted")]
+        [else (poll-feed! conn fid)])))
   (register-job-kind! "beta_judge"    ; vet a beta prospect with the LLM, store the verdict
     (lambda (conn p payload)
       (define pid (format "~a" (hash-ref payload 'prospect_id "")))
