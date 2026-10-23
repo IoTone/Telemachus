@@ -1091,6 +1091,10 @@
       "text": "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).",
       "hash": "42771b6fee9b1756ecf03cfe50df23b762abae38"
     },
+    "doc.route.post.api.feeds.id.poll": {
+      "text": "Poll the feed NOW, synchronously, and land what it returns as repository objects under `feeds/<slug>/<external-id>.json` — the item's own payload as the body and the item's title in the version's filename, so it is searchable. Answers what happened: requests made, items seen, created, updated, unchanged, skipped, and the cursor it advanced to. An UNCHANGED item writes no new version (the dedup hash is over the bytes this instance would store, not over the source's `updated_at`), and the cursor only advances over items that actually landed, so a refused write is re-read rather than skipped. Bounded to ten requests because it runs on a request thread; the scheduled poll is the same work in a job, where the lease and cancellation apply. 400 for a kind this build can probe but not poll, for a feed whose user has left the team, and when the item fields would exceed the forty a team may define. `feed.fetches` is charged per REQUEST, not per item — the dimension protects the source's rate limit as much as this instance.",
+      "hash": "edab3e7afcf2a2610f4b5faef80eac4e3bfc6951"
+    },
     "ui.wkqueued": {
       "text": "queued for workers",
       "hash": "e1123cdf2dd36125a8fa154f155699892d47698c"

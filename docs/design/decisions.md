@@ -1380,10 +1380,13 @@ Full reasoning and the slice plan are in
 | 🔑 **FEED‑13** | How a credential is presented, and where it may NOT live | **`bearer` / named `header` / `query`, the secret sealed — and USERINFO IN THE URL IS REFUSED** · vs bearer only · vs accepting whatever is in the URL | `query` is the uncomfortable one and it is supported deliberately: a great many real sources authenticate that way, and refusing it does not make them safer — it pushes the operator into pasting the token into the `url` field, where it is stored UNSEALED and returned by every read. So the token gets a sealed home and is appended at request time, alongside whatever query the operator configured rather than instead of it. `https://user:pass@host/` is the opposite case and is refused outright: it is unambiguously a credential, there is a sealed place for it, and silently moving it would leave the operator unsure which home was in use. A query string cannot be told from configuration by inspection, which is exactly why FEED‑6's redaction is what protects it. Basic auth is a pre-encoded `header`, not a fourth mode. |
 | **FEED‑11** | v1 scope | **FEED‑1…9 plus FEED‑10's proposal half** · vs the full acting tier | Slices 1 and 2 (recurring jobs, the egress seam) are platform work that #121's reporter and RSCH both wait on; 3–6 are a plugin. Acting without a gate, a core-console queue and a second adapter are all out.  **Revised on building slice 3**: the feed TABLE is core, not the plugin's, because FEED‑5's sealed column is — `define-sealed-column` and `CREDENTIAL-SECRETS` are platform machinery and a plugin-owned sealed column would be exactly the silently-unrotatable case FEED‑5 is about. A plugin-registrable sealed column is the seam that would move it and is not built; it is named here rather than implied. |
 
-**Three answers are needed before this is final**: which source adapter comes
-first (it decides what `external-id` and `priority` mean, and whether auth is a
-token, OAuth or nothing); whether a plugin screen is acceptable for the queue or
-it must be the core console; and whether FEED‑10's gate is acceptable for v1.
+**The first of the three answers arrived on 23 Oct 2026** and named six sources
+rather than one — GitHub issues, CERT advisories against pinned BOM
+dependencies, Kuma uptime alerts, Discord, Matrix and OTel. Slice 4 is built on
+it (FEED‑14…22 below), and the answer's real consequence is that the adapter
+REGISTRY is built now rather than after the fourth source. Still open and still
+not blocking: whether a plugin screen is acceptable for the queue or it must be
+the core console, and whether FEED‑10's gate is acceptable for v1.
 
 ## A worker token expires, and a rotation overlaps (PULL‑15) — **decided and BUILT 22 Oct 2026** (issue #60)
 
@@ -1470,6 +1473,45 @@ with `curl` is the right shape for a specific remote. Also not built: a console
 card, for #116's reason (it would need `ui.*` strings in two catalogs and a tour
 update, which is its own slice), and anchoring the **feed** or **webhook**
 tables, which keep no chain to anchor.
+
+## The first feed adapter: GitHub issues (FEED‑14…22) — **decided and BUILT 23 Oct 2026** (issue #114 slice 4)
+
+The owner answered the blocking question on
+[#114](https://github.com/IoTone/Telemachus/issues/114#issuecomment-6361023239),
+and the answer was not one source but **six**, in order: a GitHub issue tracker,
+CERT advisories for pinned BOM dependencies found by scanning their own source,
+Kuma uptime alerts, feeds from Discord servers they operate, Matrix chat
+notifications, and OTel server notifications. All six are devops.
+
+That list is the design input, and it changes one thing: **a second adapter is
+no longer hypothetical, so the registry is built now rather than after the
+fourth `cond` arm.** Five of the six are "JSON over HTTP with a different item
+shape"; the sixth (Matrix) is a push surface and is issue #133. GitHub issues is
+the one this slice builds, because the owner named it first and because it is
+the only one of the five whose wire this repository can exercise in CI against
+its own API shape.
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| 🔑 **FEED‑14** | How a source shape is added | **A REGISTRY entry — `register-feed-adapter!`, keyed by kind, with LAY‑7's ownership rule** · vs a `cond` in the poller · vs one adapter per slice | Six named sources is the evidence a registry needs; one was not. A `cond` over six item shapes inside the fetch loop is exactly the shape #110 r1 kept finding, and it would put the next source's parser inside the code that spends the team's quota and writes its documents. `FEED-KINDS` is **derived from the registry**, never a second list — the `available` locales rule — so a kind this build cannot pull cannot be configured in the first place, and a plugin can add one under `x.<plugin-id>.<name>` exactly as it adds a job kind or an extractor. |
+| **FEED‑15** | What `http.json` does now | **It stays PROBE-ONLY, and polling it is a named refusal** · vs guessing the item shape · vs removing the kind | A generic adapter would have to find the items in an unknown body and guess which field is the identity — and guessing is what DWF‑5 refuses on the model's own output, for the better reason: a wrong guess here writes somebody else's data under an identity that is not theirs, and the dedup hash then makes it permanent. So `http.json` is reachable by `probe` and refused by `poll`, with the message naming the kinds that CAN be polled. Removing the kind was rejected because a probe is the honest first step of configuring any of the five. |
+| **FEED‑16** | What an item's `external-id` is | **`<owner>-<repo>-<number>`** · vs the bare issue number · vs GitHub's global `id` | The bare number collides the moment the configured URL is a search or a cross-repo endpoint, and a collision writes two different issues over one key — which the dedup hash then reports as a document that changes every poll. The global `id` cannot collide and cannot be found by a person: "which document is issue #114?" has to be answerable without a join. The composed id is unique, stable and legible, and it is sanitized to the key vocabulary rather than trusted — a repository name is somebody else's string. |
+| **FEED‑17** | What gets stored | **The source's payload VERBATIM as `application/json`, with the item's title in the version's `filename`** · vs a reshaped summary · vs a text rendering beside the JSON | FEED‑1 says the source's own payload, and an adapter that reshaped it would be a lossy translation with nothing to check it against. But `application/json` has no extractor, so a pulled item would be invisible to search — and `0022-fold-documents` already settled where a document's title goes: the version's `filename`, which search covers along with the key. So the title is searchable, the payload is exact, and a second document per item (the shape that would make both true by duplication) is not written. |
+| **FEED‑18** | Where the dedup hash lives | **A CORE `feed_items` table** · vs the plugin's own, as FEED‑7 said | FEED‑11's revision applies again: the poller is core because the fetcher, the quota and the repository writes are, so the table it reads on every item belongs beside it. The hash is of the payload bytes **as the adapter composed them**, so "unchanged" means what this instance would store is unchanged — not what the source's own `updated_at` claims, which several of the six sources touch without changing anything. An unchanged item writes no version and moves `last_seen_epoch`. |
+| 🔑 **FEED‑19** | How the cursor advances | **Only over items that LANDED, and the window stays INCLUSIVE** · vs advancing to the poll's start time · vs no cursor | A cursor advanced to "now" at the end of a poll loses every item that arrived while the pages were being processed, and loses an item outright if its write was refused — by a storage quota, which is a case that will happen. So the cursor is the newest `updated_at` among items actually stored, and the next request asks for `since` **inclusive**, so the newest item comes back and the dedup hash absorbs it. The cost is one re-read per poll; what it buys is that a crash mid-page costs a re-read and never a gap. FEED‑3's "a feed is a cursor, not a ledger" is about missed TICKS, not about skipping items. |
+| **FEED‑20** | How an item's attributes pass LAY‑4 | **The adapter DECLARES the fields it writes and the poll adds them to the team's definitions** · vs writing attributes unvalidated · vs dropping undefined keys | LAY‑4 refuses a key the team has not defined, deliberately, because a value nothing can display or filter on is how a team concludes the model is broken. With no answer here every pulled item's attributes would be refused — and silently dropping them is the worse failure, because slice 5's queue reads exactly those keys. The declaration is additive and **never overwrites a team's own label** for a key it already defined, every key is namespaced `feed_*`, and the poll **refuses by name** if adding them would exceed LAY‑4's 40-field cap rather than truncating to fit. |
+| **FEED‑21** | How a feed comes to be polled | **`poll_seconds` on the feed, which owns a `job_schedules` row of kind `feed.poll`** · vs a separate schedule the operator wires by hand · vs a poller thread | FEED‑3 already built the only correct runner, so this is plumbing and the question is only who writes the row. The feed owns it: `polling` is then **derived** from that row rather than stored, which is the rule `missing`/`stale` and executor health already live by, and an operator cannot end up with a feed whose schedule says something else. It widens nothing — `feeds:manage` and `jobs:schedule` sit in the same role — and because the kind and the payload are **platform-set**, the feed plane cannot be used to schedule arbitrary work for a caller who holds only one of the two. |
+| **FEED‑22** | Whether a poll can be run by hand | **Yes: `POST /api/feeds/:id/poll`, synchronous and bounded** · vs the schedule only | FEED‑12's argument one step further. An operator configuring a feed needs to see it work, and "wait fifteen minutes and read `last_error`" is the loop that makes a feed nobody trusts. It is bounded — at most `FEED-MAX-PAGES` requests and a per-item byte cap — because a repository with 40,000 open issues must not be one request, and because the manual path runs on a request thread rather than in a job. |
+
+Metering is FEED‑9 unchanged, with one thing worth stating: `feed.fetches` is
+charged **per HTTP request, not per item**. The dimension exists to protect the
+*source's* rate limit as much as this instance, and a page of 100 items costs
+the source one request.
+
+Not built, deliberately: the other five adapters (each is a registry entry and
+a parser, and the one with a protocol rather than a shape is #133's), the ranked
+queue (slice 5, and FEED‑8 says it is the plugin's), and anything that acts
+(FEED‑10's gate first).
 
 ## Matrix notifications as an optional component (MTX‑1…9) — **decided and BUILT 23 Oct 2026** (issue #133)
 

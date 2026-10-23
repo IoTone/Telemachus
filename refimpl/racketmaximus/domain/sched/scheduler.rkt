@@ -59,7 +59,9 @@
          set-reaper! current-job
          claim-job! finish! reap-orphans! POOL-LEASE-SECONDS
          drain-scheduler! scheduler-inflight-count drain-seconds
-         current-plugin registered-job-kinds job-kinds-of-plugin)
+         ;; exported FOR the two other plugin-owned registries (extractors, feed
+         ;; adapters): the `x.<id>.` rule is one rule, not three copies of it.
+         current-plugin plugin-kind-prefix registered-job-kinds job-kinds-of-plugin)
 
 ;; ---- sealing a job's payload and result (issue #83 r2) --------------------------
 ;; `payload` is the INPUT a kind was given and `result` is what it produced, and

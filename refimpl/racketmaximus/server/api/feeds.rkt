@@ -2,16 +2,21 @@
 
 ;; server/api/feeds.rkt — external feed configuration (#114, FEED-2/-5/-6).
 
-(provide ep-feeds-list ep-feeds-create ep-feed-get ep-feed-patch ep-feed-delete ep-feed-probe)
+(provide ep-feeds-list ep-feeds-create ep-feed-get ep-feed-patch ep-feed-delete ep-feed-probe
+         ep-feed-poll)
 
 (require db-kit/portable
          web-kit
          json
+         racket/string
          (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id require-perm)
          (only-in "../../domain/net/fetch.rkt" safe-url)
          (only-in "../../domain/feeds/feeds.rkt"
-                  FEED-KINDS FEED-AUTHS feed-create! feed-delete! feed-get feed-list
-                  feed-problem feed-update! probe-feed!)
+                  FEED-KINDS FEED-AUTHS PROBE-ONLY-KINDS feed-create! feed-delete! feed-get feed-list
+                  feed-problem feed-update! probe-feed! feed-items-count)
+         (only-in "../../domain/feeds/adapters.rkt" feed-adapter-kinds)
+         (only-in "../../domain/feeds/poll.rkt" poll-feed!)
+         (only-in "../../domain/sched/schedules.rkt" SCHEDULE-MIN-INTERVAL)
          "../kit.rkt")
 
 (define (str b k [d #f])
@@ -46,8 +51,29 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "feeds:manage")
     (json-response (hasheq 'feeds (feed-list db-conn (principal-team-id p))
-                           'kinds FEED-KINDS
+                           'kinds (FEED-KINDS)
+                           ;; Which kinds can actually be POLLED, derived from the
+                           ;; adapter registry rather than listed a second time
+                           ;; (FEED-14/-15). `http.json` is in `kinds` and not in
+                           ;; `pollable_kinds`, which is the honest answer to
+                           ;; "why is nothing arriving".
+                           'pollable_kinds (feed-adapter-kinds)
+                           'probe_only_kinds PROBE-ONLY-KINDS
+                           'min_poll_seconds SCHEDULE-MIN-INTERVAL
                            'auth_modes FEED-AUTHS)))))
+
+;; `poll_seconds`: a positive integer, `null` to stop polling, absent to leave
+;; it alone. It is validated HERE rather than in `feed-problem` because it is not
+;; part of what makes a feed well formed — a feed with no cadence is a perfectly
+;; good feed that an operator polls by hand (FEED-22).
+(define (poll-seconds b)
+  (define v (hash-ref b 'poll_seconds 'missing))
+  (cond
+    [(eq? v 'missing) 'same]
+    [(or (eq? v 'null) (not v) (equal? v 0)) #f]
+    [(and (exact-integer? v) (positive? v)) v]
+    [(and (string? v) (regexp-match? #px"^[0-9]+$" v) (positive? (string->number v))) (string->number v)]
+    [else 'bad]))
 
 (define (ep-feeds-create req)
   (with-auth req (lambda (p)
@@ -62,15 +88,27 @@
     ;; The user a pull acts as defaults to the caller — the ordinary case, and
     ;; the one DWF-2 already decided for an upload.
     (define user (or (str b 'user_id) (principal-user-id p)))
-    (define problem (feed-problem #:slug slug #:kind kind #:url url #:auth auth
-                                  #:auth-name auth-name #:secret secret))
+    (define every (poll-seconds b))
+    (define problem (or (feed-problem #:slug slug #:kind kind #:url url #:auth auth
+                                      #:auth-name auth-name #:secret secret)
+                        (and (eq? every 'bad)
+                             "`poll_seconds` must be a positive number of seconds, or null to poll only by hand")
+                        ;; A cadence on a kind nothing can pull would be a timer
+                        ;; firing a job that refuses every time — #113's shape,
+                        ;; on a schedule. Said now, where somebody is reading it.
+                        (and (exact-integer? every) (member kind PROBE-ONLY-KINDS)
+                             (format (string-append "the kind `~a` can be probed but not polled, so it "
+                                                    "takes no `poll_seconds`. Kinds with an adapter: ~a")
+                                     kind (let ([ks (feed-adapter-kinds)])
+                                            (if (null? ks) "(none)" (string-join ks ", ")))))))
     (cond
       [problem (err problem 400)]
       [else
        (define r (feed-create! db-conn #:team (principal-team-id p) #:user user #:slug slug
                                #:name (str b 'name) #:kind kind #:url url #:auth auth
                                #:auth-name auth-name #:secret secret
-                               #:created-by (principal-user-id p)))
+                               #:created-by (principal-user-id p)
+                               #:poll-seconds (and (exact-integer? every) every)))
        (cond
          [(eq? r 'no-such-user)
           (err "`user_id` must be an active member of this team — a feed cannot act as somebody outside it" 400)]
@@ -120,16 +158,27 @@
                                           ;; to validation is that there IS one
                                           (and (hash-ref cur 'has_secret) "stored")
                                           secret))))
+    (define every (poll-seconds b))
+    (define kind-now (and cur (or (eff kind 'kind) "")))
     (cond
       [(not cur) (err "no such feed" 404)]
       [problem (err problem 400)]
+      [(eq? every 'bad)
+       (err "`poll_seconds` must be a positive number of seconds, or null to poll only by hand" 400)]
+      [(and (exact-integer? every) (member kind-now PROBE-ONLY-KINDS))
+       (err (format (string-append "the kind `~a` can be probed but not polled, so it takes no "
+                                   "`poll_seconds`. Kinds with an adapter: ~a")
+                    kind-now (let ([ks (feed-adapter-kinds)])
+                               (if (null? ks) "(none)" (string-join ks ", "))))
+            400)]
       [else
        (define r (feed-update! db-conn id (principal-team-id p)
                                #:user (patch-str b 'user_id) #:slug slug #:name (patch-str b 'name)
                                #:kind kind #:url url #:auth auth #:auth-name auth-name
                                #:secret secret
                                #:active? (let ([v (hash-ref b 'active 'same)])
-                                           (if (boolean? v) v 'same))))
+                                           (if (boolean? v) v 'same))
+                               #:poll-seconds every))
        (cond
          [(eq? r 'no-such-user)
           (err "`user_id` must be an active member of this team — a feed cannot act as somebody outside it" 400)]
@@ -173,4 +222,33 @@
        ;; answered is in the body, and a 502 here would be this instance
        ;; claiming somebody else's failure as its own.
        (json-response (hasheq 'probe outcome
+                              'feed (feed-get db-conn id (principal-team-id p))))]))))
+
+;; FEED-22: the manual poll. An operator configuring a feed needs to see it work,
+;; and "wait fifteen minutes and read `last_error`" is the loop that produces a
+;; feed nobody trusts — FEED-12's argument for the probe, one step further.
+;;
+;; Synchronous and BOUNDED: at most `FEED-MAX-PAGES` requests, because this runs
+;; on a request thread. The scheduled poll is the same function in a job, where
+;; the lease, the run-time ceiling and cancellation all apply.
+(define (ep-feed-poll req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "feeds:manage")
+    (define f (feed-get db-conn id (principal-team-id p)))
+    (cond
+      [(not f) (err "no such feed" 404)]
+      [else
+       ;; A kind with no adapter, a user who has left the team, or the LAY-4
+       ;; field cap: each is the CALLER's to fix, so each is a 400 naming it
+       ;; rather than a 500 (#123's rule — a caller must be able to tell their
+       ;; own mistake from a server fault).
+       (define summary (poll-feed! db-conn id))
+       (audit! db-conn #:action "feed.poll.manual" #:actor-type "user"
+               #:actor-id (principal-user-id p) #:team-id (principal-team-id p)
+               #:resource-type "feed" #:resource-id id
+               #:meta (feed-meta f (hasheq 'stored (hash-ref summary 'stored 0)
+                                           'ok (hash-ref summary 'ok #f))))
+       ;; 200 whatever the source said, for the probe's reason: the poll ran.
+       (json-response (hasheq 'poll summary
+                              'items (feed-items-count db-conn id)
                               'feed (feed-get db-conn id (principal-team-id p))))]))))
