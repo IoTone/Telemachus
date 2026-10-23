@@ -8,16 +8,20 @@
 ;; constructors — is server/kit.rkt.
 
 (provide ep-audit ep-admin-seed ep-metrics ep-plugins ep-mcp ep-oop
-         ep-tool-toggle)
+         ep-tool-toggle ep-anchor-status ep-anchor-emit ep-anchor-receipts
+         ep-anchor-export)
 
 (require db-kit/portable
          web-kit
+         web-server/http
          (only-in "../../domain/authz/authz.rkt" audit! audit-list principal-team-id principal-user-id require-perm)
          (only-in "../../domain/samples/samples.rkt" seed-samples!)
          (only-in "../../domain/agent/registry.rkt" set-tool-enabled!)
          (only-in "../../domain/agent/plugins.rkt" loaded-plugins plugin-failures)
          (only-in "../../domain/mcp/connect.rkt" mcp-servers)
          (only-in "../../domain/oop/host.rkt" capability-names loaded-oop-plugins)
+         (only-in "../../domain/audit/anchor.rkt"
+                  anchor-emit! anchor-status anchor-receipts anchor-export-jsonl)
          "../kit.rkt")
 
 (define (ep-audit req)
@@ -69,3 +73,61 @@
     (define on? (and (hash-ref b 'enabled #t) #t))
     (set-tool-enabled! db-conn (principal-team-id p) name on?)
     (json-response (hasheq 'ok #t 'tool name 'enabled on?)))))
+
+;; ---- the external anchor (#66, ANCHOR-1…10) ----------------------------------
+;; The receipt series that makes a rewrite of either hash chain detectable from
+;; OUTSIDE the box. These four routes are the box's side of it; the half that
+;; matters is `cli/telemachus-anchor.rkt verify`, which runs against a retained
+;; file with no server and no database — an anchor is worth something precisely
+;; when the instance is the suspect.
+;;
+;; THE READS ARE `instance:read`, NOT `instance:manage` (#124's split). A receipt
+;; carries chain head hashes, counts and a signature — 64 hex characters that say
+;; nothing about what any team decided or who read what — so a monitoring or
+;; retention credential may pull them, and pulling them is the normal way a
+;; series gets retained. That is the opposite call from `GET /api/admin/audit/export`,
+;; which stays `instance:manage` because it hands over the log ITSELF.
+;; Emitting is a write, so it is `instance:manage`.
+
+(define (ep-anchor-status req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (json-response (anchor-status db-conn)))))
+
+(define (ep-anchor-emit req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    ;; `anchor-emit!` raises a user error when no key is configured, which the
+    ;; dispatcher turns into a 400 naming the generator (#123) — the caller's
+    ;; configuration is the caller's to read, and it is not a server fault.
+    ;; The team is the acting operator's: `audit-list` filters `WHERE team_id = ?`,
+    ;; so an instance-tier entry without one is invisible to everybody. SEVENTH
+    ;; appearance of that shape in this tree.
+    (json-response (anchor-emit! db-conn
+                                 #:actor-id (principal-user-id p)
+                                 #:team-id (principal-team-id p))))))
+
+(define (ep-anchor-receipts req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (define lim (max 1 (min 1000 (or (string->number (query-param req 'limit "100")) 100))))
+    (define since (string->number (query-param req 'since_seq "")))
+    (json-response
+     (hasheq 'receipts (anchor-receipts db-conn #:limit lim #:since-seq since)
+             'status (anchor-status db-conn))))))
+
+(define (ep-anchor-export req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (define lim (max 1 (min 100000 (or (string->number (query-param req 'limit "10000")) 10000))))
+    (define since (string->number (query-param req 'since_seq "")))
+    ;; Streamed as JSONL, oldest first, so a retention system APPENDS what it does
+    ;; not yet hold — `?since_seq=` is how it asks for only that. The same shape
+    ;; the audit export chose, for the same reason.
+    (response/output
+     #:mime-type #"application/x-ndjson"
+     #:headers (list (make-header #"X-Content-Type-Options" #"nosniff")
+                     (make-header #"Content-Disposition"
+                                  #"attachment; filename=\"anchor-receipts.jsonl\""))
+     (lambda (out)
+       (void (anchor-export-jsonl db-conn out #:since-seq since #:limit lim)))))))

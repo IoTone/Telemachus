@@ -17,9 +17,13 @@
 ;; recompute every link after the row they changed and the chain will verify
 ;; again. That is the party an administrative audit is most meant to defend
 ;; against, so the claim stops here. The same shape as secrets at rest, which
-;; defends a DUMP and not a HOST. What would close it is an EXTERNAL anchor —
-;; publishing the head hash somewhere the database's owner does not control —
-;; which is a deployment decision rather than a schema one, and is not built.
+;; defends a DUMP and not a HOST. What closes it is an EXTERNAL anchor —
+;; publishing the head hash somewhere the database's owner does not control — and
+;; that IS built now (issue #66): `anchor.rkt` signs a receipt naming this
+;; chain's head per org, `audit-chain-heads` below is what it reads, and a
+;; retained receipt catches a rewrite that every internal link agrees with.
+;; test/anchor-tests.rkt case 3 performs that rewrite, confirms THIS function
+;; still says `ok`, and then catches it with the retained copy.
 ;;
 ;; WHY THE CHAIN IS SEALED IN A SWEEP AND NOT AT INSERT TIME. Two reasons, and
 ;; the first is a requirement:
@@ -45,7 +49,7 @@
          (only-in "../db/nulls.rkt" nz))
 
 (provide audit-chain-seal! audit-chain-verify audit-chain-status
-         audit-export-jsonl)
+         audit-export-jsonl audit-chain-heads ORG-NONE)
 
 (define CHAIN-VERSION "telemachus.audit.v1")
 
@@ -176,6 +180,30 @@
           'unsealed (count "chain_hash IS NULL")
           'head (or (head-of conn oid) 'null)
           'chain_version CHAIN-VERSION))
+
+
+;; ---- what the anchor measures (ANCHOR-2/-8, issue #66) ------------------------
+;; Every org that has a chained entry, with that chain's head and how many
+;; entries it covers — the audit half of a receipt, beside the review half that
+;; `review-chain-heads` answers.
+;;
+;; IT SEALS FIRST, and that is ANCHOR-8 rather than a convenience: this chain is
+;; sealed by a sweep, so a head read mid-window is a value the next sweep
+;; legitimately changes. A receipt naming one would make an honest instance fail
+;; its own later verification. Asked of the DATA, like `orgs-needing-seal`: an
+;; entry's org is on the entry (AUD-9) and an org row may be gone while its
+;; history is not.
+(define (audit-chain-heads conn)
+  (audit-chain-seal! conn)
+  (define named (query-list conn
+    "SELECT DISTINCT org_id FROM audit_log WHERE org_id IS NOT NULL ORDER BY org_id ASC"))
+  (define any-null? (query-maybe-value conn
+    "SELECT 1 FROM audit_log WHERE org_id IS NULL LIMIT 1"))
+  (for/list ([oid (in-list (append (if any-null? (list ORG-NONE) '()) named))])
+    (define st (audit-chain-status conn oid))
+    (hasheq 'chain "audit" 'scope oid
+            'head (hash-ref st 'head)
+            'entries (hash-ref st 'sealed))))
 
 ;; ---- the export (r3) -------------------------------------------------------------
 ;; JSONL, one entry per line, so it streams and so a retention system can append

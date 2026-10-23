@@ -43,6 +43,9 @@
          (only-in "../domain/events/events.rkt" set-event-sink!)
          (only-in "../domain/s3/server.rkt" make-s3-handler reap-uploads! s3-region)
          (only-in "../domain/audit/chain.rkt" audit-chain-seal!)
+         ;; #66: the external anchor, emitted on the reaper seam
+         (only-in "../domain/audit/anchor.rkt" anchor-emit!)
+         (only-in "../domain/authz/signing.rkt" anchor-signing-enabled?)
          (only-in "../domain/idem/idem.rkt" idem-reap!)
          (only-in "../domain/retention/retention.rkt" retention-sweep!)
          "routes.rkt"                             ; the declared HTTP surface (slice 60)
@@ -290,6 +293,9 @@
    'instance-features ep-instance-features 'instance-features-put ep-instance-features-put
    'org-features ep-org-features 'org-features-put ep-org-features-put
    'audit-verify ep-audit-verify 'audit-export ep-audit-export
+   ;; #66: the external anchor for both hash chains
+   'anchor-status ep-anchor-status 'anchor-emit ep-anchor-emit
+   'anchor-receipts ep-anchor-receipts 'anchor-export ep-anchor-export
    'repo-meta ep-repo-meta 'repo-delete ep-repo-delete 'repo-put ep-repo-put
    'repo-traces ep-repo-traces 'repo-delete-prefix ep-repo-delete-prefix
    'retention-get ep-retention-get 'retention-put ep-retention-put
@@ -731,6 +737,26 @@
   ;; "within 2 seconds" acceptance needs.
   (define last-webhook-sweep (box 0))
   (define WEBHOOK-SWEEP-EVERY 1)
+  ;; The anchor receipt (#66) is the EIGHTH thing on this seam, and the longest
+  ;; interval of the lot. It is OFF unless `TELEMACHUS_ANCHOR_KEY` is configured
+  ;; (ANCHOR-7): a real default would start emitting a receipt series on every
+  ;; instance that nobody retains, which reads as a working feature and is worse
+  ;; than none. A day is the default cadence because the anchor's RESOLUTION IS
+  ;; ITS CADENCE — a rewrite inside the window since the last receipt is not
+  ;; detectable — so the knob is the operator's to shorten. `never` emits only
+  ;; when asked over HTTP or by the CLI; an unparseable or non-positive value
+  ;; falls back to the default, never to 0, which would emit on every tick and
+  ;; bury the series it is meant to protect.
+  (define ANCHOR-EVERY
+    (let ([raw (string-downcase (string-trim (or (getenv "TELEMACHUS_ANCHOR_EVERY") "")))])
+      (cond
+        [(string=? raw "") 86400]
+        [(string=? raw "never") #f]
+        [else (let ([n (string->number raw)]) (if (and n (exact-integer? n) (> n 0)) n 86400))])))
+  ;; Seeded to NOW rather than 0, so a restart does not emit a receipt on its
+  ;; first tick: a box that restarts hourly would otherwise produce an hourly
+  ;; series and the cadence would be a lie.
+  (define last-anchor (box (current-seconds)))
   ;; #85: ONE sink for every emitter — a run settling, a job finishing, an object
   ;; arriving or going, a review decided. Installed here rather than inside
   ;; webhooks.rkt so the domain module stays something a test can drive directly.
@@ -791,6 +817,22 @@
        (with-handlers ([exn:fail? (lambda (e)
                                     (eprintf "audit chain: ~a\n" (exn-message e)))])
          (void (audit-chain-seal! conn))))
+     ;; #66: a signed measurement of both chains, on the longest interval here.
+     ;; `anchor-signing-enabled?` is asked every tick rather than once at boot so
+     ;; a key added to the environment takes effect on a restart only — which it
+     ;; does — without this branch having to know that. It emits as the SYSTEM:
+     ;; no operator pressed anything, and `anchor-emit!` records that rather than
+     ;; attributing a sweep to whoever happened to start the process.
+     (when (and ANCHOR-EVERY
+                (anchor-signing-enabled?)
+                (> (- (current-seconds) (unbox last-anchor)) ANCHOR-EVERY))
+       (set-box! last-anchor (current-seconds))
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "anchor receipt: ~a\n" (exn-message e)))])
+         (define r (anchor-emit! conn))
+         (printf "anchor: receipt ~a emitted (~a chain(s)), hash ~a\n"
+                 (hash-ref r 'seq) (hash-ref r 'chains)
+                 (substring (hash-ref r 'hash) 0 16))))
      n))
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker

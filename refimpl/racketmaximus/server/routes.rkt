@@ -311,6 +311,15 @@
    (R "GET" "/api/repo-obj/:id/processing" 'repo-processing #:perm "files:read" #:scope 'resource #:doc "\"Processed by\": derived documents, sources, and every run that touched the document.")
    ;; the chain's own two routes sit above nothing that could swallow them, but
    ;; they are kept together so a reader finds the pair
+   ;; #66: the external anchor. A receipt is a SIGNED measurement of both hash
+   ;; chains, and the series is itself chained so that SUPPRESSION is detectable.
+   ;; The reads are `instance:read` (#124) because a receipt carries head hashes
+   ;; and counts and no tenant content — a retention credential pulling them is
+   ;; how a series gets retained in the first place.
+   (R "GET" "/api/admin/anchor" 'anchor-status #:perm "instance:read" #:doc "Anchor status (#66): whether receipt emission is configured, the public key receipts are signed with, the instance's series id, how many receipts exist and the latest sequence and hash. It reports what was EMITTED and deliberately never claims anything was RETAINED — the retained copy is the anchor, and the platform cannot verify that somebody else kept it.")
+   (R "POST" "/api/admin/anchor/emit" 'anchor-emit #:perm "instance:manage" #:doc "Emit an anchor receipt now: seal the audit chain, read both chains' heads (the review chain per team, the audit chain per org) and sign the measurement with TELEMACHUS_ANCHOR_KEY. 400 when no anchor key is configured. Two concurrent emissions are refused by the sequence's unique index rather than retried — a forked series could not be told from a forgery.")
+   (R "GET" "/api/admin/anchor/receipts" 'anchor-receipts #:perm "instance:read" #:doc "Anchor receipts, newest first, or oldest-first from `?since_seq=`. Each carries the exact signed payload bytes, its signature, the public key that signed it, its sequence and its predecessor's hash. `limit` caps at 1000.")
+   (R "GET" "/api/admin/anchor/export" 'anchor-export #:perm "instance:read" #:doc "Anchor receipts as JSONL, oldest first, for retention OUTSIDE this instance's trust domain. `?since_seq=` asks for only what a retainer does not yet hold, so the file appends. Verify a retained copy offline with `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` — which needs neither this server nor its database, because an anchor is worth something precisely when the instance is the suspect.")
    (R "GET" "/api/admin/audit/verify" 'audit-verify #:perm "instance:read" #:doc "Verify the audit log's hash chain for one org, naming the first broken entry.")
    (R "GET" "/api/admin/audit/export" 'audit-export #:perm "instance:manage" #:doc "Export one org's audit log as JSONL over a date range, chain fields included.")
    (R "GET" "/api/repo-obj/:id/reads" 'repo-reads #:perm "files:read" #:scope 'resource #:doc "Who read this document, when and from where: reads, presign issuance and redemption, including refused attempts.")

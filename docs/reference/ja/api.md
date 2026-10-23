@@ -197,6 +197,10 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PATCH | `/api/annotations/:id` | bearer | `files:read` | resource | — | 自分の注釈の `body`、`page`、`bbox`、`start`、`end` を変更します。**変更できるのは作成者だけです** — 他人の所見への訂正は、その書き換えではなく自分自身の注釈です（権限付与テーブルの「上書きではなく新しい記録」の原則、およびレビュー判断が最終であることと同じ考え方）。他人の注釈は 403 になります。リクエスト自体は正しく、その人が適切でないからです。注釈として妥当かを同じ基準で検証するため、作成では到達できない状態に変更で至ることはありません。 |
 | DELETE | `/api/annotations/:id` | bearer | `files:read` | resource | — | 注釈を削除します。自分のものは作成した事実だけで削除できます。他人のものには文書に対する `files:manage` が必要で、これは文書に付随するものの管理責任にあたります（DSH-2 の原則）。これは意図的に、編集よりも弱い権限です — 編集は作成者以外にはできません。 |
 | GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | resource | — | 「処理履歴」：派生した文書、元の文書、そしてこの文書に触れたすべての実行。 |
+| GET | `/api/admin/anchor` | bearer | `instance:read` | role | — | アンカーの状態（#66）：受領証の発行が設定されているか、受領証の署名に使う公開鍵、このインスタンスのシリーズ ID、受領証の総数、最新の連番とハッシュを返す。報告するのは「発行された」内容だけであり、「保管された」ことは決して主張しない —— アンカーとなるのは外部に保管された写しであり、他者がそれを保持しているかどうかをプラットフォームは検証できない。 |
+| POST | `/api/admin/anchor/emit` | bearer | `instance:manage` | role | — | アンカー受領証を直ちに発行する：監査チェーンを封印し、両方のチェーンのヘッド（チームごとのレビューチェーン、組織ごとの監査チェーン）を読み、その測定値を TELEMACHUS_ANCHOR_KEY で署名する。アンカー鍵が未設定の場合は 400。同時に 2 件発行しようとした場合は、再試行せず連番の一意インデックスで拒否する —— 分岐したシリーズは偽造と区別できないからである。 |
+| GET | `/api/admin/anchor/receipts` | bearer | `instance:read` | role | — | アンカー受領証を新しい順に返す。`?since_seq=` を指定した場合は古い順。各受領証は署名対象となった正確なバイト列、その署名、署名に使われた公開鍵、連番、直前の受領証のハッシュを含む。`limit` の上限は 1000。 |
+| GET | `/api/admin/anchor/export` | bearer | `instance:read` | role | — | アンカー受領証を JSONL（古い順）で返す。このインスタンスの信頼境界の外に保管するためのもの。`?since_seq=` は保管側がまだ持っていない分だけを要求するので、ファイルに追記できる。保管した写しは `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` でオフライン検証する —— このサーバーもそのデータベースも必要としない。アンカーが意味を持つのは、まさにそのインスタンス自身が疑われている場合だからである。 |
 | GET | `/api/admin/audit/verify` | bearer | `instance:read` | role | — | 1つの組織の監査ログのハッシュチェーンを検証し、最初に壊れたエントリを示す。 |
 | GET | `/api/admin/audit/export` | bearer | `instance:manage` | role | — | 1つの組織の監査ログを日付範囲で JSONL として書き出す。チェーンのフィールドを含む。 |
 | GET | `/api/repo-obj/:id/reads` | bearer | `files:read` | resource | — | この文書を誰がいつどこから読んだか：読み取り、署名付きリンクの発行と利用、拒否された試行を含む。 |
