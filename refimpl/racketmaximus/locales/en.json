@@ -11,6 +11,14 @@
       "text": "please use a work email address",
       "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
     },
+    "doc.route.get.api.feeds": {
+      "text": "The team's configured external feeds, plus the closed list of feed kinds this build can pull and the ways a credential may be presented. A secret is never in a read: a row answers `has_secret`, and `polling` says whether anything fetches this feed on a timer yet.",
+      "hash": "aa9cb34887fe72807c8e4826d150a57a00c00ff5"
+    },
+    "ui.updpw": {
+      "text": "Update password",
+      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
+    },
     "ui.quotaheldorg": {
       "text": "This team's company has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "c278db3a6c6604c5e8583793f3419c1b22b54bce"
@@ -134,10 +142,6 @@
     "doc.route.post.api.jobs": {
       "text": "Enqueue a scheduler job of a registered kind.",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
-    },
-    "ui.updpw": {
-      "text": "Update password",
-      "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
     },
     "doc.workflow.process-upload": {
       "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
@@ -635,6 +639,10 @@
       "text": "Update a note's title and/or body by id.",
       "hash": "44491022a8c823f95545b85549b446db8e969998"
     },
+    "doc.route.post.api.feeds.id.probe": {
+      "text": "Fetch the feed's URL once, now, with its credential, and answer what happened: the status, whether the body parsed as JSON, and how many bytes came back. Nothing is stored but the outcome — no document is created, so this is safe to run while configuring. A wrong credential shows up here as the source's own 401 rather than as silence on a timer. The recorded error names the host, the path and the status and never the query string, a header or the body.",
+      "hash": "0f6d28d436b570e60612363f1fc93fed03975005"
+    },
     "doc.tool.shipment_eta": {
       "text": "Estimate arrival days for a shipment lane.",
       "hash": "f51b84f35d383babe2977d268114273192db0e6c"
@@ -850,6 +858,10 @@
     "ui.uploaded": {
       "text": "Uploaded",
       "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
+    },
+    "doc.perm.feeds:manage": {
+      "text": "Configure external feeds: the source URL, the credential presented to it, and the team member whose authority a pull spends. Reading is held to the same permission as writing, because the row says where a credential is sent.",
+      "hash": "e1d612a2b6f2abf2d96fddfca30b7c7658eea5ae"
     },
     "beta.challenge_expired": {
       "text": "invalid or expired challenge — reload the page",
@@ -1610,6 +1622,10 @@
     "doc.route.delete.api.documents.id": {
       "text": "Delete a text document.",
       "hash": "f500abea97efc00a4a244e22ffe02227348e511b"
+    },
+    "doc.route.patch.api.feeds.id": {
+      "text": "Change any of `slug`, `name`, `kind`, `url`, `auth`, `auth_name`, `secret`, `user_id` or `active`. Validated as the feed would be, so a patch cannot reach a state a create could not: switching to `bearer` in the request that supplies the secret is accepted, switching without one is refused. A `null` secret clears the stored credential.",
+      "hash": "55abac16d7f6cc4ab73f5fa2b935025a20be8106"
     },
     "ui.wknamereq": {
       "text": "A worker needs a name",
@@ -2459,6 +2475,14 @@
       "text": "Results",
       "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
     },
+    "ui.versions": {
+      "text": "Versions",
+      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
+    },
+    "doc.route.delete.api.feeds.id": {
+      "text": "Delete a feed's configuration. Anything it already pulled is an ordinary repository document and is untouched — deleting the feed is not a retraction of its items.",
+      "hash": "c9df0d8c31f26321241f7ba3b658661fe6138cc6"
+    },
     "doc.route.post.api.activate": {
       "text": "Hosted mode: redeem an activation token and set the owner's password.",
       "hash": "4abf505567758f834dd33521715f9792cffaebac"
@@ -2466,10 +2490,6 @@
     "ui.notes": {
       "text": "Notes",
       "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
-    },
-    "ui.versions": {
-      "text": "Versions",
-      "hash": "a239107ef28f6efe13d8ea83e502da9aa8c43fbb"
     },
     "doc.route.post.api.l10n.discard": {
       "text": "Remove a locale's machine drafts (never a human's work).",
@@ -2486,6 +2506,10 @@
     "ui.wkretireconfirm": {
       "text": "Retire {name}? Its worker token is revoked for good and any job it is holding goes back to the queue. To take it out of rotation for a while, drain it instead.",
       "hash": "bc19355c997cb1ed7a6b083c2784e3544d5dd4e7"
+    },
+    "doc.route.post.api.feeds": {
+      "text": "Configure a feed: `slug` (the key prefix pulled items land under), `kind`, `url`, and optionally `auth` with its `secret` — `bearer`, `header` or `query`, the last because a great many real sources authenticate that way and refusing it only pushes the token into the URL, unsealed. The secret is sealed at rest and rotated by `telemachus-secrets rewrap`. `user_id` is the team member a pull acts as and defaults to the caller; somebody outside the team is refused, because a feed cannot act as them.",
+      "hash": "056b9c0b9f8e395e2e824fc973122e5d1282b718"
     },
     "ui.signingin": {
       "text": "Signing in…",
@@ -2719,6 +2743,14 @@
       "text": "Uploading",
       "hash": "de27240983ef2f1432e07df25dd609712f69a107"
     },
+    "doc.route.get.api.org": {
+      "text": "The caller's own company.",
+      "hash": "64fe44cbb3af833179d4b608cf69ed65492b7216"
+    },
+    "doc.route.get.api.feeds.id": {
+      "text": "One feed. Another team's id is a 404, not a 403.",
+      "hash": "7cbf68872016efd24eec9befddf94a66fe1a34ad"
+    },
     "doc.route.get.api.reviews": {
       "text": "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.",
       "hash": "0d91dd0215b151859baa579e596907d41f41211a"
@@ -2826,10 +2858,6 @@
     "doc.route.patch.api.schedules.id": {
       "text": "Retune a schedule: `cadence`, `interval_seconds`, `at_minute`, `days_of_week`, `timezone`, `paused`, `payload`, `priority`, `name`. The schedule is validated AS IT WOULD BE, so switching to `daily` in the same request that supplies `at_minute` is accepted and switching without one is refused — a patch cannot reach a state a create could not. Any change to WHEN recomputes the next firing, rather than firing once at the old time and only then obeying the edit. The PRINCIPAL cannot be patched: changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing forward instead of catching up on every tick it missed.",
       "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
-    },
-    "doc.route.get.api.org": {
-      "text": "The caller's own company.",
-      "hash": "64fe44cbb3af833179d4b608cf69ed65492b7216"
     }
   }
 }

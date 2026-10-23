@@ -22,7 +22,7 @@
 
 (require rackunit racket/string
          "../domain/authz/sealed.rkt"
-         (only-in "../domain/authz/secretbox.rkt" secret-wrap secret-unwrap))
+         (only-in "../domain/authz/secretbox.rkt" secret-wrap secret-unwrap wrapped-secret?))
 
 (define (with-env name value thunk)
   (define saved (getenv name))
@@ -134,3 +134,42 @@
      ;; on an unreadable payload is worse than a refusal
      (define pct (s-payload "J7" "{}"))
      (check-exn exn:fail? (lambda () (u-payload "J8" pct))))))
+
+;; ---- 5. a credential is not content (#114) -----------------------------------------
+;; The default seal is conditional on `TELEMACHUS_ENCRYPT_CONTENT`, which is right
+;; for extracted text — sealing it costs content search, so it waits to be asked
+;; for. It is WRONG for a replayable credential, and #85's `webhooks.secret` was
+;; the first credential declared through this macro: with a key configured and the
+;; content switch off, which is the DOCUMENTED DEFAULT, its signing secret was
+;; written in the clear while `CREDENTIAL-SECRETS` said it was sealed.
+;;
+;; Both directions are asserted, because the content gate is still correct for
+;; content and an over-correction here would start sealing extracted text on every
+;; instance that set a key.
+(define-sealed-column "feeds.secret"    (s-feed u-feed) (id) #:credential)
+(define-sealed-column "webhooks.secret" (s-hook u-hook) (id) #:credential)
+
+(define (keyed-no-content thunk)
+  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
+    (lambda () (with-env "TELEMACHUS_ENCRYPT_CONTENT" "" thunk))))
+
+(test-case "a credential column seals with a key alone; a content column waits for the switch"
+  (keyed-no-content
+   (lambda ()
+     (define ct (s-feed "F1" "t0p-s3cret"))
+     (check-true (wrapped-secret? ct))
+     (check-false (regexp-match? #rx"t0p-s3cret" ct))
+     (check-equal? (u-feed "F1" ct) "t0p-s3cret")
+     (check-true (wrapped-secret? (s-hook "W1" "signing-key")))
+     ;; THE CONTROL. In the same environment a CONTENT column is untouched, so
+     ;; this case cannot pass by sealing everything — which would silently remove
+     ;; content search from every instance with a key.
+     (check-equal? (s-payload "J9" "{\"a\":1}") "{\"a\":1}")
+     (check-false (wrapped-secret? (s-payload "J9" "{\"a\":1}")))))
+  ;; …and with no key at all, nothing is sealed and the value passes through
+  (with-env "TELEMACHUS_SECRET_KEY" ""
+    (lambda ()
+      (check-equal? (s-feed "F1" "t0p-s3cret") "t0p-s3cret")))
+  ;; the AAD is the compatibility surface for these two as well
+  (check-equal? (sealed-context "feeds.secret" '("F1")) "feeds.secret:F1")
+  (check-equal? (sealed-context "webhooks.secret" '("W1")) "webhooks.secret:W1"))

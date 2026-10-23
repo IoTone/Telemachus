@@ -164,6 +164,12 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/webhooks/:id/ping` | bearer | `webhooks:manage` | role | — | この購読に `ping` イベントを今すぐ同期的に配信し、その結果を返す。実際のイベントが依存する前に、受信側の署名検証を確認する手段です。購読が無効、または `ping` を購読していない場合は 409 で拒否されます。 |
 | GET | `/api/webhooks/:id/deliveries` | bearer | `webhooks:manage` | role | — | この購読の配信試行を新しい順に返す: 状態（`pending`/`delivered`/`dead`）、試行回数、最後の応答コード、最後のエラー、レイテンシ、次回試行予定。`?status=dead` がデッドレター一覧です。 |
 | POST | `/api/deliveries/:id/redeliver` | bearer | `webhooks:manage` | role | — | デッドまたは配信済みのイベントを再送する。試行回数はリセットされます — 再送を選んだ運用者は判断を下しており、10 回のうち既に消費された 1 回分しか残っていなければこの操作は役に立ちません。配信 ID は変わらないため、すでに適用した受信側は冪等キーとして認識できます。 |
+| GET | `/api/feeds` | bearer | `feeds:manage` | role | — | チームに設定された外部フィードの一覧。あわせて、このビルドが取得できるフィード種別の閉じたリストと、資格情報の提示方法を返します。シークレットが読み取りに含まれることはありません。行が返すのは `has_secret` で、`polling` はこのフィードを定期的に取得する仕組みがまだあるかどうかを示します。 |
+| POST | `/api/feeds` | bearer | `feeds:manage` | role | — | フィードを設定します。`slug`（取得した項目が置かれるキー接頭辞）、`kind`、`url`、必要に応じて `auth` とその `secret`（`bearer`、`header`、`query`）。`query` を許しているのは、実際の取得元の多くがその方式で認証するためで、拒否してもトークンが暗号化されないまま URL に書かれるだけです。シークレットは保存時に封印され、`telemachus-secrets rewrap` で鍵を更新できます。`user_id` は取得が代理するチームメンバーで、既定では呼び出し元です。チーム外のユーザーは拒否されます — フィードがその人を代理することはできません。 |
+| GET | `/api/feeds/:id` | bearer | `feeds:manage` | role | — | フィード 1 件。他チームの ID は 403 ではなく 404 になります。 |
+| PATCH | `/api/feeds/:id` | bearer | `feeds:manage` | role | — | `slug`、`name`、`kind`、`url`、`auth`、`auth_name`、`secret`、`user_id`、`active` のいずれかを変更します。フィードとして妥当かを同じ基準で検証するため、作成では到達できない状態に変更で至ることはありません。シークレットを添えた同じリクエストで `bearer` に切り替えるのは受け付けられ、添えずに切り替えるのは拒否されます。`secret` に `null` を指定すると保存された資格情報を消去します。 |
+| DELETE | `/api/feeds/:id` | bearer | `feeds:manage` | role | — | フィードの設定を削除します。すでに取得済みの項目は通常のリポジトリ文書であり、影響を受けません — フィードの削除は、その項目の取り消しではありません。 |
+| POST | `/api/feeds/:id/probe` | bearer | `feeds:manage` | role | — | フィードの URL を、その資格情報を用いて、いま 1 回だけ取得し、結果を返します。ステータス、本文が JSON として解釈できたか、返ってきたバイト数です。保存されるのは結果だけで、文書は作成されません。そのため設定中に実行しても安全です。資格情報が誤っていれば、定期実行の沈黙ではなく取得元自身の 401 としてここに現れます。記録されるエラーはホスト、パス、ステータスコードを示し、クエリ文字列・ヘッダー・本文を含むことはありません。 |
 | GET | `/api/audit` | bearer | `settings:manage` | role | — | チームの最近の監査イベント。 |
 | POST | `/api/jobs` | bearer | `chat:use` | role | — | 登録された種類のスケジューラジョブをキューイングします。 |
 | GET | `/api/jobs` | bearer | — | — | — | チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: "quota"\|"concurrency", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。 |

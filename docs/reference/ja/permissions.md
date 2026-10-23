@@ -14,6 +14,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `documents:read` | team | 文書を読みます。 |
 | `documents:write` | team | 文書を作成し、編集します。 |
 | `features:manage` | team | チームごとに機能をオン／オフにする。 |
+| `feeds:manage` | team | 外部フィードを設定する。取得元の URL、そこへ提示する資格情報、取得が権限を行使するチームメンバーが対象。行には資格情報の送り先が書かれているため、読み取りも書き込みと同じ権限を要求する。 |
 | `files:delete` | team | リポジトリの文書を削除する。 |
 | `files:manage` | team | 文書を管理する：公開範囲の変更、共有と取り消し。所有者は owner-ok により保持し、manage 権限の付与で1つの文書の管理を委任できます。 |
 | `files:read` | team | リポジトリの文書を開く・ダウンロードする・検索する；由来と知識グラフを読む。 |
@@ -68,7 +69,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Role | Tier | Grants |
 |---|---|---|
 | Owner (`owner`) | team | `*:*` |
-| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `jobs:purge`, `jobs:schedule`, `workflows:read`, `workflows:write`, `workflows:run` |
+| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `feeds:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `jobs:purge`, `jobs:schedule`, `workflows:read`, `workflows:write`, `workflows:run` |
 | Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
@@ -87,6 +88,7 @@ Which built-in role covers which permission (wildcards expanded).
 | `documents:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `documents:write` | ✓ | ✓ | ✓ |  |  |  |  |
 | `features:manage` | ✓ |  |  |  | ✓ | ✓ |  |
+| `feeds:manage` | ✓ | ✓ |  |  |  |  |  |
 | `files:delete` | ✓ | ✓ | ✓ |  |  |  |  |
 | `files:manage` | ✓ | ✓ |  |  |  |  |  |
 | `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |

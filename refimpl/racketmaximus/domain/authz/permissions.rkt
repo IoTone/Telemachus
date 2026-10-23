@@ -75,7 +75,7 @@
    ;; roles:manage). "*:*" never reaches instance:* (guarded in authz).
    "owner"  '("*:*")
    ;; manage without destroying — no team:delete / quota:manage / roles:manage
-   "admin"  '("members:manage" "tokens:manage" "webhooks:manage" "settings:manage"
+   "admin"  '("members:manage" "tokens:manage" "webhooks:manage" "feeds:manage" "settings:manage"
               "models:serve" "roles:read" "audit:read"
               "chat:use" "tools:invoke" "research:use"
               "documents:read" "documents:write" "documents:delete"
@@ -159,6 +159,12 @@
    "members:manage" "Add and remove team members and set their roles."
    "tokens:manage"  "Issue and revoke API tokens for the team."
    "webhooks:manage" "Configure outbound webhooks."
+   ;; #114/FEED-2. A feed names the USER its pulls act as and holds a credential
+   ;; for somebody else's API, so configuring one commits that person's
+   ;; authority and the team's budget to a source nobody is watching. Reading is
+   ;; held to the same permission as writing, as `jobs:schedule` is: the row
+   ;; carries where the credential goes.
+   "feeds:manage" "Configure external feeds: the source URL, the credential presented to it, and the team member whose authority a pull spends. Reading is held to the same permission as writing, because the row says where a credential is sent."
    "settings:manage" "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail."
    ;; SCHED-8. Cancelling a QUEUED job needs no permission — an owner may always
    ;; stop their own — but stopping work already RUNNING is a different act: it

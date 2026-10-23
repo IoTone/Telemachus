@@ -22,6 +22,22 @@
 ;; context is pinned literal-by-literal in `test/sealed-column-tests.rkt` against
 ;; the thirteen strings the five modules were already producing.
 ;;
+;; A CREDENTIAL IS NOT CONTENT, AND `#:credential` IS WHY THIS MACRO HAS A THIRD
+;; FORM. The default seal is conditional on `TELEMACHUS_ENCRYPT_CONTENT`, which
+;; is right for the columns #83 was about — sealing extracted text COSTS CONTENT
+;; SEARCH, so it only happens where an operator asked for it. It is WRONG for a
+;; replayable credential, which should be sealed whenever a key exists; the three
+;; credentials #19 sealed call `secret-wrap` directly for exactly that reason and
+;; so were never gated.
+;;
+;; #85's `webhooks.secret` was the first credential declared through this macro,
+;; and it inherited the content gate: on an instance with a key and the content
+;; switch off — the documented default — the signing secret was written IN THE
+;; CLEAR, while `CREDENTIAL-SECRETS` and the module's own comment said it was
+;; sealed unconditionally. `rewrap` sealing it afterwards hid that further. Found
+;; by #114's feed credential asking the same question one slice later; the gap
+;; between what a note claims and what the code does is #119's shape.
+;;
 ;; WHAT THE COPIES GOT RIGHT AND WRONG, measured rather than assumed. Four of the
 ;; five guarded `(string? v)` before calling `secret-wrap` and the fifth
 ;; (`extract.rkt`) did not — which looks like a divergence and is not one:
@@ -68,6 +84,14 @@
        ;; NEVER conditional on the switch: a row sealed while it was on must still
        ;; open after it is turned off, or turning it off would lose the data it was
        ;; turned on to protect.
+       (define (unseal-id key ... v)
+         (secret-unwrap (sealed-context column (list key ...)) v)))]
+    ;; A CREDENTIAL: sealed whenever a key is configured, never gated on the
+    ;; content switch. The unseal is identical — it never was conditional.
+    [(_ column (seal-id unseal-id) (key ...) #:credential)
+     (begin
+       (define (seal-id key ... v)
+         (secret-wrap (sealed-context column (list key ...)) v))
        (define (unseal-id key ... v)
          (secret-unwrap (sealed-context column (list key ...)) v)))]
     [(_ column (seal-id unseal-id) (key ...) #:forgiving)

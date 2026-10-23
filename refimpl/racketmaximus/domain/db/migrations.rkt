@@ -1598,7 +1598,57 @@
        ;; the claim path resolves a bearer to an executor through EITHER slot
        "CREATE INDEX idx_executors_prev_token ON executors(prev_token_id)"))))
 
+(define m-0056-feeds
+  (migration "0056-feeds"
+    (lambda (conn)
+      ;; issue #114, FEED-2/-5. A feed is CONFIGURATION: where to pull from, whose
+      ;; authority the pull spends, and the credential to present. What a pull
+      ;; LANDS is slice 4 — this table is deliberately useful before anything
+      ;; polls it, because the credential and its rotation are the part that has
+      ;; to be right before a byte is fetched.
+      ;;
+      ;; `user_id` is NOT NULL for the reason 0051's schedules are: there is no
+      ;; system principal in this platform. Everything a fetch writes will be that
+      ;; person's, judged by their `can?` and billed to their team — which is also
+      ;; the complete answer to "who can see a pulled item".
+      ;;
+      ;; The SECRET is sealed (#19's seam, AAD `feeds.secret:<id>`) and is a
+      ;; CREDENTIAL, so it is in `CREDENTIAL-SECRETS` and `rewrap` rotates it
+      ;; unconditionally. A sealed column that is not in that registry is
+      ;; silently unrotatable, which #83's own notes call the step people forget.
+      (exec* conn (string-append
+        "CREATE TABLE feeds ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  user_id TEXT NOT NULL,"
+        ;; the key prefix a pulled item lands under: feeds/<slug>/<external-id>
+        "  slug TEXT NOT NULL,"
+        "  name TEXT,"
+        ;; one of FEED-KINDS, closed
+        "  kind TEXT NOT NULL,"
+        "  url TEXT NOT NULL,"
+        ;; nullable: a public feed has no credential, and NULL is what
+        ;; `rewrap` skips rather than sealing an empty string
+        "  secret TEXT,"
+        ;; how the secret is presented: none | bearer | header | query
+        "  auth TEXT NOT NULL DEFAULT 'none',"
+        "  auth_name TEXT,"
+        "  active INTEGER NOT NULL DEFAULT 1,"
+        "  created_by TEXT,"
+        "  created_epoch BIGINT NOT NULL,"
+        ;; the last probe or poll: epochs, never TEXT CURRENT_TIMESTAMP, whose
+        ;; format differs by dialect (the trap 0038/0039/0041 each name)
+        "  last_fetch_epoch BIGINT,"
+        "  last_ok_epoch BIGINT,"
+        "  last_status INTEGER,"
+        ;; FEED-6: host, path and status. Never a query, a header or a body.
+        "  last_error TEXT)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_feeds_team ON feeds (team_id)")
+      ;; The slug is a KEY PREFIX, so two feeds sharing one in a team would write
+      ;; items over each other. Unique per team, as `teams.slug` is per org.
+      (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_feeds_team_slug ON feeds (team_id, slug)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds))

@@ -24,7 +24,7 @@
          (only-in web-kit/http1 make-chunked-body)
          "addresses.rkt")
 
-(provide fetch egress-allowlist
+(provide fetch egress-allowlist safe-url
          (struct-out exn:fail:egress) FETCH-MAX-BYTES FETCH-TIMEOUT FETCH-MAX-REDIRECTS)
 
 ;; A refusal by POLICY is its own exception, so a caller can tell "we would not
@@ -36,8 +36,34 @@
 (define FETCH-TIMEOUT 30)
 (define FETCH-MAX-REDIRECTS 3)
 
+;; ---- what a refusal is allowed to say (FEED-6) ----------------------------------
+;; A CREDENTIAL IS ROUTINELY IN A URL. A feed's API token arrives as
+;; `?token=…`, a signed link carries its signature in the query, and
+;; `https://user:pass@host/` is still how half the world spells basic auth. The
+;; failing request's URL is the first thing an error wants to quote, and from
+;; there it goes where every other copy of this mistake went: into a stored
+;; `error` column (#83 r4 sealed four of them for this reason), into a log that
+;; leaves the box, into a 500 body (#123). `webhook_deliveries.last_error`
+;; stores what this module raises, unsealed, TODAY.
+;;
+;; So the redaction happens HERE, on the way INTO the exception, not at the
+;; call sites that format it — by then it has already been composed, and the
+;; next caller would have to remember. Scheme, host, port and path survive,
+;; because a diagnostic naming neither the host nor the path is no diagnostic;
+;; the query, the fragment and the userinfo do not.
+(define (safe-url u)
+  (define parsed (with-handlers ([exn:fail? (lambda (_) #f)]) (string->url u)))
+  (cond
+    [(and parsed (url-host parsed))
+     (url->string (make-url (url-scheme parsed) #f (url-host parsed) (url-port parsed)
+                            #t (url-path parsed) '() #f))]
+    ;; Not a URL we can take apart — a scheme we refuse, or rubbish. Keeping a
+    ;; prefix would be a guess at where the secret is NOT, so it says nothing.
+    [else "(unparseable url)"]))
+
 (define (egress-error reason url fmt . args)
-  (raise (exn:fail:egress (apply format fmt args) (current-continuation-marks) reason url)))
+  (raise (exn:fail:egress (apply format fmt args) (current-continuation-marks)
+                          reason (safe-url url))))
 
 ;; The operator's allowlist, read per call. Not memoized: it is one `getenv` and
 ;; a parse against a request that is about to cross the network, and a cache
@@ -80,7 +106,10 @@
   (define scheme (and parsed (url-scheme parsed)))
   (define host (and parsed (url-host parsed)))
   (unless (and parsed host (not (string=? host "")) (member scheme '("http" "https")))
-    (egress-error 'bad-url u "not an http(s) URL: ~a" u))
+    ;; `(safe-url u)`, not `u`: this is the one message that quotes the URL, and
+    ;; a URL this refuses is exactly the shape somebody typed wrong — including
+    ;; typing a credential into it.
+    (egress-error 'bad-url u "not an http(s) URL: ~a" (safe-url u)))
   (define ssl? (string=? scheme "https"))
   (define port (or (url-port parsed) (if ssl? 443 80)))
   ;; STEP 1: vet the name's own resolution, before any connection. This is the

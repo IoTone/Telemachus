@@ -1631,6 +1631,99 @@ raco test test/upload-reap-tests.rkt   # 5 cases: the horizon, the part clock, t
 bash test/s3-smoke.sh                  # the live multipart path, with the real aws CLI
 ```
 
+## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
+
+Built 22 Oct 2026 — the configuration half of the external-feed work, on top of
+#135/#140 (the clock) and #142 (the one outbound fetcher). Migration
+`0056-feeds`; `domain/feeds/feeds.rkt`; `/api/feeds*` behind the new
+**`feeds:manage`**. Decisions FEED‑5/‑6/‑12/‑13 and **ENC‑23**.
+
+```sh
+raco test test/feed-tests.rkt test/sealed-column-tests.rkt   # 11 + 7 cases, six controls
+bash test/server-smoke.sh                                     # the "feed:" block, 33 assertions
+```
+
+- **NOTHING POLLS A FEED YET and every read says so** (`polling: false`). Slice 4
+  is the adapter that lands items as `feeds/<slug>/<external-id>`. Configuration
+  shipped first because the credential and its rotation are the half that has to
+  be right before a byte crosses the network — and the risk of that order, a feed
+  somebody configures and nobody polls, is answered by that field and by the
+  probe rather than left to be discovered.
+- **`POST /api/feeds/:id/probe` fetches ONCE, synchronously, and stores only the
+  outcome.** #85's ping, for #85's reason: a feed nobody can test is a feed
+  nobody trusts. It creates no document, which is what keeps "am I configured
+  right" free of storage quota and of versioning an item twice — asserted, over
+  `repo_objects`, so a future probe that lands an item fails the test.
+- **A 200 that is not JSON is not a working feed.** A captive portal or a login
+  page answering 200 is the commonest misconfiguration there is, and `ok` on the
+  status alone would call it working. The probe answers `json: false` and the row
+  says so.
+- **`#:credential` ON `define-sealed-column`, and the reason is a LIVE DEFECT it
+  found** (ENC‑23). The macro's default seal is conditional on
+  `TELEMACHUS_ENCRYPT_CONTENT` — right for #83's content columns, because sealing
+  extracted text costs content search — and **wrong for a replayable
+  credential**. #85's `webhooks.secret` was the first credential declared through
+  the macro, so with a key configured and the content switch off, **the
+  documented default**, the signing secret was written in the clear while
+  `CREDENTIAL-SECRETS` and the module comment both said otherwise;
+  `rewrap` sealing it afterwards hid it further. The three credentials #19 sealed
+  call `secret-wrap` directly and were never affected, which is why nothing
+  caught it. Both webhooks and feeds use `#:credential` now, and the test pins
+  BOTH directions — a credential seals with a key alone, and in the same
+  environment a content column still does not. Without that control the fix is
+  indistinguishable from sealing everything, which would quietly remove content
+  search from every instance with a key.
+- **`auth: "query"` is supported deliberately, and userinfo in the URL is
+  refused outright** (FEED‑13). A token in a query string is exactly what FEED‑6
+  is about, but refusing the mode does not make those sources safer — it pushes
+  the operator into pasting the token into `url`, where it is unsealed and in
+  every read. So the token gets the sealed column and is appended at request
+  time, **alongside** the operator's own query rather than instead of it (the
+  first version replaced it and `?project=FOO` silently vanished).
+  `https://user:pass@host/` is the opposite case: unambiguously a credential,
+  with a sealed home available, so it is a 400 — moving it silently would leave
+  nobody sure which home was in use.
+- **A read returns the URL AS CONFIGURED.** It is behind the same permission that
+  wrote it, and an operator who cannot see what they typed cannot maintain the
+  feed. That is why the smoke's leak assertions are on `last_error` and the
+  probe's own message, not on the whole response — the first version asserted
+  over the body and failed on the URL the fixture had deliberately put a token
+  in, which is the configuration echoing back, not a leak.
+- **FEED‑6 is a LEAK TEST over every copy that outlives the call**: the
+  exception's message, its own `url` field, and the stored row. A first version
+  redacted only the field and the test only checked the message — **the positive
+  control passed, which is how I found the test was weak.** `safe-url` in
+  `fetch.rkt` keeps scheme, host, port and path and drops the query, the fragment
+  and the userinfo; it redacts on the way INTO the exception, because a call site
+  that formats it later has already lost the chance.
+- **The fetcher's `bad-url` refusal used to quote the whole URL**, and
+  `webhook_deliveries.last_error` stores what that module raises — so #85 had a
+  live copy of this the day it merged.
+- **A feed names the user its pulls act as, and that user must be an ACTIVE
+  member** (FEED‑2). `user_id` is NOT NULL for 0051's reason: there is no system
+  principal. A feed acting as somebody outside the team would be a standing grant
+  invisible in the membership list, so it is refused at the write.
+- **The slug is a key prefix, so it is unique per team and a duplicate is a 409 —
+  never a converging create.** Unlike an org (TEN‑2f), re-posting a feed would
+  silently adopt whatever URL and credential were already there.
+- **`last_ok_epoch` moves only on a 2xx**, so "it last worked at" survives a run
+  of failures. The test has to AGE the row to see it: the column is seconds, so
+  two probes in one second tie and "it did not move" holds against a version that
+  stamps it every time — which the control proved.
+- **A probe of a refusing source still answers 200.** The probe ran; whether the
+  source answered is in the body. A 502 here would be this instance claiming
+  somebody else's failure as its own.
+- **The audit meta carries `safe-url`, never the configured URL**, because the
+  log is chained, exported off the box and deliberately kept through an erasure
+  (DEL‑7) — it outlives every other copy.
+- **A python helper server in a smoke needs its environment EXPORTED.**
+  `FD_LOG="$FD_LOG" python3 …`: merely setting the shell variable leaves
+  `os.environ[...]` raising, the source dies instantly, and it reads as "the port
+  is refused" ten assertions later. The `PORT` trap in this file, in Python.
+- **`#rx` has no `{n,m}`** — bounded repetition needs `#px`. A slug regexp written
+  with `#rx"…{0,62}$"` treats the braces as literals and refuses every valid
+  slug, which is what the first test run reported.
+
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 
 Built 22 Oct 2026 — the last of #54's four deferred questions. Migration

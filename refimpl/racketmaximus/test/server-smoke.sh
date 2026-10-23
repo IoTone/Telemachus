@@ -662,6 +662,146 @@ assert "webhook: an unknown id is a 404" \
   "$(curl -s -o /dev/null -w '%{http_code}' $B/api/webhooks/00000000-0000-0000-0000-000000000000 -H "Authorization: Bearer $OP")" '404'
 kill $WH_PID 2>/dev/null; rm -rf "$WH_DIR"
 
+# ---- external feeds (#114, FEED-2/-5/-6) -------------------------------------
+# A REAL SOURCE, in Python, which reports back WHERE the credential arrived —
+# header or query — because that is the half of this slice a model test cannot
+# see. It can also answer 401 and serve HTML with a 200, the two outcomes an
+# operator most needs told apart from "it worked".
+FD_DIR=$(mktemp -d)
+cat > "$FD_DIR/source.py" <<'PYEOF'
+import http.server, os, sys, urllib.parse
+LOG = os.environ["FD_LOG"]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        u = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(u.query)
+        with open(LOG, "a") as f:
+            f.write("path=%s authorization=%s x_api_key=%s token=%s\n"
+                    % (u.path, self.headers.get("authorization"),
+                       self.headers.get("x-api-key"), ",".join(q.get("token", []))))
+        if u.path == "/deny":
+            self.send_response(401); self.end_headers(); self.wfile.write(b'{"error":"nope"}'); return
+        if u.path == "/login":
+            self.send_response(200)
+            self.send_header("content-type", "text/html"); self.end_headers()
+            self.wfile.write(b"<html>sign in</html>"); return
+        self.send_response(200)
+        self.send_header("content-type", "application/json"); self.end_headers()
+        self.wfile.write(b'{"items":[{"id":"T-1"}]}')
+    def log_message(self, *a): pass
+http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PYEOF
+FD_PORT=8898
+FD_LOG="$FD_DIR/log.txt"; : > "$FD_LOG"
+# FD_LOG must be EXPORTED, not merely set: `os.environ[...]` raises and the
+# source dies instantly, which reads as "the port is refused" ten assertions
+# later. The PORT trap in this file's own notes, in Python.
+FD_LOG="$FD_LOG" python3 "$FD_DIR/source.py" $FD_PORT & FD_PID=$!
+for _ in $(seq 1 40); do curl -s -o /dev/null "http://127.0.0.1:$FD_PORT/api/items" && break; sleep 0.25; done
+
+assert "feed: a member may not configure one" \
+  "$(curl -s $B/api/feeds -H "Authorization: Bearer $BOB")" 'Forbidden: feeds:manage'
+assert "feed: the closed kind vocabulary is published" \
+  "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" '"kinds":['
+assert "feed: a kind nothing pulls is refused, not stored" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"jira","kind":"jira","url":"https://h/x"}')" 'unknown feed kind'
+assert "feed: a credential with no way to present it is refused" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"jira","kind":"http.json","url":"https://h/x","secret":"t0ken"}')" 'takes no `secret`'
+assert "feed: …and a presentation with no credential is too" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"jira","kind":"http.json","url":"https://h/x","auth":"bearer"}')" 'needs a `secret`'
+assert "feed: a feed cannot act as somebody outside the team" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"jira","kind":"http.json","url":"https://h/x","user_id":"u-nobody"}')" 'active member'
+
+FD=$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d "{\"slug\":\"tickets\",\"name\":\"Tickets\",\"kind\":\"http.json\",\"url\":\"http://127.0.0.1:$FD_PORT/api/items\",\"auth\":\"header\",\"auth_name\":\"X-Api-Key\",\"secret\":\"t0p-s3cret\"}")
+FDID=$(printf '%s' "$FD" | grep -oP '"id":"\K[^"]+')
+assert "feed: created, and the row says a credential is held" "$FD" '"has_secret":true'
+refute "feed: the create reply never carries the secret" "$FD" 't0p-s3cret'
+refute "feed: …nor does the listing" \
+  "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" 't0p-s3cret'
+assert "feed: nothing polls it yet, and the row says so rather than implying it does" "$FD" '"polling":false'
+
+PR=$(curl -s -X POST $B/api/feeds/$FDID/probe -H "Authorization: Bearer $OP")
+assert "feed: the probe reaches the source and reports its status" "$PR" '"status":200'
+assert "feed: …and that the body was JSON" "$PR" '"json":true'
+assert "feed: …and the feed is judged reachable" "$PR" '"ok":true'
+assert "feed: the credential arrived in the header the operator named" "$(cat "$FD_LOG")" 'x_api_key=t0p-s3cret'
+refute "feed: …and nowhere else" "$(cat "$FD_LOG")" 'authorization=Bearer'
+assert "feed: the row records the last fetch" \
+  "$(curl -s $B/api/feeds/$FDID -H "Authorization: Bearer $OP")" '"last_status":200'
+
+# `query` auth, the uncomfortable mode: supported BECAUSE refusing it pushes the
+# token into the url field, where it would be stored unsealed. The token must
+# reach the source and reach nothing else.
+FQ=$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d "{\"slug\":\"q\",\"kind\":\"http.json\",\"url\":\"http://127.0.0.1:$FD_PORT/api/items?project=FOO\",\"auth\":\"query\",\"auth_name\":\"token\",\"secret\":\"qu3ry-t0ken\"}")
+FQID=$(printf '%s' "$FQ" | grep -oP '"id":"\K[^"]+')
+curl -s -X POST $B/api/feeds/$FQID/probe -H "Authorization: Bearer $OP" > /dev/null
+assert "feed: a query credential reaches the source" "$(cat "$FD_LOG")" 'token=qu3ry-t0ken'
+assert "feed: …alongside the operator's own query, not instead of it" \
+  "$(curl -s $B/api/feeds/$FQID -H "Authorization: Bearer $OP")" 'project=FOO'
+
+# FEED-6 over HTTP: the token is in the URL, and the recorded failure must not be.
+FL=$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"leaky","kind":"http.json","url":"http://127.0.0.1:9/api/items?token=SEKRIT-abc123"}')
+FLID=$(printf '%s' "$FL" | grep -oP '"id":"\K[^"]+')
+PRL=$(curl -s -X POST $B/api/feeds/$FLID/probe -H "Authorization: Bearer $OP")
+# The assertions are on the RECORDED FAILURE, not on the whole response: a read
+# returns the URL as configured, token and all, which is deliberate (it is the
+# operator's own configuration, behind the permission that wrote it). What must
+# never carry it is the diagnostic, which is the copy that travels.
+PRLE=$(printf '%s' "$PRL" | grep -oP '"error":"\K[^"]+')
+FLE=$(curl -s $B/api/feeds/$FLID -H "Authorization: Bearer $OP" | grep -oP '"last_error":"\K[^"]+')
+refute "feed: a failing probe's answer does not carry the token" "$PRLE" 'SEKRIT'
+refute "feed: …and neither does the stored error" "$FLE" 'SEKRIT'
+assert "feed: …while still naming the host, or it would be no diagnostic" "$FLE" '127.0.0.1'
+assert "feed: a credential in the URL's userinfo is refused outright" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"basic","kind":"http.json","url":"https://u:pw@src.example/x"}')" 'take the credential out of'
+refute "feed: the audit trail carries no token either" \
+  "$(curl -s "$B/api/audit?limit=40" -H "Authorization: Bearer $OP")" 'SEKRIT'
+assert "feed: the trail names the probe" \
+  "$(curl -s "$B/api/audit?limit=40" -H "Authorization: Bearer $OP")" 'feed.probe'
+
+# A 401 from the source is the SOURCE's answer, not this instance failing.
+FA=$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d "{\"slug\":\"deny\",\"kind\":\"http.json\",\"url\":\"http://127.0.0.1:$FD_PORT/deny\",\"auth\":\"bearer\",\"secret\":\"wrong\"}")
+FAID=$(printf '%s' "$FA" | grep -oP '"id":"\K[^"]+')
+PRA=$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/feeds/$FAID/probe -H "Authorization: Bearer $OP")
+assert "feed: a probe of a refusing source still answers 200 — the probe RAN" "$PRA" '200'
+assert "feed: …and the body carries the source's own status" \
+  "$(curl -s -X POST $B/api/feeds/$FAID/probe -H "Authorization: Bearer $OP")" '"status":401'
+# The commonest misconfiguration of all: a login page answering 200.
+FH=$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d "{\"slug\":\"html\",\"kind\":\"http.json\",\"url\":\"http://127.0.0.1:$FD_PORT/login\"}")
+FHID=$(printf '%s' "$FH" | grep -oP '"id":"\K[^"]+')
+assert "feed: a 200 that is not JSON is not a working feed" \
+  "$(curl -s -X POST $B/api/feeds/$FHID/probe -H "Authorization: Bearer $OP")" '"json":false'
+
+# A patch is validated as the feed WOULD be, so it cannot reach a state a create
+# could not — and clearing the credential is a distinct, visible act.
+assert "feed: a patch to an auth mode with no credential is refused" \
+  "$(curl -s -X PATCH $B/api/feeds/$FDID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"auth":"bearer","secret":null}')" 'needs a `secret`'
+assert "feed: …while switching mode and supplying one in the same request is fine" \
+  "$(curl -s -X PATCH $B/api/feeds/$FDID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"auth":"bearer","secret":"rotated-t0ken"}')" '"has_secret":true'
+assert "feed: clearing the credential is visible in the row" \
+  "$(curl -s -X PATCH $B/api/feeds/$FDID -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"auth":"none","secret":null}')" '"has_secret":false'
+assert "feed: a duplicate slug is a 409, never an adoption of the existing feed" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"tickets","kind":"http.json","url":"https://elsewhere.example/x"}')" 'already exists'
+assert "feed: another team's id is a 404" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/feeds/00000000-0000-0000-0000-000000000000 -H "Authorization: Bearer $OP")" '404'
+assert "feed: deleted" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE $B/api/feeds/$FHID -H "Authorization: Bearer $OP")" '200'
+kill $FD_PID 2>/dev/null; rm -rf "$FD_DIR"
+
 # ---- recurring work (#135) ---------------------------------------------------
 # A schedule enqueues an ordinary job on an interval. Everything below the
 # enqueue is the job row's — admission, the org gate, cancel, the lease — so what
