@@ -35,7 +35,7 @@
 
 (provide review-open! review-list review-get review-decide! review-cancel-run!
          set-resume-hook! review-count-pending
-         review-verify review-stats)
+         review-verify review-stats review-chain-heads)
 
 (define (now-ms) (inexact->exact (floor (current-inexact-milliseconds))))
 (define (js s) (with-handlers ([exn:fail? (lambda (_) (hasheq))])
@@ -148,9 +148,14 @@
 ;; defends a DUMP and not a HOST, and which is written down that way because the
 ;; old note in creds.rkt had overclaimed in exactly this direction.
 ;;
-;; What would close that gap is an EXTERNAL anchor: periodically publishing the
-;; head hash somewhere the database's owner does not control. That is a
-;; deployment decision rather than a schema one, and it is not built.
+;; What closes that gap is an EXTERNAL anchor, and it IS built now (issue #66,
+;; ANCHOR-1…10): `domain/audit/anchor.rkt` emits a signed receipt naming this
+;; chain's head per team, the series is itself chained so suppression shows, and
+;; `cli/telemachus-anchor.rkt verify` checks a RETAINED copy offline — a verifier
+;; that asked this instance whether this instance is honest would not be one.
+;; `review-chain-heads` below is the half of that this module owns. The claim
+;; above is still exactly right about what the chain ALONE can do: a rewrite is
+;; caught by comparison with a copy somebody else is holding, not by relinking.
 ;; The canonical form is an ordered LIST, never a hash: `hasheq` iteration order
 ;; is not stable across processes, so hashing a hash would make the chain disagree
 ;; with itself on a different machine. The docs generator learned this the same
@@ -202,6 +207,30 @@
        (if (equal? stored want)
            (loop (cdr rs) stored (add1 n))
            (hasheq 'ok #f 'checked n 'broken_at (hash-ref rev 'id)))])))
+
+
+;; ---- what the anchor measures (ANCHOR-2, issue #66) ---------------------------
+;; Every team that has a decision chain, with that chain's head and how many
+;; decisions it covers. It lives HERE rather than in anchor.rkt so the `reviews`
+;; table keeps one owner: `last-chain-hash` already knew how to find a head, and
+;; a second copy of "newest decided, hashed, by decided_ms then id" in another
+;; module is the drift `executor-can-run?` was extracted to prevent.
+;;
+;; Not permission-scoped, deliberately, and it is the one reader here that is
+;; not: the caller is the instance operator taking a measurement of every team's
+;; chain, and a head hash is not a team's content — it is 64 hex characters that
+;; say nothing about what was decided. `review-verify` stays per-team and
+;; principal-scoped for the question a team asks about itself.
+(define (review-chain-heads conn)
+  (for/list ([r (in-list (query-rows conn
+                   (string-append
+                    "SELECT team_id, COUNT(*) FROM reviews "
+                    "WHERE status = 'decided' AND hash IS NOT NULL "
+                    "GROUP BY team_id ORDER BY team_id ASC")))])
+    (define team (vector-ref r 0))
+    (hasheq 'chain "review" 'scope team
+            'head (or (last-chain-hash conn team) 'null)
+            'entries (vector-ref r 1))))
 
 ;; ---- the accuracy signal (LAY-10) ---------------------------------------------
 ;; Their "framework to determine the reliability of AI-generated outputs" sounds

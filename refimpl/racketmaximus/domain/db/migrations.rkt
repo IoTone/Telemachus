@@ -1648,7 +1648,48 @@
       ;; items over each other. Unique per team, as `teams.slug` is per org.
       (exec* conn "CREATE UNIQUE INDEX IF NOT EXISTS idx_feeds_team_slug ON feeds (team_id, slug)"))))
 
+(define m-0058-anchor-receipts
+  ;; 0058 and not 0057: #65's `0057-annotations` is in flight on its own branch
+  ;; (PR #148), and two slices claiming one id would collide in
+  ;; `schema_migrations` on whichever instance applied the other first — the
+  ;; note 0055 carries, for the same reason.
+  (migration "0058-anchor-receipts"
+    (lambda (conn)
+      ;; issue #66, ANCHOR-3/-9. A receipt is a signed MEASUREMENT of the two
+      ;; hash chains at one instant: the review chain's head per team (LAY-11)
+      ;; and the audit chain's head per org (AUD-10..16), as one artifact.
+      ;;
+      ;; THIS TABLE IS NOT THE ANCHOR, and that is worth saying where somebody
+      ;; reads the schema. It lives in the same database as the chains it
+      ;; measures, so anyone who can rewrite those can delete from here too. It
+      ;; exists so the SEQUENCE can be continued across restarts and so an
+      ;; operator can fetch what they have not yet retained. The anchor is the
+      ;; copy somebody else is holding.
+      ;;
+      ;; `seq` is instance-wide and strictly increasing, with `prev_hash` naming
+      ;; the predecessor's hash: a gap or a reused seq carrying different heads
+      ;; is what suppression looks like from the retainer's side, and that is the
+      ;; property an export alone does not have.
+      (exec* conn
+       (string-append
+        "CREATE TABLE anchor_receipts ("
+        "  id TEXT PRIMARY KEY,"
+        "  seq INTEGER NOT NULL,"
+        "  prev_hash TEXT,"              ; NULL on the first receipt only
+        "  hash TEXT NOT NULL,"          ; sha256 of the signed payload
+        "  payload TEXT NOT NULL,"       ; the exact bytes that were signed
+        "  signature TEXT NOT NULL,"     ; hex Ed25519
+        "  public_key TEXT NOT NULL,"    ; hex, so a mismatch is diagnosable
+        "  instance_id TEXT NOT NULL,"
+        "  emitted_epoch INTEGER NOT NULL,"
+        "  chains INTEGER NOT NULL,"     ; how many chain rows the receipt covers
+        "  created_by TEXT"              ; NULL when the sweep emitted it
+        ")")
+       ;; the sequence is the thing that must not fork
+       "CREATE UNIQUE INDEX idx_anchor_receipts_seq ON anchor_receipts(seq)"
+       "CREATE INDEX idx_anchor_receipts_emitted ON anchor_receipts(emitted_epoch)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
-                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds))
+                             m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0058-anchor-receipts))

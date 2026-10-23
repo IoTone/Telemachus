@@ -80,6 +80,16 @@ differ(){
 # of EGR-2 — and it is what lets the smoke assert the refusal for an address
 # OUTSIDE the allowance (169.254/16) rather than for everything.
 export TELEMACHUS_EGRESS_ALLOW="127.0.0.0/8"
+# #66: the anchor block needs a signing key in the SERVER's environment — it is
+# read per call, but this process is the one that reads it. A fixed test seed, so
+# the public key in the assertions is stable. The OFF path (no key: `enabled`
+# false, and an emit refused by name) cannot be exercised here, because the key
+# is fixed for the life of the process — it is case 7 of test/anchor-tests.rkt.
+export TELEMACHUS_ANCHOR_KEY="${TELEMACHUS_ANCHOR_KEY:-4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb}"
+# `never`, so the sweep does not emit a receipt in the middle of this run and
+# move the sequence the assertions below count on. The emissions here are the
+# ones this block asks for.
+export TELEMACHUS_ANCHOR_EVERY=never
 racket server/main.rkt >/tmp/tmx-smoke.log 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"' EXIT
@@ -1602,6 +1612,114 @@ assert "…and NOT the audit export, which hands over the log" \
 assert "an operator still reads the fleet" "$(curl -s $B/api/admin/workers -H "Authorization: Bearer $OP")" '"executors":'
 assert "…and still exports the audit log"  "$(curl -s "$B/api/admin/audit/export" -H "Authorization: Bearer $OP")" '"action":'
 assert "a plain member reaches none of it" "$(curl -s $B/api/metrics -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
+
+echo "== the external anchor (#66) =="
+# The public key for the fixed seed exported at the top of this file. An auditor
+# gets this out of band; it is what makes a receipt evidence to somebody who is
+# not this instance's operator.
+ANCHPUB="3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+AST=$(curl -s "$B/api/admin/anchor" -H "Authorization: Bearer $OP")
+assert "anchor: it is configured on this box"      "$AST" '"enabled":true'
+assert "anchor: ...and publishes its public key"   "$AST" "\"public_key\":\"$ANCHPUB\""
+assert "anchor: ...naming the anchor version"      "$AST" '"anchor_version":"telemachus.anchor.v1"'
+# A receipt measures BOTH chains in one artifact (ANCHOR-2). This instance has
+# audit entries for sure; a review chain appears only if a review was decided
+# earlier in this run, so the assertion is on the audit row being present.
+AR1=$(curl -s -X POST "$B/api/admin/anchor/emit" -H "Authorization: Bearer $OP")
+assert "anchor: a receipt is emitted"              "$AR1" '"seq":1'
+assert "anchor: ...with no predecessor, being first" "$AR1" '"prev_hash":null'
+assert "anchor: ...signed by the published key"    "$AR1" "\"public_key\":\"$ANCHPUB\""
+assert "anchor: ...carrying the exact signed bytes" "$AR1" '"payload":"'
+assert "anchor: ...and measuring the audit chain"  "$AR1" 'audit'
+AR2=$(curl -s -X POST "$B/api/admin/anchor/emit" -H "Authorization: Bearer $OP")
+assert "anchor: the series advances"               "$AR2" '"seq":2'
+# the second names the first: this is what makes SUPPRESSION detectable, and it
+# is the property the audit export alone does not have
+A1H=$(printf '%s' "$AR1" | grep -oP '"hash":"\K[^"]+')
+assert "anchor: ...and each receipt names its predecessor" "$AR2" "\"prev_hash\":\"$A1H\""
+
+# The retained artifact. JSONL, oldest first, so a retention system appends.
+curl -s "$B/api/admin/anchor/export" -H "Authorization: Bearer $OP" > "$TELEMACHUS_DATA_DIR/receipts.jsonl"
+assert "anchor: the export is one receipt per line" \
+  "$(python3 -c "
+import json,sys
+ls=[l for l in open('$TELEMACHUS_DATA_DIR/receipts.jsonl') if l.strip()]
+rs=[json.loads(l) for l in ls]
+print('ok' if len(rs)==2 and [r['seq'] for r in rs]==[1,2] else 'BAD')")" "ok"
+assert "anchor: ...and ?since_seq= gives only what a retainer lacks" \
+  "$(curl -s "$B/api/admin/anchor/export?since_seq=1" -H "Authorization: Bearer $OP" \
+     | python3 -c "
+import json,sys
+rs=[json.loads(l) for l in sys.stdin if l.strip()]
+print('ok' if [r['seq'] for r in rs]==[2] else 'BAD')")" "ok"
+
+# THE POINT OF THE WHOLE FEATURE: the retained copy verifies OFFLINE, with no
+# server and no database — an anchor is worth something precisely when the
+# instance is the suspect.
+AVER=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/receipts.jsonl" --public-key "$ANCHPUB" 2>&1)
+assert "anchor: a retained series verifies offline"    "$AVER" "self-consistent: yes"
+assert "anchor: ...against the key supplied out of band" "$AVER" "VERIFIED against the key you supplied"
+# and without that key it refuses to call itself verified (ANCHOR-6): a key taken
+# from the file being checked proves nothing, because a forger supplies both
+ASELF=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/receipts.jsonl" 2>&1)
+assert "anchor: ...and says so when no key was given" "$ASELF" "not verified"
+# a tampered retained copy fails, and the CLI exits non-zero so a cron job notices
+python3 -c "
+import json
+p='$TELEMACHUS_DATA_DIR/receipts.jsonl'
+rs=[json.loads(l) for l in open(p) if l.strip()]
+rs[1]['payload']=rs[1]['payload'].replace('telemachus.anchor.v1','telemachus.anchor.v1 ')
+open('$TELEMACHUS_DATA_DIR/tampered.jsonl','w').write(''.join(json.dumps(r)+chr(10) for r in rs))"
+ATAMP=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/tampered.jsonl" --public-key "$ANCHPUB" 2>&1; echo "exit=$?")
+assert "anchor: an edited retained receipt is refused" "$ATAMP" "PROBLEM at receipt"
+assert "anchor: ...and the verifier exits non-zero"    "$ATAMP" "exit=1"
+# a gap is what suppression looks like from the retainer's side
+python3 -c "
+import json
+p='$TELEMACHUS_DATA_DIR/receipts.jsonl'
+rs=[json.loads(l) for l in open(p) if l.strip()]
+open('$TELEMACHUS_DATA_DIR/gapped.jsonl','w').write(json.dumps(rs[1])+chr(10))"
+# A file that does not reach seq 1 is a valid SUB-CHAIN, not a forgery — a
+# retainer may have started later — so the verdict stays ok and the report says
+# it does not reach the origin. That distinction is the honest one: this file
+# cannot tell "retention began later" from "the earlier ones were suppressed".
+AGAP=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/gapped.jsonl" --public-key "$ANCHPUB" 2>&1)
+assert "anchor: a series that misses its first receipt does not reach the origin" \
+  "$AGAP" "reaches origin:  NO"
+assert "anchor: ...and says it cannot tell suppression from late retention" \
+  "$AGAP" "cannot tell those apart"
+
+# An EMPTY retained file is NOT a pass. The library calls a series of nothing
+# vacuously sound; this command is asked "is my retained copy good", and for a
+# cron job the answer has to be no — exiting 0 there is a monitor reporting
+# success for retaining nothing at all.
+: > "$TELEMACHUS_DATA_DIR/none.jsonl"
+ANONE=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/none.jsonl" --public-key "$ANCHPUB" 2>&1; echo "exit=$?")
+assert "anchor: an empty retained file says there is nothing to verify" \
+  "$ANONE" "nothing to verify"
+assert "anchor: ...and is not reported as a pass"  "$ANONE" "exit=1"
+# ...while a file that HAS receipts and fails must not claim to be empty: `checked`
+# is also 0 when the walk broke at the very first receipt, so the message is read
+# off the file instead.
+AWRONG=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/receipts.jsonl" --public-key "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025" 2>&1)
+assert "anchor: a wrong key fails against the key supplied" "$AWRONG" "FAILED against the key you supplied"
+refute "anchor: ...and does not claim the file is empty"     "$AWRONG" "nothing to verify"
+
+# the permission split (#124): the READS are instance:read, so a monitoring or
+# retention credential can pull a series — which is how one gets retained — while
+# emitting is a write and stays instance:manage.
+assert "anchor: a member cannot read the anchor status" \
+  "$(curl -s "$B/api/admin/anchor" -H "Authorization: Bearer $BOB")" 'Forbidden: instance:read'
+assert "anchor: ...nor emit a receipt" \
+  "$(curl -s -X POST "$B/api/admin/anchor/emit" -H "Authorization: Bearer $BOB")" 'Forbidden: instance:manage'
+assert "anchor: the monitoring token may read receipts" \
+  "$(curl -s "$B/api/admin/anchor/receipts" -H "Authorization: Bearer $MONTOK")" '"receipts":'
+assert "anchor: ...and may NOT emit one" \
+  "$(curl -s -X POST "$B/api/admin/anchor/emit" -H "Authorization: Bearer $MONTOK")" 'Forbidden: instance:manage'
+# emitting is audited, and the entry carries the acting operator's team or it
+# would be invisible to everybody (audit-list filters on team_id)
+assert "anchor: the emission is recorded in the trail" \
+  "$(curl -s "$B/api/audit" -H "Authorization: Bearer $OP" | grep -c 'anchor.emitted' | awk '{print ($1 >= 1) ? "ok" : "MISSING"}')" "ok"
 
 # ---- what a refusal and a 500 are allowed to say (issue #123) ----------------
 # A username that already exists used to reach `create-user!`, raise the UNIQUE

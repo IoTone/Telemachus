@@ -349,8 +349,28 @@ that is the party an administrative audit is most meant to defend against. This 
 the same shape as secrets at rest, which defends a DUMP and not a HOST, and which
 is written down that way because the old note in `creds.rkt` had overclaimed in
 exactly this direction. Closing the gap needs an EXTERNAL anchor: publishing the
-head hash somewhere the database's owner does not control. That is a deployment
-decision, and it is not built.
+head hash somewhere the database's owner does not control.
+
+**The anchor is built** (22 Oct 2026, issue #66, decisions ANCHOR‑1…10). The
+platform EMITS a signed receipt rather than calling a notary — a third party
+would be a network dependency and a disclosure on a self-hosted, air-gapped-capable
+platform, and WHERE a receipt is retained is the deployment's decision, which was
+the whole of what #66 asked. One receipt covers BOTH chains, this one per team and
+the audit log's per org, because two mechanisms was the named risk. The series is
+itself chained, so *suppression* is detectable and not merely alteration. It is
+signed with Ed25519 (`TELEMACHUS_ANCHOR_KEY`) rather than an HMAC, because a
+verifier holding a shared secret could have produced the receipt and it would
+therefore be evidence to nobody but the operator. And
+`racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` runs with no
+server and no database, because an anchor is worth something precisely when the
+instance is the suspect.
+
+The limits are written down rather than implied: the anchor's resolution is its
+cadence, nothing is detectable before the first receipt, it does nothing at all if
+the retained copy was never collected — the platform cannot verify that somebody
+else kept something, and `GET /api/admin/anchor` reports only what was EMITTED —
+and a host compromise still forges *future* receipts, though not the ones already
+in somebody else's hands.
 ### LAY‑12 — A review queue is core; an annotation canvas is not  ✅ built
 
 A plugin cannot add a tab to the console. That is a known, documented gap, and

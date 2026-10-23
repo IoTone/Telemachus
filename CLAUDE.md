@@ -2313,6 +2313,121 @@ bash test/server-smoke.sh              # the chain/export block, 12 assertions
 - **The export audits itself** (`audit.exported`): taking a copy of the log off
   the box is exactly the event a later reader wants to find.
 
+### The external anchor for BOTH chains (ANCHOR‑1…10, issue #66)
+
+Built 22 Oct 2026. Migration `0058-anchor-receipts`; `domain/authz/signing.rkt`
+(Ed25519 over libcrypto) + `domain/audit/anchor.rkt`; `GET /api/admin/anchor`,
+`POST /api/admin/anchor/emit`, `GET /api/admin/anchor/{receipts,export}`;
+`cli/telemachus-anchor.rkt`. It closes the gap BOTH chains stated and neither
+could: LAY‑11's review chain per team and AUD‑10…16's audit chain per org.
+
+```sh
+racket cli/telemachus-anchor.rkt keygen        # then set TELEMACHUS_ANCHOR_KEY
+raco test test/anchor-tests.rkt test/signing-tests.rkt   # 13 + 7 cases, ten controls
+bash test/server-smoke.sh                       # the "external anchor" block, 24 assertions
+racket cli/telemachus-anchor.rkt verify receipts.jsonl --public-key <hex>
+```
+
+- **THE PLATFORM EMITS A RECEIPT; IT NEVER CALLS A NOTARY** (ANCHOR‑1). A
+  timestamping authority would be a network dependency AND a disclosure on a
+  self-hosted, privacy-first, air-gapped-capable platform — the head hash is
+  low-information, but the existence and cadence of a team's decisions is not —
+  and it would be one mechanism per remote in the core. So the artifact is
+  produced here and **where it is retained is the deployment's decision**: a
+  second instance, a git repo, a bucket in another account, paper. #66 says that
+  choice IS the feature, so it is recorded in `decisions.md` before the code.
+- **ONE receipt covers BOTH chains** (ANCHOR‑2), as a list of
+  `(chain, scope, head, entries)` rows — so a third chain adds a **row**, not a
+  mechanism, which is the risk #66's second comment names. `review-chain-heads`
+  (review.rkt) and `audit-chain-heads` (chain.rkt) each live with the table they
+  read, so neither re-derives the other's "find the head" SQL.
+- **THE SERIES IS ITSELF CHAINED, and that is what makes SILENCE detectable**
+  (ANCHOR‑3). Without it the whole feature is defeated by *not publishing*: a
+  writer who controls delivery stops emitting and a missing receipt looks like a
+  quiet instance. `seq` + `prev_hash` make a gap visible without the server, and
+  make a reused seq carrying different heads — deleting rows here and re-emitting
+  — visible too. This is the property the audit export, the nearest thing that
+  already existed, does not have.
+- **Ed25519, NOT an HMAC** (ANCHOR‑4). With a shared secret the verifier could
+  have produced the receipt, so it is evidence to nobody but the operator — no
+  better than unsigned retention. `TELEMACHUS_ANCHOR_KEY` is **64 hex and a
+  passphrase is REFUSED**, unlike `TELEMACHUS_SECRET_KEY` which stretches one: a
+  signing key is machine-generated once, and stretching a phrase would make the
+  instance's published identity guessable, which rotating afterwards cannot undo.
+- **`verify` NEEDS NEITHER THE SERVER NOR THE DATABASE** (ANCHOR‑5), and that is
+  the point: an anchor is worth something precisely when the instance is the
+  suspect, and a verifier that asks the instance whether the instance is honest
+  is not one. It reads a retained file and a public key given out of band.
+- **A receipt carries its own public key, and the CLI REFUSES to call that
+  `verified`** (ANCHOR‑6). A key taken from the file it is checking proves
+  nothing — a forger supplies both — so without `--public-key` it reports
+  `self_consistent` and says which check it skipped. Saying what was NOT checked
+  is the honest failure.
+- **`anchor_receipts` IS NOT THE ANCHOR** (ANCHOR‑9), and the migration says so
+  where somebody reads the schema: it is in the same database as the chains it
+  measures, so whoever can rewrite those can delete from here too. It exists to
+  continue the sequence and to hold what has not yet been retained. **The
+  retained copy is the anchor**, which is why the status read reports what was
+  EMITTED and never claims anything was retained — the platform cannot verify
+  that somebody else kept something (PULL‑11e's withdrawn-field rule).
+- **The heads are read AFTER a seal** (ANCHOR‑8). The audit chain is sealed by a
+  sweep, so a head read mid-window is a value the next sweep legitimately
+  changes, and a receipt naming one would make an honest instance fail its own
+  later verification. `audit-chain-heads` seals first.
+- **OFF unless a key is configured** (ANCHOR‑7), DEL‑9's and PULL‑15a's call.
+  `TELEMACHUS_ANCHOR_EVERY` defaults to a day, `never` means manual only, and an
+  unparseable or non-positive value falls back to the default, **never 0** —
+  which would emit every tick and bury the series. EIGHTH thing on `set-reaper!`,
+  and `last-anchor` is seeded to NOW so a box that restarts hourly does not
+  produce an hourly series.
+- **The test that justifies the slice performs the attack** (case 3): rewrite an
+  audit row, relink the whole chain, assert `audit-chain-verify` still says
+  **ok** — the gap, asserted rather than assumed — then catch it with the
+  retained receipt. A test that only checked that receipts verify would pass
+  against a feature protecting nothing.
+- **TAKE A CRYPTO VECTOR FROM AN ORACLE, NEVER FROM MEMORY.** A probe agreed with
+  a recalled RFC 8032 "test 1" signature for its first 53 bytes and diverged
+  after — impossible for a deterministic signature, so the FFI was right and the
+  RECOLLECTION was wrong. `test/signing-tests.rkt` pins tests 2 and 3,
+  reproduced with the `openssl` CLI in the same closure (the command is in the
+  file's header); test 1 signs the EMPTY message, which `openssl pkeyutl`
+  refuses, so it is covered by a round-trip property instead of a literal nobody
+  can reproduce.
+- **`audit!` applies its `'null` coercion to only FOUR of its eleven keywords**
+  (`org-id`, `ip`, `user-agent`, `request-id`). Passing `'null` for `#:actor-id`
+  or `#:team-id` reaches the driver raw: "cannot convert given value to SQL
+  type". Use `sql-null`. A third variant of the `audit!` keyword trap, after the
+  missing `#:team-id` (now its SEVENTH appearance, and this slice pays it again)
+  and `#:resource-type` vs `#:target-*`.
+- **`audit-list` does not project `meta`**, so an assertion about an entry's meta
+  has to read the row — #59's rule, where asserting over an API that never
+  carried the field passes for the wrong reason.
+- **THE SMOKE FOUND TWO BUGS THE UNIT TESTS COULD NOT.** The verifier's failure
+  report omitted `last_seq`, which the CLI printed unconditionally, so a verdict
+  became `hash-ref: no value found for key` — the unit tests had only ever read
+  `ok`, `broken_at` and `problem`. And a series truncated at the FRONT was
+  accepted silently, though a first receipt whose `prev_hash` is non-null
+  *proves* an earlier one existed: `complete` is the answer now, the verdict
+  stays `ok` (a sub-chain is sound — a retainer may have started later), and the
+  note says the file cannot tell late retention from suppression.
+- **AN EMPTY RETAINED FILE IS NOT A PASS.** `anchor-verify-series` calls a series
+  of nothing vacuously sound, and `verify` exits **1** anyway: the library is
+  asked "is this series internally consistent" and the command is asked "is my
+  retained copy good". Exiting 0 there would be a monitor reporting success for
+  retaining nothing at all. The "no receipts" message is read off the FILE, not
+  off `checked` — which is also 0 when the walk broke at the first receipt, and
+  reading it off the walk made a two-receipt file signed by the wrong key report
+  "this file contains no receipts".
+- **A missing schema is a message, not a stack trace.** `telemachus-anchor` against
+  a fresh data directory used to die with `query-maybe-row: no such table`, which
+  reads as a broken build rather than "wrong database"; `with-db` names the
+  `DATABASE_URL` and says to start the server once. #123's rule, applied to a CLI.
+- `member` answers the TAIL from the element onward, so `check-true` wants
+  `(and (member …) #t)`. Second appearance in this tree.
+- **Not built, deliberately**: automatic delivery anywhere (that is ANCHOR‑1's
+  whole argument — a plugin or a cron line with `curl` is the right shape for a
+  specific remote), and a console card, for #116's reason.
+
 ## Retention rules on a schedule (DEL‑9…16, issue #86 r3)
 
 Built 20 Oct 2026. `domain/retention/retention.rkt`; migration `0045-legal-hold`;

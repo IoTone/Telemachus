@@ -1409,3 +1409,59 @@ is approaching its horizon with no rotation in sight. The information is there
 (`GET /api/executors` carries both slots, the token listing carries the expiry)
 and a fleet-level "this host will stop in three days" belongs with FLEET‑2's
 report rather than in the slice that creates the horizon.
+
+## An external anchor for the two hash chains (ANCHOR) — **decided and BUILT 22 Oct 2026** (issue #66)
+
+Two chains now make the same narrow claim and leave the same gap. LAY‑11 chains
+each **review decision** per team; AUD‑10…16 chains each **audit entry** per org.
+Both detect a row altered in place, a row removed from the middle, and a
+rewritten link. Neither detects a rewrite by anyone who can **write** the table,
+because they can recompute every link after the row they changed — and that is
+the party an audit is most meant to defend against. The same shape as secrets at
+rest (#19), which defends a DUMP and not a HOST.
+
+Issue #66 says the choice of anchor **is** the feature and the code after it is
+small, so the decision is recorded before any of it:
+
+> Nothing here should be built before deciding what the anchor is — a second
+> instance, an operator-held log, a timestamping service, a file in a different
+> trust domain — because the choice is the whole feature.
+
+| # | Question | Decision · alternatives | Why |
+|---|---|---|---|
+| 🔑 **ANCHOR‑1** | What the anchor IS | **The platform EMITS a signed receipt; it never CALLS a notary** · vs an RFC 3161 timestamping authority · vs a public ledger · vs a second Telemachus instance | A notary is a network dependency and a disclosure, and this platform is self-hosted, privacy-first and has to work air-gapped. The head hash itself is low-information, but the *existence and cadence* of a team's decisions is not nothing to hand a third party. It is also the wrong shape: a specific remote would be one mechanism per remote in the core, when the thing the core can uniquely provide is a receipt that is meaningful **wherever** it ends up. So the platform produces the artifact and **where it is retained is the deployment's decision** — a second instance, a git repository, an object store in another account, a mail archive, a sheet of paper in a safe. That is exactly the decision #66 says this issue is really about, and it is the operator's, not the platform's. |
+| 🔑 **ANCHOR‑2** | One mechanism or two | **ONE receipt covers BOTH chains** · vs an anchor per chain | #66's own second comment asks for this and names the risk: the two chains "should share one mechanism rather than growing two". A receipt is a list of `(chain, scope, head, entries)` rows — the review chain per team, the audit chain per org including the no-org bucket — so a third chain later adds a **row**, not a mechanism. Their scopes differ (team vs org) and that difference lives in the row rather than in two code paths. |
+| 🔑 **ANCHOR‑3** | What makes SILENCE detectable | **The receipt series is itself CHAINED** (`seq` + `prev_hash`) · vs each receipt standing alone | This is the property that the export — today's nearest thing — does not have, and without it the whole feature is defeated by *not publishing*. A writer who controls delivery simply stops emitting, and a missing receipt is indistinguishable from an instance that was quiet. With a strictly increasing sequence and each receipt naming its predecessor's hash, a **gap in the retained series is visible without the server**, and so is a replayed sequence number carrying different heads — which is what deleting receipt rows and re-emitting looks like from the retainer's side. |
+| 🔑 **ANCHOR‑4** | How a receipt is signed | **Ed25519, private key NOT in the database** (`TELEMACHUS_ANCHOR_KEY`) · vs HMAC with a shared secret · vs unsigned | HMAC buys almost nothing here: a verifier who holds the key could have produced the receipt, so the receipt means nothing to anyone but the operator who could have forged it — no better than unsigned retention. Asymmetric is what makes a receipt evidence to a party that is **not** the operator (an auditor, a customer, a regulator): the public key is published and verification does not confer the ability to sign. It is a SEPARATE key from `TELEMACHUS_SECRET_KEY` for #19's reason inverted — rotating the sealing key must not invalidate the anchor series, and rotating the anchor key must not touch a single sealed column. |
+| 🔑 **ANCHOR‑5** | Who can verify, and with what | **A CLI that needs neither the server nor the database** (`cli/telemachus-anchor.rkt verify`) · vs an API endpoint · vs a console card | An anchor is worthless precisely when it is most needed — when the instance is the suspect. A verifier that asks the instance whether the instance is honest is not a verifier. So the check runs over a retained file, offline, against a public key supplied on the command line. |
+| 🔑 **ANCHOR‑6** | Whether a receipt may carry its own public key | **Yes, for convenience — and the CLI REFUSES to call it verified without an expected key** · vs carrying it and trusting it · vs omitting it | A key taken from the file it is being used to verify proves nothing: a forger supplies both. Carrying it is still useful (it says which key *claims* to have signed, so a mismatch is diagnosable), so it rides in the receipt and the verifier reports `signed_by` while declining to report `verified` until `--public-key` is given. The honest failure is to say what was not checked rather than to imply a check that could not happen. |
+| **ANCHOR‑7** | The default | **OFF unless a key is configured** · vs emitting unsigned receipts by default | DEL‑9's and PULL‑15a's call: a real default means an upgrade silently starts emitting on a timer on every instance, and here it would also mint a key nobody retained — a receipt series with no reader, which is worse than none because it reads as a feature that is working. With no `TELEMACHUS_ANCHOR_KEY` nothing is emitted and nothing changes. |
+| **ANCHOR‑8** | When the heads are read | **After a SEAL** · vs whatever is in the table | The audit chain is sealed by a sweep, not at insert (AUD‑10), so its head is only well-defined once sealed — which is why `audit-chain-status` reports the unsealed window at all. A receipt naming an unsealed head would anchor a value the next sweep legitimately changes, and an honest instance would then fail its own verification. Emission seals first. |
+| **ANCHOR‑9** | Where receipts live on the box | **A table, which is NOT the anchor** · vs only a file · vs only the response | `anchor_receipts` exists so the sequence can be continued across restarts and so an operator can fetch what they have not yet retained. It is in the same database as the chains it measures, so a writer can delete from it too — which is the whole point: **the retained copy is the anchor, the table is a queue.** Said out loud, because a table called `anchor_receipts` invites the belief that having it is the protection. |
+| **ANCHOR‑10** | What the digest covers | **The chain rows, the sequence, the predecessor, and the emitting instance** · vs the heads alone | A receipt that signed only head hashes could be replayed into another instance's series, or re-dated. The signed payload is an ordered list — never a hash, the trap that `json-out` sorts for and that JUDGE‑13's wire refuses re-serialization for — carrying `ANCHOR-VERSION`, the sequence, the previous receipt's hash, the emission time and the rows in a fixed order. A field not in it could be changed without breaking the signature, so the list is the statement of what is protected. |
+
+**What this detects, and what it does not** — stated narrowly, because the point
+of the issue was that the chains' own claim had been stated too widely:
+
+- It detects a rewrite of either chain **after a receipt was retained**: the
+  recomputed head will not match the retained one, and no amount of relinking
+  inside the database changes a hash somebody else is holding.
+- It detects **suppression** — a gap in the retained sequence, or a reused
+  sequence number carrying different heads.
+- It does **not** detect a rewrite that happened **before the first receipt**, or
+  one inside the window since the last receipt. The anchor's resolution is its
+  cadence.
+- It does **not** work at all if the retained copy was never collected or has
+  been lost. The platform cannot verify that somebody else kept something, and
+  does not pretend to: `GET /api/admin/anchor/receipts` reports what has been
+  emitted, never what has been retained.
+- A **host** compromise still forges *future* receipts, because the signing key
+  is on the host. It cannot forge the ones already in somebody else's hands.
+  #19's DUMP-not-HOST line, one layer up.
+
+Not built, deliberately: automatic delivery to anywhere. No SMTP, no git push,
+no bucket write — that is ANCHOR‑1's whole argument, and a plugin or a cron line
+with `curl` is the right shape for a specific remote. Also not built: a console
+card, for #116's reason (it would need `ui.*` strings in two catalogs and a tour
+update, which is its own slice), and anchoring the **feed** or **webhook**
+tables, which keep no chain to anchor.

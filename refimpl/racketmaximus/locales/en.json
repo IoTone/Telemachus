@@ -875,6 +875,10 @@
       "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
       "hash": "218f372f207fb10f594e39772c8cd33624edf803"
     },
+    "doc.route.get.api.admin.anchor.receipts": {
+      "text": "Anchor receipts, newest first, or oldest-first from `?since_seq=`. Each carries the exact signed payload bytes, its signature, the public key that signed it, its sequence and its predecessor's hash. `limit` caps at 1000.",
+      "hash": "213ca66fc79eaa8df31caf450143a101e5576ac5"
+    },
     "ui.qnoworker": {
       "text": "no worker",
       "hash": "27386d4385bbc993141aca01b7448f6b259e700a"
@@ -1046,6 +1050,10 @@
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
       "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
+    },
+    "doc.route.get.api.admin.anchor.export": {
+      "text": "Anchor receipts as JSONL, oldest first, for retention OUTSIDE this instance's trust domain. `?since_seq=` asks for only what a retainer does not yet hold, so the file appends. Verify a retained copy offline with `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` — which needs neither this server nor its database, because an anchor is worth something precisely when the instance is the suspect.",
+      "hash": "79290dffd7c07c40d69bdb0eae588710bf99ace2"
     },
     "doc.tool.kg_query": {
       "text": "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too.",
@@ -1619,6 +1627,14 @@
       "text": "Delete text documents.",
       "hash": "57f7cce6e25877b0f4c845a6ac47858739d4c03d"
     },
+    "ui.search": {
+      "text": "Search",
+      "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
+    },
+    "doc.route.post.api.admin.anchor.emit": {
+      "text": "Emit an anchor receipt now: seal the audit chain, read both chains' heads (the review chain per team, the audit chain per org) and sign the measurement with TELEMACHUS_ANCHOR_KEY. 400 when no anchor key is configured. Two concurrent emissions are refused by the sequence's unique index rather than retried — a forked series could not be told from a forgery.",
+      "hash": "6bf79d437077eccbd46d7b9c9361d83d513117a2"
+    },
     "doc.route.delete.api.documents.id": {
       "text": "Delete a text document.",
       "hash": "f500abea97efc00a4a244e22ffe02227348e511b"
@@ -1690,10 +1706,6 @@
     "ui.wkactive": {
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
-    },
-    "ui.search": {
-      "text": "Search",
-      "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
     },
     "ui.automations": {
       "text": "Automations",
@@ -2154,6 +2166,10 @@
     "doc.workflow.index-documents.name": {
       "text": "Index Documents",
       "hash": "b658bbb3bc5f374f75c095db243bfd4e36f99f04"
+    },
+    "doc.route.get.api.admin.anchor": {
+      "text": "Anchor status (#66): whether receipt emission is configured, the public key receipts are signed with, the instance's series id, how many receipts exist and the latest sequence and hash. It reports what was EMITTED and deliberately never claims anything was RETAINED — the retained copy is the anchor, and the platform cannot verify that somebody else kept it.",
+      "hash": "ec1afd17a430e4a2de6727a7bc4afdda7899c300"
     },
     "doc.tool.create_note.visibility": {
       "text": "Who can see it; defaults to team",
