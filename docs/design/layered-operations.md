@@ -373,10 +373,38 @@ a core, permission-gated console tab, and the canvas side is the authenticated
 plugin bundle. The gap LAY‑12 named — a plugin cannot add a tab — was resolved by
 the split rather than by closing it.
 
-**This does not mean the manual-annotation path is done.** Annotation STORAGE — a
-label, a comment, an optional region, an author — was its own item in the build
-order and nothing stores a region yet. LAY‑12 was about WHERE review appears, not
-about what an annotation is.
+**Annotation STORAGE was its own item and is now built** (LAY‑13…17, issue #65
+piece 2, 22 Oct 2026): `repo_annotations` and `/api/repo-obj/:id/annotations`
+hold a region a PERSON marked — a kind, a body, a page and bbox or a character
+range, an author, and optionally the review decision it was cited by. LAY‑12 was
+about WHERE review appears; this is what an annotation IS. The canvas that draws
+them is still a plugin's, exactly as LAY‑12 decided.
+
+### LAY‑13…17 — what a human annotation is  ✅ built
+
+- **A separate table from LAY‑5's spans, not a flag on them.** A span is a
+  function of the bytes and is replaced wholesale when a version supersedes; a
+  person's observation was true about the bytes they were looking at, so it
+  survives, bound to that version. `version_id` is NOT NULL for that reason: a
+  region with no version is a region on unknown bytes.
+- **`stale` is DERIVED** against the object's current version, so re-uploading
+  the same bytes cannot leave a row disagreeing with the object. A listing
+  defaults to the current version, `?version=all` shows every one.
+- **Anyone who may READ may annotate.** Requiring `files:write` would mean a
+  specialist handed a document to review — the DSH‑1 `view` capability, which is
+  what sharing for review gives — could not mark it up, which is the activity.
+  Nothing about the document changes and the row says whose observation it is.
+- **Only the AUTHOR may edit; a steward with `files:manage` may DELETE.** A
+  correction to somebody else's observation is your own annotation, never a
+  rewrite of theirs — the grants table's superseding-record rule. Editing is
+  deliberately a narrower power than deletion.
+- **The review link is a reference, not a second chain.** LAY‑11 hashes the
+  DECISION; an annotation may name the review it was cited by, and
+  `annotations-for-review` reads them back per object under that object's own
+  `can?`, because a review may cite a region in a document the reader cannot see.
+- **Not built, deliberately**: resolution (marking an annotation addressed) and
+  threaded replies. Both are workflow on top of storage, and the review queue
+  already carries a decision with a rationale.
 ---
 
 ## Deliberately not now

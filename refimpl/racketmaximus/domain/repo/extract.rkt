@@ -32,7 +32,7 @@
          (only-in "../authz/sealed.rkt" define-sealed-column))
 
 (provide extract-text extract-text/spans extractable? EXTRACT-CAP EXTRACT-REASONS
-         span-problem spans-covering
+         span-problem bbox-problem spans-covering
          pdftotext-available?
          register-extractor! unregister-extractor! registered-extractors extractors-of-plugin
          repo-text-upsert! repo-text-for repo-spans-for)
@@ -71,10 +71,19 @@
     [(not (exact-nonnegative-integer? (hash-ref sp 'end #f))) "a span needs an integer 'end'"]
     [(> (hash-ref sp 'start) (hash-ref sp 'end)) "a span's 'start' may not exceed its 'end'"]
     [(not (exact-nonnegative-integer? (hash-ref sp 'page 0))) "'page' must be an integer"]
-    [(let ([b (hash-ref sp 'bbox #f)])
-       (and b (not (and (list? b) (= 4 (length b)) (andmap real? b)))))
-     "'bbox' must be four numbers [x0 y0 x1 y1]"]
+    [(bbox-problem (hash-ref sp 'bbox #f))]
     [else #f]))
+
+;; ONE bbox rule, two askers: a machine span (above) and a region a HUMAN drew
+;; (#65, `domain/repo/annotations.rkt`). Deriving the check twice is
+;; `executor-can-run?`'s drift, and the two would disagree about an edge — a
+;; three-element box, an integer where a float is expected — in a way only one
+;; caller's tests would see. The platform does not INTERPRET the numbers (only
+;; the renderer knows whether they are PDF points or image pixels), so the rule
+;; is a shape and nothing more.
+(define (bbox-problem b)
+  (and b (not (and (list? b) (= 4 (length b)) (andmap real? b)))
+       "'bbox' must be four numbers [x0 y0 x1 y1]"))
 
 ;; Keep the well-formed ones and drop the rest rather than refusing the whole
 ;; extraction: provenance is an ENRICHMENT, and losing a region must never cost a
