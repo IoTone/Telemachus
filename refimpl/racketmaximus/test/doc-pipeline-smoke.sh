@@ -338,6 +338,116 @@ classify_run "$MINV" '[{"label":"invoice"}]'
 assert "…and so does a rule with no condition"        "$(ran)" "no condition"
 
 echo
+echo "== 5c. a person in the pipeline: the review hook (#87 slice 2, req 4) =========="
+# The issue's SECOND acceptance criterion: "Low-confidence items appear in the
+# review queue and resume after a decision." Everything here is over HTTP,
+# because the half that only HTTP can show is that the queue a person reads and
+# the run that is parked on it are the same thing.
+if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
+ "You classify a document": "{\"label\":\"invoice\",\"confidence\":0.42,\"rationale\":\"mock is unsure\"}",
+ "*": "MOCK"}
+JSON
+fi
+# a `waiting` run is a TERMINAL state for this section's purposes, and wait_run
+# polls for the full timeout without it — it only breaks on done/error/canceled
+wait_park(){ RUNST=""; RUNJSON=""; for i in $(seq 1 $WAIT_TRIES); do
+    RUNJSON=$(G "/api/runs/$1")
+    # the TOP-LEVEL status, read as JSON: every step carries one of its own, and a
+    # grep for the first match is right only by key order (the trap ocr-smoke paid)
+    RUNST=$(printf '%s' "$RUNJSON" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null)
+    case "$RUNST" in done|error|canceled|waiting) break;; esac; sleep 0.5
+  done; }
+review_run(){ # <object id> <min_confidence> -> RUNID, and parks or finishes
+  local r; r=$(P /api/workflows/classify-review-extract/run \
+    "{\"input\":{\"object_id\":\"$1\",\"labels\":$LABELS,\"rules\":[],\"schemas\":$CSCHEMAS,\"min_confidence\":$2}}")
+  RUNID=$(printf '%s' "$r" | jq_ 'd["id"]'); wait_park "$RUNID"; }
+pending_id(){ G /api/reviews | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["reviews"][0]["id"] if d["reviews"] else "")'; }
+decide(){ P "/api/reviews/$1/decide" "$2" >/dev/null; wait_park "$RUNID"; }
+rattr(){ G "/api/repo-obj/$1" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("attributes",{}).get(sys.argv[1],""))' "$2"; }
+
+assert "the review workflow arrived from the plugin" "$(G /api/workflows)" '"slug":"classify-review-extract"'
+assert "doc_set_type is registered"                  "$(G /api/tools)" '"name":"doc_set_type"'
+
+printf 'Dear Ms Smith,\n\nYour tenancy begins on 2026-11-01.\n\nYours,\nAcme\n' > "$TELEMACHUS_DATA_DIR/r-let.txt"
+printf 'Minutes of the site meeting, 14 October.\n' > "$TELEMACHUS_DATA_DIR/r-min.txt"
+RLET=$(up rev/b.txt text/plain "$TELEMACHUS_DATA_DIR/r-let.txt" | jq_ 'd["id"]')
+RMIN=$(up rev/c.txt text/plain "$TELEMACHUS_DATA_DIR/r-min.txt" | jq_ 'd["id"]')
+
+# --- the gate (CLS-13). The threshold is a `choice` on the confidence, not a flag
+# on the tool: only a STEP can park a run (LAY-1), and `lt` with a `number` input
+# already spells "below a configurable confidence".
+review_run "$RLET" 0.1
+assert "a confident-enough run is never parked"  "$RUNST" done
+refute "…and asks nobody"                        "$RUNJSON" '"step_id":"confirm"'
+assert "…the backend is still named as deciding" "$(rattr "$RLET" doc_type_source)" llm
+assert "the review queue is empty"               "$(G /api/reviews)" '"reviews":[]'
+
+# --- REVISE: the model is unsure AND wrong, which is the case the hook is for
+review_run "$RLET" 0.6
+assert "a low-confidence run PARKS"             "$RUNST" waiting
+assert "…on the review step"                    "$RUNJSON" '"step_id":"confirm"'
+assert "…and it is in the queue a person reads" "$(G /api/reviews)" '"step_id":"confirm"'
+assert "…titled as a question about the document" "$(G /api/reviews)" "kind of document"
+# the subject is the classifier's own answer, so the reviewer sees the guess and
+# its confidence rather than being asked to start from the document
+assert "…showing the guess that was not trusted" "$(G /api/reviews)" '"confidence":0.42'
+# LAY-3: the subject is model-produced, so it has no author and anybody holding
+# reviews:decide may decide it — four eyes here would be undecidable on a team of one
+assert "…and needs no second pair of eyes"       "$(G /api/reviews)" '"four_eyes":false'
+assert "the guess is on the document meanwhile"  "$(rattr "$RLET" doc_type)" invoice
+
+REV=$(pending_id)
+decide "$REV" '{"verdict":"revise","rationale":"a tenancy letter, not a bill","answers":{"doc_type":"letter"}}'
+assert "the run RESUMED and finished"           "$RUNST" done
+assert "…through the correcting step"           "$RUNJSON" '"step_id":"correct"'
+# the assertion the second routing chain exists for: reading the label from the
+# CLASSIFIER would have extracted a letter against the invoice schema
+assert "…and extracted against the LETTER schema" "$RUNJSON" '"step_id":"letter_fields"'
+refute "…not the invoice's"                       "$RUNJSON" '"step_id":"invoice_fields"'
+assert "the metadata followed the decision"     "$(rattr "$RLET" doc_type)" letter
+assert "…attributed to the review"              "$(rattr "$RLET" doc_type_source)" review
+assert "…at confidence 1.00"                    "$(rattr "$RLET" doc_type_confidence)" "1.00"
+assert "?attr= finds it under the corrected type" "$(G "/api/repo?prefix=rev/&attr=doc_type:letter")" '"key":"rev/b.txt"'
+refute "…and not under the model's guess"         "$(G "/api/repo?prefix=rev/&attr=doc_type:invoice")" '"key":"rev/b.txt"'
+assert "the queue is empty again"               "$(G /api/reviews)" '"reviews":[]'
+# the document's own record names the decision, which is what ties an assertion
+# about a document to the reviews chain (LAY-11) without a second mechanism
+RRECID=$(G "/api/repo?prefix=rev/b.txt.classification.json" | jq_ 'd["objects"][0]["id"]')
+RREC=$(G "/api/repo-obj/$RRECID/content")
+assert "…and the record says which review decided it" "$RREC" "\"review_id\":\"$REV\""
+assert "…with the verdict"                            "$RREC" '"verdict":"revise"'
+
+# --- REJECT: the type is WITHDRAWN. CLS-6 settled that there is no doc_type of
+# "unknown", so the only honest record of "none of these kinds" is the absence of
+# an assertion — and leaving the model's wrong guess standing is what a hook that
+# merely closed the review would have done.
+review_run "$RMIN" 0.6
+assert "the minutes park too"                   "$RUNST" waiting
+assert "…with the model's guess recorded"       "$(rattr "$RMIN" doc_type)" invoice
+decide "$(pending_id)" '{"verdict":"reject","rationale":"it is none of these kinds"}'
+assert "the rejected run finished"              "$RUNST" done
+assert "…through the withdrawing step"          "$RUNJSON" '"step_id":"withdraw"'
+# asserted as the ABSENCE of the key rather than as an empty value: `assert` is a
+# grep, and a grep for the empty string over a one-line body matches nothing — so
+# "equals empty" FAILS against a correct server. One refute covers all three keys,
+# since every one of them contains `doc_type`.
+refute "the wrong type is GONE, not left wrong" "$(G "/api/repo-obj/$RMIN")" '"doc_type"'
+assert "…on a document that is still there"     "$(G "/api/repo-obj/$RMIN")" '"key":"rev/c.txt"'
+refute "?attr= no longer finds it"              "$(G "/api/repo?prefix=rev/&attr=doc_type:invoice")" '"key":"rev/c.txt"'
+refute "…and nothing was extracted from it"     "$RUNJSON" '"step_id":"letter_fields"'
+
+# --- a reviewer's TYPO. Checklist answers are free strings (LAY-1), so the only
+# place a mis-spelled type can be caught is the tool that records it — and it must
+# refuse rather than store a type no trigger will ever match.
+review_run "$RMIN" 0.6
+decide "$(pending_id)" '{"verdict":"revise","rationale":"a letter","answers":{"doc_type":"Letter"}}'
+assert "a type outside the set fails the run"   "$RUNST" error
+assert "…naming what was wrong"                 "$RUNJSON" "not one of the types"
+assert "…and what should have been said"        "$RUNJSON" "invoice, letter, photo, report"
+assert "the decision itself stands"             "$(G '/api/reviews?status=decided')" '"status":"decided"'
+
+echo
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

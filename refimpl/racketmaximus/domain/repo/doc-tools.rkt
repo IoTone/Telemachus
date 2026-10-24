@@ -6,6 +6,7 @@
 ;;
 ;;   doc_text            (object, version?)            -> the document's text
 ;;   doc_classify        (object, labels, rules?, …)    -> one label, or refused
+;;   doc_set_type        (object, labels, label, …)     -> the type a PERSON decided
 ;;   doc_extract_fields  (text, schema, object?, …)    -> fields that VALIDATE, or refused
 ;;   doc_render          (template, data, object?, …)  -> a filled form, as a document
 ;;   doc_translate       (object, locale, …)           -> the document in a language
@@ -252,6 +253,58 @@
   (with-handlers ([(lambda (_) #t) (lambda (_) "")])
     (doc-text conn p (hasheq 'object (hash-ref src 'id)))))
 
+;; ---- the ONE place a type lands on a document --------------------------------------
+;; Shared by `doc_classify` (a backend decided) and `doc_set_type` (a person did),
+;; because the ORDER of the two writes is a rule and not an implementation detail,
+;; and two copies of a rule is `executor-can-run?`'s drift — the argument
+;; `repo-fields-declare!` already made for the field declaration one line below.
+;;
+;; THE ATTRIBUTES GO FIRST and the record second (CLS-11). The attributes are the
+;; assertion a trigger acts on; the record is provenance ABOUT that assertion.
+;; Written the other way round, a refused attribute write would leave a document
+;; beside the source saying the type was decided when nothing had recorded it.
+;;
+;; An empty `label` WITHDRAWS the type (CLS-16): LAY-4 clears an attribute by
+;; merging an empty value, so a rejection is the same write with nothing in it.
+;; The record is still written — "nobody could tell, and here is who said so" is
+;; exactly the thing a later reader needs, and the version list is where CLS-11
+;; put that history.
+(define (record-type! conn p src result #:who who #:extra [extra (hasheq)]
+                      #:run [run #f] #:step [step #f])
+  (define key (hash-ref src 'key))
+  (define label (hash-ref result 'label))
+  (define withdrawn? (equal? label ""))
+  ;; FEED-20's rule through the shared declaration: the three fields are added to
+  ;; the team's definitions additively, or LAY-4 refuses the attribute write
+  (define decl (repo-fields-declare! conn (hash-ref src 'team_id) CLASSIFY-FIELDS
+                                     #:subject "a document type's fields"
+                                     #:advice "Remove an object field the team no longer uses."))
+  (when (string? decl)
+    (raise-user-error who "declaring the document-type fields: ~a" decl))
+  (define updated
+    (repo-set-attributes! conn p (hash-ref src 'id)
+                          (hasheq 'doc_type label
+                                  'doc_type_confidence (if withdrawn? "" (confidence->string (hash-ref result 'confidence)))
+                                  'doc_type_source (if withdrawn? "" (hash-ref result 'source)))))
+  (when (eq? updated 'forbidden)
+    (error who "forbidden: files:write on ~a — a shared document's type is its owner's to record" key))
+  (when (or (symbol? updated) (string? updated))
+    (error who "recording the type on ~a: ~a" key updated))
+  (define record
+    (hash-set* extra
+               'label label
+               'withdrawn withdrawn?
+               'confidence (hash-ref result 'confidence)
+               'source (hash-ref result 'source)
+               'rationale (hash-ref result 'rationale "")
+               'object_id (hash-ref src 'id)
+               'version_id (hash-ref src 'version_id)
+               'content_type (hash-ref src 'content_type)))
+  (derive! conn p src
+           #:key (string-append key ".classification.json")
+           #:bytes (jsexpr->bytes record) #:content-type "application/json"
+           #:run run #:step step))
+
 (define (doc-classify conn p args)
   (define (refuse s) (raise-user-error 'doc_classify "~a" s))
   (define labels (hash-ref args 'labels #f))
@@ -279,46 +332,13 @@
   ;; a rules answer spent nothing, so it bills nothing — `meter!` would record a
   ;; model request that never happened
   (when (> tokens 0) (meter! conn p tokens))
-  ;; FEED-20's rule through the shared declaration: the three fields are added to
-  ;; the team's definitions additively, or LAY-4 refuses the attribute write
-  (define decl (repo-fields-declare! conn (hash-ref src 'team_id) CLASSIFY-FIELDS
-                                     #:subject "a document type's fields"
-                                     #:advice "Remove an object field the team no longer uses."))
-  (when (string? decl) (refuse (format "declaring the document-type fields: ~a" decl)))
-  ;; THE ATTRIBUTES GO FIRST and the record second. The attributes are the
-  ;; assertion a trigger acts on; the record is provenance ABOUT that assertion.
-  ;; Written the other way round, a refused attribute write would leave a document
-  ;; beside the source saying the type was decided when nothing had recorded it.
-  (define updated
-    (repo-set-attributes! conn p (hash-ref src 'id)
-                          (hasheq 'doc_type (hash-ref result 'label)
-                                  'doc_type_confidence (confidence->string (hash-ref result 'confidence))
-                                  'doc_type_source (hash-ref result 'source))))
-  (when (eq? updated 'forbidden)
-    (error 'doc_classify "forbidden: files:write on ~a — a shared document's type is its owner's to record" key))
-  (when (or (symbol? updated) (string? updated))
-    (error 'doc_classify "recording the type on ~a: ~a" key updated))
-  ;; CLS-11: the classification is ALSO a derived document, for the reason the
-  ;; extracted fields are one. The attributes carry the CURRENT type; the record
-  ;; says which label set it was chosen from, by which backend, against which
-  ;; version, and how much of the text was read. A re-run versions the same key,
-  ;; so the history is the version list rather than a second mechanism.
-  (define record
-    (hasheq 'label (hash-ref result 'label)
-            'confidence (hash-ref result 'confidence)
-            'source (hash-ref result 'source)
-            'rationale (hash-ref result 'rationale "")
-            'labels (label-names labels)
-            'backends backends
-            'object_id (hash-ref src 'id)
-            'version_id (hash-ref src 'version_id)
-            'content_type (hash-ref src 'content_type)
-            'text_chars (string-length text)
-            'truncated (> (string-length full) CLASSIFY-CAP)))
-  (define o (derive! conn p src
-                     #:key (string-append key ".classification.json")
-                     #:bytes (jsexpr->bytes record) #:content-type "application/json"
-                     #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
+  (define o (record-type! conn p src result
+                          #:who 'doc_classify
+                          #:extra (hasheq 'labels (label-names labels)
+                                          'backends backends
+                                          'text_chars (string-length text)
+                                          'truncated (> (string-length full) CLASSIFY-CAP))
+                          #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
   (hash-set* (obj-summary o #:summary (format "~a (~a, confidence ~a)"
                                               (hash-ref result 'label) (hash-ref result 'source)
                                               (confidence->string (hash-ref result 'confidence))))
@@ -618,11 +638,68 @@
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
   (hash-set* (obj-summary o #:summary (string-append "translated into " locale)) 'locale locale 'tokens_used tokens))
 
+;; ---- doc_set_type ----------------------------------------------------------------
+;; Issue #87 slice 2, the other half of the review hook (req 4). A `review` step
+;; parks the run on a person; this is how that person's decision reaches the
+;; document. It is a SEPARATE TOOL from `doc_classify` rather than a mode of it,
+;; because the two answer different questions — "what kind of document is this"
+;; needs a backend, a budget and `chat:use`, while "record what was decided" needs
+;; none of them and must work on a team with no model at all. Folding them would
+;; also mean a request that names a label and a backend list, where only one of
+;; them can be honoured.
+(define-tool doc_set_type
+  #:description "Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of \"unknown\". Writes doc_type / doc_type_confidence / doc_type_source with source \"review\" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history."
+  (object string #:description "The repository object id")
+  (labels array
+          #:items-of ((name string #:description "The label, a slug: lower-case letters, digits, '-' or '_'")
+                      (description string #:optional #:description "What this kind of document is")
+                      (examples array #:items string #:optional #:description "Short example phrases typical of it"))
+          #:description "The label set the decision was made against — the same one doc_classify was given")
+  (label string #:description "The type that was decided, spelled exactly as in the label set; empty to withdraw the type")
+  (verdict string #:optional #:description "The review verdict this came from: approve, revise or reject")
+  (rationale string #:optional #:description "Why, in the reviewer's own words — kept in the record, not in the attributes")
+  (review string #:optional #:description "The review id, for provenance")
+  (run string #:optional #:description "The workflow run id, for provenance")
+  (step string #:optional #:description "The workflow step id, for provenance"))
+
+(define (doc-set-type conn p args)
+  (define (refuse s) (raise-user-error 'doc_set_type "~a" s))
+  (define labels (hash-ref args 'labels #f))
+  (cond [(labels-problem labels) => refuse])
+  (define label (string-trim (arg args 'label)))
+  (cond [(decided-problem labels label) => refuse])
+  (define id (arg args 'object))
+  (define src (doc-ref conn p id))
+  (unless src (error 'doc_set_type "no such document: ~a" id))
+  (define verdict (or (opt-arg args 'verdict) "revise"))
+  (define result (classify-decided labels label
+                                   #:verdict verdict
+                                   #:rationale (or (opt-arg args 'rationale) "")))
+  (define o (record-type! conn p src result
+                          #:who 'doc_set_type
+                          #:extra (let* ([h (hasheq 'labels (label-names labels)
+                                                    'decided_by (principal-user-id p)
+                                                    'verdict verdict)]
+                                         [h (let ([r (opt-arg args 'review)])
+                                              (if r (hash-set h 'review_id r) h))])
+                                    h)
+                          #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
+  (hash-set* (obj-summary o #:summary (if (string=? label "")
+                                          (format "type withdrawn on review (~a)" verdict)
+                                          (format "~a (review)" label)))
+             'label label
+             'withdrawn (string=? label "")
+             'confidence (hash-ref result 'confidence)
+             'source (hash-ref result 'source)
+             'rationale (hash-ref result 'rationale "")
+             'verdict verdict))
+
 ;; ---- registration ----------------------------------------------------------------
 ;; files:write on every one that writes; the two AI tools ALSO require chat:use in
 ;; their handlers, because a tool has one permission string and both apply
 (register-tool! "doc_text"           doc_text           "files:read"  doc-text)
 (register-tool! "doc_classify"       doc_classify       "files:write" doc-classify)
+(register-tool! "doc_set_type"       doc_set_type       "files:write" doc-set-type)
 (register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields)
 (register-tool! "doc_render"         doc_render         "files:write" doc-render)
 (register-tool! "doc_translate"      doc_translate      "files:write" doc-translate)

@@ -2031,6 +2031,95 @@ bash test/doc-pipeline-smoke.sh     # the "== 5b." block, 26 assertions
   reading as a typo), trigger conditions on metadata (req 3b), the low-confidence
   review hook (req 4), batch backfill (req 5) and the evaluation harness (req 6).
 
+## A person in the pipeline: the review hook (CLS‑13…18, issue #87 slice 2)
+
+Built 24 Oct 2026 — #87's SECOND acceptance criterion. `doc_set_type` in
+`doc-tools.rkt`, `(review …)` in `define-workflow`, and the
+`classify-review-extract` workflow. No migration, no new route, no spec change:
+the `review` step kind, the queue, the verdicts, four eyes and the decision chain
+have all been there since LAY‑1.
+
+```sh
+raco test test/classify-review-tests.rkt test/flow-tests.rkt   # 10 + 23 cases, ten controls
+bash test/doc-pipeline-smoke.sh                                 # the "== 5c." block, 36 assertions
+```
+
+- **THE THRESHOLD IS A `choice`, NOT A FLAG ON THE TOOL** (CLS‑13). Only a STEP
+  can park a run — LAY‑1's mechanism is that a `review` step writes no job and
+  the run stops being advanced — so a tool that wanted to "send this for review"
+  would reach into the review subsystem from inside a tool call. `lt` plus a
+  declared `number` input already spells "below a configurable confidence". The
+  same answer `switch(doc.type)` got in slice 1.
+- **`define-workflow` CAN SPELL A REVIEW NOW, AND COULD NOT FOR A YEAR**
+  (CLS‑14). The step kind shipped with LAY‑1 and the macro had no form for it, so
+  every workflow that parked on a person had to be hand-written JSON — which is
+  why the review hook needed the authoring surface first. One keyword per verdict
+  (`#:approve` required, as the validator requires it); **an ABSENT verdict ends
+  the run**, which is the spec's own null branch, so there is no sentinel to
+  spell; `#:end` on a review is REFUSED, because where it goes depends on the
+  verdict. `#:checklist ([key "Label" [#:optional]] …)`, `required` defaulting to
+  #t as the spec's reader does.
+- **A PATTERN VARIABLE NAMED `title` MAKES `'title` EXPAND TO THE TITLE.** In a
+  syntax template `'title` is `(quote title)` and `title` is the pattern
+  variable, so the emitted hash had the title string as a KEY — "unknown field
+  'Confirm the type'". It is `ttl:str` now; the file's existing `nm`/`desc`/`ms`
+  were already following that rule and this is why.
+- **A PERSON'S LABEL IS HELD TO THE SAME LABEL SET AS THE MODEL'S** (CLS‑15).
+  CLS‑5 applied to a human: a checklist answer is a free string by LAY‑1's
+  design, so "Invoice", "invoices" and a trailing space are each one keystroke
+  away and each is a type no trigger and no `?attr=` filter will ever match. The
+  refusal LISTS the types the run offered and says it will not guess. The run
+  fails; the decision stands, because the decision was made and it is the
+  recording that could not be.
+- **AN APPROVAL RE‑RECORDS THE TYPE; A REJECTION WITHDRAWS IT** (CLS‑16).
+  `doc_type_source` becomes `"review"` and the confidence `1.00`, because the
+  attributes are where this platform says HOW a type was decided — leaving `llm`
+  and `0.42` would make an approved document indistinguishable from one nobody
+  looked at, and would offer it for review again on the next pass. An EMPTY label
+  withdraws: CLS‑6 settled that there is no `doc_type` of `"unknown"`, LAY‑4
+  clears an attribute by merging an empty value, and the record is still written
+  so "who withdrew it and why" survives. The backend's own guess is the PREVIOUS
+  VERSION of `<key>.classification.json` (CLS‑11's history).
+- **ONE WRITE PATH, TWO ASKERS.** `record-type!` holds the attributes-then-record
+  order for both tools; two copies of a rule is `executor-can-run?`'s drift, the
+  argument `repo-fields-declare!` made one line below it. `doc_set_type` is still
+  its own TOOL (CLS‑17): "what kind is this" needs a backend, a budget and
+  `chat:use`, "record what was decided" needs none of them and must work on a
+  team with no model.
+- **TWO ROUTING CHAINS, BECAUSE THE BINDING GRAMMAR HAS NO COALESCE** (CLS‑18).
+  A revision CHANGES the label, so afterwards the type is in the correcting
+  step's output and not the classifier's, and WF‑2 has no default and no
+  arithmetic by design. `classify-review-extract` carries one `choice` chain per
+  source and SHARES the extraction steps, so the duplication is one step per type
+  rather than a second pipeline. On the confident path the second chain's
+  predicates compare a string with `'null`, which is false — `eq` tolerates it
+  where `lt` would raise — which is why chain one may hand off to chain two
+  instead of needing a terminal step.
+- **FOUR EYES IS OFF IN THE SHIPPED WORKFLOW, and that is LAY‑3 working.** The
+  subject is model-produced, so it has no human author — LAY‑3's NULL-author
+  case, anyone with `reviews:decide` may decide it. `#:four-eyes` would name the
+  run's initiator as author and then refuse them, so on a team of one the run
+  could never finish.
+- **`classify-and-extract` IS LEFT ALONE.** Adding an input to a published spec
+  is a breaking change — the engine requires every declared input — so the review
+  hook is a THIRD workflow rather than a fifth input on the second.
+- **`${principal.timezone}` WAS A BINDING NOTHING COULD USE** (found here, fixed
+  here). #137 put it in `make-context`, in `bind.rkt`'s header and in these notes
+  and NOT in `valid-ref?`, so the one documented way to reach a person's clock
+  was rejected at publish time and the macro had no spelling for it. #113's shape
+  in the binding grammar. `(timezone)` is the macro's form.
+- **The resumed step binds `review_id` now**, so a step after a review can name
+  the decision it is acting on — which is what ties an assertion about a document
+  to the reviews chain (LAY‑11) without a second mechanism.
+- **`assert` IN A SMOKE IS A GREP, SO "equals empty" FAILS AGAINST A CORRECT
+  SERVER.** `grep -qF -- ""` over a one-line body matches nothing. Assert the
+  ABSENCE of the key with `refute` instead — and assert the document still came
+  back, or the refute passes for a failed request.
+- **`list-jobs` takes no `#:status`** (`(conn team #:limit)`); filter in Racket.
+- **NOT BUILT, by the issue's own numbering**: the embedding backend (req 2c),
+  trigger conditions on metadata (req 3b), batch backfill (req 5) and the
+  evaluation harness (req 6). Both ACCEPTANCE CRITERIA are now met.
+
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 
 Built 22 Oct 2026 — the last of #54's four deferred questions. Migration

@@ -54,7 +54,13 @@
          [("run")       (equal? segs '("run" "id"))]
          [("principal") (or (equal? segs '("principal" "team_id"))
                             (equal? segs '("principal" "user_id"))
-                            (equal? segs '("principal" "locale")))]
+                            (equal? segs '("principal" "locale"))
+                            ;; #137 added `timezone` to `make-context` and to this
+                            ;; module's own header, and NOT here — so the one
+                            ;; binding the clock work advertised was refused by the
+                            ;; validator and reachable from nothing. Admitting it
+                            ;; changes no behaviour for a spec that never used it.
+                            (equal? segs '("principal" "timezone")))]
          [("item")      #t]                       ; ${item} or ${item.<path>}
          [("index")     (equal? segs '("index"))]
          [("input")     (>= (length segs) 2)]

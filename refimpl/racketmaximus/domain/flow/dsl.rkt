@@ -54,7 +54,7 @@
   ;; a DSL value → the JSON value the spec holds (a reference string, or a literal)
   (define (value->js v ids)
     (syntax-parse v
-      #:datum-literals (in out run-id team-id user-id locale item index)
+      #:datum-literals (in out run-id team-id user-id locale timezone item index)
       ;; (in x) and (in x y z): `${input.x.y.z}` has always been in the grammar
       ;; (bind.rkt admits any input path) and the macro could only spell the
       ;; one-segment form, so a workflow that routes on a type and wants
@@ -70,6 +70,11 @@
        (datum->syntax v (format "${item~a}" (if (null? path) "" (string-append "." (string-join path ".")))))]
       [(index)  (datum->syntax v "${index}")]
       [(locale) (datum->syntax v "${principal.locale}")]
+      ;; #137 named `${principal.timezone}` the locale's sibling and `make-context`
+      ;; has always bound it; the macro could not spell it and `valid-ref?` refused
+      ;; it, so the one documented way to reach it was a hand-written spec that the
+      ;; validator then rejected. Both halves are fixed; this is the spelling.
+      [(timezone) (datum->syntax v "${principal.timezone}")]
       [(out s:id p:id ...)
        (check-step! "(out …)" #'s ids)
        (define path (map id->string (syntax->list #'(p ...))))
@@ -82,7 +87,7 @@
       [x:number #'x]
       [x:boolean #'x]
       [_ (raise-syntax-error 'define-workflow
-                             "not a workflow value — use a literal, (in name), (out step path …), (item path …), (index), (locale), (run-id), (team-id) or (user-id)"
+                             "not a workflow value — use a literal, (in name), (out step path …), (item path …), (index), (locale), (timezone), (run-id), (team-id) or (user-id)"
                              v)]))
 
   ;; a tool call, as the JSON object a step or a map template holds
@@ -113,7 +118,7 @@
   ;; one (step …) form → the JSON step object
   (define (step->js s ids)
     (syntax-parse s
-      #:datum-literals (step tool choice map)
+      #:datum-literals (step tool choice map review)
       ;; (step <id> (tool <name> #:k v …) [#:next <id> | #:end] [#:retry n])
       [(step sid:id (tool tname:id (~seq k:keyword kv) ...)
              (~alt (~optional (~seq #:next nxt:id))
@@ -156,8 +161,56 @@
                            'then #,(id->string #'thn))]
                 [h #,(if (attribute els) #`(hash-set h 'else #,(id->string #'els)) #'h)])
            h)]
+      ;; (step <id> (review #:title "…" #:of <value> [#:instructions "…"]
+      ;;                     [#:four-eyes] [#:checklist ([key "Label" [#:optional]] …)]
+      ;;                     #:approve <id> [#:revise <id>] [#:reject <id>]))
+      ;;
+      ;; The step kind has existed since LAY-1 and this macro could not spell it,
+      ;; so every workflow that parks on a person had to be hand-written JSON —
+      ;; which is why issue #87's review hook needed the authoring surface before
+      ;; it needed anything else. The spec's `on` object is spelled as one keyword
+      ;; per verdict, and an ABSENT verdict ends the run, exactly as a null branch
+      ;; does in the document (`on` carries no entry, `resume-from-review!` finds
+      ;; none and empties the cursor). `#:approve` is required here because the
+      ;; validator requires it there: a review must say where an approval goes.
+      [(step sid:id (review (~alt (~once (~seq #:title ttl:str))
+                                  (~once (~seq #:of subject))
+                                  (~optional (~seq #:instructions instr:str))
+                                  (~optional (~and #:four-eyes four))
+                                  (~optional (~seq #:checklist ([ck:id cl:str (~optional (~and #:optional ckopt))] ...)))
+                                  (~once (~seq #:approve appr:id))
+                                  (~optional (~seq #:revise rev:id))
+                                  (~optional (~seq #:reject rej:id))) ...)
+             (~optional (~and #:end endflag)))
+       (check-step! "#:approve" #'appr ids)
+       (when (attribute rev) (check-step! "#:revise" #'rev ids))
+       (when (attribute rej) (check-step! "#:reject" #'rej ids))
+       (when (attribute endflag)
+         (raise-syntax-error 'define-workflow
+                             "a review has no #:end — where it goes depends on the verdict, so leave a verdict's branch out to end the run there"
+                             s))
+       (define checklist
+         (if (attribute ck)
+             (for/list ([k (in-list (syntax->list #'(ck ...)))]
+                        [l (in-list (syntax->list #'(cl ...)))]
+                        [o (in-list (syntax->list #'((~? ckopt #f) ...)))])
+               #`(hasheq 'key #,(id->string k) 'label #,l
+                         'required #,(if (keyword? (syntax-e o)) #'#f #'#t)))
+             '()))
+       (define branches
+         (append (list #`(cons 'approve #,(id->string #'appr)))
+                 (if (attribute rev) (list #`(cons 'revise #,(id->string #'rev))) '())
+                 (if (attribute rej) (list #`(cons 'reject #,(id->string #'rej))) '())))
+       #`(let* ([h (hasheq 'id #,(id->string #'sid) 'uses "review"
+                           'title #,#'ttl
+                           'of #,(value->js #'subject ids)
+                           'on (make-immutable-hasheq (list #,@branches)))]
+                [h #,(if (attribute instr) #`(hash-set h 'instructions #,#'instr) #'h)]
+                [h #,(if (attribute four)  #'(hash-set h 'four_eyes #t) #'h)]
+                [h #,(if (attribute ck)    #`(hash-set h 'checklist (list #,@checklist)) #'h)])
+           h)]
       [_ (raise-syntax-error 'define-workflow
-                             "a step is (step <id> (tool <name> #:k v …) …) or (step <id> (choice <pred> #:then <id> …))"
+                             "a step is (step <id> (tool <name> #:k v …) …), (step <id> (choice <pred> #:then <id> …)) or (step <id> (review #:title … #:of … #:approve <id>))"
                              s)])))
 
 (define-syntax (define-workflow stx)

@@ -86,13 +86,24 @@ The run's input is the engine's typed `input` block:
 
 ## The step tools
 
-Five `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87).
+Six `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87
+slice 1 and `doc_set_type` with slice 2).
 Being tools, they are also available to the agent and to any hand-written
 workflow; the pipeline below is just the shipped composition.
 
 **`doc_text`** — already exists as `repo_extract_text`; returns the extracted text
 of `(object_id, version_id)`. Kept as the first step so a pipeline never depends
 on the search index having run.
+
+**`doc_set_type`** — the other half of the review hook (slice 2): record the type
+a PERSON decided. The label is held to the label set the classification offered,
+so a type nothing could match is refused rather than stored; an empty label
+withdraws the type. Writes the same three attributes with source `"review"` and
+confidence `1.00`, and versions the same `<key>.classification.json`. It is a
+separate tool from `doc_classify` rather than a mode of it because the two need
+different things — a backend, a budget and `chat:use` on one side, none of them on
+the other — but they share ONE write path, since the attributes-then-record order
+is a rule and not an implementation detail.
 
 **`doc_classify`** — an object plus a **label set** → one label, a confidence and
 a one-line rationale (issue #87, decisions CLS‑1…12). Deterministic keyword /
@@ -140,9 +151,10 @@ what lets a trigger tell a derived document from an original.
 
 ## The reference pipelines
 
-Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Two
+Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Three
 compositions: `process-upload` (below) for an inbox whose documents are all of one
-kind, and **`classify-and-extract`** for a mixed one —
+kind, **`classify-and-extract`** for a mixed one, and
+**`classify-review-extract`** for a mixed one with a person in it —
 
 ```
 classify  ->  the schema for THIS kind of document  ->  text  ->  fields
@@ -154,6 +166,31 @@ chains into the same routing, and a `choice` with no `#:else` falls through to t
 next step in list order rather than ending the run — so the branch that ends it is
 the last step. A type with no schema is classified and left alone, which is the
 right answer for a photograph.
+
+`classify-review-extract` adds requirement 4's review hook (CLS‑13…18):
+
+```
+classify  ->  below min_confidence?  ->  a review  ->  record what was decided  ->  fields
+```
+
+**The threshold is a `choice`, not a flag on the tool.** Only a step can park a
+run (LAY‑1), and `lt` with a declared `number` input already spells "below a
+configurable confidence" — so the hook is composition, exactly as the routing
+was. A decision lands on the document through **`doc_set_type`**: an approval
+re-records the type with `doc_type_source = "review"` and confidence `1.00`, a
+revision records the type the reviewer named (held to the same label set as the
+model's — a type outside it is refused, never corrected to the nearest name), and
+a rejection WITHDRAWS the type, because there is no `doc_type` of `"unknown"` and
+the only honest record of "none of these kinds" is the absence of an assertion.
+The backend's own guess survives as the previous version of
+`<key>.classification.json`.
+
+It carries **two routing chains**, one reading the classifier's label and one the
+correction's, sharing the extraction steps. That is not tidy and it is not an
+oversight: a revision changes the label, and the binding sublanguage has no
+coalesce and no default by design, so nothing can say "the label from whichever of
+these two steps ran". The escape hatch, when a third chain is wanted, is a tool
+that reads the type back off the document.
 
 
 

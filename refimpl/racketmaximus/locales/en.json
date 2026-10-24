@@ -27,6 +27,22 @@
       "text": "Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved.",
       "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
     },
+    "doc.route.post.api.beta.experience.publish": {
+      "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
+      "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
+    },
+    "doc.tool.doc_set_type.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "ui.deleted": {
+      "text": "Deleted",
+      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
+    },
+    "doc.tool.doc_set_type.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
     "doc.perm.team:write": {
       "text": "Rename a team in the company.",
       "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
@@ -38,10 +54,6 @@
     "ui.kg_queued": {
       "text": "Extraction queued",
       "hash": "e077135db696a9104da68d00f0f1384b1783028c"
-    },
-    "ui.deleted": {
-      "text": "Deleted",
-      "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
     },
     "doc.tool.doc_extract_fields.text": {
       "text": "The document's text",
@@ -162,10 +174,6 @@
     "doc.workflow.index-documents": {
       "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
-    },
-    "doc.route.post.api.beta.experience.publish": {
-      "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
-      "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
     },
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
@@ -543,6 +551,10 @@
       "text": "Revoke a user's TOTP seed (issue #19): a seed that may sit in a database dump cannot be rotated by using it, so an operator can force a re-enrolment.",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
     },
+    "doc.tool.doc_set_type.verdict": {
+      "text": "The review verdict this came from: approve, revise or reject",
+      "hash": "ffcd03f3404f159249eca58c2563d1d32b789fb3"
+    },
     "ui.wkheldhint": {
       "text": "The platform is holding this job: it is admissible work waiting on a limit, not a failure, and it starts on its own when the limit clears.",
       "hash": "e005612afd8302da9676fc5a8c52dfafd076436c"
@@ -586,6 +598,10 @@
     "ui.trigger_derived": {
       "text": "also on derived documents",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
+    },
+    "doc.tool.doc_set_type": {
+      "text": "Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of \"unknown\". Writes doc_type / doc_type_confidence / doc_type_source with source \"review\" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history.",
+      "hash": "2e9e3a1c65607294e84f75aaf0e451cbe24dd34c"
     },
     "doc.route.post.api.workers.jobs.id.derive": {
       "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TELEMACHUS_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
@@ -690,6 +706,10 @@
     "ui.simulatedwhy": {
       "text": "TELEMACHUS_MODEL_URL is unset, so this reply is a deterministic echo of your prompt rather than a model's answer.",
       "hash": "490ef95053c12b82ccd44c2b73db4715c12e78af"
+    },
+    "doc.tool.doc_set_type.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "greeting.hello": {
       "text": "Hello, {name}!",
@@ -1019,6 +1039,10 @@
       "text": "Estimated days for {lane}.",
       "hash": "49ca6d4a241734f256e80e0d3927afab75a7a778"
     },
+    "doc.workflow.classify-review-extract.name": {
+      "text": "Classify, ask a person when unsure, then extract",
+      "hash": "d52ce9fd73bd8b0c60b13b4ef9681a58920fb37c"
+    },
     "doc.perm.localization:review": {
       "text": "Approve or send back a colleague's translation (never one's own).",
       "hash": "fdca6aa60b53adec763a5fa79e2a99a103dbd12d"
@@ -1042,6 +1066,10 @@
     "doc.route.post.api.workers.jobs.id.complete": {
       "text": "Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind.",
       "hash": "219718d4db6a99151cf728aab0ae218332b69122"
+    },
+    "doc.tool.doc_set_type.review": {
+      "text": "The review id, for provenance",
+      "hash": "e0ed912c20aa571c9e007390acf88e3ebf0fd4d6"
     },
     "ui.tokensleft": {
       "text": "tokens left today",
@@ -1142,6 +1170,10 @@
     "doc.route.post.api.notes": {
       "text": "Create a note with a visibility.",
       "hash": "41706c61c8faa1b2f86d5d59a34b621e2571df63"
+    },
+    "doc.tool.doc_set_type.labels": {
+      "text": "The label set the decision was made against — the same one doc_classify was given",
+      "hash": "8e03264f54aff7b19f2b84f775e26148159ff8a6"
     },
     "doc.workflow.index-knowledge": {
       "text": "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
@@ -2051,13 +2083,17 @@
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
-    "doc.route.get.api.schedules.id": {
-      "text": "One job schedule. Another team's id is a 404, not a 403.",
-      "hash": "0c0f2a4f2bf00e5141aecc747353e5481cad3b0c"
+    "doc.workflow.classify-review-extract": {
+      "text": "Decide which kind of document this is; when the classifier is less sure than `min_confidence`, park the run and ask a person instead of guessing. Their decision is recorded on the document — approved as it stands, corrected to another type, or withdrawn when it is none of them — and the run then extracts fields against the schema for that type.",
+      "hash": "a832dda5d2cc8f3d614c4b5dafb6fb1cdcf6d6c6"
     },
     "doc.route.options.api.beta.config": {
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "doc.route.get.api.schedules.id": {
+      "text": "One job schedule. Another team's id is a 404, not a 403.",
+      "hash": "0c0f2a4f2bf00e5141aecc747353e5481cad3b0c"
     },
     "doc.route.get.api.workers.token": {
       "text": "What this worker's own credential is doing (issue #60): {expires_at, rotate, overlap_seconds, ttl_seconds}. `rotate` is the platform's answer, so every worker takes the same decision and the window can change without redeploying a fleet; a worker checks this periodically and acts on the one boolean. It is a read rather than a field on the claim because an idle worker's claim answers 204, which carries no body — and a host with no work whose token lapses tonight is exactly the one that needs telling.",
@@ -2423,6 +2459,10 @@
       "text": "Set your password",
       "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
     },
+    "doc.tool.doc_set_type.label": {
+      "text": "The type that was decided, spelled exactly as in the label set; empty to withdraw the type",
+      "hash": "c05644c4235b6cc6e353c480e57173c6629ed9e1"
+    },
     "doc.route.get.beta-sdk.js": {
       "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
       "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
@@ -2562,6 +2602,10 @@
     "doc.tool.translate_text": {
       "text": "Translate text into a target language.",
       "hash": "97e00a1333476512c5752e4a68c059fc5df84cc4"
+    },
+    "doc.tool.doc_set_type.rationale": {
+      "text": "Why, in the reviewer's own words — kept in the record, not in the attributes",
+      "hash": "94de99a91dfb4c1d65767ecf51259cd9930e76a9"
     },
     "ui.s3hint": {
       "text": "Any S3 client works: aws-cli, rclone, boto3, Cyberduck. Your team is the bucket.",
