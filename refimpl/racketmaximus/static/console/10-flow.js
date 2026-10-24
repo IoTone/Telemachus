@@ -35,7 +35,7 @@ async function automationsCard(defs){
   const trg=r.json.triggers||[], b=r.json.budget||{};
   const budget=(b.limit===null||b.limit===undefined) ? t('nolimit') : `${esc(b.remaining)} / ${esc(b.limit)} ${t('tokensleft')}`;
   const rows=trg.map(x=>`<tr>
-      <td><b>${esc(x.workflow_slug)}</b><div class="muted mono" style="font-size:12px">${esc(x.match_prefix||'*')}${x.match_types?' · '+esc(x.match_types):''}${x.fire_on_derived?' · '+t('trigger_derived'):''}</div></td>
+      <td><b>${esc(x.workflow_slug)}</b><div class="muted mono" style="font-size:12px">${esc(x.match_prefix||'*')}${x.match_types?' · '+esc(x.match_types):''}${x.match_attrs&&Object.keys(x.match_attrs).length?' · '+esc(Object.entries(x.match_attrs).map(([k,v])=>k+':'+v).join(', ')):''}${x.fire_on_derived?' · '+t('trigger_derived'):''}</div></td>
       <td>${x.enabled?'<span class="badge ok">'+t('enabled')+'</span>':'<span class="badge">'+t('disabled')+'</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn sm ghost" data-h-click="${H((el,ev)=>trgHistory((x.id)))}">${t('fires')}</button>
@@ -47,6 +47,7 @@ async function automationsCard(defs){
       <div style="flex:1"><label>${t('workflow')}</label><select id="tg_wf">${wopts}</select></div>
       <div style="flex:1"><label>${t('trigger_prefix')}</label><input id="tg_prefix" placeholder="inbox/invoices/"></div>
       <div style="flex:1"><label>${t('trigger_types')}</label><input id="tg_types" placeholder="application/pdf, text/plain"></div>
+      <div style="flex:1"><label>${t('trigger_attrs')}</label><input id="tg_attrs" placeholder="doc_type:invoice"></div>
       <div style="flex:none"><label><input type="checkbox" id="tg_derived"> ${t('trigger_derived')}</label></div>
     </div>
     <label>${t('trigger_input')}</label>
@@ -65,8 +66,18 @@ async function automationsCard(defs){
 async function trgCreate(){
   let input={}; const raw=(val('tg_input')||'').trim();
   if(raw){ try{ input=JSON.parse(raw); }catch(e){ return toast('input: invalid JSON'); } }
+  // `key:value, key2:value2` — the same words as the ?attr= filter on the
+  // repository, so an operator who can find documents by type triggers on it in
+  // the spelling they already know. The server validates; a malformed pair is a
+  // 400 that names it, which is better than guessing here.
+  const match_attrs={};
+  for(const pair of (val('tg_attrs')||'').split(',')){
+    const s=pair.trim(); if(!s) continue;
+    const i=s.indexOf(':'); if(i<1) return toast('attributes: write key:value');
+    match_attrs[s.slice(0,i).trim()]=s.slice(i+1).trim();
+  }
   const r=await api('/api/doc-triggers',{method:'POST',body:{workflow_slug:val('tg_wf'),match_prefix:val('tg_prefix'),
-    match_types:val('tg_types'),input,fire_on_derived:!!document.getElementById('tg_derived').checked}});
+    match_types:val('tg_types'),match_attrs,input,fire_on_derived:!!document.getElementById('tg_derived').checked}});
   if(r.ok){ toast(t('triggeradded'),true); renderTab(); } else toast(r.json.error||'error');
 }
 async function trgToggle(id,on){

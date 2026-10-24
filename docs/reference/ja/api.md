@@ -221,7 +221,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/workflows/schema` | public | — | — | — | ワークフロー仕様フォーマット：バージョン、ステップ種類、バインディング参照、述語 |
 | POST | `/api/workflows/:slug/run` | bearer | `workflows:run` | role | `workflows` | {input} で実行を開始する；宣言された入力は必須で型付きです。202 と実行を返します。 |
 | GET | `/api/doc-triggers` | bearer | `workflows:read` | role | `workflows` | チームのアップロードトリガーと、チームの残り AI 予算。 |
-| POST | `/api/doc-triggers` | bearer | `workflows:write` | role | `workflows` | トリガーを作成：workflow_slug, match_prefix, match_types, input, fire_on_derived. |
+| POST | `/api/doc-triggers` | bearer | `workflows:write` | role | `workflows` | トリガーを作成する: workflow_slug、match_prefix、match_types、match_attrs、input、fire_on_derived。`match_attrs` はオブジェクトメタデータのキーと値のオブジェクトで、そのすべてが一致する必要があります（完全一致のみ、`?attr=` と同じ語彙）。属性を指定したトリガーは、文書のメタデータが変化したときにも発火します — doc_classify が記録した種類がパイプラインを起動するのは、この仕組みです。 |
 | GET | `/api/doc-triggers/:id` | bearer | `workflows:read` | resource | — | 1つのトリガーとその発火履歴（どのバージョン、どの実行、あるいはなぜ発火しなかったか）。 |
 | PATCH | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | トリガーのフィールドを変更；存在しないフィールドはそのままにします。 |
 | DELETE | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | トリガーとその履歴を削除します；開始した実行は残ります。 |
