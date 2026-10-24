@@ -1,0 +1,7 @@
+{
+  "id": "matrix",
+  "name": "Matrix — notify a team in a room",
+  "version": "0.1.0",
+  "description": "Sends the platform's own events to a Matrix room on a homeserver the operator runs. Optional: with no homeserver configured it registers nothing.",
+  "entry": "main.rkt"
+}

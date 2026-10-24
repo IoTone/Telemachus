@@ -40,7 +40,7 @@
          (only-in "../domain/sched/schedules.rkt" fire-due-schedules!)
          ;; #85: the event sink and the delivery sweep
          (only-in "../domain/hooks/webhooks.rkt" deliver-due! enqueue-event!)
-         (only-in "../domain/events/events.rkt" set-event-sink!)
+         (only-in "../domain/events/events.rkt" add-event-sink!)
          (only-in "../domain/s3/server.rkt" make-s3-handler reap-uploads! s3-region)
          (only-in "../domain/audit/chain.rkt" audit-chain-seal!)
          ;; #114 slice 4: the feed poller, its first adapter, and the job kind a
@@ -766,7 +766,10 @@
   ;; #85: ONE sink for every emitter — a run settling, a job finishing, an object
   ;; arriving or going, a review decided. Installed here rather than inside
   ;; webhooks.rkt so the domain module stays something a test can drive directly.
-  (set-event-sink! (lambda (conn event team data) (void (enqueue-event! conn event team data))))
+  ;; NAMED, because there may be several (#133): a plugin adds its own in
+  ;; `init!` and the two are wrapped separately, so a broken transport on one
+  ;; cannot cost the other its delivery.
+  (add-event-sink! "webhooks" (lambda (conn event team data) (void (enqueue-event! conn event team data))))
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
