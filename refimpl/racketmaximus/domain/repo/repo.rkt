@@ -35,6 +35,9 @@
          reap-staged-blobs! stage-reap-seconds stage-blob! unstage-blob!
          repo-fields repo-fields-set! repo-fields-declare! repo-set-attributes!
          repo-get repo-open repo-list repo-versions
+         ;; issue #87 req 5: how many objects a key window holds, so a caller
+         ;; paging through repo-list can tell a short page from the last page
+         repo-count
          ;; the ONE implementation of the triple can? reads for an object —
          ;; exported so the audit read surface can ask for it instead of
          ;; rebuilding it (issue #84)
@@ -440,6 +443,23 @@
                       (and (can? conn p "files:read" #:resource (obj->resource o))
                            (attrs-match? o attrs))))
     (row->obj r)))
+
+;; How many objects the key window holds — the SAME window `repo-list` pages over,
+;; which is why it lives beside it rather than being written out a second time at
+;; the call site.
+;;
+;; IT DOES NOT APPLY `can?`, AND THAT IS THE POINT. `repo-list` filters per row
+;; after the SQL LIMIT, so a page can come back short because the caller may not
+;; see some of its rows — indistinguishable, from the caller's side, from the last
+;; page. A backfill that read a short page as "the end" would silently never reach
+;; anything beyond a colleague's private document, which is the failure that
+;; matters here. The disclosure is a count and no identity, within one team,
+;; behind `files:read`.
+(define (repo-count conn p #:prefix [prefix ""])
+  (require-perm conn p "files:read")
+  (query-value conn
+    "SELECT COUNT(*) FROM repo_objects WHERE team_id = ? AND deleted_at IS NULL AND key LIKE ?"
+    (principal-team-id p) (string-append (escape-like prefix) "%")))
 
 ;; every (key . value) must be present and equal — an object missing the key does
 ;; not match, which is what "every survey for levee 7" means

@@ -8,6 +8,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `create_note` | `notes:write` | built-in | Create a note for the current user's team. |
 | `doc_classify` | `files:write` | built-in | Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json. |
 | `doc_extract_fields` | `files:write` | built-in | Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json. |
+| `doc_list_unclassified` | `files:read` | built-in | List repository documents under a key prefix that have no document type yet — the input to a classification backfill. Returns object ids, capped at a batch; run the backfill again to continue. A document that already carries doc_type is skipped, which is what makes a re-run free, and the outputs other runs derived are never listed. |
 | `doc_render` | `files:write` | built-in | Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is "pdf" (a Markdown or HTML template, converted with pandoc and tectonic). |
 | `doc_set_type` | `files:write` | built-in | Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of "unknown". Writes doc_type / doc_type_confidence / doc_type_source with source "review" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history. |
 | `doc_text` | `files:read` | built-in | Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run. |
@@ -75,6 +76,18 @@ Permission: `files:write` · source: built-in
 | `schema` | object | yes | A JSON schema the extracted object must conform to |
 | `step` | string | no | The workflow step id, for provenance |
 | `text` | string | yes | The document's text |
+
+## `doc_list_unclassified`
+
+List repository documents under a key prefix that have no document type yet — the input to a classification backfill. Returns object ids, capped at a batch; run the backfill again to continue. A document that already carries doc_type is skipped, which is what makes a re-run free, and the outputs other runs derived are never listed.
+
+Permission: `files:read` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prefix` | string | no | Only documents whose key starts with this (default: every document in the team) |
+| `run` | string | no | The workflow run id, for provenance |
+| `step` | string | no | The workflow step id, for provenance |
 
 ## `doc_render`
 

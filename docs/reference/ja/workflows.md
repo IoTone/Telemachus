@@ -5,6 +5,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | Workflow | Plugin | Version | Steps | Description |
 |---|---|---|---|---|
 | `classify-and-extract` | doc-pipeline | 1 | 7 | この文書がどの種類かを判定し（まず決定的なルール、次にモデル）、その種類を文書に記録し、その種類に対応するスキーマに照らしてフィールドを抽出する。スキーマのない種類は、分類だけ行ってそのままにします。 |
+| `classify-backfill` | doc-pipeline | 1 | 2 | 接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。 |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | この文書がどの種類かを判定し、分類器の確信度が `min_confidence` を下回る場合は、推測せずに実行を保留して人に尋ねる。その判断は文書に記録されます — そのまま承認、別の種類へ訂正、あるいはいずれでもないときは取り下げ — そのうえで、その種類に対応するスキーマに照らしてフィールドを抽出します。 |
 | `index-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `index-knowledge` | knowledge-graph | 1 | 2 | インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
@@ -37,6 +38,28 @@ Steps:
 | `letter_text` | `tool:doc_text` | `{"object":"${input.object_id}"}` | next in order |
 | `letter_fields` | `tool:doc_extract_fields` | `{"object":"${input.object_id}","run":"${run.id}","schema":"${input.schemas.letter}","step":"letter_fields","text":"${steps.letter_text.output.result}"}` | end · retry 1 |
 | `is_letter` | `choice` | when `{"eq":["${steps.classify.output.result.label}","letter"]}` then `letter_text` | next in order |
+
+## `classify-backfill` — 滞留分を分類する
+
+接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。
+
+Plugin: `doc-pipeline` · version 1 · max steps 30 · starts at `find`
+
+Input:
+
+| Name | Type |
+|---|---|
+| `backends` | array |
+| `labels` | array |
+| `prefix` | string |
+| `rules` | array |
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `find` | `tool:doc_list_unclassified` | `{"prefix":"${input.prefix}","run":"${run.id}","step":"find"}` | next in order |
+| `classify` | `map` | over `${steps.find.output.result.ids}` → `tool:doc_classify` with `{"backends":"${input.backends}","labels":"${input.labels}","object":"${item}","rules":"${input.rules}","run":"${run.id}","step":"classify"}` | end |
 
 ## `classify-review-extract` — 分類し、迷ったら人に尋ね、そのうえで抽出する
 
