@@ -27,17 +27,18 @@
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../authz/sealed.rkt" define-sealed-column)
          "repo.rkt"
+         (only-in "../fields/fields.rkt" field-key?)
          "../db/nulls.rkt")
 
 (provide trigger-create! trigger-list trigger-get trigger-update! trigger-delete!
-         trigger-fires trigger-matches? fire-triggers!
+         trigger-fires trigger-matches? fire-triggers! fire-attr-triggers!
          object-processing)
 
 (define (bool x) (and (number? x) (not (zero? x))))
 
 (define TSELECT
   (string-append "SELECT id, team_id, workflow_slug, enabled, match_prefix, match_types, input, "
-                 "fire_on_derived, created_by, created_at, updated_at FROM doc_triggers"))
+                 "fire_on_derived, created_by, created_at, updated_at, match_attrs FROM doc_triggers"))
 
 (define (row->trigger r)
   (hasheq 'id (vector-ref r 0) 'team_id (vector-ref r 1) 'workflow_slug (vector-ref r 2)
@@ -47,7 +48,8 @@
                    (let ([j (string->jsexpr (vector-ref r 6))]) (if (hash? j) j (hasheq))))
           'fire_on_derived (bool (vector-ref r 7))
           'created_by (nz (vector-ref r 8))
-          'created_at (format "~a" (vector-ref r 9)) 'updated_at (format "~a" (vector-ref r 10))))
+          'created_at (format "~a" (vector-ref r 9)) 'updated_at (format "~a" (vector-ref r 10))
+          'match_attrs (parse-attrs (vector-ref r 11))))
 
 (define (trigger-row conn id)
   (query-maybe-row conn (string-append TSELECT " WHERE id = ?") id))
@@ -65,6 +67,43 @@
     (raise-user-error 'triggers "match_prefix contains control characters"))
   (when (string-prefix? prefix "/") (raise-user-error 'triggers "match_prefix must not start with /")))
 
+;; ---- CLS-19: matching on object metadata ---------------------------------------------
+;; EQUALITY ONLY, a key → value object, ALL of which must match. Deliberately not
+;; a predicate language with ranges, negation or globs: a trigger condition is
+;; operator-authored and evaluated on the write path of every document the team
+;; stores, which is the same argument that froze the funnel's validation
+;; vocabulary (`domain/fields/fields.rkt`) and the workflow binding sublanguage
+;; (`domain/flow/bind.rkt`). The vocabulary is `?attr=`'s, so an operator who can
+;; list documents by type triggers on the same thing in the same words.
+;;
+;; The KEYS are not checked against the team's field definitions, and that is on
+;; purpose: LAY-4 refuses an undefined key on the WRITE, so a condition naming one
+;; can only ever fail to match — whereas refusing it here would mean a trigger
+;; cannot be configured before the tool that declares the field has run once,
+;; which for `doc_type` is exactly the order an operator sets things up in.
+(define MAX-MATCH-ATTRS 10)
+
+(define (check-attrs! v)
+  (unless (hash? v) (raise-user-error 'triggers "match_attrs must be a JSON object of key → value"))
+  (when (> (hash-count v) MAX-MATCH-ATTRS)
+    (raise-user-error 'triggers "match_attrs may name at most ~a attributes" MAX-MATCH-ATTRS))
+  (for ([(k val) (in-hash v)])
+    (unless (field-key? (symbol->string k))
+      (raise-user-error 'triggers "match_attrs: '~a' is not a valid attribute key" k))
+    ;; LAY-4 values ARE strings, so a condition written with a number or a boolean
+    ;; could never match anything. Refused rather than coerced: a trigger that
+    ;; silently never fires is the hardest thing on this surface to debug, and
+    ;; `?attr=` has the same answer.
+    (unless (string? val)
+      (raise-user-error 'triggers "match_attrs.~a must be a string — object metadata values are strings" k))
+    (when (string=? val "")
+      (raise-user-error 'triggers "match_attrs.~a is empty — an attribute with no value is one that is not set, which cannot be matched on" k)))
+  v)
+
+(define (parse-attrs s)
+  (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+    (let ([j (string->jsexpr (if (sql-null? s) "{}" s))]) (if (hash? j) j (hasheq)))))
+
 (define (normalize-types v)
   (cond
     [(or (not v) (eq? v 'null)) ""]
@@ -80,17 +119,19 @@
 
 ;; ---- CRUD ----------------------------------------------------------------------------
 (define (trigger-create! conn p #:workflow slug #:prefix [prefix ""] #:types [types ""]
+                         #:attrs [attrs (hasheq)]
                          #:input [input (hasheq)] #:fire-on-derived? [derived? #f] #:enabled? [enabled? #t])
   (require-perm conn p "workflows:write")
   (check-workflow! conn p slug)
   (check-prefix! prefix)
+  (check-attrs! attrs)
   (unless (hash? input) (raise-user-error 'triggers "input must be a JSON object"))
   (define id (new-id))
   (query-exec conn
     (string-append "INSERT INTO doc_triggers (id, team_id, workflow_slug, enabled, match_prefix, match_types, "
-                   "input, fire_on_derived, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                   "input, fire_on_derived, created_by, match_attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
     id (principal-team-id p) slug (if enabled? 1 0) prefix (normalize-types types)
-    (jsexpr->string input) (if derived? 1 0) (principal-user-id p))
+    (jsexpr->string input) (if derived? 1 0) (principal-user-id p) (jsexpr->string attrs))
   (audit! conn #:action "doc.trigger.create" #:actor-type "user" #:actor-id (principal-user-id p)
           #:team-id (principal-team-id p) #:resource-type "doc_triggers" #:resource-id id
           #:meta (jsexpr->string (hasheq 'workflow slug 'prefix prefix)))
@@ -119,6 +160,9 @@
          (define prefix (let ([v (want 'match_prefix)]) (if (eq? v 'absent) (hash-ref t 'match_prefix) v)))
          (define types (let ([v (want 'match_types)]) (if (eq? v 'absent) (hash-ref t 'match_types) (normalize-types v))))
          (define input (let ([v (want 'input)]) (if (eq? v 'absent) (hash-ref t 'input) v)))
+         (define attrs (let ([v (want 'match_attrs)])
+                         (if (eq? v 'absent) (hash-ref t 'match_attrs)
+                             (check-attrs! (if (eq? v 'null) (hasheq) v)))))
          (define enabled? (let ([v (want 'enabled)]) (if (eq? v 'absent) (hash-ref t 'enabled) (and v (not (eq? v 'null))))))
          (define derived? (let ([v (want 'fire_on_derived)]) (if (eq? v 'absent) (hash-ref t 'fire_on_derived) (and v (not (eq? v 'null))))))
          (unless (equal? slug (hash-ref t 'workflow_slug)) (check-workflow! conn p slug))
@@ -126,8 +170,9 @@
          (unless (hash? input) (raise-user-error 'triggers "input must be a JSON object"))
          (query-exec conn
            (string-append "UPDATE doc_triggers SET workflow_slug = ?, enabled = ?, match_prefix = ?, match_types = ?, "
-                          "input = ?, fire_on_derived = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
-           slug (if enabled? 1 0) prefix types (jsexpr->string input) (if derived? 1 0) id)
+                          "input = ?, fire_on_derived = ?, match_attrs = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+           slug (if enabled? 1 0) prefix types (jsexpr->string input) (if derived? 1 0)
+           (jsexpr->string attrs) id)
          (audit! conn #:action "doc.trigger.update" #:actor-type "user" #:actor-id (principal-user-id p)
                  #:team-id (hash-ref t 'team_id) #:resource-type "doc_triggers" #:resource-id id
                  #:meta (jsexpr->string (hasheq 'enabled enabled?)))
@@ -172,13 +217,21 @@
       (and (string-suffix? pattern "/*")
            (string-prefix? ct (substring pattern 0 (sub1 (string-length pattern)))))))
 
+;; every named attribute must be present on the object AND equal. An absent
+;; attribute never matches, which is what makes `doc_type` usable before anything
+;; has classified a document: at upload the condition is simply false.
+(define (attrs-match? want obj)
+  (define have (hash-ref obj 'attributes (hasheq)))
+  (for/and ([(k v) (in-hash want)]) (equal? (hash-ref have k 'none) v)))
+
 (define (trigger-matches? t obj)
   (define prefix (hash-ref t 'match_prefix ""))
   (define types (let ([s (hash-ref t 'match_types "")])
                   (if (string=? s "") '() (string-split s ","))))
   (and (string-prefix? (hash-ref obj 'key) prefix)
        (or (null? types)
-           (for/or ([pat (in-list types)]) (type-matches? (string-trim pat) (hash-ref obj 'content_type))))))
+           (for/or ([pat (in-list types)]) (type-matches? (string-trim pat) (hash-ref obj 'content_type))))
+       (attrs-match? (hash-ref t 'match_attrs (hasheq)) obj)))
 
 ;; ---- the seam ------------------------------------------------------------------------
 (define (derived-object? conn obj)
@@ -268,6 +321,53 @@
                    (or (not derived)
                        (and (hash-ref t 'fire_on_derived) (not (own-descendant? conn t obj derived?)))))
           (fire-one! conn p t obj))))))
+
+;; ---- the SECOND seam: a document's metadata changed (CLS-20…23) ---------------------
+;; A trigger that matches on metadata cannot fire on an arrival: at `repo-put!` the
+;; document has just landed and nothing has classified it, so requirement 3's two
+;; halves — record the type, and let a trigger act on it — are separated by a tool
+;; call. This is the other end.
+;;
+;; ONLY A TRIGGER THAT NAMES ATTRIBUTES IS CONSIDERED HERE (CLS-23), and that is
+;; the compatibility guarantee: every trigger anybody has configured matches on a
+;; key prefix and a content type, both of which are fixed for the life of a
+;; version, so firing them again on an attribute edit would be a behaviour change
+;; for every existing deployment — and an editor correcting a typo in a `project`
+;; field would start pipelines.
+;;
+;; EXACTLY-ONCE IS STILL PER (TRIGGER, VERSION) (CLS-21), unchanged, and it is
+;; what bounds the loop this seam introduces: a workflow that re-records the type
+;; on the document that started it writes attributes, reaches this seam, and finds
+;; the fire row already claimed. A re-upload is a new version and legitimately
+;; fires again, exactly as DWF-3 already said.
+(define (fire-attr-triggers! conn p obj #:changed [changed '()])
+  (with-handlers ([exn:fail? (lambda (e) (void))])
+    (define rows (query-rows conn (string-append TSELECT " WHERE team_id = ? AND enabled = 1 ORDER BY created_at ASC")
+                             (hash-ref obj 'team_id)))
+    (when (pair? rows)
+      ;; `derived-object?` and not the writer's own flag: an attribute write is not
+      ;; a put, so there is no "this is a fresh output" to be told — by the time
+      ;; anything sets an attribute the derivation row exists.
+      (define derived (derived-object? conn obj))
+      (for ([r (in-list rows)])
+        (define t (row->trigger r))
+        (define want (hash-ref t 'match_attrs (hasheq)))
+        ;; ONE guard, and it does both jobs. At least one of the attributes this
+        ;; trigger cares about must be one this write MOVED — which excludes a
+        ;; trigger naming none of them (CLS-23's compatibility guarantee: `want`
+        ;; is empty, so nothing can be in it) and excludes waking a trigger whose
+        ;; unrelated `doc_type` condition merely happens to hold while somebody
+        ;; edits `project`. A `(positive? (hash-count want))` beside it was my
+        ;; first version and is strictly redundant — #110 r1's lesson, where a
+        ;; guard duplicating the next one is how a reader comes to believe the
+        ;; next one is missing. The control proved it: inverting it changed
+        ;; nothing.
+        (when (and (for/or ([k (in-list changed)]) (hash-has-key? want (string->symbol k)))
+                   (trigger-matches? t obj)
+                   (or (not derived) (hash-ref t 'fire_on_derived)))
+          (fire-one! conn p t obj))))))
+
+(set-attrs-hook! fire-attr-triggers!)
 
 ;; ---- "Processed by" (DWF step 4) ---------------------------------------------------
 ;; Everything a document has been through, for the panel on it: what was derived

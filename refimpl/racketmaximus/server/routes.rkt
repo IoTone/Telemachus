@@ -343,7 +343,7 @@
    (R "GET" "/api/workflows/schema" 'workflow-schema #:auth 'public #:doc "The workflow spec format: version, step kinds, binding references, predicates.")
    (R "POST" "/api/workflows/:slug/run" 'workflow-run #:perm "workflows:run" #:feature "workflows" #:doc "Start a run with {input}; declared inputs are required and typed. Returns 202 with the run.")
    (R "GET" "/api/doc-triggers" 'doc-triggers-list #:perm "workflows:read" #:feature "workflows" #:doc "The team's upload triggers, with the team's remaining AI budget.")
-   (R "POST" "/api/doc-triggers" 'doc-triggers-create #:perm "workflows:write" #:feature "workflows" #:doc "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.")
+   (R "POST" "/api/doc-triggers" 'doc-triggers-create #:perm "workflows:write" #:feature "workflows" #:doc "Create a trigger: workflow_slug, match_prefix, match_types, match_attrs, input, fire_on_derived. `match_attrs` is an object of object-metadata key to value, all of which must match (equality only, the `?attr=` vocabulary) — a trigger that names attributes also fires when a document's metadata CHANGES, which is how a type recorded by doc_classify starts a pipeline.")
    (R "GET" "/api/doc-triggers/:id" 'doc-trigger-get #:perm "workflows:read" #:scope 'resource #:doc "One trigger with its fire history (which version, which run, or why not).")
    (R "PATCH" "/api/doc-triggers/:id" 'doc-trigger-update #:perm "workflows:write" #:scope 'resource #:doc "Change a trigger's fields; absent fields are left alone.")
    (R "DELETE" "/api/doc-triggers/:id" 'doc-trigger-delete #:perm "workflows:write" #:scope 'resource #:doc "Delete a trigger and its history; the runs it started remain.")

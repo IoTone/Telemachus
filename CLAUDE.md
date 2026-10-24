@@ -120,6 +120,18 @@ node build-catalog.mjs beta "<title>" "<subtitle>" "<footer>"   # → catalog/be
   toast as the Translation app. Assert the raise, so a silent refusal cannot
   return. The same default is what stalls a downstream batch after its first
   document, so treat "it worked and then stopped" as a budget question first.
+- **`ai.requests` IS A SECOND BUDGET AND IT DEFAULTS TO 200/DAY**
+  (`default-policy!`), and raising `ai.tokens.total` does nothing for it. Every
+  harness here raised tokens and none raised requests, so the suites ran for a
+  year with a ceiling nobody had noticed — until issue #87 req 3b added a handful
+  of fixtures and `doc-pipeline-smoke` crossed it. **What it looks like is a hung
+  engine**: the knowledge-graph fan-out stopped with eleven children `queued`,
+  nothing `running`, no error anywhere, and the smoke went from 21 seconds to
+  timing out. I lengthened the poll budget first and that was the wrong move — a
+  longer wait HIDES a stall, and the queue state (`queued` with nothing running)
+  is what says "budget" rather than "slow". Raise BOTH, and assert both: the
+  whole-suite cost grows with every fixture, because each new document is several
+  more model calls in the next fan-out.
 
 ## Environment constraints (this sandbox)
 
@@ -2119,6 +2131,64 @@ bash test/doc-pipeline-smoke.sh                                 # the "== 5c." b
 - **NOT BUILT, by the issue's own numbering**: the embedding backend (req 2c),
   trigger conditions on metadata (req 3b), batch backfill (req 5) and the
   evaluation harness (req 6). Both ACCEPTANCE CRITERIA are now met.
+
+## A trigger on the TYPE, not the prefix (CLS‑19…23, issue #87 req 3b)
+
+Built 24 Oct 2026. `match_attrs` on a trigger (migration `0060-trigger-attrs`)
+plus a SECOND firing seam. This is the half of requirement 3 that makes slices 1
+and 2 actionable: `triggers.rkt` opened by complaining that matching was a key
+prefix and a content type only, and that is now untrue.
+
+```sh
+raco test test/doc-triggers-tests.rkt   # 8 cases, seven controls
+bash test/doc-pipeline-smoke.sh         # the "== 6b." block, 14 assertions
+```
+
+- **A METADATA CONDITION CANNOT BE EVALUATED WHEN A DOCUMENT ARRIVES** (CLS‑20),
+  and that is the whole reason this is a slice rather than four lines. At
+  `repo-put!` the document has just landed and nothing has classified it, so a
+  trigger watching `doc_type` would wait for ever on the one seam the subsystem
+  had. `repo-set-attributes!` is the **only** place in the tree where object
+  metadata changes, so it is the only place that needs the hook —
+  `set-attrs-hook!` in repo.rkt, beside the put and delete ones, and like the put
+  hook it never fails the write.
+- **EQUALITY ONLY, at most ten keys** (CLS‑19), the `?attr=` vocabulary. A
+  condition is operator-authored and runs on the write path of every document the
+  team stores — the argument that froze the funnel's validation vocabulary and
+  the binding sublanguage. A non-string or empty value is **refused**, because
+  LAY‑4 values are strings and either is a condition that can never hold; a
+  trigger that silently never fires is the hardest thing on this surface to
+  diagnose. Keys go through LAY‑4's own **`field-key?`, now exported** for this
+  second asker, so the issue's own `doc.type` is refused for CLS‑7's reason
+  rather than accepted and never matched.
+- **AN ABSENT ATTRIBUTE NEVER MATCHES** (CLS‑22). That is what makes `doc_type`
+  usable before anything has classified a document: at upload the condition is
+  simply false and the trigger waits.
+- **A TRIGGER WAKES FOR THE ATTRIBUTES IT NAMES, AND ONLY WHEN THEY MOVE**
+  (CLS‑23). `repo-set-attributes!` reports the keys it actually MOVED, not the
+  keys it was handed, so a write that changes nothing fires nothing. This is the
+  compatibility guarantee — a trigger with no `match_attrs` is untouched by the
+  new seam, or every existing deployment would start firing on metadata edits —
+  and the rule that stops an edit to `project` waking a trigger watching
+  `doc_type`.
+- **EXACTLY-ONCE PER (TRIGGER, VERSION) IS UNCHANGED, AND IS WHAT BOUNDS THE
+  LOOP** (CLS‑21). A workflow that re-records the type on the document that
+  started it writes attributes, reaches the seam, and finds the fire row already
+  claimed. Nothing new was needed, which is the argument for having put the
+  idempotency key on the version in the first place.
+- **A TRIGGER IS NOT A BACKFILL.** Creating one does not fire it on documents
+  that already match; req 5 is the backfill and is unbuilt. The honest reading of
+  a fire is "this document BECAME an invoice", not "this document is one".
+- **I WROTE TWO GUARDS WHERE ONE SUFFICED, AND THE CONTROL SHOWED ME.**
+  `(positive? (hash-count want))` beside the changed-keys test is strictly
+  redundant — an empty `want` cannot contain any changed key — and inverting it
+  changed no test at all. #110 r1's rule: a guard duplicating the next one is how
+  a reader comes to believe the next one is missing.
+- **ONCE A TRIGGER HAS FIRED ON A VERSION, EXACTLY-ONCE HIDES EVERY LATER MISTAKE
+  ABOUT WHEN IT WOULD HAVE FIRED.** Three of the first eight controls did not
+  bite for that reason. A case that tests the seam's own conditions has to use a
+  trigger created AFTER the document already matches — the one state in which
+  nothing else is deciding.
 
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 

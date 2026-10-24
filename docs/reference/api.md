@@ -221,7 +221,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/workflows/schema` | public | — | — | — | The workflow spec format: version, step kinds, binding references, predicates. |
 | POST | `/api/workflows/:slug/run` | bearer | `workflows:run` | role | `workflows` | Start a run with {input}; declared inputs are required and typed. Returns 202 with the run. |
 | GET | `/api/doc-triggers` | bearer | `workflows:read` | role | `workflows` | The team's upload triggers, with the team's remaining AI budget. |
-| POST | `/api/doc-triggers` | bearer | `workflows:write` | role | `workflows` | Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived. |
+| POST | `/api/doc-triggers` | bearer | `workflows:write` | role | `workflows` | Create a trigger: workflow_slug, match_prefix, match_types, match_attrs, input, fire_on_derived. `match_attrs` is an object of object-metadata key to value, all of which must match (equality only, the `?attr=` vocabulary) — a trigger that names attributes also fires when a document's metadata CHANGES, which is how a type recorded by doc_classify starts a pipeline. |
 | GET | `/api/doc-triggers/:id` | bearer | `workflows:read` | resource | — | One trigger with its fire history (which version, which run, or why not). |
 | PATCH | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | Change a trigger's fields; absent fields are left alone. |
 | DELETE | `/api/doc-triggers/:id` | bearer | `workflows:write` | resource | — | Delete a trigger and its history; the runs it started remain. |

@@ -68,6 +68,8 @@
       (json-response
        (trigger-create! db-conn p #:workflow (fmt b 'workflow_slug)
                         #:prefix (fmt b 'match_prefix) #:types (hash-ref b 'match_types "")
+                        #:attrs (let ([a (hash-ref b 'match_attrs (hasheq))])
+                                  (if (or (not a) (eq? a 'null)) (hasheq) a))
                         #:input (let ([i (hash-ref b 'input (hasheq))]) (if (eq? i 'null) (hasheq) i))
                         #:fire-on-derived? (flag 'fire_on_derived #f) #:enabled? (flag 'enabled #t))
        #:code 201)))))

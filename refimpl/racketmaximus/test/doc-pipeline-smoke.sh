@@ -70,7 +70,10 @@ B="localhost:$PORT"
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
 P(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
 # a 7B model takes ~50 s per extraction and ~30 s per translation; the mock answers
-# in milliseconds. Poll for up to 10 minutes live, 1 minute scripted.
+# in milliseconds. Poll for up to 10 minutes live, 1 minute scripted. Do NOT
+# lengthen the scripted budget to get a stalled run to finish: a queue that
+# stops with nothing running is a BUDGET, not a slow engine, and a longer wait
+# only hides it (see the ai.requests note in section 0).
 WAIT_TRIES=$([ $LIVE = 1 ] && echo 1200 || echo 120)
 wait_run(){ # <run id> -> sets RUNST (final status) and RUNJSON; never in a $(…), or they are lost
   RUNST=""; RUNJSON=""; for i in $(seq 1 $WAIT_TRIES); do
@@ -86,6 +89,17 @@ BOBJ=$(P /api/members '{"username":"bob","role":"member"}'); BOB=$(printf '%s' "
 CARJ=$(P /api/members '{"username":"carol","role":"member"}'); CAROL=$(printf '%s' "$CARJ" | jq_ 'd["token"]')
 # the default 2,000 tokens/day would stall a pipeline in its queue (see CLAUDE.md)
 P /api/quota '{"dimension":"ai.tokens.total","limit":1000000,"window":"day"}' >/dev/null
+# …and so does the default 200 REQUESTS/day, which this suite had been one slice
+# away from for a long time and finally crossed: the knowledge-graph fan-out
+# extracts over every indexed document, so each new fixture costs several more
+# model calls, and at ~200 the queue stops with eleven children `queued` and
+# nothing `running`. That reads exactly like a hung engine. Both raises are
+# ASSERTED, for `run-tour.mjs`'s reason: a silent refusal must not be able to
+# come back as a timeout somebody lengthens a poll budget to hide.
+P /api/quota '{"dimension":"ai.requests","limit":1000000,"window":"day"}' >/dev/null
+qlimit(){ G /api/usage | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next((q["limit"] for q in d["quota"] if q["dimension"]==sys.argv[1]),"-"))' "$1"; }
+assert "the token budget was raised"   "$(qlimit ai.tokens.total)" "1000000"
+assert "the request budget was raised" "$(qlimit ai.requests)"     "1000000"
 assert "workflow arrived from the plugin" "$(G /api/workflows)" '"slug":"process-upload"'
 assert "the four tools are registered"   "$(G /api/tools)" '"name":"doc_extract_fields"'
 # The tool registries (index-tools, doc-tools, kg-tools) register on load and
@@ -489,6 +503,67 @@ curl -s -X PUT "$B/api/repo/inbox/auto/scan-002.txt" -H "Authorization: Bearer $
 assert "a disabled trigger is silent" "$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))')" "1"
 curl -s -X PATCH "$B/api/doc-triggers/$TID" -H "Authorization: Bearer $TOK" -d '{"enabled":true}' >/dev/null
 
+echo
+echo "== 6b. a trigger on the TYPE, not the prefix (#87 req 3b, CLS-19…23) ==========="
+# Requirement 3's two halves: record the type (slices 1 and 2) and let a trigger
+# act on it. They are separated by a tool call, because at `repo-put!` the
+# document has only just arrived and nothing has classified it — which is why a
+# trigger that names attributes also wakes when a document's metadata CHANGES.
+if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
+ "professional translator": "VERTAALD",
+ "*": "MOCK"}
+JSON
+fi
+nfires(){ G "/api/doc-triggers/$1" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))'; }
+
+assert "a condition that could never match is refused" \
+  "$(P /api/doc-triggers '{"workflow_slug":"process-upload","match_attrs":{"doc_type":3}}')" 'must be a string'
+# CLS-7's reason, from the other side: `doc.type` is not a legal LAY-4 key, so a
+# trigger naming it would simply never fire — refused instead
+assert "…and so is an illegal attribute key" \
+  "$(P /api/doc-triggers '{"workflow_slug":"process-upload","match_attrs":{"doc.type":"invoice"}}')" 'not a valid attribute key'
+
+TTRG=$(P /api/doc-triggers "{\"workflow_slug\":\"process-upload\",\"match_attrs\":{\"doc_type\":\"invoice\"},\"input\":{\"schema\":$SCHEMA,\"template\":\"\",\"locales\":[]}}")
+TTID=$(printf '%s' "$TTRG" | jq_ 'd["id"]')
+assert "a trigger on the document TYPE is created" "$TTRG" '"match_attrs":{"doc_type":"invoice"}'
+
+printf 'INVOICE 9002\nAcme Corp\nTotal due 42.00\n' > "$TELEMACHUS_DATA_DIR/t-inv.txt"
+printf 'Dear Ms Smith,\n\nRegards,\nAcme\n' > "$TELEMACHUS_DATA_DIR/t-let.txt"
+TINV=$(up typed/a.txt text/plain "$TELEMACHUS_DATA_DIR/t-inv.txt" | jq_ 'd["id"]')
+TLET=$(up typed/b.txt text/plain "$TELEMACHUS_DATA_DIR/t-let.txt" | jq_ 'd["id"]')
+# the arrival itself can match nothing: the documents have no type yet
+assert "the uploads fired nothing" "$(nfires "$TTID")" "0"
+
+# classify both with RULES — deterministic, and no model call at all
+classify_run "$TINV" "$CRULES"
+assert "the invoice classified"  "$(ran)" done
+classify_run "$TLET" "$CRULES"
+assert "the letter classified"   "$(ran)" done
+
+assert "recording the type fired the trigger"  "$(nfires "$TTID")" "1"
+TFIRES=$(G "/api/doc-triggers/$TTID")
+assert "…on the INVOICE"                       "$TFIRES" '"key":"typed/a.txt"'
+refute "…and not on the letter"                "$TFIRES" '"key":"typed/b.txt"'
+TRRID=$(printf '%s' "$TFIRES" | python3 -c 'import sys,json;print(json.load(sys.stdin)["fires"][0]["run_id"])')
+wait_run "$TRRID"
+assert "the run it started finished"           "$RUNST" done
+assert "…and extracted the invoice's fields"   "$(G "/api/repo?prefix=typed/a.txt")" '"key":"typed/a.txt.extracted.json"'
+
+# CLS-21: exactly-once per (trigger, version) is what BOUNDS the loop the second
+# seam introduces — re-recording the same type cannot start a second run, and the
+# pipeline the trigger ran wrote attributes of its own.
+classify_run "$TINV" "$CRULES"
+assert "re-classifying does not re-fire"       "$(nfires "$TTID")" "1"
+# a NEW VERSION legitimately fires again, exactly as DWF-3 already said for uploads
+up typed/a.txt text/plain "$TELEMACHUS_DATA_DIR/t-inv.txt" >/dev/null
+classify_run "$TINV" "$CRULES"
+assert "a new version of the document does"    "$(nfires "$TTID")" "2"
+
+# CLS-23: the compatibility guarantee. The prefix trigger from section 6 matches
+# `inbox/auto/`, and every document there has had attributes written to it by the
+# pipeline — it must not have woken up for any of that.
+assert "the prefix trigger is untouched by the new seam" "$(nfires "$TID")" "1"
 echo
 echo "== 7. the path a team will actually use: an S3 PUT fires it ===================="
 if command -v aws >/dev/null 2>&1; then

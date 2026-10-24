@@ -241,6 +241,7 @@
   "ui.trigger_input": "Workflow input (JSON)",
   "ui.trigger_prefix": "Key prefix",
   "ui.trigger_types": "Content types (blank = any)",
+  "ui.trigger_attrs": "Attributes",
   "ui.triggeradded": "Trigger added",
   "ui.until": "until",
   "ui.updated": "Updated",
