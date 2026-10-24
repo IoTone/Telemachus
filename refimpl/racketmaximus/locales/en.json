@@ -1996,8 +1996,8 @@
       "hash": "7f2bcb13edb0fc717e74a87c3261d4f645569362"
     },
     "doc.route.post.api.doc-triggers": {
-      "text": "Create a trigger: workflow_slug, match_prefix, match_types, input, fire_on_derived.",
-      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
+      "text": "Create a trigger: workflow_slug, match_prefix, match_types, match_attrs, input, fire_on_derived. `match_attrs` is an object of object-metadata key to value, all of which must match (equality only, the `?attr=` vocabulary) — a trigger that names attributes also fires when a document's metadata CHANGES, which is how a type recorded by doc_classify starts a pipeline.",
+      "hash": "1a0e38d7d0c226ef085be6847073d2d7bb03286d"
     },
     "doc.route.post.api.workers.token": {
       "text": "Trade the token this worker is holding for the next one (issue #60): {token, expires_at, overlap_seconds}. The warrant is the credential it already holds, as for PULL-9's read and PULL-13's write. The old token keeps working for the overlap, so a worker must PERSIST the new one before using it — one that cannot persist it must not rotate, or it will stop when the overlap ends. Rotating twice inside five minutes is a 429 with Retry-After.",
@@ -2662,6 +2662,10 @@
     "ui.term": {
       "text": "Term",
       "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
+    "ui.trigger_attrs": {
+      "text": "Attributes",
+      "hash": "a6652617f2c799eb11ee727b16c5646c48af6905"
     },
     "doc.tool.list_notes": {
       "text": "List the current user's notes (title and visibility).",
