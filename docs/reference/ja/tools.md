@@ -6,6 +6,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 |---|---|---|---|
 | `chat_message` | `chat:use` | translate-chat | モデルにチャットメッセージを1つ送り、その返答を返す。 |
 | `create_note` | `notes:write` | built-in | 現在のユーザーのチームにメモを作成します。 |
+| `doc_classify` | `files:write` | built-in | この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。 |
 | `doc_extract_fields` | `files:write` | built-in | JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。 |
 | `doc_render` | `files:write` | built-in | フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が "pdf" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。 |
 | `doc_text` | `files:read` | built-in | リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。 |
@@ -43,6 +44,22 @@ Permission: `notes:write` · source: built-in
 | `body` | string | yes | ノートの本文。 |
 | `title` | string | yes | 短いノートタイトル |
 | `visibility` | string (team, private, shared) | no | 誰が見られるか；既定はチーム。 |
+
+## `doc_classify`
+
+この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。
+
+Permission: `files:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `backends` | array of string | no | バックエンドの順序: "rules"、"llm"（既定は rules のあと llm） |
+| `labels` | array of object | yes | 判定の対象となる文書の種類 — 答えになり得るのはこの中のいずれかだけです |
+| `object` | string | yes | リポジトリオブジェクトID |
+| `rules` | array of object | no | 決定的なルール。順に試し、最初に一致したものが決定します。正規表現ではなく語句で指定し、ルールには少なくとも一つの条件が必要です |
+| `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
+| `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
+| `text` | string | no | 文書のテキスト（既定では文書から抽出します。テキストレイヤーのないスキャンでも、コンテンツタイプのルールには一致し得ます） |
 
 ## `doc_extract_fields`
 

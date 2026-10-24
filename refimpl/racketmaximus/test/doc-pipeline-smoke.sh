@@ -41,6 +41,7 @@ if [ -z "${TELEMACHUS_MODEL_URL:-}" ]; then
   export MOCK_REPLY_FILE="$TELEMACHUS_DATA_DIR/reply.json"
   cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
+ "You classify a document": "{\"label\":\"report\",\"confidence\":0.42,\"rationale\":\"mock\"}",
  "professional translator": "VERTAALD: Purchase approval for Acme Corp",
  "*": "MOCK"}
 JSON
@@ -236,6 +237,105 @@ JSON
   assert "the fields step was retried once" "$(printf '%s' "$RUNJSON" | grep -o '"attempt":2' | head -1)" '"attempt":2'
   refute "nothing was written"     "$(G "/api/repo?prefix=inbox/memo")" 'extracted.json'
 fi
+
+echo
+echo "== 5b. classification: a mixed inbox routed by TYPE (#87, CLS-1…12) ==========="
+# The DWF-5 section above leaves a deliberately NON-conforming extraction reply
+# behind, so this section restores the scripted answers it needs — the same thing
+# section 6 does, and for the same reason.
+if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
+ "You classify a document": "{\"label\":\"report\",\"confidence\":0.42,\"rationale\":\"mock\"}",
+ "*": "MOCK"}
+JSON
+fi
+# A letter, an invoice, a photograph and a report under ONE prefix — the case
+# `process-upload` could not serve, because one schema cannot read all four and
+# nothing told it which it was reading.
+printf 'INVOICE 4471\nAcme Corp\nTotal due 1250.50\n' > "$TELEMACHUS_DATA_DIR/m-inv.txt"
+printf 'Dear Ms Smith,\n\nYour tenancy begins on 2026-11-01.\n\nYours,\nAcme\n' > "$TELEMACHUS_DATA_DIR/m-let.txt"
+printf 'not really a jpeg' > "$TELEMACHUS_DATA_DIR/m-pho.jpg"
+printf 'Quarterly summary of levee inspections for the north reach.\n' > "$TELEMACHUS_DATA_DIR/m-rep.txt"
+up(){ curl -s -X PUT "$B/api/repo/$1" -H "Authorization: Bearer $TOK" -H "Content-Type: $2" --data-binary @"$3"; }
+MINV=$(up mixed/a.txt text/plain "$TELEMACHUS_DATA_DIR/m-inv.txt" | jq_ 'd["id"]')
+MLET=$(up mixed/b.txt text/plain "$TELEMACHUS_DATA_DIR/m-let.txt" | jq_ 'd["id"]')
+MPHO=$(up mixed/c.jpg image/jpeg "$TELEMACHUS_DATA_DIR/m-pho.jpg" | jq_ 'd["id"]')
+MREP=$(up mixed/d.txt text/plain "$TELEMACHUS_DATA_DIR/m-rep.txt" | jq_ 'd["id"]')
+assert "the workflow arrived from the plugin" "$(G /api/workflows)" '"slug":"classify-and-extract"'
+assert "doc_classify is registered"           "$(G /api/tools)" '"name":"doc_classify"'
+
+LABELS='[{"name":"invoice","description":"a bill for goods or services"},{"name":"letter","description":"correspondence addressed to a person"},{"name":"photo","description":"a photograph of a site or an asset"},{"name":"report","description":"a periodic summary"}]'
+# phrases, never regular expressions (CLS-2); a content type matches by prefix
+# when it ends in `/`, which is what classifies the photograph without reading it
+CRULES='[{"label":"photo","content_type":"image/"},{"label":"invoice","all":["Invoice"],"any":["Total due","Amount due"],"none":["DRAFT"]},{"label":"letter","any":["Dear"]}]'
+# the letter's schema is deliberately open: the scripted model answers every
+# extraction with the invoice object, and what this section is about is the ROUTING
+CSCHEMAS='{"invoice":'"$SCHEMA"',"letter":{"type":"object","additionalProperties":true}}'
+
+classify_run(){ # <object id> -> RUNST / RUNJSON
+  local r; r=$(P /api/workflows/classify-and-extract/run \
+    "{\"input\":{\"object_id\":\"$1\",\"labels\":$LABELS,\"rules\":$2,\"schemas\":$CSCHEMAS}}")
+  wait_run "$(printf '%s' "$r" | grep -oP '"id":"\K[^"]+' | head -1)"
+}
+ran(){ [ "$RUNST" = done ] && echo done || echo "$RUNST — $(printf '%s' "$RUNJSON" | grep -oP '"error":"\K[^"]*' | head -1)"; }
+
+classify_run "$MINV" "$CRULES"
+assert "the invoice run finished"            "$(ran)" done
+assert "…routed to the invoice schema"       "$RUNJSON" '"step_id":"invoice_fields"'
+refute "…and not to the letter's"            "$RUNJSON" '"step_id":"letter_fields"'
+
+classify_run "$MLET" "$CRULES"
+assert "the letter run finished"             "$(ran)" done
+assert "…routed to the letter schema"        "$RUNJSON" '"step_id":"letter_fields"'
+
+# CLS-9: `doc_text` RAISES for an image, which is why the classification comes
+# FIRST — a content-type rule answers without reading a byte, and the run then
+# ends with the type recorded and nothing extracted, because a photograph has no
+# fields. A pipeline that read the text first could not reach this document at all.
+classify_run "$MPHO" "$CRULES"
+assert "the photograph run finished"         "$(ran)" done
+refute "…nothing was extracted from it"      "$RUNJSON" '"step_id":"invoice_fields"'
+
+# no rule describes the report, so the MODEL answers — and its confidence is its
+# own, not a number this platform invented for it (CLS-3's converse)
+classify_run "$MREP" "$CRULES"
+assert "the report run finished"             "$(ran)" done
+
+MLIST=$(G "/api/repo?prefix=mixed/&limit=50")
+mid_of(){ printf '%s' "$MLIST" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(o["id"] for o in d["objects"] if o["key"]==sys.argv[1]))' "$1"; }
+attr_of(){ printf '%s' "$MLIST" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(o["attributes"].get(sys.argv[2],"") for o in d["objects"] if o["key"]==sys.argv[1]))' "$1" "$2"; }
+# CLS-7: the keys are doc_type*, with underscores — a dot is not a legal LAY-4
+# attribute key, and loosening that vocabulary for three keys would change what a
+# key is for the funnel and every ?attr= filter too
+assert "the invoice's type is on the document" "$(attr_of mixed/a.txt doc_type)" invoice
+assert "the letter's too"                      "$(attr_of mixed/b.txt doc_type)" letter
+assert "and the photograph's"                  "$(attr_of mixed/c.jpg doc_type)" photo
+assert "a rule match is confidence 1.00"       "$(attr_of mixed/a.txt doc_type_confidence)" "1.00"
+assert "…and says which backend decided"       "$(attr_of mixed/a.txt doc_type_source)" rules
+if [ $LIVE = 0 ]; then
+  assert "the model's own label for the report" "$(attr_of mixed/d.txt doc_type)" report
+  assert "…attributed to the model"             "$(attr_of mixed/d.txt doc_type_source)" llm
+  # CLS-8: two decimals, fixed, because ?attr= is an equality filter
+  assert "…with the model's confidence, to 2dp" "$(attr_of mixed/d.txt doc_type_confidence)" "0.42"
+fi
+# LAY-4's own filter now answers "every invoice in this prefix", which is the
+# whole reason the answer is written there and not only into a record
+assert "?attr= finds the invoice by type" "$(G "/api/repo?prefix=mixed/&attr=doc_type:invoice")" '"key":"mixed/a.txt"'
+refute "…and only the invoice"            "$(G "/api/repo?prefix=mixed/&attr=doc_type:invoice")" '"key":"mixed/b.txt"'
+
+# CLS-11: the record beside the source carries what three attributes cannot — the
+# label set, the backend order, the version it read and how much of the text
+assert "a classification record is beside the source" "$MLIST" '"key":"mixed/a.txt.classification.json"'
+CREC=$(G "/api/repo-obj/$(mid_of mixed/a.txt.classification.json)/content")
+assert "it names the label set"   "$CREC" '"labels":["invoice","letter","photo","report"]'
+assert "it names the version"     "$CREC" '"version_id"'
+assert "it says the text was not cut" "$CREC" '"truncated":false'
+
+# a misconfigured rule is the operator's own mistake and is named, not ignored
+classify_run "$MINV" '[{"label":"receipt","any":["x"]}]'
+assert "a rule naming an unknown label fails the run" "$(ran)" "'receipt' is not one of the labels"
+classify_run "$MINV" '[{"label":"invoice"}]'
+assert "…and so does a rule with no condition"        "$(ran)" "no condition"
 
 echo
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="

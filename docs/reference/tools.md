@@ -6,6 +6,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 |---|---|---|---|
 | `chat_message` | `chat:use` | translate-chat | Send one chat message to the model and return its reply. |
 | `create_note` | `notes:write` | built-in | Create a note for the current user's team. |
+| `doc_classify` | `files:write` | built-in | Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json. |
 | `doc_extract_fields` | `files:write` | built-in | Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json. |
 | `doc_render` | `files:write` | built-in | Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is "pdf" (a Markdown or HTML template, converted with pandoc and tectonic). |
 | `doc_text` | `files:read` | built-in | Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run. |
@@ -43,6 +44,22 @@ Permission: `notes:write` · source: built-in
 | `body` | string | yes | Note body text |
 | `title` | string | yes | Short note title |
 | `visibility` | string (team, private, shared) | no | Who can see it; defaults to team |
+
+## `doc_classify`
+
+Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.
+
+Permission: `files:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `backends` | array of string | no | Backend order: "rules", "llm" (default: rules then llm) |
+| `labels` | array of object | yes | The document types to choose between — one of these, and nothing else, can be the answer |
+| `object` | string | yes | The repository object id |
+| `rules` | array of object | no | Deterministic rules, tried in order; the first that matches decides. Phrases, not regular expressions, and a rule needs at least one condition |
+| `run` | string | no | The workflow run id, for provenance |
+| `step` | string | no | The workflow step id, for provenance |
+| `text` | string | no | The document's text (default: extracted from the document; a scan with no text layer can still match a content-type rule) |
 
 ## `doc_extract_fields`
 

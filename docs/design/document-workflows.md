@@ -86,12 +86,27 @@ The run's input is the engine's typed `input` block:
 
 ## The step tools
 
-Four `define-tool`s. Being tools, they are also available to the agent and to any
-hand-written workflow; the pipeline below is just the shipped composition.
+Five `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87).
+Being tools, they are also available to the agent and to any hand-written
+workflow; the pipeline below is just the shipped composition.
 
 **`doc_text`** — already exists as `repo_extract_text`; returns the extracted text
 of `(object_id, version_id)`. Kept as the first step so a pipeline never depends
 on the search index having run.
+
+**`doc_classify`** — an object plus a **label set** → one label, a confidence and
+a one-line rationale (issue #87, decisions CLS‑1…12). Deterministic keyword /
+content-type / key-suffix rules are tried first and the model second; `backends`
+reorders them. The answer is written onto the document as `doc_type`,
+`doc_type_confidence` and `doc_type_source`, so a later step — or a `?attr=`
+filter — can choose a schema by type, and kept beside the source as
+`<key>.classification.json`. **The rules are phrases and never regular
+expressions**: a rule is operator-authored and runs against a document the
+operator does not control, which is the same call this platform's field
+vocabulary and binding sublanguage both make. **It does not need readable text**,
+which is why it runs BEFORE `doc_text` in the type-routing pipeline: `doc_text`
+raises for a photograph, and a photograph is exactly what a content-type rule is
+for.
 
 **`doc_extract_fields`** — text + a **JSON schema** → an object that validates
 against it. The model is asked for JSON; the reply is parsed, validated, and
@@ -123,9 +138,24 @@ run's principal, and gets a `repo_derivations` row naming the source version, th
 run and the step. That row is what makes "where did this come from" a click, and
 what lets a trigger tell a derived document from an original.
 
-## The reference pipeline
+## The reference pipelines
 
-Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`:
+Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Two
+compositions: `process-upload` (below) for an inbox whose documents are all of one
+kind, and **`classify-and-extract`** for a mixed one —
+
+```
+classify  ->  the schema for THIS kind of document  ->  text  ->  fields
+```
+
+whose `labels`, `rules` and `schemas` are input, so a team configures its own
+types without new code. There is deliberately no `switch` step kind: `choice`
+chains into the same routing, and a `choice` with no `#:else` falls through to the
+next step in list order rather than ending the run — so the branch that ends it is
+the last step. A type with no schema is classified and left alone, which is the
+right answer for a photograph.
+
+
 
 ```racket
 (define-workflow process-upload

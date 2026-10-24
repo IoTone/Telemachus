@@ -5,6 +5,7 @@
 ;; requiring this module is all it takes for a workflow — or the agent — to see them.
 ;;
 ;;   doc_text            (object, version?)            -> the document's text
+;;   doc_classify        (object, labels, rules?, …)    -> one label, or refused
 ;;   doc_extract_fields  (text, schema, object?, …)    -> fields that VALIDATE, or refused
 ;;   doc_render          (template, data, object?, …)  -> a filled form, as a document
 ;;   doc_translate       (object, locale, …)           -> the document in a language
@@ -23,6 +24,7 @@
 ;;
 ;; Output keys, so a listing reads as a family:
 ;;   inbox/acme.pdf                the source
+;;   inbox/acme.pdf.classification.json  the type that was decided, and by what
 ;;   inbox/acme.pdf.extracted.json fields
 ;;   inbox/acme.pdf.form.md        the filled form (extension = the template's)
 ;;   inbox/acme.pdf.form.ja.md     its translation (locale before the extension)
@@ -43,6 +45,7 @@
          "../ai/roles.rkt"            ; the team's utility executor (KG-7)
          "../apps/translate.rkt"      ; translate!
          "repo.rkt"
+         "classify.rkt"
          "extract.rkt")
 
 (provide current-doc-chat
@@ -211,6 +214,119 @@
                         #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
      (hash-set* (obj-summary o #:summary (format "~a extracted field(s)" (hash-count fields))) 'fields fields 'tokens_used tokens)]
     [else (hasheq 'fields fields 'tokens_used tokens)]))
+
+;; ---- doc_classify ----------------------------------------------------------------
+;; Issue #87 slice 1. The rules, the label set and the model's refusals live in
+;; `classify.rkt`, pure of the repository; what is here is the document, the
+;; attributes and the derived record — the three things a classification has to
+;; touch that a string cannot.
+(define-tool doc_classify
+  #:description "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json."
+  (object string #:description "The repository object id")
+  (labels array
+          #:items-of ((name string #:description "The label, a slug: lower-case letters, digits, '-' or '_'")
+                      (description string #:optional #:description "What this kind of document is, for the model")
+                      (examples array #:items string #:optional #:description "Short example phrases typical of it"))
+          #:description "The document types to choose between — one of these, and nothing else, can be the answer")
+  (text string #:optional #:description "The document's text (default: extracted from the document; a scan with no text layer can still match a content-type rule)")
+  (rules array
+         #:items-of ((label string #:description "Which label this rule assigns")
+                     (content_type string #:optional #:description "An exact content type, or a prefix ending in '/' such as \"image/\"")
+                     (key_suffix string #:optional #:description "The document's key ends with this, e.g. \".pdf\"")
+                     (all array #:items string #:optional #:description "Every one of these phrases appears in the text")
+                     (any array #:items string #:optional #:description "At least one of these phrases appears")
+                     (none array #:items string #:optional #:description "None of these phrases appears"))
+         #:optional
+         #:description "Deterministic rules, tried in order; the first that matches decides. Phrases, not regular expressions, and a rule needs at least one condition")
+  (backends array #:items string #:optional #:description "Backend order: \"rules\", \"llm\" (default: rules then llm)")
+  (run string #:optional #:description "The workflow run id, for provenance")
+  (step string #:optional #:description "The workflow step id, for provenance"))
+
+;; CLS-9: A DOCUMENT THIS PLATFORM CANNOT READ IS STILL CLASSIFIABLE. `doc_text`
+;; raises for a scan, a missing pdftotext and an unreadable file, and rightly so —
+;; somebody is waiting for fields. Here the whole point of a content-type rule is
+;; the photograph and the scan, so the text is best-effort and an unreadable
+;; document simply has none. The model backend then refuses by name ("no text, and
+;; no rule matched"), which is the honest version of the same failure.
+(define (best-effort-text conn p src)
+  (with-handlers ([(lambda (_) #t) (lambda (_) "")])
+    (doc-text conn p (hasheq 'object (hash-ref src 'id)))))
+
+(define (doc-classify conn p args)
+  (define (refuse s) (raise-user-error 'doc_classify "~a" s))
+  (define labels (hash-ref args 'labels #f))
+  (define rules (let ([r (hash-ref args 'rules '())]) (if (or (eq? r 'null) (not r)) '() r)))
+  (define backends (let ([b (hash-ref args 'backends #f)])
+                     (if (or (not b) (eq? b 'null) (null? b)) CLASSIFY-BACKENDS b)))
+  (cond [(labels-problem labels) => refuse])
+  (cond [(backends-problem backends) => refuse])
+  (cond [(rules-problem rules (label-names labels)) => refuse])
+  ;; CLS-12: `chat:use` is demanded when the request NAMES the model backend, not
+  ;; when the chain happens to reach it. A permission that depended on whether a
+  ;; rule matched would admit a member for one document and refuse them for the
+  ;; next, with nothing in either answer to say why.
+  (when (member "llm" backends) (require-perm conn p "chat:use"))
+  (define id (arg args 'object))
+  (define src (doc-ref conn p id))
+  (unless src (error 'doc_classify "no such document: ~a" id))
+  (define key (hash-ref src 'key))
+  (define full (or (opt-arg args 'text) (best-effort-text conn p src)))
+  (define text (if (> (string-length full) CLASSIFY-CAP) (substring full 0 CLASSIFY-CAP) full))
+  (define-values (result tokens)
+    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+      (classify labels #:text text #:content-type (hash-ref src 'content_type) #:key key
+                #:rules rules #:backends backends #:chat (current-doc-chat))))
+  ;; a rules answer spent nothing, so it bills nothing — `meter!` would record a
+  ;; model request that never happened
+  (when (> tokens 0) (meter! conn p tokens))
+  ;; FEED-20's rule through the shared declaration: the three fields are added to
+  ;; the team's definitions additively, or LAY-4 refuses the attribute write
+  (define decl (repo-fields-declare! conn (hash-ref src 'team_id) CLASSIFY-FIELDS
+                                     #:subject "a document type's fields"
+                                     #:advice "Remove an object field the team no longer uses."))
+  (when (string? decl) (refuse (format "declaring the document-type fields: ~a" decl)))
+  ;; THE ATTRIBUTES GO FIRST and the record second. The attributes are the
+  ;; assertion a trigger acts on; the record is provenance ABOUT that assertion.
+  ;; Written the other way round, a refused attribute write would leave a document
+  ;; beside the source saying the type was decided when nothing had recorded it.
+  (define updated
+    (repo-set-attributes! conn p (hash-ref src 'id)
+                          (hasheq 'doc_type (hash-ref result 'label)
+                                  'doc_type_confidence (confidence->string (hash-ref result 'confidence))
+                                  'doc_type_source (hash-ref result 'source))))
+  (when (eq? updated 'forbidden)
+    (error 'doc_classify "forbidden: files:write on ~a — a shared document's type is its owner's to record" key))
+  (when (or (symbol? updated) (string? updated))
+    (error 'doc_classify "recording the type on ~a: ~a" key updated))
+  ;; CLS-11: the classification is ALSO a derived document, for the reason the
+  ;; extracted fields are one. The attributes carry the CURRENT type; the record
+  ;; says which label set it was chosen from, by which backend, against which
+  ;; version, and how much of the text was read. A re-run versions the same key,
+  ;; so the history is the version list rather than a second mechanism.
+  (define record
+    (hasheq 'label (hash-ref result 'label)
+            'confidence (hash-ref result 'confidence)
+            'source (hash-ref result 'source)
+            'rationale (hash-ref result 'rationale "")
+            'labels (label-names labels)
+            'backends backends
+            'object_id (hash-ref src 'id)
+            'version_id (hash-ref src 'version_id)
+            'content_type (hash-ref src 'content_type)
+            'text_chars (string-length text)
+            'truncated (> (string-length full) CLASSIFY-CAP)))
+  (define o (derive! conn p src
+                     #:key (string-append key ".classification.json")
+                     #:bytes (jsexpr->bytes record) #:content-type "application/json"
+                     #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
+  (hash-set* (obj-summary o #:summary (format "~a (~a, confidence ~a)"
+                                              (hash-ref result 'label) (hash-ref result 'source)
+                                              (confidence->string (hash-ref result 'confidence))))
+             'label (hash-ref result 'label)
+             'confidence (hash-ref result 'confidence)
+             'source (hash-ref result 'source)
+             'rationale (hash-ref result 'rationale "")
+             'tokens_used tokens))
 
 ;; ---- doc_render ------------------------------------------------------------------
 (define-tool doc_render
@@ -506,6 +622,7 @@
 ;; files:write on every one that writes; the two AI tools ALSO require chat:use in
 ;; their handlers, because a tool has one permission string and both apply
 (register-tool! "doc_text"           doc_text           "files:read"  doc-text)
+(register-tool! "doc_classify"       doc_classify       "files:write" doc-classify)
 (register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields)
 (register-tool! "doc_render"         doc_render         "files:write" doc-render)
 (register-tool! "doc_translate"      doc_translate      "files:write" doc-translate)

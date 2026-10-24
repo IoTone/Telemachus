@@ -123,6 +123,14 @@
       "text": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
       "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
+    "doc.tool.doc_classify.text": {
+      "text": "The document's text (default: extracted from the document; a scan with no text layer can still match a content-type rule)",
+      "hash": "c2df33ceb162743df308bbfbe7c46247c180df86"
+    },
+    "doc.route.post.api.members": {
+      "text": "Add a member to the caller's team with a role; returns the new member's first token.",
+      "hash": "c2e81fdfdb83e0915518a9c74ae921bf9375e74f"
+    },
     "ui.draftbudget": {
       "text": "AI budget: about {need} tokens needed, {left} remaining today — raise ai.tokens.total in Usage or the drafts will wait",
       "hash": "5ef886737103f5053cb37b9f30169eac5a50cfa8"
@@ -143,6 +151,10 @@
       "text": "Enqueue a scheduler job of a registered kind.",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
     },
+    "doc.tool.doc_classify.labels": {
+      "text": "The document types to choose between — one of these, and nothing else, can be the answer",
+      "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
+    },
     "doc.workflow.process-upload": {
       "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
       "hash": "41dfd3404a1fc0ec4a33fc8dbf03232097d86cbb"
@@ -154,10 +166,6 @@
     "doc.route.post.api.beta.experience.publish": {
       "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
       "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
-    },
-    "doc.route.post.api.members": {
-      "text": "Add a member to the caller's team with a role; returns the new member's first token.",
-      "hash": "c2e81fdfdb83e0915518a9c74ae921bf9375e74f"
     },
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
@@ -766,6 +774,10 @@
     "beta.field_required": {
       "text": "{field} is required",
       "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    },
+    "doc.tool.doc_classify": {
+      "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
+      "hash": "645cc6c8c208eea05540a6c6a8d252ad3c274f06"
     },
     "ui.enable": {
       "text": "Enable",
@@ -1531,6 +1543,14 @@
       "text": "Status",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
     },
+    "doc.tool.doc_classify.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.route.post.api.workers.state": {
+      "text": "A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone.",
+      "hash": "192c06e57bc1c4015dbf99a2a27a832647f1edcd"
+    },
     "ui.vishint": {
       "text": "You set this because you uploaded it. Sharing narrows a team document to just the people you name.",
       "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
@@ -1538,6 +1558,14 @@
     "ui.agent": {
       "text": "Agent",
       "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
+    },
+    "ui.kg_unextracted": {
+      "text": "waiting",
+      "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
+    },
+    "doc.tool.doc_classify.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "doc.plugin.translate-chat": {
       "text": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
@@ -1571,21 +1599,17 @@
       "text": "view",
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
     },
-    "doc.route.post.api.workers.state": {
-      "text": "A pull worker reports what it is doing: {state} — ready, busy or paused. The one channel a worker with no job can use: a drained host has stopped claiming and holds nothing to heartbeat, so without this its silence is indistinguishable from a fault. `state` is also accepted on claim and heartbeat, so the normal loop needs no extra request; a call that names none leaves the stored state alone.",
-      "hash": "192c06e57bc1c4015dbf99a2a27a832647f1edcd"
-    },
     "ui.brandthemereset": {
       "text": "Reset theme",
       "hash": "d8726c4de543a6d05fd3b09750488193ab6c3572"
     },
-    "ui.kg_unextracted": {
-      "text": "waiting",
-      "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
-    },
     "ui.brandtitle": {
       "text": "Title",
       "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "doc.workflow.classify-and-extract.name": {
+      "text": "Classify a document, then extract its fields",
+      "hash": "64c57d655e2658497d2308db6430725959e14ac0"
     },
     "doc.tool.doc_translate.object": {
       "text": "The document's object id",
@@ -1626,6 +1650,10 @@
     "ui.qshowing": {
       "text": "{from}–{to} of {total}",
       "hash": "1d79d3c3f0867cec319181decf537a23d774d2b6"
+    },
+    "doc.workflow.classify-and-extract": {
+      "text": "Decide which kind of document this is (deterministic rules first, then the model), record the type on the document, and extract fields against the schema for THAT type. A type with no schema is classified and left alone.",
+      "hash": "ea14c6b82bdabacefd1a2691720d5bfd2b69049e"
     },
     "doc.route.get.api.org.branding": {
       "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
@@ -1691,6 +1719,14 @@
       "text": "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.",
       "hash": "c12db2a62d70522a8cae022cf536347c52499014"
     },
+    "ui.automations": {
+      "text": "Automations",
+      "hash": "82542d6d0a0aa0c1e9afdbe2f29d3057618daec2"
+    },
+    "doc.tool.doc_classify.rules": {
+      "text": "Deterministic rules, tried in order; the first that matches decides. Phrases, not regular expressions, and a rule needs at least one condition",
+      "hash": "f0d4676bdc382875ffbee80ded609e55d11b83e6"
+    },
     "ui.runwf": {
       "text": "Run",
       "hash": "b1b392607deaf29a7e81453e069b7c07a32a6b18"
@@ -1750,10 +1786,6 @@
     "ui.wkactive": {
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
-    },
-    "ui.automations": {
-      "text": "Automations",
-      "hash": "82542d6d0a0aa0c1e9afdbe2f29d3057618daec2"
     },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
@@ -2411,6 +2443,10 @@
       "text": "Finished, failed, and leases that expired on this host in the last 24 hours. An expiry means the host stopped answering while it held a job; the job went back to the queue.",
       "hash": "4ef5c224df2afcfd1006f4e8d1cfda09af18fdbc"
     },
+    "doc.tool.doc_classify.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
     "ui.l10nsource": {
       "text": "English",
       "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
@@ -2654,6 +2690,10 @@
     "ui.runs": {
       "text": "Runs",
       "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
+    },
+    "doc.tool.doc_classify.backends": {
+      "text": "Backend order: \"rules\", \"llm\" (default: rules then llm)",
+      "hash": "1d458a14a79a6fffb699cb1254497e34f04b2ba9"
     },
     "doc.route.post.api.instance.quota": {
       "text": "Hosted mode: set a quota limit for the tenant's team.",

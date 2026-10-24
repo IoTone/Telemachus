@@ -1557,3 +1557,57 @@ Two limits worth recording because they are not obvious:
   work. The README says so, next to the reminder that a notification carries ids
   and a link rather than content, which is what makes a plaintext room an
   acceptable destination in the first place.
+
+## Which KIND of document is this? (CLS‑1…12) — decided and BUILT 23 Oct 2026 (issue #87 slice 1)
+
+A trigger matches on a key prefix and a content type. An integrator whose inbox
+carries letters, invoices, forms, photographs and reports under one prefix
+therefore had nowhere to put the one decision the rest of the pipeline depends
+on — which schema to read this document against — and had to approximate it with
+`doc_extract_fields` and an enum, which bills a model call to answer a question a
+keyword often settles for nothing.
+
+`doc_classify` is the step that assigns a type. `domain/repo/classify.rkt` holds
+the rules, the label set and the model's refusals and is pure of the repository;
+`doc-tools.rkt` owns the document, the attributes and the derived record.
+
+| # | Decision | Why |
+|---|----------|-----|
+| CLS‑1 | **The backends are a CHAIN, not a choice.** `backends` is an ordered list and the first that answers wins; the default is `rules` then `llm`. | Rules cost nothing, spend no tokens and answer the same way every time. The model is the fallback for the documents no rule describes — which is the opposite of the order a caller gets by reaching for the model first. |
+| CLS‑2 | **The rules backend has NO REGEX.** Phrases (`all` / `any` / `none`, case-insensitive), a content type (exact, or a prefix ending in `/`), and a key suffix. | The requirement asks for regex rules. A rule is written by an ADMINISTRATOR and run against the text of a document the administrator does not control, so an operator-authored regexp is a denial of service with the operator's own configuration as the weapon — catastrophic backtracking over a 200,000-character extraction, on the upload path. The same call `domain/fields/fields.rkt` made for the funnel's validation vocabulary and `domain/flow/bind.rkt` made for the binding sublanguage. `doc_extract_fields`'s schema does support `pattern`, and that is not the same thing: it runs against the MODEL's reply, which this platform asked for and bounded. **Page count is not here either**: no extractor reports one, and deriving it from the span list would be a number nothing measured. |
+| CLS‑3 | **A rule MATCH is the confidence** — 1.0, with the rule's position in the rationale. | The requirement says the rules backend "short-circuits when confident". A deterministic rule has no degrees: it matched or it did not. Attaching 0.85 to it would be a number nothing computed, the objection that keeps `interval_seconds` off a daily schedule's read. |
+| CLS‑4 | **First match wins, in list order, and a rule needs at least one condition.** | The route table's rule, for the route table's reason. A rule with no condition matches every document, which makes every rule after it dead code while still reading as configuration — refused, not tolerated, like an unknown setting. |
+| CLS‑5 | **The model's reply is held to the label set by the SAME validator DWF‑5's extraction uses**, with the names as an `enum` and the object CLOSED; refused by path, retried once. | A label outside the set is never coerced to the nearest one and never recorded as "unknown". The schema being closed is what refuses an invented key, exactly as an extraction's does. |
+| CLS‑6 | **When no backend answers, it REFUSES.** It does not write `doc_type = "unknown"`. | A stored type is an assertion a trigger acts on, and "nobody could tell" is not one. The message names the backends that were asked, because the remedy is a rule or a model and the operator is one field away from either. |
+| CLS‑7 | **The attribute keys are `doc_type`, `doc_type_confidence`, `doc_type_source`** — not the issue's `doc.type`. | A dot is not a legal attribute key: LAY‑4's `field-key?` is `^[a-z][a-z0-9_]{0,39}$`, a vocabulary the object metadata, the beta funnel and every `?attr=` filter share, and loosening it for three keys would change what a key is everywhere. Namespaced for FEED‑20's reason, and declared on the team additively through the shared `repo-fields-declare!`. |
+| CLS‑8 | **The confidence is stored to two decimals, fixed.** | LAY‑4 values are strings and `?attr=` is an equality filter, so a value whose spelling follows the model's precision could not be filtered on at all. |
+| CLS‑9 | **A document this platform cannot READ is still classifiable**, and that is why `text` is optional on the tool. | `doc_text` raises for a scan, a photograph and a missing `pdftotext`, correctly — somebody is waiting for fields. But the photograph and the scan are exactly what a content-type rule exists for, so the text is best-effort here and an unreadable document simply has none; the model backend then refuses by name. It is also why `classify-and-extract` classifies BEFORE reading: the first version read the text first and could not reach the documents that most needed routing. |
+| CLS‑10 | **The model sees the opening, capped at 8,000 characters, and the record says how much was read.** | A document's TYPE is evident from its first page. Truncating is right here and wrong for `doc_translate`, which refuses a document over its cap: a truncated classification is still a classification of that document, where half a translation is a document that lies about being finished. |
+| CLS‑11 | **The classification is also a derived document**, `<key>.classification.json`. | The three attributes carry the CURRENT type; the record says which label set it was chosen from, by which backend, against which version. A re-run versions the same key, so the history is the version list rather than a second mechanism. **The attributes are written FIRST and the record second** — written the other way round, a refused attribute write would leave a document beside the source saying the type was decided when nothing had recorded it. |
+| CLS‑12 | **`chat:use` is demanded when the request NAMES the model backend**, not when the chain happens to reach it. | A permission that depended on whether a rule matched would admit a member for one document and refuse them for the next, with nothing in either answer to say why. |
+
+Two things changed outside the slice, both additive. `repo-fields-declare!` moved
+FEED‑20's additive declaration and its forty-field cap into `repo.rkt`, because it
+now has two askers and deriving the cap arithmetic twice is `executor-can-run?`'s
+drift. And `define-workflow`'s `(in x)` learned a path — `${input.x.y}` has always
+been in the binding grammar and the macro could only spell the one-segment form,
+so a workflow routing on a type had to take each schema as its own input.
+
+**There is no `switch` step kind, and there must not be.** The issue writes the
+routing as `switch(doc.type)`; `choice` chains into exactly that, and adding a
+kind is a spec-version change — WF‑10 refuses an unknown one, deliberately — for
+sugar over two lines. The chain also makes the fall-through explicit, which a
+switch would hide. A `choice` with no `#:else` does **not** end the run: it falls
+through to the next step in list order, so the branch that is meant to end the run
+has to be the LAST step. `classify-and-extract`'s own test found that, by sending
+a photograph into the letter branch where `doc_text` fails on an image.
+
+Not built, deliberately, and each is the issue's own numbering: **an embedding
+nearest-label backend (req 2c)** — this build has no embedding wire, store or
+meter, so it is its own slice rather than a flag, and the backend refusal says so
+by name rather than reading as a typo; **trigger conditions on metadata (req 3's
+second half)**, **the low-confidence review hook (req 4)**, **batch backfill
+(req 5)** and **the evaluation harness (req 6)**. The first acceptance criterion
+is met: `classify-and-extract` runs end to end on a mixed fixture set, in
+`test/classify-tests.rkt` and over HTTP in `test/doc-pipeline-smoke.sh` §5b. The
+second — low-confidence items in the review queue — is req 4, and waits.
