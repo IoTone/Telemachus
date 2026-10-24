@@ -1889,6 +1889,69 @@ bash test/server-smoke.sh            # the slice-4 "feed:" block, 26 assertions
   error names a line 300 lines away; `raco`'s "indentation suggests a missing `)`"
   is the useful half.
 
+## Which KIND of document is this? (CLS‑1…12, issue #87 slice 1)
+
+Built 23 Oct 2026. `domain/repo/classify.rkt` (the rules, the label set, the
+model's refusals — pure of the repository) + `doc_classify` in `doc-tools.rkt`;
+the `classify-and-extract` workflow in `plugins/doc-pipeline/`. No migration: the
+answer lands in LAY‑4 object attributes and a derived document.
+
+```sh
+raco test test/classify-tests.rkt   # 12 cases, ten controls, all of which bite
+bash test/doc-pipeline-smoke.sh     # the "== 5b." block, 26 assertions
+```
+
+- **THE BACKENDS ARE A CHAIN, NOT A CHOICE** (CLS‑1). `backends` is ordered and
+  the first that answers wins; `rules` then `llm` by default, because rules cost
+  nothing and answer the same way every time.
+- **THE RULES BACKEND HAS NO REGEX** (CLS‑2), and the issue asked for one. A rule
+  is operator-authored and runs against the text of a document the operator does
+  not control, so a regexp there is a denial of service with the operator's own
+  configuration as the weapon — catastrophic backtracking over a 200k-character
+  extraction, on the upload path. Same call `fields.rkt` and `bind.rkt` both made.
+  `doc_extract_fields`'s `pattern` is NOT a counter-example: that runs against the
+  MODEL's reply, which this platform asked for and bounded. **Page count is absent
+  for a different reason**: no extractor reports one.
+- **A RULE MATCH IS THE CONFIDENCE** (CLS‑3) — 1.0, with the rule's position in
+  the rationale. "Short-circuits when confident" has no degrees for a
+  deterministic rule, and 0.85 would be a number nothing computed.
+- **THE KEYS ARE `doc_type`, `doc_type_confidence`, `doc_type_source`** (CLS‑7),
+  not the issue's `doc.type`: **a dot is not a legal LAY‑4 attribute key**
+  (`^[a-z][a-z0-9_]{0,39}$`), and that vocabulary is shared with the funnel and
+  every `?attr=` filter. The confidence is stored to **two decimals, fixed**
+  (CLS‑8), because `?attr=` is an equality filter.
+- **`repo-fields-declare!` IS THE ONE DECLARATION RULE NOW.** FEED‑20's additive
+  write and its forty-field cap moved from `poll.rkt` into `repo.rkt`, because the
+  classifier is its second asker and two copies of the cap arithmetic is
+  `executor-can-run?`'s drift. Each caller keeps its own `#:subject`/`#:advice`.
+- **A DOCUMENT THIS PLATFORM CANNOT READ IS STILL CLASSIFIABLE** (CLS‑9), which is
+  why `text` is optional and why `classify-and-extract` classifies BEFORE calling
+  `doc_text`. `doc_text` raises for a photograph or a scan — correctly — so a
+  pipeline that reads first cannot reach the documents that most need routing. The
+  first version of that workflow had `text` first and its own test found it.
+- **A `choice` WITH NO `#:else` DOES NOT END THE RUN** — it falls through to the
+  **next step in list order** (`step-next`). So the branch meant to end the run
+  has to be the LAST step. Written anywhere else, a photograph went into the
+  letter branch and failed with "cannot read mixed/c.jpg as image/jpeg", which
+  reads as a broken extractor and is a control-flow mistake.
+- **THERE IS NO `switch` STEP KIND, AND THERE MUST NOT BE.** `choice` chains into
+  the issue's `switch(doc.type)`, and a new kind is a spec-version change (WF‑10
+  refuses an unknown one, deliberately) for sugar over two lines.
+- **`(in x y z)` NOW WORKS IN `define-workflow`.** `${input.x.y}` was always in
+  the binding grammar and the macro could only spell one segment, so a workflow
+  routing on a type had to take each schema as its own input. Additive; every
+  existing `(in x)` is the empty-path case.
+- **THE ATTRIBUTES GO FIRST, THE RECORD SECOND** (CLS‑11). Reversed, a refused
+  attribute write leaves a document beside the source saying the type was decided
+  when nothing recorded it — and "Processed by" renders it.
+- **A RULES ANSWER BILLS NOTHING**, which the ledger's REQUEST count is what
+  proves: `meter!` would record a model request that never happened. Assert
+  `ai.requests`, not only `ai.tokens.total`, or an unconditional meter passes.
+- **NOT BUILT, by the issue's own numbering**: the embedding backend (req 2c — no
+  embedding wire exists, and the backend refusal says so by name rather than
+  reading as a typo), trigger conditions on metadata (req 3b), the low-confidence
+  review hook (req 4), batch backfill (req 5) and the evaluation harness (req 6).
+
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 
 Built 22 Oct 2026 — the last of #54's four deferred questions. Migration

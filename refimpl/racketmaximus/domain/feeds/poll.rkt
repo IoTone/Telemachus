@@ -37,7 +37,7 @@
          (only-in "../orgs/orgs.rkt" tenant-quota-record!)
          (only-in "../net/fetch.rkt" fetch safe-url exn:fail:egress? exn:fail:egress-reason)
          (only-in "../repo/repo.rkt" repo-put! repo-get repo-set-attributes!
-                  repo-fields repo-fields-set!)
+                  repo-fields-declare!)
          "adapters.rkt"
          (only-in "feeds.rkt" feed-by-id feed-auth-apply feed-cursor-set! feed-poll-recorded!
                   feed-item-ref feed-item-record! record-fetch! FEED-KINDS))
@@ -68,33 +68,18 @@
 ;; ---- FEED-20: the fields an item's attributes need -----------------------------------
 ;; LAY-4 REFUSES an attribute key the team has not defined, deliberately: a value
 ;; nothing can display or filter on is how a team concludes the model is broken.
-;; So the adapter's declaration is added to the team's definitions, additively.
-;;
-;; Two rules make that safe. A key the team ALREADY defines is left exactly as it
-;; is — a team's own label for `feed_state` is theirs, and overwriting it would
-;; make a poll quietly rewrite configuration. And if the additions would exceed
-;; LAY-4's forty-field cap the poll REFUSES BY NAME rather than truncating to
-;; fit, because a truncated declaration is an attribute write that fails later,
-;; on every item, for a reason nothing names.
+;; So the adapter's declaration is added to the team's definitions, additively —
+;; through `repo-fields-declare!`, which owns the additive rule and the
+;; forty-field cap for every writer that needs one (doc_classify is the second).
 (define (declare-feed-fields! conn team adapter)
-  (define want (append FEED-ITEM-FIELDS (feed-adapter-fields adapter)))
-  (define have (repo-fields conn team))
-  (define known (for/list ([f (in-list have)]) (hash-ref f 'key "")))
-  (define missing (for/list ([f (in-list want)] #:unless (member (hash-ref f 'key) known)) f))
-  (cond
-    [(null? missing) have]
-    [(> (+ (length have) (length missing)) 40)
-     (raise-user-error
-      'feed (string-append
-             "this feed's items need the fields ~a, and the team already defines ~a of the forty "
-             "object fields LAY-4 allows. Remove a field the team no longer uses, or run this feed "
-             "in a team of its own.")
-      (string-join (for/list ([f (in-list missing)]) (hash-ref f 'key)) ", ")
-      (length have))]
-    [else
-     (define r (repo-fields-set! conn team (append have missing)))
-     (when (string? r) (raise-user-error 'feed "declaring this feed's item fields: ~a" r))
-     r]))
+  (define r (repo-fields-declare! conn team
+                                  (append FEED-ITEM-FIELDS (feed-adapter-fields adapter))
+                                  #:subject "this feed's items"
+                                  #:advice (string-append
+                                            "Remove a field the team no longer uses, or run this "
+                                            "feed in a team of its own.")))
+  (when (string? r) (raise-user-error 'feed "declaring this feed's item fields: ~a" r))
+  r)
 
 ;; FEED-1's key. `.json` because that is what the body IS, and an extension is
 ;; what a browser and a download both read; the external id is already reduced to

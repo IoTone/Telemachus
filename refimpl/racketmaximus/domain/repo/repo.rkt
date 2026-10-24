@@ -33,7 +33,7 @@
 (provide repo-put! set-put-hook! set-delete-hook!
          ;; issue #122: bytes with nothing pointing at them
          reap-staged-blobs! stage-reap-seconds stage-blob! unstage-blob!
-         repo-fields repo-fields-set! repo-set-attributes!
+         repo-fields repo-fields-set! repo-fields-declare! repo-set-attributes!
          repo-get repo-open repo-list repo-versions
          ;; the ONE implementation of the triple can? reads for an object —
          ;; exported so the audit read surface can ask for it instead of
@@ -149,6 +149,33 @@
     [else
      (setting-set! conn (repo-fields-key team) (hasheq 'fields fields))
      fields]))
+
+;; Add field definitions a WRITER needs, additively — FEED-20's rule, extracted
+;; here because it now has two askers (the feed poller and doc_classify) and
+;; deriving the cap arithmetic twice is `executor-can-run?`'s drift.
+;;
+;; Two things make it safe. A key the team ALREADY defines is left exactly as it
+;; is: a team's own label for `doc_type` is theirs, and overwriting it would make
+;; a poll or a pipeline quietly rewrite configuration. And if the additions would
+;; exceed the forty-field cap it REFUSES BY NAME rather than truncating to fit,
+;; because a truncated declaration is an attribute write that fails later, on
+;; every document, for a reason nothing names.
+;; -> the stored list, or a string naming what is wrong.
+(define (repo-fields-declare! conn team want #:subject [subject "these"] #:advice [advice ""])
+  (define have (repo-fields conn team))
+  (define known (for/list ([f (in-list have)]) (hash-ref f 'key "")))
+  (define missing (for/list ([f (in-list want)] #:unless (member (hash-ref f 'key) known)) f))
+  (cond
+    [(null? missing) have]
+    [(> (+ (length have) (length missing)) 40)
+     (format (string-append
+              "~a need the fields ~a, and the team already defines ~a of the forty "
+              "object fields LAY-4 allows.~a")
+             subject
+             (string-join (for/list ([f (in-list missing)]) (hash-ref f 'key)) ", ")
+             (length have)
+             (if (string=? advice "") "" (string-append " " advice)))]
+    [else (repo-fields-set! conn team (append have missing))]))
 
 ;; Set an object's attributes, validated against the team's definitions. Values are
 ;; strings; a key the team has not defined is REFUSED rather than stored, because a

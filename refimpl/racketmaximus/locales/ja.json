@@ -108,6 +108,10 @@
       "text": "停止したエグゼキュータをローテーションに戻す（FLEET-3）。次回の要求から再び仕事を受け取る。",
       "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
+    "doc.tool.doc_classify.text": {
+      "text": "文書のテキスト（既定では文書から抽出します。テキストレイヤーのないスキャンでも、コンテンツタイプのルールには一致し得ます）",
+      "hash": "c2df33ceb162743df308bbfbe7c46247c180df86"
+    },
     "ui.draftbudget": {
       "text": "AI 予算：約 {need} トークンが必要、本日の残りは {left} — 使用量画面で ai.tokens.total を上げないと下書きは待機します",
       "hash": "5ef886737103f5053cb37b9f30169eac5a50cfa8"
@@ -159,6 +163,10 @@
     "doc.route.post.api.jobs": {
       "text": "登録された種類のスケジューラジョブをキューイングします。",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
+    },
+    "doc.tool.doc_classify.labels": {
+      "text": "判定の対象となる文書の種類 — 答えになり得るのはこの中のいずれかだけです",
+      "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
     },
     "doc.route.put.api.org.branding": {
       "text": "会社のタイトル・タグライン・ロゴ・テーマを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。テーマトークンはインスタンスの場合とまったく同じように検証され、コントラストの下限で制限されます。",
@@ -843,6 +851,10 @@
     "beta.field_required": {
       "text": "{field}を入力してください。",
       "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    },
+    "doc.tool.doc_classify": {
+      "text": "この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。",
+      "hash": "645cc6c8c208eea05540a6c6a8d252ad3c274f06"
     },
     "ui.enable": {
       "text": "有効化",
@@ -1580,6 +1592,10 @@
       "text": "状態",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
     },
+    "doc.tool.doc_classify.object": {
+      "text": "リポジトリオブジェクトID",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
     "ui.vishint": {
       "text": "アップロードした本人が設定します。共有はチーム公開を指定の相手だけに絞ります。",
       "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
@@ -1636,9 +1652,17 @@
       "text": "待機中",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
     },
+    "doc.tool.doc_classify.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
     "ui.brandtitle": {
       "text": "名称",
       "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
+    },
+    "doc.workflow.classify-and-extract.name": {
+      "text": "文書を分類してフィールドを抽出する",
+      "hash": "64c57d655e2658497d2308db6430725959e14ac0"
     },
     "doc.tool.doc_translate.object": {
       "text": "ドキュメントのオブジェクトID",
@@ -1671,6 +1695,10 @@
     "doc.tool.doc_translate.run": {
       "text": "ワークフロー実行 ID（由来の記録用）。",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "doc.workflow.classify-and-extract": {
+      "text": "この文書がどの種類かを判定し（まず決定的なルール、次にモデル）、その種類を文書に記録し、その種類に対応するスキーマに照らしてフィールドを抽出する。スキーマのない種類は、分類だけ行ってそのままにします。",
+      "hash": "ea14c6b82bdabacefd1a2691720d5bfd2b69049e"
     },
     "ui.qshowing": {
       "text": "{total} 件中 {from}〜{to} 件",
@@ -1783,6 +1811,10 @@
     "ui.automations": {
       "text": "自動化",
       "hash": "82542d6d0a0aa0c1e9afdbe2f29d3057618daec2"
+    },
+    "doc.tool.doc_classify.rules": {
+      "text": "決定的なルール。順に試し、最初に一致したものが決定します。正規表現ではなく語句で指定し、ルールには少なくとも一つの条件が必要です",
+      "hash": "f0d4676bdc382875ffbee80ded609e55d11b83e6"
     },
     "ui.copy": {
       "text": "コピー",
@@ -2420,6 +2452,10 @@
       "text": "このホストで直近24時間に完了・失敗したジョブ数と、リースが失効した回数です。失効は、ジョブを保持したままホストが応答しなくなったことを意味し、そのジョブはキューに戻されました。",
       "hash": "4ef5c224df2afcfd1006f4e8d1cfda09af18fdbc"
     },
+    "doc.tool.doc_classify.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
     "ui.l10nsource": {
       "text": "英語",
       "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
@@ -2739,6 +2775,10 @@
     "ui.runs": {
       "text": "実行履歴",
       "hash": "fcde5c325dc9b7dca9e824eac5ff1c72988f66e8"
+    },
+    "doc.tool.doc_classify.backends": {
+      "text": "バックエンドの順序: \"rules\"、\"llm\"（既定は rules のあと llm）",
+      "hash": "1d458a14a79a6fffb699cb1254497e34f04b2ba9"
     },
     "ui.details": {
       "text": "詳細",

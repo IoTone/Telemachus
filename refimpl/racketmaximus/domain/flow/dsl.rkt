@@ -55,7 +55,16 @@
   (define (value->js v ids)
     (syntax-parse v
       #:datum-literals (in out run-id team-id user-id locale item index)
-      [(in n:id) (datum->syntax v (format "${input.~a}" (id->string #'n)))]
+      ;; (in x) and (in x y z): `${input.x.y.z}` has always been in the grammar
+      ;; (bind.rkt admits any input path) and the macro could only spell the
+      ;; one-segment form, so a workflow that routes on a type and wants
+      ;; `schemas.invoice` had to take each schema as its own input. A path here
+      ;; emits exactly what the grammar already accepts — no spec change, and
+      ;; every existing `(in x)` is the empty-path case.
+      [(in n:id p:id ...)
+       (define path (map id->string (syntax->list #'(p ...))))
+       (datum->syntax v (format "${input.~a~a}" (id->string #'n)
+                                (if (null? path) "" (string-append "." (string-join path ".")))))]
       [(item p:id ...)
        (define path (map id->string (syntax->list #'(p ...))))
        (datum->syntax v (format "${item~a}" (if (null? path) "" (string-append "." (string-join path ".")))))]
