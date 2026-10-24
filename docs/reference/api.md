@@ -260,4 +260,9 @@ Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every on
 | POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in {text}. |
 | GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for ?lane=. |
 | POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for {lane}. |
+| GET | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | The team's Matrix room subscriptions, the events they may filter on, and whether this instance has a homeserver configured at all. |
+| POST | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | Notify a room: {room_id, events?, label?, user_id?}. The room id is a Matrix id (`!abc:example.org`) and never an alias; the bot must already be in it. |
+| PATCH | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | Change a subscription's `events`, `label` or `active`. |
+| DELETE | `/api/x/matrix/rooms/:id` | `matrix` | `webhooks:manage` | Stop notifying a room. |
+| POST | `/api/x/matrix/rooms/:id/test` | `matrix` | `webhooks:manage` | Send a test notification through the same job a real one takes. |
 

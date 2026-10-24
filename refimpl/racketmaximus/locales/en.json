@@ -259,6 +259,10 @@
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.",
       "hash": "a23ae826a41c12acc5e93a274177b49fc2f65a41"
     },
+    "doc.route.delete.api.x.matrix.rooms.id": {
+      "text": "Stop notifying a room.",
+      "hash": "5cbec4bb282c03d343f986787dc50d85cff90cb5"
+    },
     "doc.tool.word_count.text": {
       "text": "The text to count words in",
       "hash": "9f6ee81cda8dc3daf6b0a143f188de3f949664b0"
@@ -507,6 +511,14 @@
       "text": "The team's jobs, newest first. A queued job the platform is holding carries `waiting` — {reason: \"quota\"|\"concurrency\", …}; the key is absent when nothing holds it and it is waiting only for a free worker.",
       "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
     },
+    "doc.route.post.api.x.matrix.rooms": {
+      "text": "Notify a room: {room_id, events?, label?, user_id?}. The room id is a Matrix id (`!abc:example.org`) and never an alias; the bot must already be in it.",
+      "hash": "520e1c7663e36a7b2346ae216580a361e35de8ef"
+    },
+    "ui.reviewreject": {
+      "text": "Reject",
+      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
+    },
     "ui.bxthanks": {
       "text": "Thanks — your request is in review.",
       "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
@@ -514,10 +526,6 @@
     "doc.tool.get_usage": {
       "text": "Report the team's current AI usage against its quota.",
       "hash": "e068247f15386c62657ebb749bd6fdd35c0d758a"
-    },
-    "ui.reviewreject": {
-      "text": "Reject",
-      "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
     "ui.trigger_types": {
       "text": "Content types (blank = any)",
@@ -1539,6 +1547,10 @@
       "text": "List text documents.",
       "hash": "de4fa39c0955689307a963f108c0396528663e13"
     },
+    "doc.route.get.api.x.matrix.rooms": {
+      "text": "The team's Matrix room subscriptions, the events they may filter on, and whether this instance has a homeserver configured at all.",
+      "hash": "0c5c4459fa57a801907149eca6ea37fa41df77f4"
+    },
     "ui.visibility": {
       "text": "Visibility",
       "hash": "7d9ff4f0de398581c4640bcbb6e536c355a391be"
@@ -1607,13 +1619,17 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
-    "doc.route.get.api.org.branding": {
-      "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
-      "hash": "ed143a926240ffabe318645984be613401b30646"
+    "doc.route.patch.api.x.matrix.rooms.id": {
+      "text": "Change a subscription's `events`, `label` or `active`.",
+      "hash": "230ecc93848bba34c06731f615cb0daeb98f56d6"
     },
     "ui.qshowing": {
       "text": "{from}–{to} of {total}",
       "hash": "1d79d3c3f0867cec319181decf537a23d774d2b6"
+    },
+    "doc.route.get.api.org.branding": {
+      "text": "The company's own branding (TEN-2d) — or the instance's, with own:false, when it has set none.",
+      "hash": "ed143a926240ffabe318645984be613401b30646"
     },
     "doc.route.get.api.org.retention": {
       "text": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
@@ -1715,6 +1731,14 @@
       "text": "See the team's review queue and the decisions already recorded.",
       "hash": "b9a2936a3b51463412d8340093e3f9f221431016"
     },
+    "doc.plugin.matrix": {
+      "text": "Sends the platform's own events to a Matrix room on a homeserver the operator runs. Optional: with no homeserver configured it registers nothing.",
+      "hash": "a7535988fb1c9705582bcde582eccf846a1be5a4"
+    },
+    "ui.copy": {
+      "text": "Copy",
+      "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
+    },
     "ui.wkstale": {
       "text": "stale",
       "hash": "a4e976a3d3fc6d0b40453de216fbbe2e9aaecdc4"
@@ -1730,10 +1754,6 @@
     "ui.automations": {
       "text": "Automations",
       "hash": "82542d6d0a0aa0c1e9afdbe2f29d3057618daec2"
-    },
-    "ui.copy": {
-      "text": "Copy",
-      "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
     },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
@@ -1806,6 +1826,10 @@
     "notes.saved": {
       "text": "Note saved.",
       "hash": "5311c2279c1b39c42bfd4cc21e76ff0f1c87d58c"
+    },
+    "doc.route.post.api.x.matrix.rooms.id.test": {
+      "text": "Send a test notification through the same job a real one takes.",
+      "hash": "d4d19ab11730f4f13078ee8d7ad862e4040b6703"
     },
     "doc.route.post.api.agent": {
       "text": "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.",

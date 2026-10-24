@@ -104,6 +104,21 @@ Conventions used throughout:
 | `TELEMACHUS_ZONEINFO` | `$TZDIR`, else `/usr/share/zoneinfo` | Directory of the IANA zone database (#137). Only for a deployment that ships its own copy; the packaged wrapper and the devShell both set `TZDIR` from the pinned `tzdata`, so this is normally unset. With no database found, every zone resolves to UTC — which is what the platform did before timezones existed, so nothing breaks, and nothing is in local time either. |
 | `TELEMACHUS_EGRESS_ALLOW` | (empty) | Comma-separated IPv4 CIDRs (a bare address is `/32`) that a **trusted** outbound fetch may reach in private address space (#142) — a feed on your own network. It does NOT widen an untrusted fetch, which is public-only whatever this says, and `trusted` without an entry here still refuses every private address: the operator owns which networks are reachable, and a tenant naming a private URL would otherwise be reading this instance's cloud metadata. IPv6 CIDRs are refused at parse rather than silently ignored. |
 
+## Matrix notifications (issue #133, the `matrix` plugin)
+
+Both are the **operator's**, and the access token is deliberately not in the
+database: a plugin cannot own a sealed column (FEED‑5), and a credential stored
+unsealed is the failure that rule exists to prevent. So there is one bot
+identity per instance — which is what a self-hosted notifier is — a tenant
+admin never sees the token, and a team configures only *which room*. With
+neither set the plugin registers no event sink and no job kind, so an instance
+that does not use Matrix carries nothing extra in its emit path.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TELEMACHUS_MATRIX_HOMESERVER` | (empty) | Base URL of the Matrix homeserver to notify through, e.g. `https://matrix.example.internal`. A self-hosted one is normally on a private network, so it also needs its CIDR in `TELEMACHUS_EGRESS_ALLOW` — the fetch goes out with #142's `trusted` policy, which refuses every private address the operator has not named. |
+| `TELEMACHUS_MATRIX_TOKEN` | (empty) | Access token of the bot account the notifications are sent as. The bot must already be **in** each room: the plugin never joins one, so who may be told stays a decision made on the Matrix side. |
+
 ## Encrypting document-derived content at rest (issue #83)
 
 | Variable | Default | What it does |
