@@ -1611,3 +1611,49 @@ second half)**, **the low-confidence review hook (req 4)**, **batch backfill
 is met: `classify-and-extract` runs end to end on a mixed fixture set, in
 `test/classify-tests.rkt` and over HTTP in `test/doc-pipeline-smoke.sh` §5b. The
 second — low-confidence items in the review queue — is req 4, and waits.
+
+## A person in the pipeline: the review hook (CLS‑13…18) — decided and BUILT 24 Oct 2026 (issue #87 slice 2)
+
+Slice 1 built the classifier and left the issue's second acceptance criterion
+open: *"Low-confidence items appear in the review queue and resume after a
+decision."* Requirement 4 asks for a review hook — below a configurable
+confidence the run creates a review record instead of proceeding, and the
+decision updates the metadata and resumes the workflow.
+
+Almost all of that already existed. `review` has been a step kind since LAY‑1,
+`reviews` is a real table with a queue, a verdict vocabulary, four‑eyes and a
+hash chain, and `resume-from-review!` has always set the run running again down
+the branch the verdict names. What was missing was the two ends: the authoring
+surface could not SPELL a review step, and a decision had nowhere to LAND.
+
+| # | Decision | Why |
+|---|----------|-----|
+| CLS‑13 | **The threshold is a `choice`, not a flag on the tool.** `(lt (out classify result confidence) (in min_confidence))`, with `min_confidence` a declared `number` input. | Only a STEP can park a run — LAY‑1's whole mechanism is that a `review` step writes no job and the run simply stops being advanced — so a tool that wanted to "send this for review" would have to reach into the review subsystem from inside a tool call, and would then own a decision the workflow is the right place to make. The binding grammar already has `lt` and the spec already has a `number` input type, so "below a configurable confidence" needs no new grammar. The same answer `switch(doc.type)` got in slice 1. |
+| CLS‑14 | **`define-workflow` learns `(review …)`** — one keyword per verdict, and an ABSENT verdict ends the run. | The step kind shipped in LAY‑1 and the macro could not emit it, so for a year every workflow that parked on a person had to be hand-written JSON — which is why the review hook needed the authoring surface before it needed anything else. `#:approve` is required here because `validate-spec` requires it there; `#:end` is REFUSED, because where a review goes depends on the verdict and leaving a verdict out is how you end the run on it. No spec change: the emitted document is one `validate-spec` already accepted. |
+| CLS‑15 | **A person's label is held to the SAME label set as the model's**, refused by name, never coerced to the nearest. | CLS‑5 applied to a human. A checklist answer is a free string by LAY‑1's design, so "Invoice", "invoices" and a trailing space are each one keystroke away — and every one of them is a document type no trigger and no `?attr=` filter will ever match. The refusal lists the types the run offered, because the reviewer is one keystroke from right. The run FAILS rather than storing it; the decision itself stands, because the decision was made and it is the recording that could not be. |
+| CLS‑16 | **An approval RE‑RECORDS the type** with `doc_type_source = "review"` and confidence `1.00`; a **rejection WITHDRAWS it**. | The attributes are where this platform says HOW a type was decided, and a person looking at the document is the strongest form of that — leaving `llm` and `0.42` behind would make an approved document indistinguishable from one nobody had looked at, which a backfill (req 5) or a trigger could not tell apart, and would offer the same document for review again on the next pass. The withdrawal is the other side: CLS‑6 settled that there is no `doc_type` of `"unknown"`, so the only honest record of "none of these kinds" is the ABSENCE of an assertion. LAY‑4 clears an attribute by merging an empty value, so the withdrawal is the same write with nothing in it. The backend's own guess is not lost — it is the previous version of `<key>.classification.json`, which is where CLS‑11 put the history. |
+| CLS‑17 | **`doc_set_type` is its own tool, and the write path is shared with `doc_classify`.** | Two different questions: "what kind of document is this" needs a backend, a token budget and `chat:use`, and "record what was decided" needs none of them and must work on a team with no model at all. Folding them would mean a request that carries both a label and a backend list, where only one can be honoured. What they DO share is `record-type!` — the attributes-then-record order is a rule (CLS‑11), and two copies of a rule is `executor-can-run?`'s drift, the argument `repo-fields-declare!` already made one line below it. |
+| CLS‑18 | **Two routing chains, because the binding grammar has no coalesce** — and that is a real limit, stated rather than worked around. | A revision CHANGES the label, so afterwards the type lives in the correcting step's output and not in the classifier's, and the grammar has no default, no coalesce and no arithmetic by design (WF‑2). Nothing can say "the label from whichever of these two steps ran". So `classify-review-extract` carries one `choice` chain per source and SHARES the extraction steps, which keeps the duplication to one step per type rather than a second copy of the pipeline. The documented escape hatch is a tool — one that reads the type back off the document — and that is the better answer the day a third chain is needed. |
+
+Two things changed outside the slice, both additive and both found by reading
+the code the hook sits on.
+
+**`${principal.timezone}` was a binding nothing could use.** #137 added it to
+`make-context`, to `bind.rkt`'s own header and to these notes, and NOT to
+`valid-ref?` — so the one documented way to reach a person's clock from a
+workflow was rejected at publish time, and `define-workflow` had no spelling for
+it at all. Both halves are fixed. This is #113's shape in the binding grammar:
+something advertised, granted and enforced nowhere.
+
+**The resumed step now binds `review_id`.** A step after a review could name the
+verdict, the rationale, the answers and who decided, and not the decision
+itself — so a document's classification record could not point at the review that
+settled it. `doc_set_type` writes it, which is what ties an assertion about a
+document to the reviews chain (LAY‑11) with no second mechanism.
+
+Not built, deliberately, and each is the issue's own numbering: **the embedding
+nearest-label backend (req 2c)**, **trigger conditions on metadata (req 3's
+second half)**, **batch backfill (req 5)** and **the evaluation harness
+(req 6)**. With this slice **both of #87's acceptance criteria are met** —
+`test/classify-review-tests.rkt` drives all three verdicts through the real
+engine and `test/doc-pipeline-smoke.sh` §5c drives the queue over HTTP.

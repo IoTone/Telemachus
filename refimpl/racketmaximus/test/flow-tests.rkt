@@ -8,6 +8,7 @@
 ;; spec round-trips publish → store → load → execute unchanged.
 
 (require rackunit db-kit/portable
+         syntax/macro-testing
          racket/list
          racket/file
          json
@@ -358,6 +359,104 @@
   (drain! conn)
   (check-true (and (member "is" (for/list ([n (in-list (notes-list conn p))]) (hash-ref n 'title))) #t)
               "the step bound the user's own language, not the request's"))
+
+(test-case "${principal.timezone} is a binding this build actually admits (#137)"
+  ;; It was in `make-context`, in bind.rkt's own header and in the clock work's
+  ;; notes, and NOT in `valid-ref?` — so the one documented way to reach a
+  ;; person's clock from a workflow was refused at publish time, and the macro had
+  ;; no spelling for it at all. Both halves of that are fixed; this pins both.
+  (check-true (valid-ref? "principal.timezone"))
+  (check-false (valid-ref? "principal.nickname") "and the set is still closed")
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define spec (hasheq 'spec 1 'slug "tz"
+                       'steps (list (hasheq 'id "n" 'uses "tool:create_note"
+                                            'with (hasheq 'title "${principal.timezone}" 'body "x")))))
+  (define d (flow-publish! conn p spec))
+  (flow-run-start! conn p d)
+  (drain! conn)
+  ;; nothing is configured, so TZ-6's chain ends at UTC — the point is that the
+  ;; reference RESOLVED rather than being rejected or left as literal text
+  (check-true (and (member "UTC" (for/list ([n (in-list (notes-list conn p))]) (hash-ref n 'title))) #t)))
+
+;; ---- the review step, from the authoring surface (issue #87 slice 2) ---------
+;; The `review` step kind has existed since LAY-1 and `define-workflow` could not
+;; spell it, so every workflow that parks on a person had to be hand-written JSON.
+(define-workflow gated-triage
+  #:description "Write a note, ask a person, then act on the verdict"
+  #:input ([subject string] [threshold number])
+  (step write (tool create_note #:title (in subject) #:body "filed by a workflow"
+                                #:when_local (timezone)))
+  (step gate  (choice (lt (in threshold) 0.5) #:then look #:else done))
+  (step look  (review #:title "Is this note right?"
+                      #:of (out write result)
+                      #:instructions "Read it and say."
+                      #:four-eyes
+                      #:checklist ([verdict_note "What is wrong with it"]
+                                   [follow_up "Anything to follow up" #:optional])
+                      #:approve done
+                      #:revise fix))
+  (step fix   (tool create_note #:title "revised" #:body (out look result rationale)) #:end)
+  (step done  (tool create_note #:title "done" #:body (out write result)) #:end))
+
+(test-case "the macro spells a review step, and the normative validator accepts it"
+  (check-equal? (validate-spec gated-triage) gated-triage)
+  (define r (findf (lambda (s) (equal? (hash-ref s 'id) "look")) (spec-steps gated-triage)))
+  (check-equal? (hash-ref r 'uses) "review")
+  (check-equal? (hash-ref r 'title) "Is this note right?")
+  (check-equal? (hash-ref r 'of) "${steps.write.output.result}")
+  (check-equal? (hash-ref r 'instructions) "Read it and say.")
+  (check-true (hash-ref r 'four_eyes))
+  ;; one keyword per verdict, and an ABSENT verdict is a null branch — which the
+  ;; engine reads as "end the run there", so there is no sentinel to spell
+  (check-equal? (hash-ref r 'on) (hasheq 'approve "done" 'revise "fix"))
+  (check-false (hash-has-key? (hash-ref r 'on) 'reject))
+  ;; `required` defaults to true, as the spec's own reader does, and #:optional is
+  ;; the way to say otherwise
+  (check-equal? (hash-ref r 'checklist)
+                (list (hasheq 'key "verdict_note" 'label "What is wrong with it" 'required #t)
+                      (hasheq 'key "follow_up" 'label "Anything to follow up" 'required #f)))
+  ;; and it survives the wire, which is what makes the macro's output and a
+  ;; hand-written document indistinguishable (WF-9)
+  (check-equal? (validate-spec (string->jsexpr (jsexpr->string gated-triage))) gated-triage))
+
+(test-case "a review's branches are checked where the error can point at the source"
+  ;; the macro's job is to fail at the line somebody wrote, rather than handing the
+  ;; validator a generated document that names a step id nobody can find
+  (check-exn #rx"#:approve names step 'nowhere'"
+             (lambda ()
+               (convert-compile-time-error
+                (let ()
+                  (define-workflow bad-approve
+                    (step a (tool create_note #:title "x" #:body "y"))
+                    (step r (review #:title "t" #:of (out a result) #:approve nowhere)))
+                  bad-approve))))
+  (check-exn #rx"#:revise names step 'nope'"
+             (lambda ()
+               (convert-compile-time-error
+                (let ()
+                  (define-workflow bad-revise
+                    (step a (tool create_note #:title "x" #:body "y"))
+                    (step r (review #:title "t" #:of (out a result) #:approve a #:revise nope)))
+                  bad-revise))))
+  ;; `#:end` is refused rather than ignored: where a review goes depends on the
+  ;; verdict, so an `#:end` beside three branches is a contradiction, and leaving
+  ;; a verdict out is how you end the run on it
+  (check-exn #rx"a review has no #:end"
+             (lambda ()
+               (convert-compile-time-error
+                (let ()
+                  (define-workflow bad-end
+                    (step a (tool create_note #:title "x" #:body "y"))
+                    (step r (review #:title "t" #:of (out a result) #:approve a) #:end))
+                  bad-end))))
+  ;; the validator still owns the rule that an approval must go somewhere, so the
+  ;; macro requiring #:approve cannot be the only thing enforcing it
+  (check-exn exn:fail:spec?
+             (lambda () (validate-spec (hasheq 'spec 1 'slug "s"
+                                               'steps (list (hasheq 'id "r" 'uses "review"
+                                                                    'title "t" 'of "x"
+                                                                    'on (hasheq 'revise "r"))))))))
 
 ;; ---- contract discovery ------------------------------------------------------
 (test-case "the schema endpoint describes what this build accepts"

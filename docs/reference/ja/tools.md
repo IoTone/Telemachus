@@ -9,6 +9,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `doc_classify` | `files:write` | built-in | この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。 |
 | `doc_extract_fields` | `files:write` | built-in | JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。 |
 | `doc_render` | `files:write` | built-in | フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が "pdf" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。 |
+| `doc_set_type` | `files:write` | built-in | レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。 |
 | `doc_text` | `files:read` | built-in | リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。 |
 | `doc_translate` | `files:write` | built-in | リポジトリ文書をチーム用語集を適用して翻訳し、結果をその隣に書き出す（ロケールは拡張子の前：report.md -> report.ja.md；PDF のテキストは report.ja.txt になります）。 |
 | `get_usage` | `chat:use` | built-in | チームの現在の AI 使用量をクォータと比べて報告する。 |
@@ -89,6 +90,23 @@ Permission: `files:write` · source: built-in
 | `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
 | `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
 | `template` | string | yes | テンプレートドキュメントのオブジェクトIDまたはキー |
+
+## `doc_set_type`
+
+レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。
+
+Permission: `files:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `label` | string | yes | 判断された種類。ラベル集合とまったく同じ綴りで指定します。空にすると種類を取り下げます |
+| `labels` | array of object | yes | 判断の基準となったラベル集合 — doc_classify に与えたものと同じもの |
+| `object` | string | yes | リポジトリオブジェクトID |
+| `rationale` | string | no | 理由をレビュー担当者自身の言葉で — 記録には残りますが、属性には書き込まれません |
+| `review` | string | no | レビュー ID（由来の記録用）。 |
+| `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
+| `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
+| `verdict` | string | no | これが生じたレビューの判定: approve、revise または reject |
 
 ## `doc_text`
 

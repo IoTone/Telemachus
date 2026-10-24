@@ -24,9 +24,9 @@
          (only-in "../ai/content.rkt" outer-json))
 
 (provide CLASSIFY-CAP CLASSIFY-BACKENDS MAX-LABELS MAX-RULES MAX-PHRASES
-         CLASSIFY-FIELDS
-         labels-problem rules-problem backends-problem
-         label-names classify-rules classify-llm classify
+         CLASSIFY-FIELDS DECIDED-SOURCE MAX-RATIONALE
+         labels-problem rules-problem backends-problem decided-problem
+         label-names classify-rules classify-llm classify classify-decided
          confidence->string)
 
 ;; ---- CLS-10: the model sees the opening, not the archive -----------------------------
@@ -322,3 +322,60 @@
 ;; filtered on at all.
 (define (confidence->string c)
   (real->decimal-string (exact->inexact c) 2))
+
+;; ---- CLS-15/16: a type a PERSON decided ------------------------------------------------
+;; Slice 2, the review hook. A low-confidence classification parks the run on a
+;; `review` step (LAY-1), and the decision has to be able to land on the document —
+;; otherwise the queue drains and the wrong type is still asserted, which CLS-11's
+;; attributes-first order makes certain rather than likely.
+;;
+;; THE PERSON IS HELD TO THE SAME LABEL SET AS THE MODEL (CLS-5 applied to a
+;; human). A reviewer types the corrected label into a checklist answer — answers
+;; are free strings, by LAY-1's design — so "Invoice", "invoices" and a trailing
+;; space are all one keystroke away, and every one of them is a type no trigger
+;; will ever match. Refusing it by name is the only answer that leaves the
+;; reviewer able to fix it; coercing to the nearest label would quietly assert
+;; something nobody chose.
+(define DECIDED-SOURCE "review")
+(define MAX-RATIONALE 500)
+
+;; An EMPTY label is the withdrawal, and it is a deliberate second meaning rather
+;; than a separate argument. A rejection means "this is none of these kinds", and
+;; CLS-6 already settled that there is no `doc_type = "unknown"`: the only honest
+;; record of "nobody could tell" is the absence of an assertion. LAY-4 clears an
+;; attribute by merging an empty value, so the withdrawal is the same write as the
+;; recording with nothing in it.
+(define (decided-problem labels label)
+  (define names (label-names labels))
+  (cond
+    [(not (string? label)) "the decided type must be a string"]
+    [(string=? label "") #f]                      ; the withdrawal
+    [(not (member label names))
+     (format (string-append
+              "'~a' is not one of the types this run offered (~a) — a type outside the set is one "
+              "no trigger and no `?attr=` filter will ever match, so it is refused rather than "
+              "corrected to the nearest name. Answer with a name exactly as it is spelled here.")
+             label (string-join names ", "))]
+    [else #f]))
+
+;; The result a decision produces, in the shape every backend answers in — so
+;; doc-tools.rkt writes it through the one recording path and cannot grow a second
+;; one. CONFIDENCE 1.0: a person looked at the document and said what it is, which
+;; is the strongest answer this platform can hold. The backend's own guess and its
+;; confidence are not lost — they are the previous version of the classification
+;; record, which is where CLS-11 put the history.
+(define (classify-decided labels label #:verdict [verdict "revise"] #:rationale [rationale ""])
+  (define p (decided-problem labels label))
+  (when p (error 'doc_set_type "~a" p))
+  (define why
+    (let ([r (string-trim (if (string? rationale) rationale ""))])
+      (cond [(string=? label "") (format "withdrawn on review (~a)~a" verdict
+                                         (if (string=? r "") "" (format ": ~a" r)))]
+            [(string=? r "") (format "decided on review (~a)" verdict)]
+            [else (format "decided on review (~a): ~a" verdict r)])))
+  (hasheq 'label label
+          'confidence 1.0
+          'source DECIDED-SOURCE
+          'rationale (if (> (string-length why) MAX-RATIONALE)
+                         (substring why 0 MAX-RATIONALE)
+                         why)))

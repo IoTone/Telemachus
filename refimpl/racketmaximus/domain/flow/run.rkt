@@ -423,9 +423,15 @@
         (define spec (spec-of conn run))
         (define st (step-ref spec (hash-ref rev 'step_id)))
         (define verdict (hash-ref rev 'verdict))
+        ;; `review_id` is here so a step AFTER the review can name the decision it
+        ;; is acting on — issue #87 slice 2 writes it into the document's own
+        ;; classification record, which is what ties an assertion about a document
+        ;; to the reviews chain (LAY-11) without a second mechanism. Additive: a
+        ;; spec that does not read it is unchanged.
         (define output (hasheq 'result (hasheq 'verdict verdict
                                                'rationale (hash-ref rev 'rationale "")
                                                'answers (hash-ref rev 'answers (hasheq))
+                                               'review_id (hash-ref rev 'id)
                                                'decided_by (hash-ref rev 'decided_by)
                                                'decided_ms (hash-ref rev 'decided_ms))))
         (query-exec conn

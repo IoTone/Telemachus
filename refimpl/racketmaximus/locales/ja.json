@@ -36,6 +36,10 @@
       "text": "削除しました",
       "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
     },
+    "doc.tool.doc_set_type.object": {
+      "text": "リポジトリオブジェクトID",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
     "doc.tool.doc_extract_fields.text": {
       "text": "ドキュメントのテキスト",
       "hash": "9b4cea367889dc8020e848502ea0156bccac62fd"
@@ -143,6 +147,10 @@
     "doc.route.post.api.beta.experience.publish": {
       "text": "保存済みの下書きを公開する；以後は環境変数で投入された既定値より優先されます。",
       "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
+    },
+    "doc.tool.doc_set_type.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "ui.wkholding": {
       "text": "処理中",
@@ -672,6 +680,10 @@
       "text": "ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
     },
+    "doc.tool.doc_set_type.verdict": {
+      "text": "これが生じたレビューの判定: approve、revise または reject",
+      "hash": "ffcd03f3404f159249eca58c2563d1d32b789fb3"
+    },
     "ui.wkheldhint": {
       "text": "プラットフォームがこのジョブを保留しています。実行可能な作業が上限を待っている状態で、失敗ではありません。上限が解消されれば自動的に開始します。",
       "hash": "e005612afd8302da9676fc5a8c52dfafd076436c"
@@ -711,6 +723,10 @@
     "ui.trigger_derived": {
       "text": "派生文書にも",
       "hash": "95f4b5d99f5b830c28053256d1ad913fdac25d7c"
+    },
+    "doc.tool.doc_set_type": {
+      "text": "レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。",
+      "hash": "2e9e3a1c65607294e84f75aaf0e451cbe24dd34c"
     },
     "doc.route.post.api.workers.jobs.id.derive": {
       "text": "このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TELEMACHUS_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。",
@@ -807,6 +823,10 @@
     "ui.simulatedwhy": {
       "text": "TELEMACHUS_MODEL_URL が設定されていないため、この応答はモデルの回答ではなく、入力したプロンプトを決まった形で返しただけのものです。",
       "hash": "490ef95053c12b82ccd44c2b73db4715c12e78af"
+    },
+    "doc.tool.doc_set_type.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "greeting.hello": {
       "text": "こんにちは、{name}さん！",
@@ -1124,6 +1144,10 @@
       "text": "{lane} の推定日数。",
       "hash": "49ca6d4a241734f256e80e0d3927afab75a7a778"
     },
+    "doc.workflow.classify-review-extract.name": {
+      "text": "分類し、迷ったら人に尋ね、そのうえで抽出する",
+      "hash": "d52ce9fd73bd8b0c60b13b4ef9681a58920fb37c"
+    },
     "doc.perm.localization:review": {
       "text": "同僚の翻訳を承認または差し戻す（自分のものは不可）。",
       "hash": "fdca6aa60b53adec763a5fa79e2a99a103dbd12d"
@@ -1147,6 +1171,10 @@
     "doc.route.post.api.workers.jobs.id.complete": {
       "text": "結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。",
       "hash": "219718d4db6a99151cf728aab0ae218332b69122"
+    },
+    "doc.tool.doc_set_type.review": {
+      "text": "レビュー ID（由来の記録用）。",
+      "hash": "e0ed912c20aa571c9e007390acf88e3ebf0fd4d6"
     },
     "ui.tokensleft": {
       "text": "本日の残りトークン",
@@ -1235,6 +1263,10 @@
     "doc.route.post.api.notes": {
       "text": "公開範囲を指定してノートを作成する。",
       "hash": "41706c61c8faa1b2f86d5d59a34b621e2571df63"
+    },
+    "doc.tool.doc_set_type.labels": {
+      "text": "判断の基準となったラベル集合 — doc_classify に与えたものと同じもの",
+      "hash": "8e03264f54aff7b19f2b84f775e26148159ff8a6"
     },
     "doc.workflow.index-knowledge": {
       "text": "インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。",
@@ -2108,6 +2140,10 @@
       "text": "ワークフロー定義、実行とトリガーを確認します。",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
     },
+    "doc.workflow.classify-review-extract": {
+      "text": "この文書がどの種類かを判定し、分類器の確信度が `min_confidence` を下回る場合は、推測せずに実行を保留して人に尋ねる。その判断は文書に記録されます — そのまま承認、別の種類へ訂正、あるいはいずれでもないときは取り下げ — そのうえで、その種類に対応するスキーマに照らしてフィールドを抽出します。",
+      "hash": "a832dda5d2cc8f3d614c4b5dafb6fb1cdcf6d6c6"
+    },
     "ui.thfont": {
       "text": "フォント",
       "hash": "b97c4d4cddf23ec47395af460f9e28df2a0f9b04"
@@ -2452,6 +2488,10 @@
       "text": "パスワードを設定",
       "hash": "4f9f9c131024bbda7e9be202a9e7c43f4d05fbe4"
     },
+    "doc.tool.doc_set_type.label": {
+      "text": "判断された種類。ラベル集合とまったく同じ綴りで指定します。空にすると種類を取り下げます",
+      "hash": "c05644c4235b6cc6e353c480e57173c6629ed9e1"
+    },
     "doc.route.get.beta-sdk.js": {
       "text": "Tier-B オンボーディングバンドルが読み込むブラウザ SDK（window.Telemachus.beta）。",
       "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
@@ -2591,6 +2631,10 @@
     "doc.tool.translate_text": {
       "text": "目標言語にテキストを翻訳します。",
       "hash": "97e00a1333476512c5752e4a68c059fc5df84cc4"
+    },
+    "doc.tool.doc_set_type.rationale": {
+      "text": "理由をレビュー担当者自身の言葉で — 記録には残りますが、属性には書き込まれません",
+      "hash": "94de99a91dfb4c1d65767ecf51259cd9930e76a9"
     },
     "ui.s3hint": {
       "text": "aws-cli、rclone、boto3、CyberduckなどのS3クライアントが利用できます。チームがバケットです。",
