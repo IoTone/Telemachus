@@ -64,16 +64,24 @@ Every step is a scheduler job: durability, cancellation, quota admission and the
 A plugin may contribute authenticated HTTP endpoints — the API a Tier-B onboarding bundle or an app-specific console calls:
 
 ```racket
-(define (word-count-route conn principal args)          ; args: {params, query, body}
+(define (word-count-route conn principal args)   ; args: {params, query, body, headers}
   (define text (hash-ref (hash-ref args 'query) 'text #f))
   (unless (string? text) (raise-user-error 'word_count "text is required"))   ; -> 400
   (hasheq 'words (length (string-split text))))               ; -> 200 JSON
 
+(define (rename-route conn principal args)                     ; a response keeps control
+  (json-response (hasheq 'error "conflict: stale revision")       ; of the status and headers
+                 #:code 409
+                 #:headers (list (make-header #"Retry-After" #"5"))))
+
 (define routes
-  (list (list "GET" "/word-count" "chat:use" word-count-route "Count the words in ?text=.")))
+  (list (list "GET" "/word-count" "chat:use" word-count-route "Count the words in ?text=.")
+        (list "PATCH" "/rename" "chat:use" rename-route "Refuses a stale revision.")))
 ```
 
 The platform mounts it at `/api/x/<plugin-id>/word-count`, so a plugin can never shadow a core route. Every plugin route requires a bearer token; the named permission is checked through `can?` before the handler runs, exactly as a tool's is. A malformed entry fails the plugin's load.
+
+`args` carries the path params, the query, the parsed JSON body and the request headers, which are a hash of lowercase field name to string value with the first value kept when a field repeats. A handler that returns a response decides its own status, headers and media type, which is what a core handler already does. Anything else keeps the older contract: a jsexpr is a 200, a `raise-user-error` is a 400, and a value that is not JSON-shaped is stringified under `result`.
 
 ## Plugin bundles
 

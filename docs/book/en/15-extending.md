@@ -9,7 +9,7 @@ A plugin is a directory with a manifest and an entry module, loaded at boot. It 
 
 - **Workflows** — `(provide workflows)`, or spec files in a directory. Validated exactly as an API-published spec is, and materialized into a team on first lookup, because a plugin has no team at load time.
 
-- **HTTP routes** — `(provide routes)`. Mounted at `/api/x/<plugin-id>/...`. The prefix is platform-fixed, so a plugin cannot shadow a core route or another plugin’s; every route requires a bearer token and the permission it names is checked before the handler runs; and a malformed entry fails *that plugin’s load* rather than a request an hour later.
+- **HTTP routes** — `(provide routes)`. Mounted at `/api/x/<plugin-id>/...`. The prefix is platform-fixed, so a plugin cannot shadow a core route or another plugin’s; every route requires a bearer token and the permission it names is checked before the handler runs; and a malformed entry fails *that plugin’s load* rather than a request an hour later. `args` carries the params, the query, the body and the request headers. A handler that returns a response sets its own status and headers, the same as a core handler, so a route can answer 409, 404 or 422 rather than folding every refusal into a 400.
 
 - **Job kinds** — registered from `init!`, named `x.<plugin-id>.<name>`. A plugin kind is an ordinary job: the enqueuing team and user, the concurrency cap, quota admission, the org gate, cancellation and the lease all apply, and none of it is inherited from the plugin. A remote kind must supply a validator, since there is no in-process handler to be strict for it.
 
