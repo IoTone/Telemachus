@@ -1652,11 +1652,55 @@ settled it. `doc_set_type` writes it, which is what ties an assertion about a
 document to the reviews chain (LAY‑11) with no second mechanism.
 
 Not built, deliberately, and each is the issue's own numbering: **the embedding
-nearest-label backend (req 2c)**, **trigger conditions on metadata (req 3's
-second half)**, **batch backfill (req 5)** and **the evaluation harness
-(req 6)**. With this slice **both of #87's acceptance criteria are met** —
+nearest-label backend (req 2c)** and **the evaluation harness (req 6)**;
+**trigger conditions on metadata (req 3's second half)** and **batch backfill
+(req 5)** are the two blocks that follow. With this slice **both of #87's
+acceptance criteria are met** —
 `test/classify-review-tests.rkt` drives all three verdicts through the real
 engine and `test/doc-pipeline-smoke.sh` §5c drives the queue over HTTP.
+
+## A trigger on the TYPE, not the prefix (CLS‑19…23) — decided and BUILT 24 Oct 2026 (issue #87 req 3b)
+
+Requirement 3 has two halves. The first — "classification result stored as object
+metadata" — shipped in slice 1. The second is the point of it: *"so triggers can
+match on it: extend trigger conditions to include metadata equality."* Without
+that half, the type is a thing an operator can filter on by hand and nothing
+acts on, and `triggers.rkt`'s opening complaint — matching on a key prefix and a
+content type only — stands.
+
+The matching itself is four lines. What made this a slice is that **a metadata
+condition cannot be evaluated when a document arrives.** At `repo-put!` the
+document has just landed and nothing has classified it, so a trigger watching
+`doc_type` would wait for ever on the one seam the subsystem had.
+
+| # | Decision | Why |
+|---|----------|-----|
+| CLS‑19 | **`match_attrs` is EQUALITY ONLY**: a JSON object of key → value, all of which must match, at most ten. | A trigger condition is operator-authored and evaluated on the write path of every document the team stores, which is the argument that froze the funnel's validation vocabulary and the workflow binding sublanguage. The vocabulary is `?attr=`'s, so an operator who can list documents by type triggers on the same thing in the same words. A non-string value and an empty one are REFUSED rather than coerced: LAY‑4 values are strings, so either is a condition that can never hold, and a trigger that silently never fires is the hardest thing on this surface to diagnose. The keys go through LAY‑4's own `field-key?` — now exported for this second asker — so `doc.type`, the spelling the issue asks for, is refused for CLS‑7's reason rather than accepted and never matched. |
+| CLS‑20 | **A SECOND SEAM: `repo-set-attributes!`.** A trigger that names attributes also fires when a document's metadata changes. | The only alternative is polling, and the platform has no primitive for it that a team's own data could reach. `repo-set-attributes!` is the one place in the tree where object metadata changes, so it is the one place that needs the hook — the argument `repo-put!`'s post-write seam already made. Like that one it never fails the write: the attributes landed, whatever a subscriber makes of them. |
+| CLS‑21 | **Exactly-once stays per (trigger, version)**, unchanged. | This is what BOUNDS the loop the second seam introduces: a workflow that re-records the type on the document that started it writes attributes, reaches the seam, and finds the fire row already claimed. A re-upload is a new version and legitimately fires again, exactly as DWF‑3 already said. Nothing new was needed for this, which is the argument for having put the idempotency key on the version in the first place. |
+| CLS‑22 | **An ABSENT attribute never matches.** | That is what makes `doc_type` usable before anything has classified a document: at upload the condition is simply false, and the trigger waits. The alternative — treating absence as the empty string — would make `{"doc_type": ""}` fire on everything, and `""` is already refused for being "not set". |
+| CLS‑23 | **A trigger wakes for the attributes it NAMES, and only when they MOVE.** One guard does both jobs. | The compatibility guarantee first: every trigger anybody has configured matches on a prefix and a content type, both fixed for the life of a version, so firing them on an attribute edit would be a behaviour change for every existing deployment — somebody correcting a typo in a `project` field would start pipelines. And the narrower half: a write that moves `project` must not wake a trigger whose unrelated `doc_type` condition merely happens to hold, because that is not news. So `repo-set-attributes!` reports the keys it actually MOVED, not the keys it was handed, and a write that changes nothing fires nothing. |
+
+**A trigger is not a backfill.** Creating one does not fire it on the documents
+that already match — requirement 5 is the backfill, and it is still unbuilt. The
+seam reports transitions, so the honest reading of "a trigger fired" is "this
+document became an invoice", not "this document is one".
+
+**I wrote two guards where one sufficed, and the control is what showed me.**
+`(positive? (hash-count want))` beside the changed-keys test is strictly
+redundant — an empty `want` cannot contain any changed key — and inverting it
+changed no test at all. #110 r1's lesson: a guard duplicating the next one is how
+a reader comes to believe the next one is missing. It is gone.
+
+**Three of the first eight controls did not bite, and the reason is worth
+keeping**: once a trigger has fired on a version, exactly-once hides every later
+mistake about WHEN it would have fired. The cases that test the seam's own
+conditions therefore have to use a trigger created AFTER the document already
+matches, which is the one state in which nothing else is deciding.
+
+Still unbuilt on #87, by the issue's own numbering: **the embedding nearest-label
+backend (req 2c)** and **the evaluation harness (req 6)**. The batch backfill
+(req 5) is the block below.
 
 ## CLS‑24…28 — the backlog: a classification backfill (issue #87, req 5)
 

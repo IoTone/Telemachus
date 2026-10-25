@@ -49,13 +49,15 @@ cap, not a five-hundred-way fan-out against the local model.
 ## Triggers
 
 A trigger is a team-scoped subscription: *when a document matching this lands,
-run that workflow with it.*
+run that workflow with it* — and, since issue #87 req 3b, *or when a document's
+METADATA comes to match it.*
 
 ```
 doc_triggers(id pk, team_id, workflow_slug, enabled bool,
              match_prefix text,           -- key prefix, e.g. "inbox/invoices/"
              match_types text,            -- comma-separated content types, "" = any
              input jsonb,                 -- extra input merged into the run, e.g. a schema ref
+             match_attrs jsonb,           -- object metadata, key -> value, ALL must match
              fire_on_derived bool default false,
              created_by, created_at)
 
@@ -66,6 +68,20 @@ doc_trigger_fires(trigger_id, version_id, run_id, fired_at,  -- exactly-once per
 - **Fires once per version.** `doc_trigger_fires` is the idempotency key: a
   re-upload of the same bytes to the same key is a new version and fires again; a
   retried request for the same version does not.
+- **`match_attrs` needs a SECOND seam, and that is the whole of CLS‑19…23.** A
+  metadata condition cannot be evaluated when a document ARRIVES — at `repo-put!`
+  nothing has classified it yet — so a trigger that names attributes also fires
+  from `repo-set-attributes!`, the one place in the tree where object metadata
+  changes. Equality only, at most ten keys, the `?attr=` vocabulary; a non-string
+  or empty value is refused, because LAY‑4 values are strings and either would be
+  a condition that can never hold. **A trigger wakes for the attributes it NAMES
+  and only when they MOVE**, which is both the compatibility guarantee (a trigger
+  with no `match_attrs` is untouched, so no existing deployment changes) and the
+  rule that stops an edit to `project` waking a trigger watching `doc_type`.
+  Exactly-once per version is unchanged and is what bounds the loop: a workflow
+  that re-records the type on the document that started it finds the fire row
+  already claimed. **A trigger is not a backfill** — creating one does not fire it
+  on documents that already match.
 - **Derived documents do not re-trigger** unless the trigger opts in. Without
   this a pipeline that writes `…/extracted.json` back into `inbox/` runs itself
   forever (DWF‑3).

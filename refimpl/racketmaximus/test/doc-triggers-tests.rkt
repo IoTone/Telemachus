@@ -22,6 +22,7 @@
          "../domain/repo/repo.rkt"
          "../domain/repo/doc-tools.rkt"          ; registers the tools
          "../domain/repo/triggers.rkt"           ; installs the seam
+         "../domain/agent/registry.rkt"
          "../domain/agent/tools.rkt"
          "../domain/sched/scheduler.rkt"
          "../domain/flow/run.rkt"
@@ -195,3 +196,226 @@
   (check-false (trigger-get conn alice (hash-ref t 'id)))
   (check-equal? (length (runs)) n-runs "the runs a trigger started are ordinary runs and remain")
   (disconnect conn))
+
+;; ---- issue #87 req 3b: a trigger that matches on object METADATA (CLS-19…23) -------
+;; Slices 1 and 2 record a document's type; this is the half that makes the type
+;; actionable. The hard part is not the matching — it is that a metadata condition
+;; cannot be evaluated at the moment a document arrives, because nothing has
+;; classified it yet, so the feature needs a SECOND seam and that seam has to be
+;; bounded.
+
+(test-case "CLS-19: matching on attributes is equality, and every named one must hold"
+  (define (t attrs #:prefix [pre ""]) (hasheq 'match_prefix pre 'match_types "" 'match_attrs attrs))
+  (define (o attrs #:key [key "inbox/a.txt"]) (hasheq 'key key 'content_type "text/plain" 'attributes attrs))
+  (check-true (trigger-matches? (t (hasheq)) (o (hasheq))) "no condition = any, as before")
+  (check-true (trigger-matches? (t (hasheq 'doc_type "invoice")) (o (hasheq 'doc_type "invoice"))))
+  (check-false (trigger-matches? (t (hasheq 'doc_type "invoice")) (o (hasheq 'doc_type "letter"))))
+  ;; an ABSENT attribute never matches, which is exactly what makes `doc_type`
+  ;; usable before anything has classified the document: at upload the condition
+  ;; is simply false, and the trigger waits for the second seam
+  (check-false (trigger-matches? (t (hasheq 'doc_type "invoice")) (o (hasheq))))
+  ;; equality, not a prefix and not a glob — the condition is operator-authored
+  ;; and runs on the write path of every document the team stores
+  (check-false (trigger-matches? (t (hasheq 'doc_type "inv")) (o (hasheq 'doc_type "invoice"))))
+  ;; ALL of them: an AND, so adding a condition can only narrow
+  (check-true (trigger-matches? (t (hasheq 'doc_type "invoice" 'project "levee"))
+                                (o (hasheq 'doc_type "invoice" 'project "levee" 'status "open"))))
+  (check-false (trigger-matches? (t (hasheq 'doc_type "invoice" 'project "levee"))
+                                 (o (hasheq 'doc_type "invoice"))))
+  ;; and it composes with what was already there rather than replacing it
+  (check-false (trigger-matches? (t (hasheq 'doc_type "invoice") #:prefix "inbox/")
+                                 (o (hasheq 'doc_type "invoice") #:key "outbox/a.txt"))))
+
+(test-case "a condition that could never match is refused at the write"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (register-plugin-workflow! "doc-pipeline" (car pipeline:workflows))
+  (define (mk attrs) (trigger-create! conn alice #:workflow "process-upload" #:attrs attrs))
+  (check-true (hash? (mk (hasheq 'doc_type "invoice"))))
+  ;; LAY-4 values ARE strings, so a number or a boolean here is a condition that
+  ;; can never hold. Refused rather than coerced: a trigger that silently never
+  ;; fires is the hardest thing on this surface to diagnose.
+  (check-exn #rx"must be a string" (lambda () (mk (hasheq 'doc_type 3))))
+  (check-exn #rx"must be a string" (lambda () (mk (hasheq 'doc_type #t))))
+  ;; an empty value is "not set", which is not a thing to match ON
+  (check-exn #rx"is empty" (lambda () (mk (hasheq 'doc_type ""))))
+  ;; the key vocabulary is LAY-4's, through LAY-4's own predicate — a dot is not a
+  ;; legal attribute key, which is the whole reason CLS-7 spells these with
+  ;; underscores, and a condition naming `doc.type` would never fire
+  (check-exn #rx"not a valid attribute key" (lambda () (mk (hasheq '|doc.type| "invoice"))))
+  (check-exn #rx"not a valid attribute key" (lambda () (mk (hasheq 'Doc_Type "invoice"))))
+  (check-exn #rx"JSON object" (lambda () (trigger-create! conn alice #:workflow "process-upload"
+                                                          #:attrs "doc_type:invoice")))
+  (check-exn #rx"at most 10"
+             (lambda () (mk (for/hasheq ([i (in-range 11)])
+                              (values (string->symbol (format "k~a" i)) "v")))))
+  ;; …and the same validation on the way through an update, or a trigger could
+  ;; reach a state a create would have refused
+  (define t (mk (hasheq 'doc_type "letter")))
+  (check-exn #rx"must be a string"
+             (lambda () (trigger-update! conn alice (hash-ref t 'id) (hasheq 'match_attrs (hasheq 'doc_type 1)))))
+  (check-equal? (hash-ref (trigger-get conn alice (hash-ref t 'id)) 'match_attrs) (hasheq 'doc_type "letter"))
+  ;; clearing it is how you go back to firing on arrival alone
+  (check-equal? (hash-ref (trigger-update! conn alice (hash-ref t 'id) (hasheq 'match_attrs 'null)) 'match_attrs)
+                (hasheq)))
+
+(test-case "CLS-20: the type a tool records is what fires the trigger"
+  ;; The acceptance shape for requirement 3: classify a document, and a pipeline
+  ;; for THAT kind of document starts by itself. Nothing about the upload could
+  ;; have said so — at `repo-put!` the document had no type.
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (register-plugin-workflow! "doc-pipeline" (car pipeline:workflows))
+  (define t (trigger-create! conn alice #:workflow "process-upload"
+                             #:attrs (hasheq 'doc_type "invoice")
+                             #:input (hasheq 'schema SCHEMA 'template "" 'locales '())))
+  ;; a trigger with no condition, to prove the arrival itself fired nothing
+  (define obj (repo-put! conn alice #:key "mixed/a.txt"
+                         #:port (open-input-bytes #"INVOICE 4471\nTotal due 1250.50")
+                         #:content-type "text/plain" #:filename "a.txt" #:visibility "team"))
+  (check-equal? (trigger-fires conn alice (hash-ref t 'id)) '()
+                "the upload fired nothing: the document had no type yet")
+
+  ;; now classify it, with a rule — no model, so this is deterministic
+  (parameterize ([current-doc-chat scripted])
+    ((tool-handler (tool-by-name "doc_classify")) conn alice
+     (hasheq 'object (hash-ref obj 'id) 'backends '("rules")
+             'labels (list (hasheq 'name "invoice") (hasheq 'name "letter"))
+             'rules (list (hasheq 'label "invoice" 'any '("Total due"))))))
+
+  (define fires (trigger-fires conn alice (hash-ref t 'id)))
+  (check-equal? (length fires) 1 "recording the type fired the trigger")
+  (check-equal? (hash-ref (car fires) 'object_id) (hash-ref obj 'id))
+  (check-equal? (hash-ref (car fires) 'error) 'null)
+  (check-true (string? (hash-ref (car fires) 'run_id)) "and it started a run")
+
+  ;; and the run really ran the pipeline the type chose
+  (parameterize ([current-doc-chat scripted]) (drain! conn))
+  (check-equal? (query-value conn "SELECT status FROM workflow_runs WHERE id = ?" (hash-ref (car fires) 'run_id))
+                "done")
+  (check-true (and (repo-get conn alice "mixed/a.txt.extracted.json" #:by-key tid) #t)
+              "the fields were extracted by a run nobody started by hand")
+
+  ;; CLS-21: exactly-once is still per (trigger, version), which is what BOUNDS
+  ;; the loop this seam introduces — re-recording the same type on the same
+  ;; version cannot start a second run.
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref t 'id))) 1 "no second fire for the same version")
+  ;; a correction to a type the trigger does not want does not fire it either
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'doc_type "letter"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref t 'id))) 1))
+
+(test-case "CLS-23: a trigger that names no attributes is untouched by the new seam"
+  ;; the compatibility guarantee. Every trigger anybody has configured matches on
+  ;; a prefix and a content type, both FIXED for the life of a version — so
+  ;; firing them on an attribute edit would be a behaviour change for every
+  ;; existing deployment, and somebody correcting a typo in a `project` field
+  ;; would start pipelines.
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (register-plugin-workflow! "doc-pipeline" (car pipeline:workflows))
+  (define plain (trigger-create! conn alice #:workflow "process-upload" #:prefix "edited/"
+                                 #:input (hasheq 'schema SCHEMA 'template "" 'locales '())))
+  (repo-fields-set! conn tid (list (hasheq 'key "project" 'label "Project")
+                                   (hasheq 'key "doc_type" 'label "Type")))
+  (define obj (repo-put! conn alice #:key "edited/a.txt" #:port (open-input-bytes #"x")
+                         #:content-type "text/plain" #:filename "a.txt" #:visibility "team"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref plain 'id))) 1 "the arrival fired it, as always")
+  ;; a new version would fire again; an attribute edit must not
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'project "levee"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref plain 'id))) 1
+                "editing metadata did not fire a trigger that does not mention metadata")
+
+  ;; and a trigger that DOES name attributes only wakes for the attributes it
+  ;; names — setting `project` must not fire one waiting on `doc_type`, even while
+  ;; its condition happens to hold
+  (define typed (trigger-create! conn alice #:workflow "process-upload"
+                                 #:attrs (hasheq 'doc_type "invoice")
+                                 #:input (hasheq 'schema SCHEMA 'template "" 'locales '())))
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref typed 'id))) 1)
+  (define obj2 (repo-put! conn alice #:key "edited/b.txt" #:port (open-input-bytes #"y")
+                          #:content-type "text/plain" #:filename "b.txt" #:visibility "team"))
+  (repo-set-attributes! conn alice (hash-ref obj2 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref typed 'id))) 2)
+  (repo-set-attributes! conn alice (hash-ref obj2 'id) (hasheq 'project "levee"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref typed 'id))) 2
+                "an unrelated attribute did not wake it")
+  ;; a write that changes NOTHING fires nothing: the seam reports the keys it
+  ;; moved, not the keys it was handed
+  (define obj3 (repo-put! conn alice #:key "edited/c.txt" #:port (open-input-bytes #"z")
+                          #:content-type "text/plain" #:filename "c.txt" #:visibility "team"))
+  (repo-set-attributes! conn alice (hash-ref obj3 'id) (hasheq 'doc_type "letter"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref typed 'id))) 2)
+  (repo-set-attributes! conn alice (hash-ref obj3 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref typed 'id))) 3)
+  (repo-set-attributes! conn alice (hash-ref obj3 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref typed 'id))) 3 "idempotent re-write, no fire"))
+
+(test-case "a DERIVED document's metadata obeys fire_on_derived, as its arrival does"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (register-plugin-workflow! "doc-pipeline" (car pipeline:workflows))
+  (repo-fields-set! conn tid (list (hasheq 'key "doc_type" 'label "Type")))
+  (define src (repo-put! conn alice #:key "src/a.txt" #:port (open-input-bytes #"x")
+                         #:content-type "text/plain" #:filename "a.txt" #:visibility "team"))
+  (define out (repo-put! conn alice #:key "src/a.txt.extracted.json" #:port (open-input-bytes #"{}")
+                         #:content-type "application/json" #:filename "a.json" #:visibility "team"))
+  (repo-inherit! conn alice #:source (hash-ref src 'id) #:target (hash-ref out 'id))
+  (define off (trigger-create! conn alice #:workflow "process-upload"
+                               #:attrs (hasheq 'doc_type "invoice")
+                               #:input (hasheq 'schema SCHEMA 'template "" 'locales '())))
+  (repo-set-attributes! conn alice (hash-ref out 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (trigger-fires conn alice (hash-ref off 'id)) '()
+                "a derived document's type does not fire a trigger that is not opted in")
+  (define on (trigger-create! conn alice #:workflow "process-upload"
+                              #:attrs (hasheq 'doc_type "invoice") #:fire-on-derived? #t
+                              #:input (hasheq 'schema SCHEMA 'template "" 'locales '())))
+  (repo-set-attributes! conn alice (hash-ref out 'id) (hasheq 'doc_type "letter"))
+  (repo-set-attributes! conn alice (hash-ref out 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref on 'id))) 1 "…and does fire one that is"))
+
+(test-case "a trigger is not a backfill: it wakes for the attributes it NAMES, and only when they move"
+  ;; The two assertions in the case above cannot see this, and the controls are
+  ;; what showed me: once a trigger has fired on a version, exactly-once hides
+  ;; every later mistake about WHEN it would have fired. So this trigger is
+  ;; created AFTER the type is already on the document — the one state in which
+  ;; the seam's own conditions are the only thing deciding.
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (register-plugin-workflow! "doc-pipeline" (car pipeline:workflows))
+  (repo-fields-set! conn tid (list (hasheq 'key "doc_type" 'label "Type")
+                                   (hasheq 'key "project" 'label "Project")))
+  (define obj (repo-put! conn alice #:key "late/a.txt" #:port (open-input-bytes #"x")
+                         #:content-type "text/plain" #:filename "a.txt" #:visibility "team"))
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'doc_type "invoice"))
+
+  (define late (trigger-create! conn alice #:workflow "process-upload"
+                                #:attrs (hasheq 'doc_type "invoice")
+                                #:input (hasheq 'schema SCHEMA 'template "" 'locales '())))
+  (check-equal? (trigger-fires conn alice (hash-ref late 'id)) '()
+                "creating it does not fire it on documents that already match — that is req 5's backfill")
+
+  ;; an UNRELATED attribute moves. The condition holds, and it held a moment ago
+  ;; too, so there is no news here — firing would make every metadata edit in the
+  ;; team a pipeline start.
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'project "levee"))
+  (check-equal? (trigger-fires conn alice (hash-ref late 'id)) '()
+                "editing `project` did not wake a trigger watching `doc_type`")
+
+  ;; the SAME value written again moves nothing, so there is nothing to report
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (trigger-fires conn alice (hash-ref late 'id)) '()
+                "and re-writing the same type is not a change")
+
+  ;; …but a real transition is, even back to a value the document held before
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'doc_type "letter"))
+  (check-equal? (trigger-fires conn alice (hash-ref late 'id)) '())
+  (repo-set-attributes! conn alice (hash-ref obj 'id) (hasheq 'doc_type "invoice"))
+  (check-equal? (length (trigger-fires conn alice (hash-ref late 'id))) 1
+                "the type became `invoice`, which is the event this trigger is for"))

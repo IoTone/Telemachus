@@ -20,7 +20,11 @@
 
 (require racket/string)
 
-(provide field-problem field-def-problem)
+;; `field-key?` is exported for a SECOND asker: a trigger that matches on object
+;; metadata (issue #87 req 3b) validates the keys in its condition, and deriving
+;; the key vocabulary twice is `executor-can-run?`'s drift — the same argument that
+;; brought `field-problem` here from beta.rkt in the first place.
+(provide field-problem field-def-problem field-key?)
 
 (define (field-key? k)
   (and (string? k) (regexp-match? #px"^[a-z][a-z0-9_]{0,39}$" k)))

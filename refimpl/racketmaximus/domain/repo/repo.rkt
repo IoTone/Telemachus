@@ -34,6 +34,7 @@
          ;; issue #122: bytes with nothing pointing at them
          reap-staged-blobs! stage-reap-seconds stage-blob! unstage-blob!
          repo-fields repo-fields-set! repo-fields-declare! repo-set-attributes!
+         set-attrs-hook!
          repo-get repo-open repo-list repo-versions
          ;; issue #87 req 5: how many objects a key window holds, so a caller
          ;; paging through repo-list can tell a short page from the last page
@@ -67,6 +68,18 @@
 ;; …and one for deletion: the knowledge graph forgets a document's facts here
 (define delete-hook (box (lambda (conn object-id) (void))))
 (define (set-delete-hook! f) (set-box! delete-hook f))
+(define attrs-hook (box (lambda (conn p obj #:changed changed) (void))))
+(define (set-attrs-hook! f) (set-box! attrs-hook f))
+;; …and one for an ATTRIBUTE WRITE (issue #87 req 3b, CLS-20). A trigger that
+;; matches on object metadata cannot fire at the seam above: at `repo-put!` the
+;; document has only just arrived and nothing has classified it yet, so the type a
+;; trigger wants to act on is written LATER, by a tool. `repo-set-attributes!` is
+;; the only place in the tree where that happens, so it is the only place that
+;; needs the seam.
+;;
+;; Like the put hook it must never fail the write — the attributes landed,
+;; whatever a subscriber makes of them — and the subscriber owns its own error
+;; handling.
 (define VISIBILITIES '("private" "team" "shared"))
 
 ;; ---- keys --------------------------------------------------------------------
@@ -208,7 +221,18 @@
        [else
         (query-exec conn "UPDATE repo_objects SET attributes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
                     (jsexpr->string merged) id)
-        (repo-get conn p id)])]))
+        (define after (repo-get conn p id))
+        ;; `changed` is the keys this call actually MOVED, not everything it was
+        ;; handed: a tool that re-records the same type on every pass would
+        ;; otherwise look to a subscriber like a document that had just been
+        ;; classified, and a write that changes nothing fires nothing.
+        (define changed
+          (for/list ([(k v) (in-hash attrs)]
+                     #:unless (equal? (hash-ref merged k 'none)
+                                      (hash-ref (hash-ref o 'attributes) k 'none)))
+            (symbol->string k)))
+        (when (pair? changed) ((unbox attrs-hook) conn p after #:changed changed))
+        after])]))
 
 (define (obj->resource o)
   (hasheq 'resource_type "repo" 'resource_id (hash-ref o 'id)

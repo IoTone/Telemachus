@@ -684,6 +684,10 @@
       "text": "コンテンツタイプ（空白 = 何でも）",
       "hash": "c233fa078f402f539dcc118a797d48b63f1bb591"
     },
+    "ui.trigger_attrs": {
+      "text": "属性",
+      "hash": "a6652617f2c799eb11ee727b16c5646c48af6905"
+    },
     "doc.route.delete.api.admin.users.id.2fa": {
       "text": "ユーザーの TOTP シードを失効させます（issue #19）。データベースダンプに残っている可能性のあるシードは、本人が使うことでは交換できないため、オペレーターが再登録を強制できます。",
       "hash": "7c21af626d3ee4c2e83c97ec1a19ea5610206384"
@@ -2061,8 +2065,8 @@
       "hash": "7f2bcb13edb0fc717e74a87c3261d4f645569362"
     },
     "doc.route.post.api.doc-triggers": {
-      "text": "トリガーを作成：workflow_slug, match_prefix, match_types, input, fire_on_derived.",
-      "hash": "f7e0e5c89c2bc296b5d682bc9b09c8c020373851"
+      "text": "トリガーを作成する: workflow_slug、match_prefix、match_types、match_attrs、input、fire_on_derived。`match_attrs` はオブジェクトメタデータのキーと値のオブジェクトで、そのすべてが一致する必要があります（完全一致のみ、`?attr=` と同じ語彙）。属性を指定したトリガーは、文書のメタデータが変化したときにも発火します — doc_classify が記録した種類がパイプラインを起動するのは、この仕組みです。",
+      "hash": "1a0e38d7d0c226ef085be6847073d2d7bb03286d"
     },
     "ui.wklocal": {
       "text": "ローカル",
