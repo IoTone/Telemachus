@@ -27,7 +27,7 @@ async function doI18nSave(){
 // the whole shell, so the header, the sign-in lockup and the preview can never
 // disagree with what was actually stored.
 async function applyBrand(b){ if(b) S.brand=Object.assign(S.brand,b,{logoUrl:b.logo?('/api/beta/asset/'+b.logo):''});
-  document.title=S.brand.title||'Telemachus'; applyTheme(S.brand.theme); render(); }
+  document.title=S.brand.title||'TMach'; applyTheme(S.brand.theme); render(); }
 // ---- the theme editor (Admin > Branding) ----
 // The tokens are the funnel's, so an operator who has skinned a campaign already
 // knows this control. Editing previews LIVE (applyTheme against a draft) and only
@@ -85,7 +85,7 @@ async function doBrandSave(){
 }
 async function doBrandReset(){
   S.brand.theme=Object.assign({},THEME_DEFAULTS);
-  const r=await api('/api/branding',{method:'PUT',body:{title:'Telemachus',tagline:'',logo:'',theme:S.brand.theme}});
+  const r=await api('/api/branding',{method:'PUT',body:{title:'TMach',tagline:'',logo:'',theme:S.brand.theme}});
   if(r.ok){ await applyBrand(r.json); toast(t('saved'),true); } else toast(r.json.error||'error');
 }
 async function doBrandLogoClear(){

@@ -82,7 +82,7 @@ async function loadCatalog(){
 // Instance branding (Admin > Branding). Loaded before auth, because the sign-in
 // screen has to render it for someone who has no token yet. Defaults keep the
 // shipped identity, so an untouched instance still has a name.
-S.brand = {title:'Telemachus', tagline:'', logo:'', logoUrl:''};
+S.brand = {title:'TMach', tagline:'', logo:'', logoUrl:''};
 // Mint a bundle ticket and open the plugin's page (issue #43). The window is
 // opened FIRST, synchronously: a popup blocker refuses a window opened after an
 // await, and the user's click is what it wants to see.
@@ -97,7 +97,7 @@ window.pluginOpen = pluginOpen;
 async function loadBranding(){
   const r = await api('/api/branding');
   if(r.ok && r.json) S.brand = Object.assign(S.brand, r.json);
-  document.title = S.brand.title || 'Telemachus';
+  document.title = S.brand.title || 'TMach';
   applyTheme(S.brand.theme);
 }
 // The console's palette, from the branding document's theme tokens — the SAME

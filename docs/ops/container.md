@@ -1,4 +1,4 @@
-# Running Telemachus in a container
+# Running TMach in a container
 
 The OCI image, compose for evaluation, and Kubernetes. Issue #89.
 
@@ -133,7 +133,7 @@ It is for **evaluation**, and says so at each line that would be wrong in
 production: the database password is in the file, no TLS terminates in front of
 the app, and nothing backs up the `data` volume.
 
-**On MinIO:** issue #89 asks for it and it is deliberately absent. Telemachus
+**On MinIO:** issue #89 asks for it and it is deliberately absent. TMach
 *serves* an S3 API (`TELEMACHUS_S3_PORT`) but cannot yet *store* blobs in a
 bucket — an S3-compatible blob-store backend is **issue #82**, unbuilt. A MinIO
 container today would be a service nothing talks to, which reads as a broken
@@ -189,7 +189,7 @@ suspiciously fast" tells you another tenant holds that exact file (DOC‑6).
 
 ### The IAM policy
 
-Least privilege is Get/Put/Delete on the prefix and nothing else. Telemachus
+Least privilege is Get/Put/Delete on the prefix and nothing else. TMach
 never lists the bucket, never reads another prefix, and never creates the bucket,
 so none of those permissions are needed.
 
@@ -209,7 +209,7 @@ so none of those permissions are needed.
 }
 ```
 
-`kms:GenerateDataKey` is required for SSE‑KMS even though Telemachus never calls
+`kms:GenerateDataKey` is required for SSE‑KMS even though TMach never calls
 KMS itself — S3 calls it on the caller's behalf, so the permission is checked
 against this identity. Drop the whole second statement with
 `TELEMACHUS_S3_BLOB_SSE=s3` (SSE‑S3 needs no KMS grant) or `=none`.

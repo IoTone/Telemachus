@@ -3,7 +3,7 @@
 **Purpose.** Make `build` and `run` one command on any machine, with a pinned
 toolchain and no per-host setup script — and retire the current local-dev ritual
 (linuxbrew minimal-racket on `PATH`, a hand-exported `PLTCOLLECTS`, "don't use apt
-Racket, it's 8.2"). A contributor should get a working Telemachus from a checkout
+Racket, it's 8.2"). A contributor should get a working TMach from a checkout
 plus `nix develop`, and a deployer should get a running server from `nix run`.
 
 This is the **deterministic-deps tenet** applied to the toolchain itself: one
@@ -32,7 +32,7 @@ Almost everything is already Nix-shaped, by accident of earlier decisions:
 **Prior art:** Odysseus already ships a working root `flake.nix` doing exactly
 this shape (nixpkgs full Racket + `PLTCOLLECTS` + `makeWrapper` per entrypoint +
 `doCheck` running the suite). It is owner-authored, so it carries over cleanly
-under the project's provenance rule. Telemachus is a simpler build — one server
+under the project's provenance rule. TMach is a simpler build — one server
 entrypoint plus one CLI, where Odysseus wrapped eleven.
 
 ## What Nix unlocks that we cannot do today

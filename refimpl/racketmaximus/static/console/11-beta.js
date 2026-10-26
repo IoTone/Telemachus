@@ -31,7 +31,7 @@ function bxTemplateDoc(){ const e=S.exp; const tpl=e.template||'';
     if(t==='textarea')return '<p><label>'+lab+'</label><textarea name="'+k+'"></textarea></p>';
     if(t==='select')return '<p><label>'+lab+'</label><select name="'+k+'"><option></option>'+(f.options||[]).map(function(o){return '<option>'+esc(o)+'</option>';}).join('')+'</select></p>';
     return '<p><label>'+lab+'</label><input name="'+k+'" type="'+((t==='email'||t==='tel')?t:'text')+'"></p>';}).join('');
-  var subs={title:esc(e.title||''),subtitle:esc(e.subtitle||''),eyebrow:esc(e.eyebrow||''),logo:esc(e.logo||'Telemachus'),cta:esc(e.cta||'Request access'),footer:esc(e.footer||''),fields:fld,message:'<div data-beta-msg></div>'};
+  var subs={title:esc(e.title||''),subtitle:esc(e.subtitle||''),eyebrow:esc(e.eyebrow||''),logo:esc(e.logo||'TMach'),cta:esc(e.cta||'Request access'),footer:esc(e.footer||''),fields:fld,message:'<div data-beta-msg></div>'};
   var body=tpl.replace(/\{\{\s*(\w+)\s*\}\}/g,function(m,k){return (k in subs)?subs[k]:'';});
   return '<!doctype html><html><head><meta charset="utf-8"><base target="_top"></head><body>'+body+'</body></html>'; }
 function bxRerender(){ const c=document.getElementById('bx-controls'); if(c) c.innerHTML=betaControls(); bxPreview(); }

@@ -8,7 +8,7 @@ turning it on, onboarding a company by hand or from a pipeline, day-2, offboardi
 
 ## Why this is one design element, not a rewrite
 
-Telemachus already has a real tenancy boundary: **team**. Every ownable resource
+TMach already has a real tenancy boundary: **team**. Every ownable resource
 carries `team_id`, every check resolves a team context, every quota meters a team
 subject. What it lacked was a **boundary above the team** — so a deployment could
 only ever serve *one* legal entity, and "several companies on one system" meant

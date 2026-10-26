@@ -105,7 +105,7 @@ follows.
 | Features | 機能 | `ui.features` |
 | Input | 入力 | `ui.input` |
 
-Names that stay in English: **Telemachus**, **Racket**, **Nix**, **PostgreSQL**,
+Names that stay in English: **TMach**, **Racket**, **Nix**, **PostgreSQL**,
 **SQLite**, **S3**, **SigV4**, HTTP verbs, and every identifier in a code span.
 
 Register: system messages use です／ます. The console's Spanish catalog was

@@ -1,6 +1,6 @@
 # Multi-Tenancy — operator runbook
 
-Operator-facing. How to run **several companies on one Telemachus instance**:
+Operator-facing. How to run **several companies on one TMach instance**:
 turn it on, onboard a company, run it day to day, and take it off again. Design
 rationale lives in [../design/multi-tenancy.md](../design/multi-tenancy.md); this
 file is the runbook.

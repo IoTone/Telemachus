@@ -127,7 +127,7 @@ try {
   await page.goto(BASE + '/beta/bundle/beta-onboarding/', { waitUntil: 'networkidle', timeout: 20000 });
   await page.waitForSelector('#use_case', { timeout: 10000 });
   await shot(page, '10-tier-b-bundle', 'Tier B: a fully custom plugin bundle',
-    'For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero Telemachus chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it.');
+    'For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero TMach chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it.');
 } finally {
   fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(MAN, null, 2));
   await browser.close();

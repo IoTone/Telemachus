@@ -1,6 +1,6 @@
 # Configuration reference
 
-Every environment variable Telemachus reads, with its default. There is **no
+Every environment variable TMach reads, with its default. There is **no
 config file**: an instance is configured entirely by its environment, and nothing
 is written at runtime, which is what lets the container run with a read-only root
 filesystem (issue #89).
@@ -325,7 +325,7 @@ by the worker, not by the instance.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `TELEMACHUS_URL` | `http://127.0.0.1:8835` | The Telemachus instance to claim work from. The worker only ever connects **out**, so it works through NAT and a tailnet. |
+| `TELEMACHUS_URL` | `http://127.0.0.1:8835` | The TMach instance to claim work from. The worker only ever connects **out**, so it works through NAT and a tailnet. |
 | `TELEMACHUS_WORKER_TOKEN` | — | Required. The worker token shown once when the executor was created (scope `jobs:execute`). |
 | `TELEMACHUS_WORKER_MODEL_URL` | — | An OpenAI-compatible endpoint; set it to run `infer.chat`. |
 | `TELEMACHUS_WORKER_MODEL_KEY` | — | Bearer token for that endpoint. |

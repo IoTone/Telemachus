@@ -1,6 +1,6 @@
 # Localization (i18n) & the Localization Manager
 
-**Purpose.** Make Telemachus localizable **top to bottom**, ship **English out of
+**Purpose.** Make TMach localizable **top to bottom**, ship **English out of
 the gate**, and build a **Localization Manager** — a feature *of the platform* that
 finds unlocalized strings, lets a team complete translations, and gates commits in
 CI. Additional languages (**Japanese, then Dutch, then Latin American Spanish**)

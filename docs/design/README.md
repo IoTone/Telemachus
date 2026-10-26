@@ -1,6 +1,6 @@
-# Telemachus — Platform Design
+# TMach — Platform Design
 
-Design docs for the platform subsystems that make Telemachus a **team** platform
+Design docs for the platform subsystems that make TMach a **team** platform
 rather than a single-user workspace, plus the **Localization** flagship that
 proves the platform can build real tools. These are *proposals with data shapes
 and contracts* for review — concrete enough to build from, with the genuine policy

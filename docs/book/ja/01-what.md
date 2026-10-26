@@ -1,5 +1,5 @@
-<!-- source-sha1: a7c49ca124064396ef0fadb4e4736e95ddafc5b3 -->
-# Telemachus とは何か
+<!-- source-sha1: a63af98e64a57a3553517a93a1547aea8f2c8bb7 -->
+# TMach とは何か
 
 
 ## 一段落で言うと

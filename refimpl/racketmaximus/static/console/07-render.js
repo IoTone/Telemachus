@@ -159,10 +159,10 @@ function renderLandingShell(cfg, mode){
   // The Mentor mark rides along only on an UNBRANDED funnel. An operator who has
   // uploaded a logo, or renamed the wordmark, is running their own brand here —
   // putting our helm beside "Acme" would be worse than showing no mark at all.
-  const logoText = cfg.logo || 'Telemachus';
+  const logoText = cfg.logo || 'TMach';
   const logo = cfg.logoImage
     ? `<img class="bx-logo-img" src="${esc(assetUrl(cfg.logoImage))}" alt="${esc(cfg.logo||'')}">`
-    : `<div class="bx-logo">${logoText === 'Telemachus' ? markSVG(26) : ''}<span>${esc(logoText)}</span></div>`;
+    : `<div class="bx-logo">${logoText === 'TMach' ? markSVG(26) : ''}<span>${esc(logoText)}</span></div>`;
   return `${fontFace}<div class="bx" style="${bxVars(cfg)}"><div class="bx-wrap">
     <header class="bx-head">${logo}<nav class="bx-nav">${nav}${live?bxLangBtns(cfg):''}</nav></header>
     <section class="bx-hero">${cfg.eyebrow?`<div class="bx-eyebrow">${esc(cfg.eyebrow)}</div>`:''}<h1>${esc(cfg.title||'')}</h1><p>${esc(cfg.subtitle||'')}</p></section>

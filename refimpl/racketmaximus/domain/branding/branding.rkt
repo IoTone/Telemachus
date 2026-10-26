@@ -58,7 +58,7 @@
 (define theme-tokens (sort (map symbol->string (hash-keys (theme-defaults))) string<?))
 
 (define (branding-defaults)
-  (hasheq 'title "Telemachus"
+  (hasheq 'title "TMach"
           'tagline ""          ; "" means: use the localized default in the UI
           'logo ""             ; "" means: use the built-in Mentor mark
           'theme (theme-defaults)))

@@ -83,7 +83,7 @@ try {
 
   // 3 — streaming chat
   log('chat'); await go(page, 'chat', '#cp');
-  await page.fill('#cp', 'In one sentence, what is Telemachus?');
+  await page.fill('#cp', 'In one sentence, what is TMach?');
   await model(page, () => window.doChat(), 'chat');
   assert((await page.locator('#chatlog .rep').first().innerText().catch(() => '')).length > 0, 'chat produced a reply');
   await shot(page, '03-chat', 'Streaming chat',
@@ -91,7 +91,7 @@ try {
 
   // 4 — agentic tool use
   log('agent'); await go(page, 'agent', '#ap');
-  await page.fill('#ap', "Create a note titled 'Investor demo' with body 'Telemachus launch next week' using your tools.");
+  await page.fill('#ap', "Create a note titled 'Investor demo' with body 'TMach launch next week' using your tools.");
   await model(page, () => window.doAgent(), 'agent', 60000);
   await shot(page, '04-agent', 'Agentic tool use',
     'The agent plans, calls the create_note tool (🔧), receives the result, and answers — the same registry that also serves plugins, MCP, and sandboxed tools.');
@@ -106,7 +106,7 @@ try {
   await page.fill('#glterm', 'platform'); await page.fill('#gltr', 'プラットフォーム'); await page.selectOption('#gltgt', 'ja');
   await page.evaluate(() => window.doAddTerm());
   await go(page, 'translate', '#trsrc');
-  await page.fill('#trsrc', 'Welcome to Telemachus, the team AI platform.'); await page.selectOption('#trtgt', 'ja');
+  await page.fill('#trsrc', 'Welcome to TMach, the team AI platform.'); await page.selectOption('#trtgt', 'ja');
   await model(page, () => window.doTranslate(), 'translate');
   assert((await page.locator('#trout').innerText().catch(() => '')).length > 0, 'translation produced output');
   await shot(page, '06-translate', 'Translation app',

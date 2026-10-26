@@ -1,4 +1,4 @@
-<!-- source-sha1: 4fc61c7619e52207b381fe844dbca74425571846 -->
+<!-- source-sha1: e3a847410fbd4b3b0c658a3f4f6bc8195be8f9d7 -->
 # コードの地図
 
 
@@ -24,7 +24,7 @@
 
 ## 四つの小さなライブラリ
 
-`pkgs/` には、Telemachus について何も知らず、そのまま外へ持ち出せるコードが入っている。
+`pkgs/` には、TMach について何も知らず、そのまま外へ持ち出せるコードが入っている。
 
 `db-kit/portable` は Racket の `db` をそのまま置き換えるもので、PostgreSQL では `?` のプレースホルダを `$n` に書き換える。`db` ではなく必ずこちらを require すること。忘れても SQLite では何も起こらず、PostgreSQL で `syntax error at or near "AND"` として失敗する — そしてテストファイルも生の SQL を発行するので、この規則はテストにも当てはまる。
 

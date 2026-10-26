@@ -33,7 +33,7 @@ Four demands, and only one of them is about storage:
    admits something else later without the API changing.
 
 Demand 3 is the one that forces a design, because **S3's authorization model and
-Telemachus's do not overlap at all.** S3 knows an access key and a bucket policy. It
+TMach's do not overlap at all.** S3 knows an access key and a bucket policy. It
 has no concept of a team, an owner, a visibility, or a resource grant — and no way
 for a client to express one. Everything below follows from refusing to resolve that
 by weakening `can?`.
@@ -155,7 +155,7 @@ The single position everything else hangs from:
 
 > **The S3 endpoint is a second front door onto the same authorization. It is never
 > a second authorization system.** A request arriving over SigV4 is resolved to a
-> Telemachus principal, and from that point it is indistinguishable from a request
+> TMach principal, and from that point it is indistinguishable from a request
 > that arrived with a bearer token. Every read and write goes through `can?` with a
 > resource hash, so the org gate, visibility, owner-ok, grants and token scopes all
 > apply unchanged.
@@ -252,7 +252,7 @@ set. Changing visibility later needs `documents:write` on the object, which
 owner-ok already grants the creator.
 
 `shared` is the honest edge: it means "private plus an explicit grant list", and S3
-has no way to name a grantee that maps to a Telemachus user. Setting `shared` over
+has no way to name a grantee that maps to a TMach user. Setting `shared` over
 S3 therefore produces an object that behaves as `private` until someone is granted
 access through the console or the REST API. Documented, not papered over.
 
@@ -505,7 +505,7 @@ accepts any credentials. It is useful as a *behavioural oracle* for XML response
 shapes, not as an auth reference.
 
 **The real deliverable is a differential harness.** Run a known-good S3 server and
-Telemachus side by side, drive both with the same `aws-cli` and `rclone` commands,
+TMach side by side, drive both with the same `aws-cli` and `rclone` commands,
 and diff the responses. That is how compatibility gets established without copying
 anyone's code, and it is a test suite rather than a one-time exercise. It also
 catches exactly the class of problem that findings 4 and 5 belong to — the things

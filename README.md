@@ -1,4 +1,4 @@
-# Telemachus
+# TMach
 
 [![CI](https://github.com/IoTone/Telemachus/actions/workflows/ci.yml/badge.svg)](https://github.com/IoTone/Telemachus/actions/workflows/ci.yml)
 [![Nightly tour](https://github.com/IoTone/Telemachus/actions/workflows/nightly.yml/badge.svg)](https://github.com/IoTone/Telemachus/actions/workflows/nightly.yml)
@@ -9,8 +9,13 @@ A **team-oriented, self-hosted, privacy-first platform for hosting AI tools and
 applications.** Local-first, driven primarily by `llama-cpp` / `llama-server`,
 with minimal Python exposure. Open from day one.
 
+The project began as **Telemachus** — Odysseus's son, who went looking for his
+father with Athena beside him disguised as Mentor — and **TMach** is the short
+form it is branded and documented under. The longer name survives in the
+repository, the environment variables and the module paths.
+
 The generic application set is **chat**, **research**, and **document
-translation**. Beyond that, Telemachus is an **SDK and platform**: deployers
+translation**. Beyond that, TMach is an **SDK and platform**: deployers
 extend the system with plugins — new **tools & integrations**, **datasets**, and
 **localizations** — through a stable, documented contract.
 
@@ -160,7 +165,7 @@ Between no-code (Tier A) and shipping a bundle (Tier B): the owner writes raw HT
 
 ![Tier B: a fully custom plugin bundle](docs/screenshots/beta/10-tier-b-bundle.png)
 
-For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero Telemachus chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it.
+For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero TMach chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it.
 
 </details>
 
@@ -179,7 +184,7 @@ To regenerate this section — screenshots and captions both — run
 
 ## Lineage & licensing
 
-Telemachus succeeds an earlier self-hosted AI workspace ("Odysseus") and reuses
+TMach succeeds an earlier self-hosted AI workspace ("Odysseus") and reuses
 its **concepts** — data-model ideas, the tool/agent contract shape, provider
 abstraction, hardware-aware local-model serving — but is a **clean MIT/X-licensed
 project**. Only code and documentation the author wrote themselves (the Racket
@@ -228,7 +233,7 @@ lives under `refimpl/<name>/`.
 
 - `README.md`, `ACKNOWLEDGMENTS.md`, `docs/` — project design docs & attribution.
 - `docs/FeatureRequirements.md` — the requirements (authored from the predecessor review).
-- **`docs/integrators-guide.md` — putting your own product on Telemachus**: theme the
+- **`docs/integrators-guide.md` — putting your own product on TMach**: theme the
   console, ship tools, serve your own screens and API, add background work. The
   worked example is `refimpl/racketmaximus/plugins/integrator-demo/`.
 - `docs/reference/` — generated from the source (routes, tools, workflows,
@@ -247,7 +252,7 @@ Prototyping. Requirements are being derived from a feature review of the
 predecessor system; the Racket reference implementation is underway under
 `refimpl/racketmaximus/` (library seed + agent-engine nucleus landed).
 
-- `docs/FeatureRequirements.md` — the requirements for Telemachus (authored from
+- `docs/FeatureRequirements.md` — the requirements for TMach (authored from
   a review of the predecessor's feature inventory).
 - `docs/design/` — platform design (RBAC & teams, quotas, AI queue & governor):
   proposals with data shapes and contracts, pending review.

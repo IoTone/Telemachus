@@ -1,4 +1,4 @@
-# Telemachus — brand
+# TMach — brand
 
 The mark is **Mentor** — direction **02** of the nine-direction identity study,
 adopted as drawn there.
@@ -6,7 +6,9 @@ adopted as drawn there.
 > Athena came to Telemachus disguised as Mentor — an intelligence wearing a familiar
 > form, telling a young man to go and find out who he is. The word *mentor* comes
 > from that disguise. It is the closest thing in literature to an honest description
-> of an assistant, and it is the reason this project has this name.
+> of an assistant, and it is the reason this project was named Telemachus.
+> **TMach** is the short form the product is branded and documented under; the
+> mark and the story behind it are unchanged.
 
 An arched helm. Its two **diamond eyes** are an owl's. Its nasal guard runs the full
 drop of the face, and the **gold brow bar** laid across the top of that guard

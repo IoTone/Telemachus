@@ -1,6 +1,6 @@
 # Onboarding & Tenant Provisioning (Hosted / SaaS)
 
-**Purpose.** Define how a **hosted** Telemachus tenant comes into existence:
+**Purpose.** Define how a **hosted** TMach tenant comes into existence:
 provision an isolated instance and **seed exactly one account owner — with no
 other users in the system** — driven by an external event (a trial signup, a paid
 subscription, a launched VM). Self-hosted deployments keep their interactive

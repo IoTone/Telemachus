@@ -1,4 +1,4 @@
-# Telemachus
+# TMach
 
 [![CI](https://github.com/IoTone/Telemachus/actions/workflows/ci.yml/badge.svg)](https://github.com/IoTone/Telemachus/actions/workflows/ci.yml)
 [![Nightly tour](https://github.com/IoTone/Telemachus/actions/workflows/nightly.yml/badge.svg)](https://github.com/IoTone/Telemachus/actions/workflows/nightly.yml)
@@ -10,8 +10,13 @@
 `llama-cpp` / `llama-server` で駆動され、Python への依存は最小限。初日から
 オープンである。
 
+本プロジェクトは **Telemachus**（テレマコス — オデュッセウスの息子。メントールの姿をとった
+アテナを伴い、父を探しに旅立った）として始まった。**TMach** はその短缩形であり、
+ブランド名および文書上の表記である。長い名前はリポジトリ、環境変数、
+モジュールパスに残っている。
+
 汎用のアプリケーション一式は **チャット**、**リサーチ**、**文書翻訳**。それを超えて
-Telemachus は **SDK でありプラットフォーム** である：導入者はプラグインで機能を
+TMach は **SDK でありプラットフォーム** である：導入者はプラグインで機能を
 拡張できる — 新しい **ツールと連携**、**データセット**、**ローカライゼーション** を、
 安定した文書化された契約を通して。
 
@@ -161,7 +166,7 @@ Beta タブは見込み客ごとに LLM の判定（有効か・100 点満点の
 
 ![Tier B：完全に独自のプラグインバンドル](docs/screenshots/beta/10-tier-b-bundle.png)
 
-すべてを自分で決めたいチームのために、プラグインは自前のフロントエンドバンドルを出荷できる — 独自のマークアップ、型、レイアウトで、Telemachus の外装はゼロ。/beta-sdk.js を読み込んで Telemachus.beta.submit() を呼ぶので、不正利用対策のゲート（proof-of-work、署名付きチャレンジ、ハニーポット、頻度）は何ひとつ再実装せずにそのまま通る。
+すべてを自分で決めたいチームのために、プラグインは自前のフロントエンドバンドルを出荷できる — 独自のマークアップ、型、レイアウトで、TMach の外装はゼロ。/beta-sdk.js を読み込んで Telemachus.beta.submit() を呼ぶので、不正利用対策のゲート（proof-of-work、署名付きチャレンジ、ハニーポット、頻度）は何ひとつ再実装せずにそのまま通る。
 
 </details>
 
@@ -185,7 +190,7 @@ Beta タブは見込み客ごとに LLM の判定（有効か・100 点満点の
 
 ## 系譜とライセンス
 
-Telemachus は、以前の自ホスト型 AI ワークスペース（「Odysseus」）の後継であり、その
+TMach は、以前の自ホスト型 AI ワークスペース（「Odysseus」）の後継であり、その
 **概念** — データモデルの発想、ツール／エージェント契約の形、プロバイダーの抽象化、
 ハードウェアを意識したローカルモデルの提供 — を再利用するが、**クリーンな MIT/X
 ライセンスのプロジェクト** である。持ち込まれているのは著者自身が書いたコードと
@@ -234,7 +239,7 @@ Telemachus は、以前の自ホスト型 AI ワークスペース（「Odysseus
 
 - `README.md`、`ACKNOWLEDGMENTS.md`、`docs/` — プロジェクトの設計ドキュメントと帰属表示。
 - `docs/FeatureRequirements.md` — 要件（前身システムのレビューから起草）。
-- **`docs/integrators-guide.md` — 自分たちの製品を Telemachus に載せる**：コンソールの
+- **`docs/integrators-guide.md` — 自分たちの製品を TMach に載せる**：コンソールの
   テーマ設定、ツールの出荷、自前の画面と API の提供、バックグラウンド処理の追加。
   実例は `refimpl/racketmaximus/plugins/integrator-demo/`。
 - `docs/reference/` — ソースから生成（ルート、ツール、ワークフロー、権限、プラグイン、
@@ -254,7 +259,7 @@ Telemachus は、以前の自ホスト型 AI ワークスペース（「Odysseus
 Racket のリファレンス実装は `refimpl/racketmaximus/` の下で進行中（ライブラリの土台と
 エージェントエンジンの中核が着地済み）。
 
-- `docs/FeatureRequirements.md` — Telemachus の要件（前身の機能一覧のレビューから起草）。
+- `docs/FeatureRequirements.md` — TMach の要件（前身の機能一覧のレビューから起草）。
 - `docs/design/` — プラットフォームの設計（RBAC とチーム、クォータ、AI のキューと
   ガバナー）：データの形と契約を伴う提案で、レビュー待ち。
 
