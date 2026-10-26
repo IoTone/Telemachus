@@ -480,3 +480,24 @@
           ;; and the message names both places without a query string
           (check-true (string-contains? (hash-ref s 'error) "which is not"))))))
   (close-db! c))
+
+(test-case "a RELATIVE next link is resolved against the page just read"
+  ;; A source may answer with `Link: </page2>; rel="next"`. `fetch` refuses a
+  ;; hostless URL, so the poll resolves it against the current page before
+  ;; comparing origins — and reports a real cross-origin hop as one, rather than
+  ;; calling every relative link cross-origin.
+  (define c (fresh))
+  (define-values (uid tid) (owner c))
+  (with-source
+    (lambda (port)
+      (list (list 200 (page (issue 114)) (list (cons "link" "</issues?page=2>; rel=\"next\"")))
+            (list 200 (page (issue 115)) '())))
+    (lambda (url _seen port)
+      (define fid (mk c tid uid url))
+      (define s (poll-feed! c fid))
+      (check-true (hash-ref s 'ok) (format "~a" (hash-ref s 'error)))
+      (check-equal? (hash-ref s 'requests) 2)
+      (check-equal? (hash-ref s 'stored) 2)
+      ;; the resolved page two kept the host and the port
+      (check-equal? (hash-ref s 'reason) 'null)))
+  (close-db! c))

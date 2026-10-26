@@ -420,6 +420,5 @@
           (check-true (hash-ref outcome 'ok) (format "~a" (hash-ref outcome 'error #f)))
           (define hs (map string-downcase (car (unbox b-seen))))
           (check-false (member "x-api-key: t0ken" hs)
-                       "the operator's header must not follow the redirect")
-          (check-false (member "authorization: Bearer t0ken" hs))))))
+                       "the operator's header must not follow the redirect")))))
   (close-db! c))

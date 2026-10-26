@@ -265,10 +265,17 @@
                               (with-handlers ([(lambda (_) #t) void]) (close-output-port o))
                               (with-handlers ([(lambda (_) #t) void]) (close-input-port i)))))
                   (loop))))))
+  ;; The same restore `with-server` does, for the same reason: these cases set a
+  ;; process-global allowlist, `raco test` runs several files in one process, and
+  ;; a leaked allowlist would quietly re-point every later case.
+  (define allow-was (getenv "TELEMACHUS_EGRESS_ALLOW"))
   (dynamic-wind
-   void
+   (lambda () (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8"))
    (lambda () (proc (format "http://127.0.0.1:~a/x" p) seen p))
-   (lambda () (kill-thread t) (tcp-close L))))
+   (lambda ()
+     (putenv "TELEMACHUS_EGRESS_ALLOW" (or allow-was ""))
+     (kill-thread t)
+     (tcp-close L))))
 
 (test-case "same-origin? treats a scheme, host or port change as a different place"
   (check-true (same-origin? "https://H.example/x" "https://h.example:443/y"))

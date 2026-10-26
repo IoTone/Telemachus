@@ -31,7 +31,7 @@
 ;;     all.
 
 (require db-kit/portable
-         json racket/string racket/list racket/port
+         json racket/string racket/list racket/port net/url
          (only-in sha2-kit sha256-hex)
          (only-in "../authz/authz.rkt" audit! user-principal principal-team-id)
          (only-in "../orgs/orgs.rkt" tenant-quota-record!)
@@ -191,13 +191,22 @@
         ;; than followed with the credential withheld, because a page that
         ;; cannot authenticate would be a 401 at best, and at worst a page of
         ;; somebody else's items landed under this feed's key prefix.
-        [(and (hash-ref res 'next #f) (< page max-pages)
-              (not (same-origin? (hash-ref res 'next) first-url)))
-         (hasheq 'ok #f 'status (hash-ref res 'status #f) 'reason "cross-origin"
-                 'error (format "the source pointed its next page at ~a, which is not ~a"
-                                (safe-url (hash-ref res 'next)) (safe-url first-url)))]
-        [(and (hash-ref res 'next #f) (< page max-pages))
-         (loop (hash-ref res 'next) (add1 page))]
+        ;;
+        ;; RESOLVED against the page just read before it is compared, because a
+        ;; source may answer with a relative `Link`. `fetch` would refuse a
+        ;; hostless URL outright, so resolving is the only reading that can work,
+        ;; and comparing an unresolved value would report the refusal as
+        ;; "cross-origin" when the real answer is "relative", which sends an
+        ;; operator looking for the wrong problem.
+        [(hash-ref res 'next #f)
+         (define next-url (url->string (combine-url/relative (string->url url) (hash-ref res 'next))))
+         (cond
+           [(not (< page max-pages)) (hash-set res 'truncated #t)]
+           [(same-origin? next-url first-url) (loop next-url (add1 page))]
+           [else
+            (hasheq 'ok #f 'status (hash-ref res 'status #f) 'reason "cross-origin"
+                    'error (format "the source pointed its next page at ~a, which is not ~a"
+                                   (safe-url next-url) (safe-url first-url)))])]
         [else (hash-set res 'truncated (and (hash-ref res 'next #f) #t))])))
 
   ;; The cursor and the counters are recorded whatever the outcome: a poll that
