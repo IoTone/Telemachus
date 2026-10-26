@@ -194,7 +194,13 @@
   (define conn (fresh))
   (define-values (uid tid) (bootstrap! conn #:username "alice"))
   (define alice (user-principal conn uid tid))
-  (register-plugin-workflow! "doc-pipeline" (last pipeline:workflows))
+  ;; BY SLUG, never `(last pipeline:workflows)`: this read `last` until req 6
+  ;; appended a fifth workflow to the plugin, at which point it registered the
+  ;; EVALUATION and looked up the backfill, so `flow-def-by-slug` answered #f and
+  ;; the failure named a materialization that was working perfectly.
+  (register-plugin-workflow!
+   "doc-pipeline"
+   (findf (lambda (w) (equal? (hash-ref w 'slug) "classify-backfill")) pipeline:workflows))
   (define def (flow-def-by-slug conn alice "classify-backfill"))
   (check-true (and def #t) "the plugin workflow materialized")
 

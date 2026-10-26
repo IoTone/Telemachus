@@ -2038,10 +2038,11 @@ bash test/doc-pipeline-smoke.sh     # the "== 5b." block, 26 assertions
 - **A RULES ANSWER BILLS NOTHING**, which the ledger's REQUEST count is what
   proves: `meter!` would record a model request that never happened. Assert
   `ai.requests`, not only `ai.tokens.total`, or an unconditional meter passes.
-- **NOT BUILT, by the issue's own numbering**: the embedding backend (req 2c — no
-  embedding wire exists, and the backend refusal says so by name rather than
-  reading as a typo), trigger conditions on metadata (req 3b), the low-confidence
-  review hook (req 4), batch backfill (req 5) and the evaluation harness (req 6).
+- **NOT BUILT AT THIS SLICE, by the issue's own numbering**: the embedding
+  backend (req 2c — no embedding wire exists, and the backend refusal says so by
+  name rather than reading as a typo), trigger conditions on metadata (req 3b),
+  the low-confidence review hook (req 4), batch backfill (req 5) and the
+  evaluation harness (req 6). Every one of those but req 2c is a section below.
 
 ## A person in the pipeline: the review hook (CLS‑13…18, issue #87 slice 2)
 
@@ -2128,10 +2129,10 @@ bash test/doc-pipeline-smoke.sh                                 # the "== 5c." b
   ABSENCE of the key with `refute` instead — and assert the document still came
   back, or the refute passes for a failed request.
 - **`list-jobs` takes no `#:status`** (`(conn team #:limit)`); filter in Racket.
-- **NOT BUILT, by the issue's own numbering**: the embedding backend (req 2c)
-  and the evaluation harness (req 6) — trigger conditions on metadata (req 3b)
-  and the batch backfill (req 5) are the two sections below. Both ACCEPTANCE
-  CRITERIA are met as of this slice.
+- **NOT BUILT AT THIS SLICE, by the issue's own numbering**: the embedding
+  backend (req 2c) — trigger conditions on metadata (req 3b), the batch backfill
+  (req 5) and the evaluation harness (req 6) are the three sections below. Both
+  ACCEPTANCE CRITERIA are met as of this slice.
 
 ## A trigger on the TYPE, not the prefix (CLS‑19…23, issue #87 req 3b)
 
@@ -2263,7 +2264,112 @@ bash test/doc-pipeline-smoke.sh              # the "== 5d." block, 18 assertions
   second time in these notes.
 - Still not built, by the issue's own numbering: the embedding nearest-label
   backend (**req 2c** — no embedding wire, store or meter exists, so it is its own
-  issue) and the **evaluation harness (req 6)**.
+  issue). The **evaluation harness (req 6)** is the section below.
+
+## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
+
+Built 25 Oct 2026 — the last piece of #87 this build can hold. One tool
+(`doc_classify_eval`), the scoring in `classify.rkt` pure of the repository, and
+a one-step spec (`classify-eval`). No migration, no route, no engine change.
+
+```sh
+raco test test/classify-eval-tests.rkt   # 15 cases, ten controls
+bash test/doc-pipeline-smoke.sh          # the "== 5e." block, 36 assertions
+```
+
+- **THE GROUND TRUTH IS AN OBJECT ATTRIBUTE** (CLS‑29), `doc_type_expected`, one
+  namespace along from the three keys the classifier's own answer lands in. A
+  manifest of (object id, label) pairs passed to the call was the alternative and
+  is a file somebody has to keep in step with the repository; an attribute makes
+  the fixture set a thing the team curates in place, grows one document at a
+  time, and lists with `?attr=doc_type_expected:invoice` for nothing. **The
+  harness DECLARES the field itself**, additively, through the same
+  `repo-fields-declare!` `record-type!` uses — LAY‑4 refuses an undefined key, so
+  without that nobody can label a fixture at all and the tool would answer "no
+  fixtures" for a reason the operator cannot act on. The first run is the setup,
+  and the smoke pins it.
+- **A FIXTURE'S OWN LABEL IS HELD TO THE LABEL SET** — CLS‑5 and CLS‑15 pointed
+  at the third party who can get it wrong. "Invoice" or a trailing space is one
+  keystroke away and no backend can ever agree with it, so an accuracy figure
+  computed over it blames the classifier for somebody's typing. Excluded from the
+  counts and named in `excluded`; refusing the whole run would let one typo make
+  the report unobtainable.
+- **A BACKEND THAT DECLINES ABSTAINED; IT WAS NOT WRONG** (CLS‑30), and the whole
+  report turns on it. The rules backend is designed to answer only when a rule
+  matched (CLS‑1 puts it first because it is certain when it speaks), so scoring
+  silence as an error makes a careful rule set look worse the more careful it is
+  and sends an operator to loosen the rules that are carrying the load. Accuracy
+  is over what it ANSWERED, `coverage` over the set, and **both are needed**: a
+  backend that answers one document perfectly is 100% accurate and useless. An
+  **error** is a third outcome, because a model that refused twenty of
+  twenty-five fixtures is the finding and "abstained" would read as caution.
+- **EACH BACKEND IS RUN SEPARATELY, WHICH PRODUCTION NEVER DOES.** In a chain the
+  second backend is only asked about what the first declined, so a chain run
+  measures the rules backend fully and the model on a biased remainder. **The
+  chain is reported too and costs nothing** (CLS‑31): it is "the first backend
+  that answered", derived from the outcomes in hand, so no second pass and no
+  second copy of the chain rule. It is already showing something neither column
+  does — rules answered one of three and was right, the model answered two and
+  was right about one, and the chain got both.
+- **THE TWO CONFIDENCE MEANS CALIBRATE THE REVIEW HOOK** (CLS‑32).
+  `classify-review-extract` parks a run below `min_confidence`, and that knob is
+  worth setting only when wrong answers arrive less confidently than right ones.
+  Both means at 0.9 means the threshold cannot separate them, which no accuracy
+  figure can say.
+- **AN EVALUATION WRITES NOTHING** (CLS‑33), and it is the decision the tool
+  turns on. Writing would overwrite the type on a document a run had already
+  classified — measuring by destroying what was measured — **move `doc_type`,
+  which since CLS‑23 WAKES A TRIGGER**, so evaluating a fixture set would start
+  pipelines over the fixtures, and leave the second run scoring the first run's
+  output. So the permission is `files:read`. No report DOCUMENT either: a derived
+  document needs a source to derive FROM, and a report is about a set.
+- **ONE STEP AND NO `map`**, the opposite shape from req 5 one slice earlier.
+  `map` fans out work done to each of N documents; this produces ONE AGGREGATE
+  and the engine has no reduce step kind, so a `map` would scatter the report
+  across N children with nothing to add them up. The spec exists to make the tool
+  REACHABLE — no route runs a single tool — and to get it quota-admitted.
+- **THE SCAN IS NOW ONE FUNCTION WITH TWO ASKERS.** `scan-objects` in
+  doc-tools.rkt owns the paging, the two caps and `truncated`'s two meanings;
+  req 5's lister and req 6's fixture walk pass a page filter. Requirement 6 was
+  written with a loop of its own first, and that is `executor-can-run?`'s drift in
+  miniature — two copies of a termination rule, one with no test behind it. A
+  positive control on the shared loop now fails req 5's two CLS‑27 cases.
+- **A NESTED `status` FIELD BROKE EVERY RUN READER IN THE SUITE.** The report's
+  per-document rows first carried `status`, and `wait_run` read a run's state with
+  `grep -oP '"status":"\K[^"]+' | head -1` — so the FIRST status in the document
+  became a backend's, every run read as "answered", and four blocks polled to the
+  end of their patience while still passing their figure assertions. `ocr-smoke.sh`
+  records the same lesson from the other side ("match the RUN's status, not a
+  substring"). The field is `outcome` now AND `wait_run` parses JSON; the other
+  smokes still grep, and they get away with it because the top-level key sorts
+  first.
+- **`(* 1000.0 0)` IS AN EXACT 0 IN RACKET**, so a ratio of
+  nothing-out-of-something came back as `0` where every other figure in the column
+  was a decimal. Both are legal jsexprs, so nothing failed. `exact->inexact`
+  first. A ratio with an empty DENOMINATOR is `'null`, never 0 — 0 reads as "it
+  got everything wrong" where the truth is "it was never asked".
+- **A ROW'S `answers` IS KEYED BY SYMBOLS, because the report is a jsexpr.**
+  `jsexpr->string` refuses a string key, and the first version failed three steps
+  away inside the engine naming neither the tool nor the field.
+- **`(last pipeline:workflows)` IN A TEST IS A LANDMINE.**
+  `classify-backfill-tests.rkt` registered the plugin's last workflow and then
+  looked the backfill up by slug; appending a fifth workflow made it register the
+  EVALUATION, and the failure named a materialization that was working perfectly.
+  Both suites find their workflow by slug now.
+- **A POSITIVE CONTROL FOUND THE WRITES-NOTHING TEST WAS WEAK**, which is the one
+  that matters most here. Patched to write `doc_type`, the tool still passed —
+  because LAY‑4 refuses an undefined key and `repo-set-attributes!` answers a
+  STRING rather than raising, so on a team with no `doc_type` field the control's
+  write was silently refused. The case declares `CLASSIFY-FIELDS` now, making it
+  the team a real write would land on. Req 5's suite paid for the same shape from
+  the other side.
+- `differ()` had to be added to `doc-pipeline-smoke.sh` — it existed only in
+  `server-smoke.sh`, and "these two must not be equal" written with `refute` is a
+  grep that passes the moment one value is a prefix of the other. Grep for a
+  helper before using it; third appearance of that shape.
+- Still not built, by the issue's own numbering: the embedding nearest-label
+  backend (**req 2c**), which needs an embedding wire, store and meter this build
+  does not have and belongs in its own issue. Everything else on #87 is done.
 
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 

@@ -102,9 +102,9 @@ The run's input is the engine's typed `input` block:
 
 ## The step tools
 
-Seven `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87
-slice 1, `doc_set_type` with slice 2 and `doc_list_unclassified` with
-requirement 5).
+Eight `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87
+slice 1, `doc_set_type` with slice 2, `doc_list_unclassified` with requirement 5
+and `doc_classify_eval` with requirement 6).
 Being tools, they are also available to the agent and to any hand-written
 workflow; the pipeline below is just the shipped composition.
 
@@ -135,6 +135,16 @@ vocabulary and binding sublanguage both make. **It does not need readable text**
 which is why it runs BEFORE `doc_text` in the type-routing pipeline: `doc_text`
 raises for a photograph, and a photograph is exactly what a content-type rule is
 for.
+
+**`doc_classify_eval`** — a label set plus the team's **labelled fixtures** → one
+report (requirement 6, decisions CLS‑29…33). The fixtures are the documents under
+a prefix carrying a `doc_type_expected` attribute, which the tool declares on its
+own first run so that there is something to label with. Every backend named is run
+SEPARATELY on each fixture, from one reading of the document; the report carries
+accuracy and coverage per backend, the same per label, what each label was
+confused for, and the mean confidence of right and wrong answers. **It writes
+nothing** — the tool is `files:read`, which is what keeps measuring the classifier
+from classifying the fixture set.
 
 **`doc_extract_fields`** — text + a **JSON schema** → an object that validates
 against it. The model is asked for JSON; the reply is parsed, validated, and
@@ -168,11 +178,12 @@ what lets a trigger tell a derived document from an original.
 
 ## The reference pipelines
 
-Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Four
+Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Five
 compositions: `process-upload` (below) for an inbox whose documents are all of one
 kind, **`classify-and-extract`** for a mixed one,
-**`classify-review-extract`** for a mixed one with a person in it, and
-**`classify-backfill`** for the prefix that was already there —
+**`classify-review-extract`** for a mixed one with a person in it,
+**`classify-backfill`** for the prefix that was already there, and
+**`classify-eval`** for the question none of the others can answer —
 
 ```
 classify  ->  the schema for THIS kind of document  ->  text  ->  fields
@@ -231,6 +242,42 @@ reclassify after changing the label set is to clear the type, which makes exactl
 those documents eligible again. `backends` is an input because a backfill is
 where the cost shows: `["rules"]` is free and deterministic, where four hundred
 documents through the model is four hundred requests against a 200/day default.
+
+`classify-eval` is requirement 6, and it is the only one of the five that
+measures rather than does:
+
+```
+find the labelled fixtures  ->  run each backend on each of them  ->  one report
+```
+
+**The ground truth is an object attribute**, `doc_type_expected`, so the fixture
+set is a thing the team curates in the repository and grows one document at a
+time — a manifest passed to the call would be a file somebody has to keep in step
+with the documents. A fixture labelled outside the label set is excluded and
+reported, never scored as a miss: the classifier is not to blame for somebody's
+typing.
+
+**Each backend is run separately**, which is the thing production never does. In
+a chain the second backend is only ever asked about the documents the first
+declined, so a chain run measures the rules backend fully and the model backend
+on a biased remainder. The chain's own answer is reported beside them and costs
+nothing — it is "the first backend that answered", derived from the outcomes
+already in hand.
+
+**A backend that declines ABSTAINED and was not wrong.** The rules backend is
+designed to answer only when a rule matched, so scoring silence as an error would
+make a careful rule set look worse the more careful it was. Accuracy is therefore
+over what a backend ANSWERED, with `coverage` beside it, and both are needed: a
+backend that answers one document perfectly is 100% accurate and useless. It also
+reports the mean confidence of right and wrong answers, which is the pair that
+says whether `classify-review-extract`'s threshold can separate them.
+
+**It writes nothing**, and the tool is `files:read`. Writing would overwrite the
+type on a document a run had already classified, wake the metadata triggers
+CLS‑23 built on every fixture, and leave the second run scoring the first run's
+output. It is one step and no `map`, the opposite shape from the backfill above:
+`map` fans out work done to each of N documents, and this produces one aggregate
+over the set, which an engine with no reduce step kind cannot put back together.
 
 
 

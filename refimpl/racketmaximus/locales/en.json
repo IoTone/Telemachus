@@ -39,6 +39,10 @@
       "text": "Deleted",
       "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
     },
+    "doc.tool.doc_classify_eval.prefix": {
+      "text": "Only documents whose key starts with this (default: every document in the team)",
+      "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
+    },
     "doc.tool.doc_set_type.object": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
@@ -727,6 +731,14 @@
       "text": "S3 access keys",
       "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
     },
+    "doc.tool.doc_classify_eval.backends": {
+      "text": "Which backends to measure, each on its own: \"rules\", \"llm\" (default: both)",
+      "hash": "6199e0eb428963eaa0bc9531a296ca3f5af9b83e"
+    },
+    "ui.enable": {
+      "text": "Enable",
+      "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
+    },
     "ui.wklastseen": {
       "text": "last seen",
       "hash": "34070b8506d76fea3faf86d7e87fff38fa8d907c"
@@ -806,10 +818,6 @@
     "doc.tool.doc_classify": {
       "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
       "hash": "645cc6c8c208eea05540a6c6a8d252ad3c274f06"
-    },
-    "ui.enable": {
-      "text": "Enable",
-      "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
     "doc.route.get.api.translate": {
       "text": "The team's translation history.",
@@ -999,6 +1007,14 @@
       "text": "relations",
       "hash": "9649007e163d3f014a46e4a152bf6377c93bf3e5"
     },
+    "doc.workflow.process-upload.name": {
+      "text": "Process an uploaded document",
+      "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
+    },
+    "doc.tool.doc_classify_eval": {
+      "text": "Measure the classifier against a labelled fixture set: the documents under a key prefix that carry a doc_type_expected attribute. Reports accuracy and coverage per backend AND per label, what each label was confused for, and the mean confidence of right and wrong answers — the figure that tells you whether a review threshold can separate them. Each backend is run SEPARATELY, so rules and llm are compared rather than chained, and the chain's own answer is reported beside them. Writes nothing: no type is recorded and no trigger fires.",
+      "hash": "12edf011b63ebf079c475219a0ffe4a99ee84f36"
+    },
     "doc.perm.members:manage": {
       "text": "Add and remove team members and set their roles.",
       "hash": "c51e6aa6288bf9dd89d8960203dc141a257942d9"
@@ -1014,6 +1030,10 @@
     "ui.reviewapprove": {
       "text": "Approve",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
+    },
+    "doc.workflow.classify-eval.name": {
+      "text": "Evaluate the classifier",
+      "hash": "5c63fbf3c117397cfad5dd12e14921ddd3a14c1b"
     },
     "ui.role": {
       "text": "Role",
@@ -1118,10 +1138,6 @@
     "doc.route.post.api.workers.jobs.id.release": {
       "text": "Hand a job back WITHOUT spending an attempt (issue #61): {claim_token, reason?} — busy, unsupported or shutdown; anything else is recorded as `other` rather than refused, since the worker has already said it cannot run the job. It goes straight back to the queue and any other worker may take it at once, while the releasing executor is not offered it again for 30 seconds — the bound on a release loop, which the untouched attempt counter cannot provide. Past 10 releases the job fails instead, naming the hosts that let it go: work no worker will run needs a person.",
       "hash": "98c4b195379deac9e9579d8106256baf1f1d4caa"
-    },
-    "doc.workflow.process-upload.name": {
-      "text": "Process an uploaded document",
-      "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
     },
     "doc.route.get.api.admin.anchor.export": {
       "text": "Anchor receipts as JSONL, oldest first, for retention OUTSIDE this instance's trust domain. `?since_seq=` asks for only what a retainer does not yet hold, so the file appends. Verify a retained copy offline with `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` — which needs neither this server nor its database, because an anchor is worth something precisely when the instance is the suspect.",
@@ -1819,6 +1835,10 @@
       "text": "See the team's review queue and the decisions already recorded.",
       "hash": "b9a2936a3b51463412d8340093e3f9f221431016"
     },
+    "doc.tool.doc_classify_eval.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
     "doc.plugin.matrix": {
       "text": "Sends the platform's own events to a Matrix room on a homeserver the operator runs. Optional: with no homeserver configured it registers nothing.",
       "hash": "a7535988fb1c9705582bcde582eccf846a1be5a4"
@@ -2059,6 +2079,14 @@
       "text": "Seed sample notes and documents into the caller's team.",
       "hash": "c9a7e323f4abf0ebc6ef99c4a87fee7475aaec0a"
     },
+    "doc.route.get.api.runs.id": {
+      "text": "One run with its steps, inputs, outputs and errors.",
+      "hash": "413e1b81c79fa3b7b825a572f0afd2a188f66588"
+    },
+    "doc.workflow.classify-eval": {
+      "text": "Measure the classifier against the team's labelled fixtures — the documents under a prefix carrying a doc_type_expected attribute. Reports accuracy and coverage for each backend on its own, per label, with what each label was confused for and how confident the right and wrong answers were. Writes nothing: no type is recorded and no trigger fires, so a fixture set can be evaluated as often as you like.",
+      "hash": "6eecc1c3c8fb42402d04817a5c255ddea25bf1c3"
+    },
     "doc.route.get.api.workflows.slug": {
       "text": "One workflow definition with its spec.",
       "hash": "f3a279bebfb752bea2de432d2056d692f5131c8d"
@@ -2198,10 +2226,6 @@
     "doc.route.get.api.mcp": {
       "text": "Connected MCP servers.",
       "hash": "ee2175d19262c5c0d8e0ded042d864a035929822"
-    },
-    "doc.route.get.api.runs.id": {
-      "text": "One run with its steps, inputs, outputs and errors.",
-      "hash": "413e1b81c79fa3b7b825a572f0afd2a188f66588"
     },
     "ui.pass": {
       "text": "Password",
@@ -2359,13 +2383,17 @@
       "text": "Count the number of words in a piece of text.",
       "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
     },
-    "doc.route.post.api.l10n.review.id": {
-      "text": "Approve or send back a translation. A translator cannot approve their own.",
-      "hash": "694e98ff43653287a34b42e7e75e466a4beb43bd"
+    "doc.tool.doc_classify_eval.rules": {
+      "text": "The rule set to evaluate — the same rules the pipeline would run",
+      "hash": "54b026958d4e9749b448857ea4e6137b4cd2a6d9"
     },
     "ui.willversion": {
       "text": "This path exists — uploading saves a new version and keeps its current visibility",
       "hash": "3629795f10a247e233253f04af4fef7439e9a459"
+    },
+    "doc.route.post.api.l10n.review.id": {
+      "text": "Approve or send back a translation. A translator cannot approve their own.",
+      "hash": "694e98ff43653287a34b42e7e75e466a4beb43bd"
     },
     "doc.route.get.api.notes": {
       "text": "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).",
@@ -2418,6 +2446,10 @@
     "doc.route.delete.api.webhooks.id": {
       "text": "Delete a subscription and its delivery history. The audit entries survive.",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
+    },
+    "doc.tool.doc_classify_eval.labels": {
+      "text": "The document types being evaluated — a fixture expecting anything else is excluded and reported",
+      "hash": "b1ef4e8ee10b75a8437f95080175499304c980d9"
     },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
@@ -2959,6 +2991,14 @@
       "text": "Entity",
       "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
     },
+    "doc.tool.doc_classify_eval.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.perm.jobs:schedule": {
+      "text": "Create, retune, pause and delete JOB SCHEDULES — recurring work. A schedule enqueues an ordinary job on an interval, running as whoever created it, so it commits the team's AI and storage budget to spending on a timer with nobody present to watch it. Reading one is held to the same permission as writing it, because a schedule's payload is the input of every job it fires.",
+      "hash": "25efd5797f94a419ab61c5506d28e2117747381a"
+    },
     "ui.workers": {
       "text": "Workers",
       "hash": "b6ef3acd0f91c0c6e2a6bad2692c8aa84dfc4c73"
@@ -2970,10 +3010,6 @@
     "doc.route.patch.api.webhooks.id": {
       "text": "Change `url`, `events`, `active` or `description`, and with `{\"rotate\": true}` mint a new signing secret — shown once, and the previous one immediately signs nothing. Validated as the subscription would be, so a patch cannot reach a state a create could not.",
       "hash": "793ae732a359fb24feb79cfd7139124440862308"
-    },
-    "doc.perm.jobs:schedule": {
-      "text": "Create, retune, pause and delete JOB SCHEDULES — recurring work. A schedule enqueues an ordinary job on an interval, running as whoever created it, so it commits the team's AI and storage budget to spending on a timer with nobody present to watch it. Reading one is held to the same permission as writing it, because a schedule's payload is the input of every job it fires.",
-      "hash": "25efd5797f94a419ab61c5506d28e2117747381a"
     },
     "ui.chpw": {
       "text": "Change your password",

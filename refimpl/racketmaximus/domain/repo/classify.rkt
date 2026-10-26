@@ -27,7 +27,9 @@
          CLASSIFY-FIELDS DECIDED-SOURCE MAX-RATIONALE
          labels-problem rules-problem backends-problem decided-problem
          label-names classify-rules classify-llm classify classify-decided
-         confidence->string)
+         confidence->string
+         ;; issue #87 req 6: the evaluation harness's pure half
+         EVAL-FIELD EVAL-FIELDS expected-problem classify-attempt eval-report)
 
 ;; ---- CLS-10: the model sees the opening, not the archive -----------------------------
 ;; A document's TYPE is evident from its first page — a letterhead, a title, an
@@ -379,3 +381,212 @@
           'rationale (if (> (string-length why) MAX-RATIONALE)
                          (substring why 0 MAX-RATIONALE)
                          why)))
+
+;; ---- CLS-29…33: the evaluation harness (issue #87 req 6) --------------------------------
+;; "Given a labelled fixture set, report accuracy per label and per backend." The
+;; SCORING lives here, with the rest of the classifier and pure of the repository,
+;; so every arithmetic rule below is testable with a list of hashes and no
+;; database, no model and no document. doc-tools.rkt owns the walk that produces
+;; the rows.
+;;
+;; CLS-29: THE GROUND TRUTH IS AN OBJECT ATTRIBUTE, `doc_type_expected`, and the
+;; fixture set is "every document under a prefix that carries one". The
+;; alternative — a manifest of (object id, label) pairs passed to the call — makes
+;; the fixture set a file somebody has to keep in step with the repository, where
+;; an attribute makes it a thing the team curates in place, grows one document at
+;; a time, and can list with `?attr=doc_type_expected:invoice` for free. It is the
+;; same vocabulary the classifier's own answer lands in (CLS-7), one namespace
+;; along.
+(define EVAL-FIELD 'doc_type_expected)
+(define EVAL-FIELDS
+  (list (hasheq 'key "doc_type_expected" 'label "Expected document type (evaluation)")))
+
+;; A FIXTURE'S OWN LABEL IS HELD TO THE LABEL SET, which is CLS-5 and CLS-15
+;; pointed at the third party who can get it wrong. "Invoice", "invoces" or a
+;; trailing space is one keystroke away, and a fixture labelled that way is a
+;; document the classifier can never agree with — so an accuracy figure computed
+;; over it blames the classifier for somebody's typing. Such a fixture is REPORTED
+;; and EXCLUDED, never counted as a miss and never silently dropped.
+(define (expected-problem labels label)
+  (define names (label-names labels))
+  (cond
+    [(not (string? label)) "the expected type must be a string"]
+    [(not (member label names))
+     (format (string-append
+              "'~a' is not one of the labels being evaluated (~a). A fixture labelled with a type "
+              "outside the set is one no backend can ever agree with, so it is excluded from the "
+              "counts rather than scored as a miss.")
+             label (string-join names ", "))]
+    [else #f]))
+
+;; ---- one backend, one document ---------------------------------------------------------
+;; CLS-30: A BACKEND THAT DECLINES IS `abstained`, NOT WRONG, and the whole report
+;; turns on the distinction. The rules backend is DESIGNED to answer only when a
+;; rule matched (CLS-1: it is first in the chain because it is certain when it
+;; speaks), so scoring silence as an error would make a precise rule set look
+;; worse the more careful it was, and would send an operator to loosen exactly the
+;; rules that are carrying the load. Accuracy is therefore reported over what a
+;; backend ANSWERED and `coverage` over the fixture set — two numbers, because
+;; either alone is misleading: a backend that answers one document perfectly is
+;; 100% accurate and useless.
+;;
+;; An `error` is a THIRD outcome and is not folded into abstention: a model that
+;; refused twenty of twenty-five fixtures is the finding, and a report calling
+;; that "abstained" would read as a cautious backend rather than a broken one.
+;; THE FIELD IS `outcome`, NOT `status`, AND THE NAME WAS NOT FREE. A row of this
+;; report ends up nested inside a workflow run's JSON, and the smoke reads a run's
+;; state with `grep -oP '"status":"\K[^"]+' | head -1` — so a `status` here became
+;; the FIRST one in the document and every run read as "answered". That is the trap
+;; `ocr-smoke.sh` already records ("match the RUN's status, not a substring"), paid
+;; from the other side: the field a nested structure chooses can break a reader of
+;; the structure around it. `wait_run` parses JSON now as well, but the name is also
+;; simply the better one — a classification has an outcome, not an HTTP status.
+;; -> (values outcome tokens)
+(define (classify-attempt backend labels
+                          #:text [text ""] #:content-type [ct ""] #:key [key ""]
+                          #:rules [rules '()] #:chat [chat #f])
+  (define (answered r t) (values (hash-set r 'outcome "answered") t))
+  (cond
+    [(string=? backend "rules")
+     (define r (classify-rules rules #:text text #:content-type ct #:key key))
+     (if r
+         (answered r 0)
+         (values (hasheq 'outcome "abstained" 'reason "no rule matched") 0))]
+    [else
+     (cond
+       [(not chat) (values (hasheq 'outcome "error" 'reason "the llm backend needs a model seam") 0)]
+       ;; `classify-llm` refuses an empty document by name, which for an
+       ;; evaluation is an abstention about THIS backend rather than a fault: a
+       ;; photograph has no text and the model was never reachable for it. The
+       ;; rules backend can still answer it on a content type, which is the
+       ;; asymmetry CLS-9 built and the one this report exists to measure.
+       [(string=? (string-trim text) "")
+        (values (hasheq 'outcome "abstained" 'reason "the document has no text for the model to read") 0)]
+       [else
+        ;; the tokens a FAILED attempt spent are still spent, so they are carried
+        ;; out of the handler rather than lost with the exception — an evaluation
+        ;; that under-reported its own cost would be the one place this platform
+        ;; measured the budget wrongly on purpose
+        (define spent 0)
+        (define (count! t) (set! spent (+ spent t)) t)
+        (with-handlers ([exn:fail?
+                         (lambda (e)
+                           (values (hasheq 'outcome "error" 'reason (exn-message e)) spent))])
+          (define-values (r t)
+            (classify-llm labels text
+                          #:chat (lambda (prompt #:system [sys #f])
+                                   (define-values (reply tk) (chat prompt #:system sys))
+                                   (values reply (count! tk)))))
+          (answered r t))])]))
+
+;; ---- the chain's own answer, derived ---------------------------------------------------
+;; CLS-31: the chain is REPORTED AND COSTS NOTHING. What production runs is the
+;; chain (CLS-1), so a report of the backends alone leaves the operator to compose
+;; the answer in their head — and the composition is exactly "the first backend
+;; that answered", which is already in hand. No second pass and no extra model
+;; request: a `chain` row computed from the per-backend outcomes is the same answer
+;; `classify` would have given, by construction rather than by a second
+;; implementation of the rule.
+(define (chain-outcome backends answers)
+  (or (for/or ([b (in-list backends)])
+        (define a (hash-ref answers (string->symbol b) #f))
+        (and a (equal? (hash-ref a 'outcome) "answered") (hash-set a 'backend b)))
+      ;; nothing answered: the chain would have raised (CLS-6). The reason names
+      ;; the LAST backend's, which is the one an operator reads first.
+      (let ([last-a (for/last ([b (in-list backends)]) (hash-ref answers (string->symbol b) #f))])
+        (hasheq 'outcome (if (and last-a (equal? (hash-ref last-a 'outcome) "error")) "error" "abstained")
+                'reason (if last-a (hash-ref last-a 'reason "") "no backend was asked")))))
+
+;; ---- the tally ------------------------------------------------------------------------
+;; A ratio over an EMPTY denominator is `null`, never 0. Zero reads as "it got
+;; everything wrong" where the truth is "it was never asked", and the two have
+;; opposite remedies — the same objection that keeps `interval_seconds` off a
+;; daily schedule and a withdrawn `worker_state` off a stale executor.
+(define (round3 x) (/ (round (* 1000.0 (exact->inexact x))) 1000))
+
+;; `(* 1000.0 0)` is an EXACT 0 in Racket — multiplying an inexact by exact zero
+;; gives exact zero — so a ratio of nothing-out-of-something came back as `0`
+;; where every other figure in the same column is a decimal. Both are legal
+;; jsexprs, which is why nothing failed; a report whose numbers change type with
+;; their value is one a reader has to second-guess. `exact->inexact` first.
+(define (ratio3 num den)
+  (if (zero? den) 'null (round3 (/ num den))))
+
+(define (mean-conf outcomes)
+  (if (null? outcomes)
+      'null
+      (round3 (/ (for/sum ([o (in-list outcomes)]) (hash-ref o 'confidence 0)) (length outcomes)))))
+
+;; One backend's figures over the rows, including the per-label breakdown.
+;; EVERY LABEL IN THE SET GETS A ROW, including one with no fixture at all: a type
+;; nobody wrote a fixture for is a hole in the fixture set, and an evaluation that
+;; silently omitted it would report a clean sheet for a label it never tested.
+(define (backend-report name labels rows)
+  (define names (label-names labels))
+  (define outs (for/list ([r (in-list rows)]) (hash-ref (hash-ref r 'answers) (string->symbol name) #f)))
+  (define (outcome-is? o s) (and o (equal? (hash-ref o 'outcome) s)))
+  (define (correct? r o) (and (outcome-is? o "answered") (equal? (hash-ref o 'label) (hash-ref r 'expected))))
+  (define answered (for/list ([o (in-list outs)] #:when (outcome-is? o "answered")) o))
+  (define correct (for/list ([r (in-list rows)] [o (in-list outs)] #:when (correct? r o)) o))
+  (define wrong (for/list ([r (in-list rows)] [o (in-list outs)]
+                           #:when (and (outcome-is? o "answered") (not (correct? r o))))
+                  o))
+  (hasheq 'backend name
+          'fixtures (length rows)
+          'answered (length answered)
+          'correct (length correct)
+          'wrong (length wrong)
+          'abstained (for/sum ([o (in-list outs)]) (if (outcome-is? o "abstained") 1 0))
+          'errors (for/sum ([o (in-list outs)]) (if (outcome-is? o "error") 1 0))
+          ;; accuracy over what it answered, coverage over the fixture set — CLS-30
+          'accuracy (ratio3 (length correct) (length answered))
+          'coverage (ratio3 (length answered) (length rows))
+          ;; CLS-32: the two means are what CALIBRATE the review hook's one knob.
+          ;; `classify-review-extract` parks a run below `min_confidence` (CLS-13),
+          ;; and a threshold is only worth setting when wrong answers arrive less
+          ;; confidently than right ones. If both means sit at 0.9 the knob cannot
+          ;; separate them, and that is a fact about the backend an accuracy figure
+          ;; cannot express.
+          'mean_confidence_correct (mean-conf correct)
+          'mean_confidence_wrong (mean-conf wrong)
+          'labels
+          (for/list ([l (in-list names)])
+            (define mine (for/list ([r (in-list rows)] [o (in-list outs)]
+                                    #:when (equal? (hash-ref r 'expected) l))
+                           (cons r o)))
+            (define l-correct (for/list ([p (in-list mine)] #:when (correct? (car p) (cdr p))) p))
+            (define l-wrong (for/list ([p (in-list mine)]
+                                       #:when (and (outcome-is? (cdr p) "answered")
+                                                   (not (correct? (car p) (cdr p)))))
+                              p))
+            (hasheq 'label l
+                    'fixtures (length mine)
+                    'correct (length l-correct)
+                    'wrong (length l-wrong)
+                    'abstained (for/sum ([p (in-list mine)]) (if (outcome-is? (cdr p) "abstained") 1 0))
+                    'errors (for/sum ([p (in-list mine)]) (if (outcome-is? (cdr p) "error") 1 0))
+                    'accuracy (ratio3 (length l-correct) (+ (length l-correct) (length l-wrong)))
+                    ;; what it was mistaken FOR, which is the actionable half: a
+                    ;; rule set that reads every invoice as a letter needs a
+                    ;; different fix from one that reads them as photographs
+                    'confused_with
+                    (for/fold ([h (hasheq)]) ([p (in-list l-wrong)])
+                      (define got (string->symbol (hash-ref (cdr p) 'label)))
+                      (hash-set h got (add1 (hash-ref h got 0))))))))
+
+;; -> the whole report. `backends` is the order asked for; the derived `chain` row
+;; comes last, because it is a conclusion about the rows above it.
+;;
+;; A row's `answers` is keyed by the backend name AS A SYMBOL, because the report
+;; is a tool result and therefore a jsexpr — `jsexpr->string` refuses a string key,
+;; which is how the first version of this failed, three steps away in the engine.
+(define (eval-report labels backends rows)
+  (define rows*
+    (for/list ([r (in-list rows)])
+      (hash-set r 'answers (hash-set (hash-ref r 'answers) 'chain
+                                     (chain-outcome backends (hash-ref r 'answers))))))
+  (hasheq 'fixtures (length rows*)
+          'labels (label-names labels)
+          'backends (for/list ([b (in-list (append backends (list "chain")))])
+                      (backend-report b labels rows*))
+          'rows rows*))

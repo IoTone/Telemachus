@@ -271,5 +271,34 @@
                       #:retry 1)
         #:end))
 
+;; ---- the evaluation (issue #87 req 6, CLS-29…33) ----------------------------------
+;; ONE STEP, AND THE SHAPE IS THE HONEST ONE. The backfill above needs `map`
+;; because it does a thing to each of N documents and each one can fail or retry
+;; on its own; an evaluation produces ONE AGGREGATE over the set, and the engine
+;; has no reduce step kind — a `map` here would scatter the report across N child
+;; outputs with nothing to add them up. So the tool does the bounded walk and this
+;; spec exists to make it REACHABLE: no route runs a single tool, so a workflow is
+;; how an operator starts one from the console or over HTTP, and how its cost is
+;; quota-admitted like any other job.
+;;
+;; `backends` is an input for the backfill's reason turned around: here the point
+;; is to run `["rules"]` and `["llm"]` and read the two columns against each
+;; other, which is what requirement 6 asks for and what no production run does.
+(define-workflow classify-eval
+  #:name "Evaluate the classifier"
+  #:description "Measure the classifier against the team's labelled fixtures — the documents under a prefix carrying a doc_type_expected attribute. Reports accuracy and coverage for each backend on its own, per label, with what each label was confused for and how confident the right and wrong answers were. Writes nothing: no type is recorded and no trigger fires, so a fixture set can be evaluated as often as you like."
+  #:input ([prefix string] [labels array] [rules array] [backends array])
+  #:max-steps 5
+
+  ;; no retry: a refusal here is a measurement that could not be made, and
+  ;; repeating it would spend the model budget twice for the same answer. The
+  ;; per-document model failures are already IN the report, as `errors`.
+  (step measure (tool doc_classify_eval #:prefix (in prefix)
+                                        #:labels (in labels)
+                                        #:rules (in rules)
+                                        #:backends (in backends)
+                                        #:run (run-id) #:step "measure")
+        #:end))
+
 (define workflows (list process-upload classify-and-extract classify-review-extract
-                        classify-backfill))
+                        classify-backfill classify-eval))

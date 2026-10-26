@@ -7,6 +7,7 @@
 ;;   doc_text            (object, version?)            -> the document's text
 ;;   doc_classify        (object, labels, rules?, …)    -> one label, or refused
 ;;   doc_list_unclassified (prefix?)                  -> the ids a backfill should classify
+;;   doc_classify_eval   (labels, prefix?, …)        -> accuracy per label and per backend
 ;;   doc_set_type        (object, labels, label, …)     -> the type a PERSON decided
 ;;   doc_extract_fields  (text, schema, object?, …)    -> fields that VALIDATE, or refused
 ;;   doc_render          (template, data, object?, …)  -> a filled form, as a document
@@ -384,6 +385,51 @@
   (run string #:optional #:description "The workflow run id, for provenance")
   (step string #:optional #:description "The workflow step id, for provenance"))
 
+;; ---- the scan, once, for both askers ------------------------------------------------
+;; IT KEEPS PAGING PAST A PAGE THAT YIELDED NOTHING, and that is the one thing this
+;; loop is for (CLS-27). `repo-list` applies `can?` per row AFTER the SQL LIMIT and
+;; each caller's own filter rejects most of what is left, so a page can
+;; legitimately contribute nothing while hundreds of documents wait behind it — a
+;; scan that stopped there would report "nothing to do" and the operator would
+;; believe it. The end of the window is `repo-count`, which is the same window
+;; without the filter, and the only thing that can tell a short page from the last
+;; one.
+;;
+;; ONE COPY, TWO ASKERS: the backfill's lister (req 5) and the evaluation's fixture
+;; set (req 6). Requirement 6 was written with a second loop of its own first, and
+;; that is `executor-can-run?`'s drift in miniature — two copies of the termination
+;; rule, one of them with no test behind it. `page->kept` is where they differ and
+;; is the only thing they do not share; the two caps and `truncated`'s two meanings
+;; are the platform's.
+;;
+;; -> (values kept total scanned truncated?)
+(define (scan-objects conn p prefix page->kept #:batch batch)
+  (define total (repo-count conn p #:prefix prefix))
+  (let loop ([offset 0] [acc '()] [scanned 0])
+    (define page (repo-list conn p #:prefix prefix #:limit SCAN-PAGE #:offset offset))
+    (define acc* (append acc (page->kept page)))
+    (define offset* (+ offset SCAN-PAGE))
+    (define scanned* (+ scanned (length page)))
+    (cond
+      [(or (>= (length acc*) batch)          ; a full batch
+           (>= offset* total)                ; the end of the window
+           (>= offset* CLASSIFY-SCAN))       ; the scan ceiling
+       (values (if (> (length acc*) batch) (take acc* batch) acc*)
+               total scanned*
+               ;; "there is more — run it again", which is true on BOTH ways of
+               ;; stopping: the window still has rows in it, or this page found
+               ;; more than a batch and the surplus was dropped. Reporting only the
+               ;; first would say `truncated: false` to an operator whose last page
+               ;; held thirty documents and whose batch kept twenty-five.
+               ;;
+               ;; It is deliberately not a count of what remains: answering that
+               ;; means scanning the whole team under `can?`, which is the work
+               ;; itself, and a number that cost as much as the batch is worth
+               ;; nothing. FLEET-2's `unclaimable` reports the same pair for the
+               ;; same reason.
+               (or (> (length acc*) batch) (< offset* total)))]
+      [else (loop offset* acc* scanned*)])))
+
 ;; A DERIVED DOCUMENT IS NEVER LISTED (CLS-26). `doc_classify` writes
 ;; `<key>.classification.json` beside its source, and that record has no
 ;; `doc_type` of its own — so without this the next run would fan out over the
@@ -403,46 +449,30 @@
                                    ids))])
        (values (vector-ref r 0) #t))]))
 
-;; The scan pages through `repo-list`, the authorized listing, rather than a
-;; WHERE clause of its own: visibility lives in one place (repo.rkt's own rule)
-;; and a backfill can only ever reach what its starter could read.
-;;
-;; IT KEEPS PAGING PAST A PAGE THAT YIELDED NOTHING, and that is the one thing
-;; this loop is for (CLS-27). `repo-list` applies `can?` and the batch skips
-;; anything already classified, so a page can legitimately contribute zero ids
-;; while hundreds of documents wait behind it — a lister that stopped there would
-;; report "nothing to do" and the operator would believe it. The end of the window
-;; is `repo-count`, which is the same window and does not filter.
+;; The scan pages through `repo-list`, the authorized listing, rather than a WHERE
+;; clause of its own: visibility lives in one place (repo.rkt's own rule) and a
+;; backfill can only ever reach what its starter could read. `scan-objects` above
+;; owns the loop and the two caps; what is here is the one page filter.
 (define (list-unclassified conn p args)
   (require-perm conn p "files:read")
   (define prefix (arg args 'prefix))
-  (define total (repo-count conn p #:prefix prefix))
-  (let loop ([offset 0] [ids '()] [scanned 0])
-    (define page (repo-list conn p #:prefix prefix #:limit SCAN-PAGE #:offset offset))
-    (define unclassified
-      (for/list ([o (in-list page)]
-                 #:unless (hash-has-key? (hash-ref o 'attributes (hasheq)) 'doc_type))
-        o))
-    (define derived (derived-ids conn (for/list ([o (in-list unclassified)]) (hash-ref o 'id))))
-    (define found
-      (for/list ([o (in-list unclassified)]
-                 #:unless (hash-ref derived (hash-ref o 'id) #f))
-        (hash-ref o 'id)))
-    (define ids* (append ids found))
-    (define offset* (+ offset SCAN-PAGE))
-    (define scanned* (+ scanned (length page)))
-    (define done?
-      (or (>= (length ids*) CLASSIFY-BATCH)     ; a full batch
-          (>= offset* total)                    ; the end of the window
-          (>= offset* CLASSIFY-SCAN)))          ; the scan ceiling
-    (cond
-      [done?
-       (define kept (if (> (length ids*) CLASSIFY-BATCH) (take ids* CLASSIFY-BATCH) ids*))
-       (hasheq 'ids kept
-               'count (length kept)
-               'prefix prefix
-               'objects total
-               'scanned scanned*
+  (define-values (kept total scanned truncated?)
+    (scan-objects conn p prefix #:batch CLASSIFY-BATCH
+                  (lambda (page)
+                    (define unclassified
+                      (for/list ([o (in-list page)]
+                                 #:unless (hash-has-key? (hash-ref o 'attributes (hasheq)) 'doc_type))
+                        o))
+                    (define derived
+                      (derived-ids conn (for/list ([o (in-list unclassified)]) (hash-ref o 'id))))
+                    (for/list ([o (in-list unclassified)]
+                               #:unless (hash-ref derived (hash-ref o 'id) #f))
+                      (hash-ref o 'id)))))
+  (hasheq 'ids kept
+          'count (length kept)
+          'prefix prefix
+          'objects total
+          'scanned scanned
                ;; "there is more — run the backfill again", which is true on BOTH
                ;; ways of stopping: the window still has rows in it, or this page
                ;; found more than a batch and the surplus was dropped. Reporting
@@ -454,8 +484,139 @@
                ;; itself, and a number that cost as much as the batch is worth
                ;; nothing. FLEET-2's `unclaimable` reports the same pair for the
                ;; same reason.
-               'truncated (or (> (length ids*) CLASSIFY-BATCH) (< offset* total)))]
-      [else (loop offset* ids* scanned*)])))
+          'truncated truncated?))
+
+;; ---- doc_classify_eval: how good is the classifier? (issue #87 req 6, CLS-29…33) --
+;; Requirement 6 is "given a labelled fixture set, report accuracy per label and
+;; per backend". The scoring is in classify.rkt, pure; what is here is the walk
+;; over the team's own documents, the per-document text, and the budget.
+;;
+;; CLS-33: IT WRITES NOTHING, AND THAT IS THE DECISION THE WHOLE TOOL TURNS ON.
+;; `doc_classify` records a type on the document (CLS-11) and that is right for a
+;; classification; an evaluation is a MEASUREMENT of the classifier, and three
+;; separate things go wrong the moment it writes. It would overwrite the type on a
+;; document a run had already classified, so measuring would destroy what was
+;; measured. It would move `doc_type`, which since CLS-23 WAKES A TRIGGER — so
+;; evaluating a fixture set would start pipelines over the fixtures. And its
+;; second run would be scoring its own first run's output. So no attributes, no
+;; `<key>.classification.json`, no derived document, and the permission is
+;; `files:read` rather than `files:write`: an evaluation is a read of the
+;; repository that happens to spend model budget.
+;;
+;; There is no report DOCUMENT either, for a smaller reason: a derived document
+;; needs a source to derive FROM (derive!'s rule, DSH-5), and a report is about a
+;; set rather than about any one of its members. A measurement of a moment belongs
+;; in the answer; the fixture set is what persists.
+(define EVAL-BATCH 25)
+
+(provide EVAL-BATCH)                     ; the test pins the cap
+
+(define-tool doc_classify_eval
+  #:description "Measure the classifier against a labelled fixture set: the documents under a key prefix that carry a doc_type_expected attribute. Reports accuracy and coverage per backend AND per label, what each label was confused for, and the mean confidence of right and wrong answers — the figure that tells you whether a review threshold can separate them. Each backend is run SEPARATELY, so rules and llm are compared rather than chained, and the chain's own answer is reported beside them. Writes nothing: no type is recorded and no trigger fires."
+  (labels array
+          #:items-of ((name string #:description "The label, a slug: lower-case letters, digits, '-' or '_'")
+                      (description string #:optional #:description "What this kind of document is, for the model")
+                      (examples array #:items string #:optional #:description "Short example phrases typical of it"))
+          #:description "The document types being evaluated — a fixture expecting anything else is excluded and reported")
+  (prefix string #:optional #:description "Only documents whose key starts with this (default: every document in the team)")
+  (rules array
+         #:items-of ((label string #:description "Which label this rule assigns")
+                     (content_type string #:optional #:description "An exact content type, or a prefix ending in '/' such as \"image/\"")
+                     (key_suffix string #:optional #:description "The document's key ends with this, e.g. \".pdf\"")
+                     (all array #:items string #:optional #:description "Every one of these phrases appears in the text")
+                     (any array #:items string #:optional #:description "At least one of these phrases appears")
+                     (none array #:items string #:optional #:description "None of these phrases appears"))
+         #:optional
+         #:description "The rule set to evaluate — the same rules the pipeline would run")
+  (backends array #:items string #:optional #:description "Which backends to measure, each on its own: \"rules\", \"llm\" (default: both)")
+  (run string #:optional #:description "The workflow run id, for provenance")
+  (step string #:optional #:description "The workflow step id, for provenance"))
+
+;; The fixture set is `scan-objects` with one predicate: an object carrying a
+;; non-empty `doc_type_expected`. A DERIVED DOCUMENT NEEDS NO FILTER HERE, unlike
+;; the backfill's: a fixture is defined by an attribute somebody wrote on purpose,
+;; and nothing derives one.
+(define (eval-fixtures conn p prefix)
+  (scan-objects conn p prefix #:batch EVAL-BATCH
+                (lambda (page)
+                  (for*/list ([o (in-list page)]
+                              [want (in-value (hash-ref (hash-ref o 'attributes (hasheq)) EVAL-FIELD #f))]
+                              #:when (and (string? want) (not (string=? want ""))))
+                    (cons o want)))))
+
+(define (doc-classify-eval conn p args)
+  (define (refuse s) (raise-user-error 'doc_classify_eval "~a" s))
+  (require-perm conn p "files:read")
+  (define labels (hash-ref args 'labels #f))
+  (define rules (let ([r (hash-ref args 'rules '())]) (if (or (eq? r 'null) (not r)) '() r)))
+  (define backends (let ([b (hash-ref args 'backends #f)])
+                     (if (or (not b) (eq? b 'null) (null? b)) CLASSIFY-BACKENDS b)))
+  (cond [(labels-problem labels) => refuse])
+  (cond [(backends-problem backends) => refuse])
+  (cond [(rules-problem rules (label-names labels)) => refuse])
+  ;; CLS-12's rule, unchanged: the permission follows what the request NAMES, not
+  ;; what the run happens to reach
+  (when (member "llm" backends) (require-perm conn p "chat:use"))
+  ;; the field is declared additively, the way `record-type!` declares the other
+  ;; three (FEED-20's rule): without it LAY-4 refuses the attribute and NOBODY
+  ;; COULD LABEL A FIXTURE AT ALL, so the harness would answer "no fixtures" for
+  ;; a reason the operator cannot act on. Declaring is not asserting — no
+  ;; document is touched.
+  (define decl (repo-fields-declare! conn (principal-team-id p) EVAL-FIELDS
+                                     #:subject "the evaluation's expected-type field"
+                                     #:advice "Remove an object field the team no longer uses."))
+  (when (string? decl)
+    (raise-user-error 'doc_classify_eval "declaring ~a: ~a" EVAL-FIELD decl))
+  (define prefix (arg args 'prefix))
+  (define-values (fixtures objects scanned truncated?) (eval-fixtures conn p prefix))
+  (define chat (current-doc-chat))
+  (define tokens (box 0))
+  (define excluded '())
+  (define rows
+    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+      (for/fold ([acc '()] #:result (reverse acc)) ([f (in-list fixtures)])
+        (define o (car f))
+        (define want (cdr f))
+        (define problem (expected-problem labels want))
+        (cond
+          [problem
+           (set! excluded (cons (hasheq 'object_id (hash-ref o 'id) 'key (hash-ref o 'key)
+                                        'expected want 'problem problem)
+                                excluded))
+           acc]
+          [else
+           ;; THE TEXT IS READ ONCE AND SHARED BY EVERY BACKEND. Extracting per
+           ;; backend would be the same work twice — and worse, it would let two
+           ;; backends be compared on two different readings of the document,
+           ;; which is the one thing a comparison must not do.
+           (define full (best-effort-text conn p o))
+           (define text (if (> (string-length full) CLASSIFY-CAP) (substring full 0 CLASSIFY-CAP) full))
+           (define answers
+             (for/hash ([b (in-list backends)])
+               (define-values (out t)
+                 (classify-attempt b labels #:text text
+                                   #:content-type (hash-ref o 'content_type "")
+                                   #:key (hash-ref o 'key)
+                                   #:rules rules #:chat chat))
+               (set-box! tokens (+ (unbox tokens) t))
+               (values (string->symbol b) out)))
+           (cons (hasheq 'object_id (hash-ref o 'id)
+                         'key (hash-ref o 'key)
+                         'expected want
+                         'text_chars (string-length text)
+                         'answers answers)
+                 acc)]))))
+  ;; a rules-only evaluation spent nothing and bills nothing, the CLS-1 rule
+  (when (> (unbox tokens) 0) (meter! conn p (unbox tokens)))
+  (hash-set* (eval-report labels backends rows)
+             'prefix prefix
+             'objects objects
+             'scanned scanned
+             ;; the backfill's pair, for the backfill's reason: there is more
+             ;; window, or this scan found more fixtures than one batch
+             'truncated truncated?
+             'excluded (reverse excluded)
+             'tokens_used (unbox tokens)))
 
 ;; ---- doc_render ------------------------------------------------------------------
 (define-tool doc_render
@@ -809,6 +970,8 @@
 (register-tool! "doc_text"           doc_text           "files:read"  doc-text)
 (register-tool! "doc_classify"       doc_classify       "files:write" doc-classify)
 (register-tool! "doc_list_unclassified" doc_list_unclassified "files:read" list-unclassified)
+;; req 6: an evaluation READS the repository and writes nothing (CLS-33)
+(register-tool! "doc_classify_eval"  doc_classify_eval  "files:read"  doc-classify-eval)
 (register-tool! "doc_set_type"       doc_set_type       "files:write" doc-set-type)
 (register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields)
 (register-tool! "doc_render"         doc_render         "files:write" doc-render)
