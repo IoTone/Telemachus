@@ -41,6 +41,11 @@ until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do :; done; exec 3>&- 2>/d
 fail=0
 assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1"; else echo "  FAIL $1 — expected: $3 — got: $2"; fail=1; fi; }
 jq_(){ python3 -c 'import sys,json;print(eval(sys.argv[1],{"d":json.load(sys.stdin)}))' "$1"; }
+# this file had no `refute`, and a `refute` written without one runs as an
+# unknown command: bash complains on stderr, nothing sets `fail`, and the suite
+# reports PASS with the assertion silently absent. Fourth appearance of that
+# shape in this tree.
+refute(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  FAIL $1 — did NOT expect: $3 — got: $2"; fail=1; else echo "  ok   $1"; fi; }
 B="localhost:$PORT"
 TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"ops","password":"pw-pw-pw1"}' | jq_ 'd["token"]')
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
@@ -76,6 +81,38 @@ assert "…attributed to the executor"  "$(cat "$TELEMACHUS_DATA_DIR/chat.json")
 assert "the sub-job is done"          "$(G /api/jobs)" '"status":"done"'
 assert "the executor is active now"   "$(G /api/executors)" '"status":"active"'
 assert "AI spend was metered"         "$(G /api/usage)" '"dimension":"ai.tokens.total"'
+
+echo "== 3c. issue #91 req 3: the request is in the model-request log, and the prompt is not ==="
+LOG=$(G /api/model-requests)
+assert "the pull chat is logged"        "$LOG" '"transport":"pull"'
+assert "…as a completed request"        "$LOG" '"status":"ok"'
+assert "…naming the executor"           "$LOG" '"executor":"laptop-gpu"'
+assert "…with the worker's token count" "$LOG" '"tokens_used":'
+assert "…and its shape"                 "$LOG" '"prompt_chars":5'
+assert "…the digest's algorithm is reported" "$LOG" '"digest_alg":'
+# THE POINT OF THE SLICE. "hello" is the prompt section 3 sent; the log must
+# carry its digest and never the word. Asserted one way at a time, because
+# "redaction worked" is exactly the claim a single grep makes vacuously.
+refute "the prompt text is not in the log"   "$LOG" 'hello'
+refute "…and neither is the reply"           "$LOG" 'pulled:'
+refute "…and there is no prompt field at all" "$LOG" '"prompt"'
+# RED-16: a worker's own model URL is not something the platform knows, so the
+# pull row claims no endpoint rather than guessing one — and that makes it
+# hosted, which is the honest answer for content that left by a job row.
+assert "a pull row claims no endpoint"  "$LOG" '"endpoint":null'
+assert "…and counts as off this box"    "$LOG" '"hosted":true'
+# the simulated echo never left the process, so there is no row for it: a row
+# would make the log answer "yes, this was sent" about a call nobody made
+BEFORE=$(printf '%s' "$LOG" | grep -c '"transport"' || true)
+P /api/ai/chat '{"prompt":"to the echo"}' >/dev/null
+AFTER=$(G /api/model-requests | grep -c '"transport"' || true)
+assert "the simulated echo is not logged" "$BEFORE/$AFTER" "$BEFORE/$BEFORE"
+# RED-22: it is the team's audit trail, so a plain member does not read it
+MEM=$(P /api/members '{"username":"mia","password":"pw-pw-pw1","role":"member"}' | jq_ 'd["token"]')
+assert "a member cannot read the log" \
+  "$(curl -s $B/api/model-requests -H "Authorization: Bearer $MEM")" 'Forbidden: audit:read'
+assert "the filter narrows to one executor" "$(G '/api/model-requests?executor=laptop-gpu')" '"transport":"pull"'
+assert "…and an unknown one is empty"       "$(G '/api/model-requests?executor=nope')" '"requests":[]'
 
 echo "== 3b. issue #18: a schema-shaped chat, and a parts prompt, through the worker ==="
 # the mock re-reads its reply file per request; a needle now answers with JSON

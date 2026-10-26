@@ -45,11 +45,12 @@
          racket/string racket/random net/base64
          (only-in file/sha1 bytes->hex-string)
          (only-in "crypto.rkt" pbkdf2-hmac-sha1)
-         (only-in sha2-kit sha256))
+         (only-in sha2-kit sha256 hmac-sha256))
 
 (provide aes-256-gcm-encrypt aes-256-gcm-decrypt
          secrets-enabled? secret-key-id secret-wrap secret-unwrap wrapped-secret?
          current-previous-secret-key parse-secret-key
+         secret-digest
          KEY-BYTES NONCE-BYTES)
 
 (define KEY-BYTES 32)
@@ -175,6 +176,36 @@
 ;; secret — it says which key to try, so a rotation can read both.
 (define (key-id k) (substring (bytes->hex-string (sha256 k)) 0 8))
 (define (secret-key-id) (let ([k (current-secret-key)]) (and k (key-id k))))
+
+;; ---- a digest of something we are NOT keeping (RED-18) -----------------------
+;; "Store the prompt hash, never the prompt text" (issue #91 requirement 3) is
+;; the right shape and a BARE SHA-256 is the wrong primitive for it. A short
+;; prompt is reversible from a word list: `sha256("Arun Patel")` is the same
+;; digest on every machine in the world, so a leaked request log plus a list of
+;; names is a confirmation oracle over exactly the identifiers requirement 1
+;; exists to keep out of a model request. The digest has to be comparable BY THIS
+;; INSTANCE and by nobody else, which is what a keyed MAC gives and a hash does
+;; not.
+;;
+;; So it lives HERE, beside the key, rather than in the module that wants it:
+;; exporting the key bytes to let a caller HMAC with them would make this module
+;; one of two homes for the key, and the whole argument for `secret-wrap` living
+;; here is that there is only one.
+;;
+;; With NO key configured it is a plain SHA-256 and says so. That is the honest
+;; failure: an instance in the documented plaintext-at-rest posture still gets a
+;; digest it can compare with itself, and a digest that silently changed meaning
+;; with the environment would be worse than one that reports which it is.
+;;
+;; -> (values hex alg key-id-or-#f)
+(define DIGEST-LABEL #"telemachus.digest.v1\n")
+(define (secret-digest domain s)
+  (define msg (bytes-append DIGEST-LABEL (string->bytes/utf-8 domain) #"\n"
+                            (if (bytes? s) s (string->bytes/utf-8 s))))
+  (define k (current-secret-key))
+  (cond
+    [k (values (bytes->hex-string (hmac-sha256 k msg)) "hmac-sha256" (key-id k))]
+    [else (values (bytes->hex-string (sha256 msg)) "sha256" #f)]))
 
 ;; ---- the stored form ---------------------------------------------------------
 

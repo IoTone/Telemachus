@@ -132,6 +132,7 @@
   "doc.route.get.api.mcp": "Connected MCP servers.",
   "doc.route.get.api.members": "The team's members and roles.",
   "doc.route.get.api.metrics": "Operational metrics.",
+  "doc.route.get.api.model-requests": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count and outcome. Never the prompt text. Filter with ?executor=, page with ?limit= and ?offset=.",
   "doc.route.get.api.model-roles": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
   "doc.route.get.api.notes": "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).",
   "doc.route.get.api.notes.id": "One note.",

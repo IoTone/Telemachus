@@ -7,7 +7,7 @@
 ;; needs — the pool, the request accessors, with-auth/with-mt, the response
 ;; constructors — is server/kit.rkt.
 
-(provide ep-audit ep-admin-seed ep-metrics ep-plugins ep-mcp ep-oop
+(provide ep-audit ep-model-requests ep-admin-seed ep-metrics ep-plugins ep-mcp ep-oop
          ep-tool-toggle ep-anchor-status ep-anchor-emit ep-anchor-receipts
          ep-anchor-export)
 
@@ -20,6 +20,7 @@
          (only-in "../../domain/agent/plugins.rkt" loaded-plugins plugin-failures)
          (only-in "../../domain/mcp/connect.rkt" mcp-servers)
          (only-in "../../domain/oop/host.rkt" capability-names loaded-oop-plugins)
+         (only-in "../../domain/ai/requestlog.rkt" model-requests-for)
          (only-in "../../domain/audit/anchor.rkt"
                   anchor-emit! anchor-status anchor-receipts anchor-export-jsonl)
          "../kit.rkt")
@@ -28,6 +29,23 @@
   (with-auth req (lambda (p)
     (require-perm db-conn p "settings:manage")
     (json-response (hasheq 'audit (audit-list db-conn (principal-team-id p) #:limit 100))))))
+
+;; issue #91 requirement 3 (RED-22). The team's own trail of its own model
+;; requests: what went where, how big it was, what it cost, and whether it was
+;; refused — never the prompt. `audit:read`, because it is an audit question and
+;; the digest is information about CONTENT, which is why a plain member does not
+;; hold it (#84's rule, where who-read a document is behind `files:manage`
+;; because it is information about people).
+(define (ep-model-requests req)
+  (with-auth req (lambda (p)
+    (define (num k d) (let ([v (query-param req k)])
+                        (or (and (string? v) (string->number v)) d)))
+    (json-response
+     (hasheq 'requests (model-requests-for db-conn p
+                                           #:limit (num 'limit 100)
+                                           #:offset (num 'offset 0)
+                                           #:executor (let ([e (query-param req 'executor)])
+                                                        (and (string? e) (not (string=? e "")) e))))))))
 
 (define (ep-admin-seed req)
   (with-auth req (lambda (p)

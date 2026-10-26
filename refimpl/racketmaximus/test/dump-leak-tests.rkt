@@ -37,7 +37,10 @@
          "../domain/notes/notes.rkt"
          "../domain/apps/translate.rkt"
          "../domain/flow/run.rkt"
-         "../config.rkt")
+         "../config.rkt"
+         ;; #91 requirement 3: the model-request log
+         (only-in "../domain/ai/requestlog.rkt" model-request-record!)
+         (only-in "../domain/ai/executor.rkt" model-request-logger pull-router run-chat))
 
 (define BLOB-ROOT (make-temporary-file "telemachus-leak-~a" 'directory))
 (current-blob-root BLOB-ROOT)
@@ -338,6 +341,54 @@
           ;; row, so the scan speaks only about the database.
           (check-false (member "repo_redactions.token_map" (scan-for c NEEDLE))
                        "the map is sealed by the key alone"))))))
+
+
+;; ---- the model-request log (#91 requirement 3, RED-23) ----------------------
+;;
+;; The table has NO content column at all — that is the property, not an
+;; implementation detail — so the strong form of this pair cannot be written:
+;; there is nothing to turn off that would make the scanner find a prompt here.
+;; What the pair CAN establish is that the scan is live in this fixture and that
+;; no column of `model_requests` is among its hits, which is the shape #83's
+;; lesson asks for. A column added later is caught by the row-by-row scan over
+;; `SELECT *` in test/requestlog-tests.rkt, which is where a new one would land.
+(define (chat-the-needle! c p)
+  (set-box! model-request-logger
+    (lambda (#:executor e #:transport tr #:model m #:endpoint u #:messages msgs
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+      (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
+                             #:executor e #:transport tr #:model m #:endpoint u
+                             #:messages msgs #:tokens tok #:status st
+                             #:error-kind ek #:http-status hs #:ms ms)))
+  (set-box! pull-router (lambda (name msgs temp rf) (cons "ACK" 9)))
+  (begin0
+    (let-values ([(reply _t) (run-chat (string-append "Dear " NEEDLE ", your claim")
+                                       #:executor "stub")])
+      reply)
+    (set-box! pull-router (lambda (name msgs temp rf) #f))
+    (set-box! model-request-logger
+      (lambda (#:executor e #:transport tr #:model m #:endpoint u #:messages msgs
+               #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))))
+
+(test-case "ACCEPTANCE (#91 req 3): a model request is recorded and no column of it holds the prompt"
+  (with-env "TELEMACHUS_SECRET_KEY" ""
+    (lambda ()
+      (with-env "TELEMACHUS_ENCRYPT_CONTENT" ""
+        (lambda ()
+          (define c (fresh))
+          (define-values (uid tid) (bootstrap! c #:username "alice"))
+          (define p (user-principal c uid tid))
+          ;; the redaction fixture puts the needle in the clear somewhere, which
+          ;; is what keeps the scan from passing by never finding anything —
+          ;; the harness that greps its own output taught this file that lesson
+          (redact-something! c p)
+          (check-equal? (chat-the-needle! c p) "ACK")
+          (check-equal? (query-value c "SELECT COUNT(*) FROM model_requests") 1
+                        "the request really was logged")
+          (define hits (scan-for c NEEDLE))
+          (check-true (pair? hits) "the scanner is live in this fixture")
+          (check-false (for/or ([h (in-list hits)]) (string-prefix? h "model_requests."))
+                       (format "a model_requests column holds the prompt; hits were ~a" hits)))))))
 
 (test-case "CONTROL: with encryption off, a FAILING job leaves its input in the error columns"
   (define c (fresh))

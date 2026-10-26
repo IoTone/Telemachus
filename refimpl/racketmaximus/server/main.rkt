@@ -27,7 +27,7 @@
          db-kit
          (only-in "../config.rkt" impl-root max-upload-bytes)
          (only-in "../domain/db/migrations.rkt" all-migrations)
-         (only-in "../domain/authz/authz.rkt" exn:fail:forbidden-permission exn:fail:forbidden? principal-team-id principal-user-id require-perm team-org)
+         (only-in "../domain/authz/authz.rkt" exn:fail:forbidden-permission exn:fail:forbidden? principal-org-id principal-team-id principal-user-id require-perm team-org)
          (only-in "../domain/authz/passwords.rkt" kdf-name)
          (only-in "../domain/apps/translate.rkt" translate!)
          (only-in "../domain/beta/beta.rkt" parse-verdict prospect-field prospect-get set-prospect-judge!)
@@ -59,11 +59,13 @@
                   active-blob-store-name)
          (only-in "../domain/repo/repo.rkt" reap-staged-blobs!)
          (only-in "../domain/flow/spec.rkt" exn:fail:spec?)
-         (only-in "../domain/ai/executor.rkt" estimate-tokens model-configured? pull-router run-chat)
+         (only-in "../domain/ai/executor.rkt" estimate-tokens model-configured? model-request-logger pull-router run-chat)
          (only-in "../domain/ai/content.rkt" content->text)
          (only-in "../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
          (only-in "../domain/exec/federation.rkt" connect-executors!)
          (only-in "../domain/exec/pull.rkt" executor-by-name load-push-executors! pull-dispatch! reap-leases!)
+         ;; RED-17: the model-request log's writer (issue #91 requirement 3)
+         (only-in "../domain/ai/requestlog.rkt" model-request-record!)
          (only-in "../domain/judge/judge.rkt" judgments-in-result register-judge-kind!)
          (only-in "../domain/ai/roles.rkt" model-role-executor)
          (only-in "../domain/agent/run.rkt" agent-configured? run-agent-flow)
@@ -271,7 +273,7 @@
    'worker-claim ep-worker-claim 'worker-state ep-worker-state 'worker-heartbeat ep-worker-heartbeat 'worker-complete ep-worker-complete 'worker-fail ep-worker-fail 'worker-release ep-worker-release
    'usage ep-usage 'quota-set ep-quota-set 'tools-list ep-tools-list
    'tokens-create ep-tokens-create 'tokens-list ep-tokens-list 'tokens-revoke ep-tokens-revoke
-   'search ep-search 'audit ep-audit
+   'search ep-search 'audit ep-audit 'model-requests ep-model-requests
    'webhooks-list ep-webhooks-list 'webhooks-create ep-webhooks-create
    'webhook-get ep-webhook-get 'webhook-patch ep-webhook-patch 'webhook-delete ep-webhook-delete
    'webhook-ping ep-webhook-ping 'webhook-deliveries ep-webhook-deliveries
@@ -845,6 +847,29 @@
                  (hash-ref r 'seq) (hash-ref r 'chains)
                  (substring (hash-ref r 'hash) 0 16))))
      n))
+  ;; RED-17: the model-request log (issue #91 requirement 3). executor.rkt holds
+  ;; the box and writes no rows; this is the writer that knows the connection and
+  ;; the principal. The team and user come from `current-job` inside a scheduler
+  ;; job and from `current-request-principal` on the request path — the same two
+  ;; sources `pull-router` below reads, for the same reason.
+  ;;
+  ;; A call with NO team context is still logged, with a NULL team: it happened,
+  ;; and dropping it would make the log quietly incomplete for exactly the
+  ;; platform-internal calls nobody can attribute.
+  (set-box! model-request-logger
+    (lambda (#:executor executor #:transport transport #:model model #:endpoint endpoint
+             #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
+             #:http-status http-status #:ms ms)
+      (define job (current-job))
+      (define p (current-request-principal))
+      (model-request-record! db-conn
+        #:team (cond [job (hash-ref job 'team #f)] [p (principal-team-id p)] [else #f])
+        #:user (cond [job (hash-ref job 'user #f)] [p (principal-user-id p)] [else #f])
+        #:org  (and p (principal-org-id p))
+        #:executor executor #:transport transport #:model model #:endpoint endpoint
+        #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
+        #:http-status http-status #:ms ms)
+      (void)))
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker
   (set-box! pull-router

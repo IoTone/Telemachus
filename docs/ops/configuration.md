@@ -119,6 +119,47 @@ that does not use Matrix carries nothing extra in its emit path.
 | `TELEMACHUS_MATRIX_HOMESERVER` | (empty) | Base URL of the Matrix homeserver to notify through, e.g. `https://matrix.example.internal`. A self-hosted one is normally on a private network, so it also needs its CIDR in `TELEMACHUS_EGRESS_ALLOW` — the fetch goes out with #142's `trusted` policy, which refuses every private address the operator has not named. |
 | `TELEMACHUS_MATRIX_TOKEN` | (empty) | Access token of the bot account the notifications are sent as. The bot must already be **in** each room: the plugin never joins one, so who may be told stays a decision made on the Matrix side. |
 
+## What the model is told, and what is logged about it (issue #91)
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING` | off | Boolean. When on, a model request to a backend that is **not on this host** is refused unless that executor's capability document carries `"no_content_logging": true`. Off by default on purpose: a real default would make an upgrade start refusing the calls this platform exists to make. Unset, an undeclared hosted backend is still used and every request is logged with `content_logging: "undeclared"`, so the gap is visible rather than assumed. |
+
+**What it enforces is that somebody made the assertion, never the assertion
+itself.** No software can check what a remote operator retains. What this
+instance can do is refuse to send a team's document text off the box until its
+own operator has declared, per executor, that the backend does not log content —
+which turns an assumption nobody wrote down into a decision with a name attached
+to it. A backend on loopback is outside the policy entirely: nothing left the
+host, so there is nothing to declare.
+
+Set the declaration where every other backend capability already lives — the
+executor's `capabilities` document, which needs no migration and arrives
+identically from `executors.json` and from `POST /api/executors`:
+
+```sh
+curl -X POST "$BASE/api/executors" -H "Authorization: Bearer $OP" \
+  -d '{"name":"vendor","mode":"push","url":"https://api.vendor.example/v1/chat/completions",
+       "capabilities":{"no_content_logging":true}}'
+```
+
+**Every model request that leaves the process is logged**, to `model_requests`,
+readable at `GET /api/model-requests` with `audit:read`: the executor, which path
+carried it (`push`, `stream` or `pull`), the model, the backend's **host** (never
+its key and never its query), whether it was off this box, what it declared, a
+keyed digest of the prompt, a message and character count, the token count and
+the outcome — including the requests that failed and the ones this instance
+**refused** to make. There is no prompt column and no reply column.
+
+The digest is an **HMAC under `TELEMACHUS_SECRET_KEY`**, not a bare SHA‑256,
+because a bare hash of a short prompt is reversible from a word list — a leaked
+log plus a list of names would otherwise be a confirmation oracle over exactly
+the identifiers redaction exists to protect. With no key configured it is a plain
+SHA‑256 and the row's `digest_alg` says so. Rotating the key makes earlier
+digests incomparable with later ones; there is nothing to re-wrap, since the
+prompt was never kept, so the row records `digest_key_id` and a reader sees a new
+key rather than concluding the text changed.
+
 ## Encrypting document-derived content at rest (issue #83)
 
 | Variable | Default | What it does |
