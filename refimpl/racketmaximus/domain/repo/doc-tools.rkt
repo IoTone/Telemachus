@@ -173,6 +173,12 @@
   (text string #:description "The document's text")
   (schema object #:description "A JSON schema the extracted object must conform to")
   (object string #:optional #:description "The source document's object id — write the fields as a derived document beside it")
+  (redact boolean #:optional
+          #:description "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored")
+  (redact_detectors array #:items string #:optional
+                    #:description "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)")
+  (redact_terms array #:items string #:optional
+                #:description "Literal names or phrases for the dictionary detector — not patterns")
   (run string #:optional #:description "The workflow run id, for provenance")
   (step string #:optional #:description "The workflow step id, for provenance"))
 
@@ -190,36 +196,60 @@
 
 ;; text × schema -> (values fields tokens), or raises. Pure of the repository so the
 ;; refusal rules are testable with a scripted reply.
-(define (extract-fields text schema #:chat [chat (current-doc-chat)])
+(define (extract-fields text schema #:chat [chat (current-doc-chat)]
+                        ;; requirement 2. The prompt is built from `text` AS
+                        ;; GIVEN — redaction happens in the handler, where the
+                        ;; args are — and `put-back` is applied to the model's
+                        ;; object BEFORE it is validated. Before, because the
+                        ;; schema is the CALLER's and describes real values: a
+                        ;; `pattern` or a `maxLength` on a name would refuse
+                        ;; `<PERSON_1>`, and the refusal would quote the token.
+                        #:put-back [put-back #f])
   (unless (hash? schema) (error 'doc_extract_fields "schema must be a JSON object"))
   (when (string=? (string-trim text) "")
     (error 'doc_extract_fields "nothing to extract from — the document has no text"))
   (define prompt (jsexpr->string (hasheq 'schema schema 'document text)))
   (define-values (reply tokens) (chat prompt #:system EXTRACT-SYSTEM))
-  (define j (outer-json (format "~a" reply)))
-  (unless (hash? j)
+  (define j0 (outer-json (format "~a" reply)))
+  (unless (hash? j0)
     (error 'doc_extract_fields "extraction refused: the model did not return a JSON object"))
+  (define-values (j unknown) (if put-back (put-back j0) (values j0 '())))
   (define problems (validate-json schema j))
   (unless (null? problems)
     (error 'doc_extract_fields "extraction refused: ~a" (string-join problems "; ")))
-  (values j tokens))
+  (values j tokens unknown))
 
 (define (doc-extract-fields conn p args)
   (require-perm conn p "chat:use")
   (define schema (hash-ref args 'schema #f))
-  (define-values (fields tokens)
+  (define-values (sent put-back red) (apply-redaction 'doc_extract_fields args (arg args 'text)))
+  (define-values (fields tokens unknown)
     (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
-      (extract-fields (arg args 'text) schema)))
+      (extract-fields sent schema #:put-back put-back)))
   (meter! conn p tokens)
   (define src (let ([id (opt-arg args 'object)]) (and id (doc-ref conn p id))))
   (cond
     [src
+     ;; `<key>.extracted.json` stays the FIELDS and nothing else: a downstream
+     ;; `doc_render` binds it whole (`(out fields result fields)`), so a
+     ;; provenance block inside it would arrive in somebody's filled form. The
+     ;; redaction block rides on the tool RESULT, which is where a workflow reads
+     ;; provenance from already.
      (define o (derive! conn p src
                         #:key (string-append (hash-ref src 'key) ".extracted.json")
                         #:bytes (jsexpr->bytes fields) #:content-type "application/json"
                         #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
-     (hash-set* (obj-summary o #:summary (format "~a extracted field(s)" (hash-count fields))) 'fields fields 'tokens_used tokens)]
-    [else (hasheq 'fields fields 'tokens_used tokens)]))
+     (hash-set* (obj-summary o #:summary (format "~a extracted field(s)" (hash-count fields)))
+                'fields fields 'tokens_used tokens
+                'redaction (redaction-info red unknown))]
+    [else (hasheq 'fields fields 'tokens_used tokens
+                  'redaction (redaction-info red unknown))]))
+
+;; The three `redact*` ARGUMENT DECLARATIONS are repeated in each of the three
+;; tools below, and that is the DSL's doing rather than a choice: `define-tool`
+;; reads its parameter specs as literals to build a JSON schema, so a macro cannot
+;; splice them in. The LOGIC is shared — `apply-redaction` in redact.rkt, which
+;; the chat endpoint calls too — and that is the half that can go wrong.
 
 ;; ---- doc_classify ----------------------------------------------------------------
 ;; Issue #87 slice 1. The rules, the label set and the model's refusals live in
@@ -245,6 +275,12 @@
          #:optional
          #:description "Deterministic rules, tried in order; the first that matches decides. Phrases, not regular expressions, and a rule needs at least one condition")
   (backends array #:items string #:optional #:description "Backend order: \"rules\", \"llm\" (default: rules then llm)")
+  (redact boolean #:optional
+          #:description "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored")
+  (redact_detectors array #:items string #:optional
+                    #:description "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)")
+  (redact_terms array #:items string #:optional
+                #:description "Literal names or phrases for the dictionary detector — not patterns")
   (run string #:optional #:description "The workflow run id, for provenance")
   (step string #:optional #:description "The workflow step id, for provenance"))
 
@@ -329,11 +365,31 @@
   (unless src (error 'doc_classify "no such document: ~a" id))
   (define key (hash-ref src 'key))
   (define full (or (opt-arg args 'text) (best-effort-text conn p src)))
-  (define text (if (> (string-length full) CLASSIFY-CAP) (substring full 0 CLASSIFY-CAP) full))
-  (define-values (result tokens)
+  (define capped (if (> (string-length full) CLASSIFY-CAP) (substring full 0 CLASSIFY-CAP) full))
+  ;; THE RULES RUN ON THE REAL TEXT AND THE MODEL SEES THE REDACTED TEXT, which is
+  ;; the one place requirement 2 cannot simply swap the input. A rule is
+  ;; deterministic, local and never leaves the process, so running it on tokens
+  ;; buys nothing and costs correctness: `any: ["Dear"]` still works, but a rule
+  ;; keyed on an account-number prefix matches `<ID_1>` and nothing else. The
+  ;; model is the thing redaction is for.
+  (define-values (sent put-back red)
+    (if (member "llm" backends)
+        (apply-redaction 'doc_classify args capped)
+        ;; no model in the chain, so there is nothing to redact FROM — and
+        ;; reporting `applied: true` for a classification no model ever saw would
+        ;; be a record that claims a protection it did not need
+        (values capped (lambda (j) (values j '())) #f)))
+  (define-values (result tokens unknown)
     (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
-      (classify labels #:text text #:content-type (hash-ref src 'content_type) #:key key
-                #:rules rules #:backends backends #:chat (current-doc-chat))))
+      (define-values (r t)
+        (classify labels #:text capped #:content-type (hash-ref src 'content_type) #:key key
+                  #:rules rules #:backends backends
+                  #:llm-text sent
+                  #:chat (current-doc-chat)))
+      ;; only the RATIONALE can carry a token: the label is held to the set by an
+      ;; `enum` (CLS-5), so a token there is refused before it reaches this
+      (define-values (why us) (put-back (hash-ref r 'rationale "")))
+      (values (hash-set r 'rationale why) t us)))
   ;; a rules answer spent nothing, so it bills nothing — `meter!` would record a
   ;; model request that never happened
   (when (> tokens 0) (meter! conn p tokens))
@@ -341,8 +397,11 @@
                           #:who 'doc_classify
                           #:extra (hasheq 'labels (label-names labels)
                                           'backends backends
-                                          'text_chars (string-length text)
-                                          'truncated (> (string-length full) CLASSIFY-CAP))
+                                          'text_chars (string-length capped)
+                                          'truncated (> (string-length full) CLASSIFY-CAP)
+                                          ;; requirement 2: the record says redaction was applied
+                                          ;; and which detectors ran
+                                          'redaction (redaction-info red unknown))
                           #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
   (hash-set* (obj-summary o #:summary (format "~a (~a, confidence ~a)"
                                               (hash-ref result 'label) (hash-ref result 'source)
@@ -351,6 +410,7 @@
              'confidence (hash-ref result 'confidence)
              'source (hash-ref result 'source)
              'rationale (hash-ref result 'rationale "")
+             'redaction (redaction-info red unknown)
              'tokens_used tokens))
 
 ;; ---- doc_list_unclassified: the backfill's input (issue #87 req 5, CLS-24…28) ----
@@ -953,7 +1013,13 @@
   #:description "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt)."
   (object string #:description "The document's object id")
   (locale string #:description "Target language code, e.g. ja, nl, es-419")
-  (run string #:optional #:description "The workflow run id, for provenance")
+    (redact boolean #:optional
+          #:description "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored")
+  (redact_detectors array #:items string #:optional
+                    #:description "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)")
+  (redact_terms array #:items string #:optional
+                #:description "Literal names or phrases for the dictionary detector — not patterns")
+(run string #:optional #:description "The workflow run id, for provenance")
   (step string #:optional #:description "The workflow step id, for provenance"))
 
 ;; one model call per document; a 200k-character extraction would not fit any local
@@ -981,11 +1047,18 @@
     (error 'doc_translate "~a is too long to translate in one call (~a characters, cap ~a)"
            (hash-ref src 'key) (string-length text) TRANSLATE-CAP))
   (define chat (current-doc-chat))
+  (define-values (sent put-back red) (apply-redaction 'doc_translate args text))
   (define-values (tr tokens)
     (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
-      (translate! conn p #:text text #:target-lang locale
+      (translate! conn p #:text sent #:target-lang locale
                   #:chat (lambda (t sys) (chat t #:system sys)))))
   (meter! conn p tokens)
+  ;; `translations.source_text` and `.result_text` therefore hold the REDACTED
+  ;; pair when redaction was asked for — that row is what crossed the wire, which
+  ;; is strictly less content at rest than before and is the honest record of the
+  ;; request. The DOCUMENT below is the rehydrated translation, which is what a
+  ;; reader wants; the two deliberately differ, and the tool result says so.
+  (define-values (translated unknown) (put-back (hash-ref tr 'result)))
   (define key (hash-ref src 'key))
   (define-values (out-key out-ct)
     (if (text-type? ct)
@@ -993,9 +1066,12 @@
                 ct)
         (values (string-append (strip-ext key) "." locale ".txt") "text/plain")))
   (define o (derive! conn p src #:key out-key
-                     #:bytes (string->bytes/utf-8 (hash-ref tr 'result)) #:content-type out-ct
+                     #:bytes (string->bytes/utf-8 translated) #:content-type out-ct
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
-  (hash-set* (obj-summary o #:summary (string-append "translated into " locale)) 'locale locale 'tokens_used tokens))
+  (hash-set* (obj-summary o #:summary (string-append "translated into " locale))
+             'locale locale
+             'redaction (redaction-info red unknown)
+             'tokens_used tokens))
 
 ;; ---- doc_set_type ----------------------------------------------------------------
 ;; Issue #87 slice 2, the other half of the review hook (req 4). A `review` step

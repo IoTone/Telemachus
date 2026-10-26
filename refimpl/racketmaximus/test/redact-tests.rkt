@@ -356,6 +356,268 @@
                         'result))
   (check-false (string-contains? (jsexpr->string out) "Arun Patel")))
 
+;; ---- requirement 2: the step that redacts before it asks ---------------------------
+(test-case "RED-10: rehydration is ONE pass, so <PERSON_1> does not corrupt <PERSON_11>"
+  ;; The obvious implementation walks the map calling `string-replace` per pair,
+  ;; and it is wrong as soon as a document has ten of anything: replacing
+  ;; `<PERSON_1>` first rewrites the first eight characters of `<PERSON_11>`.
+  (define m (for/list ([i (in-range 1 13)])
+              (cons (format "<PERSON_~a>" i) (format "Person~a" i))))
+  (define-values (out unknown)
+    (rehydrate-string "<PERSON_11> wrote to <PERSON_1> about <PERSON_2>." m))
+  (check-equal? out "Person11 wrote to Person1 about Person2.")
+  (check-equal? unknown '())
+  ;; and a VALUE that is itself token-shaped is not rewritten by a later pass —
+  ;; the single pass cannot revisit what it has already emitted
+  (define-values (out2 _u2)
+    (rehydrate-string "<ID_1> and <ID_2>" (list (cons "<ID_1>" "<ID_2>") (cons "<ID_2>" "real"))))
+  (check-equal? out2 "<ID_2> and real"))
+
+(test-case "RED-11: a token the model invented is left verbatim and REPORTED"
+  ;; Guessing the nearest token would put a real person's name in an answer about
+  ;; somebody never mentioned; failing the step would throw away a whole
+  ;; extraction over one hallucinated string in a rationale. Left as it is, it is
+  ;; visibly wrong to the person reading the field.
+  (define m (list (cons "<PERSON_1>" "Arun Patel")))
+  (define-values (out unknown)
+    (rehydrate-string "<PERSON_1> and <PERSON_7> and <PERSON_7> again" m))
+  (check-equal? out "Arun Patel and <PERSON_7> and <PERSON_7> again")
+  (check-equal? unknown '("<PERSON_7>") "reported once, not once per occurrence"))
+
+(test-case "rehydration walks a whole jsexpr: every string VALUE, recursively"
+  (define m (list (cons "<PERSON_1>" "Arun Patel") (cons "<ID_1>" "44719823")))
+  (define-values (out unknown)
+    (rehydrate (hasheq 'vendor "<PERSON_1>"
+                       'total 1250.5
+                       'items (list (hasheq 'ref "<ID_1>") (hasheq 'ref "<ID_9>"))
+                       'note 'null)
+               m))
+  (check-equal? (hash-ref out 'vendor) "Arun Patel")
+  (check-equal? (hash-ref out 'total) 1250.5 "a number is untouched")
+  (check-equal? (hash-ref out 'note) 'null "and so is null")
+  (check-equal? (hash-ref (second (hash-ref out 'items)) 'ref) "<ID_9>")
+  (check-equal? unknown '("<ID_9>")))
+
+(test-case "ACCEPTANCE (#91): the stub receives only tokens, the stored extraction has the values"
+  ;; The issue's own acceptance criterion, word for word: "A fixture letter with
+  ;; names, a phone number and a date of birth is sent to a stub executor; the
+  ;; stub receives only tokens, and the stored extraction contains the real
+  ;; values."
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define o (up! conn alice "in/letter.txt" LETTER))
+  (define seen (box #f))
+  ;; the stub answers with the TOKENS it was shown, which is what a model
+  ;; reasoning over redacted text would do
+  (define stub
+    (lambda (prompt #:system [sys #f])
+      (set-box! seen prompt)
+      (values (jsexpr->string (hasheq 'who "<PERSON_2>" 'phone "<PHONE_1>" 'dob "<DATE_2>")) 9)))
+  (define schema
+    (hasheq 'type "object" 'required '("who" "phone" "dob")
+            'properties (hasheq 'who (hasheq 'type "string")
+                                'phone (hasheq 'type "string")
+                                'dob (hasheq 'type "string"))))
+  (define r
+    (parameterize ([current-doc-chat stub])
+      ((tool-handler (tool-by-name "doc_extract_fields")) conn alice
+       (hasheq 'text LETTER 'schema schema 'object (hash-ref o 'id)
+               'redact #t 'redact_detectors DETECTORS
+               'redact_terms '("Patel" "Arun Patel")))))
+
+  ;; 1. THE STUB RECEIVED ONLY TOKENS
+  (define sent (unbox seen))
+  (check-true (string-contains? sent "<PERSON_1>") "the prompt was built from redacted text")
+  (for ([v (in-list '("Patel" "arun.patel@example.com" "+44 20 7946 0958" "44719823" "3 April 1981"))])
+    (check-false (string-contains? sent v) (format "~a reached the model" v)))
+
+  ;; 2. THE STORED EXTRACTION CONTAINS THE REAL VALUES
+  (define fields (hash-ref r 'fields))
+  (check-equal? (hash-ref fields 'who) "Arun Patel")
+  (check-equal? (hash-ref fields 'phone) "+44 20 7946 0958")
+  (check-equal? (hash-ref fields 'dob) "3 April 1981")
+  ;; …and so does the DOCUMENT, which is what a later step binds
+  (define-values (_m port) (repo-open conn alice
+                                      (hash-ref (repo-get conn alice "in/letter.txt.extracted.json"
+                                                          #:by-key tid)
+                                                'id)))
+  (define stored (string->jsexpr (port->string port)))
+  (check-equal? (hash-ref stored 'who) "Arun Patel")
+  (check-false (string-contains? (jsexpr->string stored) "<PERSON_")
+               "no token survives into the stored fields")
+
+  ;; 3. the record says redaction was applied and which detectors ran (req 2)
+  (define red (hash-ref r 'redaction))
+  (check-true (hash-ref red 'applied))
+  (check-equal? (hash-ref red 'detectors) DETECTORS)
+  (check-equal? (hash-ref (hash-ref red 'counts) 'phone) 1)
+  (check-false (hash-has-key? red 'unknown_tokens) "the model answered with nothing invented")
+
+  ;; 4. RED-12: AND NO MAP WAS PERSISTED. The step redacts and rehydrates within
+  ;; one call, so a stored map would be a concordance of identifiers kept for no
+  ;; reader at all — where `doc_redact` stores one because its output is a
+  ;; document something later may rehydrate against.
+  (check-equal? (query-value conn "SELECT COUNT(*) FROM repo_redactions") 0))
+
+(test-case "req 2: redaction is OFF unless asked, and then the record says so"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define seen (box #f))
+  (define stub (lambda (prompt #:system [sys #f])
+                 (set-box! seen prompt)
+                 (values (jsexpr->string (hasheq 'who "Arun Patel")) 4)))
+  (define schema (hasheq 'type "object" 'required '("who")
+                         'properties (hasheq 'who (hasheq 'type "string"))))
+  (define r (parameterize ([current-doc-chat stub])
+              ((tool-handler (tool-by-name "doc_extract_fields")) conn alice
+               (hasheq 'text LETTER 'schema schema))))
+  (check-true (string-contains? (unbox seen) "Arun Patel")
+              "without `redact` the prompt is the text as given — nothing changed for anybody")
+  (check-false (hash-ref (hash-ref r 'redaction) 'applied)))
+
+(test-case "req 2: doc_classify redacts for the MODEL and matches rules on the real text"
+  ;; The one place requirement 2 cannot simply swap the input. A rule is
+  ;; deterministic, local and never leaves the process, so matching it on tokens
+  ;; buys nothing and costs correctness — here the rule keys on a phrase that
+  ;; survives redaction, and the model gets the redacted text.
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define o (up! conn alice "in/letter.txt" LETTER))
+  (define seen (box #f))
+  (define stub (lambda (prompt #:system [sys #f])
+                 (set-box! seen prompt)
+                 ;; `<EMAIL_1>` was minted here; `<PERSON_3>` was not — the
+                 ;; detectors asked for are email and phone — so the pair tests
+                 ;; both halves of RED-11 in one answer
+                 (values (jsexpr->string (hasheq 'label "letter" 'confidence 0.7
+                                                 'rationale "addressed to <EMAIL_1>, cc <PERSON_3>"))
+                         6)))
+  (define LBL (list (hasheq 'name "letter") (hasheq 'name "invoice")))
+  (define r (parameterize ([current-doc-chat stub])
+              ((tool-handler (tool-by-name "doc_classify")) conn alice
+               (hasheq 'object (hash-ref o 'id) 'labels LBL 'backends '("llm")
+                       'redact #t 'redact_detectors '("email" "phone")))))
+  (check-equal? (hash-ref r 'label) "letter")
+  (check-false (string-contains? (unbox seen) "arun.patel@example.com") "the model saw tokens")
+  ;; the RATIONALE is the only part of a classification that can carry one, and it
+  ;; is put back — the label is held to the set by an enum, so a token there is
+  ;; refused before it ever reaches the rehydration
+  (check-equal? (hash-ref r 'rationale)
+                "addressed to arun.patel@example.com, cc <PERSON_3>")
+  (check-true (hash-ref (hash-ref r 'redaction) 'applied))
+  ;; the invented one is REPORTED rather than guessed at or swallowed
+  (check-equal? (hash-ref (hash-ref r 'redaction) 'unknown_tokens) '("<PERSON_3>"))
+
+  ;; …and with a RULES-only chain nothing is redacted, because no model saw it:
+  ;; reporting `applied: true` there would claim a protection that was not needed
+  (define r2 (parameterize ([current-doc-chat (lambda (p #:system [s #f]) (error 'test "asked"))])
+               ((tool-handler (tool-by-name "doc_classify")) conn alice
+                (hasheq 'object (hash-ref o 'id) 'labels LBL 'backends '("rules")
+                        'rules (list (hasheq 'label "letter" 'any '("Dear")))
+                        'redact #t))))
+  (check-equal? (hash-ref r2 'label) "letter")
+  (check-false (hash-ref (hash-ref r2 'redaction) 'applied)))
+
+(test-case "req 2: a RULE still matches what redaction would have destroyed"
+  ;; The sharp version of the rule/model split, and the positive control is what
+  ;; asked for it: with the rules matched on the redacted text instead, this case
+  ;; passed either way. The rule here keys on the claim number — which the
+  ;; `id_number` detector replaces — so matching it on tokens finds nothing and
+  ;; the chain falls through to a model that must never be reached.
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define o (up! conn alice "in/letter.txt" LETTER))
+  (define LBL (list (hasheq 'name "claim") (hasheq 'name "letter")))
+  (define r (parameterize ([current-doc-chat
+                            (lambda (p #:system [s #f])
+                              (error 'test "the model was asked, so the rule did not match"))])
+              ((tool-handler (tool-by-name "doc_classify")) conn alice
+               (hasheq 'object (hash-ref o 'id) 'labels LBL
+                       'backends '("rules" "llm")
+                       'rules (list (hasheq 'label "claim" 'any '("44719823")))
+                       'redact #t 'redact_detectors DETECTORS
+                       'redact_terms '("Patel")))))
+  (check-equal? (hash-ref r 'label) "claim"
+                "the rule saw the real text, as it must — it is local and never leaves the process")
+  (check-equal? (hash-ref r 'source) "rules"))
+
+(test-case "req 2: the values go back BEFORE the schema is applied"
+  ;; The schema is the CALLER's and describes real values, so validating the
+  ;; model's token-bearing object against it would refuse the extraction and the
+  ;; refusal would quote the token. This case is also what the control asked for:
+  ;; with the two swapped, nothing else in the file noticed.
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  ;; `+44 20 7946 0958` satisfies this; `<PHONE_1>` cannot
+  (define schema
+    (hasheq 'type "object" 'required '("phone")
+            'properties (hasheq 'phone (hasheq 'type "string" 'pattern "^[+][0-9 ]+$"))))
+  (define r (parameterize ([current-doc-chat
+                            (lambda (p #:system [s #f])
+                              (values (jsexpr->string (hasheq 'phone "<PHONE_1>")) 3))])
+              ((tool-handler (tool-by-name "doc_extract_fields")) conn alice
+               ;; a one-line `text` rather than the whole letter, so this case is
+               ;; about the ORDER and nothing else: with `phone` as the only
+               ;; detector the letter's ISO date is also a phone match (RED-3 is
+               ;; what settles that when `date` is asked for too), so `<PHONE_1>`
+               ;; there is `2026-10-14` and the case would fail for an unrelated
+               ;; and much more interesting reason.
+               (hasheq 'text "ring +44 20 7946 0958 today" 'schema schema 'redact #t
+                       'redact_detectors '("phone")))))
+  (check-equal? (hash-ref (hash-ref r 'fields) 'phone) "+44 20 7946 0958"))
+
+(test-case "req 2: doc_translate rehydrates the DOCUMENT and leaves the row redacted"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define o (up! conn alice "in/letter.txt" LETTER))
+  (define seen (box #f))
+  (define stub (lambda (prompt #:system [sys #f])
+                 (set-box! seen prompt)
+                 (values (string-append "[ja] " prompt) 12)))
+  (define r (parameterize ([current-doc-chat stub])
+              ((tool-handler (tool-by-name "doc_translate")) conn alice
+               (hasheq 'object (hash-ref o 'id) 'locale "ja"
+                       'redact #t 'redact_detectors DETECTORS
+                       'redact_terms '("Arun Patel")))))
+  (check-false (string-contains? (unbox seen) "arun.patel@example.com") "the model saw tokens")
+  ;; the DOCUMENT is the rehydrated translation, which is what a reader wants
+  (define-values (_m port) (repo-open conn alice (hash-ref r 'object_id)))
+  (define text (port->string port))
+  (check-true (string-contains? text "arun.patel@example.com"))
+  (check-false (string-contains? text "<EMAIL_1>"))
+  ;; while `translations.source_text` holds what CROSSED THE WIRE — strictly less
+  ;; content at rest than before, and the honest record of the request
+  (define stored (query-value conn "SELECT source_text FROM translations LIMIT 1"))
+  (check-true (string-contains? stored "<EMAIL_1>"))
+  (check-false (string-contains? stored "arun.patel@example.com")))
+
+(test-case "req 2: the refusals, and that redaction never silently does nothing"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define schema (hasheq 'type "object" 'properties (hasheq 'a (hasheq 'type "string"))))
+  (define stub (lambda (p #:system [s #f]) (values "{}" 1)))
+  (define (extract! args)
+    (parameterize ([current-doc-chat stub])
+      ((tool-handler (tool-by-name "doc_extract_fields")) conn alice
+       (hash-set* args 'schema schema))))
+  ;; an invented detector
+  (check-exn #rx"unknown detector 'ssn'"
+             (lambda () (extract! (hasheq 'text "hi" 'redact #t 'redact_detectors '("ssn")))))
+  ;; the dictionary with no terms
+  (check-exn #rx"would redact nothing"
+             (lambda () (extract! (hasheq 'text "hi" 'redact #t 'redact_detectors '("dictionary")))))
+  ;; RED-4, and here it matters MORE than for doc_redact: a token the text already
+  ;; held would be put back as somebody's name, into a field stored as data
+  (check-exn #rx"already contains something shaped like a redaction token"
+             (lambda () (extract! (hasheq 'text "see <PERSON_1>" 'redact #t)))))
+
 ;; ---- 3. the requirement, through the real engine ------------------------------------
 (test-case "requirement 1, end to end: the document a model would be shown"
   (define conn (fresh))

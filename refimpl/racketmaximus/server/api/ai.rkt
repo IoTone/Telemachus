@@ -17,6 +17,8 @@
          ep-executor-rotate-token ep-worker-token-get ep-worker-token-rotate)
 
 (require db-kit/portable
+         ;; #91 req 2: the four askers' shared redact/rehydrate plumbing
+         (only-in "../../domain/repo/redact.rkt" redact-on? apply-redaction redaction-info)
          json
          web-kit
          (only-in "../../domain/authz/authz.rkt" audit! can? hash-token principal-is-operator principal-team-id principal-user-id require-perm)
@@ -403,12 +405,27 @@
     (define ex (pick-executor b))
     (when ex (require-perm db-conn p "instance:manage"))          ; routing to specific compute = operator
     (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
+    ;; #91 requirement 2. RED-13: REDACTION TAKES A STRING PROMPT AND REFUSES
+    ;; CONTENT PARTS, and that is a refusal rather than a gap — a parts prompt may
+    ;; carry an IMAGE, and none of these detectors can read one, so redacting the
+    ;; text while sending a picture of the same letter untouched would be a
+    ;; redaction that claimed more than it did. The caller is told instead.
+    (define parts? (not (string? prompt)))
+    (define-values (sent put-back red)
+      (if (and (redact-on? b) (not parts?))
+          (apply-redaction 'chat b prompt)
+          (values prompt (lambda (j) (values j '())) #f)))
     (define est (estimate-tokens prompt-text))
     (define sid (principal-team-id p))
     (define rq (tenant-quota-check db-conn p "ai.requests" 1))
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
       [(content-problem prompt) => (lambda (bad) (err bad 400))]
+      [(and (redact-on? b) parts?)
+       (err (string-append "redact is for a string prompt: a content-parts prompt may carry an image, "
+                           "and no detector here can read one — redacting the text beside it would "
+                           "claim more than it did")
+            400)]
       [(and rf (response-format-problem rf)) => (lambda (bad) (err bad 400))]
       [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
@@ -419,7 +436,11 @@
          (lambda (inflight)
            ;; run-chat refuses a reply that does not honour the format, so a
            ;; 200 here means the schema held; `parsed` is that reply as JSON.
-           (define-values (reply tokens) (run-chat prompt #:executor ex #:response-format rf))
+           (define-values (reply0 tokens) (run-chat sent #:executor ex #:response-format rf))
+           ;; the values go back into the REPLY and then into `parsed`, before
+           ;; either reaches the caller: `response-format-parse` reads the
+           ;; rehydrated text, so a schema'd answer carries real values too
+           (define-values (reply unknown) (put-back (format "~a" reply0)))
            (tenant-quota-record! db-conn p "ai.requests" 1)
            (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
            (define after (quota-check db-conn "team" sid "ai.tokens.total" 0))
@@ -438,7 +459,8 @@
                                 'executor (or ex "local")
                                 'concurrent inflight
                                 'remaining_tokens (hash-ref after 'remaining)))
-           (json-response (if (chat-simulated? ex) (hash-set base 'simulated #t) base))))]))))
+           (define with-red (if red (hash-set base 'redaction (redaction-info red unknown)) base))
+           (json-response (if (chat-simulated? ex) (hash-set with-red 'simulated #t) with-red))))]))))
 
 (define (ep-ai-model req)
   (with-auth req (lambda (p) (json-response (model-info)))))
@@ -460,6 +482,19 @@
     (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
     (cond
       [(content-problem prompt) => (lambda (bad) (err bad 400))]
+      ;; RED-14: THE STREAM DOES NOT REDACT, AND IT SAYS SO RATHER THAN IGNORING
+      ;; THE FIELD. A token can be split across two SSE events — `<PERSON` in one
+      ;; and `_1>` in the next — so putting the values back would mean buffering
+      ;; the whole answer before emitting any of it, which is the one thing a
+      ;; stream exists not to do. Half-rehydrated text reaching a reader is worse
+      ;; than a refusal: they would see somebody's name next to a token and have
+      ;; no way to tell which parts were put back. A caller who needs both uses
+      ;; the non-streaming endpoint.
+      [(redact-on? b)
+       (err (string-append "redact is not available on the streaming endpoint: a token can be split "
+                           "across two events, so putting values back would mean buffering the whole "
+                           "answer — use POST /api/ai/chat")
+            400)]
       [(and rf (response-format-problem rf)) => (lambda (bad) (err bad 400))]
       [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]

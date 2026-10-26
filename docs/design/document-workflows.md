@@ -303,13 +303,33 @@ over the set, which an engine with no reduce step kind cannot put back together.
 find the identifiers  ->  replace them with tokens  ->  a document you can read
 ```
 
-**It is deliberately not yet a step inside the pipelines above.** That is #91's
-requirement 2, where `doc_extract_fields`, `doc_classify` and `doc_translate` gain
-`redact: true`, build their prompts from the redacted text and put the values back
-before anything is stored — and adding an input to a published spec is a breaking
-change, so those are left alone until the slice that earns it. What this already
-gives an operator is the thing they ask for first: show me what you WOULD have
-sent.
+What this gives an operator is the thing they ask for first: show me what you
+WOULD have sent.
+
+**Requirement 2 is the half a pipeline needs**, and it is built (RED‑10…14):
+`doc_extract_fields`, `doc_classify`, `doc_translate` and `POST /api/ai/chat`
+take **`redact`** (with `redact_detectors` and `redact_terms`), build their
+request from the redacted text, and **put the values back before anything is
+stored**. The tool result and the derived record say that redaction was applied
+and which detectors ran.
+
+- **The map is not persisted** when redaction is internal to a step: it redacts
+  and rehydrates within one call, so a stored map would be a concordance of
+  identifiers kept for no reader at all. `doc_redact` stores one because its
+  output is a document something later may rehydrate against.
+- **A token the model invented is left verbatim and reported**, never guessed at
+  — guessing would put a real name into an answer about somebody never mentioned.
+- **`doc_classify` redacts for the MODEL and matches its rules on the real
+  text.** A rule is deterministic, local and never leaves the process, so
+  matching it on tokens buys nothing and costs correctness.
+- **The streaming chat endpoint refuses `redact`** rather than ignoring it: a
+  token can be split across two SSE events, so putting values back would mean
+  buffering the whole answer.
+
+**The four published pipelines are still untouched.** `redact` is a tool
+argument, so a workflow binds it as a literal — adding an input to a published
+spec is a breaking change for every caller of it, and `test/doc-pipeline-smoke.sh`
+publishes a spec of its own to exercise it, as it does for `pdf-form`.
 
 ```racket
 (define-workflow process-upload

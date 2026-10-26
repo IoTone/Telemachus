@@ -33,7 +33,11 @@
 
 (provide DETECTORS TOKEN-CLASSES MAX-TERMS MAX-TERM-LENGTH
          detectors-problem terms-problem token-shaped?
-         redact redaction-counts)
+         redact redaction-counts
+         ;; issue #91 requirement 2: the four askers' shared plumbing, and
+         ;; putting the values back
+         rehydrate-string rehydrate
+         redact-on? apply-redaction redaction-info)
 
 ;; ---- the vocabulary ------------------------------------------------------------------
 ;; CLOSED, in the sense `EXTRACT-REASONS` and `REVIEW-VERDICTS` are closed: a
@@ -228,3 +232,124 @@
 (define (redaction-counts detectors counts)
   (for/hasheq ([d (in-list detectors)])
     (values (string->symbol d) (hash-ref counts d 0))))
+
+;; ---- requirement 2: putting the values back -------------------------------------------
+;; A step that builds its prompt from redacted text gets a redacted ANSWER, and
+;; what is stored has to be the real one. This is the other half of `redact`, and
+;; it is pure for the same reason.
+;;
+;; RED-10: ONE REGEXP PASS WITH A LOOKUP, NEVER A REPLACEMENT PER TOKEN. The
+;; obvious implementation walks the map calling `string-replace` for each pair,
+;; and it is WRONG as soon as a document has ten of anything: replacing
+;; `<PERSON_1>` first rewrites the first eight characters of `<PERSON_11>` and
+;; leaves `<a name>1>` behind. Sorting the map longest-token-first would fix that
+;; particular collision and still leaves the general hazard — a value that itself
+;; contains a token-shaped string would be rewritten by a later pass. One pass
+;; over the token pattern, deciding each match by lookup, cannot do either.
+;;
+;; RED-11: A TOKEN THE MODEL INVENTED IS LEFT VERBATIM AND REPORTED. `<PERSON_7>`
+;; where only three people were replaced maps to nobody, and the two things this
+;; could do instead are both worse: guessing the nearest token would put a real
+;; person's name in an answer about somebody who was never mentioned, and failing
+;; the step would throw away a whole extraction over one hallucinated string in a
+;; rationale. Left as it is, it is VISIBLY wrong to the person reading the stored
+;; field — a token nobody can resolve looks like what it is — and the count comes
+;; back so a caller can refuse it if they would rather.
+(define (rehydrate-string s m)
+  (define unknown '())
+  (define out
+    (regexp-replace* TOKEN-RX s
+                     (lambda (tok)
+                       (cond
+                         [(assoc tok m) => cdr]
+                         [else (unless (member tok unknown) (set! unknown (cons tok unknown)))
+                               tok]))))
+  (values out (reverse unknown)))
+
+;; Over a whole jsexpr: every STRING VALUE, recursively. Hash KEYS are left
+;; alone — for an extraction they come from the caller's own schema, so a token
+;; appearing as a key would be the model inventing a field name, which the
+;; validator refuses one layer up.
+;; -> (values rehydrated unknown-tokens)
+(define (rehydrate j m)
+  (define unknown '())
+  (define (note! us) (for ([u (in-list us)]) (unless (member u unknown) (set! unknown (cons u unknown)))))
+  (define (walk v)
+    (cond
+      [(string? v) (define-values (s us) (rehydrate-string v m)) (note! us) s]
+      [(list? v) (for/list ([x (in-list v)]) (walk x))]
+      [(hash? v) (for/hasheq ([(k x) (in-hash v)]) (values k (walk x)))]
+      [else v]))
+  (define out (walk j))
+  (values out (reverse unknown)))
+
+;; ---- requirement 2: a step that redacts before it asks ---------------------------
+;; `doc_extract_fields`, `doc_classify`, `doc_translate` and `POST /api/ai/chat`
+;; take `redact`, build their request from the redacted text, and put the values
+;; BACK before anything is stored. ONE helper for all four, because four copies of
+;; "redact, call, rehydrate" is four chances to forget the rehydrate — and a
+;; forgotten rehydrate is a stored extraction full of tokens, which reads as a
+;; broken model rather than a missing step.
+;;
+;; It lives HERE rather than in doc-tools.rkt because the chat endpoint is one of
+;; the four askers and `server/api/ai.rkt` has no business requiring a module
+;; whose job is registering tools.
+;;
+;; RED-12: THE MAP IS NOT PERSISTED HERE, AND THAT IS THE POINT OF DOING IT
+;; INSIDE THE STEP. `doc_redact` (requirement 1) stores its map because its
+;; output is a redacted DOCUMENT that something later may have to rehydrate
+;; against. An internal redaction redacts and rehydrates within one tool call, so
+;; a stored map would be a concordance of identifiers kept for no reader at all —
+;; and that column is the most sensitive thing in the schema. The record notes
+;; that redaction was APPLIED and which detectors ran, which is what requirement 2
+;; asks for; the values were never written down.
+;;
+;; The three arguments are prefixed `redact*` so they cannot collide with a tool's
+;; own vocabulary — `doc_classify` already has `rules` and `labels`, and a bare
+;; `terms` beside them would read as part of the classification.
+(define (redact-on? args)
+  (define v (hash-ref args 'redact #f))
+  (and v (not (eq? v 'null)) (not (equal? v "false")) #t))
+
+;; -> (values text-to-send put-back info)
+;;    put-back : jsexpr -> (values jsexpr unknown-tokens)
+;;    info     : the record block, or #f when redaction was not asked for
+(define (apply-redaction who args text)
+  (cond
+    [(not (redact-on? args)) (values text (lambda (j) (values j '())) #f)]
+    [else
+     (define (refuse s) (raise-user-error who "~a" s))
+     (define detectors
+       (let ([d (hash-ref args 'redact_detectors #f)])
+         (if (or (not d) (eq? d 'null) (null? d)) (remove "dictionary" DETECTORS) d)))
+     (define terms
+       (let ([t (hash-ref args 'redact_terms '())]) (if (or (eq? t 'null) (not t)) '() t)))
+     (cond [(detectors-problem detectors) => refuse])
+     (cond [(terms-problem terms) => refuse])
+     (when (and (member "dictionary" detectors) (null? terms))
+       (refuse "the dictionary detector was asked for and no terms were given — it would redact nothing"))
+     ;; RED-4, and here it matters more than it does for `doc_redact`: a token the
+     ;; document already contained would be put BACK as somebody's name, into a
+     ;; field that is then stored as data.
+     (when (token-shaped? text)
+       (refuse (string-append
+                "this text already contains something shaped like a redaction token (<CLASS_n>), "
+                "so a token minted here could not be told from it — and putting values back would "
+                "write an identifier where the text never had one")))
+     (define-values (redacted m counts) (redact text #:detectors detectors #:terms terms))
+     (values redacted
+             (lambda (j) (rehydrate j m))
+             (hasheq 'applied #t
+                     'detectors detectors
+                     'counts (redaction-counts detectors counts)
+                     'replaced (length m)))]))
+
+;; The record block, with whatever the rehydration found. `unknown` is reported
+;; rather than swallowed (RED-11): a model that answered with tokens nobody minted
+;; is a thing the operator should see in the record beside the document.
+(define (redaction-info info unknown)
+  (cond
+    [(not info) (hasheq 'applied #f)]
+    [(null? unknown) info]
+    [else (hash-set info 'unknown_tokens unknown)]))
+

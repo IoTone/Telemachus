@@ -2559,6 +2559,77 @@ bash test/doc-pipeline-smoke.sh                            # the "== 5f." block,
   smokes already carry ("run them one at a time"), and it applies to the unit
   suite too.
 
+## A step that redacts before it asks (RED‑10…14, issue #91 req 2)
+
+Built 26 Oct 2026 — requirement 2. `doc_extract_fields`, `doc_classify`,
+`doc_translate` and `POST /api/ai/chat` take `redact`, build their request from
+the redacted text and put the values BACK before anything is stored. The
+plumbing is `apply-redaction` / `rehydrate` in `redact.rkt`, shared by all four.
+
+```sh
+raco test test/redact-tests.rkt   # 26 cases, eleven controls
+bash test/server-smoke.sh         # the chat `redact` block, 12 assertions
+bash test/doc-pipeline-smoke.sh   # the "== 5g." block, 12 assertions
+```
+
+- **THE ISSUE'S ACCEPTANCE CRITERION IS THE TEST**: a fixture letter goes to a
+  stub executor, the stub receives only tokens, and the stored extraction
+  contains the real values. Both halves asserted one value at a time, because
+  "the redaction worked" is exactly the claim a single grep makes vacuously.
+- **REHYDRATION IS ONE REGEXP PASS WITH A LOOKUP** (RED‑10), never a replacement
+  per map entry. The obvious implementation is wrong as soon as a document has
+  ten of anything: replacing `<PERSON_1>` first rewrites the first eight
+  characters of `<PERSON_11>`. Sorting longest-first fixes that collision and
+  leaves the general hazard — a VALUE containing a token-shaped string would be
+  rewritten by a later pass. One pass cannot do either.
+- **AN INVENTED TOKEN IS LEFT VERBATIM AND REPORTED** (RED‑11). Guessing the
+  nearest would put a real name into an answer about somebody never mentioned;
+  failing the step would throw away a whole extraction over one hallucinated
+  string in a rationale. Left alone it is VISIBLY wrong to whoever reads the
+  field, and `unknown_tokens` comes back.
+- **THE VALUES GO BACK BEFORE THE SCHEMA IS APPLIED.** The schema is the
+  CALLER's and describes real values, so a `pattern` on a telephone number would
+  refuse `<PHONE_1>` — and the refusal would quote the token. `extract-fields`
+  returns THREE values now (the third is the unknown list), which is a breaking
+  change to an internal export; two call sites needed a line.
+- **THE MAP IS NOT PERSISTED WHEN REDACTION IS INTERNAL** (RED‑12), and that is
+  the point of doing it inside the step. `doc_redact` stores one because its
+  output is a document something later may rehydrate against; a step redacts and
+  rehydrates in one call, so a stored map would be a concordance of identifiers
+  kept FOR NO READER. Asserted over `repo_redactions` in both suites.
+- **`doc_classify` REDACTS FOR THE MODEL AND MATCHES ITS RULES ON THE REAL
+  TEXT** — the one place requirement 2 cannot just swap the input. A rule is
+  deterministic, local and never leaves the process, so matching it on tokens
+  buys nothing and costs correctness. `classify` gained `#:llm-text`, defaulting
+  to `#:text`, so existing callers are unchanged. A **rules-only** chain redacts
+  nothing and reports `applied: false`: claiming otherwise would claim a
+  protection no model needed. Only the RATIONALE can carry a token back — the
+  label is held to the set by an `enum`, so a token there is refused earlier.
+- **`doc_translate`'s ROW AND ITS DOCUMENT DELIBERATELY DIFFER.**
+  `translations.source_text`/`.result_text` hold the REDACTED pair — what crossed
+  the wire, strictly less content at rest than before — while the derived
+  document is the rehydrated translation, which is what a reader wants.
+- **`redact` TAKES A STRING PROMPT AND REFUSES CONTENT PARTS** (RED‑13): a parts
+  prompt may carry an IMAGE no detector can read, so redacting the text beside it
+  would claim more than it did.
+- **THE STREAM REFUSES `redact` RATHER THAN IGNORING IT** (RED‑14). A token can
+  be split across two SSE events, so putting values back means buffering the
+  whole answer — the one thing a stream exists not to do. Half-rehydrated text is
+  worse than a refusal: a name beside a token, with no way to tell which parts
+  were put back.
+- **THE PUBLISHED PIPELINES ARE UNTOUCHED and the smoke publishes its own spec**
+  — `pdf-form`'s pattern, because adding an input to a published spec breaks
+  every caller. **A hand-written spec uses the WIRE grammar**
+  `${steps.<id>.output.*}`, not the macro's `(out text result)` sugar; the first
+  version wrote the sugar and the validator refused it while naming every form it
+  accepts.
+- **TWO OF ELEVEN CONTROLS DID NOT BITE, AND BOTH WERE REAL TEST GAPS.** Nothing
+  exercised a rule that depended on text redaction destroys, so matching rules on
+  the redacted text passed everything; and nothing exercised a schema a token
+  would fail, so swapping validate-and-rehydrate passed too. A third case then
+  found its own trap: with `phone` as the only detector the fixture's ISO date is
+  also a phone match, so `<PHONE_1>` there is `2026-10-14`.
+
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 
 Built 22 Oct 2026 — the last of #54's four deferred questions. Migration
