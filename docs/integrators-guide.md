@@ -171,7 +171,7 @@ plugins/acme/bundle/app.js       →  GET /api/x/acme/bundle/app.js
 (define routes
   (list (list "GET"  "/eta" "chat:use" eta-route "Estimated days for ?lane=.")
         (list "POST" "/eta" "chat:use" eta-route "Estimated days for {lane}.")))
-;; handler: (conn principal args) -> jsexpr,  args = {params, query, body}
+;; handler: (conn principal args) -> jsexpr or response,  args = {params, query, body, headers}
 ```
 
 Mounted at **`/api/x/<plugin-id>/<path>`** — the prefix is platform-fixed, so you can

@@ -34,6 +34,7 @@
          (only-in "../domain/beta/experience.rkt" experience-judge-system resolve-experience)
          (only-in "../domain/i18n/manager.rkt" draft-acceptable? l10n-message-ref l10n-submit!)
          (only-in net/url url-query)
+         (only-in "plugin-route.rkt" headers->hash plugin-route-response)
          (only-in "../domain/saas/onboarding.rkt" provision! resume! suspend!)
          (only-in "../domain/quota/quota.rkt" get-limit quota-record!)
          (only-in "../domain/sched/scheduler.rkt" current-job drain-scheduler! drain-seconds register-job-kind! set-reaper! start-scheduler!)
@@ -330,7 +331,9 @@
 ;; Built once from the loader's registry, AFTER plugins load (see main). Every one
 ;; is authenticated — with-auth, then the route's permission — and its handler is
 ;; the plugin's (conn principal args) -> jsexpr, where args carries the path
-;; params, the query and the JSON body. A user error is the caller's 400.
+;; params, the query, the JSON body and the request headers (read only). A user
+;; error is the caller's 400. A handler that returns a response keeps control of
+;; the status, the headers and the media type (server/plugin-route.rkt).
 (define PLUGIN-ROUTES (box '()))          ; (listof (cons rt handler-proc))
 (define (install-plugin-routes!)
   (set-box! PLUGIN-ROUTES
@@ -358,10 +361,9 @@
                     (hasheq 'params (for/hasheq ([n (in-list names)] [v (in-list vals)]) (values (string->symbol n) v))
                             'query (for/hasheq ([kv (in-list (url-query (request-uri req)))] #:when (cdr kv))
                                      (values (car kv) (cdr kv)))
-                            'body (read-json-body req)))
-                  (define result (handler db-conn p args))
-                  (json-response (if (or (hash? result) (list? result) (string? result) (number? result) (boolean? result))
-                                     result (hasheq 'result (format "~a" result))))))))))))
+                            'body (read-json-body req)
+                            'headers (headers->hash (request-headers/raw req))))
+                  (plugin-route-response (handler db-conn p args))))))))))
 
 ;; ---- the route table ENFORCES what it declares (#110 r2) -----------------------
 ;; `rt-auth`, `rt-perm` and `rt-feature` were documentation: `route` read
