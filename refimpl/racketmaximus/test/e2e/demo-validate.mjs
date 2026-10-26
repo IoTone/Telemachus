@@ -140,11 +140,11 @@ try {
   await page.waitForSelector('#lu', { timeout: 20000 });
   ok('sign-in form present', await page.locator('#lu').count() === 1);
   ok('Mentor mark rendered', await page.locator('h1.brand svg.tmx-mark').count() === 1);
-  ok('wordmark reads Telemachus', (await page.locator('h1.brand').innerText()).includes('Telemachus'));
-  eq('browser title is the brand', await page.title(), 'Telemachus');
+  ok('wordmark reads TMach', (await page.locator('h1.brand').innerText()).includes('TMach'));
+  eq('browser title is the brand', await page.title(), 'TMach');
   const brandApi = await apiCall(page, '/api/branding');
   ok('GET /api/branding is public (no token yet)', brandApi.ok, `status ${brandApi.status}`);
-  eq('default branding title', brandApi.json && brandApi.json.title, 'Telemachus');
+  eq('default branding title', brandApi.json && brandApi.json.title, 'TMach');
 
   // A repaint of the sign-in screen must not throw away what has been typed.
   // authView()'s inputs are always empty and switching language calls render(),
@@ -445,7 +445,7 @@ try {
   const back = await apiCall(page, '/api/branding', { method: 'PUT', body: restoreBrand || {} });
   ok('branding restored to its pre-run value', back.ok, `status ${back.status}`);
   await page.evaluate(b => window.applyBrand(b), restoreBrand || {});
-  const wantTitle = (restoreBrand && restoreBrand.title) || 'Telemachus';
+  const wantTitle = (restoreBrand && restoreBrand.title) || 'TMach';
   const headerOk = await until(page, () => {
     const el = document.querySelector('header.top .brand');
     return !!el && (el.innerText || '') + (el.querySelector('img') ? ' [logo]' : '') !== '';

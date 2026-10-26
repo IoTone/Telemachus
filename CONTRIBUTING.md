@@ -1,12 +1,12 @@
-# Contributing to Telemachus
+# Contributing to TMach
 
-Thanks for helping build Telemachus — a clean-MIT, self-hosted, privacy-first team
+Thanks for helping build TMach — a clean-MIT, self-hosted, privacy-first team
 AI platform. This guide covers the reference implementation in
 [`refimpl/racketmaximus`](refimpl/racketmaximus) (Racket-first, minimal Python).
 
 ## Ground rules
 
-- **Licensing.** Telemachus is MIT. Only contribute code you wrote or can license
+- **Licensing.** TMach is MIT. Only contribute code you wrote or can license
   under MIT — no copied code with incompatible terms.
 - **Localize everything user-facing.** No bare string literals in the surfaces
   (`refimpl/racketmaximus/surface/`) — every user-visible string goes through the

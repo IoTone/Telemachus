@@ -1,4 +1,4 @@
-# What Telemachus is
+# What TMach is
 
 
 ## The one-paragraph version

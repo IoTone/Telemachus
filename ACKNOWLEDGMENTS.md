@@ -1,6 +1,6 @@
 # Acknowledgments
 
-Telemachus is MIT-licensed and built from the maintainer's own code. This file
+TMach is MIT-licensed and built from the maintainer's own code. This file
 credits third-party work whose **patterns or designs** are reflected in that
 code, so their permissive-license attribution requirements are honored even
 where no source is copied verbatim.

@@ -3,7 +3,7 @@
 **Purpose.** Turn the beta funnel from a hard-coded, generically-themed form into a
 **plugin-owned experience** a team owner can brand and configure at **runtime** —
 logo, hero, header/footer, copy, custom fields, and a full theme — **without the
-shape of it being baked into the Telemachus core**. Uninstall the plugin and the
+shape of it being baked into the TMach core**. Uninstall the plugin and the
 platform has no funnel: beta onboarding is a *capability the platform permits*, not
 a *requirement it imposes*.
 
@@ -23,7 +23,7 @@ The public landing (`betaLandingView()`) renders a generic form from a provider
 config (`title`, `subtitle`, `fields`) in the app's own slate/indigo chrome. A
 deployer can swap copy, fields, and the judge prompt via `register-onboarding!` or
 `TELEMACHUS_ONBOARDING` — but only in *code/env*, and the result is always the
-Telemachus look.
+TMach look.
 
 Reference beta pages — [EA Playtesting](https://www.ea.com/playtesting),
 [Total War: Warhammer 40K beta](https://www.totalwar.com/games/warhammer-40k/beta),
@@ -46,7 +46,7 @@ Core ships *capabilities* true for any beta program — capture a lead, resist a
 store it, route the root URL, vet with a judge. It ships **zero opinion** about what
 the page looks like, which fields exist, or that a beta funnel exists at all.
 
-| Core (Telemachus) — mechanism | Plugin (beta-onboarding) — policy + presentation |
+| Core (TMach) — mechanism | Plugin (beta-onboarding) — policy + presentation |
 |---|---|
 | Prospect capture + anti-abuse gate (PoW, challenge, honeypot, velocity) | The default experience: fields, copy, judge prompt |
 | Experience **storage & resolution** (draft/publish, precedence) | The theme & brand assets it ships with |
@@ -273,11 +273,11 @@ The funnel's copy is **operator-authored marketing text**, so it cannot live in
 wholesale. It is a per-locale **overlay on the same experience document**:
 
 ```json
-{ "title": "Join the Telemachus beta",
+{ "title": "Join the TMach beta",
   "cta":   "Request access",
   "fields": [{"key":"email","label":"Work email","type":"email","required":true}],
   "i18n": {
-    "ja": { "title": "Telemachus ベータ版に参加する",
+    "ja": { "title": "TMach ベータ版に参加する",
             "cta":   "アクセスを申請",
             "fields": { "email": {"label": "勤務先メールアドレス"} } } } }
 ```

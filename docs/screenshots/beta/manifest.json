@@ -47,6 +47,6 @@
   {
     "file": "10-tier-b-bundle.png",
     "title": "Tier B: a fully custom plugin bundle",
-    "caption": "For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero Telemachus chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it."
+    "caption": "For teams that want total control, a plugin ships its own frontend bundle — its own markup, type, and layout, with zero TMach chrome. It loads /beta-sdk.js and calls Telemachus.beta.submit(), so it still routes through the same anti-abuse gate (proof-of-work, signed challenge, honeypot, velocity) without re-implementing any of it."
   }
 ]

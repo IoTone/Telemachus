@@ -23,7 +23,7 @@ The server is one module, `server/main.rkt`, and it is deliberately thin: it par
 
 ## The four small libraries
 
-`pkgs/` holds code that knows nothing about Telemachus and could be lifted out.
+`pkgs/` holds code that knows nothing about TMach and could be lifted out.
 
 `db-kit/portable` is a drop-in for Racket’s `db` that rewrites `?` placeholders to `$n` on PostgreSQL. Always require it instead of `db`. Forgetting is invisible on SQLite and fails on PostgreSQL with `syntax error at or near "AND"` — and test files issue raw SQL too, so the rule applies to them.
 

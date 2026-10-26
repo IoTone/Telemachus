@@ -39,8 +39,8 @@ page() {
   pandoc "$src" --from gfm --to html5 --standalone --lua-filter "$FILTER" \
     --metadata title="$title" \
     --css "${up}site.css" \
-    --include-before-body=<(printf '<a class="backlink" href="%sindex.html">&larr; Telemachus</a>\n' "$up") \
-    --include-after-body=<(printf '<footer class="site">Telemachus &middot; MIT &middot; <a href="https://github.com/IoTone/Telemachus">source on GitHub</a></footer>\n') \
+    --include-before-body=<(printf '<a class="backlink" href="%sindex.html">&larr; TMach</a>\n' "$up") \
+    --include-after-body=<(printf '<footer class="site">TMach &middot; MIT &middot; <a href="https://github.com/IoTone/Telemachus">source on GitHub</a></footer>\n') \
     -o "$OUT/$dst"
 }
 
@@ -74,12 +74,12 @@ cp "$ROOT"/docs/screenshots/*.png      "$OUT/docs/screenshots/"
 cp "$ROOT"/docs/screenshots/beta/*.png "$OUT/docs/screenshots/beta/"
 
 # ---- the prose pages ---------------------------------------------------------
-page "$ROOT/README.md"        "readme.html"      "Telemachus"
+page "$ROOT/README.md"        "readme.html"      "TMach"
 # Also at the name the link rewriter produces from README.md, so a doc that links
 # ../README.md resolves on the site as it does in a checkout. Same for the
 # Japanese one, which the READMEs link to each other by filename.
-page "$ROOT/README.md"        "README.html"      "Telemachus"
-[ -f "$ROOT/README.ja.md" ] && page "$ROOT/README.ja.md" "README.ja.html" "Telemachus — 日本語"
+page "$ROOT/README.md"        "README.html"      "TMach"
+[ -f "$ROOT/README.ja.md" ] && page "$ROOT/README.ja.md" "README.ja.html" "TMach — 日本語"
 page "$ROOT/CONTRIBUTING.md"  "contributing.html" "Contributing"
 
 for f in "$ROOT"/docs/*.md; do
@@ -128,15 +128,15 @@ cat > "$OUT/index.html" <<HTML
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Telemachus — a self-hosted platform for a team's AI tools</title>
-<meta name="description" content="Telemachus is a clean-MIT, team-oriented, self-hosted, privacy-first, Racket-first platform for hosting AI tools and applications. Documentation, the developer e-book and the generated API reference.">
-<meta property="og:title" content="Telemachus">
+<title>TMach — a self-hosted platform for a team's AI tools</title>
+<meta name="description" content="TMach (formerly Telemachus) is a clean-MIT, team-oriented, self-hosted, privacy-first, Racket-first platform for hosting AI tools and applications. Documentation, the developer e-book and the generated API reference.">
+<meta property="og:title" content="TMach">
 <meta property="og:description" content="A self-hosted, privacy-first platform for a team's AI tools and applications. Racket-first, clean MIT.">
 <meta property="og:type" content="website">
 <link rel="stylesheet" href="site.css">
 </head><body>
 <header class="site">
-  <div class="mark"><h1>Telemachus<span class="dot">.</span></h1></div>
+  <div class="mark"><h1>TMach<span class="dot">.</span></h1></div>
   <p>A self-hosted, privacy-first platform for a team's AI tools and applications. Racket-first, clean MIT — no open core, no held-back tier.</p>
 </header>
 <main>
@@ -144,7 +144,7 @@ cat > "$OUT/index.html" <<HTML
 
   <h2>Start here</h2>
   <ul class="cards">
-    <li><h3><a href="docs/book/index.html">Telemachus for Developers</a></h3><p>The book: how the platform is built, and the decisions that were expensive to learn. Also as a <a href="docs/book/telemachus-for-developers.pdf">PDF</a>, or in <a href="docs/book/index.ja.html">日本語</a>.</p></li>
+    <li><h3><a href="docs/book/index.html">TMach for Developers</a></h3><p>The book: how the platform is built, and the decisions that were expensive to learn. Also as a <a href="docs/book/telemachus-for-developers.pdf">PDF</a>, or in <a href="docs/book/index.ja.html">日本語</a>.</p></li>
     <li><h3><a href="docs/integrators-guide.html">Integrator's guide</a></h3><p>Putting your own product on the platform: theme the console, ship tools, serve your own screens and API.</p></li>
     <li><h3><a href="readme.html">Read me first</a></h3><p>What it is, what runs today, and how to get it running. <a href="README.ja.html">日本語</a></p></li>
     <li><h3><a href="docs/reference/README.html">Reference</a></h3><p>Generated from the source: every route, tool, workflow, permission and plugin seam.</p></li>

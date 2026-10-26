@@ -1,4 +1,4 @@
-# Extending Telemachus
+# Extending TMach
 
 
 ## Four seams, and one prefix

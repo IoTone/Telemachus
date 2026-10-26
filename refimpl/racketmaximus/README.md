@@ -1,4 +1,4 @@
-# racketmaximus — Telemachus Racket reference implementation
+# racketmaximus — TMach Racket reference implementation
 
 The first-prototype backend, in Racket, and the first entry under the repo's
 `refimpl/` (reference implementations of the same contracts; others may follow in

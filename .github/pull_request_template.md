@@ -1,4 +1,4 @@
-<!-- Thanks for contributing to Telemachus! Keep PRs focused; see CONTRIBUTING.md. -->
+<!-- Thanks for contributing to TMach! Keep PRs focused; see CONTRIBUTING.md. -->
 
 ## Summary
 

@@ -1,5 +1,5 @@
-<!-- source-sha1: 55d0e981f231d40675f2d113bc1a953eb6e7779f -->
-# Telemachus を拡張する
+<!-- source-sha1: feb48f1d60f4d273dfeb6d2ecdff9d63ef2b66ce -->
+# TMach を拡張する
 
 
 ## 四つの継ぎ目と、一つの接頭辞

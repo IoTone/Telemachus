@@ -1,6 +1,6 @@
 # Integrator's guide
 
-For a team putting **their own product** on Telemachus: their palette, their tools,
+For a team putting **their own product** on TMach: their palette, their tools,
 their screens, their API. Nothing here is a fork — every seam below is a supported
 extension point, and the worked example is
 [`refimpl/racketmaximus/plugins/integrator-demo/`](../refimpl/racketmaximus/plugins/integrator-demo/),
@@ -437,7 +437,7 @@ silently.
 ## 8b. Run it as a container
 
 Everything above describes a plugin inside the instance. If you are deploying
-Telemachus rather than extending it, the deployment surface is two pages:
+TMach rather than extending it, the deployment surface is two pages:
 
 - **[ops/configuration.md](ops/configuration.md)** — every environment variable
   and its default. There is no config file, and nothing is written at runtime:

@@ -1,6 +1,6 @@
 # Emacs: Geiser and racket-mode
 
-Editing Telemachus from Emacs with a live Racket REPL. Two packages can do it —
+Editing TMach from Emacs with a live Racket REPL. Two packages can do it —
 **Geiser** (one workflow across every Scheme) and **racket-mode** (Racket only,
 and better at it) — and this page covers both, plus the two things that bite on
 this repo specifically: the Racket version and the collection path.

@@ -1,6 +1,37 @@
-# Telemachus — working notes for Claude
+# TMach — working notes for Claude
 
-Telemachus is a clean-MIT, team-oriented, self-hosted, privacy-first, Racket-first
+**The product is branded TMach (#128); the codebase is still Telemachus.** The
+rename covered PROSE and the displayed name only — the README pair, the design
+docs and runbooks, the e-book both editions, the generated reference's heading,
+the site builder, the default `<title>` and the console's fallback title. It
+deliberately did NOT touch the 71 `TELEMACHUS_*` variables, the
+`X-Telemachus-*` headers, `tmx_*` in the browser, `data/telemachus.db`, the
+`cli/telemachus-*.rkt` commands, `refimpl/racketmaximus/`, the Racket module
+namespace, `define-sealed-column`'s thirteen AAD context strings, `CHAIN-VERSION`
+or `telemachus.digest.v1` — the last three because changing them stops existing
+rows opening and existing exports verifying. The brand SVGs keep their
+`aria-label` because the wordmark is drawn as PATHS: a label saying TMach over
+an image spelling Telemachus is worse than an old label.
+
+**Three things a word-level rename got wrong here, all caught by a gate:**
+
+- **A SENTINEL IS COMPARED AGAINST ITSELF, so it must move with its own
+  literal.** `07-render.js` draws the Mentor mark on a funnel only when
+  `logoText === '<the default title>'` — "is this still unbranded?". Renaming the
+  fallback and not the comparison leaves a funnel that silently stops drawing the
+  mark, with nothing failing. Grep for the OLD string once more after a rename
+  and read every remaining hit.
+- **An assertion that names the thing it checks hides from a quoted-string
+  grep.** `demo-validate.mjs` had `ok('wordmark reads Telemachus', …
+  .includes('Telemachus'))`, which a sweep for `'Telemachus'` as a VALUE missed
+  because the label carries it too. The e2e gate caught it; nothing else would
+  have.
+- **`tail` eats the exit code.** `bash validate.sh 2>&1 | tail -25` reports
+  `tail`'s status, so a FAILED gate read as exit 0 and the verdict line was off
+  the end of the window. Redirect to a file and echo `$?` — the same shape as
+  this file's note about a smoke helper that silently never ran.
+
+TMach is a clean-MIT, team-oriented, self-hosted, privacy-first, Racket-first
 platform for hosting AI tools & apps (the successor to the Python "Odysseus"). Pure
 OSS: no open-core, no held-back tier. Concepts may be reused from Odysseus; **only
 owner-authored Racket + owner-authored docs** may be carried over (see
@@ -3066,7 +3097,7 @@ evaluated as arithmetic, failing under `set -u` on the key itself.
 
 ### MinIO is deliberately absent from compose
 
-Issue #89 asks for it. Telemachus **serves** an S3 API but cannot yet **store**
+Issue #89 asks for it. TMach **serves** an S3 API but cannot yet **store**
 blobs in a bucket — that is issue **#82**, unbuilt — so a MinIO container would
 be a service nothing talks to, which reads as a broken example rather than a
 staged one. The k8s manifests are `replicas: 1` for the same reason, and it is a
@@ -4653,7 +4684,7 @@ done — annotation STORAGE was its own item and nothing stores a region yet.
 
 ## The integrator's guide (`docs/integrators-guide.md`)
 
-The document a downstream team follows to put THEIR product on Telemachus: theme
+The document a downstream team follows to put THEIR product on TMach: theme
 the console (branding tokens), ship tools, serve their own screens
 (`plugins/<id>/bundle/`), back them with their own routes (`/api/x/<id>/…`), add
 job kinds, and skin the funnel. `plugins/integrator-demo/` is the worked example
@@ -5603,7 +5634,7 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   have, had both run in the same broken state and been committed together.
 - **A SYMLINKED plugin directory is OPT-IN: `TELEMACHUS_PLUGINS_LINKS=1`.**
   Symlinking a downstream plugin into `plugins/` is the normal way to develop one,
-  and the only way for a plugin that requires Telemachus modules by relative path
+  and the only way for a plugin that requires TMach modules by relative path
   (`../../domain/authz/authz.rkt`) to resolve them — `TELEMACHUS_PLUGINS` cannot,
   because the relative path only lands on `domain/` from two levels under
   `refimpl/racketmaximus/`. But `plugins/` is inside the checkout, so an

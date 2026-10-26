@@ -23,13 +23,13 @@ Two unrelated things are both called "queues." This subsystem is the second kind
 
 A message transport (0mq/NATS/HTTP/gRPC) may eventually carry work to a *remote*
 executor — but that is an implementation detail of the executor **transport**,
-not the identity of this subsystem. Telemachus's scheduler is a **workload
+not the identity of this subsystem. TMach's scheduler is a **workload
 scheduler**: its workloads are AI jobs (model calls, agent flows, task runs); its
 resources are **executors**.
 
 ## Mental model (HPC / k8s analogy)
 
-| Telemachus | SLURM | Kubernetes |
+| TMach | SLURM | Kubernetes |
 |---|---|---|
 | Job (+ `requirements`) | `sbatch` task (`--gres=gpu`, `--mem`) | Pod / Job (resource requests, nodeSelector) |
 | Executor / executor pool | partition / node | Node / node pool |

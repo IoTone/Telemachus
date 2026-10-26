@@ -1,4 +1,4 @@
-# Telemachus — Feature Requirements
+# TMach — Feature Requirements
 
 > **Status record, not an agenda.** This began (Aug 2026) as a skeleton to be filled
 > in from the predecessor's inventory. It is now a record of what the platform

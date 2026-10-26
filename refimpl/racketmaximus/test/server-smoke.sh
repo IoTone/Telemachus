@@ -145,7 +145,7 @@ assert "CSP: frame-ancestors"    "$HDRS" "frame-ancestors 'self'"
 # issue #12: the raw shell carries a description and Open Graph tags for unfurlers
 SHELL_HTML=$(curl -s $B/)
 assert "meta description (default)" "$SHELL_HTML" '<meta name="description" content="A self-hosted, privacy-first platform'
-assert "og:title (default)"         "$SHELL_HTML" '<meta property="og:title" content="Telemachus">'
+assert "og:title (default)"         "$SHELL_HTML" '<meta property="og:title" content="TMach">'
 # the Tier-B bundle root: a trailing slash means index.html. The route table's `*path`
 # once required a segment here and every bundle 404ed — caught by the beta tour, not
 # by any smoke, so this pins it (the file is served with nosniff).
@@ -457,7 +457,7 @@ assert "HEAD /api/branding is not a 404" "$(curl -s -o /dev/null -w '%{http_code
 # codename hardcoded in the static shell -- crawlers and unfurlers never run
 # the SPA that would otherwise correct it. Fresh instance: the shipped
 # default. After branding is set: the configured title, HTML-escaped.
-assert "unbranded instance serves the default title" "$(curl -s $B/)" '<title>Telemachus</title>'
+assert "unbranded instance serves the default title" "$(curl -s $B/)" '<title>TMach</title>'
 assert "branding title set" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"RCNT","tagline":"Import Compliance AI Platform"}')" '"title":"RCNT"'
 assert "branded instance serves the configured title" "$(curl -s $B/)" '<title>RCNT</title>'
 assert "…and og:title"                                "$(curl -s $B/)" '<meta property="og:title" content="RCNT">'
@@ -467,7 +467,7 @@ assert "a markup-bearing title is escaped, not injected" \
   '<title>&lt;script&gt;x&lt;/script&gt;</title>'
 # restore the default so later assertions and reruns start from a clean slate
 curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{}' >/dev/null
-assert "blank title put falls back to the default" "$(curl -s $B/api/branding)" '"title":"Telemachus"'
+assert "blank title put falls back to the default" "$(curl -s $B/api/branding)" '"title":"TMach"'
 
 # ---- integrator theming: the console's palette rides the branding document
 assert "branding carries a theme"      "$(curl -s $B/api/branding)" '"theme":'
@@ -481,7 +481,7 @@ assert "a non-colour is refused"       "$(curl -s -X PUT $B/api/branding -H "Aut
 assert "an illegible theme is refused" "$(curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"theme":{"bg":"#ffffff","ink":"#fefefe"}}')" 'will not be able to read it'
 assert "…and the stored theme is untouched" "$(curl -s $B/api/branding)" '"brand":"#c9a227"'
 assert "a member cannot theme the instance" "$(curl -s -o /dev/null -w '%{http_code}' -X PUT $B/api/branding -H "Authorization: Bearer $BOB" -d "$THEME")" '403'
-curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"Telemachus"}' >/dev/null
+curl -s -X PUT $B/api/branding -H "Authorization: Bearer $OP" -d '{"title":"TMach"}' >/dev/null
 assert "reset restores the shipped palette" "$(curl -s $B/api/branding)" '"brand":"#6fa0d1"'
 assert "members list"    "$(curl -s $B/api/members -H "Authorization: Bearer $OP")" '"username":"bob"'
 assert "unauth 401 en"   "$(curl -s $B/api/whoami)" 'Authentication required.'

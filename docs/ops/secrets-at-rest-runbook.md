@@ -1,6 +1,6 @@
 # Secrets at rest — operator runbook
 
-Operator-facing. What Telemachus stores that cannot be hashed, what sealing those
+Operator-facing. What TMach stores that cannot be hashed, what sealing those
 values does and does not buy, and the three procedures: adopting a key, rotating
 one, and revoking a two-factor seed. Issue
 [#19](https://github.com/IoTone/Telemachus/issues/19).
