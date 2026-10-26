@@ -775,6 +775,10 @@
       "text": "Created operator {user} and team {team}.",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
     },
+    "doc.tool.doc_translate.redact_detectors": {
+      "text": "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)",
+      "hash": "11335323db31c901a531b7637537d3bbca98efa3"
+    },
     "ui.queue": {
       "text": "Queue",
       "hash": "d325fcd919384f395c02751e03d2cd0288b98cca"
@@ -1131,6 +1135,10 @@
       "text": "Decided",
       "hash": "55615a565dc2dd34ddd31b359d72e7792bfe19ca"
     },
+    "doc.tool.doc_classify.redact_terms": {
+      "text": "Literal names or phrases for the dictionary detector — not patterns",
+      "hash": "12db93cf2841699f7c12d31b891267e07189338f"
+    },
     "ui.size": {
       "text": "Size",
       "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
@@ -1166,6 +1174,10 @@
     "doc.route.put.api.l10n.messages.id": {
       "text": "Submit a translation for one message.",
       "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
+    },
+    "doc.tool.doc_classify.redact": {
+      "text": "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored",
+      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
     },
     "doc.route.get.api.notes.id": {
       "text": "One note.",
@@ -1580,8 +1592,8 @@
       "hash": "f66056e9c2aa6897e0faea5a7bb94b5592402334"
     },
     "doc.route.post.api.ai.chat.stream": {
-      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all.",
-      "hash": "7e6e370303b6bcfec2968ccb380941f0555c1c91"
+      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all. `redact` is REFUSED here rather than ignored (#91, RED-14): a token can be split across two events, so putting the values back would mean buffering the whole answer — use POST /api/ai/chat.",
+      "hash": "fc785dc81d4e4ef9828b9efb9054fbab0b77f111"
     },
     "doc.route.post.api.deliveries.id.redeliver": {
       "text": "Send a dead or delivered event again. The attempt count is reset — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does NOT change, so a receiver that already applied it recognises the idempotency key.",
@@ -1654,6 +1666,10 @@
     "ui.kg_unextracted": {
       "text": "waiting",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
+    },
+    "doc.tool.doc_extract_fields.redact_detectors": {
+      "text": "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)",
+      "hash": "11335323db31c901a531b7637537d3bbca98efa3"
     },
     "doc.tool.doc_classify.run": {
       "text": "The workflow run id, for provenance",
@@ -2159,6 +2175,10 @@
       "text": "The Tier-C sandboxed HTML template, localized by the experience overlay.",
       "hash": "905e073cb8d041696017518f64247b9392c4fd97"
     },
+    "doc.tool.doc_extract_fields.redact_terms": {
+      "text": "Literal names or phrases for the dictionary detector — not patterns",
+      "hash": "12db93cf2841699f7c12d31b891267e07189338f"
+    },
     "doc.perm.workflows:read": {
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
@@ -2186,6 +2206,10 @@
     "ui.qrecentorder": {
       "text": "newest first",
       "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
+    },
+    "doc.tool.doc_extract_fields.redact": {
+      "text": "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored",
+      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
     },
     "ui.thfont": {
       "text": "Font",
@@ -2275,13 +2299,17 @@
       "text": "Create and edit notes.",
       "hash": "fdd2d6a55dcb86b65c6617635e455431b1e7f095"
     },
-    "ui.trigger_prefix": {
-      "text": "Key prefix",
-      "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
-    },
     "doc.route.get.api.admin.audit.verify": {
       "text": "Verify the audit log's hash chain for one org, naming the first broken entry.",
       "hash": "b79be73c6551410d3d882aa8ae4e86aa78344197"
+    },
+    "doc.tool.doc_classify.redact_detectors": {
+      "text": "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)",
+      "hash": "11335323db31c901a531b7637537d3bbca98efa3"
+    },
+    "ui.trigger_prefix": {
+      "text": "Key prefix",
+      "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
     },
     "doc.route.delete.api.beta.asset.id": {
       "text": "Delete an onboarding asset.",
@@ -2475,13 +2503,17 @@
       "text": "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.",
       "hash": "694bd265ddd63c495318b345499b233155933122"
     },
-    "doc.route.delete.api.webhooks.id": {
-      "text": "Delete a subscription and its delivery history. The audit entries survive.",
-      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
-    },
     "doc.tool.doc_classify_eval.labels": {
       "text": "The document types being evaluated — a fixture expecting anything else is excluded and reported",
       "hash": "b1ef4e8ee10b75a8437f95080175499304c980d9"
+    },
+    "doc.tool.doc_translate.redact_terms": {
+      "text": "Literal names or phrases for the dictionary detector — not patterns",
+      "hash": "12db93cf2841699f7c12d31b891267e07189338f"
+    },
+    "doc.route.delete.api.webhooks.id": {
+      "text": "Delete a subscription and its delivery history. The audit entries survive.",
+      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
     },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
@@ -2952,8 +2984,8 @@
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
     },
     "doc.route.post.api.ai.chat": {
-      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TELEMACHUS_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call.",
-      "hash": "8b8b362cda5740cc3c15fe5d8d6c92278b0eac32"
+      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TELEMACHUS_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. `redact: true` (with `redact_detectors` / `redact_terms`, #91 req 2) builds the request from REDACTED text — identifiers replaced with stable tokens — and puts the values back before the reply is returned; `redaction` on the response says which detectors ran. It takes a STRING prompt: a content-parts prompt may carry an image no detector can read, so that combination is a 400.",
+      "hash": "f9ebe8564b74c3055904eeca8f049f78429bd0ef"
     },
     "doc.route.post.api.l10n.draft": {
       "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
@@ -2974,6 +3006,10 @@
     "ui.thmode": {
       "text": "Mode",
       "hash": "a7b93d2128e820f861fc8dfccd9f5521e89ad21f"
+    },
+    "doc.tool.doc_translate.redact": {
+      "text": "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored",
+      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
     },
     "ui.uploadhint": {
       "text": "Any format. The path may contain slashes; uploading the same path again keeps the old copy as a version.",

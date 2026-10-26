@@ -60,6 +60,9 @@ Permission: `files:write` · source: built-in
 | `backends` | array of string | no | バックエンドの順序: "rules"、"llm"（既定は rules のあと llm） |
 | `labels` | array of object | yes | 判定の対象となる文書の種類 — 答えになり得るのはこの中のいずれかだけです |
 | `object` | string | yes | リポジトリオブジェクトID |
+| `redact` | boolean | no | モデルへの要求を伏せ字のテキストから組み立てる: プロンプトを組み立てる前に識別子を安定したトークンへ置き換え、保存する前に元の値へ戻します |
+| `redact_detectors` | array of string | no | redact が true のときに実行する検出器: "email"、"date"、"id_number"、"dictionary"、"phone"（既定は dictionary 以外のすべて） |
+| `redact_terms` | array of string | no | dictionary 検出器のための名前や語句そのもの — パターンではありません |
 | `rules` | array of object | no | 決定的なルール。順に試し、最初に一致したものが決定します。正規表現ではなく語句で指定し、ルールには少なくとも一つの条件が必要です |
 | `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
 | `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
@@ -89,6 +92,9 @@ Permission: `files:write` · source: built-in
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `object` | string | no | 元文書のオブジェクト ID — フィールドをその隣に派生文書として書き出します。 |
+| `redact` | boolean | no | モデルへの要求を伏せ字のテキストから組み立てる: プロンプトを組み立てる前に識別子を安定したトークンへ置き換え、保存する前に元の値へ戻します |
+| `redact_detectors` | array of string | no | redact が true のときに実行する検出器: "email"、"date"、"id_number"、"dictionary"、"phone"（既定は dictionary 以外のすべて） |
+| `redact_terms` | array of string | no | dictionary 検出器のための名前や語句そのもの — パターンではありません |
 | `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
 | `schema` | object | yes | 抽出オブジェクトが適合するJSONスキーマ |
 | `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
@@ -174,6 +180,9 @@ Permission: `files:write` · source: built-in
 |---|---|---|---|
 | `locale` | string | yes | 目標言語コード、例：ja, nl, es-419 |
 | `object` | string | yes | ドキュメントのオブジェクトID |
+| `redact` | boolean | no | モデルへの要求を伏せ字のテキストから組み立てる: プロンプトを組み立てる前に識別子を安定したトークンへ置き換え、保存する前に元の値へ戻します |
+| `redact_detectors` | array of string | no | redact が true のときに実行する検出器: "email"、"date"、"id_number"、"dictionary"、"phone"（既定は dictionary 以外のすべて） |
+| `redact_terms` | array of string | no | dictionary 検出器のための名前や語句そのもの — パターンではありません |
 | `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
 | `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
 

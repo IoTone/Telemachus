@@ -2170,3 +2170,105 @@ verdict is read off `raco test`'s summary line now. And one control that genuine
 did not bite was found by the same fix: the longest-match case used two spans
 beginning at **different** offsets, so the position sort settled it and the length
 comparator never ran.
+
+## RED‑10…14 — a step that redacts before it asks (issue #91, requirement 2)
+
+> Requirement 1 redacts a document into another document. This is the half a
+> pipeline needs: `doc_extract_fields`, `doc_classify`, `doc_translate` and
+> `POST /api/ai/chat` take `redact`, build their request from the redacted text,
+> and put the values BACK before anything is stored. The issue's own acceptance
+> criterion is this slice's test: *the stub receives only tokens, and the stored
+> extraction contains the real values.*
+
+| # | Decision |
+|---|---|
+| RED‑10 | **Rehydration is ONE regexp pass with a lookup**, never a replacement per map entry. |
+| RED‑11 | **A token the model invented is left verbatim and REPORTED** — never guessed at, never fatal. |
+| RED‑12 | **The map is not persisted when redaction is internal to a step** — it exists for one tool call. |
+| RED‑13 | **`redact` takes a string prompt and refuses content PARTS**, because a parts prompt may carry an image no detector can read. |
+| RED‑14 | **The streaming endpoint refuses `redact` rather than ignoring it** — a token can be split across two SSE events. |
+
+**One pass, not one per entry** (RED‑10). The obvious implementation walks the map
+calling `string-replace` for each pair, and it is wrong as soon as a document has
+ten of anything: replacing `<PERSON_1>` first rewrites the first eight characters
+of `<PERSON_11>` and leaves `<a name>1>` behind. Sorting longest-token-first fixes
+that collision and leaves the general hazard — a *value* that itself contains a
+token-shaped string would be rewritten by a later pass. One pass over the token
+pattern, deciding each match by lookup, cannot do either. Both halves are pinned,
+and the control fails four cases.
+
+**An invented token is left verbatim and reported** (RED‑11). `<PERSON_7>` where
+only three people were replaced maps to nobody, and the two alternatives are both
+worse: guessing the nearest token would put a real person's name into an answer
+about somebody who was never mentioned, and failing the step would throw away a
+whole extraction over one hallucinated string in a rationale. Left alone it is
+VISIBLY wrong to the person reading the stored field, and `unknown_tokens` comes
+back so a caller can refuse it if they would rather.
+
+**The values go back BEFORE the schema is applied.** The schema is the CALLER's
+and describes real values, so a `pattern` or a `maxLength` on a telephone number
+would refuse `<PHONE_1>` — and the refusal would quote the token, which is both a
+confusing error and a token in a log. `extract-fields` therefore returns THREE
+values now (the third is the unknown-token list), which is a breaking change to an
+internal export and cost two existing call sites a line each.
+
+**The map is not persisted here, and that is the point of doing it inside the
+step** (RED‑12). `doc_redact` stores its map because its output is a redacted
+DOCUMENT that something later may have to rehydrate against. An internal
+redaction redacts and rehydrates within one tool call, so a stored map would be a
+concordance of identifiers kept **for no reader at all** — and that column is the
+most sensitive thing in the schema. The record notes that redaction was applied
+and which detectors ran, which is what requirement 2 asks for; the values were
+never written down. Asserted over `repo_redactions` in both the unit suite and the
+smoke.
+
+**`doc_classify` redacts for the MODEL and matches its RULES on the real text**,
+and it is the one place requirement 2 cannot simply swap the input. A rule is
+deterministic, local and never leaves the process, so matching it on tokens buys
+nothing and costs correctness — a rule keyed on an account-number prefix would
+match `<ID_1>` and nothing else. `classify` gained `#:llm-text`, defaulting to
+`#:text`, so every existing caller is unchanged. With a **rules-only** chain
+nothing is redacted at all and the record says `applied: false`: reporting
+otherwise would claim a protection that was never needed, because no model saw
+the document.
+
+Only a classification's **rationale** can carry a token back — the label is held
+to the label set by an `enum` (CLS‑5), so a token there is refused before
+rehydration is reached.
+
+**`doc_translate`'s row and its document deliberately differ.** `translate!`
+stores `source_text` and `result_text`, and with redaction on those hold the
+REDACTED pair — which is what crossed the wire, is strictly less content at rest
+than before, and is the honest record of the request. The derived document is the
+rehydrated translation, because that is what a reader wants. The tool result says
+redaction was applied, so the two are not a mystery.
+
+**`redact` takes a string prompt and refuses content parts** (RED‑13). A parts
+prompt may carry an IMAGE, and none of these detectors can read one — so
+redacting the text while sending a picture of the same letter untouched would be a
+redaction that claimed more than it did. A 400 that says so beats a half-measure
+nobody can see.
+
+**The stream refuses it rather than ignoring the field** (RED‑14). A token can be
+split across two SSE events — `<PERSON` in one and `_1>` in the next — so putting
+the values back would mean buffering the whole answer before emitting any of it,
+which is the one thing a stream exists not to do. Half-rehydrated text reaching a
+reader is worse than a refusal: they would see a name beside a token with no way
+to tell which parts had been put back. The refusal names the endpoint to use.
+
+**The published pipelines are untouched, and the smoke publishes its own spec.**
+`redact` is a TOOL argument, so a workflow binds it as a literal — `pdf-form`'s
+pattern, for `pdf-form`'s reason: adding an input to a published spec is a
+breaking change for every caller of it. A hand-written spec uses the WIRE grammar
+(`${steps.<id>.output.*}`) and not the macro's `(out text result)` sugar, which
+the first version of that block got wrong and the validator refused while naming
+every form it accepts.
+
+**Two of eleven controls did not bite, and both were real test gaps.** The
+rule/model split had no case where a rule depended on text redaction would
+destroy, so matching rules on the redacted text passed everything; and nothing
+exercised a schema that a token would fail, so swapping validate-and-rehydrate
+passed too. Both cases exist now. A third found its own trap on the way: with
+`phone` as the only detector, the fixture letter's ISO date is also a phone match,
+so `<PHONE_1>` there is `2026-10-14` — the case uses a one-line text instead, and
+says why.
