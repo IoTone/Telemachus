@@ -1798,5 +1798,132 @@ honest reading of a fire either way.
 
 Still not built, by the issue's own numbering: **the embedding nearest-label
 backend (req 2c)**, which needs an embedding wire, store and meter this build
-does not have and belongs in its own issue, and **the evaluation harness
-(req 6)**.
+does not have and belongs in its own issue. The evaluation harness (req 6) is the
+block below.
+
+## CLS‑29…33 — how good is it? the evaluation harness (issue #87, req 6)
+
+> Every slice above asserts that the classifier RAN. This is the question none of
+> them could answer: how often is it right, and which of its backends is carrying
+> the load. It is the last piece of #87 this build can hold.
+
+| # | Decision |
+|---|---|
+| CLS‑29 | **The ground truth is an object attribute**, `doc_type_expected`, and a fixture labelled outside the label set is EXCLUDED and reported, never scored as a miss. |
+| CLS‑30 | **A backend that declines ABSTAINED; it was not wrong** — so accuracy is over what it answered and `coverage` is beside it, and an error is a third outcome. |
+| CLS‑31 | **The chain's own answer is reported, DERIVED from the per-backend outcomes** — no second pass and no second implementation of the chain rule. |
+| CLS‑32 | **The mean confidence of right and wrong answers is reported**, because that pair is what tells an operator whether CLS‑13's review threshold can separate them. |
+| CLS‑33 | **An evaluation WRITES NOTHING** — no attributes, no record, no report document, and the tool is `files:read`. |
+
+**The ground truth is an object attribute, and the fixture set is the
+repository** (CLS‑29). `doc_type_expected` is one namespace along from the three
+keys the classifier's own answer lands in (CLS‑7). The alternative is a manifest
+of (object id, label) pairs passed to the call, and the difference is what
+happens over a year: a manifest is a file somebody has to keep in step with the
+repository, where an attribute makes the fixture set a thing the team curates in
+place, grows one document at a time, and can list with
+`?attr=doc_type_expected:invoice` for nothing. The field is DECLARED by the
+harness itself, additively, through the same `repo-fields-declare!` that
+`record-type!` uses — LAY‑4 refuses an undefined key, so without that nobody
+could label a fixture at all and the harness would answer "no fixtures" for a
+reason the operator could not act on. Declaring is not asserting: no document is
+touched.
+
+**A fixture's own label is held to the label set** — CLS‑5 and CLS‑15 pointed at
+the third party who can get it wrong. "Invoice", "invoces" or a trailing space is
+one keystroke away, and a fixture labelled that way is a document no backend can
+ever agree with, so an accuracy figure computed over it blames the classifier for
+somebody's typing. It is excluded from the counts and named in `excluded` with the
+reason. Refusing the whole run was the other option and is worse: one typo would
+make the report unobtainable.
+
+**A backend that declines abstained, and that distinction is what the report
+turns on** (CLS‑30). The rules backend is DESIGNED to answer only when a rule
+matched — CLS‑1 puts it first in the chain precisely because it is certain when
+it speaks — so scoring silence as an error would make a careful rule set look
+worse the more careful it was, and would send an operator to loosen exactly the
+rules that are carrying the load. So accuracy is reported over what a backend
+ANSWERED and `coverage` over the fixture set, and both are needed: a backend that
+answers one document perfectly is 100% accurate and useless. An **error** is a
+third outcome rather than a kind of abstention, because a model that refused
+twenty of twenty-five fixtures is the finding, and a report calling that
+"abstained" would read as a cautious backend instead of a broken one.
+
+**Each backend is run SEPARATELY, which is the thing production never does.**
+Requirement 6 asks for accuracy "per backend", and in a chain the second backend
+is only ever asked about the documents the first declined — so a chain run
+measures the rules backend fully and the model backend on a biased remainder.
+`classify-attempt` runs one backend on one document, and `backends` is an input
+so an operator can ask for `["rules"]` and `["llm"]` and read the two columns
+against each other.
+
+**The chain is reported too, and it costs nothing** (CLS‑31). What production
+runs is the chain, so a report of the backends alone leaves the operator
+composing the answer in their head — and the composition is exactly "the first
+backend that answered", which is already in hand. The `chain` row is computed
+from the per-backend outcomes rather than measured again: no extra model request,
+and the same answer `classify` would have given by construction rather than by a
+second copy of the rule. In the unit suite it is already showing something
+neither column does — rules answered one of three and was right, the model
+answered two and was right about one, and because rules go first the chain got
+both.
+
+**The two confidence means are what calibrate the review hook** (CLS‑32).
+`classify-review-extract` parks a run below `min_confidence` (CLS‑13), and that
+knob is only worth setting when wrong answers arrive less confidently than right
+ones. If both means sit at 0.9 the threshold cannot separate them, and that is a
+fact about the backend no accuracy figure can express. Two numbers, per backend,
+`null` when the bucket is empty.
+
+**An evaluation writes nothing, and that is the decision the whole tool turns
+on** (CLS‑33). `doc_classify` records a type on the document and that is right
+for a classification; this is a MEASUREMENT of the classifier, and three separate
+things go wrong the moment it writes. It would overwrite the type on a document a
+run had already classified, so measuring would destroy what was measured. It
+would move `doc_type`, which since CLS‑23 WAKES A TRIGGER — so evaluating a
+fixture set would start pipelines over the fixtures. And its second run would be
+scoring its own first run's output. So the permission is `files:read`: an
+evaluation is a read of the repository that happens to spend model budget.
+
+There is no report DOCUMENT either, for a smaller reason: a derived document needs
+a source to derive FROM (DSH‑5), and a report is about a SET rather than about any
+one of its members. A measurement of a moment belongs in the answer; the fixture
+set is what persists.
+
+**One step, and no `map`** — the opposite shape from the backfill one block above,
+for a reason worth stating. `map` is right there because the work is a thing done
+to each of N documents, each able to fail and retry on its own. An evaluation
+produces ONE AGGREGATE over the set and the engine has no reduce step kind, so a
+`map` here would scatter the report across N child outputs with nothing to add
+them up. The tool does the bounded walk and the spec exists to make it REACHABLE:
+no route runs a single tool, so a workflow is how an operator starts one from the
+console and how its cost is quota-admitted like any other job.
+
+**A ratio with nothing in its denominator is `null`, never 0.** Zero reads as "it
+got everything wrong" where the truth is "it was never asked", and the two have
+opposite remedies — the objection that keeps `interval_seconds` off a daily
+schedule and a withdrawn `worker_state` off a stale executor. Every label in the
+set gets a row for the same family of reasons: a type nobody wrote a fixture for
+is a hole in the fixture set, and omitting it would report a clean sheet for a
+label that was never tested.
+
+**`(* 1000.0 0)` is an EXACT 0 in Racket**, so a ratio of nothing-out-of-something
+came back as `0` where every other figure in the same column was a decimal. Both
+are legal jsexprs, which is why nothing failed — and a report whose numbers change
+type with their value is one a reader has to second-guess. `review.rkt`'s
+`approval_rate` has the same shape and was left alone.
+
+**A row's `answers` is keyed by SYMBOLS, because the report is a jsexpr.**
+`jsexpr->string` refuses a string key, and the first version of this failed three
+steps away inside the engine with a message naming neither the tool nor the field.
+
+**`(last pipeline:workflows)` in a test is a landmine, and this slice stepped on
+the one req 5 left.** `classify-backfill-tests.rkt` registered the plugin's last
+workflow and looked the backfill up by slug; appending a fifth workflow made it
+register the EVALUATION, so `flow-def-by-slug` answered `#f` and the failure named
+a materialization that was working perfectly. Both suites find their workflow by
+slug now.
+
+With this, #87 is complete except for **the embedding nearest-label backend
+(req 2c)**, which needs an embedding wire, store and meter this build does not
+have and belongs in its own issue.

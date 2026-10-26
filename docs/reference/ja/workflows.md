@@ -6,6 +6,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 |---|---|---|---|---|
 | `classify-and-extract` | doc-pipeline | 1 | 7 | この文書がどの種類かを判定し（まず決定的なルール、次にモデル）、その種類を文書に記録し、その種類に対応するスキーマに照らしてフィールドを抽出する。スキーマのない種類は、分類だけ行ってそのままにします。 |
 | `classify-backfill` | doc-pipeline | 1 | 2 | 接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。 |
+| `classify-eval` | doc-pipeline | 1 | 1 | チームのラベル付きフィクスチャ — 接頭辞配下で doc_type_expected 属性を持つ文書 — に対して分類器を測定する。各バックエンドを単独で、かつラベルごとに正解率とカバレッジを報告し、各ラベルが何と誤認されたか、正答と誤答がどれほど確信を持っていたかも併せて示します。何も書き込みません: 種別は記録されずトリガーも起動しないため、フィクスチャ集合は何度でも評価できます。 |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | この文書がどの種類かを判定し、分類器の確信度が `min_confidence` を下回る場合は、推測せずに実行を保留して人に尋ねる。その判断は文書に記録されます — そのまま承認、別の種類へ訂正、あるいはいずれでもないときは取り下げ — そのうえで、その種類に対応するスキーマに照らしてフィールドを抽出します。 |
 | `index-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `index-knowledge` | knowledge-graph | 1 | 2 | インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
@@ -60,6 +61,27 @@ Steps:
 |---|---|---|---|
 | `find` | `tool:doc_list_unclassified` | `{"prefix":"${input.prefix}","run":"${run.id}","step":"find"}` | next in order |
 | `classify` | `map` | over `${steps.find.output.result.ids}` → `tool:doc_classify` with `{"backends":"${input.backends}","labels":"${input.labels}","object":"${item}","rules":"${input.rules}","run":"${run.id}","step":"classify"}` | end |
+
+## `classify-eval` — 分類器を評価する
+
+チームのラベル付きフィクスチャ — 接頭辞配下で doc_type_expected 属性を持つ文書 — に対して分類器を測定する。各バックエンドを単独で、かつラベルごとに正解率とカバレッジを報告し、各ラベルが何と誤認されたか、正答と誤答がどれほど確信を持っていたかも併せて示します。何も書き込みません: 種別は記録されずトリガーも起動しないため、フィクスチャ集合は何度でも評価できます。
+
+Plugin: `doc-pipeline` · version 1 · max steps 5 · starts at `measure`
+
+Input:
+
+| Name | Type |
+|---|---|
+| `backends` | array |
+| `labels` | array |
+| `prefix` | string |
+| `rules` | array |
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `measure` | `tool:doc_classify_eval` | `{"backends":"${input.backends}","labels":"${input.labels}","prefix":"${input.prefix}","rules":"${input.rules}","run":"${run.id}","step":"measure"}` | end |
 
 ## `classify-review-extract` — 分類し、迷ったら人に尋ね、そのうえで抽出する
 

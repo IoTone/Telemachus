@@ -56,6 +56,12 @@ assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1"
           else echo "  FAIL $1 — expected to contain: $3 — got: $2"; fail=1; fi; }
 refute(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  FAIL $1 — must NOT contain: $3 — got: $2"; fail=1
           else echo "  ok   $1"; fi; }
+# "these two must not be equal", which `refute` cannot express: it is a grep, so
+# refuting "22" against "0" passes for the wrong reason the moment one is a prefix
+# of the other. Copied from server-smoke.sh, where it already existed — and a
+# helper used before it was defined is a line bash reports on stderr while the
+# suite goes on reporting PASS, which is the third time that shape has cost a run.
+differ(){ if [ "$2" != "$3" ]; then echo "  ok   $1"; else echo "  FAIL $1 — both were: $2"; fail=1; fi; }
 jq_(){ python3 -c 'import sys,json;print(eval(sys.argv[1],{"d":json.load(sys.stdin)}))' "$1"; }
 
 racket server/main.rkt >"$TELEMACHUS_DATA_DIR/server.log" 2>&1 &
@@ -75,9 +81,18 @@ P(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
 # stops with nothing running is a BUDGET, not a slow engine, and a longer wait
 # only hides it (see the ai.requests note in section 0).
 WAIT_TRIES=$([ $LIVE = 1 ] && echo 1200 || echo 120)
+# The RUN's status, read as JSON — never `grep -oP '"status":"\K…' | head -1`, which
+# is a substring of the whole document and happened to be the run's only because
+# the top-level key sorted first. Requirement 6's report nests a per-document
+# `status` inside a step's output, and the day it did every run in this suite read
+# as "answered" and polled to the end of its patience. `ocr-smoke.sh` records the
+# same lesson from the other direction.
 wait_run(){ # <run id> -> sets RUNST (final status) and RUNJSON; never in a $(…), or they are lost
   RUNST=""; RUNJSON=""; for i in $(seq 1 $WAIT_TRIES); do
-    RUNJSON=$(G "/api/runs/$1"); RUNST=$(printf '%s' "$RUNJSON" | grep -oP '"status":"\K[^"]+' | head -1)
+    RUNJSON=$(G "/api/runs/$1")
+    RUNST=$(printf '%s' "$RUNJSON" | python3 -c 'import sys,json
+try: print(json.load(sys.stdin).get("status",""))
+except Exception: print("")')
     case "$RUNST" in done|error|canceled) break;; esac; sleep 0.5
   done; }
 
@@ -532,6 +547,119 @@ assert "a withdrawn type is backfilled again" "$(ran)" done
 assert "…exactly one document"                "$RUNJSON" '"count":1'
 assert "…and it has its type back"            "$(G "/api/repo-obj/$BLET")" '"doc_type":"letter"'
 
+echo
+echo "== 5e. how good is it? the evaluation harness (#87 req 6, CLS-29…33) =========="
+# Everything above asserts that the classifier RAN. Requirement 6 is the question
+# nobody could answer over HTTP until now: how OFTEN is it right, and which of its
+# backends is carrying the load. The model answers "invoice" for anything it can
+# read, so it is right about the invoice fixture and wrong about the letter — which
+# is what puts a real figure in the `confused_with` column below.
+if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"You classify a document": "{\"label\":\"invoice\",\"confidence\":0.80,\"rationale\":\"mock\"}",
+ "*": "MOCK"}
+JSON
+fi
+printf 'INVOICE 7001\nAcme Corp\nTotal due 7.00\n' > "$TELEMACHUS_DATA_DIR/e-inv.txt"
+printf 'Dear Ms Patel,\n\nThe inspection is booked.\n' > "$TELEMACHUS_DATA_DIR/e-let.txt"
+printf 'still not a jpeg' > "$TELEMACHUS_DATA_DIR/e-pho.jpg"
+EINV=$(up eval/a.txt text/plain "$TELEMACHUS_DATA_DIR/e-inv.txt" | jq_ 'd["id"]')
+ELET=$(up eval/b.txt text/plain "$TELEMACHUS_DATA_DIR/e-let.txt" | jq_ 'd["id"]')
+EPHO=$(up eval/c.jpg image/jpeg "$TELEMACHUS_DATA_DIR/e-pho.jpg" | jq_ 'd["id"]')
+
+assert "the evaluation workflow arrived"  "$(G /api/workflows)" '"slug":"classify-eval"'
+assert "doc_classify_eval is registered"  "$(G /api/tools)" '"name":"doc_classify_eval"'
+# CLS-33 at the surface: the tool that MEASURES the classifier is a READ
+assert "…and it is a read, not a write"   "$(G /api/tools)" '"name":"doc_classify_eval","permission":"files:read"'
+
+# the rule set evaluated here describes invoices and photographs and NOT letters —
+# a deliberate hole, because a report that cannot show one is not a report
+ERULES='[{"label":"photo","content_type":"image/"},{"label":"invoice","any":["Total due"]}]'
+
+evaluate(){ # <backends json> -> RUNST / RUNJSON
+  local r; r=$(P /api/workflows/classify-eval/run \
+    "{\"input\":{\"prefix\":\"eval/\",\"labels\":$LABELS,\"rules\":$ERULES,\"backends\":$1}}")
+  wait_run "$(printf '%s' "$r" | grep -oP '"id":"\K[^"]+' | head -1)"
+}
+# the report is nested in the step's output, and every figure below is read out of
+# it by name rather than grepped: `"fixtures":3` appears in a per-label row too,
+# so a substring assertion here would pass against the wrong number
+rep(){ printf '%s' "$RUNJSON" | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+r=[s["output"]["result"] for s in d["steps"] if s["step_id"]=="measure"][0]
+b={x["backend"]:x for x in r["backends"]}
+for x in b.values(): x["by_label"]={l["label"]:l for l in x["labels"]}
+print(eval(sys.argv[1],{"r":r,"b":b}))' "$1"; }
+
+# THE FIRST RUN IS THE SETUP, and that is pinned rather than papered over: LAY-4
+# refuses an undefined attribute key, so until the harness has declared
+# `doc_type_expected` nobody can label a fixture at all.
+refute "the expected-type field does not exist yet" "$(G /api/repo-fields)" '"key":"doc_type_expected"'
+evaluate '["rules"]'
+assert "an evaluation with no fixtures finished" "$(ran)" done
+assert "…and reported an empty fixture set"      "$(rep 'r["fixtures"]')" 0
+assert "…having declared the field to label with" "$(G /api/repo-fields)" '"key":"doc_type_expected"'
+
+lbl(){ curl -s -X PATCH "$B/api/repo-obj/$1/attributes" -H "Authorization: Bearer $TOK" \
+            -d "{\"attributes\":{\"doc_type_expected\":\"$2\"}}"; }
+lbl "$EINV" invoice >/dev/null
+lbl "$ELET" letter  >/dev/null
+lbl "$EPHO" photo   >/dev/null
+
+TOK0=$(toks)
+evaluate '["rules"]'
+assert "the rules evaluation finished"       "$(ran)" done
+assert "…over the three labelled documents"  "$(rep 'r["fixtures"]')" 3
+# the two figures that have to be read together: it was right about everything it
+# answered, and it answered two thirds of the set. Either alone misleads.
+assert "…the rule set was never wrong"       "$(rep 'b["rules"]["accuracy"]')" 1.0
+assert "…and it answered two of three"       "$(rep 'b["rules"]["coverage"]')" 0.667
+assert "…abstaining on the letter it has no rule for" "$(rep 'b["rules"]["by_label"]["letter"]["abstained"]')" 1
+refute "…which is not counted as an error"   "$(rep 'b["rules"]["by_label"]["letter"]["wrong"]')" 1
+# every label in the set is reported, including one nobody wrote a fixture for
+assert "a label with no fixture is reported as a hole" "$(rep 'b["rules"]["by_label"]["report"]["fixtures"]')" 0
+assert "a rules-only evaluation spent no model budget" "$TOK0" "$(toks)"
+
+# CLS-33 over HTTP: the whole point is that measuring changes nothing
+refute "the invoice fixture was NOT classified" "$(G "/api/repo-obj/$EINV")" '"doc_type":'
+assert "…and its expected type is untouched"    "$(G "/api/repo-obj/$EINV")" '"doc_type_expected":"invoice"'
+refute "no classification record was written"   "$(G '/api/repo?prefix=eval/')" '"key":"eval/a.txt.classification.json"'
+
+evaluate '["llm"]'
+assert "the model evaluation finished"       "$(ran)" done
+assert "…it answered the two it could read"  "$(rep 'b["llm"]["answered"]')" 2
+assert "…and was right about one of them"    "$(rep 'b["llm"]["accuracy"]')" 0.5
+# the actionable half: WHAT it mistook the letter for
+assert "…calling the letter an invoice"      "$(rep 'b["llm"]["by_label"]["letter"]["confused_with"]["invoice"]')" 1
+# the photograph has no text, so the model was never reachable for it — an
+# abstention about this backend, where a content-type rule answered it (CLS-9)
+assert "…abstaining on the photograph"       "$(rep 'b["llm"]["by_label"]["photo"]["abstained"]')" 1
+# CLS-32: the figure that says whether a review threshold could separate them
+assert "…with the confidence of a wrong answer" "$(rep 'b["llm"]["mean_confidence_wrong"]')" 0.8
+# a one-backend evaluation's chain IS that backend, which is why it says nothing
+assert "the chain of one backend is that backend" "$(rep 'b["chain"]["correct"]')" \
+                                                  "$(rep 'b["llm"]["correct"]')"
+TOK1=$(toks)
+differ "a model evaluation DID spend budget"  "$TOK0" "$TOK1"
+
+# CLS-31: and with BOTH, the chain beats either of its parts — the figure an
+# operator could not have worked out from the two columns beside it
+evaluate '["rules","llm"]'
+assert "the chained evaluation finished"     "$(ran)" done
+assert "…rules were right about two"         "$(rep 'b["rules"]["correct"]')" 2
+assert "…the model about one"                "$(rep 'b["llm"]["correct"]')" 1
+assert "…and the chain about two, for free"  "$(rep 'b["chain"]["correct"]')" 2
+assert "…because the model answered the letter the rules declined, and got it wrong" \
+       "$(rep 'b["llm"]["by_label"]["letter"]["wrong"]')" 1
+
+# CLS-29: a fixture labelled outside the set is excluded and SAID SO, never
+# counted as a miss — the classifier is not to blame for somebody's typing
+lbl "$EPHO" Photo >/dev/null
+assert "a fixture label outside the set is refused by LAY-4" "$(lbl "$EPHO" Photo)" '"doc_type_expected":"Photo"'
+evaluate '["rules"]'
+assert "the evaluation still finished"       "$(ran)" done
+assert "…scoring only the two it could"      "$(rep 'r["fixtures"]')" 2
+assert "…and naming the excluded fixture"    "$RUNJSON" 'eval/c.jpg'
+assert "…while the rule set keeps its record" "$(rep 'b["rules"]["accuracy"]')" 1.0
 echo
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'

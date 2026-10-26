@@ -36,6 +36,10 @@
       "text": "削除しました",
       "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
     },
+    "doc.tool.doc_classify_eval.prefix": {
+      "text": "キーがこれで始まる文書のみ（既定: チーム内のすべての文書）。",
+      "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
+    },
     "doc.tool.doc_set_type.object": {
       "text": "リポジトリオブジェクトID",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
@@ -616,6 +620,10 @@
       "text": "購読とその配信履歴を削除する。監査エントリは残ります。",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
     },
+    "doc.tool.doc_classify_eval.labels": {
+      "text": "評価対象の文書種別 — これ以外を期待値とするフィクスチャは除外し、その旨を報告します",
+      "hash": "b1ef4e8ee10b75a8437f95080175499304c980d9"
+    },
     "doc.route.delete.api.feeds.id": {
       "text": "フィードの設定を削除します。すでに取得済みの項目は通常のリポジトリ文書であり、影響を受けません — フィードの削除は、その項目の取り消しではありません。",
       "hash": "c9df0d8c31f26321241f7ba3b658661fe6138cc6"
@@ -847,6 +855,10 @@
     "ui.s3keys": {
       "text": "S3アクセスキー",
       "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
+    },
+    "doc.tool.doc_classify_eval.backends": {
+      "text": "個別に測定するバックエンド: \"rules\"、\"llm\"（既定は両方）",
+      "hash": "6199e0eb428963eaa0bc9531a296ca3f5af9b83e"
     },
     "ui.wklastseen": {
       "text": "最終確認",
@@ -1128,6 +1140,10 @@
       "text": "承認",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
     },
+    "doc.workflow.classify-eval.name": {
+      "text": "分類器を評価する",
+      "hash": "5c63fbf3c117397cfad5dd12e14921ddd3a14c1b"
+    },
     "ui.role": {
       "text": "ロール",
       "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
@@ -1227,6 +1243,10 @@
     "doc.workflow.process-upload.name": {
       "text": "アップロードした文書を処理する",
       "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
+    },
+    "doc.tool.doc_classify_eval": {
+      "text": "ラベル付きのフィクスチャ集合に対して分類器を測定する: キー接頭辞配下で doc_type_expected 属性を持つ文書が対象です。バックエンドごと、かつラベルごとの正解率とカバレッジ、各ラベルが何と誤認されたか、そして正答と誤答それぞれの平均確信度 — レビューのしきい値で両者を切り分けられるかを示す数値 — を報告します。各バックエンドは連鎖させずに個別に実行するため rules と llm を比較でき、連鎖自体の答えも並べて報告します。何も書き込みません: 種別は記録されず、トリガーも起動しません。",
+      "hash": "12edf011b63ebf079c475219a0ffe4a99ee84f36"
     },
     "doc.route.get.api.admin.anchor.export": {
       "text": "アンカー受領証を JSONL（古い順）で返す。このインスタンスの信頼境界の外に保管するためのもの。`?since_seq=` は保管側がまだ持っていない分だけを要求するので、ファイルに追記できる。保管した写しは `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` でオフライン検証する —— このサーバーもそのデータベースも必要としない。アンカーが意味を持つのは、まさにそのインスタンス自身が疑われている場合だからである。",
@@ -1872,6 +1892,10 @@
       "text": "チームのレビューキューと、記録済みの判断を見る。",
       "hash": "b9a2936a3b51463412d8340093e3f9f221431016"
     },
+    "doc.tool.doc_classify_eval.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
     "ui.wkactive": {
       "text": "稼働中",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
@@ -2240,6 +2264,10 @@
       "text": "1つの実行とそのステップ、インプット、アウトプット、およびエラー",
       "hash": "413e1b81c79fa3b7b825a572f0afd2a188f66588"
     },
+    "doc.workflow.classify-eval": {
+      "text": "チームのラベル付きフィクスチャ — 接頭辞配下で doc_type_expected 属性を持つ文書 — に対して分類器を測定する。各バックエンドを単独で、かつラベルごとに正解率とカバレッジを報告し、各ラベルが何と誤認されたか、正答と誤答がどれほど確信を持っていたかも併せて示します。何も書き込みません: 種別は記録されずトリガーも起動しないため、フィクスチャ集合は何度でも評価できます。",
+      "hash": "6eecc1c3c8fb42402d04817a5c255ddea25bf1c3"
+    },
     "ui.pass": {
       "text": "パスワード",
       "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
@@ -2391,6 +2419,10 @@
     "doc.tool.word_count": {
       "text": "テキストの単語数を数える。",
       "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
+    },
+    "doc.tool.doc_classify_eval.rules": {
+      "text": "評価するルールセット — パイプラインが実行するのと同じルールです",
+      "hash": "54b026958d4e9749b448857ea4e6137b4cd2a6d9"
     },
     "doc.route.post.api.l10n.review.id": {
       "text": "翻訳を承認または差し戻す。翻訳者は自分の翻訳を承認できません。",
@@ -2967,6 +2999,10 @@
     "ui.kg_entity": {
       "text": "エンティティ",
       "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
+    },
+    "doc.tool.doc_classify_eval.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "ui.workers": {
       "text": "ワーカー",
