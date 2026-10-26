@@ -303,6 +303,29 @@ missing. `TELEMACHUS_OCR_LANGUAGES` must name languages that were actually
 compiled in — the plugin passes the value to tesseract as-is, and
 `tesseract --list-langs` is the authority on what a given image can read.
 
+`weasyprint` — the HTML/CSS paged-media PDF engine (`doc_render` with
+`engine: "weasyprint"`, #88 req 1) — is in the image too. Its own closure is
+**1,506 MiB**, which looks alarming and is not the number that matters: **82 of
+its 105 store paths are already here**, because pandoc, tectonic and
+poppler-utils have brought cairo, pango, harfbuzz, fontconfig and the font stack
+along since DWF‑6. The **marginal** cost is **173 MiB**, and 116 MiB of that is
+the Python interpreter:
+
+| What | Marginal |
+|---|---|
+| `python3` | 116 MiB |
+| `fonttools` | 15 MiB |
+| `libimagequant`, `libaom`, `pyphen`, `pillow`, 17 others | 42 MiB |
+| **total added to the image** | **173 MiB**, about 10% |
+
+Measure the marginal closure, not the standalone one, before declining a
+dependency on size: the standalone figure here is nine times the truth.
+
+It runs no JavaScript and is invoked with `--allowed-protocols data`, so a
+template can reach neither the network nor the container's filesystem. **LibreOffice is deliberately absent** (#88 req 3 is
+unbuilt): it is roughly a gigabyte, which is the trade declined twice above, and
+it would belong in `extraPath` as tesseract does rather than in this image.
+
 `pdfcpu` and `qpdf` — the AcroForm toolchain `doc_fill_form` and
 `GET /api/repo-obj/:id/form-fields` use (#88 req 2) — ARE in the image, on the
 server's PATH. They are about 19 MiB between them, so the 1.74 GB figure above,

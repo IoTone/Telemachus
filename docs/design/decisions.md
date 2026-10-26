@@ -2749,3 +2749,164 @@ Ten controls, nine on the engine and one through HTTP, and all ten bite:
   in Racket for the unit suite, one in Python for the smoke, which drives the
   platform over HTTP and has no Racket to hand. Two fixtures, not two rules: the
   rule they exercise has one home.
+
+## HPDF — a branded, paged document out of HTML and CSS (issue #88 requirement 1)
+
+Decided and built 26 Oct 2026, on top of FORM above. `domain/repo/htmlpdf.rkt`
+(the engine, pure of the repository) plus two arguments on `doc_render` —
+`engine` and `pdf_variant`. **No migration, no new environment variable, no new
+route, no new permission.**
+
+This is the requirement a downstream customer actually sees: an invoice, a
+report or a certificate with a logo, a table whose cells wrap, running headers
+and a page count. The LaTeX path (DWF‑6) renders text well and expresses none of
+it.
+
+- **HPDF‑1 — WeasyPrint, AND CHROMIUM DECLINED.** The issue offers either. Six
+  measurements decided it, and the first two are the requirement itself:
+  - **CSS paged media.** The acceptance criterion is "a logo, a wrapped table and
+    Page X of Y". WeasyPrint implements `@page`, `position: running()` and
+    `counter(page)`/`counter(pages)` natively — measured at 6 pages with a
+    running header on every one and the same total in every footer. Chromium
+    headless implements **none** of those: running headers come from
+    `--header-template` over CDP, which is a second templating language that is
+    not CSS, and `counter(pages)` has no equivalent at all. The issue's own
+    acceptance criterion is therefore an argument for WeasyPrint.
+  - **PDF/A.** `--pdf-variant pdf/a-2b`, and the output was put through
+    **veraPDF 1.30.2: 144 rules passed, 0 failed**. Chromium cannot emit PDF/A,
+    so requirement 1's flag would have been unimplementable.
+  - **No scripting engine.** WeasyPrint runs no JavaScript at all. A template may
+    be operator- or customer-authored, and this is a self-hosted, privacy-first
+    platform: "the renderer *cannot* execute a template's script" is a stronger
+    property than any sandbox configured around a browser that can.
+  - **The sandbox is a FLAG, not a configuration.** `--allowed-protocols data`
+    refuses `file:` and `http:` by name — measured, with the control: **without
+    it, `file:///etc/hosts` really is fetched.**
+  - **Determinism, already** (requirement 6 — see HPDF‑7).
+  - **Closure, measured on both sides.** WeasyPrint's own closure is 1,506 MiB,
+    which is not the number that matters: **82 of its 105 store paths are
+    already in the image**, because pandoc, tectonic and poppler-utils brought
+    cairo, pango, harfbuzz and the font stack along since DWF‑6. The MARGINAL
+    cost is **173 MiB**, 116 MiB of which is the Python interpreter — about 10%
+    of the image. Chromium is a browser, in an image whose size the container
+    notes already guard twice, to render an invoice. **Measure the marginal
+    closure, not the standalone one, before declining a dependency on size**:
+    the standalone figure here is nine times the truth, and declining on it
+    would have been declining on a number that means nothing.
+
+  The deterministic-deps tenet's objection — that WeasyPrint is a Python
+  application — is answered by **how it arrives**: a pinned nixpkgs derivation in
+  `flake.lock`, exactly as pandoc and tectonic are. The tenet is about ad-hoc
+  package managers and a shared `site-packages`, not about a program that happens
+  to be written in Python. (`weasyprint` is not a top-level nixpkgs attribute, so
+  `callPackage` cannot find it by name and `flake.nix` passes
+  `pkgs.python3Packages.weasyprint` in at both call sites.)
+- **HPDF‑2 — `latex` is NAMED, so the second engine is an addition.**
+  `format: "pdf"` has meant pandoc → tectonic since DWF‑6; `RENDER-ENGINES` is a
+  closed `("latex" "weasyprint")` with `latex` the default, so an existing caller
+  keeps the renderer it has and nothing that works today changes. The binary is
+  found with `find-executable-path` at CALL time — DWF‑6's and FORM‑2's rule — so
+  a box without it boots and only an `engine: "weasyprint"` call is refused.
+- **HPDF‑3 — the HTML engine REQUIRES an HTML template**, and that is the point
+  rather than a gap. What it adds over the LaTeX path is the template's **own**
+  CSS; a Markdown template carries none, and converting Markdown to HTML first
+  would hand the caller a document whose paged media somebody else invented.
+  Refused by name, naming the template's content type.
+- **HPDF‑4 — a template reaches a repository document as `repo:<object id>`, and
+  that is what makes the sandbox complete.** Requirement 1 asks for "images from
+  repo objects by id". A scheme rather than a path, because every reference has
+  to be resolvable **before** anything runs: each one is read **as the caller**
+  (so `can?` decides whether a template may inline it) and rewritten to a `data:`
+  URI, after which `data` is the only protocol the renderer is allowed to fetch.
+  A template that could reach any object by id would be a way straight past the
+  repository's own gate, since a template is data somebody else may have
+  authored. Capped at 20 documents and 16 MiB, refused before the engine starts.
+- **HPDF‑5 — THE EXIT CODE IS NOT THE VERDICT.** WeasyPrint logs a resource it
+  could not load as an `ERROR` and **exits 0**, leaving a document with a hole
+  where the logo was. A report that looks finished and is not is the failure this
+  whole area exists to avoid, so the log is parsed and a refused or failed
+  resource is a **refusal**, naming what a template may reach and never quoting
+  what it wanted. This is the one thing about this engine that has to be handled
+  rather than trusted, and the control for it is the second in the harness.
+- **HPDF‑6 — ONE PDF variant, because one was validated.** WeasyPrint accepts a
+  dozen; `PDF-VARIANTS` holds `pdf/a-2b` alone — the one requirement 1 names and
+  the only one whose output was put through a validator. Offering a member nobody
+  checked would be a conformance **claim** wearing a flag's clothes. A member is
+  added by validating it.
+
+  **And the limitation is measured, not guessed**: with a RASTER logo the same
+  document fails exactly one veraPDF rule — ISO 19005‑2 clause 6.2.8 test 3,
+  because WeasyPrint marks an image `/Interpolate true` and PDF/A forbids it.
+  With an **SVG** logo it is compliant (144/0), because an SVG is drawn as paths.
+  So the remedy is real and is stated in the tool's own description: for an
+  archival document, use a vector logo. veraPDF is a ~300 MB Java validator and
+  is deliberately **not** a dependency of the suite — what the test asserts is
+  that the flag reached the engine and that an ordinary render does *not* claim
+  PDF/A, which is the half that can regress.
+- **HPDF‑7 — there is NO `deterministic` flag, because there is nothing to pin.**
+  Requirement 6 asks for byte-identical re-renders behind a flag. WeasyPrint 69
+  **embeds no creation date** and derives the document `/ID` from the content, so
+  the same template and data already give byte-identical output — verified across
+  two different `SOURCE_DATE_EPOCH` values, which is what establishes that there
+  is no clock in it rather than merely that two runs a second apart agree. A flag
+  would be a knob that did nothing, which is #113's shape, so the property is
+  **asserted** instead and the absence of the flag is written down.
+- **HPDF‑8 — the metadata block is the TEMPLATE's own.** WeasyPrint reads
+  `<title>`, `<meta name="author">` and the rest, and `--custom-metadata` carries
+  them into the PDF — so `{{title}}` in `<title>` composes with `doc_render`'s
+  existing `data` argument and requirement 1's "metadata block (title, author,
+  created)" needs no second argument. A `metadata` parameter would have been a
+  third place to say the same thing, and would have had to be injected into the
+  head by string surgery.
+- **The output key is unchanged**: `<key>.form.pdf` through `derive!`, as
+  `format: "pdf"` has always written. Same document, different engine — so
+  "Processed by", the derivation row and a re-run's versioning all behave exactly
+  as before.
+
+**Requirement 3 (DOCX → PDF through LibreOffice headless) is NOT built, and the
+reason is verifiability rather than effort.** `libreoffice` is unsupported on
+this project's own development platform — `nix build` on `aarch64-darwin` fails
+in the derivation's own `assert`, so the happy path cannot be exercised here at
+all — and it is roughly a gigabyte, which for the OCI image is the trade the
+container notes already declined twice (all tesseract languages for 63%, a slim
+variant for 23%). Shipping a conversion whose success path nothing has run is
+#119's shape exactly: a capability recorded as working on the strength of a
+claim. When it is built it should follow the OCR plugin's pattern — opt-in, not
+in the image, added through `extraPath` — and be verified on a Linux host.
+**Requirement 6 is satisfied by HPDF‑7** without a flag; requirements 4 and 5
+were already satisfied by `derive!` and the content-addressed store. So #88 has
+one requirement outstanding.
+
+### What the controls found
+
+Eight controls on the engine and 29 assertions over HTTP:
+
+- **Seven of the eight bit first time. The eighth did not, and the CONTROL was
+  wrong rather than the test**: it injected the clock into an HTML **comment**,
+  which is not rendered and therefore cannot reach the PDF. Moved into visible
+  content, it fails the determinism case immediately. A control has to change
+  what the renderer *draws*.
+- **A `refute` for a plaintext against an inlined document PASSES VACUOUSLY**,
+  and that is how the smoke's authorization case hid its own failure: the engine
+  had read a private document and base64'd it into the HTML, the refusal quoted
+  the `data:` URI — so the needle was right there, encoded, and the refutation
+  was green. The block refutes the **encoded** form beside the plain one now.
+- **THE RUNNER OF AN AUTHORIZATION FIXTURE MUST NOT BE THE OPERATOR.** That same
+  case first made the private document bob's and ran the workflow as alice, who
+  is the bootstrap operator — and an operator passes everything team-tier, so the
+  document really was read, exactly as designed, and the case failed against
+  correct code. The subject is alice's private document now and the run is bob's,
+  a plain member.
+- **Leaving two documents behind broke a visibility assertion 60 lines away.**
+  §8's knowledge graph extracts a bounded batch per run, so the two leftover
+  templates displaced the team-visible `inbox/auto/` scans out of it and carol
+  stopped being able to see Acme. §5h paid for this exact lesson one slice
+  earlier; the cleanup list now names every document the block creates.
+- **`pdftotext` breaks a laid-out line wherever the renderer did**, so the first
+  version of the acceptance case asserted a phrase the table had wrapped across
+  two lines and failed against a perfectly good document. Whitespace is
+  normalized before any text assertion.
+- **The XMP packet is a compressed stream.** Asserting `pdfaid` over the raw
+  bytes passes vacuously against a build that dropped the variant flag
+  altogether; the case decompresses with qpdf's QDF mode, as the AcroForm suite
+  does one directory along.

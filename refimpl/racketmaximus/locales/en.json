@@ -1939,6 +1939,10 @@
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
+    "doc.tool.doc_render.engine": {
+      "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents) or \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\". The HTML engine needs an HTML template and can inline a repository document as an image with src=\"repo:<object id>\".",
+      "hash": "ec7acc2f9ffcf209cefc277bcf050beab7384ce8"
+    },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
@@ -1966,6 +1970,14 @@
     "doc.route.get.api.beta.assets": {
       "text": "List the team's onboarding assets.",
       "hash": "20267ee4b84d7009da89c1736bcffcc39db17a42"
+    },
+    "doc.route.get.api.workflows": {
+      "text": "The team's workflow definitions, plugin-contributed ones materialized on first look.",
+      "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
+    },
+    "doc.tool.doc_render.pdf_variant": {
+      "text": "Ask the HTML engine for an archival PDF: \"pdf/a-2b\". A raster image makes the output non-conformant (the engine marks images Interpolate true, which PDF/A forbids) — use an SVG logo.",
+      "hash": "6a7a6b51e7ca8bfcbf162104cdcd1fcbdda37311"
     },
     "ui.wktoken": {
       "text": "worker token — shown once",
@@ -2130,10 +2142,6 @@
     "ui.wklocal": {
       "text": "local",
       "hash": "939bb46a04c3640c8c427e92b1b557e882e2d2a0"
-    },
-    "doc.route.get.api.workflows": {
-      "text": "The team's workflow definitions, plugin-contributed ones materialized on first look.",
-      "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
     },
     "ui.addtrigger": {
       "text": "Add trigger",

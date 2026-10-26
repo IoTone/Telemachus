@@ -1095,6 +1095,187 @@ curl -s -X DELETE "$B/api/repo-obj/$FPDF?cascade=1" -H "Authorization: Bearer $T
 fi
 echo
 
+echo "== 5j. a branded, paged document out of HTML and CSS (#88 req 1, HPDF-1…8) ====="
+# The documents a downstream customer actually receives: a logo, a table whose
+# cells wrap, and "Page X of Y" — all of it the TEMPLATE's own CSS. The LaTeX
+# path (DWF-6) renders text well and expresses none of that.
+#
+# Found at CALL time, so a box without weasyprint is a SUPPORTED box and this
+# block asserts the named refusal there instead of skipping silently.
+cat > "$TELEMACHUS_DATA_DIR/logo.svg" <<'SVG'
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#334455"/></svg>
+SVG
+WLOGO=$(up brand/logo.svg image/svg+xml "$TELEMACHUS_DATA_DIR/logo.svg" | jq_ 'd["id"]')
+
+# The template is a repository document, versioned and access-controlled, which
+# is requirement 4 — and the logo is reached BY OBJECT ID, which is requirement
+# 1's "images from repo objects by id". A scheme rather than a path, because
+# every reference has to be resolvable BEFORE anything runs: each one is read as
+# the caller and inlined, and then the renderer is allowed to fetch nothing else.
+python3 - "$TELEMACHUS_DATA_DIR/report.html" "$WLOGO" <<'PY'
+import sys
+path, logo = sys.argv[1], sys.argv[2]
+rows = "".join(
+    "<tr><td>SKU-%04d</td><td class='wrap'>A deliberately long description that has to wrap "
+    "inside its cell several times over, so the row grows taller than one line and the table "
+    "has to break across a page boundary. Row %d.</td><td>%d.00</td></tr>" % (i, i, i * 7)
+    for i in range(1, 41))
+open(path, "w").write("""<!doctype html><html><head><meta charset="utf-8">
+<title>{{title}}</title><meta name="author" content="{{author}}">
+<style>
+@page { size: A4; margin: 2.2cm 2cm 2.4cm 2cm;
+  @top-left { content: element(brandhdr); }
+  @bottom-center { content: "Page " counter(page) " of " counter(pages); font: 9pt sans-serif; } }
+#brandhdr { position: running(brandhdr); font: 10pt sans-serif; }
+body { font: 10.5pt/1.45 serif; }
+table { width: 100%%; border-collapse: collapse; }
+th, td { border: 1px solid #bbb; padding: 4pt 6pt; vertical-align: top; text-align: left; }
+td.wrap { width: 55%%; }
+</style></head><body>
+<div id="brandhdr"><img src="repo:%s" width="16" height="16"> {{author}}</div>
+<h1>{{title}}</h1>
+<table><thead><tr><th>Item</th><th class="wrap">Description</th><th>Amount</th></tr></thead>
+<tbody>%s</tbody></table></body></html>
+""" % (logo, rows))
+PY
+WTPL=$(up templates/report.html text/html "$TELEMACHUS_DATA_DIR/report.html" | jq_ 'd["id"]')
+printf 'the source this report is about\n' > "$TELEMACHUS_DATA_DIR/w-src.txt"
+WSRC=$(up wk/source.txt text/plain "$TELEMACHUS_DATA_DIR/w-src.txt" | jq_ 'd["id"]')
+
+WWF='{"spec":1,"slug":"brand-report","input":{"object_id":"string","template":"string","engine":"string","variant":"string"},"steps":[
+  {"id":"doc","uses":"tool:doc_render","with":{"template":"${input.template}","object":"${input.object_id}",
+   "format":"pdf","engine":"${input.engine}","pdf_variant":"${input.variant}",
+   "data":{"title":"Acme Service Report","author":"Acme Operations"},
+   "run":"${run.id}","step":"doc"},"end":true}]}'
+assert "the branded-report spec published" "$(P /api/workflows "$WWF")" '"slug":"brand-report"'
+
+WR=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WTPL\",\"engine\":\"weasyprint\",\"variant\":\"\"}}")
+wait_run "$(printf '%s' "$WR" | grep -oP '"id":"\K[^"]+' | head -1)"
+
+if ! command -v weasyprint >/dev/null 2>&1; then
+  assert "with no engine on PATH the one call is refused by name" "$RUNJSON" 'needs weasyprint'
+else
+  assert "the branded report renders"        "$RUNST" done
+  assert "…as a PDF beside the source"       "$RUNJSON" 'wk/source.txt.form.pdf'
+  assert "…and says which engine answered"   "$RUNJSON" '"engine":"weasyprint"'
+  WLIST=$(G "/api/repo?prefix=wk/source.txt.form.pdf")
+  assert "…typed as a PDF"                   "$WLIST" '"content_type":"application/pdf"'
+  WPID=$(printf '%s' "$WLIST" | jq_ 'd["objects"][0]["id"]')
+  curl -s "$B/api/repo-obj/$WPID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/report.pdf"
+  assert "it really is a PDF"                "$(head -c 4 "$TELEMACHUS_DATA_DIR/report.pdf")" '%PDF'
+  if command -v pdftotext >/dev/null 2>&1; then
+    WTXT=$(pdftotext "$TELEMACHUS_DATA_DIR/report.pdf" - | tr -s '[:space:]' ' ')
+    # THE ACCEPTANCE CRITERION, over HTTP: the data reached the template, the
+    # table broke across pages, the running header repeats, and the page TOTAL is
+    # right — `counter(pages)`, which is the thing the LaTeX path and Chromium
+    # headless both cannot express.
+    assert "the data reached the template"     "$WTXT" 'Acme Service Report'
+    assert "…the table ran past one page"      "$WTXT" 'Page 2 of'
+    assert "…the last row is there"            "$WTXT" 'Row 40'
+    assert "…and the long cells wrapped"       "$WTXT" 'wrap inside its cell'
+    differ "the page total is not one page" "$(printf '%s' "$WTXT" | grep -o 'Page 1 of [0-9]*' | head -1)" "Page 1 of 1"
+  fi
+
+  # ARCHIVAL OUTPUT. The variant is a closed vocabulary of ONE, because one is
+  # what was put through a validator — veraPDF 1.30.2, 144 rules passed, on this
+  # same document with its SVG logo. A raster logo fails clause 6.2.8 (the engine
+  # marks images Interpolate true), which is why the fixture's logo is vector.
+  WR2=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WTPL\",\"engine\":\"weasyprint\",\"variant\":\"pdf/a-2b\"}}")
+  wait_run "$(printf '%s' "$WR2" | grep -oP '"id":"\K[^"]+' | head -1)"
+  assert "an archival render succeeds"       "$RUNST" done
+  assert "…and reports the variant"          "$RUNJSON" '"pdf_variant":"pdf/a-2b"'
+
+  WR3=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WTPL\",\"engine\":\"weasyprint\",\"variant\":\"pdf/x-4\"}}")
+  wait_run "$(printf '%s' "$WR3" | grep -oP '"id":"\K[^"]+' | head -1)"
+  assert "a variant nobody validated is refused" "$RUNST" error
+  assert "…and the refusal lists what is offered" "$RUNJSON" 'pdf/a-2b'
+
+  # THE SANDBOX, over HTTP. weasyprint logs a resource it refused and EXITS 0, so
+  # without reading its log this would hand a customer a report with a hole where
+  # the logo was. A template may reach a repository document by id and nothing
+  # else — no network, no local file.
+  python3 - "$TELEMACHUS_DATA_DIR/evil.html" <<'PY'
+import sys
+open(sys.argv[1], "w").write(
+    '<!doctype html><html><head><meta charset="utf-8"><title>{{title}}</title></head>'
+    '<body><img src="file:///etc/hosts" alt="local"><p>{{title}}</p></body></html>\n')
+PY
+  WEVIL=$(up templates/evil.html text/html "$TELEMACHUS_DATA_DIR/evil.html" | jq_ 'd["id"]')
+  WR4=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WEVIL\",\"engine\":\"weasyprint\",\"variant\":\"\"}}")
+  wait_run "$(printf '%s' "$WR4" | grep -oP '"id":"\K[^"]+' | head -1)"
+  assert "a template reaching a local file is refused"  "$RUNST" error
+  assert "…and the refusal says what a template may reach" "$RUNJSON" 'repo:<object id>'
+  refute "…without quoting the file it wanted"          "$RUNJSON" 'root:'
+
+  # AND THE HALF ONLY HTTP CAN ASSERT: each reference is read AS THE CALLER, so a
+  # template cannot inline a document the RUNNER may not read. A template that
+  # could reach any object by id would be a way straight past the repository's
+  # own gate, since a template is data somebody else may have authored.
+  #
+  # THE RUNNER HAS TO BE BOB, and the first version of this case got it wrong:
+  # it made the document bob's and ran as alice, who is the BOOTSTRAP OPERATOR —
+  # and an operator passes everything team-tier, so the private document really
+  # was read, exactly as designed, and the case failed against correct code. The
+  # subject is alice's private document now and the run is bob's, a plain member.
+  printf 'ALICEONLYNEEDLE kept private\n' > "$TELEMACHUS_DATA_DIR/w-priv.txt"
+  WPRIV=$(curl -s -X PUT "$B/api/repo/alices/private.txt?visibility=private" \
+            -H "Authorization: Bearer $TOK" -H "Content-Type: text/plain" \
+            --data-binary @"$TELEMACHUS_DATA_DIR/w-priv.txt" | jq_ 'd["id"]')
+  assert "alice's document really is private" \
+    "$(G "/api/repo-obj/$WPRIV")" '"visibility":"private"'
+  refute "…and bob cannot read it directly" \
+    "$(curl -s "$B/api/repo-obj/$WPRIV/content" -H "Authorization: Bearer $BOB")" 'ALICEONLYNEEDLE'
+  python3 - "$TELEMACHUS_DATA_DIR/peek.html" "$WPRIV" <<'PY'
+import sys
+open(sys.argv[1], "w").write(
+    '<!doctype html><html><head><meta charset="utf-8"><title>{{title}}</title></head>'
+    '<body><img src="repo:%s"><p>{{title}}</p></body></html>\n' % sys.argv[2])
+PY
+  WPEEK=$(up templates/peek.html text/html "$TELEMACHUS_DATA_DIR/peek.html" | jq_ 'd["id"]')
+  WR5=$(curl -s -X POST "$B/api/workflows/brand-report/run" -H "Authorization: Bearer $BOB" \
+          -d "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WPEEK\",\"engine\":\"weasyprint\",\"variant\":\"\"}}")
+  wait_run "$(printf '%s' "$WR5" | grep -oP '"id":"\K[^"]+' | head -1)"
+  assert "a template cannot inline a document the runner may not read" "$RUNST" error
+  assert "…and says so by id, not by content" "$RUNJSON" 'not a document you can read'
+  refute "…quoting none of it"                "$RUNJSON" 'ALICEONLYNEEDLE'
+  # A `refute` FOR A PLAINTEXT AGAINST AN INLINED DOCUMENT PASSES VACUOUSLY, and
+  # that is how the first version of this case hid its own failure: the engine
+  # HAD read the private document and base64'd it into the HTML, and the refusal
+  # quoted the data: URI — so the needle was right there, encoded, and the
+  # refutation was green. Refute the ENCODED form beside the plain one.
+  WB64=$(python3 -c 'import base64,sys;print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$TELEMACHUS_DATA_DIR/w-priv.txt")
+  refute "…nor a base64 copy of it"           "$RUNJSON" "$WB64"
+  curl -s -X DELETE "$B/api/repo-obj/$WPRIV?cascade=1" -H "Authorization: Bearer $TOK" >/dev/null
+fi
+
+# THE REFUSALS THAT NEED NO ENGINE, so they are asserted either way: the HTML
+# engine needs an HTML template (its whole point is the template's own @page CSS,
+# which Markdown does not carry), and the two knobs belong to a format and an
+# engine respectively.
+WR6=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"templates/approval.md\",\"engine\":\"weasyprint\",\"variant\":\"\"}}")
+wait_run "$(printf '%s' "$WR6" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "a Markdown template is refused by the HTML engine" "$RUNST" error
+assert "…and the refusal says why"                         "$RUNJSON" 'needs an HTML template'
+
+WR7=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WTPL\",\"engine\":\"netscape\",\"variant\":\"\"}}")
+wait_run "$(printf '%s' "$WR7" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "an unknown engine is refused"        "$RUNST" error
+assert "…listing the ones there are"         "$RUNJSON" 'latex, weasyprint'
+
+# THE BLOCK REMOVES ITS OWN DOCUMENTS, and leaving two behind is how this block
+# first failed — §8's knowledge graph extracts a BOUNDED batch per run, so the
+# two leftover templates displaced the team-visible `inbox/auto/` scans out of
+# it and carol stopped being able to see Acme: a VISIBILITY assertion 60 lines
+# away failing because this section added documents. §5h paid for the same
+# lesson; every name below is one somebody forgot once.
+for id in "$WTPL" "$WSRC" "$WLOGO" "$WEVIL" "$WPEEK"; do
+  [ -n "$id" ] || continue
+  curl -s -X DELETE "$B/api/repo-obj/$id?cascade=1" -H "Authorization: Bearer $TOK" >/dev/null
+done
+assert "the block removed its own documents" \
+  "$(G "/api/repo?prefix=wk/source.txt")" '"objects":[]'
+echo
+
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

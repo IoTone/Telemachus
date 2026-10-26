@@ -179,7 +179,14 @@ the two tools the developer e-book had already pinned in `flake.nix` and that th
 packaged server carries on its PATH. The toolchain is looked up at call time, so
 a box without it boots and renders every other format; the one PDF call fails by
 name. A DOCX template is refused rather than converted — LibreOffice is not a
-dependency this platform takes on (DWF‑6).
+dependency this platform takes on (DWF‑6). **A second PDF engine came with
+issue #88 requirement 1** (decisions HPDF‑1…8): `engine: "weasyprint"` renders an
+HTML template's own CSS — `@page` margins, `position: running()` headers and
+footers, `counter(pages)` for "Page X of Y" — and takes `pdf_variant: "pdf/a-2b"`
+for an archival document. `latex` stays the default, so `format: "pdf"` keeps
+meaning what it has meant. A template reaches a repository document as
+`repo:<object id>`, read as the caller and inlined, which is what lets the
+renderer run with `--allowed-protocols data` and reach nothing else.
 
 **`doc_fill_form`** — the other direction, and a different thing: `doc_render`
 fills a template THIS platform's user authored, while this fills the AcroForm

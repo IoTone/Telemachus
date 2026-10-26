@@ -2004,6 +2004,10 @@
       "text": "稼働中",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
+    "doc.tool.doc_render.engine": {
+      "text": "format が \"pdf\" のときに使う PDF エンジン：\"latex\"（既定 — pandoc と tectonic。文章中心の文書に向く）または \"weasyprint\"。後者は HTML テンプレート自身の CSS を解釈し、@page の余白、ページをまたぐヘッダーとフッター、\"Page X of Y\" を描画します。HTML エンジンは HTML テンプレートを必要とし、src=\"repo:<オブジェクト ID>\" でリポジトリの文書を画像として埋め込めます。",
+      "hash": "ec7acc2f9ffcf209cefc277bcf050beab7384ce8"
+    },
     "doc.route.get.api.org.branding": {
       "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",
       "hash": "ed143a926240ffabe318645984be613401b30646"
@@ -2203,6 +2207,10 @@
     "doc.route.get.api.workflows": {
       "text": "チームのワークフロー定義。プラグイン提供のものは初回参照時に実体化されます。",
       "hash": "7348c6143d9e42c79aa830e246c87c79c6ec3417"
+    },
+    "doc.tool.doc_render.pdf_variant": {
+      "text": "HTML エンジンに保存用 PDF を要求します：\"pdf/a-2b\"。ラスター画像があると出力は規格に適合しません（エンジンが画像に Interpolate true を付け、PDF/A はこれを禁じています）— ロゴには SVG を使ってください。",
+      "hash": "6a7a6b51e7ca8bfcbf162104cdcd1fcbdda37311"
     },
     "ui.wktoken": {
       "text": "ワーカートークン — 一度だけ表示",
