@@ -1808,8 +1808,60 @@
     (lambda (conn)
       (exec* conn "ALTER TABLE doc_triggers ADD COLUMN match_attrs TEXT NOT NULL DEFAULT '{}'"))))
 
+(define m-0061-redactions
+  (migration "0061-redactions"
+    (lambda (conn)
+      ;; issue #91 requirement 1. A redaction replaces the identifiers in a
+      ;; document's text with stable tokens so a model request can be built from
+      ;; what is left; this row is the MAP BACK, which requirement 2 will use to
+      ;; rehydrate a result.
+      ;;
+      ;; `token_map` IS THE MOST SENSITIVE COLUMN THIS SCHEMA HAS, and it is
+      ;; sealed through `#:credential` — whenever a key exists, never gated on
+      ;; `TELEMACHUS_ENCRYPT_CONTENT` (RED-5). The flag is named for credentials
+      ;; because #85's signing secret is what earned it (ENC-23), but the property
+      ;; it names is "seal whenever a key is configured", and this is the clearest
+      ;; case of needing that property which is not a credential: a column holding
+      ;; `<PERSON_1> -> Arun Patel` for every person in every redacted document is
+      ;; a concordance of exactly the identifiers the step exists to keep out of a
+      ;; model request. Under the content switch — whose documented default is OFF
+      ;; — the feature would store them in the clear on the ordinary instance, and
+      ;; a feature that quietly does the opposite of its name on the default
+      ;; configuration is #119's shape.
+      ;;
+      ;; It is in `CREDENTIAL-SECRETS` for the same reason, and for a second one
+      ;; the schedule-payload note already states: a sealed column `rewrap` does
+      ;; not walk is silently unrotatable, and here that means every stored map
+      ;; stops opening the first time an operator rotates the key — so every
+      ;; redacted document becomes permanently un-rehydratable.
+      (exec* conn (string-append
+        "CREATE TABLE repo_redactions ("
+        "  id TEXT PRIMARY KEY,"
+        "  object_id TEXT NOT NULL,"
+        ;; the version the text was read from: a redaction is about a set of
+        ;; bytes, so a new version gets its own row rather than superseding this
+        ;; one, and a map is never applied to text it was not made from
+        "  version_id TEXT NOT NULL,"
+        ;; denormalized, as the annotations table does it, so a listing and the
+        ;; audit trail do not depend on a join to a row an erasure may remove
+        "  team_id TEXT NOT NULL,"
+        "  created_by TEXT NOT NULL,"
+        ;; the detector names that RAN, as JSON — requirement 5's report is counts
+        ;; per detector, and a count with no list beside it cannot distinguish a
+        ;; detector that found nothing from one nobody asked for
+        "  detectors TEXT NOT NULL,"
+        "  counts TEXT NOT NULL,"
+        ;; SEALED. token -> value.
+        "  token_map TEXT NOT NULL,"
+        ;; the derived `<key>.redacted.txt`, so the row and the document that came
+        ;; out of it can find each other
+        "  redacted_object_id TEXT,"
+        "  created_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_redactions_object ON repo_redactions (object_id, version_id)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_redactions_team ON repo_redactions (team_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
                              m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts
-                             m-0059-feed-items m-0060-trigger-attrs))
+                             m-0059-feed-items m-0060-trigger-attrs m-0061-redactions))

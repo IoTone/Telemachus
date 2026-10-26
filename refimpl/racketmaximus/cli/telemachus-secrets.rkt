@@ -41,7 +41,18 @@
         (list "webhooks"          "secret"      "id" "webhooks.secret")
         ;; #114: a feed's API token, replayed against somebody else's source.
         ;; Nullable — a public feed has none — and `rows-of` filters NULLs out.
-        (list "feeds"             "secret"      "id" "feeds.secret")))
+        (list "feeds"             "secret"      "id" "feeds.secret")
+        ;; #91: a redaction's token -> value map. NOT a credential, and here
+        ;; nonetheless, because what `#:credential` really names is "seal whenever
+        ;; a key is configured" and this column needs that more than anything else
+        ;; in the schema: it is a concordance of the identifiers a redaction took
+        ;; OUT of a model request. Under the content switch, whose documented
+        ;; default is off, the ordinary instance would store them in the clear.
+        ;; Listed here rather than in CONTENT-SECRETS for the second reason the
+        ;; schedule payload gives: a sealed column `rewrap` does not walk is
+        ;; silently unrotatable, and an unopenable map is a redacted document that
+        ;; can never be rehydrated again.
+        (list "repo_redactions"   "token_map"   "id" "repo_redactions.token_map")))
 
 ;; Document-derived CONTENT (issue #83), which is a different kind of thing and
 ;; is therefore conditional. The three above are replayable credentials: if a key

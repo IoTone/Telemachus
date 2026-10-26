@@ -184,6 +184,10 @@
       "text": "判定の対象となる文書の種類 — 答えになり得るのはこの中のいずれかだけです",
       "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
     },
+    "doc.tool.doc_redact": {
+      "text": "文書テキスト中の識別子を安定したトークン — <PERSON_1>、<DATE_2>、<ID_3> — に置き換え、残りからモデルへの要求を組み立てられるようにする。検出器は呼び出し側が記述するのではなく名前で選びます: email、date、id_number、dictionary（語句は呼び出し側が渡します）、phone。置き換え後のテキストは元文書の隣に <key>.redacted.txt として書き出し、トークンから値へ戻す対応表は、どのエンドポイントも返さない封緘済みの行に保存します。検出器ごとの件数を報告するため、取りこぼしが見て分かります。",
+      "hash": "98a1e3c430ab182a5f9c1637999bc1ac4fadb90c"
+    },
     "doc.route.put.api.org.branding": {
       "text": "会社のタイトル・タグライン・ロゴ・テーマを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。テーマトークンはインスタンスの場合とまったく同じように検証され、コントラストの下限で制限されます。",
       "hash": "999005b24f8ad5bf7e9099934d4fedd77ee9f5af"
@@ -392,6 +396,10 @@
       "text": "チーム — チーム全員",
       "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
     },
+    "doc.tool.doc_redact.terms": {
+      "text": "dictionary 検出器が置き換える名前や語句そのもの — パターンではありません",
+      "hash": "8a0dc997dfe2e3dbdf8cde64c32811f94d52f7e2"
+    },
     "doc.route.get.api.orgs": {
       "text": "インスタンス上のすべての組織をリスト表示します。",
       "hash": "d64a348a2f5fb560e61a69808000eddd7aefe1c5"
@@ -555,6 +563,10 @@
     "doc.route.patch.api.schedules.id": {
       "text": "スケジュールを調整する: `cadence`、`interval_seconds`、`at_minute`、`days_of_week`、`timezone`、`paused`、`payload`、`priority`、`name`。検証は変更後の状態に対して行われるため、`daily` への切り替えと `at_minute` を同じリクエストで送るのは受け付けられ、`at_minute` なしの切り替えは拒否されます — パッチで作成できない状態に到達することはありません。実行タイミングに関わる変更は次回実行を再計算します。古い時刻で一度実行してから編集に従う、という挙動にはなりません。プリンシパルは変更できません: タイマーが誰の権限を使うかを変えることは編集ではなく新しいスケジュールです。一時停止を解除すると、見送ったティックをまとめて実行するのではなく次回実行が先に進みます。",
       "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
+    },
+    "doc.tool.doc_redact.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "doc.route.delete.api.schedules.id": {
       "text": "ジョブスケジュールを削除する。すでに投入されたジョブは通常のジョブであり、影響を受けません。",
@@ -872,6 +884,10 @@
       "text": "アップロードされた文書を処理：テキストを抽出し、JSONスキーマに従って構造化フィールドを取得（適合しない場合は拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳します。すべての出力はソースと共にレポジトリ文書で、元情報が示されます。",
       "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
     },
+    "doc.workflow.redact-document.name": {
+      "text": "文書の識別子を伏せる",
+      "hash": "6c2e84156592c3c7dab75d044b5a5769eca82e75"
+    },
     "doc.route.get.api.repo-fields": {
       "text": "チームのオブジェクトメタデータ項目：ドキュメントに付与できる情報（プロジェクト、場所、期間、ステータスなど）。検証は required / digits / minlength / maxlength のみで、正規表現は使いません。",
       "hash": "3739bcc1b3eff310696351eccabb917b6928aae6"
@@ -975,6 +991,10 @@
     "doc.tool.doc_translate.locale": {
       "text": "目標言語コード、例：ja, nl, es-419",
       "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
+    },
+    "doc.tool.doc_redact.object": {
+      "text": "リポジトリオブジェクトID",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
     },
     "ui.wkreports": {
       "text": "申告",
@@ -1564,6 +1584,10 @@
       "text": "呼び出し元自身の永続的な設定を更新する: `locale` と `timezone`（IANA ゾーン名、例: \"Europe/London\"）。どちらか一方だけでも送信できます。未知のタイムゾーンは暗黙に置き換えられず拒否されます — 入力ミスで黙って UTC を割り当てられた人は、間違った時刻に届いたレポートで初めて気づくことになります。応答には有効なタイムゾーンと、どの層がそれを決めたかが含まれます。",
       "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
     },
+    "doc.tool.doc_redact.detectors": {
+      "text": "実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて。dictionary には語句が必要です）",
+      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
+    },
     "ui.sharedwithme": {
       "text": "自分に共有されたもの",
       "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
@@ -1651,6 +1675,10 @@
     "ui.requestaccess": {
       "text": "アクセスを申請",
       "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
+    },
+    "doc.tool.doc_redact.text": {
+      "text": "伏せる対象のテキスト（既定では文書から抽出します）",
+      "hash": "bc9c214cdd7be95926687368818eae49655666eb"
     },
     "doc.tool.chat_message": {
       "text": "モデルにチャットメッセージを1つ送り、その返答を返す。",
@@ -1811,6 +1839,10 @@
     "doc.route.post.api.tools.name": {
       "text": "チーム用のツールを有効にする/無効にする",
       "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
+    },
+    "doc.tool.doc_redact.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "doc.route.post.api.repo-obj.id.visibility": {
       "text": "プライベート、チームまたは共有に設定します。",
@@ -2167,6 +2199,10 @@
     "ui.qualify": {
       "text": "承認",
       "hash": "d8be1dde249c69ada1a96d5946aed689468a43f2"
+    },
+    "doc.workflow.redact-document": {
+      "text": "文書テキスト中の識別子を安定したトークンに置き換え、その結果を元文書の隣に <key>.redacted.txt として書き出す。モデルへの要求が何から組み立てられるのかを、そのまま読んで確認できます。検出器は名前で選び — email、date、id_number、dictionary、phone — トークンから値へ戻す対応表は、どのエンドポイントも返さない封緘済みの行に保存します。",
+      "hash": "49c3b31b6e701e0b72e0e02d247f51293847bb3a"
     },
     "ui.title": {
       "text": "タイトル",

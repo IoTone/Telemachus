@@ -159,6 +159,14 @@
       "text": "Delete a team.",
       "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
     },
+    "doc.tool.doc_classify.labels": {
+      "text": "The document types to choose between — one of these, and nothing else, can be the answer",
+      "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
+    },
+    "doc.tool.doc_redact": {
+      "text": "Replace the identifiers in a document's text with stable tokens — <PERSON_1>, <DATE_2>, <ID_3> — so a model request can be built from what is left. Detectors are named, not written by the caller: email, date, id_number, dictionary (terms you supply) and phone. Writes the redacted text beside the source as <key>.redacted.txt and keeps the map from token back to value in a sealed row that no endpoint returns. Reports counts per detector, so under-redaction is visible.",
+      "hash": "98a1e3c430ab182a5f9c1637999bc1ac4fadb90c"
+    },
     "doc.plugin.ocr": {
       "text": "Reads text out of photographs and scanned PDFs with Tesseract, with per-word page and region provenance.",
       "hash": "4dd6c30cfb3a60fd83ac3f1696330bd4bc6c45d4"
@@ -170,10 +178,6 @@
     "doc.tool.doc_list_unclassified.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
-    },
-    "doc.tool.doc_classify.labels": {
-      "text": "The document types to choose between — one of these, and nothing else, can be the answer",
-      "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
     },
     "doc.workflow.process-upload": {
       "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
@@ -378,6 +382,10 @@
     "ui.vis_team": {
       "text": "Team — everyone on this team",
       "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
+    },
+    "doc.tool.doc_redact.terms": {
+      "text": "Literal names or phrases the dictionary detector should replace — not patterns",
+      "hash": "8a0dc997dfe2e3dbdf8cde64c32811f94d52f7e2"
     },
     "doc.route.get.api.orgs": {
       "text": "List every org on the instance.",
@@ -739,6 +747,14 @@
       "text": "Enable",
       "hash": "20063ad9053289cecaa20ae630ed2dd758282a07"
     },
+    "doc.plugin.doc-pipeline": {
+      "text": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
+      "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
+    },
+    "doc.workflow.redact-document.name": {
+      "text": "Redact a document",
+      "hash": "6c2e84156592c3c7dab75d044b5a5769eca82e75"
+    },
     "ui.wklastseen": {
       "text": "last seen",
       "hash": "34070b8506d76fea3faf86d7e87fff38fa8d907c"
@@ -746,10 +762,6 @@
     "ui.l10ncoverage": {
       "text": "Coverage",
       "hash": "80e13549b47a4dfc6e898a282920091b209c78be"
-    },
-    "doc.plugin.doc-pipeline": {
-      "text": "Process an uploaded document: extract its text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
-      "hash": "c9b9762ad18d537059b785fffcd94955ff92dd45"
     },
     "doc.route.get.api.repo-fields": {
       "text": "The team's object metadata fields: what a document may be tagged with (project, location, period, status…). Validation is required/digits/minlength/maxlength, never a regex.",
@@ -851,6 +863,14 @@
       "text": "a valid email is required",
       "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
     },
+    "doc.tool.doc_translate.locale": {
+      "text": "Target language code, e.g. ja, nl, es-419",
+      "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
+    },
+    "doc.tool.doc_redact.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
     "ui.wkgotit": {
       "text": "Got it",
       "hash": "5b8027fa0e819719a62305a6b15f3f1c10769f7f"
@@ -858,10 +878,6 @@
     "ui.updated": {
       "text": "Updated",
       "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
-    },
-    "doc.tool.doc_translate.locale": {
-      "text": "Target language code, e.g. ja, nl, es-419",
-      "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
     },
     "ui.fires": {
       "text": "History",
@@ -1343,6 +1359,14 @@
       "text": "Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not.",
       "hash": "60247ae2461e8f3963ef7a63792bbadf58d0ab28"
     },
+    "doc.route.post.api.profile": {
+      "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
+      "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
+    },
+    "doc.tool.doc_redact.detectors": {
+      "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
+      "hash": "9995fe44288c76e96f3ae9c3408a6e689cb17fd9"
+    },
     "doc.route.post.api.repo-obj.id.annotations": {
       "text": "Mark a place: `kind` (`note`, which needs a `body`, or `highlight`, which does not), plus a `bbox` of four numbers with its `page`, a `start`/`end` character range into the extracted text, or both. ANYONE WHO MAY READ THE DOCUMENT MAY ANNOTATE IT — a specialist handed a document to review holds the `view` capability, and a review surface they cannot mark up is not one; nothing about the document changes and the row records whose observation it is. Binds to the current version unless `version_id` names another of this document's own; `review_id` links the region to a review decision.",
       "hash": "c291506c0a9d9972e2acb149acfbaedb79850974"
@@ -1471,10 +1495,6 @@
       "text": "Only documents whose key starts with this (default: every document in the team)",
       "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
     },
-    "doc.route.post.api.profile": {
-      "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
-      "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
-    },
     "ui.sharedwithme": {
       "text": "Shared with me",
       "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
@@ -1550,6 +1570,10 @@
     "ui.requestaccess": {
       "text": "Request access",
       "hash": "859ca6c24228b6fe9c9010bed75d2933884d7b49"
+    },
+    "doc.tool.doc_redact.text": {
+      "text": "The text to redact (default: extracted from the document)",
+      "hash": "bc9c214cdd7be95926687368818eae49655666eb"
     },
     "doc.route.get.api.org.timezone": {
       "text": "The company's own default timezone, the instance's, and what a member of this company gets when they have set none themselves.",
@@ -1734,6 +1758,10 @@
     "doc.route.post.api.tools.name": {
       "text": "Enable or disable a tool for the team.",
       "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
+    },
+    "doc.tool.doc_redact.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "doc.route.post.api.repo-obj.id.visibility": {
       "text": "Set private, team or shared.",
@@ -2110,6 +2138,10 @@
     "ui.qualify": {
       "text": "Qualify",
       "hash": "d8be1dde249c69ada1a96d5946aed689468a43f2"
+    },
+    "doc.workflow.redact-document": {
+      "text": "Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns.",
+      "hash": "49c3b31b6e701e0b72e0e02d247f51293847bb3a"
     },
     "ui.title": {
       "text": "Title",
@@ -3070,6 +3102,10 @@
     "doc.route.patch.api.schedules.id": {
       "text": "Retune a schedule: `cadence`, `interval_seconds`, `at_minute`, `days_of_week`, `timezone`, `paused`, `payload`, `priority`, `name`. The schedule is validated AS IT WOULD BE, so switching to `daily` in the same request that supplies `at_minute` is accepted and switching without one is refused — a patch cannot reach a state a create could not. Any change to WHEN recomputes the next firing, rather than firing once at the old time and only then obeying the edit. The PRINCIPAL cannot be patched: changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing forward instead of catching up on every tick it missed.",
       "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
+    },
+    "doc.tool.doc_redact.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     }
   }
 }

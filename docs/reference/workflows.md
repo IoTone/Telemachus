@@ -11,6 +11,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | `index-documents` | doc-indexer | 1 | 2 | Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run. |
 | `index-knowledge` | knowledge-graph | 1 | 2 | Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run. |
 | `process-upload` | doc-pipeline | 1 | 6 | Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance. |
+| `redact-document` | doc-pipeline | 1 | 1 | Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns. |
 | `translate-chat` | translate-chat | 1 | 3 | Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back. |
 
 ## `classify-and-extract` — Classify a document, then extract its fields
@@ -173,6 +174,26 @@ Steps:
 | `form` | `tool:doc_render` | `{"data":"${steps.fields.output.result.fields}","object":"${input.object_id}","run":"${run.id}","step":"form","template":"${input.template}"}` | next in order |
 | `translate_form` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${steps.form.output.result.object_id}","run":"${run.id}","step":"translate"}` | end |
 | `translate_source` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${input.object_id}","run":"${run.id}","step":"translate"}` | end |
+
+## `redact-document` — Redact a document
+
+Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns.
+
+Plugin: `doc-pipeline` · version 1 · max steps 5 · starts at `redact`
+
+Input:
+
+| Name | Type |
+|---|---|
+| `detectors` | array |
+| `object_id` | string |
+| `terms` | array |
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `redact` | `tool:doc_redact` | `{"detectors":"${input.detectors}","object":"${input.object_id}","run":"${run.id}","step":"redact","terms":"${input.terms}"}` | end |
 
 ## `translate-chat` — Translate Chat Workflow
 

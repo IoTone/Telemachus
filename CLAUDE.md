@@ -2448,6 +2448,117 @@ bash test/doc-pipeline-smoke.sh          # the "== 5e." block, 36 assertions
   backend (**req 2c**), which needs an embedding wire, store and meter this build
   does not have and belongs in its own issue. Everything else on #87 is done.
 
+## What the model is NOT told: redaction (RED‑1…9, issue #91 req 1)
+
+Built 25 Oct 2026 — requirements 1 and 5 of #91. `domain/repo/redact.rkt` (the
+detectors, pure of the repository), `domain/repo/redactions.rkt` (the sealed row),
+`doc_redact` in doc-tools.rkt, migration `0061-redactions`, and a one-step
+`redact-document` spec. Requirements 2, 3 and 4 — `redact: true` on the AI steps
+with rehydration, executor request logging, and the per-org block on unredacted
+text reaching a disallowed executor — are later slices.
+
+```sh
+raco test test/redact-tests.rkt test/dump-leak-tests.rkt   # 16 + 7 cases, eleven controls
+bash test/doc-pipeline-smoke.sh                            # the "== 5f." block, 26 assertions
+```
+
+- **THE DETECTORS ARE NAMED, NOT WRITTEN** (RED‑1). The requirement says "regex
+  (emails, phones, SSN-like, …)" and those are the CLASSES to find, not a
+  facility for writing patterns: an operator-authored regexp run against the text
+  of a document the operator does not control is a denial of service with the
+  operator's own configuration as the weapon — CLS‑2's call, `fields.rkt`'s and
+  `bind.rkt`'s. Here it costs the caller nothing: nobody wants to write an email
+  pattern. The refusal says WHY it is closed, because "let me write my own" is the
+  obvious next request. **An NER backend is requirement 1's optional third
+  detector and is not built** — it would make redaction cost a model request,
+  which is what redaction exists to make safe.
+- **`dictionary` TERMS ARE LITERAL STRINGS**, `regexp-quote`d, so a term with
+  metacharacters in it is a term. And **its token is keyed on the TERM, not the
+  matched text**: a term matches case-insensitively, so "Lee" and "LEE" are one
+  person, and keying on the match gave them two tokens — the model shown two
+  people where the caller named one. The test found it.
+- **A TOKEN IS STABLE WITHIN ONE DOCUMENT AND DELIBERATELY NOT ACROSS THEM**
+  (RED‑2). Within, because that is the whole reason a span becomes a token rather
+  than a black box — the model can see one person appears three times. Across,
+  never: a token meaning the same person everywhere is a PSEUDONYM, and a
+  pseudonym is a join key, so two redacted documents would tell their reader they
+  concern the same person.
+- **THE DETECTOR LIST IS THE PRIORITY ORDER, LOOSEST LAST** (RED‑3), with overlaps
+  settled by the longest match and ties by that order — never by the order the
+  caller named them, or the same document redacted by two callers would come back
+  differently. `phone` is last because it is loose by a wide margin, and with it
+  first the fixture's `2026-10-14` came back `<PHONE_1>` and its `078-05-1120`
+  `<PHONE_3>`: the redaction was complete, and the **quality report** was wrong
+  about a letter whose dates requirement 5 exists to count.
+- **TEXT ALREADY CONTAINING A TOKEN IS REFUSED** (RED‑4), not escaped. A literal
+  `<PERSON_1>` in the source makes the model's reply ambiguous between a span this
+  redaction replaced and a string that was always there, and rehydration would
+  then write a real name where the document had no identifier — the one failure
+  mode here that INVENTS data rather than losing it. A per-redaction nonce was the
+  alternative and makes every token unreadable to the model.
+- **THE MAP IS SEALED WHENEVER A KEY EXISTS** (RED‑5) — `#:credential`, never
+  gated on `TELEMACHUS_ENCRYPT_CONTENT`. The flag is named for #85's signing
+  secret; the property it names is "seal whenever a key is configured", and a
+  column holding `<PERSON_1> -> Arun Patel` for every redacted document needs that
+  more than anything else in the schema. Under the content switch, whose default
+  is OFF, the ordinary instance would store the identifiers in the clear — a
+  feature doing the opposite of its name on the documented default, #119's shape.
+  It is in `CREDENTIAL-SECRETS` too: a sealed column `rewrap` does not walk is
+  silently unrotatable, and an unopenable map is a document that can never be
+  rehydrated.
+- **THE WHOLE-DATABASE SCAN IS WHAT CHECKS THAT**, not a list of sites — #83's
+  lesson, where the scan beat the enumeration twice. `dump-leak-tests.rkt` gained
+  a redaction probe and the pair that makes it mean something: with **no key** the
+  scanner finds the map in the clear, with a key and the content switch off it
+  does not.
+- **NOTHING SERVES THE MAP** (RED‑6). `routes.rkt` gained nothing, which is how
+  "never leaves the instance" is kept by construction. The same rule applies to
+  what IS served: the tool result carries the TOKENS and never the values, because
+  a tool result reaches a step's stored output, the agent transcript and a console
+  pane — three more copies than the sealed row has.
+- **OPENING A MAP NEEDS `files:read` ON THE SOURCE** (RED‑7) and nothing more: the
+  map is a strict subset of that document's text, so a stricter rule protects
+  nothing and would stop rehydration. A refusal and a miss are ONE answer,
+  collapsed in one place (`readable`) — that somebody redacted a document you
+  cannot see would itself say it exists and had identifiers in it.
+- **THE REDACTED TEXT IS A DOCUMENT** (RED‑8), `<key>.redacted.txt` through
+  `derive!`, because "show me what you would have sent" is the only way a person
+  can audit a redaction. The DOCUMENT goes first and the row second — CLS‑11's
+  order read the other way round, since the row is the only copy of the map.
+- **A DOCUMENT WHOSE TEXT CANNOT BE READ IS A REFUSAL, NOT AN EMPTY REDACTION.**
+  `doc_classify` classifies a photograph from its content type (CLS‑9); this
+  cannot, because a redaction of nothing reads as safe to send. So it goes through
+  `doc_text`, which refuses by name including the scan that needs OCR.
+- **WHAT IT DOES NOT PROTECT, STATED** (RED‑9): the dictionary terms are the
+  caller's own input, and the engine stores every run's input and hands it back on
+  `GET /api/runs/:id` to anybody with `workflows:read` — so the names somebody
+  asked to have redacted are visible to colleagues. FEED‑13's line. Requirement 2
+  is where the terms stop being a run input. Asserted in BOTH suites, so the
+  refutations beside them cannot be read as "the run is clean".
+- **A CONTROL HARNESS THAT GREPS FOR "failure" ALWAYS AGREES WITH YOU.**
+  `dump-leak-tests.rkt` prints "(control, failures) the needle is in: …" as
+  ordinary output, so every control against that file reported that it bit —
+  including the RED‑5 one, which is the only check that the map is sealed at all.
+  Read the verdict off `raco test`'s summary line. The same fix exposed a control
+  that genuinely did not bite: the longest-match case used two spans beginning at
+  DIFFERENT offsets, so the position sort settled it and the length comparator
+  never ran.
+- **`check-true` DEMANDS EXACTLY `#t` while `member` answers a TAIL**, so
+  `(check-true (member x xs))` fails while printing the list that proves it right.
+  Second appearance; `(and … #t)`.
+- **`repo-open` ANSWERS TWO VALUES, the OBJECT then the port.** Taking one is
+  "result arity mismatch"; taking them the other way round hands `port->string` a
+  hash. One test case made both mistakes in turn.
+- **NEVER RUN TWO UNIT SUITES AT ONCE: four test files BIND FIXED PORTS.**
+  `federation-tests` (8921), `mcp-tests` (8913), `model-transport-tests`
+  (8932–8934) and `model-routing-tests` (8941) listen on hardcoded ports, so a
+  `nix build` racing a `DATABASE_URL=… raco test` fails **8 of 1565** with
+  `Address already in use` and `Connection refused` in four files that have
+  nothing to do with whatever is being built. It reads exactly like a real
+  regression and it is a scheduling mistake. The same rule the S3 and server
+  smokes already carry ("run them one at a time"), and it applies to the unit
+  suite too.
+
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 
 Built 22 Oct 2026 — the last of #54's four deferred questions. Migration

@@ -300,5 +300,29 @@
                                         #:run (run-id) #:step "measure")
         #:end))
 
+;; ---- redaction (issue #91 req 1, RED-1…9) -----------------------------------------
+;; ONE STEP, for `classify-eval`'s reason: no route runs a single tool, so a
+;; workflow is how an operator reaches one from the console and how its cost is
+;; quota-admitted. It is deliberately not yet a step INSIDE the pipelines above —
+;; that is requirement 2, where `doc_extract_fields`, `doc_classify` and
+;; `doc_translate` gain `redact: true` and build their prompts from the redacted
+;; text, with the values put back before anything is stored. Adding an input to
+;; those published specs is a breaking change, so they are left alone until the
+;; slice that earns it.
+;;
+;; What this already gives an operator is the thing they ask for first: show me
+;; what you WOULD have sent. The output is a document, so they can read it.
+(define-workflow redact-document
+  #:name "Redact a document"
+  #:description "Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns."
+  #:input ([object_id string] [detectors array] [terms array])
+  #:max-steps 5
+
+  (step redact (tool doc_redact #:object (in object_id)
+                                #:detectors (in detectors)
+                                #:terms (in terms)
+                                #:run (run-id) #:step "redact")
+        #:end))
+
 (define workflows (list process-upload classify-and-extract classify-review-extract
-                        classify-backfill classify-eval))
+                        classify-backfill classify-eval redact-document))
