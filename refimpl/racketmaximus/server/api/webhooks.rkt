@@ -108,8 +108,15 @@
     (cond
       [(not w) (err "no such webhook" 404)]
       [else
+       ;; `#:claim id` makes THIS subscription's row born owned (WHK-3). The
+       ;; delivery sweep rides the reaper seam every second, so between the
+       ;; insert and the POST below it could otherwise take the row and send it
+       ;; — leaving the caller who asked "does my webhook work" to be told that
+       ;; somebody else was finding out. Every other subscription's row is born
+       ;; due, as before, and the sweep delivers those.
        (define ids (enqueue-event! db-conn "ping" (principal-team-id p)
-                                   (hasheq 'webhook_id id 'note "a test delivery")))
+                                   (hasheq 'webhook_id id 'note "a test delivery")
+                                   #:claim id))
        (define mine (filter (lambda (d)
                               (equal? (hash-ref (or (delivery-get db-conn d (principal-team-id p)) (hasheq))
                                                 'webhook_id #f) id))
@@ -119,7 +126,7 @@
           ;; the subscription is inactive, or does not subscribe to `ping`
           (err "this webhook would not receive a ping — check `active` and `events`" 409)]
          [else
-          (define outcome (deliver-one! db-conn (car mine)))
+          (define outcome (deliver-one! db-conn (car mine) #:claimed? #t))
           (json-response (hasheq 'delivery_id (car mine)
                                  'outcome (format "~a" outcome)
                                  'delivery (delivery-get db-conn (car mine) (principal-team-id p))))])]))))

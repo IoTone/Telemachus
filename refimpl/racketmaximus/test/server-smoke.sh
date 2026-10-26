@@ -598,28 +598,35 @@ import hashlib, hmac, http.server, json, os, sys, threading
 SECRET = os.environ["WH_SECRET"].encode()
 LOG = os.environ["WH_LOG"]
 FAIL_FIRST = os.environ.get("WH_FAIL_FIRST") == "1"
-state = {"calls": 0}
+state = {"calls": 0, "pings": 0}
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("content-length", 0)))
         ts = self.headers.get("x-telemachus-timestamp", "")
         want = "v1=" + hmac.new(SECRET, (ts + ".").encode() + body, hashlib.sha256).hexdigest()
         got = self.headers.get("x-telemachus-signature", "")
+        ev = self.headers.get("x-telemachus-event")
         state["calls"] += 1
+        if ev == "ping": state["pings"] += 1
         # A PLAIN LINE, not json.dumps: that writes `"k": v` with a space, where
         # every needle in this suite assumes the spacing `jsexpr->string` uses —
         # three assertions here failed on that space alone. The body is appended
         # verbatim, so an assertion about the PAYLOAD still reads real bytes.
         with open(LOG, "a") as f:
             f.write("event=%s delivery=%s signature_ok=%s call=%d body=%s\n"
-                    % (self.headers.get("x-telemachus-event"),
+                    % (ev,
                        self.headers.get("x-telemachus-delivery"),
                        "true" if hmac.compare_digest(want, got) else "FALSE",
                        state["calls"],
                        body.decode("utf-8", "replace")))
-        # the first call fails, so the smoke can watch a retry recover (#85's
-        # second acceptance criterion)
-        if FAIL_FIRST and state["calls"] == 1:
+        # THE FAILURE IS KEYED ON THE EVENT, NOT ON A CALL COUNTER, and that is
+        # not cosmetic: the subscription below covers `ping,object.created`, so
+        # any other delivery reaching this receiver first would consume the
+        # scripted 500 and the ping would be answered 200 — two assertions below
+        # failing for a reason that has nothing to do with either of them. (The
+        # double-send that actually caused this is fixed at the source in WHK-1;
+        # keying on the event is what stops a FUTURE event from doing it again.)
+        if FAIL_FIRST and ev == "ping" and state["pings"] == 1:
             self.send_response(500); self.end_headers(); self.wfile.write(b"no")
             return
         self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
@@ -682,6 +689,15 @@ PING2=$(curl -s -X POST $B/api/webhooks/$WHID/ping -H "Authorization: Bearer $OP
 assert "webhook: …and the next delivery succeeds once the receiver stops failing" "$PING2" '"outcome":"delivered"'
 assert "webhook: the delivered row says so" \
   "$(curl -s "$B/api/webhooks/$WHID/deliveries?status=delivered" -H "Authorization: Bearer $OP")" '"status":"delivered"'
+# WHK-1/WHK-3 at the surface. The sweep rides the reaper seam EVERY SECOND and
+# the ping delivers synchronously, so this delivery existed, pending and due,
+# while a sweep was running — and it still went out exactly once, counted once.
+# Against the version of `deliver-one!` that selected and then POSTed, the
+# receiver could see it twice and the row recorded whichever write landed last;
+# against a `#:claimed?` path that re-incremented, this said 2.
+assert "webhook: one POST per attempt, counted once" "$PING2" '"attempts":1'
+assert "webhook: …and the receiver logged exactly one call for it" \
+  "$(grep -c "event=ping" "$WH_LOG")" 2
 # an SSRF target is DEAD at once, not retried ten times
 WH2=$(curl -s -X POST $B/api/webhooks -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
       -d '{"url":"http://169.254.169.254/hook","events":"ping"}')
