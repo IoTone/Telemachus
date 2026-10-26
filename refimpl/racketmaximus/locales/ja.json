@@ -140,6 +140,10 @@
       "text": "パスワードを更新",
       "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
     },
+    "doc.route.get.api.repo-obj.id.form-fields": {
+      "text": "PDF が持つ AcroForm フィールド — 名前、種類、現在の値、選択フィールドならその選択肢 — を返します。`doc_fill_form` に値を送る前に呼び出し側が必要とするものです（#88 要件 2）。フォームではない文書は空のリストを返します。それがフォームかどうかがまさに問われていることだからです。pdfcpu のない環境では 501 を返します。問い自体は正しく、このインスタンスが答えられないだけです。平坦化は別のバイナリによるものなので、`can_flatten` はここで `flatten: true` が機能するかどうかを示します。",
+      "hash": "73c99d2a62d3623714b2ff633415089de4ebc3f5"
+    },
     "doc.workflow.process-upload": {
       "text": "テキストを抽出し、JSON スキーマに照らして構造化フィールドを取り出し（適合しなければ拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳する。すべての出力は元文書の隣にあるリポジトリ文書で、由来が記録されます。",
       "hash": "41dfd3404a1fc0ec4a33fc8dbf03232097d86cbb"
@@ -171,6 +175,10 @@
     "doc.tool.doc_text.object": {
       "text": "リポジトリオブジェクトID",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.tool.doc_fill_form.flatten": {
+      "text": "埋め込んだフィールドをページの内容に描き込んで取り除き、結果を編集できないようにします（qpdf が必要）",
+      "hash": "0b1ca7f41ae7c892069aa2d8e764cb40d953626c"
     },
     "doc.route.post.api.jobs": {
       "text": "登録された種類のスケジューラジョブをキューイングします。",
@@ -231,6 +239,10 @@
     "doc.route.post.api.workflows.slug.run": {
       "text": "{input} で実行を開始する；宣言された入力は必須で型付きです。202 と実行を返します。",
       "hash": "1e305174211be63642083ac5f6d52e3fb3ad453a"
+    },
+    "doc.tool.doc_fill_form": {
+      "text": "リポジトリ内の PDF の AcroForm フィールドに、フィールド名と値の JSON オブジェクトから値を埋め込み、結果をその隣に <key>.filled.pdf として書き出します。テキストフィールドは文字列、チェックボックスは true または false、ラジオグループ・コンボボックス・リストボックスはそれ自身の選択肢のいずれかを取ります。フォームが持たないフィールド名は `unmatched` で報告されます（すべての名前が誤っている場合は代わりに拒否されます）。flatten が true のときはフィールドがページに描き込まれ、文書は編集できなくなります。",
+      "hash": "0ddc9997abff072d76744c0a6d33d0ab9bba8986"
     },
     "ui.addterm": {
       "text": "用語を追加",
@@ -556,6 +568,10 @@
       "text": "このチームに他のメンバーがいません。",
       "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
     },
+    "doc.tool.doc_fill_form.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
     "doc.tool.doc_extract_fields.object": {
       "text": "元文書のオブジェクト ID — フィールドをその隣に派生文書として書き出します。",
       "hash": "af8362ab557f0334dca5f227dac8d3c64c401ab8"
@@ -839,6 +855,10 @@
     "doc.route.post.api.translate.catalog": {
       "text": "ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。",
       "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
+    "doc.tool.doc_fill_form.values": {
+      "text": "フィールド名から値へ。例：{\"applicant\": \"Arun Patel\", \"urgent\": true}",
+      "hash": "3a34a2dd1c7b88c8bd9b0645b0c01b993280e31a"
     },
     "ui.key": {
       "text": "パス",
@@ -1587,6 +1607,10 @@
     "doc.route.delete.api.executors.id": {
       "text": "エグゼキュータを退役させる：ワーカートークンは失効し、保持していたジョブはキューに戻ります。",
       "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
+    },
+    "doc.tool.doc_fill_form.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "ui.memberremoved": {
       "text": "削除しました",
@@ -3163,6 +3187,10 @@
     "ui.bxtouch": {
       "text": "追ってご連絡いたします。",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "doc.tool.doc_fill_form.object": {
+      "text": "フォーム文書のオブジェクト ID — AcroForm フィールドを持つ PDF",
+      "hash": "46268aa7ef58f1bb41ea31f7c2cefa813291d0ee"
     },
     "ui.qsub": {
       "text": "サブ",

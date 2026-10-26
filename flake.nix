@@ -61,6 +61,13 @@
             nodejs_24       # the Playwright e2e tours (browser NOT included — see below)
             tectonic        # the developer e-book: docs/book/*.tex -> PDF (fetches TeX packages on first run)
             pandoc          # …and the same source -> a single-page HTML e-book
+            pdfcpu          # #88 req 2: `form list --json` and `form fill` — AcroForm
+                            # discovery and filling. Its export JSON already carries
+                            # every field's kind, value and options, so nothing has
+                            # to be composed in FDF.
+            qpdf            # …and the flatten half, which pdfcpu 0.15 does not have:
+                            # `--generate-appearances --flatten-annotations=all`
+                            # draws the filled fields into the page content.
             # The book's CJK editions. xeCJK resolves these BY NAME through
             # fontconfig, so the packages alone are not enough — FONTCONFIG_FILE
             # below is what makes them findable. CLAUDE.md and TRANSLATING.md both
