@@ -1927,3 +1927,100 @@ slug now.
 With this, #87 is complete except for **the embedding nearest-label backend
 (req 2c)**, which needs an embedding wire, store and meter this build does not
 have and belongs in its own issue.
+
+## WHK‑1…4 — a delivery is claimed before it is sent (issue #85, found 25 Oct 2026)
+
+> Reported by a flake: two assertions in `server-smoke.sh`'s webhook block failed
+> on one CI run and passed on a re-run, on a branch whose `server-smoke.sh` was
+> byte-identical to `main`. The fixture was not the problem. **The platform could
+> send one delivery twice.**
+
+| # | Decision |
+|---|---|
+| WHK‑1 | **A sender takes the row before it sends**, believed only if a guarded UPDATE comes back — issue #17's rule, which the delivery sweep never had. |
+| WHK‑2 | **The claim moves `next_attempt_epoch` forward and leaves the row `pending`** — no `sending` status, so no lease and nothing to reap; a dead sender self-heals. |
+| WHK‑3 | **The synchronous ping's delivery is born owned**, so the sweep cannot take the row out from under the caller. |
+| WHK‑4 | **The smoke's scripted failure is keyed on the EVENT, not on a call counter** — the fixture's own half of the same hazard. |
+
+**What was actually wrong.** `deliver-one!` read the row with
+`SELECT … WHERE d.status = 'pending'` and then POSTed, with nothing in between
+that said "this attempt is mine". Two things made that collide in practice rather
+than in principle: the delivery sweep rides the reaper seam at
+`WEBHOOK-SWEEP-EVERY = 1` **second**, and `POST /api/webhooks/:id/ping` inserts a
+delivery and then delivers it **synchronously** in the same request. So the
+window between the insert and the POST was crossed by a sweep routinely, and on a
+loaded runner reliably. Both senders selected the same row; both sent it. The
+receiver saw one `x-telemachus-delivery` id arrive twice, and the row's final
+state was whichever write landed last — a delivery that had SUCCEEDED could be
+recorded as awaiting a retry, and one that had been refused recorded as
+delivered. That is the pair of smoke assertions that failed: `last_status_code`
+read 200 where the ping had been answered 500, and the delivery was no longer
+`pending` so `redeliver!` did not refuse it.
+
+**And it is worse than a race on one box.** The sweep runs in every process, so a
+two-replica instance — which this platform supports, and whose scheduler has an
+in-flight register precisely because it does — was liable to double-deliver
+**every ordinary event**, not just a ping. #85's own module header promises "a
+delivery record with backoff"; a record that can disagree with what the receiver
+got is not one.
+
+**The claim is #17's rule, arriving late** (WHK‑1). `claim-job!` has been a
+guarded `UPDATE … RETURNING id` believed only when a row comes back since the
+scheduler grew a second claim path; SCHED‑14's schedule tick and #114's feed
+poller both reuse the shape. The delivery sweep was the one piece of recurring
+work that selected and acted. `attempts` is compared as well as set, so the UPDATE
+is a compare‑and‑swap: two senders that read the same row cannot both win it.
+
+**The claim is the due time, not a status** (WHK‑2). A `sending` status was the
+obvious alternative and it is the wrong trade here: a row whose sender dies
+mid-POST would be stuck in it for ever, so it would need a LEASE and a second
+sweep to unstick — the machinery SCHED‑8 built for jobs, where a handler runs for
+minutes and there is something to preempt. A delivery is one POST with a
+ten-second timeout. Moving `next_attempt_epoch` out to this attempt's backoff
+makes the failure **self-healing**: a sender that vanishes leaves a row that
+simply comes due again on its own schedule, with no status anybody has to learn
+and nothing to reap. It is SCHED‑14's own argument — advance the due time BEFORE
+deciding to fire, so a crash costs a skipped tick and never a duplicate.
+
+The attempt is therefore **counted at the claim**, which is also the honest
+reading: an attempt that was started was made. The failure path consequently
+stops touching `next_attempt_epoch` — the claim already set it. **That part is a
+one-home argument and not a behaviour fix, and the positive control is what
+established it**: re-applying `backoff-seconds attempts` yields the same number,
+because the attempt has not changed, so a second write differs only by the
+seconds the POST took. The control could not bite, and the test says so where
+somebody might otherwise trust it to — `canonical-json`'s sort rule carries the
+same note for the same reason. Two copies of one rule is still worth removing;
+claiming it was a defect would not have been.
+
+**The ping does not race, it owns** (WHK‑3). Leaving the ping to contend for its
+own row would have been correct — exactly one POST either way — and would have
+made the answer to "does my webhook work" occasionally "somebody else is finding
+out", which is useless to the person asking and flaky for the suite that asserts
+it. `enqueue-event! #:claim <webhook-id>` mints THAT subscription's row already
+claimed, carrying its first attempt and a future due time, so no sweep can see it
+as due. Every other subscription's row is born pending and due, and the sweep
+delivers those — pinned in its own case, because a `#:claim` that claimed the
+whole fan-out would silently delay everybody else's delivery by a minute.
+
+**The attempt number has two origins and an unconditional `add1` is wrong.** A
+sender that claimed read the row before its own claim, so the attempt it is
+making is one more than it read; the ping's row was born carrying it. Written as
+a plain `add1` — which is what the first version of this fix did — the ping's
+delivered row reported **two attempts for one POST**, and the test that counts the
+receiver's calls is what said so. There is a smoke assertion on `"attempts":1`
+now as well, because that number is what an operator reads.
+
+**The fixture's half** (WHK‑4). The receiver's scripted 500 fired on
+`state["calls"] == 1` while the subscription covered `ping,object.created`, so any
+other delivery arriving first would eat it. The double-send is fixed at the
+source, so the ordering is deterministic again — keying the failure on the EVENT
+is what stops a future event from reproducing the same confusing failure, two
+assertions away from anything to do with it. `ocr-smoke.sh`'s rule, in a fixture:
+match the thing you mean, not the thing that happens to be first.
+
+**Not changed, deliberately.** The sweep's one-second interval stays: the first
+retry is a minute away, and #85's acceptance asks for a first attempt "within 2
+seconds", so a slower sweep would make the backoff a lie. The race was never the
+interval's fault — an hourly sweep would have the same defect and would hide it
+for a year.

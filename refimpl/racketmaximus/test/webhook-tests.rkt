@@ -284,6 +284,111 @@
       (check-equal? (length (unbox seen)) 0)
       (check-true (string-contains? (hash-ref (delivery-get c d tid) 'last_error) "inactive")))))
 
+(test-case "WHK-1: TWO SENDERS CANNOT BOTH SEND ONE DELIVERY"
+  ;; The defect this slice is about, performed. `deliver-one!` used to SELECT
+  ;; `WHERE status = 'pending'` and then POST, with nothing in between — so the
+  ;; sweep (which rides the reaper seam every SECOND) and the synchronous ping
+  ;; could both select the same row and both send it. On two replicas every
+  ;; ordinary event was liable to go out twice.
+  ;;
+  ;; Two senders are simulated at the one instant that matters: both have read
+  ;; the row, neither has sent. Exactly one claim may succeed.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (with-receiver (respond 200)
+    (lambda (url seen)
+      (define-values (id _s) (webhook-create! c #:team tid #:url url))
+      (define d (car (enqueue-event! c "ping" tid (hasheq))))
+      ;; sender A and sender B each read the row — the state the old code sent from
+      (define a (query-maybe-row c DELIVERY-SELECT d))
+      (define b (query-maybe-row c DELIVERY-SELECT d))
+      (check-true (and a b #t) "both senders see a pending, due delivery")
+      (check-true (and (claim-delivery! c d a) #t) "the first sender takes it")
+      (check-false (claim-delivery! c d b) "…and the second is refused the same row")
+      ;; …which is what `deliver-one!` now reports, having sent nothing
+      (check-equal? (deliver-one! c d) 'sending)
+      (check-equal? (length (unbox seen)) 0
+                    "the loser POSTed nothing — this is the whole point")
+      ;; and the winner's own send is the only one the receiver ever sees
+      (check-equal? (deliver-one! c d #:claimed? #t) 'delivered)
+      (check-equal? (length (unbox seen)) 1)
+      (check-equal? (hash-ref (delivery-get c d tid) 'attempts) 1
+                    "ONE attempt, counted once, by the sender that made it"))))
+
+(test-case "WHK-2: the claim counts the attempt and moves the due time, so a dead sender self-heals"
+  ;; The claim is `next_attempt_epoch`, not a `sending` status, and this is the
+  ;; property that buys: a sender that takes a row and then dies mid-POST leaves
+  ;; a row that simply becomes due again at its own backoff. There is nothing to
+  ;; reap, no lease to expire and no status anybody has to learn — where a
+  ;; `sending` status would need all three (SCHED-8's machinery, for a POST with
+  ;; a ten-second timeout).
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define-values (id _s) (webhook-create! c #:team tid #:url "https://a.example/h"))
+  (define d (car (enqueue-event! c "ping" tid (hasheq))))
+  (define r (query-maybe-row c DELIVERY-SELECT d))
+  (check-true (and (claim-delivery! c d r) #t))
+  (define row (delivery-get c d tid))
+  (check-equal? (hash-ref row 'status) "pending" "the row never leaves `pending`")
+  (check-equal? (hash-ref row 'attempts) 1 "the attempt is counted at the CLAIM")
+  (check-true (>= (- (hash-ref row 'next_attempt_epoch) (current-seconds)) 50)
+              "and it is already a backoff out, before anything was sent")
+  ;; nothing is stuck: age it and the next sweep may have it
+  (query-exec c "UPDATE webhook_deliveries SET next_attempt_epoch = ? WHERE id = ?"
+              (- (current-seconds) 1) d)
+  (check-true (and (claim-delivery! c d (query-maybe-row c DELIVERY-SELECT d)) #t)
+              "a row whose sender vanished is claimable again when it comes due")
+  (check-equal? (hash-ref (delivery-get c d tid) 'attempts) 2))
+
+(test-case "WHK-2: a retry is due one backoff out, set by the claim"
+  ;; AND THE CONTROL FOR "the failure path must not set it again" CANNOT BITE,
+  ;; which is worth saying where somebody might otherwise trust this case to
+  ;; catch it. Re-applying `backoff-seconds attempts` yields the SAME number —
+  ;; the attempt has not changed — so the only difference a second write makes is
+  ;; the few seconds the POST itself took. Nothing observable. The rule that the
+  ;; claim owns the due time is therefore about having ONE home for it, not about
+  ;; a behaviour this test can see; `canonical-json`'s sort rule is stated in the
+  ;; source for the same reason. What this case does pin is the value.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (with-receiver (respond 500)
+    (lambda (url _seen)
+      (define-values (id _s) (webhook-create! c #:team tid #:url url))
+      (define d (car (enqueue-event! c "ping" tid (hasheq))))
+      (define t0 (current-seconds))
+      (check-equal? (deliver-one! c d) 'retry)
+      (define due (hash-ref (delivery-get c d tid) 'next_attempt_epoch))
+      ;; ONE backoff from the claim — a second application would put it at 120
+      (check-true (<= (- due t0) (+ (backoff-seconds 1) 5))
+                  (format "due in ~a seconds, and one attempt's backoff is ~a"
+                          (- due t0) (backoff-seconds 1))))))
+
+(test-case "WHK-3: the synchronous ping's delivery is born owned, so the sweep cannot take it"
+  ;; The ping inserts a delivery and sends it itself, and the sweep runs every
+  ;; second — so a row born due is a race the caller loses occasionally, and the
+  ;; answer to "does my webhook work" becomes "somebody else is finding out".
+  ;; `#:claim` removes the race rather than winning it.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (with-receiver (respond 200)
+    (lambda (url seen)
+      (define-values (id _s) (webhook-create! c #:team tid #:url url))
+      ;; a SECOND subscription, to pin the other half: only the named one is
+      ;; born owned, and the sweep still delivers everybody else's
+      (define-values (id2 _s2) (webhook-create! c #:team tid #:url url))
+      (define ids (enqueue-event! c "ping" tid (hasheq) #:claim id))
+      (check-equal? (length ids) 2)
+      (define-values (sent _r _dead) (deliver-due! c))
+      (check-equal? sent 1 "the sweep delivered the OTHER subscription's row")
+      (check-equal? (length (unbox seen)) 1)
+      ;; the ping's own row is untouched by the sweep and still the ping's to send
+      (define mine (findf (lambda (x) (equal? (hash-ref (delivery-get c x tid) 'webhook_id) id)) ids))
+      (check-equal? (hash-ref (delivery-get c mine tid) 'status) "pending")
+      (check-equal? (hash-ref (delivery-get c mine tid) 'attempts) 1
+                    "born claimed: the attempt it is about to make is already counted")
+      (check-equal? (deliver-one! c mine #:claimed? #t) 'delivered)
+      (check-equal? (length (unbox seen)) 2))))
+
 (test-case "the sweep delivers what is due and leaves what is not"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))

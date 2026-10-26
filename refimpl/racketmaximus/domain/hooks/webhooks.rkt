@@ -38,6 +38,10 @@
          webhook-create! webhook-list webhook-get webhook-update! webhook-delete!
          webhook-problem webhook-secret-of
          deliveries-list delivery-get redeliver! enqueue-event! deliver-due! deliver-one!
+         ;; exported FOR the test: a claim asserted through two SERIAL deliver-one!
+         ;; calls cannot see the guard at all, because the first one moves the due
+         ;; time (SCHED-14's lesson, which cost that slice a passing control)
+         claim-delivery! DELIVERY-SELECT
          sign-payload backoff-seconds)
 
 ;; #19's seam. A webhook secret is a CREDENTIAL — an HMAC key a receiver
@@ -167,12 +171,21 @@
 ;; ---- the event -> deliveries fan-out --------------------------------------------
 ;; Installed as the event sink by main.rkt. One row per matching subscription,
 ;; due immediately.
-(define (enqueue-event! conn event team data)
+;; `#:claim` NAMES ONE SUBSCRIPTION WHOSE ROW IS BORN OWNED (WHK-3), and it
+;; exists for the synchronous ping. The ping inserts a delivery and then sends it
+;; itself, and the sweep runs every SECOND — so without this the sweep could take
+;; the row in between and the caller who asked "does my webhook work" would be
+;; told somebody else was finding out. A row born claimed carries its first
+;; attempt and a future `next_attempt_epoch`, so no sweep can see it as due and
+;; the synchronous sender owns it by construction rather than by winning a race.
+;; Every OTHER subscription's row is born pending and due, as before.
+(define (enqueue-event! conn event team data #:claim [claim #f])
   (define subs
     (query-rows conn (string-append "SELECT " COLS " FROM webhooks WHERE team_id = ? AND active = 1") team))
   (for/list ([r (in-list subs)]
              #:when (matches-event? (vector-ref r 4) event))
     (define id (new-id))
+    (define mine? (and claim (equal? (vector-ref r 0) claim)))
     ;; The DELIVERY id is the idempotency key the receiver dedupes on (#85 r3),
     ;; which is why it is minted here and not derived from the event: a
     ;; redelivery of the same event is the SAME key, so a receiver that already
@@ -180,11 +193,13 @@
     (query-exec conn
       (string-append "INSERT INTO webhook_deliveries (id, webhook_id, team_id, event, payload, "
                      "status, attempts, next_attempt_epoch, created_epoch) "
-                     "VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)")
+                     "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)")
       id (vector-ref r 0) team event
       (jsexpr->string (hasheq 'event event 'delivery_id id 'team_id team
                               'at (now) 'data data))
-      (now) (now))
+      (if mine? 1 0)
+      (if mine? (+ (now) (backoff-seconds 1)) (now))
+      (now))
     id))
 
 ;; ---- signing ----------------------------------------------------------------------
@@ -198,16 +213,66 @@
                   (hmac-sha256 (string->bytes/utf-8 secret)
                                (string->bytes/utf-8 (format "~a.~a" timestamp body))))))
 
+;; ---- the claim ----------------------------------------------------------------------
+;; A SENDER TAKES THE ROW BEFORE IT SENDS, and it is believed only if a row comes
+;; back — issue #17's rule, which `claim-job!` has followed since the scheduler
+;; grew a second claim path and which the schedule tick (SCHED-14) and the feed
+;; poller both reuse. THE DELIVERY SWEEP NEVER DID, and the consequence was not
+;; theoretical: `deliver-one!` selected `WHERE status = 'pending'` and then
+;; POSTed, so two senders could both select the same row and both send it. The
+;; sweep rides the reaper seam EVERY SECOND and the ping delivers synchronously,
+;; so the two collided routinely — and on two replicas, which this platform
+;; supports, every ordinary event was liable to go out twice. The receiver saw one
+;; delivery id arrive twice, and the row's final state was whichever write landed
+;; last: a delivery that had succeeded could be recorded as awaiting a retry, or
+;; one that had been refused recorded as delivered.
+;;
+;; THE CLAIM MOVES `next_attempt_epoch` FORWARD AND LEAVES THE ROW `pending`
+;; (WHK-2). A `sending` status was the other shape, and it would need a LEASE and
+;; a second sweep to unstick a row whose sender died mid-POST — the machinery
+;; SCHED-8 needed for jobs, where a handler runs for minutes. A delivery is one
+;; POST with a ten-second timeout, so pushing the due time out instead makes the
+;; failure self-healing: a sender that dies leaves a row that simply becomes due
+;; again at its own backoff, with nothing to reap and no status anybody has to
+;; learn. It is SCHED-14's own argument — advance the due time BEFORE deciding to
+;; fire, so a crash costs a skipped tick and never a duplicate.
+;;
+;; `attempts` is compared as well as set, so the UPDATE is a compare-and-swap:
+;; two senders that read the same row cannot both win it.
+;; -> the row as it was BEFORE the claim, or #f if somebody else took it
+(define DELIVERY-SELECT
+  (string-append "SELECT d.id, d.webhook_id, d.team_id, d.event, d.payload, d.attempts, "
+                 "w.url, w.secret, w.active FROM webhook_deliveries d "
+                 "JOIN webhooks w ON w.id = d.webhook_id "
+                 "WHERE d.id = ? AND d.status = 'pending'"))
+
+(define (claim-delivery! conn delivery-id row)
+  (define was (vector-ref row 5))
+  (and (query-maybe-row conn
+         (string-append "UPDATE webhook_deliveries SET attempts = ?, next_attempt_epoch = ? "
+                        "WHERE id = ? AND status = 'pending' AND attempts = ? "
+                        "AND next_attempt_epoch <= ? RETURNING id")
+         (add1 was) (+ (now) (backoff-seconds (add1 was))) delivery-id was (now))
+       row))
+
 ;; ---- delivery -----------------------------------------------------------------------
-;; -> 'delivered | 'retry | 'dead | 'gone
-(define (deliver-one! conn delivery-id)
-  (define r (query-maybe-row conn
-              (string-append "SELECT d.id, d.webhook_id, d.team_id, d.event, d.payload, d.attempts, "
-                             "w.url, w.secret, w.active FROM webhook_deliveries d "
-                             "JOIN webhooks w ON w.id = d.webhook_id "
-                             "WHERE d.id = ? AND d.status = 'pending'")
-              delivery-id))
+;; -> 'delivered | 'retry | 'dead | 'gone | 'sending
+;;
+;; `#:claimed?` is for the one caller that already owns the row: the synchronous
+;; ping, whose delivery is born claimed (WHK-3). Everybody else has to take it.
+(define (deliver-one! conn delivery-id #:claimed? [claimed? #f])
+  (define r0 (query-maybe-row conn DELIVERY-SELECT delivery-id))
+  (define r
+    (cond
+      [(not r0) #f]
+      ;; the inactive check comes BEFORE the claim: nothing is sent, so there is
+      ;; nothing to own, and two senders both dead-lettering it reach the same
+      ;; row either way
+      [(not (= 1 (vector-ref r0 8))) r0]
+      [claimed? r0]
+      [else (claim-delivery! conn delivery-id r0)]))
   (cond
+    [(and r0 (not r)) 'sending]
     [(not r) 'gone]
     [(not (= 1 (vector-ref r 8)))
      ;; A subscription turned off mid-flight: the delivery stops, and it stops as
@@ -219,7 +284,14 @@
      (define url (vector-ref r 6))
      (define secret (unseal-secret (vector-ref r 1) (vector-ref r 7)))
      (define body (vector-ref r 4))
-     (define attempts (add1 (vector-ref r 5)))
+     ;; THE ATTEMPT NUMBER IS WHAT THE ROW NOW SAYS, and the two entry points
+     ;; arrive at it differently: a sender that claimed here read the row BEFORE
+     ;; its own claim, so the attempt it is making is one more than it read,
+     ;; while the ping's row was born claimed and already carries it. Written as
+     ;; an unconditional `add1` — which is what the first version of this did —
+     ;; the ping's delivered row reported TWO attempts for one POST, and the test
+     ;; that counts the receiver's calls is what said so.
+     (define attempts (if claimed? (vector-ref r 5) (add1 (vector-ref r 5))))
      (define ts (now))
      (define t0 (current-inexact-milliseconds))
      ;; A POLICY refusal is PERMANENT, and distinguishing it is the whole reason
@@ -277,10 +349,16 @@
         (fail-delivery! conn delivery-id 'dead code err ms attempts)
         'dead]
        [else
+        ;; `next_attempt_epoch` IS NOT TOUCHED HERE: the claim already set it, to
+        ;; this attempt's backoff, before the POST went out. Setting it again
+        ;; would be the same arithmetic run from a later clock — a minute later
+        ;; than the claim intended, every time — and writing the rule twice is
+        ;; how the two come apart. `attempts` is re-stated because the inactive
+        ;; and dead paths share `fail-delivery!` and this column is what an
+        ;; operator reads.
         (query-exec conn (string-append "UPDATE webhook_deliveries SET attempts = ?, last_status_code = ?, "
-                                        "last_error = ?, last_latency_ms = ?, next_attempt_epoch = ? WHERE id = ?")
-                    attempts (or code sql-null) (or err sql-null) ms
-                    (+ (now) (backoff-seconds attempts)) delivery-id)
+                                        "last_error = ?, last_latency_ms = ? WHERE id = ?")
+                    attempts (or code sql-null) (or err sql-null) ms delivery-id)
         'retry])]))
 
 ;; `attempts` is written HERE as well as on the retry path, and the first version
@@ -303,6 +381,10 @@
     (case (with-handlers ([(lambda (_) #t) (lambda (_) 'retry)]) (deliver-one! conn id))
       [(delivered) (values (add1 d) r x)]
       [(dead) (values d r (add1 x))]
+      ;; a row another sender took between this sweep's SELECT and its claim is
+      ;; counted as nothing at all — it was not retried by us, and reporting it
+      ;; as a retry would make a two-replica instance look like it was failing
+      [(sending gone) (values d r x)]
       [else (values d (add1 r) x)])))
 
 ;; ---- reading the record --------------------------------------------------------------
