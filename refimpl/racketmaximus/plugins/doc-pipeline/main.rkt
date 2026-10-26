@@ -235,4 +235,41 @@
   (step r_is_letter (choice (eq (out correct result label) "letter")
                             #:then letter_text)))
 
-(define workflows (list process-upload classify-and-extract classify-review-extract))
+;; ---- the backfill (issue #87 req 5, CLS-24…28) ------------------------------------
+;; The composition requirement 5 asks for, and nothing more: find the documents
+;; under a prefix that have no type yet, then classify each one. No new engine
+;; feature — `map` has been the fan-out primitive since slice 46 and doc-indexer's
+;; `index-documents` is this spec with one tool swapped.
+;;
+;; SAFE TO RE-RUN, AND THE RE-RUN IS FREE: `doc_list_unclassified` skips a document
+;; that already carries `doc_type`, so a finished backfill followed by another
+;; backfill classifies nothing. A large backlog is drained by running it until
+;; `truncated` is false and `count` is 0 — a loop an operator or a schedule (#135)
+;; drives, visibly, rather than a daemon nobody can see.
+;;
+;; `backends` is an input because a backfill is where the cost shows: 400 documents
+;; through the model is 400 requests against a 200/day default, where
+;; `["rules"]` is free and answers the same way every time. A document no rule
+;; describes is then refused by name, and that refusal is a step failure on that
+;; one document — the run reports it and every other document still landed.
+(define-workflow classify-backfill
+  #:name "Classify a backlog"
+  #:description "Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends [\"rules\"] to backfill without spending model budget."
+  #:input ([prefix string] [labels array] [rules array] [backends array])
+  #:max-steps 30                       ; find + the map parent + a full batch of 25, with room
+
+  (step find (tool doc_list_unclassified #:prefix (in prefix)
+                                         #:run (run-id) #:step "find"))
+  ;; one retry, the pipeline's rule: a 7B model that answered with a fence or an
+  ;; invented label usually gets it right when told so
+  (step classify (map #:over (out find result ids)
+                      (tool doc_classify #:object (item)
+                                         #:labels (in labels)
+                                         #:rules (in rules)
+                                         #:backends (in backends)
+                                         #:run (run-id) #:step "classify")
+                      #:retry 1)
+        #:end))
+
+(define workflows (list process-upload classify-and-extract classify-review-extract
+                        classify-backfill))

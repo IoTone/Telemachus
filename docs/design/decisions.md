@@ -1652,9 +1652,10 @@ settled it. `doc_set_type` writes it, which is what ties an assertion about a
 document to the reviews chain (LAY‑11) with no second mechanism.
 
 Not built, deliberately, and each is the issue's own numbering: **the embedding
-nearest-label backend (req 2c)**, **trigger conditions on metadata (req 3's
-second half)**, **batch backfill (req 5)** and **the evaluation harness
-(req 6)**. With this slice **both of #87's acceptance criteria are met** —
+nearest-label backend (req 2c)** and **the evaluation harness (req 6)**;
+**trigger conditions on metadata (req 3's second half)** and **batch backfill
+(req 5)** are the two blocks that follow. With this slice **both of #87's
+acceptance criteria are met** —
 `test/classify-review-tests.rkt` drives all three verdicts through the real
 engine and `test/doc-pipeline-smoke.sh` §5c drives the queue over HTTP.
 
@@ -1698,5 +1699,104 @@ conditions therefore have to use a trigger created AFTER the document already
 matches, which is the one state in which nothing else is deciding.
 
 Still unbuilt on #87, by the issue's own numbering: **the embedding nearest-label
-backend (req 2c)**, **batch backfill (req 5)** and **the evaluation harness
+backend (req 2c)** and **the evaluation harness (req 6)**. The batch backfill
+(req 5) is the block below.
+
+## CLS‑24…28 — the backlog: a classification backfill (issue #87, req 5)
+
+> Slices 1 and 2 classify ONE document somebody named. This is the prefix that
+> was already there when the labels were decided — and the thing CLS‑23 says a
+> trigger deliberately is not.
+
+| # | Decision |
+|---|---|
+| CLS‑24 | **A backfill is a workflow, not a mode of the tool.** `doc_list_unclassified` + `map`, which is `index-documents` with one tool swapped. |
+| CLS‑25 | **"Unclassified" is the absence of `doc_type`** — no table, no migration, and a re-run is free. |
+| CLS‑26 | **A derived document is never listed**, or the next batch is the classifications the last one wrote. |
+| CLS‑27 | **The scan pages past a page that yielded nothing**, and `repo-count` is what tells a short page from the last one. |
+| CLS‑28 | **There is no `force`**, because the marker is the only thing a forced run could advance through. |
+
+**A backfill is a workflow, not a mode of the tool** (CLS‑24). The requirement
+says "batch mode", and a `batch: true` flag on `doc_classify` would be one tool
+call doing unbounded work: no per-document retry, no cancel granularity, no
+quota admission between documents, and a step output that is a list of N results
+nothing can route on. `map` has been the engine's fan-out primitive since slice
+46 and `doc-indexer`'s `index-documents` is this exact spec with one tool
+swapped — find what has not been done, fan out, do each one, capped. So this
+slice adds one tool and one spec and nothing to the engine at all.
+
+**"Unclassified" is the absence of `doc_type`, not a table** (CLS‑25). The
+marker is the thing the backfill itself writes, which is why a finished run
+followed by another run classifies nothing, why no migration was needed, and why
+there is nothing to keep in step with anything. The indexer's equivalent is a
+`repo_text` row keyed to a version; here the assertion is about the DOCUMENT and
+not about a particular set of bytes, so a re-upload does not make it eligible
+again — its type is still asserted, and CLS‑16 already settled who may change
+one.
+
+**A document another run derived is never listed** (CLS‑26). `doc_classify`
+writes `<key>.classification.json` beside its source and that record has no
+`doc_type` of its own — so without this guard the next backfill would classify
+the records the last one wrote, write records about THOSE, and never converge.
+The indexer's `extractable?` filter is the same guard against the same shape.
+The test is the `repo_derivations` row rather than a key suffix, because
+`.extracted.json`, the filled forms and the translations are all somebody's
+output too and a suffix list would have to be kept in step with seven tools.
+
+**The scan keeps paging past a page that yielded nothing, and `repo-count` is
+what makes that terminate honestly** (CLS‑27). `repo-list` applies `can?` per
+row AFTER the SQL `LIMIT`, and this batch also skips anything already
+classified, so a page can legitimately contribute zero ids while hundreds of
+documents wait behind it. A lister that stopped at the first empty page would
+report "nothing to do" and an operator would believe it — and the documents it
+never reached would be exactly the ones behind a colleague's private folder.
+`repo-count` is the same key window WITHOUT the per-row filter, which is the
+only thing that can tell a short page from the last page; the disclosure it
+makes is a count and no identity, within one team, behind `files:read`. Both
+halves are positive-controlled, with a case for the authorization filter and a
+case for the batch's own.
+
+**`truncated` reports BOTH ways of stopping.** The window still having rows in
+it, and the page having found more than a batch so the surplus was dropped. A
+version reporting only the first says `truncated: false` to an operator whose
+last page held thirty documents and whose batch kept twenty-five. It is
+deliberately not a count of what remains: answering that means scanning the whole
+team under `can?`, which is the work itself, and FLEET‑2's `unclaimable` reports
+the same pair for the same reason.
+
+**A batch is 25, where the indexer's is 40, and the difference is the model.**
+Every document here may be a model request, and the shipped `ai.requests` default
+is 200/day — so 40 would make five runs exhaust a team's day, which is the trap
+recorded as "it worked and then stopped". `backends` is an input for the same
+reason: `["rules"]` is free and deterministic and is the way to drain a real
+backlog, and a document no rule describes is then refused BY NAME on that one
+document while every other document still lands.
+
+**There is no `force`** (CLS‑28). It is the obvious next flag and it cannot work:
+the absence of `doc_type` is the only progress marker there is, so a forced run
+has nothing to advance through and its second run would re-do its own first
+batch for ever. The way to reclassify after changing the label set is to clear
+the type — LAY‑4 clears an attribute by merging an empty value — which makes
+exactly those documents eligible again and is a decision somebody makes on
+purpose. Pinned over HTTP as well as in the unit suite.
+
+**`ai.requests` counts scheduler JOBS at the job tier and model calls at the tool
+tier**, and that is worth writing down because it cost an assertion here.
+main.rkt's one biller records one `ai.requests` per job whatever the job did, so a
+five-step run moves it by five with no model involved; only the tools' own
+`meter!` increments it per model call. CLS‑1's rule — "a rules answer bills
+nothing, and the REQUEST count is what proves it" — therefore holds at the tool
+level, where `classify-tests.rkt` asserts it, and not over HTTP through the
+engine, where the smoke asserts tokens instead. Not changed here: the meaning
+would change every team's metering, and it is the ambiguity rather than either
+number that is wrong.
+
+**A backfill is what CLS‑23 deliberately does not do.** Creating a trigger does
+not fire it on the documents that already match; this is the thing that does, and
+it wakes those triggers on the way — a document that *becomes* an invoice is the
+honest reading of a fire either way.
+
+Still not built, by the issue's own numbering: **the embedding nearest-label
+backend (req 2c)**, which needs an embedding wire, store and meter this build
+does not have and belongs in its own issue, and **the evaluation harness
 (req 6)**.

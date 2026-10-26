@@ -8,6 +8,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `create_note` | `notes:write` | built-in | 現在のユーザーのチームにメモを作成します。 |
 | `doc_classify` | `files:write` | built-in | この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。 |
 | `doc_extract_fields` | `files:write` | built-in | JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。 |
+| `doc_list_unclassified` | `files:read` | built-in | まだ文書種別が付いていない、キー接頭辞配下のリポジトリ文書を一覧する — 分類バックフィルへの入力です。オブジェクト ID を返し、1 バッチで打ち切ります。続きはバックフィルをもう一度実行してください。すでに doc_type を持つ文書は飛ばされるため再実行は無償で、他の実行が派生させた出力は一覧されません。 |
 | `doc_render` | `files:write` | built-in | フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が "pdf" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。 |
 | `doc_set_type` | `files:write` | built-in | レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。 |
 | `doc_text` | `files:read` | built-in | リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。 |
@@ -75,6 +76,18 @@ Permission: `files:write` · source: built-in
 | `schema` | object | yes | 抽出オブジェクトが適合するJSONスキーマ |
 | `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
 | `text` | string | yes | ドキュメントのテキスト |
+
+## `doc_list_unclassified`
+
+まだ文書種別が付いていない、キー接頭辞配下のリポジトリ文書を一覧する — 分類バックフィルへの入力です。オブジェクト ID を返し、1 バッチで打ち切ります。続きはバックフィルをもう一度実行してください。すでに doc_type を持つ文書は飛ばされるため再実行は無償で、他の実行が派生させた出力は一覧されません。
+
+Permission: `files:read` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prefix` | string | no | キーがこれで始まる文書のみ（既定: チーム内のすべての文書）。 |
+| `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
+| `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
 
 ## `doc_render`
 

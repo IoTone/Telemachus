@@ -163,6 +163,10 @@
       "text": "Enqueue a scheduler job of a registered kind.",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
     },
+    "doc.tool.doc_list_unclassified.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
     "doc.tool.doc_classify.labels": {
       "text": "The document types to choose between — one of these, and nothing else, can be the answer",
       "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
@@ -238,6 +242,10 @@
     "ui.copied": {
       "text": "Copied",
       "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
+    },
+    "doc.workflow.classify-backfill": {
+      "text": "Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends [\"rules\"] to backfill without spending model budget.",
+      "hash": "45ac9b42c4865ef03fd28fb45c61cf33e915ff4f"
     },
     "ui.wkresumedok": {
       "text": "Back in rotation",
@@ -1035,6 +1043,14 @@
       "text": "No relations yet.",
       "hash": "4a6068428c1138cbb6c24f3cc1bc07edce04ec85"
     },
+    "doc.workflow.classify-backfill.name": {
+      "text": "Classify a backlog",
+      "hash": "0448b01abbb0765143d0754f9d13a6da48fc8e3f"
+    },
+    "ui.qdrainorder": {
+      "text": "in the order a free worker will take them",
+      "hash": "636f3dcb0d102e0fcb13aa1df70f89f56132fb29"
+    },
     "doc.route.post.api.x.integrator-demo.eta": {
       "text": "Estimated days for {lane}.",
       "hash": "49ca6d4a241734f256e80e0d3927afab75a7a778"
@@ -1050,10 +1066,6 @@
     "ui.code": {
       "text": "2FA code (if enabled)",
       "hash": "358e4e500cfb799457f845c6479fdbd0d549fe8b"
-    },
-    "ui.qdrainorder": {
-      "text": "in the order a free worker will take them",
-      "hash": "636f3dcb0d102e0fcb13aa1df70f89f56132fb29"
     },
     "doc.route.get.api.beta.asset.id": {
       "text": "Serve one onboarding asset. Public: the funnel and the branding logo load it without a token.",
@@ -1291,6 +1303,10 @@
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
       "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
     },
+    "doc.tool.doc_list_unclassified.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
     "doc.route.get.api.search": {
       "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.",
       "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
@@ -1434,6 +1450,10 @@
     "doc.route.get.": {
       "text": "The console (or the beta funnel when TELEMACHUS_HOME=beta). The HTML title is rewritten from instance branding.",
       "hash": "f0005618dfc54747edeb17e48ae0fcfd56c23355"
+    },
+    "doc.tool.doc_list_unclassified.prefix": {
+      "text": "Only documents whose key starts with this (default: every document in the team)",
+      "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
     },
     "doc.route.post.api.profile": {
       "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
@@ -2678,6 +2698,10 @@
     "doc.perm.webhooks:manage": {
       "text": "Configure outbound webhooks.",
       "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
+    },
+    "doc.tool.doc_list_unclassified": {
+      "text": "List repository documents under a key prefix that have no document type yet — the input to a classification backfill. Returns object ids, capped at a batch; run the backfill again to continue. A document that already carries doc_type is skipped, which is what makes a re-run free, and the outputs other runs derived are never listed.",
+      "hash": "178a2c724f49716fb128ea791cb02daa444e9f80"
     },
     "doc.route.post.api.webhooks": {
       "text": "Subscribe to events: `url` (http(s)) and `events` — `\"*\"` or a comma-separated subset of the names `GET /api/webhooks` lists. An unknown event name is refused rather than stored, because a subscription that silently never fires is worse than one that was rejected. The signing secret is in the reply and is SHOWN ONCE; rotate to replace it.",

@@ -2128,9 +2128,10 @@ bash test/doc-pipeline-smoke.sh                                 # the "== 5c." b
   ABSENCE of the key with `refute` instead — and assert the document still came
   back, or the refute passes for a failed request.
 - **`list-jobs` takes no `#:status`** (`(conn team #:limit)`); filter in Racket.
-- **NOT BUILT, by the issue's own numbering**: the embedding backend (req 2c),
-  trigger conditions on metadata (req 3b), batch backfill (req 5) and the
-  evaluation harness (req 6). Both ACCEPTANCE CRITERIA are now met.
+- **NOT BUILT, by the issue's own numbering**: the embedding backend (req 2c)
+  and the evaluation harness (req 6) — trigger conditions on metadata (req 3b)
+  and the batch backfill (req 5) are the two sections below. Both ACCEPTANCE
+  CRITERIA are met as of this slice.
 
 ## A trigger on the TYPE, not the prefix (CLS‑19…23, issue #87 req 3b)
 
@@ -2189,6 +2190,80 @@ bash test/doc-pipeline-smoke.sh         # the "== 6b." block, 14 assertions
   bite for that reason. A case that tests the seam's own conditions has to use a
   trigger created AFTER the document already matches — the one state in which
   nothing else is deciding.
+## The backlog: a classification backfill (CLS‑24…28, issue #87 req 5)
+
+Built 24 Oct 2026. One tool (`doc_list_unclassified` in `doc-tools.rkt`), one
+`repo.rkt` helper (`repo-count`) and one spec (`classify-backfill` in
+`plugins/doc-pipeline/`). No migration, no route, no engine change.
+
+```sh
+raco test test/classify-backfill-tests.rkt   # 7 cases, eight controls
+bash test/doc-pipeline-smoke.sh              # the "== 5d." block, 18 assertions
+```
+
+- **A BACKFILL IS A WORKFLOW, NOT A MODE OF THE TOOL** (CLS‑24). The requirement
+  says "batch mode"; a `batch: true` flag on `doc_classify` would be one tool
+  call doing unbounded work — no per-document retry, no cancel granularity, no
+  quota admission between documents, and a step output that is a list of N
+  results nothing can route on. `map` has been the fan-out primitive since slice
+  46 and `doc-indexer`'s `index-documents` is this spec with one tool swapped.
+- **"UNCLASSIFIED" IS THE ABSENCE OF `doc_type`** (CLS‑25) — the marker is the
+  thing the backfill itself writes, so a re-run is free, nothing has to be kept
+  in step with anything, and no migration was needed. Unlike the indexer's
+  version-keyed `repo_text` row, a RE-UPLOAD does not make a document eligible
+  again: the assertion is about the document, not about a set of bytes.
+- **A DOCUMENT ANOTHER RUN DERIVED IS NEVER LISTED** (CLS‑26), or the next batch
+  is the `<key>.classification.json` records the last one wrote — which have no
+  type of their own, so it would never converge. The test is the
+  `repo_derivations` row, not a key suffix: the extracted JSON, the forms and the
+  translations are all somebody's output and a suffix list would have to track
+  seven tools.
+- **THE SCAN KEEPS PAGING PAST A PAGE THAT YIELDED NOTHING, AND `repo-count` IS
+  WHY THAT TERMINATES HONESTLY** (CLS‑27). `repo-list` applies `can?` per row
+  AFTER the SQL `LIMIT`, and the batch also skips what is already classified, so
+  a page can contribute zero ids while hundreds of documents wait behind it — and
+  "this page was short" cannot tell that from the last page. The documents such a
+  lister never reaches are exactly the ones behind a colleague's private folder.
+  `repo-count` is the same window WITHOUT the filter; it is a count and no
+  identity, within one team, behind `files:read`, and it says so where it is
+  defined. Two controls, one per filter.
+- **`truncated` REPORTS BOTH WAYS OF STOPPING** — more window, or a page that
+  found more than a batch. Reporting only the first tells an operator whose last
+  page held thirty documents and whose batch kept twenty-five that they are
+  finished. It is not a count of what remains: that means scanning the whole team
+  under `can?`, which is the work itself (FLEET‑2's `unclaimable`).
+- **A BATCH IS 25 WHERE THE INDEXER'S IS 40, AND THE DIFFERENCE IS THE MODEL.**
+  Every document here may be a model request against a 200/day `ai.requests`
+  default, so 40 would make five runs exhaust a team's day. `backends` is an
+  input for the same reason: `["rules"]` is free and deterministic and is how a
+  real backlog is drained; a document no rule describes is then refused BY NAME
+  on that one document while every other document still lands.
+- **THERE IS NO `force`** (CLS‑28), and it is the obvious next flag. The absence
+  of `doc_type` is the only progress marker there is, so a forced run has nothing
+  to advance through and its second run re-does its own first batch for ever. The
+  way to reclassify after changing the label set is to CLEAR the type (LAY‑4
+  clears by merging an empty value), which makes exactly those documents eligible
+  again. Pinned over HTTP as well as in the unit suite.
+- **`ai.requests` COUNTS SCHEDULER JOBS AT THE JOB TIER AND MODEL CALLS AT THE
+  TOOL TIER**, and it cost an assertion here. main.rkt's one biller records one
+  `ai.requests` per job whatever the job did, so a five-step run moves it by five
+  with no model involved; only the tools' own `meter!` counts a model call. So
+  CLS‑1's "a rules answer bills nothing, and the REQUEST count is what proves it"
+  holds where `classify-tests.rkt` asserts it — at the tool level — and NOT over
+  HTTP through the engine, where the smoke asserts tokens instead. Not changed:
+  the meaning would change every team's metering, and the ambiguity is what is
+  wrong rather than either number.
+- **LAY‑4 REFUSES AN UNDEFINED ATTRIBUTE KEY, so a test that seeds `doc_type` by
+  hand must declare the fields first** — `repo-fields-declare!`, as
+  `record-type!` does. Without it the writes are refused, `repo-set-attributes!`
+  answers a STRING rather than raising, and the case passes for the wrong reason.
+  It also returns the field list on success, so the check is `(string? …)`, never
+  `check-false`.
+- **A test helper defined BELOW its first use** cost a run here too, for the
+  second time in these notes.
+- Still not built, by the issue's own numbering: the embedding nearest-label
+  backend (**req 2c** — no embedding wire, store or meter exists, so it is its own
+  issue) and the **evaluation harness (req 6)**.
 
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 

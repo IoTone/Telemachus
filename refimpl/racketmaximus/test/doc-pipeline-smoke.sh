@@ -462,6 +462,77 @@ assert "…and what should have been said"        "$RUNJSON" "invoice, letter, p
 assert "the decision itself stands"             "$(G '/api/reviews?status=decided')" '"status":"decided"'
 
 echo
+echo "== 5d. the backlog: a backfill over a prefix (#87 req 5, CLS-24…28) ============"
+# Everything above classifies ONE document somebody named. This is the prefix that
+# was already there when the labels were decided — requirement 5, and the thing
+# CLS-23 deliberately does not do: creating a trigger does not fire it on what
+# already matches.
+printf 'INVOICE 9001\nAcme Corp\nTotal due 42.00\n' > "$TELEMACHUS_DATA_DIR/b-inv.txt"
+printf 'Dear Mr Jones,\n\nThe survey is enclosed.\n' > "$TELEMACHUS_DATA_DIR/b-let.txt"
+printf 'nor is this a jpeg' > "$TELEMACHUS_DATA_DIR/b-pho.jpg"
+BINV=$(up back/a.txt text/plain "$TELEMACHUS_DATA_DIR/b-inv.txt" | jq_ 'd["id"]')
+BLET=$(up back/b.txt text/plain "$TELEMACHUS_DATA_DIR/b-let.txt" | jq_ 'd["id"]')
+BPHO=$(up back/c.jpg image/jpeg "$TELEMACHUS_DATA_DIR/b-pho.jpg" | jq_ 'd["id"]')
+# a document OUTSIDE the prefix, to prove the window is the window
+BOUT=$(up outside/d.txt text/plain "$TELEMACHUS_DATA_DIR/b-inv.txt" | jq_ 'd["id"]')
+
+assert "the backfill workflow arrived"       "$(G /api/workflows)" '"slug":"classify-backfill"'
+assert "doc_list_unclassified is registered" "$(G /api/tools)" '"name":"doc_list_unclassified"'
+
+backfill(){ # <prefix> -> RUNST / RUNJSON
+  local r; r=$(P /api/workflows/classify-backfill/run \
+    "{\"input\":{\"prefix\":\"$1\",\"labels\":$LABELS,\"rules\":$CRULES,\"backends\":[\"rules\"]}}")
+  wait_run "$(printf '%s' "$r" | grep -oP '"id":"\K[^"]+' | head -1)"
+}
+# The ledger before and after: a RULES-ONLY backfill must spend NO MODEL BUDGET,
+# which is what makes draining a real backlog affordable.
+#
+# Asserted on TOKENS, not on `ai.requests`, and the reason is worth knowing:
+# `ai.requests` is incremented once per SCHEDULER JOB (main.rkt's one biller), so
+# a five-step run moves it by five whether a model was reached or not. Only the
+# tools' own `meter!` increments it per model call. At the tool level — where
+# classify-tests asserts it — the count really is model requests; over HTTP
+# through the engine it is jobs, and an assertion on it here would pass against a
+# backfill that called the model for every document.
+toks(){ G /api/usage | jq_ '[q["used"] for q in d["quota"] if q["dimension"]=="ai.tokens.total"][0]'; }
+REQ0=$(toks)
+
+backfill "back/"
+assert "the backfill finished"               "$(ran)" done
+assert "…it found three documents"           "$RUNJSON" '"count":3'
+refute "…and said there was no more"         "$RUNJSON" '"truncated":true'
+assert "the invoice was classified"          "$(G "/api/repo-obj/$BINV")" '"doc_type":"invoice"'
+assert "the letter was classified"           "$(G "/api/repo-obj/$BLET")" '"doc_type":"letter"'
+# CLS-9 again, and it is the backfill's best case: a photograph is the document a
+# backlog has most of and the one no reader can open
+assert "the photograph was classified"       "$(G "/api/repo-obj/$BPHO")" '"doc_type":"photo"'
+refute "a document outside the prefix is untouched" "$(G "/api/repo-obj/$BOUT")" '"doc_type"'
+assert "each one has its record beside it"   "$(G '/api/repo?prefix=back/')" '"key":"back/a.txt.classification.json"'
+# ?attr= is the aggregate the whole slice exists to make possible
+assert "…and LAY-4's filter finds them by type" "$(G '/api/repo?prefix=back/&attr=doc_type:photo')" '"key":"back/c.jpg"'
+
+REQ1=$(toks)
+assert "a rules-only backfill spent no model budget" "$REQ0" "$REQ1"
+
+# CLS-25: the marker is the attribute the backfill itself wrote, so running it
+# again is free — and CLS-26 is what makes that true, because the three records
+# it just wrote have no type of their own and would otherwise be the next batch.
+backfill "back/"
+assert "the re-run finished"                 "$(ran)" done
+assert "…and found nothing to do"            "$RUNJSON" '"count":0'
+refute "…so no document was classified again" "$RUNJSON" '"step_id":"classify#0"'
+
+# and the way to reclassify after changing the label set: clear the type, which
+# makes exactly that document eligible again. There is no `force`, because the
+# absence of the attribute is the only progress marker there is.
+curl -s -X PATCH "$B/api/repo-obj/$BLET/attributes" -H "Authorization: Bearer $TOK" \
+     -d '{"attributes":{"doc_type":""}}' >/dev/null
+backfill "back/"
+assert "a withdrawn type is backfilled again" "$(ran)" done
+assert "…exactly one document"                "$RUNJSON" '"count":1'
+assert "…and it has its type back"            "$(G "/api/repo-obj/$BLET")" '"doc_type":"letter"'
+
+echo
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

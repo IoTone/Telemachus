@@ -102,8 +102,9 @@ The run's input is the engine's typed `input` block:
 
 ## The step tools
 
-Six `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87
-slice 1 and `doc_set_type` with slice 2).
+Seven `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87
+slice 1, `doc_set_type` with slice 2 and `doc_list_unclassified` with
+requirement 5).
 Being tools, they are also available to the agent and to any hand-written
 workflow; the pipeline below is just the shipped composition.
 
@@ -167,10 +168,11 @@ what lets a trigger tell a derived document from an original.
 
 ## The reference pipelines
 
-Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Three
+Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Four
 compositions: `process-upload` (below) for an inbox whose documents are all of one
-kind, **`classify-and-extract`** for a mixed one, and
-**`classify-review-extract`** for a mixed one with a person in it —
+kind, **`classify-and-extract`** for a mixed one,
+**`classify-review-extract`** for a mixed one with a person in it, and
+**`classify-backfill`** for the prefix that was already there —
 
 ```
 classify  ->  the schema for THIS kind of document  ->  text  ->  fields
@@ -207,6 +209,28 @@ oversight: a revision changes the label, and the binding sublanguage has no
 coalesce and no default by design, so nothing can say "the label from whichever of
 these two steps ran". The escape hatch, when a third chain is wanted, is a tool
 that reads the type back off the document.
+
+`classify-backfill` is requirement 5, and it is `index-documents` with one tool
+swapped:
+
+```
+find what has no type yet  ->  fan out  ->  classify each one
+```
+
+**A backfill is a workflow, not a mode of the tool.** A `batch: true` flag on
+`doc_classify` would be one tool call doing unbounded work — no per-document
+retry, no cancel granularity, and a step output that is a list of N results
+nothing can route on — where `map` has been the engine's fan-out primitive since
+slice 46. **"Unclassified" is the absence of `doc_type`**, so the marker is the
+thing the backfill writes: a finished run followed by another run does nothing,
+and no table and no migration were needed. **The records a run derived are never
+listed**, or the next batch would be the classifications the last one wrote.
+There is no `force`: the absence of the attribute is the only progress marker
+there is, so a forced run would re-do its own first batch for ever — the way to
+reclassify after changing the label set is to clear the type, which makes exactly
+those documents eligible again. `backends` is an input because a backfill is
+where the cost shows: `["rules"]` is free and deterministic, where four hundred
+documents through the model is four hundred requests against a 200/day default.
 
 
 

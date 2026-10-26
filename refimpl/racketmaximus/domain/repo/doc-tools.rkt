@@ -6,6 +6,7 @@
 ;;
 ;;   doc_text            (object, version?)            -> the document's text
 ;;   doc_classify        (object, labels, rules?, …)    -> one label, or refused
+;;   doc_list_unclassified (prefix?)                  -> the ids a backfill should classify
 ;;   doc_set_type        (object, labels, label, …)     -> the type a PERSON decided
 ;;   doc_extract_fields  (text, schema, object?, …)    -> fields that VALIDATE, or refused
 ;;   doc_render          (template, data, object?, …)  -> a filled form, as a document
@@ -347,6 +348,114 @@
              'source (hash-ref result 'source)
              'rationale (hash-ref result 'rationale "")
              'tokens_used tokens))
+
+;; ---- doc_list_unclassified: the backfill's input (issue #87 req 5, CLS-24…28) ----
+;; Requirement 5 is "batch mode for backfilling existing prefixes", and the answer
+;; is the shape `doc-indexer` already established: a tool that finds what has not
+;; been done and a `map` that fans out over it (CLS-24). A `batch: true` mode on
+;; `doc_classify` would be one tool call doing unbounded work — no per-document
+;; retry, no cancel granularity, and a step output that is a list of N results
+;; nothing can route on — where `map` is the engine's own fan-out primitive and
+;; costs no new machinery at all.
+;;
+;; "UNCLASSIFIED" IS THE ABSENCE OF `doc_type`, NOT A TABLE (CLS-25). The marker
+;; is the thing the backfill writes, so a finished run followed by another run
+;; does nothing, a re-upload does not make a document eligible again (its type is
+;; still asserted), and no migration was needed for any of it. `repo_text`'s
+;; version-keyed row is the indexer's equivalent; here the assertion is about the
+;; document, not about a particular set of bytes.
+
+;; A batch is smaller than the indexer's 40 because EVERY DOCUMENT HERE MAY BE A
+;; MODEL REQUEST. The shipped `ai.requests` default is 200/day, so a full batch is
+;; an eighth of a team's day and 40 would make five runs exhaust it — the trap
+;; CLAUDE.md records under "it worked and then stopped". A rules-only backfill
+;; (`backends: ["rules"]`) costs nothing and is the way to drain a large backlog.
+(define CLASSIFY-BATCH 25)
+;; The scan is bounded separately, because a team whose backlog is already
+;; classified would otherwise walk every object it has to answer "nothing to do".
+(define CLASSIFY-SCAN 1000)
+(define SCAN-PAGE 100)
+
+(provide CLASSIFY-BATCH CLASSIFY-SCAN)   ; the tests pin both caps
+
+(define-tool doc_list_unclassified
+  #:description "List repository documents under a key prefix that have no document type yet — the input to a classification backfill. Returns object ids, capped at a batch; run the backfill again to continue. A document that already carries doc_type is skipped, which is what makes a re-run free, and the outputs other runs derived are never listed."
+  (prefix string #:optional #:description "Only documents whose key starts with this (default: every document in the team)")
+  (run string #:optional #:description "The workflow run id, for provenance")
+  (step string #:optional #:description "The workflow step id, for provenance"))
+
+;; A DERIVED DOCUMENT IS NEVER LISTED (CLS-26). `doc_classify` writes
+;; `<key>.classification.json` beside its source, and that record has no
+;; `doc_type` of its own — so without this the next run would fan out over the
+;; records the last one wrote, classify them, write records about THOSE, and
+;; never converge. The indexer's `extractable?` filter is the same guard against
+;; the same shape. The test is the derivation row rather than a key suffix:
+;; `.extracted.json`, the filled forms and the translations are all somebody's
+;; output too, and a suffix list would have to be kept in step with six tools.
+(define (derived-ids conn ids)
+  (cond
+    [(null? ids) (hasheq)]
+    [else
+     (define qs (string-join (for/list ([_ (in-list ids)]) "?") ","))
+     (for/hash ([r (in-list (apply query-rows conn
+                                   (string-append "SELECT DISTINCT object_id FROM repo_derivations "
+                                                  "WHERE object_id IN (" qs ")")
+                                   ids))])
+       (values (vector-ref r 0) #t))]))
+
+;; The scan pages through `repo-list`, the authorized listing, rather than a
+;; WHERE clause of its own: visibility lives in one place (repo.rkt's own rule)
+;; and a backfill can only ever reach what its starter could read.
+;;
+;; IT KEEPS PAGING PAST A PAGE THAT YIELDED NOTHING, and that is the one thing
+;; this loop is for (CLS-27). `repo-list` applies `can?` and the batch skips
+;; anything already classified, so a page can legitimately contribute zero ids
+;; while hundreds of documents wait behind it — a lister that stopped there would
+;; report "nothing to do" and the operator would believe it. The end of the window
+;; is `repo-count`, which is the same window and does not filter.
+(define (list-unclassified conn p args)
+  (require-perm conn p "files:read")
+  (define prefix (arg args 'prefix))
+  (define total (repo-count conn p #:prefix prefix))
+  (let loop ([offset 0] [ids '()] [scanned 0])
+    (define page (repo-list conn p #:prefix prefix #:limit SCAN-PAGE #:offset offset))
+    (define unclassified
+      (for/list ([o (in-list page)]
+                 #:unless (hash-has-key? (hash-ref o 'attributes (hasheq)) 'doc_type))
+        o))
+    (define derived (derived-ids conn (for/list ([o (in-list unclassified)]) (hash-ref o 'id))))
+    (define found
+      (for/list ([o (in-list unclassified)]
+                 #:unless (hash-ref derived (hash-ref o 'id) #f))
+        (hash-ref o 'id)))
+    (define ids* (append ids found))
+    (define offset* (+ offset SCAN-PAGE))
+    (define scanned* (+ scanned (length page)))
+    (define done?
+      (or (>= (length ids*) CLASSIFY-BATCH)     ; a full batch
+          (>= offset* total)                    ; the end of the window
+          (>= offset* CLASSIFY-SCAN)))          ; the scan ceiling
+    (cond
+      [done?
+       (define kept (if (> (length ids*) CLASSIFY-BATCH) (take ids* CLASSIFY-BATCH) ids*))
+       (hasheq 'ids kept
+               'count (length kept)
+               'prefix prefix
+               'objects total
+               'scanned scanned*
+               ;; "there is more — run the backfill again", which is true on BOTH
+               ;; ways of stopping: the window still has rows in it, or this page
+               ;; found more than a batch and the surplus was dropped. Reporting
+               ;; only the first would say `truncated: false` to an operator whose
+               ;; last page held thirty documents and whose batch kept twenty-five.
+               ;;
+               ;; It is deliberately not a count of what remains: answering that
+               ;; means scanning the whole team under `can?`, which is the work
+               ;; itself, and a number that cost as much as the batch is worth
+               ;; nothing. FLEET-2's `unclaimable` reports the same pair for the
+               ;; same reason.
+               'truncated (or (> (length ids*) CLASSIFY-BATCH) (< offset* total)))]
+      [else (loop offset* ids* scanned*)])))
 
 ;; ---- doc_render ------------------------------------------------------------------
 (define-tool doc_render
@@ -699,6 +808,7 @@
 ;; their handlers, because a tool has one permission string and both apply
 (register-tool! "doc_text"           doc_text           "files:read"  doc-text)
 (register-tool! "doc_classify"       doc_classify       "files:write" doc-classify)
+(register-tool! "doc_list_unclassified" doc_list_unclassified "files:read" list-unclassified)
 (register-tool! "doc_set_type"       doc_set_type       "files:write" doc-set-type)
 (register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields)
 (register-tool! "doc_render"         doc_render         "files:write" doc-render)

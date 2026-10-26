@@ -5,6 +5,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | Workflow | Plugin | Version | Steps | Description |
 |---|---|---|---|---|
 | `classify-and-extract` | doc-pipeline | 1 | 7 | Decide which kind of document this is (deterministic rules first, then the model), record the type on the document, and extract fields against the schema for THAT type. A type with no schema is classified and left alone. |
+| `classify-backfill` | doc-pipeline | 1 | 2 | Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends ["rules"] to backfill without spending model budget. |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | Decide which kind of document this is; when the classifier is less sure than `min_confidence`, park the run and ask a person instead of guessing. Their decision is recorded on the document — approved as it stands, corrected to another type, or withdrawn when it is none of them — and the run then extracts fields against the schema for that type. |
 | `index-documents` | doc-indexer | 1 | 2 | Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run. |
 | `index-knowledge` | knowledge-graph | 1 | 2 | Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run. |
@@ -37,6 +38,28 @@ Steps:
 | `letter_text` | `tool:doc_text` | `{"object":"${input.object_id}"}` | next in order |
 | `letter_fields` | `tool:doc_extract_fields` | `{"object":"${input.object_id}","run":"${run.id}","schema":"${input.schemas.letter}","step":"letter_fields","text":"${steps.letter_text.output.result}"}` | end · retry 1 |
 | `is_letter` | `choice` | when `{"eq":["${steps.classify.output.result.label}","letter"]}` then `letter_text` | next in order |
+
+## `classify-backfill` — Classify a backlog
+
+Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends ["rules"] to backfill without spending model budget.
+
+Plugin: `doc-pipeline` · version 1 · max steps 30 · starts at `find`
+
+Input:
+
+| Name | Type |
+|---|---|
+| `backends` | array |
+| `labels` | array |
+| `prefix` | string |
+| `rules` | array |
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `find` | `tool:doc_list_unclassified` | `{"prefix":"${input.prefix}","run":"${run.id}","step":"find"}` | next in order |
+| `classify` | `map` | over `${steps.find.output.result.ids}` → `tool:doc_classify` with `{"backends":"${input.backends}","labels":"${input.labels}","object":"${item}","rules":"${input.rules}","run":"${run.id}","step":"classify"}` | end |
 
 ## `classify-review-extract` — Classify, ask a person when unsure, then extract
 

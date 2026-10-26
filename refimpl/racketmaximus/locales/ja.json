@@ -172,6 +172,10 @@
       "text": "登録された種類のスケジューラジョブをキューイングします。",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
     },
+    "doc.tool.doc_list_unclassified.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
     "doc.tool.doc_classify.labels": {
       "text": "判定の対象となる文書の種類 — 答えになり得るのはこの中のいずれかだけです",
       "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
@@ -235,6 +239,10 @@
     "ui.copied": {
       "text": "コピーしました",
       "hash": "8e3df45a49dba2b26f8ea64a22410bde72f9c8ac"
+    },
+    "doc.workflow.classify-backfill": {
+      "text": "接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に [\"rules\"] を渡してください。",
+      "hash": "45ac9b42c4865ef03fd28fb45c61cf33e915ff4f"
     },
     "ui.wkresumedok": {
       "text": "再開しました",
@@ -1144,6 +1152,10 @@
       "text": "まだ関係ありません。",
       "hash": "4a6068428c1138cbb6c24f3cc1bc07edce04ec85"
     },
+    "doc.workflow.classify-backfill.name": {
+      "text": "滞留分を分類する",
+      "hash": "0448b01abbb0765143d0754f9d13a6da48fc8e3f"
+    },
     "doc.route.post.api.x.integrator-demo.eta": {
       "text": "{lane} の推定日数。",
       "hash": "49ca6d4a241734f256e80e0d3927afab75a7a778"
@@ -1384,6 +1396,10 @@
       "text": "オンボーディングフォームを送信する：公開された体験に対して検証され、不正利用対策で制限され、モデルが設定されていればモデルが判定します。",
       "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
     },
+    "doc.tool.doc_list_unclassified.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
     "doc.route.get.api.search": {
       "text": "ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。",
       "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
@@ -1519,6 +1535,10 @@
     "doc.route.get.": {
       "text": "コンソール（TELEMACHUS_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。",
       "hash": "f0005618dfc54747edeb17e48ae0fcfd56c23355"
+    },
+    "doc.tool.doc_list_unclassified.prefix": {
+      "text": "キーがこれで始まる文書のみ（既定: チーム内のすべての文書）。",
+      "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
     },
     "doc.route.post.api.profile": {
       "text": "呼び出し元自身の永続的な設定を更新する: `locale` と `timezone`（IANA ゾーン名、例: \"Europe/London\"）。どちらか一方だけでも送信できます。未知のタイムゾーンは暗黙に置き換えられず拒否されます — 入力ミスで黙って UTC を割り当てられた人は、間違った時刻に届いたレポートで初めて気づくことになります。応答には有効なタイムゾーンと、どの層がそれを決めたかが含まれます。",
@@ -2823,6 +2843,10 @@
     "doc.perm.webhooks:manage": {
       "text": "外向きの Webhook を設定する。",
       "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
+    },
+    "doc.tool.doc_list_unclassified": {
+      "text": "まだ文書種別が付いていない、キー接頭辞配下のリポジトリ文書を一覧する — 分類バックフィルへの入力です。オブジェクト ID を返し、1 バッチで打ち切ります。続きはバックフィルをもう一度実行してください。すでに doc_type を持つ文書は飛ばされるため再実行は無償で、他の実行が派生させた出力は一覧されません。",
+      "hash": "178a2c724f49716fb128ea791cb02daa444e9f80"
     },
     "doc.perm.feeds:manage": {
       "text": "外部フィードを設定する。取得元の URL、そこへ提示する資格情報、取得が権限を行使するチームメンバーが対象。行には資格情報の送り先が書かれているため、読み取りも書き込みと同じ権限を要求する。",
