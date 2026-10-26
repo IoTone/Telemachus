@@ -47,6 +47,10 @@
          "../ai/executor.rkt"         ; run-chat, model-configured?
          (only-in "../ai/content.rkt" outer-json)
          "../ai/roles.rkt"            ; the team's utility executor (KG-7)
+         ;; #91 req 4: the label this document carries, bound for the one gate
+         ;; the three transports share. SENSITIVITY-KEY is the attribute key.
+         (only-in "../ai/egress.rkt" current-egress-document)
+         (only-in "../ai/sensitivity.rkt" SENSITIVITY-KEY)
          "../apps/translate.rkt"      ; translate!
          "repo.rkt"
          "classify.rkt"
@@ -55,6 +59,11 @@
          "extract.rkt")
 
 (provide current-doc-chat
+         ;; #91 req 4: exported FOR the test, which is what makes "the label
+         ;; really is read off the document's own attributes" a check rather than
+         ;; a claim (#110 r4's rule — an export with a test behind it is not an
+         ;; over-wide export).
+         document-egress
          extract-fields render-template render-docx docx-prepare
          render-pdf pdf-toolchain
          DOCX-TYPE)
@@ -70,6 +79,50 @@
   (run-chat prompt #:system sys #:temperature 0 #:executor ex))
 
 (define current-doc-chat (make-parameter default-chat))
+
+;; ---- the model, and what this document is (RED-27) -------------------------------
+;; ONE BINDER, FOUR ASKERS. Every tool here that sends a document's text to a
+;; model does it inside this, which parameterizes two things at once: the team's
+;; `utility` executor (KG-7, which all four already did, one copy each) and the
+;; document whose text is about to travel — its `sensitivity` label and whether
+;; requirement 2 minimised the text. The gate itself is in `executor.rkt`, at the
+;; three places a request actually leaves the process (RED-26); this is what
+;; gives it something to decide about.
+;;
+;; The forgetting therefore happens HERE, at a function a new tool has to call on
+;; purpose, rather than at a check it has to remember to copy — which is the
+;; argument `record-type!` and `repo-fields-declare!` both make, and the one
+;; `executor-can-run?`'s drift is the counter-example to. A tool that sends text
+;; with no document at all (`doc_extract_fields` given `text` and no `object`,
+;; or `POST /api/ai/chat` with a free prompt) carries no label and is outside
+;; this policy — requirement 4 governs documents, and this is stated rather than
+;; implied: any tool can be handed content it read elsewhere, which is the same
+;; line #83 had to draw about what sealing can promise.
+(define (document-egress src red)
+  (and (hash? src)
+       (hasheq 'label (let ([v (hash-ref (hash-ref src 'attributes (hasheq))
+                                         (string->symbol SENSITIVITY-KEY) #f)])
+                        (and (string? v) (not (string=? (string-trim v) "")) v))
+               ;; whether the TEXT in this request was minimised, which is the
+               ;; half of the policy the allowlist is about
+               'redacted (and red #t)
+               'object (hash-ref src 'id #f)
+               'key (hash-ref src 'key #f)
+               ;; the DOCUMENT's team and org, never the caller's acting team:
+               ;; the audit entry belongs in the trail of the team whose document
+               ;; was about to be sent (the `#:team-id` shape, yet again), and
+               ;; the policy is the owning company's
+               'team (let ([v (hash-ref src 'team_id #f)]) (and (string? v) v))
+               'org (let ([v (hash-ref src 'org_id #f)]) (and (string? v) v)))))
+
+(define (call-with-document-egress conn p src red thunk)
+  (parameterize ([current-utility-executor
+                  (model-role-executor conn (principal-team-id p) "utility")]
+                 [current-egress-document (document-egress src red)])
+    (thunk)))
+
+(define-syntax-rule (with-document-egress (conn p src red) body ...)
+  (call-with-document-egress conn p src red (lambda () body ...)))
 
 ;; the flow engine bills the JOB's tokens_used, and a tool's result is nested under
 ;; `result` where the scheduler does not look — so an AI tool meters itself, at
@@ -223,11 +276,15 @@
   (require-perm conn p "chat:use")
   (define schema (hash-ref args 'schema #f))
   (define-values (sent put-back red) (apply-redaction 'doc_extract_fields args (arg args 'text)))
+  ;; RED-27: the source is resolved BEFORE the model call, not after it. It used
+  ;; to be read only to derive the output document from; the label on it is now
+  ;; what decides whether the call may be made at all, and a check after the POST
+  ;; is a report rather than a policy (RED-20's line, one requirement on).
+  (define src (let ([id (opt-arg args 'object)]) (and id (doc-ref conn p id))))
   (define-values (fields tokens unknown)
-    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+    (with-document-egress (conn p src red)
       (extract-fields sent schema #:put-back put-back)))
   (meter! conn p tokens)
-  (define src (let ([id (opt-arg args 'object)]) (and id (doc-ref conn p id))))
   (cond
     [src
      ;; `<key>.extracted.json` stays the FIELDS and nothing else: a downstream
@@ -380,7 +437,7 @@
         ;; be a record that claims a protection it did not need
         (values capped (lambda (j) (values j '())) #f)))
   (define-values (result tokens unknown)
-    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+    (with-document-egress (conn p src red)
       (define-values (r t)
         (classify labels #:text capped #:content-type (hash-ref src 'content_type) #:key key
                   #:rules rules #:backends backends
@@ -636,7 +693,15 @@
   (define tokens (box 0))
   (define excluded '())
   (define rows
-    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+    ;; RED-27: BOUND PER FIXTURE, not once around the fold, because the label is
+    ;; a property of each document — binding the first one's for all of them
+    ;; would govern a labelled fixture by an unlabelled one's answer. The
+    ;; evaluation redacts nothing (CLS-33: it writes nothing and measures the
+    ;; backends as production runs them), so a labelled fixture is unredacted
+    ;; text and the policy applies to it. A refusal lands as that backend's
+    ;; `error` outcome for that one document — CLS-30's third outcome, carrying
+    ;; the reason — so one governed fixture does not cost the whole report.
+    (let ()
       (for/fold ([acc '()] #:result (reverse acc)) ([f (in-list fixtures)])
         (define o (car f))
         (define want (cdr f))
@@ -657,10 +722,11 @@
            (define answers
              (for/hash ([b (in-list backends)])
                (define-values (out t)
-                 (classify-attempt b labels #:text text
-                                   #:content-type (hash-ref o 'content_type "")
-                                   #:key (hash-ref o 'key)
-                                   #:rules rules #:chat chat))
+                 (with-document-egress (conn p o #f)
+                   (classify-attempt b labels #:text text
+                                     #:content-type (hash-ref o 'content_type "")
+                                     #:key (hash-ref o 'key)
+                                     #:rules rules #:chat chat)))
                (set-box! tokens (+ (unbox tokens) t))
                (values (string->symbol b) out)))
            (cons (hasheq 'object_id (hash-ref o 'id)
@@ -1049,7 +1115,7 @@
   (define chat (current-doc-chat))
   (define-values (sent put-back red) (apply-redaction 'doc_translate args text))
   (define-values (tr tokens)
-    (parameterize ([current-utility-executor (model-role-executor conn (principal-team-id p) "utility")])
+    (with-document-egress (conn p src red)
       (translate! conn p #:text sent #:target-lang locale
                   #:chat (lambda (t sys) (chat t #:system sys)))))
   (meter! conn p tokens)

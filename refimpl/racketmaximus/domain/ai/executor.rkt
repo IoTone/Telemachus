@@ -26,6 +26,7 @@
 (provide model-configured? model-info chat-simulated? run-chat run-chat-stream parse-chat-response estimate-tokens
          model-name pull-router
          model-request-logger log-model-request! transport-error-kind
+         egress-policy egress-refusal
          model-exchange response-tokens)
 
 ;; PULL-5: a named executor that is not a push backend may be a PULL executor. The
@@ -63,6 +64,41 @@
      #:executor executor #:transport transport #:model model #:endpoint endpoint
      #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
      #:http-status http-status #:ms ms)))
+
+;; RED-26: the per-org executor policy (issue #91 requirement 4). A box for the
+;; reason `pull-router` and `model-request-logger` above are boxes — the policy
+;; lives in two `instance_settings` documents and this module has no connection —
+;; and until `server/main.rkt` installs one, nothing is refused.
+;;
+;; (executor endpoint document) -> #f to allow, or a sentence to refuse with.
+(define egress-policy
+  (box (lambda (#:executor e #:endpoint u #:document d) #f)))
+
+;; The ONE gate the three transports share, so a policy cannot reach two of them
+;; and miss the third. RED-16 is the reason that is a real risk rather than a
+;; tidiness argument: `model-exchange` is not the only place content leaves, its
+;; own header notwithstanding, and `content-logging-refusal` had to be written
+;; into all three by hand one requirement ago.
+;;
+;; A POLICY THAT CANNOT BE READ REFUSES. That is the opposite of
+;; `log-model-request!` two definitions above, which swallows its own failures,
+;; and deliberately: a log that does not write costs an operator a record, while
+;; a control that does not run costs somebody their document. So an unreadable
+;; policy is a refusal naming itself — and it can only be reached by a request
+;; that carries a LABEL, because an unlabelled one never asks, which keeps a
+;; broken database from stopping every model call on the instance.
+(define (egress-refusal executor endpoint)
+  (or (content-logging-refusal executor endpoint)
+      (let ([doc (current-egress-document)])
+        (and doc (hash-ref doc 'label #f)
+             (with-handlers ([exn:fail?
+                              (lambda (ex)
+                                (format (string-append
+                                         "the executor policy for label ~a could not be read, "
+                                         "so this request is refused: ~a")
+                                        (hash-ref doc 'label #f) (exn-message ex)))])
+               ((unbox egress-policy)
+                #:executor executor #:endpoint endpoint #:document doc))))))
 
 (define (ms-since start) (inexact->exact (round (- (current-inexact-milliseconds) start))))
 
@@ -219,12 +255,14 @@
                           #:status "refused" #:error-kind "capability")
       (error who "~a" bad)))
   (define-values (url mdl key conf?) (backend executor))
-  ;; RED-20: a hosted backend with no no_content_logging declaration, when the
-  ;; instance requires one. Refused HERE, before the body is composed, because
-  ;; the point of the check is that the content does not leave — a refusal after
+  ;; RED-20 and RED-26: a hosted backend with no no_content_logging declaration
+  ;; when the instance requires one, and a document whose sensitivity label this
+  ;; executor is not allowed to see unredacted. Refused HERE, before the body is
+  ;; composed, because the point of either check is that the content does not
+  ;; leave — a refusal after
   ;; the POST would be a report, not a policy. The refusal is itself a row: a
   ;; call that was stopped is exactly what somebody auditing this would look for.
-  (let ([bad (and conf? (content-logging-refusal executor url))])
+  (let ([bad (and conf? (egress-refusal executor url))])
     (when bad
       (log-model-request! #:executor executor #:transport "push" #:model mdl #:endpoint url
                           #:messages messages #:status "refused" #:error-kind "policy")
@@ -285,7 +323,7 @@
   (define pull-started (current-inexact-milliseconds))
   (define routed
     (and executor (not (executor-config executor))
-         (let ([bad (content-logging-refusal executor #f)])
+         (let ([bad (egress-refusal executor #f)])
            (when bad
              (log-model-request! #:executor executor #:transport "pull" #:messages msgs
                                  #:status "refused" #:error-kind "policy")
@@ -362,7 +400,7 @@
      ;; `openai-llm-stream` directly — and it is still content crossing the
      ;; network. It is logged with transport `stream`, and the policy gate
      ;; applies before the first byte for the same reason it does there.
-     (let ([bad (content-logging-refusal executor url)])
+     (let ([bad (egress-refusal executor url)])
        (when bad
          (log-model-request! #:executor executor #:transport "stream" #:model mdl
                              #:endpoint url #:messages msgs #:status "refused"

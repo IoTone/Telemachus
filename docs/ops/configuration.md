@@ -160,6 +160,43 @@ digests incomparable with later ones; there is nothing to re-wrap, since the
 prompt was never kept, so the row records `digest_key_id` and a reader sees a new
 key rather than concluding the text changed.
 
+### Where a labelled document's text may go (#91 requirement 4)
+
+**This one has no environment variable, deliberately.** It is a policy with two
+tenant-visible tiers, so it lives in the database and is edited over HTTP —
+`PUT /api/executor-policy` (`instance:manage`) and
+`PUT /api/org/executor-policy` (`org:manage`) — and the switch that turns it on
+is the existence of a document:
+
+```sh
+curl -X PUT "$BASE/api/executor-policy" -H "Authorization: Bearer $OP" -d '{
+  "labels": {
+    "confidential": {"executors": ["gpu-1"], "default_model": false, "allow_redacted": true},
+    "restricted":   {"executors": ["gpu-1"], "allow_redacted": false}
+  }}'
+```
+
+A document is governed when it carries the LAY‑4 object attribute
+**`sensitivity`** — a field the team defines like any other, whose values the
+policy's labels name. **With no policy document at either tier nothing is
+refused**, whatever a document is labelled; once one exists, a label NO tier
+mentions is refused outright, which is the state removing a label from the policy
+leaves documents that still carry it in.
+
+The list governs **unredacted** text: tokenised text (requirement 2's `redact`)
+may go to a backend that is not on it, unless the label sets
+`allow_redacted: false`. A backend on **loopback** is outside the policy
+entirely, as above — so a single-box instance talking to ollama is unaffected —
+and a **pull** executor has no endpoint, counts as off this box, and is governed.
+The unnamed `TELEMACHUS_MODEL_URL` model has no executor name, so it is permitted
+per label by `default_model` rather than by a reserved entry in the list. A name
+in the list that no executor answers to is reported as `unknown_executors` on the
+read rather than refused on the write, because a typo there fails closed.
+
+A refused request is audited as `ai.egress.refused` in the trail of the
+document's own team, carrying the label, the executor, the backend's host and the
+reason — never the text and never the document's key.
+
 ## Encrypting document-derived content at rest (issue #83)
 
 | Variable | Default | What it does |

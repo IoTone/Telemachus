@@ -27,13 +27,17 @@
       "text": "Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved.",
       "hash": "e1919f478b3e694eda1134928b95a35bc7bbd692"
     },
-    "doc.route.post.api.beta.experience.publish": {
-      "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
-      "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
+    "doc.route.put.api.executor-policy": {
+      "text": "Set the instance's executor policy: `{\"labels\": {\"<label>\": {\"executors\": [...], \"default_model\": false, \"allow_redacted\": true}}}`. The list governs UNREDACTED text; redacted text may travel unless `allow_redacted` is false. An unknown field is refused rather than dropped. With NO policy document at either tier nothing is governed, whatever a document is labelled.",
+      "hash": "a5593dbd76bb53b724cc55c9baf81c4e12af9a90"
     },
     "doc.tool.doc_set_type.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "doc.route.post.api.beta.experience.publish": {
+      "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
+      "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
     },
     "ui.deleted": {
       "text": "Deleted",
@@ -346,6 +350,10 @@
     "ui.refresh": {
       "text": "Refresh",
       "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
+    },
+    "doc.route.get.api.org.executor-policy": {
+      "text": "The company's own executor policy, the instance's, the EFFECTIVE one and `sources` naming which tiers mentioned each label. Where both tiers name a label the permitted executors are the INTERSECTION and both flags are ANDed, so a company narrows what the instance allows and can never widen it; a label only one tier names is that tier's to decide.",
+      "hash": "13f8727033ea1d8a035caa2bbdab9e744013e37b"
     },
     "ui.create": {
       "text": "Create",
@@ -2071,6 +2079,10 @@
       "text": "no worker can run",
       "hash": "a857f59c856ab5b3b401c3e20f5a599694377503"
     },
+    "doc.route.get.api.executor-policy": {
+      "text": "The instance's executor policy (#91 req 4): per sensitivity LABEL, which executors may be sent the text of a document carrying it. `attribute` names the LAY-4 object attribute the label is read from, and `unknown_executors` lists any name in the policy that no executor answers to — a typo there fails closed, so it is reported rather than refused.",
+      "hash": "1c240d5440f95fa171555bd910d2e8a226878e1f"
+    },
     "doc.plugin.rs3": {
       "text": "Stores document bytes on the local filesystem, addressed by their SHA-256. The default backing store for the document repository.",
       "hash": "ccaae7c2bb64d6e3a39dd4ba7c4102a99efc94a8"
@@ -2507,6 +2519,10 @@
       "text": "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.",
       "hash": "694bd265ddd63c495318b345499b233155933122"
     },
+    "doc.route.put.api.org.executor-policy": {
+      "text": "Set the company's executor policy. Same vocabulary and same refusals as the instance route; the answer carries the effective policy as well as what was stored, because a company that named an executor the instance does not allow for that label gets the intersection.",
+      "hash": "5ed7e09ba6374176c34a409e8961e24a4091129b"
+    },
     "doc.tool.doc_classify_eval.labels": {
       "text": "The document types being evaluated — a fixture expecting anything else is excluded and reported",
       "hash": "b1ef4e8ee10b75a8437f95080175499304c980d9"
@@ -2663,6 +2679,10 @@
       "text": "Decision recorded",
       "hash": "71097cf7bca165c70df9a12dfca0ce52f9a89f55"
     },
+    "doc.route.delete.api.org.executor-policy": {
+      "text": "Drop the company's executor policy; its documents fall back to the instance's. A label NEITHER tier names is refused outright, so clearing a policy that was the only one naming a label stops that label's text going anywhere.",
+      "hash": "327dc86743358deb380242a128bf7fed4f8fc0be"
+    },
     "ui.expired": {
       "text": "expired",
       "hash": "45a6f9adb1df3a78aafc71391c7d3bfa7680229b"
@@ -2694,6 +2714,10 @@
     "doc.route.get.api.branding": {
       "text": "Title, tagline, logo and theme tokens. Public: the sign-in screen renders them. On a company's hostname, or for its signed-in user, the company's own (TEN-2d).",
       "hash": "f3e64499ded4920c022bac80f5a0907720610f51"
+    },
+    "doc.route.delete.api.executor-policy": {
+      "text": "Drop the instance's executor policy, which is the only way to turn the feature OFF: `{\"labels\": {}}` is still a configured policy, and a configured policy refuses every label it does not mention. An org policy, if one exists, then governs on its own.",
+      "hash": "b1dd75971926d15a703975f7d0a21619532cc7ac"
     },
     "doc.perm.documents:write": {
       "text": "Create and edit text documents.",

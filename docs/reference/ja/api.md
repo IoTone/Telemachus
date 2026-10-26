@@ -24,6 +24,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PUT | `/api/retention` | bearer | `settings:manage` | role | — | チームの保持ルールを設定します：`max_age_days`、`delete_derived_after_days`、`purge_job_payloads_after_days`。それぞれ日数の整数か null です。**0 は拒否されます**（アップロード直後に削除されてしまうため）。定義されていないフィールドも、黙って無視せず拒否します。データが削除されていると信じている一方で実際には何も起きていない状態が最悪の誤りだからです。チームは組織とインスタンスが許す範囲で短縮のみ可能です。 |
 | GET | `/api/retention/plan` | bearer | `files:read` | role | — | 現在のポリシーが削除する「予定」のみを返し、実際には何も変更しません。対象のオブジェクトツリー、派生オブジェクト、ジョブのペイロード、そしてリーガルホールドによって保護されている件数を示します。保持ルールは無人で実行されるため、ドライランが最も必要な操作です。リーガルホールド中のオブジェクトは後から除外されるのではなく計画自体に現れないため、ルールが触れられないものを計画が約束することはありません。 |
 | POST | `/api/repo-obj/:id/legal-hold` | bearer | `files:manage` | resource | — | オブジェクトにリーガルホールドを設定または解除します：`{"hold": true\|false}`。ホールド中は「ルールによる」削除が拒否され、保持スイープはそのオブジェクトを飛ばし、件数を報告します。これは r4 がプレフィックス単位の操作を構築する土台となるフラグであり、保持ルールと同時に提供されます。削除をともなうスケジュールは一方通行であり、それを止められるのはホールドだけだからです。 |
+| GET | `/api/executor-policy` | bearer | `instance:manage` | role | — | インスタンスのエグゼキュータポリシー（#91 要件4）。機密ラベルごとに、そのラベルが付いた文書のテキストを送ってよいエグゼキュータを示します。`attribute` はラベルを読み取る LAY-4 オブジェクト属性の名前、`unknown_executors` はどのエグゼキュータも名乗らない名前の一覧です。ポリシー内の綴り間違いは安全側に倒れる（送信されない）ため、書き込み時に拒否せず読み取り時に報告します。 |
+| PUT | `/api/executor-policy` | bearer | `instance:manage` | role | — | インスタンスのエグゼキュータポリシーを設定します：`{"labels": {"<label>": {"executors": [...], "default_model": false, "allow_redacted": true}}}`。この一覧が規制するのは**マスキングされていない**テキストです。マスキング済みのテキストは `allow_redacted` が false でない限り送信できます。未知のフィールドは無視せず拒否します。どちらの層にもポリシー文書がない場合、文書にどのラベルが付いていても規制は行われません。 |
+| DELETE | `/api/executor-policy` | bearer | `instance:manage` | role | — | インスタンスのエグゼキュータポリシーを削除します。この機能を停止する方法はこれだけです：`{"labels": {}}` でもポリシーは設定済みとみなされ、設定済みのポリシーは記述のないラベルをすべて拒否します。組織（org）のポリシーがある場合は、それが単独で適用されます。 |
 | GET | `/api/session-policy` | bearer | `instance:manage` | role | — | インスタンスのセッションタイムアウト（issue #38）：idle_seconds、absolute_seconds、warn_seconds と、出荷時の既定値および許容範囲。 |
 | PUT | `/api/session-policy` | bearer | `instance:manage` | role | — | インスタンスのセッションタイムアウトを設定する。フィールドに null を指定するとその軸に上限を設けない。会社はこれを厳しくできるが、緩めることはできない。 |
 | POST | `/api/branding/logo` | bearer | `instance:manage` | role | — | インスタンスロゴをアップロード（マークとワードマークを置き換えます） |
@@ -100,6 +103,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/org/timezone` | org-admin | `org:read` | role | — | 会社自身の既定タイムゾーン、インスタンスの既定、および自分で設定していないこの会社のメンバーに適用される値。 |
 | PUT | `/api/org/timezone` | org-admin | `org:manage` | role | — | 会社の既定タイムゾーンを設定する: {timezone}。ユーザー自身の選択は引き続きこれより優先されます。 |
 | DELETE | `/api/org/timezone` | org-admin | `org:manage` | role | — | 会社の既定タイムゾーンを削除する。所属ユーザーはインスタンス既定にフォールバックします。 |
+| GET | `/api/org/executor-policy` | org-admin | `org:read` | role | — | 会社自身のエグゼキュータポリシー、インスタンスのポリシー、実効ポリシー、および各ラベルをどの層が指定したかを示す `sources`。両方の層が同じラベルを指定している場合、許可されるエグゼキュータはその**積集合**となり、両方のフラグは AND されます。つまり会社はインスタンスが許可する範囲を狭めることだけができ、広げることはできません。片方の層だけが指定したラベルは、その層の判断に従います。 |
+| PUT | `/api/org/executor-policy` | org-admin | `org:manage` | role | — | 会社のエグゼキュータポリシーを設定します。語彙と拒否の条件はインスタンス側のルートと同じです。応答には保存した内容だけでなく実効ポリシーも含まれます。インスタンスがそのラベルに対して許可していないエグゼキュータを会社が指定した場合、結果は積集合になるためです。 |
+| DELETE | `/api/org/executor-policy` | org-admin | `org:manage` | role | — | 会社のエグゼキュータポリシーを削除します。その会社の文書はインスタンスのポリシーに従うようになります。どちらの層も指定していないラベルは拒否されるため、あるラベルを指定していた唯一のポリシーを削除すると、そのラベルのテキストはどこへも送られなくなります。 |
 | GET | `/api/org/session-policy` | org-admin | `org:read` | role | — | 会社自身のセッションタイムアウト、インスタンスのもの、そしてインスタンスの下限を適用した実効ポリシー。 |
 | PUT | `/api/org/session-policy` | org-admin | `org:manage` | role | — | 会社のセッションタイムアウトを設定する。厳しくする変更だけが有効になる：インスタンスより緩い値を指定すると、インスタンスの値が返されます。 |
 | DELETE | `/api/org/session-policy` | org-admin | `org:manage` | role | — | 会社のセッションタイムアウトを取り下げる；そのユーザーはインスタンスのポリシーに戻ります。 |

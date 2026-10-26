@@ -75,6 +75,12 @@ done; exec 3>&- 2>/dev/null || true
 B="localhost:$PORT"
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
 P(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
+# PUT and PATCH, which this file had neither of until #91 req 4 needed both.
+# Grep for a helper before using one: an undefined name runs as an unknown
+# command, nothing sets `fail`, and the suite reports PASS with the assertion
+# silently absent — the shape this file's own `differ` comment records.
+PU(){ curl -s -X PUT "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
+PA(){ curl -s -X PATCH "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
 # a 7B model takes ~50 s per extraction and ~30 s per translation; the mock answers
 # in milliseconds. Poll for up to 10 minutes live, 1 minute scripted. Do NOT
 # lengthen the scripted budget to get a stalled run to finish: a queue that
@@ -819,6 +825,153 @@ refute "…and no token left behind"         "$GXTEXT" '<PERSON_'
 assert "the step persisted no token map" \
   "$(G "/api/repo-obj/$GLET/processing")" '"runs_complete":true'
 echo
+echo "== 5h. where a labelled document's text may go (#91 req 4, RED-24…33) ========="
+# The teeth of #91. Requirements 1-3 built the means to minimise a prompt and the
+# record of what was sent; this is the one that STOPS something.
+#
+# THE REFUSAL NEEDS A HOSTED BACKEND, and the mock model is on loopback — which
+# the policy exempts by design (nothing left the box). So the governed backend
+# here is a PULL executor: it has no endpoint, the platform does not know which
+# model URL a worker will call, and the content leaves by the job row. That it
+# has no worker costs this block nothing, because the policy refuses BEFORE the
+# dispatch — which is itself the property being asserted.
+HEXEC=$(P /api/executors '{"name":"gpu-far","mode":"pull","model":"mock"}')
+assert "a pull executor to be governed" "$HEXEC" '"name":"gpu-far"'
+
+# The label is a LAY-4 object attribute, so the team defines the field as it
+# defines any other. PUT REPLACES the whole list, and the classifier's own three
+# fields are already in it by now, so this appends rather than overwrites.
+HFIELDS=$(G /api/repo-fields | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+fs=[f for f in d["fields"] if f.get("key")!="sensitivity"]
+fs.append({"key":"sensitivity","label":"Sensitivity"})
+print(json.dumps({"fields":fs}))')
+assert "the team defines a sensitivity field" "$(PU /api/repo-fields "$HFIELDS")" '"key":"sensitivity"'
+
+printf 'Dear Ms Patel,\n\nYour claim 44719823 was received.\n' > "$TELEMACHUS_DATA_DIR/h-let.txt"
+HOBJ=$(up sens/letter.txt text/plain "$TELEMACHUS_DATA_DIR/h-let.txt" | jq_ 'd["id"]')
+assert "the document is marked confidential" \
+  "$(PA "/api/repo-obj/$HOBJ/attributes" '{"attributes":{"sensitivity":"confidential"}}')" \
+  '"sensitivity":"confidential"'
+
+# The policy. `nope-gw` is deliberately a name no executor answers to: a typo
+# here fails CLOSED, so it is REPORTED on the read rather than refused on the
+# write — refusing it would make a policy unwritable before the backend it names
+# exists, which is the ordinary order an operator sets one up in.
+HPOL='{"labels":{"confidential":{"executors":["nope-gw"],"allow_redacted":true}}}'
+HSAVED=$(PU /api/executor-policy "$HPOL")
+assert "the instance policy is stored"      "$HSAVED" '"configured":true'
+assert "…naming the attribute it reads"     "$HSAVED" '"attribute":"sensitivity"'
+assert "…and reporting the name nothing answers to" "$HSAVED" '"unknown_executors":["nope-gw"]'
+assert "an unknown policy field is refused" "$(PU /api/executor-policy '{"labels":{"a":{"executor":[]}}}')" \
+  'unknown field'
+assert "…and so is a label with no name"    "$(PU /api/executor-policy '{"labels":{"":{}}}')" \
+  'cannot be empty'
+assert "the policy survived the refusals"   "$(G /api/executor-policy)" '"nope-gw"'
+
+# the team's bulk work now goes to the governed executor
+assert "the utility role points at it" "$(PU /api/model-roles '{"roles":{"utility":"gpu-far"}}')" 'gpu-far'
+
+# §5g left the mock answering "MOCK" to anything but an extraction prompt, so the
+# classify step would fail for a reason with nothing to do with the policy — and
+# the POSITIVE control below is a step that must SUCCEED. The needle is the
+# classifier's own system prompt.
+#
+# MERGED INTO the reply file rather than written over it. These blocks share one
+# mock and the sections AFTER this one read whatever the last block left, so
+# replacing the file starved the knowledge graph's extraction 150 lines below —
+# which reads as a broken extractor and is a fixture collision.
+if [ $LIVE = 0 ]; then
+  python3 -c 'import json,sys
+p=sys.argv[1]
+try:  d=json.load(open(p))
+except Exception:  d={}
+d["You classify a document"]=json.dumps({"label":"letter","confidence":0.90,"rationale":"mock"})
+json.dump(d,open(p,"w"))' "$MOCK_REPLY_FILE"
+fi
+
+HWF='{"spec":1,"slug":"sens-classify","input":{"object_id":"string"},"steps":[
+  {"id":"kind","uses":"tool:doc_classify","with":{"object":"${input.object_id}","backends":["llm"],
+   "labels":[{"name":"letter","description":"a letter"}],"run":"${run.id}","step":"kind"},"end":true}]}'
+assert "the classifying spec published" "$(P /api/workflows "$HWF")" '"slug":"sens-classify"'
+
+HR=$(P /api/workflows/sens-classify/run "{\"input\":{\"object_id\":\"$HOBJ\"}}")
+wait_run "$(printf '%s' "$HR" | grep -oP '"id":"\K[^"]+' | head -1)"
+# THE ISSUE'S SECOND ACCEPTANCE CRITERION: refused.
+assert "an unredacted step against a disallowed executor fails" "$RUNST" error
+assert "…and the failure names the label"  "$RUNJSON" 'confidential'
+assert "…and the backend it was headed for" "$RUNJSON" 'gpu-far'
+assert "…and what the caller can do about it" "$RUNJSON" 'redact the step'
+refute "…while quoting none of the text"   "$RUNJSON" 'Patel'
+
+# AND AUDITED, in the trail of the team whose document it was. `audit-list` DOES
+# NOT PROJECT `meta`, which this file's own notes record: the first version of
+# this block asserted the label inside it and failed, and the two refutes beside
+# it PASSED VACUOUSLY because the field was never in the response at all — #59's
+# rule, where asserting over an API that never carried a field is worse than not
+# asserting. What the meta holds (the label, the executor, the backend's host,
+# and never the text or the KEY) is asserted over the ROW, in
+# test/sensitivity-tests.rkt. What is HTTP's to answer is the rest of the entry.
+HAUD=$(G /api/audit)
+assert "the refusal is audited"             "$HAUD" '"action":"ai.egress.refused"'
+assert "…as a refusal, not an ok"           "$HAUD" '"result":"refused"'
+assert "…naming the document it was about"  "$HAUD" "\"resource_id\":\"$HOBJ\""
+assert "…and the person whose run it was"   "$HAUD" '"actor_type":"user"'
+refute "the trail carries none of the text" "$HAUD" '44719823'
+
+# THE CONTROL THAT MAKES THE REFUSAL MEAN SOMETHING. Back to the loopback model:
+# the same labelled document, the same policy, and the step runs — a feature that
+# refused everything would pass every assertion above.
+assert "the utility role is cleared" "$(PU /api/model-roles '{"roles":{"utility":null}}')" '"roles"'
+HR2=$(P /api/workflows/sens-classify/run "{\"input\":{\"object_id\":\"$HOBJ\"}}")
+wait_run "$(printf '%s' "$HR2" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "a loopback backend is outside the policy entirely" "$RUNST" done
+
+# OFF UNLESS CONFIGURED, over HTTP: with the document dropped from the policy the
+# label is one NO tier mentions, which is the one absence this slice fails closed
+# on — so it is refused again, and `DELETE`ing the policy altogether lets it run.
+assert "the utility role points back at it" "$(PU /api/model-roles '{"roles":{"utility":"gpu-far"}}')" 'gpu-far'
+assert "an empty policy is still a policy" "$(PU /api/executor-policy '{"labels":{}}')" '"configured":true'
+HR3=$(P /api/workflows/sens-classify/run "{\"input\":{\"object_id\":\"$HOBJ\"}}")
+wait_run "$(printf '%s' "$HR3" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "a label no tier mentions is refused"  "$RUNST" error
+assert "…and the refusal says so"             "$RUNJSON" 'does not list that label'
+
+# RED-29: reading the policy is an operator's business — it is a list of this
+# instance's own backends, and what a team member needs from it is in the refusal.
+HMEM=$(P /api/members '{"username":"hmem","password":"pw-pw-pw1","role":"member"}' | jq_ 'd["token"]')
+assert "a member cannot read the policy" \
+  "$(curl -s $B/api/executor-policy -H "Authorization: Bearer $HMEM")" 'Forbidden: instance:manage'
+assert "a member cannot write one" \
+  "$(curl -s -X PUT $B/api/executor-policy -H "Authorization: Bearer $HMEM" -d "$HPOL")" 'Forbidden: instance:manage'
+
+# RED-34 AND THE WAY THIS BLOCK FOUND IT. `PUT {"labels":{}}` above is still a
+# CONFIGURED policy, so it refuses every label it does not mention — and leaving
+# one behind, with a labelled document still in the team, made the knowledge
+# graph 150 lines below stop being able to read that document. The platform was
+# working; the instance tier simply had no way OFF, which is what `DELETE` is.
+# A smoke block that changes GLOBAL state has to put it back (the last-owner
+# lesson, from the other end of the file).
+assert "the policy can be dropped entirely" "$(curl -s -X DELETE $B/api/executor-policy -H "Authorization: Bearer $TOK")" '"configured":false'
+PU /api/model-roles '{"roles":{"utility":null}}' >/dev/null
+
+# AND THE DOCUMENTS GO WITH IT, which is not tidiness. §8's knowledge graph
+# extracts a BOUNDED batch per run, and this block's letter plus the
+# classification record it derived displaced the team-visible `inbox/auto/` scans
+# out of that batch — so the entity came back with only the private invoice
+# mentioning it and carol, who can read only the scans, stopped seeing it. A
+# section 250 lines away failing on a VISIBILITY rule, because this one added two
+# documents. The suite's own note says it: every new fixture is more model calls
+# in the next fan-out.
+assert "the block removes its own documents" \
+  "$(curl -s -X DELETE "$B/api/repo-obj/$HOBJ?cascade=1" -H "Authorization: Bearer $TOK")" '"deleted"'
+# NOT a fourth run here, and the reason is worth the line: with the policy gone
+# the labelled document is no longer governed, so a run against `gpu-far` is
+# DISPATCHED to a pull executor that has no worker — and waits for ever, which
+# reads as a stalled engine. That the drop really ungoverns the document is
+# asserted in test/sensitivity-tests.rkt, where there is no queue to hang in.
+echo
+
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

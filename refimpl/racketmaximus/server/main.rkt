@@ -59,13 +59,17 @@
                   active-blob-store-name)
          (only-in "../domain/repo/repo.rkt" reap-staged-blobs!)
          (only-in "../domain/flow/spec.rkt" exn:fail:spec?)
-         (only-in "../domain/ai/executor.rkt" estimate-tokens model-configured? model-request-logger pull-router run-chat)
+         (only-in "../domain/ai/executor.rkt" estimate-tokens model-configured? model-request-logger
+                  egress-policy pull-router run-chat)
          (only-in "../domain/ai/content.rkt" content->text)
          (only-in "../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
          (only-in "../domain/exec/federation.rkt" connect-executors!)
          (only-in "../domain/exec/pull.rkt" executor-by-name load-push-executors! pull-dispatch! reap-leases!)
          ;; RED-17: the model-request log's writer (issue #91 requirement 3)
          (only-in "../domain/ai/requestlog.rkt" model-request-record!)
+         ;; #91 req 4: where a labelled document's text may go, and the host of
+         ;; the backend it was about to go to (never the key, never the query)
+         (only-in "../domain/ai/sensitivity.rkt" make-egress-policy)
          (only-in "../domain/judge/judge.rkt" judgments-in-result register-judge-kind!)
          (only-in "../domain/ai/roles.rkt" model-role-executor)
          (only-in "../domain/agent/run.rkt" agent-configured? run-agent-flow)
@@ -242,6 +246,11 @@
    'my-org-team-quota ep-my-org-team-quota
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
    'session-policy-get ep-session-policy-get 'session-policy-put ep-session-policy-put
+   'executor-policy-get ep-executor-policy-get 'executor-policy-put ep-executor-policy-put
+   'executor-policy-clear ep-executor-policy-clear
+   'my-org-executor-policy-get ep-my-org-executor-policy-get
+   'my-org-executor-policy-put ep-my-org-executor-policy-put
+   'my-org-executor-policy-clear ep-my-org-executor-policy-clear
    'timezones ep-timezones
    'timezone-get ep-timezone-get 'timezone-put ep-timezone-put
    'my-org-timezone-get ep-my-org-timezone-get 'my-org-timezone-put ep-my-org-timezone-put
@@ -870,6 +879,25 @@
         #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
         #:http-status http-status #:ms ms)
       (void)))
+  ;; RED-26: the per-org executor policy (issue #91 requirement 4). The gate is
+  ;; `egress-refusal` in executor.rkt, at the three places a request leaves the
+  ;; process; the DECISION is `make-egress-policy`, in the domain beside the
+  ;; policy it reads, so the acceptance test installs the same one this does.
+  ;; What this supplies is the request context the domain cannot see — the
+  ;; principal lives in a `server/kit.rkt` parameter.
+  (set-box! egress-policy
+    (make-egress-policy
+     db-conn
+     #:context (lambda ()
+                 (define job (current-job))
+                 (define p (current-request-principal))
+                 (hasheq 'org (and p (principal-org-id p))
+                         'team (cond [job (hash-ref job 'team #f)]
+                                     [p (principal-team-id p)]
+                                     [else #f])
+                         'user (cond [job (hash-ref job 'user #f)]
+                                     [p (principal-user-id p)]
+                                     [else #f])))))
   ;; run-chat #:executor <pull executor>: enqueue an infer.chat sub-job of the
   ;; current job (or a top-level one on the request path) and wait for a worker
   (set-box! pull-router
