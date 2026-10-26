@@ -24,7 +24,7 @@
          (only-in web-kit/http1 make-chunked-body)
          "addresses.rkt")
 
-(provide fetch egress-allowlist safe-url
+(provide fetch egress-allowlist safe-url same-origin?
          (struct-out exn:fail:egress) FETCH-MAX-BYTES FETCH-TIMEOUT FETCH-MAX-REDIRECTS)
 
 ;; A refusal by POLICY is its own exception, so a caller can tell "we would not
@@ -65,6 +65,36 @@
   (raise (exn:fail:egress (apply format fmt args) (current-continuation-marks)
                           reason (safe-url url))))
 
+;; ---- who a credential may be sent to ---------------------------------------------
+;; A credential is addressed to the ORIGIN it was configured for, and a redirect
+;; or a source-chosen link is how it leaves. RFC 9110 §15.4 and the Fetch
+;; standard both say a redirect to another origin must not carry
+;; `Authorization`, and this platform has two more cases of the same shape: a
+;; feed's `header` mode names its own header, and a feed's `Link: rel="next"`
+;; comes from the source. So the caller says WHICH headers are its credential,
+;; and this module withholds them off-origin.
+;;
+;; `http` to `https` on one host is another origin here, as it is for a browser,
+;; so an operator whose source upgrades configures the `https` URL.
+(define (url-origin u)
+  (define p (with-handlers ([exn:fail? (lambda (_) #f)]) (string->url u)))
+  (and p (url-scheme p) (url-host p)
+       (list (string-downcase (url-scheme p))
+             (string-downcase (url-host p))
+             (or (url-port p) (if (string-ci=? (url-scheme p) "https") 443 80)))))
+
+(define (same-origin? a b)
+  (define x (url-origin a))
+  (define y (url-origin b))
+  (and x y (equal? x y)))
+
+;; The two every HTTP client treats this way, and the reason a caller with a
+;; custom header name (`x-api-key`) has to say so. The webhook signature is
+;; deliberately NOT here: it is an HMAC over a timestamped body, its replay
+;; window is the signature's own, and changing what a webhook delivery sends is
+;; #85's decision rather than a side effect of this one.
+(define DEFAULT-CREDENTIAL-HEADERS '("authorization" "cookie" "proxy-authorization"))
+
 ;; The operator's allowlist, read per call. Not memoized: it is one `getenv` and
 ;; a parse against a request that is about to cross the network, and a cache
 ;; keyed on nothing is how a test that sets the variable stops working.
@@ -86,10 +116,28 @@
                #:timeout [timeout FETCH-TIMEOUT]
                #:max-bytes [max-bytes FETCH-MAX-BYTES]
                #:max-redirects [max-redirects FETCH-MAX-REDIRECTS]
+               #:credential-headers [credential-headers '()]
                #:allow [allow (egress-allowlist)])
+  (define creds (append DEFAULT-CREDENTIAL-HEADERS (map string-downcase credential-headers)))
+  ;; A header is written as `name: value\r\n`, so a break in either half ADDS a
+  ;; header to the request. Refused HERE, before a socket is opened, and not only
+  ;; at the feed's validation: a row stored before that check exists is never
+  ;; re-validated, every caller passes through this function, and a request that
+  ;; is not going to be sent should not be sent in part.
+  (for ([kv (in-list headers)])
+    (when (or (text-has-a-line-break? (format "~a" (car kv)))
+              (text-has-a-line-break? (format "~a" (cdr kv))))
+      (egress-error 'bad-header url "a request header contains a line break")))
   (let loop ([u url] [hops 0])
+    ;; Compared against the ORIGINAL url, not the previous hop: A→B→A is back at
+    ;; the origin the credential was configured for, and once it has been
+    ;; withheld for B it is never forwarded onward by accident.
+    (define sent
+      (if (same-origin? u url)
+          headers
+          (filter (lambda (kv) (not (member (string-downcase (car kv)) creds))) headers)))
     (define-values (status hs bs location)
-      (one-hop u policy method headers body timeout max-bytes allow))
+      (one-hop u policy method sent body timeout max-bytes allow))
     (cond
       [(and location (< hops max-redirects))
        ;; EVERY HOP IS RE-VETTED, because that is where a fetcher is usually
@@ -184,6 +232,9 @@
     (define loc (and (member status '(301 302 303 307 308)) (header-ref hs "location")))
     (close-ports in out)
     (list status hs bs loc)))
+
+(define (text-has-a-line-break? s)
+  (for/or ([c (in-string s)]) (or (char=? c #\newline) (char=? c #\return) (char=? c #\u0000))))
 
 (define (reason-text k)
   (case k

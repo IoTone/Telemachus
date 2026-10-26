@@ -183,6 +183,14 @@
          [(eq? r 'no-such-user)
           (err "`user_id` must be an active member of this team — a feed cannot act as somebody outside it" 400)]
          [(eq? r 'duplicate-slug) (err "a feed with that slug already exists in this team" 409)]
+         ;; One message, and it names the way out: the patch is refused because
+         ;; the stored credential was sealed for the old origin, and `secret` in
+         ;; the same request is what re-seals it. `null` is the other way out,
+         ;; paired with `auth: "none"`.
+         [(eq? r 'secret-required)
+          (err (string-append "changing the URL's scheme, host or port would send the stored "
+                              "credential to a host it was not configured for: send `secret` in "
+                              "this request, or `null` with `auth: \"none\"` to clear it") 400)]
          [(not r) (err "no such feed" 404)]
          [else
           (audit! db-conn #:action "feed.update" #:actor-type "user" #:actor-id (principal-user-id p)

@@ -452,3 +452,31 @@
   ;; cursor SKIPS items, which is the one failure a feed must not have
   (check-false (iso8601->epoch "last tuesday"))
   (check-false (iso8601->epoch #f)))
+
+;; ---- a next page is a URL the SOURCE chose ------------------------------------------
+(test-case "a next link to another origin is refused, and the credential is not sent there"
+  ;; `feed-auth-apply` puts the credential on whatever URL the loop is given, and a
+  ;; `Link: rel="next"` is the source's choice. The fetcher's redirect rule cannot
+  ;; help: this is the first hop of a NEW request.
+  (define c (fresh))
+  (define-values (uid tid) (owner c))
+  (with-source (list (list 200 "[]" '()))
+    (lambda (b-url b-seen _bp)
+      (with-source
+        (lambda (_port)
+          (list (list 200 (page (issue 114))
+                      (list (cons "link" (format "<~a/p2>; rel=\"next\"" b-url))))))
+        (lambda (url _seen _p)
+          (define fid (mk c tid uid url))
+          (define s (poll-feed! c fid))
+          (check-false (hash-ref s 'ok))
+          (check-equal? (hash-ref s 'reason) "cross-origin")
+          ;; page one still landed and is still accounted for: the refusal stops
+          ;; page two, it does not throw away what was already written
+          (check-equal? (hash-ref s 'stored) 1)
+          (check-equal? (length (repo-list c (user-principal c uid tid))) 1)
+          ;; the other host was never contacted at all
+          (check-equal? (unbox b-seen) '())
+          ;; and the message names both places without a query string
+          (check-true (string-contains? (hash-ref s 'error) "which is not"))))))
+  (close-db! c))

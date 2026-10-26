@@ -35,12 +35,12 @@
          (only-in sha2-kit sha256-hex)
          (only-in "../authz/authz.rkt" audit! user-principal principal-team-id)
          (only-in "../orgs/orgs.rkt" tenant-quota-record!)
-         (only-in "../net/fetch.rkt" fetch safe-url exn:fail:egress? exn:fail:egress-reason)
+         (only-in "../net/fetch.rkt" fetch safe-url same-origin? exn:fail:egress? exn:fail:egress-reason)
          (only-in "../repo/repo.rkt" repo-put! repo-get repo-set-attributes!
                   repo-fields-declare!)
          "adapters.rkt"
-         (only-in "feeds.rkt" feed-by-id feed-auth-apply feed-cursor-set! feed-poll-recorded!
-                  feed-item-ref feed-item-record! record-fetch! FEED-KINDS))
+         (only-in "feeds.rkt" feed-by-id feed-auth-apply feed-credential-headers feed-cursor-set!
+                  feed-poll-recorded! feed-item-ref feed-item-record! record-fetch! FEED-KINDS))
 
 (provide (struct-out exn:fail:feed-store)
          poll-feed! FEED-MAX-PAGES FEED-MAX-ITEM-BYTES FEED-POLL-TIMEOUT FEED-MAX-BYTES
@@ -162,6 +162,9 @@
                    #:policy 'trusted
                    #:timeout FEED-POLL-TIMEOUT
                    #:max-bytes FEED-MAX-BYTES
+                   ;; the source may redirect this request, and the credential is
+                   ;; addressed to the origin the operator configured
+                   #:credential-headers (feed-credential-headers feed)
                    #:headers request-headers))
           (cond
             [(not (and (>= status 200) (< status 300)))
@@ -182,6 +185,17 @@
              (hasheq 'ok #t 'status status 'next next 'items (length items))])))
       (cond
         [(not (hash-ref res 'ok #f)) res]
+        ;; A `Link: rel="next"` IS A URL THE SOURCE CHOSE, and `feed-auth-apply`
+        ;; would put this feed's credential on it. The fetcher's redirect rule
+        ;; cannot help: this is the first hop of a NEW request. Refused rather
+        ;; than followed with the credential withheld, because a page that
+        ;; cannot authenticate would be a 401 at best, and at worst a page of
+        ;; somebody else's items landed under this feed's key prefix.
+        [(and (hash-ref res 'next #f) (< page max-pages)
+              (not (same-origin? (hash-ref res 'next) first-url)))
+         (hasheq 'ok #f 'status (hash-ref res 'status #f) 'reason "cross-origin"
+                 'error (format "the source pointed its next page at ~a, which is not ~a"
+                                (safe-url (hash-ref res 'next)) (safe-url first-url)))]
         [(and (hash-ref res 'next #f) (< page max-pages))
          (loop (hash-ref res 'next) (add1 page))]
         [else (hash-set res 'truncated (and (hash-ref res 'next #f) #t))])))

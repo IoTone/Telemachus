@@ -34,7 +34,7 @@
          net/url
          "../db/id.rkt"
          (only-in "../authz/sealed.rkt" define-sealed-column)
-         (only-in "../net/fetch.rkt" fetch safe-url exn:fail:egress? exn:fail:egress-reason)
+         (only-in "../net/fetch.rkt" fetch safe-url same-origin? exn:fail:egress? exn:fail:egress-reason)
          (only-in "adapters.rkt" feed-adapter-for feed-adapter-kinds)
          (only-in "../sched/schedules.rkt" schedule-create! schedule-delete! schedule-get
                   schedule-update! SCHEDULE-MIN-INTERVAL)
@@ -42,7 +42,7 @@
 
 (provide FEED-KINDS FEED-AUTHS PROBE-ONLY-KINDS POLL-KIND PROBE-TIMEOUT PROBE-MAX-BYTES
          feed-problem feed-create! feed-list feed-get feed-update! feed-delete!
-         feed-secret-of feed-request feed-auth-apply probe-feed! record-fetch!
+         feed-secret-of feed-credential-headers feed-request feed-auth-apply probe-feed! record-fetch!
          feed-by-id feed-cursor-set! feed-poll-recorded!
          feed-item-ref feed-item-record! feed-item-forget! feed-items-count)
 
@@ -132,7 +132,17 @@
           (not (and (string? auth-name) (regexp-match? #px"^[A-Za-z0-9_-]{1,64}$" auth-name))))
      (format "auth `~a` needs `auth_name` — the ~a the secret travels in" auth
              (if (string=? auth "header") "header name" "query parameter name"))]
+    ;; A header request is built as `name: value`, and the fetcher writes the
+    ;; pairs as `~a: ~a\r\n`, so a break in the secret adds a header. Refused
+    ;; here for a feedback loop an operator reads, and again in the fetcher,
+    ;; because a row stored before this check exists is never re-validated.
+    [(and (string? secret) (member auth '("bearer" "header" "query"))
+          (secret-has-a-control-character? secret))
+     "`secret` must not contain control characters — a line break in it would add headers to the request"]
     [else #f]))
+
+(define (secret-has-a-control-character? s)
+  (for/or ([c (in-string s)]) (or (< (char->integer c) 32) (= (char->integer c) 127))))
 
 ;; ---- rows -------------------------------------------------------------------------
 (define SELECT
@@ -273,6 +283,19 @@
     [(and (string? slug) (not (string=? slug (vector-ref cur 3)))
           (query-maybe-value conn "SELECT id FROM feeds WHERE team_id = ? AND slug = ?" team slug))
      'duplicate-slug]
+    ;; THE CREDENTIAL IS ADDRESSED TO AN ORIGIN. A patch that moves the URL to
+    ;; another scheme, host or port while keeping the sealed secret would aim
+    ;; that secret at a host the operator chose AFTER sealing it — the one step
+    ;; `feed-problem`'s "no credential in the url" rule exists to prevent, taken
+    ;; a different way. Rotating the secret in the same patch is the answer, so
+    ;; it is asked for rather than guessed: clearing it silently would turn a
+    ;; typo fix into a 401 whose cause is invisible.
+    ;; Column 6 is `url` and 16 is `secret` in `SELECT`; read through the row so
+    ;; one statement cannot half-apply.
+    [(and (string? url) (eq? secret 'same)
+          (not (sql-null? (vector-ref cur 16)))
+          (not (same-origin? url (vector-ref cur 6))))
+     'secret-required]
     [else
      ;; One column per statement. Building one UPDATE with a conditional clause
      ;; list and a fixed argument list is how a clause and its parameter come
@@ -331,6 +354,20 @@
 
 (define (feed-request conn feed-row)
   (feed-auth-apply conn feed-row (hash-ref feed-row 'url)))
+
+;; WHICH header carries this feed's credential, so the fetcher can withhold it
+;; from an origin the credential was not configured for. `bearer` writes
+;; `authorization`, `header` writes the operator's own name (which no fixed list
+;; would cover), and `query` carries it in the URL, where the redirect target
+;; replaces the query and there is nothing to withhold.
+(define (feed-credential-headers feed-row)
+  (define auth (hash-ref feed-row 'auth))
+  (cond
+    [(string=? auth "bearer") (list "authorization")]
+    [(string=? auth "header")
+     (define nm (hash-ref feed-row 'auth_name #f))
+     (if (and nm (not (eq? nm 'null)) (string? nm)) (list (string-downcase nm)) '())]
+    [else '()]))
 
 ;; The same credential, applied to a url the ADAPTER composed — the first request
 ;; of a poll carries a cursor, and the second is a `Link: rel="next"` the source
@@ -398,6 +435,9 @@
                #:policy 'trusted
                #:timeout PROBE-TIMEOUT
                #:max-bytes PROBE-MAX-BYTES
+               ;; the probe follows redirects like a poll does, so it withholds
+               ;; the same header when the source moves it to another origin
+               #:credential-headers (feed-credential-headers feed-row)
                #:headers hs))
       (define json?
         (and (with-handlers ([exn:fail? (lambda (_) #f)])
