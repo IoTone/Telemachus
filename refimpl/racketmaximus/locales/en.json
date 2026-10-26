@@ -359,6 +359,10 @@
       "text": "See a team in the company.",
       "hash": "4199f8d5f9e5b33c92fab79383d9b06b39566bf1"
     },
+    "doc.workflow.translate-chat": {
+      "text": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
+      "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
+    },
     "doc.route.get.api.repo-obj.id.spans": {
       "text": "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.",
       "hash": "0ebd28a5c2094a860bb918d4279034df707e56a5"
@@ -462,6 +466,10 @@
     "doc.route.delete.api.members.id": {
       "text": "Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed.",
       "hash": "025e74335f8f9af3dcf545fc8a2fa545b6819576"
+    },
+    "doc.workflow.translate-chat.name": {
+      "text": "Translate Chat Workflow",
+      "hash": "e75f88b7089bc812a57d24e883339d56314117fa"
     },
     "doc.tool.doc_text.version": {
       "text": "A specific version id (default: the current version)",
@@ -839,6 +847,14 @@
       "text": "All",
       "hash": "6a72085653e4c5be8c7640c868ef787cbcf063d1"
     },
+    "ui.steps": {
+      "text": "Steps",
+      "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
+    },
+    "doc.tool.translate_text.target": {
+      "text": "Target language code, e.g. es, nl, is",
+      "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
+    },
     "ui.thbg": {
       "text": "Background",
       "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
@@ -994,10 +1010,6 @@
     "doc.route.delete.api.jobs.id.content": {
       "text": "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.",
       "hash": "9d189ecf693750416b1c4e3cb6036348589dbe1c"
-    },
-    "ui.steps": {
-      "text": "Steps",
-      "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
     },
     "ui.l10nall": {
       "text": "All statuses",
@@ -1271,6 +1283,14 @@
       "text": "Saved",
       "hash": "c0ae8f6ea84111498894729659051ce9713aab42"
     },
+    "doc.tool.translate_text.source": {
+      "text": "Source language code, or auto",
+      "hash": "6b0f09c4c69815cd09d87c29be1307f3166f6c2f"
+    },
+    "doc.route.patch.api.members.id": {
+      "text": "Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it.",
+      "hash": "d907194c615b7a60f020c98a5eba4bfb9eec603c"
+    },
     "doc.perm.workflows:write": {
       "text": "Publish workflows and manage triggers.",
       "hash": "f981778de4196069299c6a8866294e550bf4c456"
@@ -1326,10 +1346,6 @@
     "ui.upload": {
       "text": "Upload",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
-    },
-    "doc.route.patch.api.members.id": {
-      "text": "Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it.",
-      "hash": "d907194c615b7a60f020c98a5eba4bfb9eec603c"
     },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
@@ -1587,6 +1603,10 @@
       "text": "Send a dead or delivered event again. The attempt count is reset — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does NOT change, so a receiver that already applied it recognises the idempotency key.",
       "hash": "b17affbdc8d6742b2e242a961b35b0b2ef2dd1d5"
     },
+    "doc.tool.chat_message": {
+      "text": "Send one chat message to the model and return its reply.",
+      "hash": "2f5eee6d8e27557d3c465f31654c3faa6ae5dce0"
+    },
     "ui.chat": {
       "text": "Chat",
       "hash": "2ced57f125910a9e8ab95deea86e4ad7be418b5a"
@@ -1659,6 +1679,10 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.plugin.translate-chat": {
+      "text": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
+      "hash": "91f7eb085397a93509322e65886d76dc1659b76f"
+    },
     "doc.route.get.api.documents": {
       "text": "List text documents.",
       "hash": "de4fa39c0955689307a963f108c0396528663e13"
@@ -1670,6 +1694,10 @@
     "ui.visibility": {
       "text": "Visibility",
       "hash": "7d9ff4f0de398581c4640bcbb6e536c355a391be"
+    },
+    "doc.tool.translate_text.text": {
+      "text": "The text to translate",
+      "hash": "07cc5dd5e4ffdbcefffeb5687c74e77770b518cf"
     },
     "ui.workflow": {
       "text": "Workflow",
@@ -2495,6 +2523,10 @@
       "text": "Update a note.",
       "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
     },
+    "doc.tool.chat_message.text": {
+      "text": "What the user said",
+      "hash": "bfe8aadc4471ada97ff5ddf135d6d3bb0585636f"
+    },
     "doc.route.post.api.x.plugin.bundle-ticket": {
       "text": "Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path.",
       "hash": "bd43be9e9648a122dad992989775e4fad89ca0e8"
@@ -2686,6 +2718,10 @@
     "ui.newdoc": {
       "text": "New document",
       "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
+    },
+    "doc.tool.translate_text": {
+      "text": "Translate text into a target language.",
+      "hash": "97e00a1333476512c5752e4a68c059fc5df84cc4"
     },
     "doc.tool.doc_set_type.rationale": {
       "text": "Why, in the reviewer's own words — kept in the record, not in the attributes",
