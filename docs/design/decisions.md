@@ -2024,3 +2024,149 @@ retry is a minute away, and #85's acceptance asks for a first attempt "within 2
 seconds", so a slower sweep would make the backoff a lie. The race was never the
 interval's fault — an hourly sweep would have the same defect and would hide it
 for a year.
+
+## RED‑1…9 — what the model is not told (issue #91, requirement 1)
+
+> A workflow could send a document's text to a model and nothing MINIMISED it: a
+> letter naming a person, their telephone number and their date of birth went
+> entire, to whatever executor the team had configured. This is requirement 1 and
+> requirement 5. Requirements 2, 3 and 4 — `redact: true` on the AI steps with
+> rehydration, executor request logging, and the per-org policy that blocks
+> unredacted text from reaching a disallowed executor — are later slices.
+
+| # | Decision |
+|---|---|
+| RED‑1 | **The detectors are a closed, platform-authored set and the caller chooses only WHICH run** — a named detector, never a pattern the caller writes. |
+| RED‑2 | **A token is stable within one document and deliberately NOT across documents**, because a token that meant the same person everywhere is a pseudonym, and a pseudonym is a join key. |
+| RED‑3 | **Overlaps are settled by the longest match, and ties by a fixed platform order** — loosest detector last. |
+| RED‑4 | **Text that already contains a token-shaped string is REFUSED**, not escaped or renumbered. |
+| RED‑5 | **The token map is sealed whenever a key exists**, never gated on the content switch, and it is in `CREDENTIAL-SECRETS`. |
+| RED‑6 | **No route returns a token map** — requirement 1's "never leaves the instance" by construction rather than by a check. |
+| RED‑7 | **Opening a map needs `files:read` on the SOURCE**, and a refusal and a miss are one answer. |
+| RED‑8 | **The redacted text is a DOCUMENT beside the source**, because "show me what you would have sent" is the only way to audit a redaction. |
+| RED‑9 | **What this does not protect, stated**: the caller's own dictionary terms are run input, and a run is readable by anybody with `workflows:read`. |
+
+**The detectors are named, not written** (RED‑1). The requirement says "regex
+(emails, phones, SSN-like, policy/account numbers, dates)", and those are the
+CLASSES to detect rather than a facility for writing patterns. An
+operator-authored regexp evaluated against the text of a document the operator
+does not control is a denial of service with the operator's own configuration as
+the weapon — the call `classify.rkt` made for its rules (CLS‑2), `fields.rkt`
+made for the funnel's validation vocabulary and `bind.rkt` made for the workflow
+bindings. Here it costs the caller nothing at all: nobody wants to write an email
+pattern, they want emails found. So the patterns are reviewed in one place, each
+written with no nested quantifier, and the caller names detectors from a closed
+list. The refusal says *why* it is closed, because "let me write my own" is the
+obvious next request. The dictionary detector is the one thing the caller supplies
+anything for, and what it supplies is **literal strings** — a term with regexp
+metacharacters in it is a term, pinned by a case.
+
+**An NER backend is requirement 1's optional third detector and is not built.**
+It needs a model seam of its own and would make redaction cost a model request,
+which is the thing redaction exists to make safe — so it is its own slice and the
+refusal names it rather than letting it read as a typo.
+
+**A token is stable within one document and nowhere else** (RED‑2). The same value
+gets the same token here, which is the whole reason a span becomes a token rather
+than a black box: the model can see that one person appears in three places and
+reason about it. It is deliberately **not** stable across documents, and that is
+the privacy decision of the slice — a token that meant the same person everywhere
+would be a pseudonym, and a pseudonym is a join key. Hand two redacted documents
+to a model, or to anybody, and they would learn the two concern the same person,
+which is exactly the disclosure this step exists to prevent. The numbering is per
+class in order of first appearance, so the output is a function of the document.
+
+**The dictionary's token is keyed on the TERM, not the matched text**, which is
+what makes RED‑2 true for it: a term matches case-insensitively, so "Lee" and
+"LEE" are one person, and keying on the matched text gave them two tokens — the
+model shown two people where the caller named one. Found by the test.
+
+**Overlaps are settled by the longest match, ties by a fixed platform order**
+(RED‑3), never by the order the caller named the detectors — the same document
+redacted by two callers who asked for the same work must not come back
+differently. **The detector list IS the priority order and runs from the most
+specific pattern to the loosest.** `phone` is last because it is loose by a wide
+margin — a digit, then seven to nineteen digits-and-separators, then a digit — and
+with it ranked first, as the first version had it, the fixture letter's
+`2026-10-14` came back as `<PHONE_1>` and its `078-05-1120` as `<PHONE_3>`. The
+redaction was complete and nothing leaked; the **quality report** was wrong, about
+a letter whose dates requirement 5 exists to count.
+
+**Text already containing a token is refused** (RED‑4). The token is what the
+model is asked to reason about and what requirement 2 will replace BACK, so a
+literal `<PERSON_1>` already in the text makes the reply ambiguous between a span
+this redaction replaced and a string that was always there — and rehydration would
+then put a real name where the document never had an identifier. That is the one
+failure mode of this feature that INVENTS data rather than losing it, so it is
+refused by name. A per-redaction nonce in the token was the alternative and it
+makes every token unreadable to the model, which is the thing tokens exist to be.
+
+**The map is sealed whenever a key exists** (RED‑5). `#:credential`, and the flag's
+name is about #85's signing secret while the property it names is "seal whenever a
+key is configured" — this is the clearest case of needing that property which is
+not a credential. The column holds `<PERSON_1> -> Arun Patel` for every person in
+every redacted document: a concordance of exactly the identifiers the step took out
+of a model request. Gated on `TELEMACHUS_ENCRYPT_CONTENT`, whose documented default
+is OFF, the ordinary instance would store them in the clear — a feature doing the
+opposite of its name on the default configuration, which is #119's shape. It is in
+`CREDENTIAL-SECRETS` for that reason and for a second one the schedule-payload note
+already states: a sealed column `rewrap` does not walk is silently unrotatable, and
+here an unopenable map is a redacted document that can never be rehydrated again.
+
+**The whole-database scan is what checks it, not a list of sites.** `#83`'s own
+lesson — the scan beat the enumeration twice — so `dump-leak-tests.rkt` gained a
+redaction probe and the pair that makes it mean something: with **no key** the
+scanner finds the map in the clear, and with a key and the content switch OFF it
+does not.
+
+**Nothing serves the map** (RED‑6). `routes.rkt` gained nothing in this slice, and
+that is how "never leaves the instance" is kept — by construction rather than by a
+check somebody has to remember. Rehydration will read it in process, inside the
+step that is about to put a value back. The same rule applies to what IS served:
+the tool's result carries the TOKENS and never the values, because a tool result
+reaches a workflow step's stored output, the agent's transcript and a console pane,
+which is three more copies than the sealed row has.
+
+**Opening a map needs `files:read` on the source** (RED‑7), and nothing more,
+because the map is a strict subset of that document's own text — a caller who may
+read the document may already read every value in it, so a stricter rule would
+protect nothing and would stop the pipeline's own steps from rehydrating. A refusal
+and a miss are **one answer**, collapsed in one place so a caller cannot tell them
+apart by choosing a different function: that somebody redacted a document you
+cannot see would itself say the document exists and that it had identifiers in it.
+
+**The redacted text is a document** (RED‑8), not a field on a response. It is the
+artifact a person has to be able to read before they trust the step, and it is what
+requirement 2's steps will take as their input. So it lands beside the source as
+`<key>.redacted.txt` through `derive!` — private from its first byte with the
+source's own grants, and a `repo_derivations` row saying which run made it. The
+document goes first and the row second, which is CLS‑11's order read the other way
+round: the row is the only copy of the map, so a row written before a refused
+`derive!` would leave a map to a redaction nobody can see.
+
+**A document whose text cannot be read is a REFUSAL, not an empty redaction.**
+`doc_classify` can classify a photograph from its content type (CLS‑9) and this
+cannot: a redaction of nothing is a document that reads as safe to send, which is
+the one answer this step must never give. So it goes through `doc_text`, which
+refuses by name — including the scan that needs OCR.
+
+**What it does not protect** (RED‑9). The dictionary's terms are the caller's own
+input, and a workflow stores every run's input in `workflow_runs.input` — sealed at
+rest only under the content switch, and handed back by `GET /api/runs/:id` to
+anybody holding `workflows:read`. So the names somebody asked to have redacted are
+visible to their colleagues, and for a list of names that is worth knowing rather
+than discovering. It is FEED‑13's line: a read returns the configuration as given,
+because an operator who cannot see what they typed cannot maintain it. Requirement
+2 is where the terms stop being a run input and become part of a spec or a trigger.
+Both the unit suite and the smoke assert it, so that the refutations beside them
+cannot be read as "the run is clean".
+
+**A harness that greps for the word "failure" always agrees with you.** The
+positive-control harness read its verdict by scanning output for "failure", and
+`dump-leak-tests.rkt` prints "(control, failures) the needle is in: …" as ordinary
+diagnostic output — so every control against that file reported that it bit,
+including the RED‑5 one, which is the only check that the map is sealed at all. The
+verdict is read off `raco test`'s summary line now. And one control that genuinely
+did not bite was found by the same fix: the longest-match case used two spans
+beginning at **different** offsets, so the position sort settled it and the length
+comparator never ran.

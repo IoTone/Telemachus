@@ -661,6 +661,95 @@ assert "…scoring only the two it could"      "$(rep 'r["fixtures"]')" 2
 assert "…and naming the excluded fixture"    "$RUNJSON" 'eval/c.jpg'
 assert "…while the rule set keeps its record" "$(rep 'b["rules"]["accuracy"]')" 1.0
 echo
+echo "== 5f. what the model is NOT told: redaction (#91 req 1, RED-1…9) ============="
+# Every block above sends a document's text to a model entire. This is the step
+# that minimises it — and the artifact is a DOCUMENT, because "show me what you
+# would have sent" is the only way a person can audit a redaction.
+printf 'Dear Ms Patel,\n\nYour claim 44719823 was received on 2026-10-14. We wrote to Arun Patel\nat arun.patel@example.com and tried to reach him on +44 20 7946 0958.\nHis date of birth is 3 April 1981.\n' > "$TELEMACHUS_DATA_DIR/r-let.txt"
+RLET=$(up red/letter.txt text/plain "$TELEMACHUS_DATA_DIR/r-let.txt" | jq_ 'd["id"]')
+
+assert "the redaction workflow arrived"   "$(G /api/workflows)" '"slug":"redact-document"'
+assert "doc_redact is registered"         "$(G /api/tools)" '"name":"doc_redact"'
+
+DETS='["email","date","id_number","dictionary","phone"]'
+redact(){ # <detectors json> <terms json> -> RUNST / RUNJSON
+  local r; r=$(P /api/workflows/redact-document/run \
+    "{\"input\":{\"object_id\":\"$RLET\",\"detectors\":$1,\"terms\":$2}}")
+  wait_run "$(printf '%s' "$r" | grep -oP '"id":"\K[^"]+' | head -1)"
+}
+rout(){ printf '%s' "$RUNJSON" | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+r=[s["output"]["result"] for s in d["steps"] if s["step_id"]=="redact"][0]
+print(eval(sys.argv[1],{"r":r}))' "$1"; }
+
+redact "$DETS" '["Patel","Arun Patel"]'
+assert "the redaction finished"           "$(ran)" done
+# two terms and five patterns
+assert "…seven identifiers replaced"      "$(rout 'r["replaced"]')" 7
+assert "…two of them dates"               "$(rout 'r["counts"]["date"]')" 2
+assert "…one telephone number"            "$(rout 'r["counts"]["phone"]')" 1
+# RED-3: the loose phone pattern does NOT win the ISO date or the SSN-shaped
+# number. The redaction would be complete either way; requirement 5's report is
+# what would be wrong, and it is the thing a reviewer reads.
+assert "…and one account number, not three" "$(rout 'r["counts"]["id_number"]')" 1
+
+# THE DOCUMENT a person can read, which is the artifact of this slice
+assert "the redacted text is a document beside the source" \
+  "$(G '/api/repo?prefix=red/')" '"key":"red/letter.txt.redacted.txt"'
+RID=$(G '/api/repo?prefix=red/' | python3 -c 'import sys,json
+print([o["id"] for o in json.load(sys.stdin)["objects"] if o["key"].endswith(".redacted.txt")][0])')
+RTEXT=$(curl -s "$B/api/repo-obj/$RID/content" -H "Authorization: Bearer $TOK")
+assert "…and it carries tokens"           "$RTEXT" '<PERSON_1>'
+assert "…the prose around them intact"    "$RTEXT" 'Your claim <ID_1> was received on <DATE_1>.'
+# the whole point, asserted one value at a time — a single grep makes this
+# claim vacuously
+refute "…the name is gone"                "$RTEXT" 'Patel'
+refute "…the email is gone"               "$RTEXT" 'arun.patel@example.com'
+refute "…the telephone number is gone"    "$RTEXT" '+44 20 7946 0958'
+refute "…the date of birth is gone"       "$RTEXT" '3 April 1981'
+refute "…and the claim number is gone"    "$RTEXT" '44719823'
+
+# RED-6: NO ENDPOINT RETURNS THE MAP. The tool result reaches a step's stored
+# output, the agent transcript and a console pane — three more copies than the
+# sealed row has — so it carries the TOKENS and never the values. Asserted on the
+# step's OUTPUT, which is what this slice produces.
+assert "the step output reports the tokens" "$(rout 'r["tokens"]')" '<EMAIL_1>'
+ROUT=$(rout 'r')
+refute "…and never the email"             "$ROUT" 'arun.patel@example.com'
+refute "…nor the name"                    "$ROUT" 'Arun Patel'
+refute "…nor the telephone number"        "$ROUT" '7946 0958'
+refute "…nor the date of birth"           "$ROUT" '3 April 1981'
+
+# RED-9, AND IT IS A LIMIT RATHER THAN A LEAK, SO IT IS ASSERTED RATHER THAN
+# WISHED AWAY: the dictionary terms are the CALLER'S OWN INPUT, and the engine
+# stores every run's input in `workflow_runs.input` and hands it back on
+# `GET /api/runs/:id` to anybody holding `workflows:read`. So the names somebody
+# asked to have redacted are visible to their colleagues, which for a list of
+# names is worth knowing about. It is FEED-13's line — a read returns the
+# configuration as it was given, and an operator who cannot see what they typed
+# cannot maintain it — and requirement 2 is where the terms move out of a run
+# input and into a spec or a trigger. This assertion exists so that nobody later
+# reads the four refutations above and concludes the whole run is clean.
+assert "the run's INPUT carries the caller's own terms, by design" "$RUNJSON" '"terms":["Patel","Arun Patel"]'
+
+# RED-1: a detector the caller invents is refused BY NAME, and the refusal says
+# why rather than reading as a typo
+redact '["email","ssn"]' '[]'
+assert "an invented detector fails the run" "$RUNST" error
+assert "…naming what this build detects"    "$RUNJSON" 'email, date, id_number, dictionary, phone'
+assert "…and why the caller cannot write one" "$RUNJSON" 'rather than one the caller writes'
+
+# RED-4: a document already containing a token is refused, because a token minted
+# here could not be told from it — and putting values back would then write an
+# identifier where the document never had one
+printf 'see <PERSON_1> above\n' > "$TELEMACHUS_DATA_DIR/r-tok.txt"
+RTOK=$(up red/tokened.txt text/plain "$TELEMACHUS_DATA_DIR/r-tok.txt" | jq_ 'd["id"]')
+RT=$(P /api/workflows/redact-document/run \
+  "{\"input\":{\"object_id\":\"$RTOK\",\"detectors\":[\"email\"],\"terms\":[]}}")
+wait_run "$(printf '%s' "$RT" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "text already shaped like a token is refused" "$RUNST" error
+assert "…by name"                                    "$RUNJSON" 'already contains text shaped like a redaction token'
+echo
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

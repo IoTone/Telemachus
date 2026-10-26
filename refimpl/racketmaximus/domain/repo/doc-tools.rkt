@@ -8,6 +8,7 @@
 ;;   doc_classify        (object, labels, rules?, …)    -> one label, or refused
 ;;   doc_list_unclassified (prefix?)                  -> the ids a backfill should classify
 ;;   doc_classify_eval   (labels, prefix?, …)        -> accuracy per label and per backend
+;;   doc_redact          (object, detectors?, terms?)  -> the text with identifiers tokenised
 ;;   doc_set_type        (object, labels, label, …)     -> the type a PERSON decided
 ;;   doc_extract_fields  (text, schema, object?, …)    -> fields that VALIDATE, or refused
 ;;   doc_render          (template, data, object?, …)  -> a filled form, as a document
@@ -49,6 +50,8 @@
          "../apps/translate.rkt"      ; translate!
          "repo.rkt"
          "classify.rkt"
+         "redact.rkt"
+         "redactions.rkt"
          "extract.rkt")
 
 (provide current-doc-chat
@@ -618,6 +621,92 @@
              'excluded (reverse excluded)
              'tokens_used (unbox tokens)))
 
+;; ---- doc_redact: what the model is NOT told (issue #91 req 1, RED-1…9) -----------
+;; A workflow could send a document's text to a model and there was no step that
+;; MINIMISED it. This one replaces the identifiers with stable tokens and keeps
+;; the map back in a sealed row; requirement 2 is the half that builds a prompt
+;; from the result and puts the values back, and is not this slice.
+;;
+;; RED-8: THE REDACTED TEXT IS A DOCUMENT, not a field on a response. It is the
+;; artifact a person has to be able to READ before they trust the step — "show me
+;; what you would have sent" is the only way to audit a redaction — and it is
+;; what requirement 2's steps will take as their input. So it lands beside the
+;; source as `<key>.redacted.txt` through `derive!`, which means private from its
+;; first byte with the source's own grants (DWF-4) and a `repo_derivations` row
+;; saying which run made it.
+(define-tool doc_redact
+  #:description "Replace the identifiers in a document's text with stable tokens — <PERSON_1>, <DATE_2>, <ID_3> — so a model request can be built from what is left. Detectors are named, not written by the caller: email, date, id_number, dictionary (terms you supply) and phone. Writes the redacted text beside the source as <key>.redacted.txt and keeps the map from token back to value in a sealed row that no endpoint returns. Reports counts per detector, so under-redaction is visible."
+  (object string #:description "The repository object id")
+  (detectors array #:items string #:optional
+             #:description "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)")
+  (terms array #:items string #:optional
+         #:description "Literal names or phrases the dictionary detector should replace — not patterns")
+  (text string #:optional #:description "The text to redact (default: extracted from the document)")
+  (run string #:optional #:description "The workflow run id, for provenance")
+  (step string #:optional #:description "The workflow step id, for provenance"))
+
+(define (doc-redact conn p args)
+  (define (refuse s) (raise-user-error 'doc_redact "~a" s))
+  (define detectors
+    (let ([d (hash-ref args 'detectors #f)])
+      (if (or (not d) (eq? d 'null) (null? d))
+          ;; `dictionary` is out of the default because it does nothing without
+          ;; terms, and a detector that silently found nothing is the under-
+          ;; redaction requirement 5 exists to make visible
+          (remove "dictionary" DETECTORS)
+          d)))
+  (define terms (let ([t (hash-ref args 'terms '())]) (if (or (eq? t 'null) (not t)) '() t)))
+  (cond [(detectors-problem detectors) => refuse])
+  (cond [(terms-problem terms) => refuse])
+  (when (and (member "dictionary" detectors) (null? terms))
+    (refuse "the dictionary detector was asked for and no terms were given — it would redact nothing, which reads in the report as a document with no names in it"))
+  (define id (arg args 'object))
+  (define src (doc-ref conn p id))
+  (unless src (error 'doc_redact "no such document: ~a" id))
+  (define key (hash-ref src 'key))
+  ;; `doc_text` and not `best-effort-text`: a document whose text cannot be read
+  ;; must NOT come back as an empty redaction. `doc_classify` can classify a
+  ;; photograph from its content type (CLS-9) and this cannot — a redaction of
+  ;; nothing is a document that reads as safe to send, which is the one answer
+  ;; this step must never give. `doc_text` refuses by name, including the scan
+  ;; that needs OCR.
+  (define full (or (opt-arg args 'text) (doc-text conn p (hasheq 'object (hash-ref src 'id)))))
+  ;; RED-4: a document already containing a token-shaped string is refused
+  (when (token-shaped? full)
+    (refuse (format (string-append
+                     "~a already contains text shaped like a redaction token (<CLASS_n>), so a "
+                     "token minted here could not be told from it — and putting values back would "
+                     "then write an identifier where the document never had one. Redact a copy with "
+                     "that text removed, or pass `text` with it removed.")
+                    key)))
+  (define-values (redacted token-map counts) (redact full #:detectors detectors #:terms terms))
+  (define report (redaction-counts detectors counts))
+  ;; The DOCUMENT first and the row second, which is CLS-11's order for the same
+  ;; reason read the other way round: the row is the only copy of the map, so a
+  ;; row written before a refused `derive!` would leave a map to a redaction
+  ;; nobody can see, while a document written before a refused row leaves exactly
+  ;; what it says — redacted text, with the values gone.
+  (define o (derive! conn p src
+                     #:key (string-append key ".redacted.txt")
+                     #:bytes (string->bytes/utf-8 redacted)
+                     #:content-type "text/plain"
+                     #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
+  (define rid (redaction-record! conn p src
+                                 #:detectors detectors #:counts report
+                                 #:map token-map #:redacted (hash-ref o 'id)))
+  (hash-set* (obj-summary o #:summary (format "~a replaced, ~a detector(s)"
+                                              (length token-map) (length detectors)))
+             'redaction_id rid
+             'detectors detectors
+             'counts report
+             'replaced (length token-map)
+             ;; the TOKENS and never the values: this is a tool result, so it
+             ;; reaches a workflow step's stored output, the agent's transcript
+             ;; and a console pane. The map is the sealed row's, and RED-6 says
+             ;; nothing serves it.
+             'tokens (for/list ([kv (in-list token-map)]) (car kv))
+             'chars (string-length redacted)))
+
 ;; ---- doc_render ------------------------------------------------------------------
 (define-tool doc_render
   #:description "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is \"pdf\" (a Markdown or HTML template, converted with pandoc and tectonic)."
@@ -972,6 +1061,7 @@
 (register-tool! "doc_list_unclassified" doc_list_unclassified "files:read" list-unclassified)
 ;; req 6: an evaluation READS the repository and writes nothing (CLS-33)
 (register-tool! "doc_classify_eval"  doc_classify_eval  "files:read"  doc-classify-eval)
+(register-tool! "doc_redact"         doc_redact         "files:write" doc-redact)
 (register-tool! "doc_set_type"       doc_set_type       "files:write" doc-set-type)
 (register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields)
 (register-tool! "doc_render"         doc_render         "files:write" doc-render)

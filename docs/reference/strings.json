@@ -350,6 +350,13 @@
   "doc.tool.doc_list_unclassified.prefix": "Only documents whose key starts with this (default: every document in the team)",
   "doc.tool.doc_list_unclassified.run": "The workflow run id, for provenance",
   "doc.tool.doc_list_unclassified.step": "The workflow step id, for provenance",
+  "doc.tool.doc_redact": "Replace the identifiers in a document's text with stable tokens — <PERSON_1>, <DATE_2>, <ID_3> — so a model request can be built from what is left. Detectors are named, not written by the caller: email, date, id_number, dictionary (terms you supply) and phone. Writes the redacted text beside the source as <key>.redacted.txt and keeps the map from token back to value in a sealed row that no endpoint returns. Reports counts per detector, so under-redaction is visible.",
+  "doc.tool.doc_redact.detectors": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
+  "doc.tool.doc_redact.object": "The repository object id",
+  "doc.tool.doc_redact.run": "The workflow run id, for provenance",
+  "doc.tool.doc_redact.step": "The workflow step id, for provenance",
+  "doc.tool.doc_redact.terms": "Literal names or phrases the dictionary detector should replace — not patterns",
+  "doc.tool.doc_redact.text": "The text to redact (default: extracted from the document)",
   "doc.tool.doc_render": "Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is \"pdf\" (a Markdown or HTML template, converted with pandoc and tectonic).",
   "doc.tool.doc_render.data": "The data to fill in, e.g. the extracted fields",
   "doc.tool.doc_render.format": "Output format: the template's own (default) or \"pdf\" — Markdown and HTML templates only",
@@ -412,6 +419,8 @@
   "doc.workflow.index-knowledge.name": "Index Knowledge",
   "doc.workflow.process-upload": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
   "doc.workflow.process-upload.name": "Process an uploaded document",
+  "doc.workflow.redact-document": "Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns.",
+  "doc.workflow.redact-document.name": "Redact a document",
   "doc.workflow.translate-chat": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
   "doc.workflow.translate-chat.name": "Translate Chat Workflow"
 }

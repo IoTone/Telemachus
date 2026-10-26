@@ -27,6 +27,8 @@
          "../domain/db/id.rkt"
          "../domain/repo/blobs.rkt"
          "../domain/repo/extract.rkt"
+         "../domain/repo/repo.rkt"
+         "../domain/repo/doc-tools.rkt"          ; #91: registers doc_redact
          "../domain/sched/scheduler.rkt"
          "../domain/agent/registry.rkt"
          (only-in "../domain/tools/dsl.rkt" define-tool)
@@ -285,6 +287,58 @@
 ;; in a failure message would pass the sealed case while proving nothing. This
 ;; one also DOCUMENTS the four homes, so a future column shows up as a diff here
 ;; rather than as silence.
+;; ---- #91: a redaction's map back -------------------------------------------------
+;; The scan's own argument, applied to the newest column that holds identifiers:
+;; `repo_redactions.token_map` is a concordance of `<PERSON_1> -> <a real name>`
+;; for every redacted document, and it is sealed through `#:credential` — whenever
+;; a key exists, NEVER gated on the content switch (RED-5). These two cases are
+;; the pair that makes that mean something, and the pair is the point: the
+;; acceptance case runs with the content switch OFF, which is the documented
+;; default and therefore the configuration almost every instance is in.
+(define (redact-something! c p)
+  (define o (repo-put! c p #:key "leak/letter.txt"
+                       #:port (open-input-string (string-append "Dear " NEEDLE ", your claim\n"))
+                       #:content-type "text/plain" #:filename "letter.txt" #:visibility "team"))
+  ((tool-handler (tool-by-name "doc_redact")) c p
+   (hasheq 'object (hash-ref o 'id) 'detectors '("dictionary") 'terms (list NEEDLE))))
+
+(test-case "CONTROL: with NO key, a redaction's map holds its values in the clear"
+  ;; #19's documented "trusted database" position — no key means plaintext
+  ;; everywhere — and here it is what proves the scanner can SEE this column. The
+  ;; acceptance case below is worthless without it.
+  (with-env "TELEMACHUS_SECRET_KEY" ""
+    (lambda ()
+      (with-env "TELEMACHUS_ENCRYPT_CONTENT" ""
+        (lambda ()
+          (define c (fresh))
+          (define-values (uid tid) (bootstrap! c #:username "alice"))
+          (define r (redact-something! c (user-principal c uid tid)))
+          (check-equal? (hash-ref r 'replaced) 1 "the fixture really was redacted")
+          (define hits (scan-for c NEEDLE))
+          ;; `(and … #t)`, because `member` answers the TAIL from the element
+          ;; onward and `check-true` demands exactly #t — the second appearance of
+          ;; that pair in this tree, and it fails while printing the very list
+          ;; that proves the assertion right, which is the confusing part.
+          (check-true (and (member "repo_redactions.token_map" hits) #t)
+                      (format "the scanner must find an unsealed map; it found ~a" hits)))))))
+
+(test-case "ACCEPTANCE (#91): a key alone seals the map, with the content switch OFF"
+  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\b)
+    (lambda ()
+      (with-env "TELEMACHUS_ENCRYPT_CONTENT" ""
+        (lambda ()
+          (define c (fresh))
+          (define-values (uid tid) (bootstrap! c #:username "alice"))
+          (define r (redact-something! c (user-principal c uid tid)))
+          (check-equal? (hash-ref r 'replaced) 1)
+          ;; `repo_text` is NOT expected to be clean here — the content switch is
+          ;; off, which is its documented default, and the indexer has not run in
+          ;; this fixture anyway. What must be clean is the column this slice
+          ;; added, and the REDACTED DOCUMENT's own bytes are a blob rather than a
+          ;; row, so the scan speaks only about the database.
+          (check-false (member "repo_redactions.token_map" (scan-for c NEEDLE))
+                       "the map is sealed by the key alone"))))))
+
 (test-case "CONTROL: with encryption off, a FAILING job leaves its input in the error columns"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))

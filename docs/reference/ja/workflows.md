@@ -11,6 +11,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | `index-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `index-knowledge` | knowledge-graph | 1 | 2 | インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `process-upload` | doc-pipeline | 1 | 6 | テキストを抽出し、JSON スキーマに照らして構造化フィールドを取り出し（適合しなければ拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳する。すべての出力は元文書の隣にあるリポジトリ文書で、由来が記録されます。 |
+| `redact-document` | doc-pipeline | 1 | 1 | 文書テキスト中の識別子を安定したトークンに置き換え、その結果を元文書の隣に <key>.redacted.txt として書き出す。モデルへの要求が何から組み立てられるのかを、そのまま読んで確認できます。検出器は名前で選び — email、date、id_number、dictionary、phone — トークンから値へ戻す対応表は、どのエンドポイントも返さない封緘済みの行に保存します。 |
 | `translate-chat` | translate-chat | 1 | 3 | 1回チャットし、返答をスペイン語・オランダ語・アイスランド語に展開してから、それぞれを戻す。 |
 
 ## `classify-and-extract` — 文書を分類してフィールドを抽出する
@@ -173,6 +174,26 @@ Steps:
 | `form` | `tool:doc_render` | `{"data":"${steps.fields.output.result.fields}","object":"${input.object_id}","run":"${run.id}","step":"form","template":"${input.template}"}` | next in order |
 | `translate_form` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${steps.form.output.result.object_id}","run":"${run.id}","step":"translate"}` | end |
 | `translate_source` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${input.object_id}","run":"${run.id}","step":"translate"}` | end |
+
+## `redact-document` — 文書の識別子を伏せる
+
+文書テキスト中の識別子を安定したトークンに置き換え、その結果を元文書の隣に <key>.redacted.txt として書き出す。モデルへの要求が何から組み立てられるのかを、そのまま読んで確認できます。検出器は名前で選び — email、date、id_number、dictionary、phone — トークンから値へ戻す対応表は、どのエンドポイントも返さない封緘済みの行に保存します。
+
+Plugin: `doc-pipeline` · version 1 · max steps 5 · starts at `redact`
+
+Input:
+
+| Name | Type |
+|---|---|
+| `detectors` | array |
+| `object_id` | string |
+| `terms` | array |
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `redact` | `tool:doc_redact` | `{"detectors":"${input.detectors}","object":"${input.object_id}","run":"${run.id}","step":"redact","terms":"${input.terms}"}` | end |
 
 ## `translate-chat` — 翻訳チャットワークフロー
 

@@ -102,9 +102,9 @@ The run's input is the engine's typed `input` block:
 
 ## The step tools
 
-Eight `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87
-slice 1, `doc_set_type` with slice 2, `doc_list_unclassified` with requirement 5
-and `doc_classify_eval` with requirement 6).
+Nine `define-tool`s (four at slice 57; `doc_classify` arrived with issue #87
+slice 1, `doc_set_type` with slice 2, `doc_list_unclassified` with requirement 5,
+`doc_classify_eval` with requirement 6, and `doc_redact` with issue #91).
 Being tools, they are also available to the agent and to any hand-written
 workflow; the pipeline below is just the shipped composition.
 
@@ -135,6 +135,21 @@ vocabulary and binding sublanguage both make. **It does not need readable text**
 which is why it runs BEFORE `doc_text` in the type-routing pipeline: `doc_text`
 raises for a photograph, and a photograph is exactly what a content-type rule is
 for.
+
+**`doc_redact`** — a document's text → the same text with its identifiers
+replaced by stable tokens (issue #91 requirement 1, decisions RED‑1…9). The
+detectors are **named, never written by the caller**: `email`, `date`,
+`id_number`, `dictionary` (literal terms you supply) and `phone`, for the reason
+the classifier's rules are phrases — an operator-authored pattern run against a
+document the operator does not control is a denial of service with the operator's
+own configuration as the weapon. A token is stable **within one document and
+deliberately not across documents**, because a token meaning the same person
+everywhere is a pseudonym and a pseudonym is a join key. The redacted text lands
+beside the source as `<key>.redacted.txt`, so a person can read exactly what a
+model request would be built from; the map back is a sealed row that **no endpoint
+returns**. Text that already contains a token-shaped string is refused, since a
+token minted there could not be told from it. Counts per detector come back with
+it — requirement 5, so under-redaction is visible.
 
 **`doc_classify_eval`** — a label set plus the team's **labelled fixtures** → one
 report (requirement 6, decisions CLS‑29…33). The fixtures are the documents under
@@ -178,12 +193,13 @@ what lets a trigger tell a derived document from an original.
 
 ## The reference pipelines
 
-Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Five
+Shipped as a plugin, `doc-pipeline`, in the pattern of `doc-indexer`. Six
 compositions: `process-upload` (below) for an inbox whose documents are all of one
 kind, **`classify-and-extract`** for a mixed one,
 **`classify-review-extract`** for a mixed one with a person in it,
 **`classify-backfill`** for the prefix that was already there, and
-**`classify-eval`** for the question none of the others can answer —
+**`classify-eval`** for the question none of the others can answer, and
+**`redact-document`** for what a model is NOT told —
 
 ```
 classify  ->  the schema for THIS kind of document  ->  text  ->  fields
@@ -280,6 +296,20 @@ output. It is one step and no `map`, the opposite shape from the backfill above:
 over the set, which an engine with no reduce step kind cannot put back together.
 
 
+
+`redact-document` is issue #91's requirement 1, and it is one step:
+
+```
+find the identifiers  ->  replace them with tokens  ->  a document you can read
+```
+
+**It is deliberately not yet a step inside the pipelines above.** That is #91's
+requirement 2, where `doc_extract_fields`, `doc_classify` and `doc_translate` gain
+`redact: true`, build their prompts from the redacted text and put the values back
+before anything is stored — and adding an input to a published spec is a breaking
+change, so those are left alone until the slice that earns it. What this already
+gives an operator is the thing they ask for first: show me what you WOULD have
+sent.
 
 ```racket
 (define-workflow process-upload
