@@ -1860,8 +1860,73 @@
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_redactions_object ON repo_redactions (object_id, version_id)")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_redactions_team ON repo_redactions (team_id)"))))
 
+(define m-0062-model-requests
+  (migration "0062-model-requests"
+    (lambda (conn)
+      ;; issue #91 requirement 3. There was no model-request log AT ALL — this is
+      ;; the first one, not a narrowing of an existing one. `ai.requests` is a
+      ;; counter in the quota ledger: it answers how MUCH a team spent and can
+      ;; never answer what was sent, where it went, or whose call it was.
+      ;;
+      ;; THE DEFINING PROPERTY IS WHAT IS NOT HERE: no prompt column, no reply
+      ;; column, no excerpt. The digest is the only thing that stands for the
+      ;; content, and it is a KEYED mac (RED-18) rather than a bare SHA-256,
+      ;; because a bare hash of a short prompt is reversible from a word list and
+      ;; would make this table a confirmation oracle over the identifiers
+      ;; requirement 1 exists to protect.
+      (exec* conn (string-append
+        "CREATE TABLE model_requests ("
+        "  id TEXT PRIMARY KEY,"
+        ;; denormalized, as repo_redactions and the audit log do it: this trail
+        ;; outlives the rows it refers to, and a listing must not depend on a
+        ;; join to a team an erasure removed
+        "  org_id TEXT,"
+        "  team_id TEXT,"
+        "  user_id TEXT,"
+        ;; the named executor, or NULL for the env-configured local model
+        "  executor TEXT,"
+        ;; push | stream | pull — WHICH path carried the content (RED-16). The
+        ;; three leave the process differently and an operator asking \"did this
+        ;; text cross the network\" is asking about all three.
+        "  transport TEXT NOT NULL,"
+        "  model TEXT,"
+        ;; the backend's host, never its key and never its query: FEED-6's rule
+        "  endpoint TEXT,"
+        ;; was this backend off the box? the loopback predicate's answer (RED-21)
+        "  hosted INTEGER NOT NULL DEFAULT 0,"
+        ;; declared-none | undeclared | local — what the executor said about its
+        ;; own content logging, recorded whether or not the requirement is being
+        ;; enforced, so the gap is visible rather than assumed (RED-20)
+        "  content_logging TEXT NOT NULL,"
+        "  prompt_digest TEXT NOT NULL,"
+        "  digest_alg TEXT NOT NULL,"
+        ;; which key answered. A rotation makes earlier digests incomparable with
+        ;; later ones and there is nothing to rewrap, since the prompt was never
+        ;; kept — so the discontinuity is RECORDED rather than hidden, and a
+        ;; reader sees a new key instead of concluding the text changed.
+        "  digest_key_id TEXT,"
+        ;; weak shape signals, deliberately kept: a message count and a character
+        ;; count are what tell a 40-token question from a whole document
+        "  messages INTEGER NOT NULL DEFAULT 0,"
+        "  prompt_chars INTEGER NOT NULL DEFAULT 0,"
+        "  tokens_used INTEGER,"
+        ;; ok | error | refused — the row is what the request WAS, so a failed and
+        ;; a refused call are logged too (RED-19). Those are the rows somebody
+        ;; auditing a hosted backend came to read.
+        "  status TEXT NOT NULL,"
+        ;; a short CLOSED label, never an exception message: #83 r4 sealed four
+        ;; `error` columns because this platform's own refusals quote what they
+        ;; choked on, and the diagnostic already has a sealed home on the job row
+        "  error_kind TEXT,"
+        "  http_status INTEGER,"
+        "  ms INTEGER,"
+        "  created_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_model_requests_team ON model_requests (team_id, created_epoch)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_model_requests_executor ON model_requests (executor)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
                              m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts
-                             m-0059-feed-items m-0060-trigger-attrs m-0061-redactions))
+                             m-0059-feed-items m-0060-trigger-attrs m-0061-redactions
+                             m-0062-model-requests))

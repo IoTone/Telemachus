@@ -38,7 +38,7 @@
          ;; loopback-bind? normalizes before delegating. Do not grow a second
          ;; predicate here — the two would drift and the TLS warning would start
          ;; disagreeing with the identity-header gate about what is private.
-         (only-in "../domain/authz/peer.rkt" loopback-address?)
+         (only-in "../domain/authz/peer.rkt" loopback-host?)
          ;; issue #83: the switch, so the one combination that silently does
          ;; nothing can be refused here rather than discovered later
          (only-in "../config.rkt" content-encryption-enabled?))
@@ -63,12 +63,7 @@
 ;; exists for. A bind address may also be written as a hostname or bracketed,
 ;; neither of which a connected peer ever arrives as; normalize those and let
 ;; peer.rkt answer the actual question.
-(define (loopback-bind? ip)
-  (define s (string-downcase (string-trim (or ip ""))))
-  (or (string=? s "localhost")
-      (loopback-address? (if (regexp-match? #px"^\\[.*\\]$" s)
-                             (substring s 1 (sub1 (string-length s)))
-                             s))))
+(define (loopback-bind? ip) (loopback-host? ip))
 
 ;; ---- the blob store is writable ---------------------------------------------
 

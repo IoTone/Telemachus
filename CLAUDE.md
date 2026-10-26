@@ -2630,6 +2630,108 @@ bash test/doc-pipeline-smoke.sh   # the "== 5g." block, 12 assertions
   found its own trap: with `phone` as the only detector the fixture's ISO date is
   also a phone match, so `<PHONE_1>` there is `2026-10-14`.
 
+## What is logged about a model request (RED‑15…23, issue #91 req 3)
+
+Built 25 Oct 2026 — requirement 3. Migration `0062-model-requests`;
+`domain/ai/egress.rkt` (pure: where a backend is and what it declares) +
+`domain/ai/requestlog.rkt` (the row); a logger BOX in `executor.rkt`;
+`GET /api/model-requests` behind `audit:read`.
+
+```sh
+raco test test/requestlog-tests.rkt test/dump-leak-tests.rkt   # 17 + 8 cases, fifteen controls
+bash test/pull-smoke.sh                                         # the "== 3c." block, 15 assertions
+```
+
+- **THERE WAS NO MODEL-REQUEST LOG AT ALL** (RED‑15). The requirement reads like
+  a narrowing of one; `ai.requests` is a COUNTER in the quota ledger and can
+  never answer what was sent, where it went, whose call it was, or whether it was
+  refused. The table is defined by what is not in it: no prompt column, no reply
+  column, no excerpt.
+- **THREE PATHS LEAVE THIS PROCESS, NOT ONE** (RED‑16), and `model-exchange`'s
+  own header saying it is "the ONE place" is true only of non-streaming push and
+  local calls. `run-chat-stream` calls `openai-llm-stream` directly, and a PULL
+  executor's content leaves by the JOB ROW to another host. A log covering only
+  `model-exchange` would be silent about exactly the two paths somebody would
+  check, so `transport` is `push` / `stream` / `pull`. **The SIMULATED echo is
+  NOT logged**: nothing left the process, and a row would make the log answer
+  "yes, this was sent" about a call nobody made. A `pull` row claims **no
+  endpoint** — the platform does not know which model URL a worker will call, so
+  it says nothing rather than guessing, and the row consequently reads as
+  off-this-box, which is honest.
+- **"PROMPT HASH" IS THE RIGHT SHAPE AND A BARE SHA‑256 IS THE WRONG PRIMITIVE**
+  (RED‑18). `sha256("Arun Patel")` is the same digest on every machine in the
+  world, so a bare hash makes this table a confirmation oracle over the exact
+  identifiers requirement 1 keeps out of a prompt. `secret-digest` is an HMAC
+  under the instance key, and **it lives in `secretbox.rkt` beside the key** —
+  exporting the bytes so a caller could HMAC with them would give the key two
+  homes, which is the one thing that module exists to prevent. With no key it is
+  a plain SHA‑256 and `digest_alg` SAYS so; a rotation makes earlier digests
+  incomparable and there is nothing to re-wrap, so `digest_key_id` records which
+  key answered rather than letting a reader conclude the text changed.
+- **A FAILURE AND A REFUSAL ARE ROWS TOO** (RED‑19). A 502 from somebody else's
+  gateway, and a call this instance would not make, are what an operator auditing
+  a hosted backend came to read; a log of successes agrees with every happy path.
+  `error_kind` is a short CLOSED label and never an exception message — #83 r4's
+  reason, and the diagnostic already has a sealed home on the job row.
+- **`no_content_logging` IS AN ASSERTION NOTHING CAN VERIFY, AND WHAT IS ENFORCED
+  IS THAT SOMEBODY MADE IT** (RED‑20). `TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING=1`
+  refuses a model request to a backend that is not on this box until its own
+  operator has declared, per executor, that the backend does not log content —
+  raised BEFORE the body is composed, because a check after the POST is a report
+  and not a policy. **Off by default**, every default-bearing knob's rule; unset,
+  the hosted backend is still used and the row says `content_logging:
+  "undeclared"`, so the gap is VISIBLE rather than assumed. The declaration rides
+  in the LAY‑9 capability document, so it needs **no migration and no new code to
+  set** and `observe-capabilities!`'s additive merge preserves it. An absent LAY‑9
+  capability means unknown-and-permissive, which is right for "can you tool-call"
+  and is NOT what this field means: here the absence is the thing being reported.
+- **"HOSTED" IS THE LOOPBACK PREDICATE, NOT A NEW ONE** (RED‑21).
+  `loopback-bind?`'s normalizing wrapper is hoisted into `peer.rkt` as
+  `loopback-host?` and all three askers use it — a fourth copy would drift from
+  the three that agree. Loopback is not hosted, so the ordinary single-box
+  instance talking to ollama is outside the policy entirely; `10.x` IS hosted
+  (peer.rkt's own rule), and **an endpoint nobody can parse is hosted too** —
+  the policy is for backends nobody can place, so an unreadable one must not be
+  exempted by its own unreadability.
+- **The log is `audit:read`** (RED‑22) — the team's own trail of its own calls,
+  so admin and the company stewards and never a plain member, because the digest
+  is information about CONTENT (#84's rule, where who-read sits behind
+  `files:manage` because it is information about people). The stored endpoint is
+  the HOST only, never the key and never the query (FEED‑6).
+- **TWO CLOSED VOCABULARIES, AND THIS TIME THE WRITER ENFORCES THEM** (RED‑23).
+  `READ-DOORS` and `QUESTION-TYPES` are gated by a static source scan because a
+  `read-context` is built on the path of every read, where raising would 500 a
+  download. Here a raise is right, and the difference is the one property this
+  writer has: its caller already swallows a failure, so an invented status costs
+  a row and a named line on stderr and can never cost anybody their answer.
+- **A CONTROL THAT CANNOT BITE IS A GAP, AND BOTH OF MINE WERE REAL.** `timeout`
+  and `unreachable` sat in `ERROR-KINDS` with nothing producing them — this
+  slice's own #113 — until the classifier read `llm.rkt`'s
+  `exn:fail:model-retryable` reason, PULL‑14's seam. And the logger's handler was
+  a catch-all, so narrowing it to `exn:fail?` could not fail a test until a case
+  raised a non-failure and asserted it ESCAPES: the model deadline shuts a
+  custodian down and the drain stops the server with a break, so a logger
+  catching either turns a stop into a hang.
+- **`rackunit`'s `test-case` HANDS ITS BODY'S LAST VALUE BACK when the body has
+  internal definitions**, and `putenv` answers `#t` — so a case that restored an
+  environment variable last printed a bare `#t` into the suite output, which
+  reads like a leak and is not one. Restore through a wrapper answering void.
+- **`test/pull-smoke.sh` had no `refute`**, the fourth file caught by that shape:
+  it runs as an unknown command, nothing sets `fail`, and the suite reports PASS
+  with the assertion silently absent.
+- **The whole-database leak scan has nothing new to say here, and that IS the
+  property**: the table has no content column, so #83's strong pair cannot be
+  written — there is nothing to switch off that would make the scanner find a
+  prompt. `dump-leak-tests.rkt` establishes that the scan is LIVE and that no
+  `model_requests` column is among its hits; the row-by-row scan over `SELECT *`
+  in `requestlog-tests.rkt` is what catches a column added later.
+- Still open on #91: **requirement 4**, the per-org policy listing allowed
+  executors for documents carrying a sensitivity label, and the hard block on
+  unredacted text reaching one that is not on it. It is the teeth of the issue
+  and now has its machinery — `redact` on the steps (req 2) says whether text was
+  minimised, LAY‑4 attributes carry the label, and this slice's seam is the one
+  place a request can be stopped.
+
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 
 Built 22 Oct 2026 — the last of #54's four deferred questions. Migration
@@ -5393,7 +5495,18 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   than a silent shadow.
 - `raco make server/main.rkt` does NOT reach a plugin's entry module (it is
   `dynamic-require`d), so a Racket upgrade leaves stale `plugins/*/compiled/`
-  bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump.
+  bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump
+  — **and after anything else that invalidates a module a plugin requires**,
+  which is the half that bit in #91 req 3: a positive-control harness cleared
+  `domain/*/compiled` to defeat the stale-`.zo` trap, `plugins/*/compiled` was
+  left holding bytecode built against the old `executor.rkt` exports, and
+  `translate-chat` silently stopped loading. **Nothing fails loudly** — the unit
+  suite does not load plugins — and what it costs is GENERATED ARTIFACTS:
+  `telemachus-docs render` wrote a `docs/reference/` with that plugin's workflow
+  and tools missing, and `telemachus-localize extract` wrote an `en.json` two
+  strings short. The localize gate caught the second (the direction
+  `--required en` exists for) and the drift gate caught the first; neither would
+  have, had both run in the same broken state and been committed together.
 - **A SYMLINKED plugin directory is OPT-IN: `TELEMACHUS_PLUGINS_LINKS=1`.**
   Symlinking a downstream plugin into `plugins/` is the normal way to develop one,
   and the only way for a plugin that requires Telemachus modules by relative path

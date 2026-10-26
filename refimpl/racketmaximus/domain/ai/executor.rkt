@@ -15,11 +15,17 @@
 
 (require racket/string
          "../agent/llm.rkt"             ; http-post-json, sanitize-wire-messages
+                                        ; + exn:fail:model-retryable's reason, which
+                                        ; is what makes the log's error kind honest
          "content.rkt"                  ; content->text, response formats (issue #18)
-         "../exec/federation.rkt")      ; executor-config — route to a named backend
+         "../exec/federation.rkt"       ; executor-config — route to a named backend
+         ;; #91 req 3: where this request is going, and what that backend has
+         ;; been declared to do with it. PURE — no database reaches this module.
+         "egress.rkt")
 
 (provide model-configured? model-info chat-simulated? run-chat run-chat-stream parse-chat-response estimate-tokens
          model-name pull-router
+         model-request-logger log-model-request! transport-error-kind
          model-exchange response-tokens)
 
 ;; PULL-5: a named executor that is not a push backend may be a PULL executor. The
@@ -27,6 +33,53 @@
 ;; reply tokens) that enqueues an infer.chat sub-job and waits; executor.rkt knows
 ;; nothing of the database. #f for a name the router does not own.
 (define pull-router (box (lambda (name msgs temp rf) #f)))
+
+;; RED-17: the model-request log (issue #91 requirement 3). This module writes no
+;; rows — the same reason `pull-router` above is a box — so `server/main.rkt`
+;; installs a writer that knows the connection and the principal, and until it
+;; does, nothing is logged and nothing fails.
+;;
+;; (executor transport model endpoint messages tokens status error-kind
+;;  http-status ms) -> void
+(define model-request-logger
+  (box (lambda (#:executor e #:transport t #:model m #:endpoint u #:messages msgs
+                #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+         (void))))
+
+;; A FAILURE HERE NEVER FAILS THE MODEL CALL — the trigger seam's rule. An
+;; unwritable log is an operational problem; losing somebody's answer is theirs.
+(define (log-model-request! #:executor executor #:transport transport #:model [model #f]
+                            #:endpoint [endpoint #f] #:messages [msgs '()]
+                            #:tokens [tokens #f] #:status status
+                            #:error-kind [error-kind #f] #:http-status [http-status #f]
+                            #:ms [ms #f])
+  ;; `exn:fail?`, NOT a catch-all: a break must pass through. The model deadline
+  ;; shuts its request's custodian down and the shutdown drain stops the server
+  ;; with one, and a logger that swallowed either would turn a stop into a hang.
+  (with-handlers ([exn:fail? (lambda (e)
+                               (eprintf "model-request log: ~a\n" (exn-message e))
+                               (void))])
+    ((unbox model-request-logger)
+     #:executor executor #:transport transport #:model model #:endpoint endpoint
+     #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
+     #:http-status http-status #:ms ms)))
+
+(define (ms-since start) (inexact->exact (round (- (current-inexact-milliseconds) start))))
+
+;; Which of RED-19's short labels a transport failure is. `llm.rkt` already
+;; separates these for its own retry decision (PULL-14 reads the same seam), so
+;; the log inherits the classification rather than guessing from a message — and
+;; every label the vocabulary declares is one something actually produces, which
+;; is the half of #113 a declaration on its own never keeps.
+;;
+;;   a stalled stream IS a timeout from the operator's side: the remedy is the
+;;   same, and a fifth label for it would be a distinction with no reader.
+(define (transport-error-kind e)
+  (define r (and (exn:fail:model-retryable? e) (exn:fail:model-retryable-reason e)))
+  (case r
+    [(timeout idle) "timeout"]
+    [(network) "unreachable"]
+    [else "transport"]))
 
 (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 (define (model-url)  (env "TELEMACHUS_MODEL_URL"))
@@ -161,8 +214,21 @@
   ;; the named backend's document, or the local model's environment — the local
   ;; path is checked too, because it is the one most calls take
   (let ([bad (if executor (capability-refusal executor needs) (local-capability-refusal needs))])
-    (when bad (error who "~a" bad)))
+    (when bad
+      (log-model-request! #:executor executor #:transport "push" #:messages messages
+                          #:status "refused" #:error-kind "capability")
+      (error who "~a" bad)))
   (define-values (url mdl key conf?) (backend executor))
+  ;; RED-20: a hosted backend with no no_content_logging declaration, when the
+  ;; instance requires one. Refused HERE, before the body is composed, because
+  ;; the point of the check is that the content does not leave — a refusal after
+  ;; the POST would be a report, not a policy. The refusal is itself a row: a
+  ;; call that was stopped is exactly what somebody auditing this would look for.
+  (let ([bad (and conf? (content-logging-refusal executor url))])
+    (when bad
+      (log-model-request! #:executor executor #:transport "push" #:model mdl #:endpoint url
+                          #:messages messages #:status "refused" #:error-kind "policy")
+      (raise-user-error who "~a" bad)))
   ;; #123: raise-user-error, not `error`. This is a deliberate, documented
   ;; refusal a CALLER has to see — and until the 500 stopped carrying
   ;; exn-message, the only reason it reached them was that leak. It is the
@@ -173,10 +239,23 @@
                           'temperature temp 'stream #f)])
               ([(k v) (in-hash extras)])
       (hash-set b k v)))
-  (define-values (code resp) (http-post-json url body (headers* key)))
+  (define started (current-inexact-milliseconds))
+  (define (log! status #:kind [kind #f] #:http [http #f] #:tokens [tokens #f])
+    (log-model-request! #:executor executor #:transport "push" #:model mdl #:endpoint url
+                        #:messages messages #:tokens tokens #:status status
+                        #:error-kind kind #:http-status http #:ms (ms-since started)))
+  ;; RED-19: the row is what the request WAS, so a transport failure is logged
+  ;; too. A 502 from somebody else's gateway is precisely the row an operator
+  ;; auditing a hosted backend came to read, and a log that only recorded
+  ;; successes would agree with every happy path.
+  (define-values (code resp)
+    (with-handlers ([exn:fail? (lambda (e) (log! "error" #:kind (transport-error-kind e)) (raise e))])
+      (http-post-json url body (headers* key))))
   (unless (= code 200)
+    (log! "error" #:kind "http" #:http code)
     (error who "model endpoint returned HTTP ~a: ~a" code
            (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
+  (log! "ok" #:http 200 #:tokens (response-tokens resp))
   (values resp url mdl))
 
 ;; run-chat : content -> (values reply-text tokens-used).  #:executor routes to a
@@ -195,7 +274,35 @@
   (define msgs
     (append (if system (list (hasheq 'role "system" 'content system)) '())
             (list (hasheq 'role "user" 'content prompt))))
-  (define routed (and executor (not (executor-config executor)) ((unbox pull-router) executor msgs temp rf)))
+  ;; A PULL executor's content leaves this process too — by the job row, to a
+  ;; worker on another host — so it is logged with the same seam and the row says
+  ;; `pull` (RED-16). A log that covered only `model-exchange` would be silent
+  ;; about the two paths an operator would most want to check.
+  ;;
+  ;; `endpoint` is deliberately absent: the platform does not know, and must not
+  ;; guess, which model URL a worker will call. So the worker's host is NOT
+  ;; loopback as far as this row is concerned, which is the honest answer.
+  (define pull-started (current-inexact-milliseconds))
+  (define routed
+    (and executor (not (executor-config executor))
+         (let ([bad (content-logging-refusal executor #f)])
+           (when bad
+             (log-model-request! #:executor executor #:transport "pull" #:messages msgs
+                                 #:status "refused" #:error-kind "policy")
+             (raise-user-error 'run-chat "~a" bad))
+           (with-handlers ([exn:fail?
+                            (lambda (e)
+                              (log-model-request! #:executor executor #:transport "pull"
+                                                  #:messages msgs #:status "error"
+                                                  #:error-kind (transport-error-kind e)
+                                                  #:ms (ms-since pull-started))
+                              (raise e))])
+             (define r ((unbox pull-router) executor msgs temp rf))
+             (when r
+               (log-model-request! #:executor executor #:transport "pull" #:messages msgs
+                                   #:tokens (cdr r) #:status "ok"
+                                   #:ms (ms-since pull-started)))
+             r))))
   (define (verify! reply)
     (when rf
       (define-values (_parsed problem) (response-format-verify rf reply))
@@ -251,7 +358,31 @@
      (define msgs
        (append (if system (list (hasheq 'role "system" 'content system)) '())
                (list (hasheq 'role "user" 'content prompt))))
-     ((openai-llm-stream #:endpoint url #:model mdl #:api-key key
-                         #:temperature temp #:on-content tap #:response-format rf) msgs)
+     ;; RED-16: a stream does not go through `model-exchange` — it calls
+     ;; `openai-llm-stream` directly — and it is still content crossing the
+     ;; network. It is logged with transport `stream`, and the policy gate
+     ;; applies before the first byte for the same reason it does there.
+     (let ([bad (content-logging-refusal executor url)])
+       (when bad
+         (log-model-request! #:executor executor #:transport "stream" #:model mdl
+                             #:endpoint url #:messages msgs #:status "refused"
+                             #:error-kind "policy")
+         (raise-user-error 'run-chat "~a" bad)))
+     (define started (current-inexact-milliseconds))
+     (with-handlers ([exn:fail?
+                      (lambda (e)
+                        (log-model-request! #:executor executor #:transport "stream" #:model mdl
+                                            #:endpoint url #:messages msgs #:status "error"
+                                            #:error-kind (transport-error-kind e)
+                                            #:ms (ms-since started))
+                        (raise e))])
+       ((openai-llm-stream #:endpoint url #:model mdl #:api-key key
+                           #:temperature temp #:on-content tap #:response-format rf) msgs))
      (define text (get-output-string acc))
-     (values (estimate-tokens prompt-text text) text)]))
+     ;; the provider's own count is not available on this wire, so the row's
+     ;; `tokens_used` is the estimate the caller is metered on — the same number,
+     ;; so the log cannot disagree with the ledger
+     (define tokens (estimate-tokens prompt-text text))
+     (log-model-request! #:executor executor #:transport "stream" #:model mdl #:endpoint url
+                         #:messages msgs #:tokens tokens #:status "ok" #:ms (ms-since started))
+     (values tokens text)]))

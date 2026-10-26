@@ -207,6 +207,10 @@
       "text": "Documents",
       "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
     },
+    "doc.route.get.api.model-requests": {
+      "text": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count and outcome. Never the prompt text. Filter with ?executor=, page with ?limit= and ?offset=.",
+      "hash": "f4d9c40d182ca8e0cc0c1b974759a9dfdfabfc98"
+    },
     "ui.content": {
       "text": "Content",
       "hash": "4f9be057f0ea5d2ba72fd2c810e8d7b9aa98b469"

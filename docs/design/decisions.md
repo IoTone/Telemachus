@@ -2272,3 +2272,169 @@ passed too. Both cases exist now. A third found its own trap on the way: with
 `phone` as the only detector, the fixture letter's ISO date is also a phone match,
 so `<PHONE_1>` there is `2026-10-14` — the case uses a one-line text instead, and
 says why.
+
+## RED‑15…23 — the model-request log (issue #91, requirement 3)
+
+Requirement 3 reads like a narrowing of something that exists: "executor request
+logging stores prompt hash, model and token counts, never prompt text". **There
+was no model-request log at all.** `ai.requests` is a counter in the quota
+ledger; it answers how much a team spent and can never answer what was sent,
+where it went, whose call it was, or whether it was refused. So the first half of
+this slice is the log, and the second is the one thing a platform can honestly
+enforce about somebody else's machine.
+
+**RED‑15 — the table is defined by what is not in it.** `model_requests`
+(migration `0062`) has no prompt column, no reply column and no excerpt. The
+digest is the only thing that stands for the content, and the row carries the
+executor, the transport, the model, the backend's host, whether it was off this
+box, what it declared, a message count, a character count, the token count and
+the outcome. The two counts are kept deliberately and are the only weak signals
+here: they are what tells a forty-token question from a whole document, and
+neither reads back as content.
+
+**RED‑16 — THREE PATHS LEAVE THIS PROCESS, NOT ONE.** `model-exchange`'s own
+header calls itself "the ONE place a model request leaves this process", and that
+is true of the non-streaming push and local calls it carries. It is not true of
+content crossing the network: `run-chat-stream` calls `openai-llm-stream`
+directly, and a PULL executor's content leaves by the job row to a worker on
+another host. A log covering only `model-exchange` would be silent about exactly
+the two paths an operator would most want to check, so all three are logged and
+`transport` says which — `push`, `stream`, `pull`. **The SIMULATED echo is not
+logged**, and that is the sharper half of the same rule: nothing left the
+process, and a row for it would make the log answer "yes, this was sent" about a
+call nobody made, which is the worst thing a log of this kind can do.
+
+A `pull` row claims **no endpoint**. The platform does not know, and must not
+guess, which model URL a worker will call; so the row says nothing about it, and
+consequently reads as not-on-this-box, which is the honest answer for content
+that left by a job row.
+
+**RED‑17 — the logger is a BOX, because executor.rkt has no database.** That
+module's own `pull-router` is a box for the same reason, and `server/main.rkt`
+installs a writer that knows the connection and the principal (from
+`current-job` inside a scheduler job, from `current-request-principal` on the
+request path — the two sources the pull router already reads). **A failure in the
+logger never fails the model call**, the trigger seam's rule: an unwritable log
+is an operational problem and losing somebody's answer is theirs. A call with no
+team context is still logged, with a NULL team — it happened, and dropping it
+would make the log quietly incomplete for exactly the platform-internal calls
+nobody can attribute.
+
+**RED‑18 — "PROMPT HASH" IS THE RIGHT SHAPE AND A BARE SHA‑256 IS THE WRONG
+PRIMITIVE FOR IT.** A short prompt is reversible from a word list:
+`sha256("Arun Patel")` is the same digest on every machine in the world, so a
+bare hash here would make this table a confirmation oracle over exactly the
+identifiers requirement 1 exists to keep out of a model request — a leaked log
+plus a name list and the question "was this person in a document you sent" is
+answered. The digest has to be comparable **by this instance and by nobody
+else**, which is what a keyed MAC gives and a hash does not. `secret-digest`
+lives in `secretbox.rkt`, beside the key rather than in the module that wants
+it: exporting the key bytes so a caller could HMAC with them would make that
+module one of two homes for the key, and the whole argument for `secret-wrap`
+living there is that there is only one.
+
+With no key configured it is a plain SHA‑256 and the row's `digest_alg` says so.
+That is the honest failure — an instance in the documented plaintext-at-rest
+posture still gets a digest it can compare with itself, and a digest that
+silently changed meaning with the environment would be worse than one that
+reports which it is. **Rotating the key makes earlier digests incomparable with
+later ones**, and there is nothing to re-wrap because the prompt was never kept,
+so `digest_key_id` records which key answered and a reader sees a new key rather
+than concluding the text changed.
+
+**RED‑19 — the row is what the request WAS, so a failure and a REFUSAL are rows
+too.** A 502 from somebody else's gateway, and a call this instance would not
+make, are precisely what somebody auditing a hosted backend came to read; a log
+that recorded only successes would agree with every happy path. `status` is
+`ok` / `error` / `refused`, and `error_kind` is a short closed label and **never
+an exception message** — #83 r4 sealed four `error` columns because this
+platform's own refusals quote what they choked on by design, and the diagnostic
+already has a sealed home on the job row.
+
+**RED‑20 — `no_content_logging` IS AN ASSERTION NOTHING CAN VERIFY, AND WHAT IS
+ENFORCED IS THAT SOMEBODY MADE IT.** No software can check what a remote
+operator retains. What this instance can do is refuse to send a team's document
+text to a backend that is not on this box until its own operator has declared,
+per executor, that the backend does not log content —
+`TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING=1` is that switch, and the refusal is
+raised before the body is composed, because a check that fired after the POST
+would be a report rather than a policy. Off by default, every default-bearing
+knob's rule: a real default would make an upgrade start refusing the calls this
+platform exists to make. Unset, an undeclared hosted backend is still used and
+the row records `content_logging: "undeclared"`, so the gap is **visible rather
+than assumed** — `worker_state`'s withdrawal rule, pointed the other way.
+
+The declaration rides in the LAY‑9 capability document, so it needs **no
+migration and no new code to set**: it arrives identically from `executors.json`
+and from `POST /api/executors`, and `observe-capabilities!` merges a worker's
+poll additively, so a declaration survives one. An absent LAY‑9 capability means
+UNKNOWN and unknown is permissive, which is right for "can you tool-call" and is
+not what this field means — here the ABSENCE is the thing being reported, so it
+gets its own value rather than a silent pass.
+
+**RED‑21 — "hosted" is the loopback predicate, not a new one.** A fourth copy of
+"which hosts can only this machine reach" would drift from the three that
+already agree, so `loopback-bind?`'s normalizing wrapper is hoisted into
+`peer.rkt` as `loopback-host?` and all three ask it. A backend on `127.0.0.1` is
+not hosted — nothing left the box — and that is what keeps the ordinary
+single-box instance talking to ollama outside the policy entirely. A
+private-looking address IS hosted, because "10.x is internal" is an assumption
+about somebody else's network (peer.rkt's own rule), and **an endpoint nobody can
+parse is hosted too**: the policy exists for the backends nobody can place, so an
+unreadable one must not be exempted by its own unreadability.
+
+**RED‑22 — the log is `audit:read`.** It is the team's own trail of its own
+calls and the question it answers is an audit question, so it rides the
+permission that already means that — admin and both company stewards, never a
+plain member. The digest is information about CONTENT, which is why a member does
+not hold it: #84's rule, where who-read a document sits behind `files:manage`
+because it is information about people. The stored endpoint is the **host only**,
+never the key and never the query, because this string is what a reviewer reads
+(FEED‑6's line).
+
+**RED‑23 — two CLOSED vocabularies, and this time the writer enforces them.**
+`READ-DOORS` and `QUESTION-TYPES` were each declared, commented as closed, and
+referenced by nothing — #113's shape, gated afterwards by a static source scan.
+The scan was right there because a `read-context` is built on the path of every
+read, so raising would turn a typo'd door into a 500 on a document download.
+**Here a raise is right**, and the difference is the one property this writer has
+that the constructor does not: its caller already swallows a failure (RED‑17), so
+an invented status costs a row and a line on stderr naming it, and cannot cost
+anybody their answer. That is cheaper than a scan and stronger than one.
+
+### What this cost, and what the controls found
+
+Fifteen controls, and **all fifteen bite** — including the two that matter most:
+moving the policy check to after the pull dispatch fails the assertion that the
+router was never asked (not the one about the exception), and making the digest
+a plain SHA‑256 fails the case that says two instances must not agree about the
+hash of a name.
+
+- **Two of them only bite because the slice was widened after the first pass,
+  and both gaps were real.** `timeout` and `unreachable` were declared in
+  `ERROR-KINDS` and nothing produced them — the slice's own version of #113 —
+  until the classifier read `llm.rkt`'s `exn:fail:model-retryable` reason, which
+  is the seam PULL‑14 already branches on; and the logger's handler was a
+  catch-all, so a control narrowing it to `exn:fail?` could not bite until a
+  case raised something that is not a failure and asserted it escapes. A model
+  deadline shuts its request's custodian down and the shutdown drain stops the
+  server with a break, so a logger that caught either would have turned a stop
+  into a hang.
+
+- **`rackunit`'s `test-case` hands its body's last value back when the body has
+  internal definitions**, and `putenv` answers `#t` — so a test-case that
+  restored an environment variable last printed a bare `#t` into the suite's
+  output, which reads like a leak and is not one. Restore through a wrapper that
+  answers void.
+- **`test/pull-smoke.sh` had no `refute`**, the fourth file in this tree to be
+  caught by that: a `refute` written without one runs as an unknown command,
+  nothing sets `fail`, and the suite reports PASS with the assertion silently
+  absent. Grep for a helper before using it.
+- **The whole-database leak scan has nothing new to say here, and that is the
+  property.** `model_requests` has no content column at all, so the strong form
+  of #83's pair cannot be written — there is nothing to switch off that would
+  make the scanner find a prompt. What `dump-leak-tests.rkt` establishes instead
+  is that the scan is LIVE in that fixture and that no `model_requests` column is
+  among its hits; the row-by-row scan over `SELECT *` in
+  `test/requestlog-tests.rkt` is what catches a column added later, and is where
+  one would land.
