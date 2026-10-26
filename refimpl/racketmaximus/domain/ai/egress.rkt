@@ -18,7 +18,8 @@
 
 (provide CONTENT-LOGGING
          endpoint-host endpoint-hosted? content-logging-of
-         require-no-content-logging? content-logging-refusal)
+         require-no-content-logging? content-logging-refusal
+         current-egress-document)
 
 ;; CLOSED:
 ;;   declared-none — the executor's capability document says no_content_logging
@@ -88,3 +89,27 @@
                 "(set that capability on the executor, or unset "
                 "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING)")
                (or executor "the configured local model"))))
+
+;; ---- what this request is carrying (RED-26, issue #91 requirement 4) ---------
+
+;; The document whose text is in the request now being made, or #f.
+;;
+;;   label      its `sensitivity` attribute, #f when it carries none
+;;   redacted   whether this request's text went through requirement 2
+;;   object/key/team/org   for the policy lookup and the audit entry
+;;
+;; A PARAMETER, because the three places a request leaves this process know the
+;; executor and the endpoint and can never know the document: `model-exchange`
+;; is handed messages, and `requestlog.rkt`'s own header records that executor.rkt
+;; knows nothing of the database. The alternative was to gate in each tool, where
+;; the document is — four gates, one per asker, and the first new asker is
+;; unprotected with nothing to say so. This way there is ONE binder
+;; (`with-document-egress` in doc-tools.rkt) and one gate, and the forgetting
+;; happens at the binder, which is a function somebody has to call on purpose
+;; rather than a check they have to remember to copy.
+;;
+;; It is bound per call rather than threaded through `run-chat` for the same
+;; reason `current-utility-executor` is: the two call sites in between
+;; (`classify`, `translate!`) take a chat procedure and have no business knowing
+;; which document it came from.
+(define current-egress-document (make-parameter #f))

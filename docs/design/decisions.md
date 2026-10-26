@@ -2438,3 +2438,188 @@ hash of a name.
   among its hits; the row-by-row scan over `SELECT *` in
   `test/requestlog-tests.rkt` is what catches a column added later, and is where
   one would land.
+
+## RED‑24…33 — where a labelled document's text may go (issue #91, requirement 4)
+
+Built 26 Oct 2026 — the last requirement of #91 and the one the issue was about.
+Requirements 1 and 2 built the means to minimise what a model is told; requirement
+3 built the record of what was sent. **Neither one stops anything.** This is the
+per-org list of executors allowed to see a labelled document's text, and the
+refusal when the executor is not on it.
+
+No migration, no new vocabulary, no new attribute mechanism:
+`domain/ai/sensitivity.rkt` (the policy, two `instance_settings` documents) plus a
+box in `executor.rkt` filled by `server/main.rkt`, and the label is the LAY‑4
+object attribute `sensitivity`.
+
+```sh
+raco test test/sensitivity-tests.rkt   # 21 cases, twenty controls
+bash test/doc-pipeline-smoke.sh        # the "== 5h." block, 24 assertions
+```
+
+- **RED‑24 — THE LABEL IS A LAY‑4 OBJECT ATTRIBUTE, which is why this is a small
+  slice.** LAY‑4 is already "what the team ASSERTS about a document", a team
+  defines the field and its options exactly as it defines `project` or `status`,
+  and `?attr=sensitivity:confidential` lists them for nothing. The policy names
+  labels; the team's own field definition is what makes a label settable. The two
+  can drift, and the refusal REPORTS the drift — it names the labels the policy
+  does list — rather than hiding it. The key is fixed, like `doc_type` (CLS‑7): a
+  policy that named its own key would let two documents be sensitive in two
+  different vocabularies, and `?attr=` is an equality filter over one key.
+
+- **RED‑25 — OFF UNLESS CONFIGURED, AND THE TWO ABSENCES ARE NOT THE SAME THING.**
+  With no policy document at either tier nothing is refused, whatever a document
+  is labelled — every default-bearing knob in this tree makes that call, and here
+  the alternative is worse than usual: a team already using an attribute called
+  `sensitivity` for something of its own would find every AI step refused by an
+  upgrade it did not ask for. Once a policy exists, a document with **no label**
+  is still allowed, because nobody asserted anything; a document carrying a label
+  **no tier mentions** is REFUSED. That is deliberately the opposite of LAY‑9's
+  "an absent capability is unknown and unknown is permissive", and the difference
+  is who is silent: in the first case the team, in the second the policy, about a
+  mark the team has made. The only way to reach the second is to remove a label
+  from a policy while documents still carry it, and quietly un-protecting exactly
+  those documents is the worse failure.
+
+- **RED‑26 — THE GATE IS AT THE THREE PLACES A REQUEST LEAVES, AND THE LABEL
+  ARRIVES BY PARAMETER.** RED‑16 is why: `model-exchange`'s own header calls
+  itself the one place content leaves and it is not — `run-chat-stream` calls
+  `openai-llm-stream` directly and a pull executor's content leaves by the job
+  row — so `content-logging-refusal` had to be written into all three by hand one
+  requirement ago. `egress-refusal` is now ONE function the three sites share, and
+  it asks the policy about `current-egress-document`. The alternative was to gate
+  in each tool, where the document is: four gates, and the first new asker
+  unprotected with nothing to say so.
+
+- **RED‑27 — ONE BINDER, FOUR ASKERS, so the forgetting happens somewhere a
+  person has to act.** `with-document-egress` in doc-tools.rkt replaces the
+  `current-utility-executor` parameterize each of the four model-calling tools
+  already carried one copy of, and binds the document beside it. A new tool that
+  forgets to call it is unprotected — the same shape either way — but the thing
+  it forgot is a function somebody calls on purpose rather than a check they have
+  to remember to copy, which is the argument `record-type!` and
+  `repo-fields-declare!` both make. In `doc_classify_eval` it is bound **per
+  fixture**, not once around the fold: the label is a property of each document,
+  and a single binding would govern a labelled fixture by an unlabelled one's
+  answer. `doc_extract_fields` now resolves its source BEFORE the model call
+  rather than after — it used to read it only to derive the output from.
+
+  **What is outside the policy, stated rather than implied**: a tool handed text
+  with no document (`doc_extract_fields` with `text` and no `object`,
+  `POST /api/ai/chat` with a free prompt, the agent's tool results) carries no
+  label. Requirement 4 governs documents, and any caller can paste content it
+  read elsewhere — the same line #83 had to draw about what sealing can promise.
+
+- **RED‑28 — THE DECISION LIVES IN THE DOMAIN, NOT IN main.rkt.**
+  `make-egress-policy` is what the server puts in the box, because the acceptance
+  test drives a real tool through a real `run-chat` and has to install the same
+  decision the server does — a test with its own copy would agree with any change
+  to this one, which is `executor-can-run?`'s drift in the one place this slice
+  could least afford it. The request context comes in as a THUNK: the principal
+  is a parameter in `server/kit.rkt`, and a domain module requiring kit would
+  instantiate the connection pool, which is how #123's rule was earned.
+  **The org is the DOCUMENT's**, not the caller's — on a cross-team share the two
+  differ, and reading it off the principal would let a reader's company decide
+  where another company's document may be sent.
+
+- **RED‑29 — A REFUSAL IS AUDITED, AND THE PERMISSION TO READ THE POLICY IS AN
+  OPERATOR'S.** The issue's second acceptance criterion is "refused **and
+  audited**": `ai.egress.refused` carries the label, the executor, the backend's
+  HOST and the reason, and never the text or the object KEY — which routinely
+  carries a name, and this log is chained, exported off the box and kept through
+  an erasure (AUD‑2, DEL‑7). The entry names the DOCUMENT's team, the eighth
+  appearance of the `#:team-id` shape in these notes. A FAILED AUDIT WRITE DOES
+  NOT RESCUE THE REQUEST — the refusal stands and the failure goes to stderr;
+  letting a labelled document travel because the record of refusing it could not
+  be stored would be the one failure this exists to prevent. Reading the policy
+  is `instance:manage` / `org:read`, as the session policy's is: it is a list of
+  this instance's own backends, and what a team member needs from it is in the
+  refusal they already got.
+
+- **RED‑30 — THE ALLOWLIST IS FOR UNREDACTED TEXT**, which is requirement 4 read
+  as written ("prevents **unredacted** text from reaching any executor not on the
+  list"). Tokenised text may travel to a backend that is not on it, because making
+  exactly that safe is what requirements 1 and 2 are for — otherwise the two
+  halves of this issue would contradict each other. An operator who disagrees
+  sets `allow_redacted: false` on the label, which puts the list back in charge
+  of everything. A **loopback** backend is outside the policy entirely, the
+  exemption `content-logging-refusal` makes one requirement earlier and for its
+  reason: nothing left the box, so there is nothing for an allowlist to allow —
+  which keeps the ordinary single-box instance talking to ollama out of the
+  feature's way. A **pull** executor has no endpoint and therefore counts as
+  hosted (RED‑21), which is right, because its content leaves by the job row.
+
+- **RED‑31 — TIGHTEN WHERE BOTH TIERS SPEAK.** SESS‑4's rule, with a
+  qualification that is what makes it usable on a multi-tenant instance: for a
+  label both documents mention, the permitted executors are the INTERSECTION and
+  both flags are ANDed, so a company narrows what the instance allows and can
+  never widen it. A label only ONE tier mentions is that tier's to decide — were
+  an unmentioned label a denial, the instance operator would have to enumerate
+  every company's own vocabulary before any company could permit anything, and
+  the labels are the company's.
+
+- **RED‑32 — THE UNNAMED CONFIGURED MODEL IS A BOOLEAN, NOT A RESERVED NAME.** A
+  hosted `TELEMACHUS_MODEL_URL` has no executor name, so it cannot be on a list
+  of names; a reserved member spelled `"default"` would collide with an executor
+  an operator legitimately called that, and the collision would be invisible. So
+  `default_model` is its own field, false by default — which costs the ordinary
+  single-box instance nothing, because a loopback default model never reaches the
+  list at all.
+
+- **RED‑33 — A TYPO IN THE LIST FAILS CLOSED, SO IT IS REPORTED AND NOT REFUSED.**
+  An executor name no executor answers to is simply never matched, so the label's
+  text goes nowhere; the read reports it as `unknown_executors`. That is the
+  opposite call to `PUT /api/model-roles`, where a typo silently sent every
+  extraction to the local model and so had to be refused on the write — and
+  refusing it here would make a policy unwritable before the backend it names
+  exists, which is the ordinary order an operator sets one up in. **A policy that
+  cannot be READ refuses**, which is the opposite of `log-model-request!`'s
+  swallowed failures and deliberately: a log that does not write costs an
+  operator a record, a control that does not run costs somebody their document.
+  Only a request carrying a label ever asks, so a broken database cannot stop
+  every model call on the instance.
+
+- **RED‑34 — THE INSTANCE TIER NEEDS A WAY OFF, AND `PUT {"labels": {}}` IS NOT
+  ONE.** An empty labels object is an operator saying "govern nothing", and it is
+  still a CONFIGURED policy — so by RED‑25 it refuses every label it does not
+  mention, which is every label. Without `DELETE /api/executor-policy` an
+  operator who turned the feature on could never turn it off, and every labelled
+  document in the instance would be refused for ever. **A smoke fixture is what
+  found it**: §5h left an empty policy and a labelled document behind, and the
+  knowledge-graph section 150 lines later stopped being able to read that
+  document. The platform was working exactly as designed; the hole was that
+  nothing could undo it. The org tier already had its `DELETE`, which is how the
+  asymmetry went unnoticed.
+
+### What the controls found
+
+Twenty controls, and the two that did not bite first time were both real gaps:
+
+- **`default_model` was ANDed across the tiers and nothing exercised it.**
+  Patching that one `and` to an `or` left all 21 cases passing — this slice's own
+  #113, a rule nothing holds. The tiers case asserts both flags now, and the
+  refusal that follows from the second.
+- **A control that fails to COMPILE has not bitten.** Removing the binder's
+  argument left `src` referenced nowhere and the run failed with a Racket error
+  rather than a red assertion, which proves nothing about the test. Rewritten to
+  bind `#f` instead, which compiles and then fails the cases that matter.
+- **An unroutable address blackholes rather than refusing**, so proving a request
+  was NOT stopped by letting it try costs the whole `TELEMACHUS_MODEL_TIMEOUT`.
+  The push and stream cases assert the refusal, which happens before any socket;
+  the "an unlabelled request is not governed" half is asserted against
+  `egress-refusal` directly.
+- **`doc_classify`'s tool result calls the answer `label`, not `doc_type`** —
+  `doc_type` is the attribute it writes. Two cases asserted the wrong key and
+  failed for a reason with nothing to do with the policy.
+- **`audit-list` does not project `meta`, and that bit for the second time in
+  this tree.** The smoke's first version asserted the label inside it — which
+  failed — while the two `refute`s beside it, for the text and the document's
+  key, **passed vacuously**, because the field is not in that response at all.
+  #59's rule: asserting over an API that never carried a field is worse than not
+  asserting. A meta's contents are asserted over the ROW.
+- **A smoke block inherits the previous block's MOCK REPLY FILE**, and §5h first
+  wrote over it rather than merging into it — which starved an extraction two
+  sections later and read as a broken extractor.
+- **A block that changes GLOBAL state has to put it back.** Leaving a configured
+  policy and a labelled document behind is what produced RED‑34 above; the
+  last-owner fixture in `server-smoke.sh` is the same lesson from the other end.
