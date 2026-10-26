@@ -640,6 +640,10 @@
       "text": "評価対象の文書種別 — これ以外を期待値とするフィクスチャは除外し、その旨を報告します",
       "hash": "b1ef4e8ee10b75a8437f95080175499304c980d9"
     },
+    "doc.tool.doc_translate.redact_terms": {
+      "text": "dictionary 検出器のための名前や語句そのもの — パターンではありません",
+      "hash": "12db93cf2841699f7c12d31b891267e07189338f"
+    },
     "doc.route.delete.api.feeds.id": {
       "text": "フィードの設定を削除します。すでに取得済みの項目は通常のリポジトリ文書であり、影響を受けません — フィードの削除は、その項目の取り消しではありません。",
       "hash": "c9df0d8c31f26321241f7ba3b658661fe6138cc6"
@@ -899,6 +903,10 @@
     "authz.bootstrap_done": {
       "text": "オペレーター{user}とチーム{team}を作成しました。",
       "hash": "eff3dfb8452d38a68dd450ce4b4ee6d36534ae53"
+    },
+    "doc.tool.doc_translate.redact_detectors": {
+      "text": "redact が true のときに実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて）",
+      "hash": "11335323db31c901a531b7637537d3bbca98efa3"
     },
     "ui.submitjob": {
       "text": "ジョブを送信",
@@ -1244,6 +1252,10 @@
       "text": "判断済み",
       "hash": "55615a565dc2dd34ddd31b359d72e7792bfe19ca"
     },
+    "doc.tool.doc_classify.redact_terms": {
+      "text": "dictionary 検出器のための名前や語句そのもの — パターンではありません",
+      "hash": "12db93cf2841699f7c12d31b891267e07189338f"
+    },
     "ui.size": {
       "text": "サイズ",
       "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
@@ -1283,6 +1295,10 @@
     "doc.route.put.api.l10n.messages.id": {
       "text": "1メッセージの翻訳を提出します。",
       "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
+    },
+    "doc.tool.doc_classify.redact": {
+      "text": "モデルへの要求を伏せ字のテキストから組み立てる: プロンプトを組み立てる前に識別子を安定したトークンへ置き換え、保存する前に元の値へ戻します",
+      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
     },
     "doc.route.get.api.notes.id": {
       "text": "1件のノート。",
@@ -1765,8 +1781,8 @@
       "hash": "8f3a07543988e4673dcae5e59c35323c5791f370"
     },
     "doc.route.post.api.ai.chat.stream": {
-      "text": "同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。モデルが一切応答していない場合は `simulated: true` が入ります。",
-      "hash": "7e6e370303b6bcfec2968ccb380941f0555c1c91"
+      "text": "同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。モデルが一切応答していない場合は `simulated: true` が入ります。`redact` はここでは無視せず拒否します（#91、RED-14）: トークンは2つのイベントに分割され得るため、値を戻すには応答全体をいったん溜める必要があり、それはストリームの目的に反します — POST /api/ai/chat を使ってください。",
+      "hash": "fc785dc81d4e4ef9828b9efb9054fbab0b77f111"
     },
     "doc.route.post.api.workers.state": {
       "text": "プル型ワーカーが自分の状態を報告する：{state} — ready、busy、paused のいずれか。ジョブを保持していないワーカーが使える唯一の経路です：停止中のホストは取得を止めており、ハートビートを送るジョブも持たないため、これが無ければその沈黙を障害と区別できません。`state` は claim とハートビートでも受け付けるので、通常のループに追加のリクエストは不要です。state を指定しない呼び出しは、保存済みの状態をそのまま残します。",
@@ -1783,6 +1799,10 @@
     "ui.kg_unextracted": {
       "text": "待機中",
       "hash": "12625ba3c14eddfc43fddb76cbc069528cec8b7f"
+    },
+    "doc.tool.doc_extract_fields.redact_detectors": {
+      "text": "redact が true のときに実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて）",
+      "hash": "11335323db31c901a531b7637537d3bbca98efa3"
     },
     "doc.tool.doc_classify.run": {
       "text": "ワークフロー実行 ID（由来の記録用）。",
@@ -2224,6 +2244,10 @@
       "text": "Tier-C のサンドボックス化 HTML テンプレート。体験オーバーレイでローカライズされます。",
       "hash": "905e073cb8d041696017518f64247b9392c4fd97"
     },
+    "doc.tool.doc_extract_fields.redact_terms": {
+      "text": "dictionary 検出器のための名前や語句そのもの — パターンではありません",
+      "hash": "12db93cf2841699f7c12d31b891267e07189338f"
+    },
     "doc.perm.workflows:read": {
       "text": "ワークフロー定義、実行とトリガーを確認します。",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
@@ -2327,6 +2351,10 @@
     "ui.qrecentorder": {
       "text": "新しい順",
       "hash": "a21da8785c250f25f3338ef7e059a552c6a49a83"
+    },
+    "doc.tool.doc_extract_fields.redact": {
+      "text": "モデルへの要求を伏せ字のテキストから組み立てる: プロンプトを組み立てる前に識別子を安定したトークンへ置き換え、保存する前に元の値へ戻します",
+      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
     },
     "doc.perm.research:use": {
       "text": "リサーチ機能を使う。",
@@ -2515,6 +2543,10 @@
     "doc.route.get.api.admin.audit.verify": {
       "text": "1つの組織の監査ログのハッシュチェーンを検証し、最初に壊れたエントリを示す。",
       "hash": "b79be73c6551410d3d882aa8ae4e86aa78344197"
+    },
+    "doc.tool.doc_classify.redact_detectors": {
+      "text": "redact が true のときに実行する検出器: \"email\"、\"date\"、\"id_number\"、\"dictionary\"、\"phone\"（既定は dictionary 以外のすべて）",
+      "hash": "11335323db31c901a531b7637537d3bbca98efa3"
     },
     "doc.route.patch.api.orgs.ref": {
       "text": "会社の名前を変更する、プランを変更する（そのプランの上限を再適用します）、および／またはホスト名を設定する（{domain}、null でクリア）：そのホストで配信されるコンソールは、サインイン前から会社のブランディングをまといます（TEN-2d）。",
@@ -2977,8 +3009,8 @@
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
     },
     "doc.route.post.api.ai.chat": {
-      "text": "モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text|json_object|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。",
-      "hash": "8b8b362cda5740cc3c15fe5d8d6c92278b0eac32"
+      "text": "モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text|json_object|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。`redact: true`（`redact_detectors` / `redact_terms` と併用、#91 要件2）は、識別子を安定したトークンに置き換えた伏せ字のテキストから要求を組み立て、応答を返す前に元の値へ戻します。応答の `redaction` がどの検出器を実行したかを示します。受け付けるのは文字列のプロンプトのみです: コンテンツパートの配列は、どの検出器も読めない画像を含み得るため、その組み合わせは 400 になります。",
+      "hash": "f9ebe8564b74c3055904eeca8f049f78429bd0ef"
     },
     "doc.route.post.api.l10n.draft": {
       "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",
@@ -2999,6 +3031,10 @@
     "ui.thmode": {
       "text": "モード",
       "hash": "a7b93d2128e820f861fc8dfccd9f5521e89ad21f"
+    },
+    "doc.tool.doc_translate.redact": {
+      "text": "モデルへの要求を伏せ字のテキストから組み立てる: プロンプトを組み立てる前に識別子を安定したトークンへ置き換え、保存する前に元の値へ戻します",
+      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
     },
     "ui.uploadhint": {
       "text": "どの形式でも可。パスにスラッシュを使えます。同じパスに再アップロードすると旧版はバージョンとして残ります。",

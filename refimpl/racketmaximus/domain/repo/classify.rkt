@@ -300,9 +300,16 @@
 ;; because the remedy is a rule or a model, and the operator is one field away
 ;; from either.
 ;; -> (values result tokens)
+;; `#:llm-text` is what the MODEL is shown, where `#:text` is what the RULES are
+;; matched against (issue #91 requirement 2). They are the same string unless the
+;; caller asked for redaction: a rule is deterministic, local and never leaves the
+;; process, so matching it on tokens buys nothing and costs correctness — a rule
+;; keyed on an account-number prefix would match `<ID_1>` and nothing else. It
+;; defaults to `#:text`, so every existing caller is unchanged.
 (define (classify labels
                   #:text [text ""] #:content-type [ct ""] #:key [key ""]
                   #:rules [rules '()] #:backends [backends CLASSIFY-BACKENDS]
+                  #:llm-text [llm-text #f]
                   #:chat [chat #f])
   (let loop ([bs backends] [tokens 0])
     (cond
@@ -315,7 +322,7 @@
        (if r (values r tokens) (loop (cdr bs) tokens))]
       [else
        (unless chat (error 'doc_classify "the llm backend needs a model seam"))
-       (define-values (r t) (classify-llm labels text #:chat chat))
+       (define-values (r t) (classify-llm labels (or llm-text text) #:chat chat))
        (values r (+ tokens t))])))
 
 ;; CLS-8: LAY-4 attribute values are STRINGS, so the confidence is stored as one —

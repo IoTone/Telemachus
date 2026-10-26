@@ -222,11 +222,14 @@
 (test-case "extract-fields: conforming JSON is accepted, everything else is refused"
   (define (with reply) (extract-fields "Invoice from Acme…" INVOICE-SCHEMA
                                        #:chat (lambda (p #:system [s #f]) (values reply 5))))
-  (let-values ([(fields tokens) (with (jsexpr->string GOOD-FIELDS))])
+  ;; THREE values since #91 requirement 2: the third is the tokens the model
+  ;; answered with that no redaction had minted (RED-11), which is `'()` whenever
+  ;; nothing was redacted.
+  (let-values ([(fields tokens _unknown) (with (jsexpr->string GOOD-FIELDS))])
     (check-equal? (hash-ref fields 'vendor) "Acme Corp")
     (check-equal? tokens 5))
   ;; a fence or a sentence around the object still parses
-  (let-values ([(fields _t) (with (string-append "Here you go:\n```json\n" (jsexpr->string GOOD-FIELDS) "\n```"))])
+  (let-values ([(fields _t _u) (with (string-append "Here you go:\n```json\n" (jsexpr->string GOOD-FIELDS) "\n```"))])
     (check-equal? (hash-ref fields 'total) 1250.5))
   (check-exn #rx"did not return a JSON object" (lambda () (with "I cannot find an invoice.")))
   (check-exn #rx"extraction refused: .*missing required field 'vendor'"

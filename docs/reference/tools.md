@@ -60,6 +60,9 @@ Permission: `files:write` · source: built-in
 | `backends` | array of string | no | Backend order: "rules", "llm" (default: rules then llm) |
 | `labels` | array of object | yes | The document types to choose between — one of these, and nothing else, can be the answer |
 | `object` | string | yes | The repository object id |
+| `redact` | boolean | no | Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored |
+| `redact_detectors` | array of string | no | Which detectors to run when redact is true: "email", "date", "id_number", "dictionary", "phone" (default: all but dictionary) |
+| `redact_terms` | array of string | no | Literal names or phrases for the dictionary detector — not patterns |
 | `rules` | array of object | no | Deterministic rules, tried in order; the first that matches decides. Phrases, not regular expressions, and a rule needs at least one condition |
 | `run` | string | no | The workflow run id, for provenance |
 | `step` | string | no | The workflow step id, for provenance |
@@ -89,6 +92,9 @@ Permission: `files:write` · source: built-in
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `object` | string | no | The source document's object id — write the fields as a derived document beside it |
+| `redact` | boolean | no | Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored |
+| `redact_detectors` | array of string | no | Which detectors to run when redact is true: "email", "date", "id_number", "dictionary", "phone" (default: all but dictionary) |
+| `redact_terms` | array of string | no | Literal names or phrases for the dictionary detector — not patterns |
 | `run` | string | no | The workflow run id, for provenance |
 | `schema` | object | yes | A JSON schema the extracted object must conform to |
 | `step` | string | no | The workflow step id, for provenance |
@@ -174,6 +180,9 @@ Permission: `files:write` · source: built-in
 |---|---|---|---|
 | `locale` | string | yes | Target language code, e.g. ja, nl, es-419 |
 | `object` | string | yes | The document's object id |
+| `redact` | boolean | no | Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored |
+| `redact_detectors` | array of string | no | Which detectors to run when redact is true: "email", "date", "id_number", "dictionary", "phone" (default: all but dictionary) |
+| `redact_terms` | array of string | no | Literal names or phrases for the dictionary detector — not patterns |
 | `run` | string | no | The workflow run id, for provenance |
 | `step` | string | no | The workflow step id, for provenance |
 

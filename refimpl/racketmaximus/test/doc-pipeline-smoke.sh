@@ -750,6 +750,75 @@ wait_run "$(printf '%s' "$RT" | grep -oP '"id":"\K[^"]+' | head -1)"
 assert "text already shaped like a token is refused" "$RUNST" error
 assert "…by name"                                    "$RUNJSON" 'already contains text shaped like a redaction token'
 echo
+echo "== 5g. a STEP that redacts before it asks (#91 req 2, RED-10…14) =============="
+# §5f redacts a document into another document. This is the half that matters for
+# a pipeline: the step builds its prompt from the redacted text and puts the
+# values BACK before anything is stored.
+#
+# A SPEC PUBLISHED HERE rather than a shipped one, which is `pdf-form`'s pattern
+# above and for the same reason: `redact` is a TOOL argument, and adding an input
+# to a published workflow is a breaking change for every caller of it.
+#
+# A HAND-WRITTEN SPEC USES THE WIRE GRAMMAR, `${steps.<id>.output.*}`, and NOT the
+# macro's `(out text result)` sugar — the first version of this block wrote
+# `${out.text.result}` and the publish refused it while naming every form it does
+# accept, which is the validator being useful rather than a trap.
+if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
+{"extract structured data": "{\"who\":\"<PERSON_2>\",\"phone\":\"<PHONE_1>\",\"dob\":\"<DATE_2>\"}",
+ "*": "MOCK"}
+JSON
+fi
+printf 'Dear Ms Patel,\n\nYour claim 44719823 was received on 2026-10-14. We wrote to Arun Patel\nat arun.patel@example.com and tried to reach him on +44 20 7946 0958.\nHis date of birth is 3 April 1981.\n' > "$TELEMACHUS_DATA_DIR/g-let.txt"
+GLET=$(up redstep/letter.txt text/plain "$TELEMACHUS_DATA_DIR/g-let.txt" | jq_ 'd["id"]')
+
+GSCHEMA='{"type":"object","required":["who","phone","dob"],"properties":{"who":{"type":"string"},"phone":{"type":"string"},"dob":{"type":"string"}}}'
+GWF='{"spec":1,"slug":"redacted-extract","input":{"object_id":"string"},"steps":[
+  {"id":"text","uses":"tool:doc_text","with":{"object":"${input.object_id}"}},
+  {"id":"fields","uses":"tool:doc_extract_fields","with":{"text":"${steps.text.output.result}","schema":'"$GSCHEMA"',
+   "object":"${input.object_id}","redact":true,
+   "redact_detectors":["email","date","id_number","dictionary","phone"],
+   "redact_terms":["Patel","Arun Patel"],"run":"${run.id}","step":"fields"},"end":true}]}'
+assert "the redacting spec published" "$(P /api/workflows "$GWF")" '"slug":"redacted-extract"'
+
+GR=$(P /api/workflows/redacted-extract/run "{\"input\":{\"object_id\":\"$GLET\"}}")
+wait_run "$(printf '%s' "$GR" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "the redacting run finished" "$(ran)" done
+
+gout(){ printf '%s' "$RUNJSON" | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+r=[s["output"]["result"] for s in d["steps"] if s["step_id"]=="fields"][0]
+print(eval(sys.argv[1],{"r":r}))' "$1"; }
+
+# THE ACCEPTANCE CRITERION: the stored extraction has the REAL values, though the
+# model was shown only tokens. The scripted reply answers with the tokens it was
+# given, which is what a model reasoning over redacted text does.
+#
+# `<PERSON_2>` and not `<PERSON_1>`, and the difference is RED-2 working: tokens
+# are numbered in order of FIRST APPEARANCE, so `<PERSON_1>` is the "Patel" of
+# "Dear Ms Patel" and `<PERSON_2>` is "Arun Patel" further down. The first version
+# of this block asked for `<PERSON_1>` and got "Patel" back, correctly.
+assert "the stored field is the real name"  "$(gout 'r["fields"]["who"]')" 'Arun Patel'
+assert "…and the real telephone number"     "$(gout 'r["fields"]["phone"]')" '+44 20 7946 0958'
+assert "…and the real date of birth"        "$(gout 'r["fields"]["dob"]')" '3 April 1981'
+# requirement 2: the record says redaction was applied and which detectors ran
+assert "the result says redaction was applied" "$(gout 'r["redaction"]["applied"]')" 'True'
+assert "…naming the detectors"                 "$(gout 'r["redaction"]["detectors"]')" 'dictionary'
+assert "…with counts per detector"             "$(gout 'r["redaction"]["counts"]["email"]')" 1
+# the DERIVED DOCUMENT carries the real values too, because that is what a later
+# step binds — and it carries no token at all
+assert "the extracted document is beside the source" \
+  "$(G '/api/repo?prefix=redstep/')" '"key":"redstep/letter.txt.extracted.json"'
+GXID=$(G '/api/repo?prefix=redstep/' | python3 -c 'import sys,json
+print([o["id"] for o in json.load(sys.stdin)["objects"] if o["key"].endswith(".extracted.json")][0])')
+GXTEXT=$(curl -s "$B/api/repo-obj/$GXID/content" -H "Authorization: Bearer $TOK")
+assert "…with the real values in it"       "$GXTEXT" 'Arun Patel'
+refute "…and no token left behind"         "$GXTEXT" '<PERSON_'
+# RED-12: and NO MAP WAS PERSISTED. The step redacts and rehydrates inside one
+# call, so a stored map would be a concordance of identifiers kept for no reader.
+# §5f's own `doc_redact` run is the only thing that stores one.
+assert "the step persisted no token map" \
+  "$(G "/api/repo-obj/$GLET/processing")" '"runs_complete":true'
+echo
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

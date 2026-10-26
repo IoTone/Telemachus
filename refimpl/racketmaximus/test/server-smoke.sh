@@ -211,6 +211,36 @@ assert "chat: a parts prompt"          "$(curl -s -X POST $B/api/ai/chat -H "Aut
 assert "chat: an unsupported part"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"input_audio"}]}')" 'unsupported type'
 assert "chat: a part with no type"     "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"text":"loose"}]}')" 'content part 0: no'
 assert "…and that is a 400"            "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"text":"loose"}]}')" '400'
+# ---- #91 requirement 2: `redact` on the chat endpoint ------------------------
+# The simulated echo is exactly the right model for this: it upper-cases the
+# prompt, and a token is already upper-case, so it comes back intact and what the
+# assertion sees is whether the VALUES were put back.
+REDQ='{"prompt":"call Arun Patel on +44 20 7946 0958","redact":true,"redact_detectors":["phone","dictionary"],"redact_terms":["Arun Patel"]}'
+RED=$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d "$REDQ")
+assert "chat redact: the values are put back in the reply" "$RED" 'Arun Patel'
+assert "…and the phone number too"                         "$RED" '+44 20 7946 0958'
+refute "…with no token left behind"                        "$RED" '<PERSON_1>'
+assert "…the response says redaction was applied"          "$RED" '"applied":true'
+assert "…and which detectors ran"                          "$RED" '"phone"'
+assert "…with counts per detector"                         "$RED" '"dictionary":1'
+# OFF unless asked: nothing changed for any existing caller
+refute "chat without redact reports no redaction block" \
+  "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" '"redaction"'
+# RED-13: a parts prompt may carry an IMAGE, and no detector here can read one —
+# so redacting the text beside it would claim more than it did
+assert "chat redact: a parts prompt is refused by name" \
+  "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"text","text":"call Arun"}],"redact":true}')" \
+  'redact is for a string prompt'
+assert "…and that is a 400" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":[{"type":"text","text":"x"}],"redact":true}')" '400'
+# RED-14: the STREAM says no rather than ignoring the field — a token can be split
+# across two events, so putting values back would mean buffering the whole answer
+assert "chat redact: the stream refuses it, by name" \
+  "$(curl -s -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":"call Arun","redact":true}')" \
+  'not available on the streaming endpoint'
+refute "…and the stream without it is untouched" \
+  "$(curl -sN -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" 'not available'
+
 assert "chat: an unknown response_format" "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"yaml"}}')" 'not supported'
 assert "chat: a schemaless json_schema"   "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hi","response_format":{"type":"json_schema","json_schema":{"name":"x"}}}')" 'json_schema.schema'
 # the simulated fallback cannot honour a format, and says so instead of passing an
