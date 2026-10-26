@@ -5495,7 +5495,18 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   than a silent shadow.
 - `raco make server/main.rkt` does NOT reach a plugin's entry module (it is
   `dynamic-require`d), so a Racket upgrade leaves stale `plugins/*/compiled/`
-  bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump.
+  bytecode that fails to load. `rm -rf plugins/*/compiled` after a version bump
+  — **and after anything else that invalidates a module a plugin requires**,
+  which is the half that bit in #91 req 3: a positive-control harness cleared
+  `domain/*/compiled` to defeat the stale-`.zo` trap, `plugins/*/compiled` was
+  left holding bytecode built against the old `executor.rkt` exports, and
+  `translate-chat` silently stopped loading. **Nothing fails loudly** — the unit
+  suite does not load plugins — and what it costs is GENERATED ARTIFACTS:
+  `telemachus-docs render` wrote a `docs/reference/` with that plugin's workflow
+  and tools missing, and `telemachus-localize extract` wrote an `en.json` two
+  strings short. The localize gate caught the second (the direction
+  `--required en` exists for) and the drift gate caught the first; neither would
+  have, had both run in the same broken state and been committed together.
 - **A SYMLINKED plugin directory is OPT-IN: `TELEMACHUS_PLUGINS_LINKS=1`.**
   Symlinking a downstream plugin into `plugins/` is the normal way to develop one,
   and the only way for a plugin that requires Telemachus modules by relative path
