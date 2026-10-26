@@ -204,8 +204,20 @@
            [(not (< page max-pages)) (hash-set res 'truncated #t)]
            [(same-origin? next-url first-url) (loop next-url (add1 page))]
            [else
+            ;; REFUSED, not followed without the credential. Following it would
+            ;; ingest whatever the named host serves under this feed's key
+            ;; prefix, which is content the operator did not configure and cannot
+            ;; retract by fixing the URL later. RFC 8288 requires no origin rule
+            ;; and RFC 5005 explicitly declines to define one, so this is the
+            ;; instance's own choice — and the message names the way out rather
+            ;; than only the difference, because an operator cannot guess that
+            ;; pagination is origin-bound.
             (hasheq 'ok #f 'status (hash-ref res 'status #f) 'reason "cross-origin"
-                    'error (format "the source pointed its next page at ~a, which is not ~a"
+                    'error (format (string-append
+                                    "the source pointed its next page at ~a, which is not the feed's own ~a. "
+                                    "A next page is followed only within one origin, because the feed's credential "
+                                    "may not leave it and the page's items would land under this feed. "
+                                    "Serve the whole series from one host, or point the feed at the page that is complete.")
                                    (safe-url next-url) (safe-url first-url)))])]
         [else (hash-set res 'truncated (and (hash-ref res 'next #f) #t))])))
 
