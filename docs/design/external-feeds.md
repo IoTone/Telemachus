@@ -195,7 +195,13 @@ The same problem exists one level up, where no redirect rule reaches: a
 `Link: rel="next"` is the source naming a URL, and a poll applies the credential
 to it before fetching. The poll refuses a next page on another origin rather than
 following it without the credential, because an unauthenticated page is a 401 at
-best and somebody else's items landed under this feed's key prefix at worst.
+best and somebody else's items landed under this feed's key prefix at worst. No
+standard decides this for us: RFC 8288 gives `rel=next` no origin rule and RFC 5005
+says it does not define what a feed whose documents use different security
+mechanisms means. Browsers strip credentials at the boundary and allow the follow,
+which is safe for a page view and not safe here, because what lands is content this
+team's repository now holds. A source that pages must therefore serve the series
+from one host, and the refusal names both URLs and says so.
 
 Two writes enforce the same idea at configuration time: a PATCH that moves a
 feed's URL to another origin must carry `secret` in the same request, since the
