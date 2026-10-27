@@ -16,6 +16,9 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `doc_set_type` | `files:write` | built-in | Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of "unknown". Writes doc_type / doc_type_confidence / doc_type_source with source "review" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history. |
 | `doc_text` | `files:read` | built-in | Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run. |
 | `doc_translate` | `files:write` | built-in | Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt). |
+| `feed_propose` | `chat:use` | feeds | Read a pulled feed item and write a PROPOSAL about what to do with it, as a document beside the item. It proposes only — nothing acts on the proposal until a person decides, which is what the review step in the feed-propose workflow is for. |
+| `feed_queue_put` | `files:read` | feeds | Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it. |
+| `feed_queue_status` | `files:read` | feeds | Move a queued item to another status: open, claimed, done or dropped. |
 | `get_usage` | `chat:use` | built-in | Report the team's current AI usage against its quota. |
 | `kg_extract` | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate. |
 | `kg_list_unextracted` | `files:read` | built-in | List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue. |
@@ -202,6 +205,43 @@ Permission: `files:write` · source: built-in
 | `redact_terms` | array of string | no | Literal names or phrases for the dictionary detector — not patterns |
 | `run` | string | no | The workflow run id, for provenance |
 | `step` | string | no | The workflow step id, for provenance |
+
+## `feed_propose`
+
+Read a pulled feed item and write a PROPOSAL about what to do with it, as a document beside the item. It proposes only — nothing acts on the proposal until a person decides, which is what the review step in the feed-propose workflow is for.
+
+Permission: `chat:use` · source: feeds
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `object` | string | yes | The item's repository object id |
+| `run` | string | no | The workflow run id, for provenance |
+| `step` | string | no | The workflow step id, for provenance |
+
+## `feed_queue_put`
+
+Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it.
+
+Permission: `files:read` · source: feeds
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `due` | number | no | When it is due, epoch seconds |
+| `object` | string | yes | The item's repository object id |
+| `priority` | number | no | 0 (lowest) to 100 (highest); 50 if omitted |
+| `skills` | array of string | no | Routing hints in the team's own words, e.g. ["racket","ops"] |
+| `status` | string (open, claimed, done, dropped) | no | Defaults to open |
+
+## `feed_queue_status`
+
+Move a queued item to another status: open, claimed, done or dropped.
+
+Permission: `files:read` · source: feeds
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `object` | string | yes | The item's repository object id |
+| `status` | string (open, claimed, done, dropped) | yes | The new status |
 
 ## `get_usage`
 

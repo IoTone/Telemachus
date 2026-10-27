@@ -16,6 +16,9 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `doc_set_type` | `files:write` | built-in | レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。 |
 | `doc_text` | `files:read` | built-in | リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。 |
 | `doc_translate` | `files:write` | built-in | リポジトリ文書をチーム用語集を適用して翻訳し、結果をその隣に書き出す（ロケールは拡張子の前：report.md -> report.ja.md；PDF のテキストは report.ja.txt になります）。 |
+| `feed_propose` | `chat:use` | feeds | 取得済みのフィード項目を読み、それについて何をすべきかの「提案」を、その項目の隣のドキュメントとして書き出します。提案するだけで、人が判断するまで提案に対して何も実行されません。そのための仕組みが feed-propose ワークフローのレビュー手順です。 |
+| `feed_queue_put` | `files:read` | feeds | 取得済みのフィード項目をチームの作業キューに載せる、または更新します：優先度（0〜100）、任意の期限（エポック秒）、状態、スキルの一覧。キューはドキュメントに対する「インデックス」なので、これはトリアージが決めた内容を記録するものであり、決めるものではありません。 |
+| `feed_queue_status` | `files:read` | feeds | キューにある項目を別の状態へ移します：open、claimed、done、dropped のいずれか。 |
 | `get_usage` | `chat:use` | built-in | チームの現在の AI 使用量をクォータと比べて報告する。 |
 | `kg_extract` | `files:read` | built-in | 1つのリポジトリ文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。検証を通らない返答は拒否します。 |
 | `kg_list_unextracted` | `files:read` | built-in | テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）リポジトリ文書を一覧する。オブジェクト ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。 |
@@ -202,6 +205,43 @@ Permission: `files:write` · source: built-in
 | `redact_terms` | array of string | no | dictionary 検出器のための名前や語句そのもの — パターンではありません |
 | `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
 | `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
+
+## `feed_propose`
+
+取得済みのフィード項目を読み、それについて何をすべきかの「提案」を、その項目の隣のドキュメントとして書き出します。提案するだけで、人が判断するまで提案に対して何も実行されません。そのための仕組みが feed-propose ワークフローのレビュー手順です。
+
+Permission: `chat:use` · source: feeds
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `object` | string | yes | 項目のリポジトリオブジェクト ID |
+| `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
+| `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
+
+## `feed_queue_put`
+
+取得済みのフィード項目をチームの作業キューに載せる、または更新します：優先度（0〜100）、任意の期限（エポック秒）、状態、スキルの一覧。キューはドキュメントに対する「インデックス」なので、これはトリアージが決めた内容を記録するものであり、決めるものではありません。
+
+Permission: `files:read` · source: feeds
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `due` | number | no | 期限（エポック秒） |
+| `object` | string | yes | 項目のリポジトリオブジェクト ID |
+| `priority` | number | no | 0（最低）から 100（最高）。省略時は 50。 |
+| `skills` | array of string | no | チーム自身の言葉による振り分けの手がかり。例：["racket","ops"] |
+| `status` | string (open, claimed, done, dropped) | no | 既定は open |
+
+## `feed_queue_status`
+
+キューにある項目を別の状態へ移します：open、claimed、done、dropped のいずれか。
+
+Permission: `files:read` · source: feeds
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `object` | string | yes | 項目のリポジトリオブジェクト ID |
+| `status` | string (open, claimed, done, dropped) | yes | 新しい状態 |
 
 ## `get_usage`
 

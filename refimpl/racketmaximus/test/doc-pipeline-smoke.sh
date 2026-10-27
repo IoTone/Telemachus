@@ -1391,6 +1391,117 @@ done
 assert "the block removed its own documents" "$(G "/api/repo?prefix=office/source.txt")" '"objects":[]'
 echo
 
+echo "== 5l. the feed work queue, and a proposal that does not act (#114 slices 5-6) =="
+# A PLUGIN, not a core console tab — the owner's call on #114 question 2. So
+# everything here rides seams that shipped: a plugin migration (#121), plugin
+# routes (slice 63) and a bundle page (#20, #43).
+assert "the feeds plugin loaded"            "$(G /api/plugins)" '"id":"feeds"'
+refute "…with nothing failing"              "$(G /api/plugins)" '"plugin":"feeds"'
+assert "…declaring its own table"           "$(G /api/plugins)" '"migrations"'
+assert "its queue workflow arrived"         "$(G /api/workflows)" '"slug":"feed-triage"'
+assert "…and its proposal workflow"         "$(G /api/workflows)" '"slug":"feed-propose"'
+assert "its tools are registered"           "$(G /api/tools)" '"name":"feed_queue_put"'
+
+# An item shaped the way poll.rkt writes one: JSON under feeds/<slug>/.
+printf '{"title":"flaky webhook test","number":41}\n' > "$TELEMACHUS_DATA_DIR/q-a.json"
+printf '{"title":"certificate expiring","number":42}\n' > "$TELEMACHUS_DATA_DIR/q-b.json"
+QA=$(up feeds/gh/acme-repo-41.json application/json "$TELEMACHUS_DATA_DIR/q-a.json" | jq_ 'd["id"]')
+QB=$(up feeds/gh/acme-repo-42.json application/json "$TELEMACHUS_DATA_DIR/q-b.json" | jq_ 'd["id"]')
+
+# THE QUEUE IS AN INDEX, NOT A POLICY: the priority, the due date and the skills
+# are the caller's — a plugin that read "critical" out of somebody's GitHub label
+# would be guessing at their conventions and would be wrong quietly.
+QR=$(P /api/workflows/feed-triage/run "{\"input\":{\"object_id\":\"$QA\",\"priority\":30,\"due\":0,\"skills\":[\"ops\"]}}")
+wait_run "$(printf '%s' "$QR" | grep -oP '\"id\":\"\K[^\"]+' | head -1)"
+assert "triage put the first item on the queue" "$RUNST" done
+QR2=$(P /api/workflows/feed-triage/run "{\"input\":{\"object_id\":\"$QB\",\"priority\":90,\"due\":1000000000,\"skills\":[\"Racket\",\"ops\"]}}")
+wait_run "$(printf '%s' "$QR2" | grep -oP '\"id\":\"\K[^\"]+' | head -1)"
+assert "…and the second"                       "$RUNST" done
+
+QQ=$(G /api/x/feeds/queue)
+assert "the queue serves both items"        "$QQ" 'acme-repo-41.json'
+assert "…ranked, highest priority first"    "$(printf '%s' "$QQ" | jq_ 'd["items"][0]["key"]')" 'feeds/gh/acme-repo-42.json'
+assert "…reporting its own ordering"        "$QQ" '"order":"priority DESC'
+assert "…and the statuses it has"           "$QQ" '"statuses":["open","claimed","done","dropped"]'
+assert "…with the skills normalized"        "$QQ" '"skills":["racket","ops"]'
+
+# The skill filter means ONE skill: the delimiting commas are what stop `racket`
+# matching `racketeering`, and the LIKE wildcards are what make it a filter at
+# all — the unit suite found that one by failing.
+assert "a skill filter narrows"             "$(G '/api/x/feeds/queue?skill=racket')" 'acme-repo-42'
+refute "…to the items that carry it"        "$(G '/api/x/feeds/queue?skill=racket')" 'acme-repo-41'
+assert "an unknown skill matches nothing"   "$(G '/api/x/feeds/queue?skill=welding')" '"count":0'
+
+# The one write a person does from the screen.
+assert "an item can be claimed" "$(P "/api/x/feeds/items/$QA/status" '{"status":"claimed"}')" '"status":"claimed"'
+assert "…and the listing shows it"          "$(G /api/x/feeds/queue)" '"status":"claimed"'
+assert "a status outside the vocabulary is refused" \
+  "$(P "/api/x/feeds/items/$QA/status" '{"status":"urgent"}')" 'unknown status'
+assert "…listing the ones there are"        "$(P "/api/x/feeds/items/$QA/status" '{"status":"urgent"}')" 'open, claimed, done, dropped'
+# `done` leaves the actionable set, which is what makes the default listing useful
+assert "marking it done"                    "$(P "/api/x/feeds/items/$QA/status" '{"status":"done"}')" '"status":"done"'
+refute "…takes it out of the actionable queue" "$(G /api/x/feeds/queue)" 'acme-repo-41'
+assert "…and ?status=all still shows it"    "$(G '/api/x/feeds/queue?status=all')" 'acme-repo-41'
+
+# The screen itself: served to a signed-in caller, refused without a bearer.
+assert "the queue screen is served"   "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/feeds/bundle/index.html" -H "Authorization: Bearer $TOK")" '200'
+assert "…and not without a token"     "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/x/feeds/bundle/index.html")" '401'
+
+# ---- slice 6: the proposal, and the gate ---------------------------------------
+# FEED-10, confirmed by the owner on #114 question 3: the agent PROPOSES and a
+# review step gates anything that would act.
+if [ $LIVE = 0 ]; then
+  python3 -c 'import json,sys
+p=sys.argv[1]
+try:  d=json.load(open(p))
+except Exception:  d={}
+d["You triage work items"]="## What this is\nA flaky webhook test.\n\n## Proposed action\nRe-run the job once, then close it.\n\n## Why this and not something else\nA re-run that goes green is cheap."
+json.dump(d,open(p,"w"))' "$MOCK_REPLY_FILE"
+fi
+
+PR=$(P /api/workflows/feed-propose/run "{\"input\":{\"object_id\":\"$QB\"}}")
+PRID=$(printf '%s' "$PR" | jq_ 'd["id"]')
+RUNID="$PRID"; wait_park "$PRID"
+# THE RUN PARKS ON A PERSON. A `review` step writes no job, so a parked run holds
+# no concurrency slot however long the specialist takes (LAY-1).
+assert "the proposal run parks rather than finishing" "$(G /api/runs/$PRID)" '"status":"waiting"'
+assert "…and the proposal is a document beside the item" \
+  "$(G '/api/repo?prefix=feeds/gh/acme-repo-42.json.proposal.md')" 'acme-repo-42.json.proposal.md'
+PDOC=$(G '/api/repo?prefix=feeds/gh/acme-repo-42.json.proposal.md' | jq_ 'd["objects"][0]["id"]')
+PTXT=$(curl -s "$B/api/repo-obj/$PDOC/content" -H "Authorization: Bearer $TOK")
+assert "…carrying what the model proposed"  "$PTXT" 'Re-run the job once'
+# The standing warning is in the DOCUMENT, because the person reading it in a
+# month has no other way to know it was never carried out.
+assert "…and saying plainly that nothing was done" "$PTXT" 'A PROPOSAL, not an action'
+
+assert "a person is asked to decide"        "$(G /api/reviews)" '"step_id":"decide"'
+assert "…with the question in their queue"  "$(G /api/reviews)" 'Should we do what this proposal says'
+assert "…and the instructions saying nothing will happen automatically" \
+  "$(G /api/reviews)" 'nothing will happen automatically'
+
+# NOTHING ACTED, and that is the assertion the whole slice exists for: the queue
+# is exactly as it was before the proposal run, and no new document appeared
+# beyond the proposal itself.
+refute "the proposal did not move the item on the queue" "$(G '/api/x/feeds/queue?status=all')" '"status":"dropped"'
+assert "…which is still where triage left it"           "$(G '/api/x/feeds/queue?status=all')" '"priority":90'
+
+# AND EVERY VERDICT ENDS THE RUN, because v1 has nothing that acts. When an
+# acting tool exists it goes on the approve branch and nowhere else.
+decide "$(pending_id)" '{"verdict":"approve","rationale":"yes, re-run it","answers":{"plan":"re-run then close"}}'
+assert "an approval ends the run"           "$(G /api/runs/$PRID)" '"status":"done"'
+assert "the review queue is empty again"    "$(G /api/reviews)" '"reviews":[]'
+# LAY-11: the decision is in the chain, which is what makes "who approved this"
+# answerable later rather than a matter of trust.
+assert "the decision is in the review chain" "$(G /api/reviews/verify)" '"ok":true'
+
+# The block removes its own documents (§5h's, §5j's and §5k's lesson).
+for id in "$QA" "$QB"; do
+  [ -n "$id" ] || continue
+  curl -s -X DELETE "$B/api/repo-obj/$id?cascade=1" -H "Authorization: Bearer $TOK" >/dev/null
+done
+assert "the block removed its own documents" "$(G '/api/repo?prefix=feeds/gh/')" '"objects":[]'
+echo
+
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

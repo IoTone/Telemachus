@@ -266,6 +266,8 @@ Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every on
 |---|---|---|---|---|
 | GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in ?text=. |
 | POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | Count the words in {text}. |
+| GET | `/api/x/feeds/queue` | `feeds` | `files:read` | The team's feed work queue, ordered by priority then soonest due date. ?status= open\|claimed\|done\|dropped\|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there. |
+| POST | `/api/x/feeds/items/:id/status` | `feeds` | `files:read` | Move one queued item to another status: {"status": "claimed"}. Guarded on the row's own team as well as the document, because an object id is instance-global. |
 | GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for ?lane=. |
 | POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | Estimated days for {lane}. |
 | GET | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | The team's Matrix room subscriptions, the events they may filter on, and whether this instance has a homeserver configured at all. |

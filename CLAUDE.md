@@ -2857,6 +2857,80 @@ bash test/doc-pipeline-smoke.sh        # the "== 5h." block, 24 assertions
   `TELEMACHUS_MODEL_TIMEOUT`. Assert the refusal (which precedes any socket), and
   the not-stopped half against `egress-refusal` directly.
 
+## The feed work queue, and a proposal that does not act (QUEUE‑1…9, #114 slices 5–6)
+
+Built 27 Oct 2026 — the last two slices of #114's own plan. `plugins/feeds/`:
+one table, three tools, two workflows, two routes and a bundle screen, plus ONE
+platform change — `derive!` became `repo-derive!` in `repo.rkt`, because this
+plugin is its second asker.
+
+```sh
+raco test test/feed-queue-tests.rkt   # 20 cases, ten controls (see below)
+bash test/doc-pipeline-smoke.sh       # the "== 5l." block, 38 assertions
+```
+
+**A PLUGIN, NOT A CORE CONSOLE TAB** — the owner's answer to #114 question 2.
+FEED‑8 had assumed it, so the design did not move; what it settles is that a core
+tab is a separate decision nobody waits on.
+
+- **A TYPED TABLE, because `repo-list` cannot answer the queue's question**
+  (QUEUE‑1): ordering by priority, comparing a due date, filtering by status —
+  and LAY‑4 attribute values are strings with no JSON SQL in both dialects. The
+  `x_feeds_` prefix is enforced by the loader, which is what makes a plugin's DDL
+  safe to accept as data (#121).
+- **IT IS AN INDEX, NOT A POLICY** (QUEUE‑2). Priority, due date and skills are
+  ARGUMENTS the customer's triage passes. A plugin reading "critical" out of a
+  GitHub label would be guessing at somebody's conventions and **wrong quietly**.
+- **THE DOCUMENT IS AUTHORIZED, NOT THE ROW** (QUEUE‑3): every listing re-reads
+  each object under `can?` after the SQL window, so a row confers nothing and the
+  count is "what you may read" (CLS‑27's consequence).
+- **THE NULL DUE DATE IS COALESCED, and that is not cosmetic** (QUEUE‑4): the two
+  dialects sort NULLs opposite ways under ASC, so without it an item with no
+  deadline comes first on one engine and last on the other. The route REPORTS its
+  own ordering, because "the first actionable task" is a promise about element one
+  and a reader cannot see a sort.
+- **A SKILL IS STORED DELIMITED (`,racket,ops,`)** (QUEUE‑6), or `LIKE '%racket%'`
+  matches `racketeering`. **And the `%` wildcards are what make it a LIKE at
+  all** — the first version built `,racket,` with none, which is an equality test,
+  so every skill filter answered nothing. The unit case found it.
+- **A STATUS CHANGE IS SCOPED TO THE ROW'S OWN TEAM** as well as the document
+  (QUEUE‑8), because an object id is instance-global — `org-team-resolve`'s
+  lesson.
+- **`derive!` IS NOW `repo-derive!`** (QUEUE‑9). DWF‑4's order — the source's
+  visibility at the put, THEN `repo-inherit!` — lived behind a comment saying "do
+  not reorder that". A second asker makes a comment insufficient.
+- **A PROPOSAL IS A DOCUMENT AND NOTHING ACTS ON IT** (FEED‑10, confirmed as the
+  answer to #114 question 3). `<key>.proposal.md` derived from the item, carrying
+  a standing note that nothing was carried out — the person reading it in a month
+  has no other way to know — and the tool's result says `acted: false` rather
+  than leaving it to be inferred. **Every verdict ends the run**, because there
+  is no acting tool; a unit case asserts the `approve` branch is `null` today, so
+  the day somebody adds one is the day it is noticed. Four eyes is OFF (LAY‑3's
+  NULL-author case: the subject is model-produced, so a team of one can finish).
+- **THE MODEL IS A PARAMETER** (`current-feed-chat`), as it is for every other
+  model-backed tool here. The first version called `run-chat` directly, which
+  made the whole proposal path untestable without a live model — so the case that
+  matters most, "a proposal is a document and nothing acts on it", could not have
+  been written at all.
+
+**Three things that cost a run, and two of them are about the tests:**
+
+- **`raco make` EXITING 0 DID NOT MEAN THE PLUGIN LOADED** — the documented trap,
+  and #48's plugin-failure surface is what made it loud: `plugin: feeds: FAILED —
+  invalid workflow spec: step 'decide': checklist[0]: needs a non-empty 'label'`.
+  A checklist item's field is **`label`**, not `title`. Boot the server after
+  touching a plugin; a compile proves nothing about a `dynamic-require`.
+- **A GUARD CAN BE UNTESTED WHILE LOOKING TESTED.** "Another team's queue is not
+  this team's" passes with QUEUE‑8's team clause removed, because `can?` refuses
+  the document before the SQL is reached. The guard needed its own case, on a row
+  built by hand — no code path produces that state, which is what defence in
+  depth means.
+- **A CONTROL THAT DOES NOT BITE MAY MEAN THE ASSERTION IS WEAKER THAN IT
+  READS.** Patching `repo-derive!` to put a proposal at `team` visibility leaves
+  the inheritance case green, because `repo-inherit!` corrects it afterwards. The
+  put's `#:visibility` closes a WINDOW no test at that level can observe, so the
+  test now says what it does and does not cover rather than implying more.
+
 ## A filled DOCX, converted to PDF (OFFICE‑1…5, issue #88 req 3)
 
 Built 26 Oct 2026, which **closes #88**. `domain/repo/docxpdf.rkt` plus one more

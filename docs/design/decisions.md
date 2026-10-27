@@ -3017,3 +3017,124 @@ Six controls, all biting, and one of them is about the controls themselves:
 - **`assert` IS A GREP AND THE RUN JSON ESCAPES ITS QUOTES**, so a needle
   containing a double quote can never match: `engine "libreoffice"` is
   `engine \"libreoffice\"` in the body. Assert the prose around it.
+
+## QUEUE — the feed work queue, and a proposal that does not act (issue #114 slices 5–6)
+
+Decided and built 27 Oct 2026, which closes the last two slices of #114's own
+plan. `plugins/feeds/` — one table, three tools, two workflows, two routes and a
+screen — plus ONE platform change: `derive!` moved out of `doc-tools.rkt` into
+`repo.rkt` as `repo-derive!`, because this plugin is its second asker.
+
+**A PLUGIN, NOT A CORE CONSOLE TAB**, and that was the owner's answer to #114
+question 2 on 27 Oct. FEED‑8 had assumed as much, so the design did not move;
+what the answer settles is that a plugin owns its own tables, routes and screens
+today — plugin migrations (#121), plugin routes (slice 63), a bundle page (#20,
+#43) — while a tab inside the core console is a platform change a plugin cannot
+make, and is now a separate decision nobody waits on.
+
+- **QUEUE‑1 — a TYPED TABLE, because the queue's question is not one
+  `repo-list` can answer.** Ordering by priority, comparing a due date and
+  filtering by status: LAY‑4 attribute values are strings, there is no JSON SQL
+  in both dialects, and a core implementation would mean typed storage plus a
+  dialect-specific query — a schema decision with the `meta LIKE` trap attached.
+  `x_feeds_items` keeps typed columns and the DOCUMENTS stay the source of truth.
+  The `x_feeds_` prefix is not decoration: the loader enforces it on a plugin's
+  DDL, which is what makes "a list of SQL strings" safe to accept as data.
+- **QUEUE‑2 — IT IS AN INDEX, NOT A POLICY.** The priority, the due date and the
+  skills are ARGUMENTS the customer's own triage passes, in a workflow, from
+  whatever their labels mean. A plugin that derived a priority from the word
+  "critical" in a GitHub label would be guessing at somebody else's conventions
+  and would be **wrong quietly** — and the github adapter writes `feed_labels`
+  as the team's own string precisely so nothing downstream has to interpret it.
+- **QUEUE‑3 — THE DOCUMENT IS AUTHORIZED, NOT THE ROW.** A queue row is a
+  pointer and confers nothing: every listing re-reads each object under `can?`,
+  after the SQL window, as `repo-list` does — with CLS‑27's consequence, that a
+  page can contribute fewer rows than it selected and the count is "what you may
+  read" rather than "what is there". `repo-get` raises on a refusal and answers
+  `#f` for a miss, collapsed here into one answer in one place, as the knowledge
+  graph and the worker's document read both do.
+- **QUEUE‑4 — THE ORDER IS THE FEATURE, and the NULL due date is the half that
+  would have broken silently.** `priority DESC`, then the soonest due date, then
+  oldest-known-first. `due_epoch` is NULL for an item with no deadline and **the
+  two dialects sort NULLs opposite ways under ASC**, so it is `COALESCE`d to a
+  far horizon: without that, an item with no deadline comes first on one engine
+  and last on the other. The route also REPORTS the ordering, because "the first
+  actionable task" is a promise about the first element and a reader cannot see a
+  sort.
+- **QUEUE‑5 — the priority range is CLOSED (0–100) and a value outside it is
+  clamped, not refused.** An open-ended number invites one workflow to pass 10
+  and another 1,000,000, after which the ranking depends on who wrote the
+  workflow rather than on what is urgent. Clamped rather than refused because
+  this is triage: a caller who passes 1,000 means "most urgent", and failing
+  their run over it would be pedantry. A non-number is the default, never an
+  error.
+- **QUEUE‑6 — skills are stored DELIMITED (`,racket,ops,`), and that is what
+  makes a skill filter mean one skill.** `LIKE '%racket%'` over a bare list
+  matches `racketeering`; the leading and trailing commas are the fix. A JSON
+  array would have been the obvious shape and there is no JSON SQL in both
+  dialects. **The wildcards are what make it a LIKE at all** — the first version
+  built `,racket,` with no `%`, which is an equality test, so every skill filter
+  answered nothing. The unit case found it.
+- **QUEUE‑7 — the status vocabulary is CLOSED**, and each member earned its place
+  by behaving differently: `open` is offered, `claimed` is somebody's, and `done`
+  and `dropped` leave the actionable set, which is what makes the default listing
+  useful. Refused on the way in and on the way out.
+- **QUEUE‑8 — a status change is scoped to the ROW's own team as well as to the
+  document.** An object id is instance-global, so without the team clause a
+  caller could name another company's row — `org-team-resolve`'s lesson. This is
+  defence in depth: no code path here produces a row whose team disagrees with a
+  reader's, which is exactly why it needed a test of its own (below).
+- **QUEUE‑9 — `derive!` IS NOW `repo-derive!`, with two askers.** DWF‑4's order —
+  the source's visibility at the `repo-put!`, and only THEN `repo-inherit!` for
+  the grants and the derivation row — lived in `doc-tools.rkt` behind a comment
+  saying "do not reorder that". A second asker makes a comment insufficient, so
+  the rule moved into `repo.rkt` and `derive!` delegates. The same consolidation
+  `repo-fields-declare!`, `bbox-problem` and `executor-can-run?` each got.
+
+### Slice 6: a proposal is a document, and nothing acts on it
+
+FEED‑10, confirmed by the owner as the answer to #114 question 3 rather than
+overridden. Three things about the shape:
+
+- **It writes a DOCUMENT, not a row.** `<key>.proposal.md` derived from the item
+  means "Processed by" finds it, the derivation row says which item it is about,
+  and it inherits the item's visibility from its first byte. A proposal is the
+  kind of thing somebody reads, disagrees with and keeps.
+- **The document carries a standing note that nothing was carried out**, because
+  the person reading it in a month has no other way to know. The tool's result
+  carries `acted: false` for the same reason — a reader should not have to infer
+  it from the absence of something.
+- **EVERY VERDICT ENDS THE RUN**, because v1 has nothing that acts. There is no
+  acting tool, and nothing prevented one before this slice — `register-tool!`
+  takes any handler — so the requirement was never to build the capability but to
+  govern it. When an acting tool exists it goes on the `approve` branch and
+  nowhere else, and a unit case asserts that branch is `null` today so the day
+  somebody adds one is the day it is noticed. Four eyes is OFF: the subject is
+  model-produced, so LAY‑3's NULL-author case applies and a team of one can still
+  finish the run.
+
+### What the controls found
+
+Ten controls. Eight bit first time; the two that did not were both real, and the
+second is the more interesting:
+
+- **THE TEAM CLAUSE ON THE WRITE WAS UNTESTED WHILE LOOKING TESTED.** The case
+  "another team's queue is not this team's" passes with the clause removed,
+  because `can?` refuses the caller the DOCUMENT before the SQL is reached. So
+  QUEUE‑8's guard had no test — #113's shape inside a test file. It has its own
+  case now, on a row built by hand, because no code path produces that state:
+  that is what defence in depth means, and a guard with no reachable caller is
+  decoration until something exercises it.
+- **THE VISIBILITY CASE ASSERTS AN END STATE ONLY, AND SAYS SO NOW.** Patching
+  `repo-derive!` to put the proposal at `team` visibility leaves the case green,
+  because `repo-inherit!` copies the source's visibility afterwards and corrects
+  it. The put's `#:visibility` closes the WINDOW between the two statements, and
+  no test at that level can observe a window. Stated in the test rather than left
+  for a reader to assume the assertion covers it — the alternative was a stronger
+  claim than the test supports.
+- **`raco make` EXITING 0 DID NOT MEAN THE PLUGIN LOADED**, the documented trap,
+  and #48's plugin-failure surface is what made it loud: the first boot printed
+  `plugin: feeds: FAILED — invalid workflow spec: step 'decide': checklist[0]:
+  needs a non-empty 'label'`. A checklist item's field is `label`, not `title`.
+  One line in sixty before #48; a named failure now, and the reason that slice
+  was worth building.

@@ -207,6 +207,10 @@
       "text": "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.",
       "hash": "999005b24f8ad5bf7e9099934d4fedd77ee9f5af"
     },
+    "doc.tool.feed_queue_put.priority": {
+      "text": "0 (lowest) to 100 (highest); 50 if omitted",
+      "hash": "0d53a9be59087c5d6d1e7a1a00212b0d161afecb"
+    },
     "ui.s3once": {
       "text": "Copy the secret now — it is not shown again.",
       "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
@@ -254,6 +258,10 @@
     "doc.route.post.api.admin.users.id.password": {
       "text": "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link.",
       "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
+    },
+    "doc.tool.feed_queue_put.due": {
+      "text": "When it is due, epoch seconds",
+      "hash": "f6e5789fe8525cd64d48ea011b1da10e64cf8cd0"
     },
     "ui.addterm": {
       "text": "Add term",
@@ -422,6 +430,10 @@
     "doc.tool.kg_query.type": {
       "text": "Restrict a name lookup to one entity type, e.g. organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
+    },
+    "doc.route.get.api.x.feeds.queue": {
+      "text": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
+      "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
     },
     "ui.l10nexport": {
       "text": "Export",
@@ -899,6 +911,14 @@
       "text": "a valid email is required",
       "hash": "a7227381be08901ae0a39d9c7cc2d63acfa7d3b3"
     },
+    "ui.updated": {
+      "text": "Updated",
+      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
+    },
+    "doc.workflow.feed-triage.name": {
+      "text": "Triage a pulled feed item",
+      "hash": "7714344cfd792dd58afd504a76826d18b48439a1"
+    },
     "doc.tool.doc_translate.locale": {
       "text": "Target language code, e.g. ja, nl, es-419",
       "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
@@ -910,10 +930,6 @@
     "ui.wkgotit": {
       "text": "Got it",
       "hash": "5b8027fa0e819719a62305a6b15f3f1c10769f7f"
-    },
-    "ui.updated": {
-      "text": "Updated",
-      "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
     },
     "ui.fires": {
       "text": "History",
@@ -1019,6 +1035,10 @@
       "text": "A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed.",
       "hash": "05dfb3f0955f1d3e8c3af7a4870181947a094d67"
     },
+    "doc.tool.feed_queue_status.object": {
+      "text": "The item's repository object id",
+      "hash": "8f595886ef395ccb54a13b8a15d9e6117b5a7f22"
+    },
     "beta.field_too_short": {
       "text": "{field} must be at least {n} characters",
       "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
@@ -1043,6 +1063,10 @@
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
+    "doc.workflow.feed-propose": {
+      "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
+      "hash": "273f8add79363523aa57b166f84d1a852c876324"
+    },
     "doc.perm.instance:read": {
       "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
       "hash": "8b3e4319de14d9acdc7262dc02ad685abd3332c6"
@@ -1050,6 +1074,10 @@
     "doc.route.post.api.instance.suspend": {
       "text": "Hosted mode: suspend the tenant (writes are refused with 402).",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
+    },
+    "doc.tool.feed_queue_put.skills": {
+      "text": "Routing hints in the team's own words, e.g. [\"racket\",\"ops\"]",
+      "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
     },
     "ui.brandtagline": {
       "text": "Tagline",
@@ -1094,6 +1122,14 @@
     "ui.cap_edit": {
       "text": "edit",
       "hash": "9ead47a82a0d25985f22f10651d1f93b3abba317"
+    },
+    "doc.tool.kg_query": {
+      "text": "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too.",
+      "hash": "d6dc9485ecac2f80742e0ddea83e96860cd52f49"
+    },
+    "doc.tool.feed_queue_put.status": {
+      "text": "Defaults to open",
+      "hash": "ae650e1d3f893611c541c424ab66de9fd71dcafd"
     },
     "ui.revoked": {
       "text": "Revoked",
@@ -1199,9 +1235,9 @@
       "text": "Anchor receipts as JSONL, oldest first, for retention OUTSIDE this instance's trust domain. `?since_seq=` asks for only what a retainer does not yet hold, so the file appends. Verify a retained copy offline with `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` — which needs neither this server nor its database, because an anchor is worth something precisely when the instance is the suspect.",
       "hash": "79290dffd7c07c40d69bdb0eae588710bf99ace2"
     },
-    "doc.tool.kg_query": {
-      "text": "What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too.",
-      "hash": "d6dc9485ecac2f80742e0ddea83e96860cd52f49"
+    "doc.tool.feed_queue_put": {
+      "text": "Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it.",
+      "hash": "0abd789dfe99b920ce6be17c1f4d75b2badd749a"
     },
     "doc.route.put.api.l10n.messages.id": {
       "text": "Submit a translation for one message.",
@@ -1214,6 +1250,10 @@
     "doc.route.get.api.notes.id": {
       "text": "One note.",
       "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
+    },
+    "doc.tool.feed_queue_status": {
+      "text": "Move a queued item to another status: open, claimed, done or dropped.",
+      "hash": "a4371b500c8fc586e526ec8c7be2d66e0afa717c"
     },
     "doc.route.post.api.orgs": {
       "text": "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).",
@@ -1290,6 +1330,10 @@
     "ui.translate": {
       "text": "Translate",
       "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    },
+    "doc.tool.feed_queue_status.status": {
+      "text": "The new status",
+      "hash": "22dad84c7f9e73b5959e03bd54fd9e4bdd67f15c"
     },
     "ui.abslabel": {
       "text": "Maximum session (hours)",
@@ -1434,6 +1478,10 @@
     "authz.forbidden": {
       "text": "Forbidden: {perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "doc.workflow.feed-propose.name": {
+      "text": "Propose what to do about a feed item",
+      "hash": "5d76cb34696d2bf139ff6b71aca92b53ada7623d"
     },
     "doc.route.post.api.executors.id.drain": {
       "text": "Take a pull executor out of rotation (FLEET-3): it is offered no new work and keeps its token, so it goes on polling and heartbeating and stays visibly alive. Reversible, unlike a retire, which revokes the token. A job it already holds is left running — stopping work in flight is what cancel is for.",
@@ -1671,6 +1719,10 @@
       "text": "Extract the text of one repository document into the search index.",
       "hash": "abc97e3c3258563662360c069c8ec834c527371f"
     },
+    "doc.plugin.feeds": {
+      "text": "Issue #114 slices 5 and 6: a ranked, typed index over the documents a feed pulled, and an agent that PROPOSES what to do about one — with a review step between the proposal and any act.",
+      "hash": "e36acab80869ec3bb13c07c3d9f03338ff9147c8"
+    },
     "doc.route.get.api.timezones": {
       "text": "Every IANA timezone this instance has data for, derived from the tz database on disk rather than a list in the source, so a tzdata upgrade needs no release.",
       "hash": "6bc03a33c62f0667f067b528bd9c62e4c34d5177"
@@ -1834,6 +1886,10 @@
     "ui.thbrandink": {
       "text": "Text on brand",
       "hash": "f6248b16f2f73b99ad6b63c1dde8532e45e6e548"
+    },
+    "doc.tool.feed_propose.object": {
+      "text": "The item's repository object id",
+      "hash": "8f595886ef395ccb54a13b8a15d9e6117b5a7f22"
     },
     "doc.perm.documents:delete": {
       "text": "Delete text documents.",
@@ -2179,6 +2235,18 @@
       "text": "Measure the classifier against the team's labelled fixtures — the documents under a prefix carrying a doc_type_expected attribute. Reports accuracy and coverage for each backend on its own, per label, with what each label was confused for and how confident the right and wrong answers were. Writes nothing: no type is recorded and no trigger fires, so a fixture set can be evaluated as often as you like.",
       "hash": "6eecc1c3c8fb42402d04817a5c255ddea25bf1c3"
     },
+    "doc.tool.feed_propose": {
+      "text": "Read a pulled feed item and write a PROPOSAL about what to do with it, as a document beside the item. It proposes only — nothing acts on the proposal until a person decides, which is what the review step in the feed-propose workflow is for.",
+      "hash": "8c212196feb64173f0a202e4f057fc88bb101fe2"
+    },
+    "doc.tool.feed_queue_put.object": {
+      "text": "The item's repository object id",
+      "hash": "8f595886ef395ccb54a13b8a15d9e6117b5a7f22"
+    },
+    "doc.route.get.api.tokens": {
+      "text": "The team's API tokens.",
+      "hash": "5ba2729ca20d3fedebf8ffb6e6af646ac7d0959d"
+    },
     "doc.route.get.api.workflows.slug": {
       "text": "One workflow definition with its spec.",
       "hash": "f3a279bebfb752bea2de432d2056d692f5131c8d"
@@ -2194,10 +2262,6 @@
     "ui.processedby": {
       "text": "Processed by",
       "hash": "e46e1f2081914128a574b3c06686ccce4454d5b1"
-    },
-    "doc.route.get.api.tokens": {
-      "text": "The team's API tokens.",
-      "hash": "5ba2729ca20d3fedebf8ffb6e6af646ac7d0959d"
     },
     "ui.qualify": {
       "text": "Qualify",
@@ -2519,6 +2583,10 @@
       "text": "Share with a user or a team in the org: {principal_type, principal_id, capability: view|edit|manage, expires_at?}. {user_id} still means view.",
       "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
     },
+    "doc.route.post.api.x.feeds.items.id.status": {
+      "text": "Move one queued item to another status: {\"status\": \"claimed\"}. Guarded on the row's own team as well as the document, because an object id is instance-global.",
+      "hash": "dfff589d91c44dc9eb5fd8a4604ecda788095c2e"
+    },
     "ui.brandtheme": {
       "text": "Theme",
       "hash": "a797e30923ac1be590300ce6b08e63b4e6dc6688"
@@ -2546,6 +2614,10 @@
     "doc.route.get.api.retention.plan": {
       "text": "What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch.",
       "hash": "da6cf2e104ab373fa890106ae02c2c864aca8673"
+    },
+    "doc.workflow.feed-triage": {
+      "text": "Put one pulled item on the work queue with a priority, a due date and skills. The queue is an index: this records what triage decided.",
+      "hash": "c2cfa5a2a1a3bd69124a30633ecf8e152dd5a0b1"
     },
     "doc.route.delete.api.sessions.id": {
       "text": "End one of the caller's own sessions. A session that is not theirs and one that does not exist are the same 404.",
@@ -2683,6 +2755,14 @@
       "text": "Import catalogs",
       "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
     },
+    "doc.tool.feed_propose.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "ui.reviewpending": {
+      "text": "Waiting",
+      "hash": "33d30632848d3fd0ed2340adbd7be3e3e8e61010"
+    },
     "beta.field_digits": {
       "text": "{field} must contain digits only",
       "hash": "d113fbebd4120486e3778a7e56afe2f0a5342314"
@@ -2690,10 +2770,6 @@
     "ui.idleout": {
       "text": "Signed out for inactivity.",
       "hash": "6c0649c3d468d7e687ffd7719576506f64b0f2a5"
-    },
-    "ui.reviewpending": {
-      "text": "Waiting",
-      "hash": "33d30632848d3fd0ed2340adbd7be3e3e8e61010"
     },
     "ui.addmember": {
       "text": "Add member",
@@ -3055,6 +3131,14 @@
       "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TELEMACHUS_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. `redact: true` (with `redact_detectors` / `redact_terms`, #91 req 2) builds the request from REDACTED text — identifiers replaced with stable tokens — and puts the values back before the reply is returned; `redaction` on the response says which detectors ran. It takes a STRING prompt: a content-parts prompt may carry an image no detector can read, so that combination is a 400.",
       "hash": "f9ebe8564b74c3055904eeca8f049f78429bd0ef"
     },
+    "doc.tool.feed_propose.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.route.patch.api.schedules.id": {
+      "text": "Retune a schedule: `cadence`, `interval_seconds`, `at_minute`, `days_of_week`, `timezone`, `paused`, `payload`, `priority`, `name`. The schedule is validated AS IT WOULD BE, so switching to `daily` in the same request that supplies `at_minute` is accepted and switching without one is refused — a patch cannot reach a state a create could not. Any change to WHEN recomputes the next firing, rather than firing once at the old time and only then obeying the edit. The PRINCIPAL cannot be patched: changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing forward instead of catching up on every tick it missed.",
+      "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
+    },
     "doc.route.post.api.l10n.draft": {
       "text": "Queue AI drafts for a locale's missing strings, in batches of 20 scheduler jobs, quota-metered.",
       "hash": "742d6ecb83ed152c1255676ccadbf17b2ad7034b"
@@ -3198,10 +3282,6 @@
     "ui.qsub": {
       "text": "sub",
       "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
-    },
-    "doc.route.patch.api.schedules.id": {
-      "text": "Retune a schedule: `cadence`, `interval_seconds`, `at_minute`, `days_of_week`, `timezone`, `paused`, `payload`, `priority`, `name`. The schedule is validated AS IT WOULD BE, so switching to `daily` in the same request that supplies `at_minute` is accepted and switching without one is refused — a patch cannot reach a state a create could not. Any change to WHEN recomputes the next firing, rather than firing once at the old time and only then obeying the edit. The PRINCIPAL cannot be patched: changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing forward instead of catching up on every tick it missed.",
-      "hash": "ee5d997d17b098a4fbd4c77017676b1039f131fd"
     },
     "doc.tool.doc_redact.step": {
       "text": "The workflow step id, for provenance",

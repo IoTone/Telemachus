@@ -299,8 +299,8 @@ source adapter.
 | 2 ✅ | **The outbound seam** — one client, two policies | — | `'untrusted` refuses 10.x/127.x/169.254.x and a DNS name resolving to them, with the connection pinned to the resolved address; `'configured` reaches a private host; the default is `'untrusted`; a fetch leaks no descriptor over 100 calls (measured, as `llm.rkt`'s was) |
 | 3 ✅ | **Feed configuration** — `feeds` row, sealed secret, `CREDENTIAL-SECRETS`, the probe | 2 | `telemachus-secrets rewrap` rotates a feed secret; a failing fetch records host + status and **not** the query string (positive-controlled with a token in the URL) |
 | 4 ✅ | **The adapter** — one concrete source, items land as repo objects | 1,2,3 | An item becomes a repo object the configured user can read; an unchanged item on the next poll writes no new version; `feed.fetches` is charged and an over-budget team stops |
-| 5 | **The queue** — plugin table, route, screen | 4 | "The first actionable task" is one request, ordered by priority then due date, filtered by status, scoped by `can?` |
-| 6 | **Proposals** — the agent reads an item and proposes; a review gates it | 4,5 | A proposal is a document derived from the item; the act does not run until a person decides; the decision is in LAY‑11's chain |
+| 5 ✅ | **The queue** — plugin table, route, screen | 4 | "The first actionable task" is one request, ordered by priority then due date, filtered by status, scoped by `can?` |
+| 6 ✅ | **Proposals** — the agent reads an item and proposes; a review gates it | 4,5 | A proposal is a document derived from the item; the act does not run until a person decides; the decision is in LAY‑11's chain |
 
 Slices 1 and 2 are the platform work and are what #121's reporter and RSCH both
 wait on. Slices 3–6 are a plugin.
@@ -329,16 +329,39 @@ The other two questions — a plugin screen or the core console for the queue, a
 whether FEED‑10's gate is acceptable for v1 — are still open and still do not
 block slice 5's design.
 
-## Three questions that need the owner's answer
+## All three questions are answered (27 Oct 2026)
 
-1. **Which source first?** The requirements cannot be final without one concrete
-   adapter — a Jira, a GitHub, an RSS, a filesystem drop. It decides what
-   `external-id` and `priority` even mean, and whether auth is a token, OAuth or
-   nothing.
-2. **Is a plugin screen acceptable for the queue, or must it be the core
-   console?** FEED‑8 says plugin, which is buildable today; a core tab is a
-   bigger change and the integrator's guide already states that a plugin cannot
-   add one.
-3. **Is FEED‑10's gate acceptable for v1?** If the customer needs unattended
-   action in v1, that is a different conversation with its own decisions, and I
-   would want to have it explicitly rather than by implication.
+Kept here rather than in the issue thread, because a design question answered in
+a comment is a design question nobody will find again.
+
+1. **Which source first?** — answered 23 Oct: **six** sources, not one (GitHub
+   issues, CERT advisories against the pinned BOM, Kuma uptime, Discord, Matrix,
+   OTel). That is what turned the adapter into a REGISTRY rather than a `cond`,
+   and `github.issues` shipped as the first one (FEED‑14…22).
+2. **A plugin screen, or the core console?** — **a plugin screen.** So slices 5
+   and 6 are `plugins/feeds/`, on seams that shipped: plugin migrations (#121),
+   plugin routes (slice 63), a bundle page (#20, #43). FEED‑8 had assumed this,
+   so the design did not move; what the answer settles is that a core console tab
+   is a separate decision nobody is waiting on, and FEED‑8's typed columns are
+   what it would want anyway.
+3. **Is FEED‑10's gate acceptable for v1?** — **yes.** The agent proposes, a
+   `review` step parks the run on a person, and the act happens after they
+   decide. Unattended action is not in v1. So the gate is the design rather than
+   a position being defended, and `plugins/feeds/`' propose workflow ends the run
+   on every verdict because there is nothing for `approve` to hand off to.
+
+## What slices 5 and 6 built (QUEUE‑1…9)
+
+`plugins/feeds/` — one table, three tools, two workflows, two routes and a
+screen. The reasoning is in `decisions.md` under QUEUE; the two things worth
+knowing from here:
+
+- **The queue is an INDEX over the documents, not a policy.** The priority, the
+  due date and the skills are arguments the customer's own triage passes; a
+  plugin that read "critical" out of somebody's GitHub label would be guessing at
+  their conventions and would be wrong quietly. Every read re-authorizes the
+  document the row points at, so a row confers nothing.
+- **A proposal is a DOCUMENT and nothing acts on it.** `<key>.proposal.md`
+  derived from the item, carrying a standing note that nothing was carried out —
+  because the person reading it in a month has no other way to know. The run then
+  parks, and v1 has no acting tool for `approve` to name.
