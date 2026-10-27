@@ -49,6 +49,13 @@
          repo-legal-hold!
          repo-share! repo-unshare! repo-grants
          repo-inherit! repo-derivations
+         ;; DWF-4's ORDER, in one place. Lived in doc-tools.rkt as `derive!`
+         ;; until the feeds plugin became its second asker (#114 slice 6); two
+         ;; copies of "visibility at the put, THEN inherit" is exactly the drift
+         ;; `executor-can-run?` and `repo-fields-declare!` were consolidated to
+         ;; avoid, and the comment in doc-tools said "do not reorder that",
+         ;; which is a rule a reader has to be told rather than shown.
+         repo-derive!
          capability-permissions permissions->capability
          expiry->seconds seconds->iso8601
          VISIBILITIES valid-key? inline-safe? STORAGE-DIMENSION)
@@ -757,6 +764,23 @@
 
 ;; where a document came from: its derivation rows, newest first. Reading
 ;; provenance needs only files:read on the document itself.
+
+;; A DERIVED DOCUMENT IS PRIVATE FROM ITS FIRST BYTE (DWF-4/DSH-5), and the
+;; order is the whole rule: `repo-put!` takes the SOURCE's visibility, and only
+;; then does `repo-inherit!` copy the live grants and write the derivation row.
+;; Reversed, the object exists readable-by-the-team for the width of two
+;; statements. `#:derived?` carries the run id when there is one, so a trigger
+;; cannot fire on the output of the run that just started it (DWF-3).
+(define (repo-derive! conn p src #:key key #:bytes bs #:content-type ct
+                      #:run [run-id #f] #:step [step-id #f])
+  (define o (repo-put! conn p #:key key #:port (open-input-bytes bs)
+                       #:content-type ct #:filename (last (string-split key "/" #:trim? #f))
+                       #:visibility (hash-ref src 'visibility)
+                       #:allow-empty? #t
+                       #:derived? (or run-id #t)))
+  (repo-inherit! conn p #:source (hash-ref src 'id) #:target (hash-ref o 'id)
+                 #:run-id run-id #:step-id step-id))
+
 (define (repo-derivations conn p id)
   (define o (repo-get conn p id))
   (and o

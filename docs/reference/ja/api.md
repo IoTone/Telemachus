@@ -266,6 +266,8 @@ Routes contributed by loaded plugins, mounted under `/api/x/<plugin>/`. Every on
 |---|---|---|---|---|
 | GET | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | ?text= の単語数を数える。 |
 | POST | `/api/x/example-tools/word-count` | `example-tools` | `chat:use` | {text} の単語数を数える。 |
+| GET | `/api/x/feeds/queue` | `feeds` | `files:read` | チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open\|claimed\|done\|dropped\|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。 |
+| POST | `/api/x/feeds/items/:id/status` | `feeds` | `files:read` | キューの 1 件を別の状態へ移します：{"status": "claimed"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。 |
 | GET | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | ?lane= で指定したレーンの推定日数。 |
 | POST | `/api/x/integrator-demo/eta` | `integrator-demo` | `chat:use` | {lane} の推定日数。 |
 | GET | `/api/x/matrix/rooms` | `matrix` | `webhooks:manage` | このチームの Matrix ルーム購読、絞り込みに使えるイベント名、そしてこのインスタンスにホームサーバーが設定されているかどうかを返します。 |

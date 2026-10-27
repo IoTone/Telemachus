@@ -8,6 +8,8 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | `classify-backfill` | doc-pipeline | 1 | 2 | 接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。 |
 | `classify-eval` | doc-pipeline | 1 | 1 | チームのラベル付きフィクスチャ — 接頭辞配下で doc_type_expected 属性を持つ文書 — に対して分類器を測定する。各バックエンドを単独で、かつラベルごとに正解率とカバレッジを報告し、各ラベルが何と誤認されたか、正答と誤答がどれほど確信を持っていたかも併せて示します。何も書き込みません: 種別は記録されずトリガーも起動しないため、フィクスチャ集合は何度でも評価できます。 |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | この文書がどの種類かを判定し、分類器の確信度が `min_confidence` を下回る場合は、推測せずに実行を保留して人に尋ねる。その判断は文書に記録されます — そのまま承認、別の種類へ訂正、あるいはいずれでもないときは取り下げ — そのうえで、その種類に対応するスキーマに照らしてフィールドを抽出します。 |
+| `feed-propose` | feeds | 1 | 2 | エージェントが取得済みの項目 1 件を読み、その隣に提案を書き出します。その後、実行は人の判断を待って停止します。提案に対して何も実行されません — v1 に実行するツールはなく、将来できたとしても approve の分岐にのみ置かれます。 |
+| `feed-triage` | feeds | 1 | 1 | 取得済みの項目 1 件を、優先度・期限・スキルとともに作業キューに載せます。キューはインデックスであり、これはトリアージが決めた内容の記録です。 |
 | `index-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `index-knowledge` | knowledge-graph | 1 | 2 | インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `process-upload` | doc-pipeline | 1 | 6 | テキストを抽出し、JSON スキーマに照らして構造化フィールドを取り出し（適合しなければ拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳する。すべての出力は元文書の隣にあるリポジトリ文書で、由来が記録されます。 |
@@ -118,6 +120,46 @@ Steps:
 | `is_letter` | `choice` | when `{"eq":["${steps.classify.output.result.label}","letter"]}` then `letter_text` else `r_is_invoice` | next in order |
 | `r_is_invoice` | `choice` | when `{"eq":["${steps.correct.output.result.label}","invoice"]}` then `invoice_text` else `r_is_letter` | next in order |
 | `r_is_letter` | `choice` | when `{"eq":["${steps.correct.output.result.label}","letter"]}` then `letter_text` | next in order |
+
+## `feed-propose` — フィード項目について何をすべきかを提案する
+
+エージェントが取得済みの項目 1 件を読み、その隣に提案を書き出します。その後、実行は人の判断を待って停止します。提案に対して何も実行されません — v1 に実行するツールはなく、将来できたとしても approve の分岐にのみ置かれます。
+
+Plugin: `feeds` · version 1 · max steps 100 · starts at `propose`
+
+Input:
+
+| Name | Type |
+|---|---|
+| `object_id` | string |
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `propose` | `tool:feed_propose` | `{"object":"${input.object_id}","run":"${run.id}","step":"propose"}` | next in order |
+| `decide` | `review` | `{}` | next in order |
+
+## `feed-triage` — 取得したフィード項目をトリアージする
+
+取得済みの項目 1 件を、優先度・期限・スキルとともに作業キューに載せます。キューはインデックスであり、これはトリアージが決めた内容の記録です。
+
+Plugin: `feeds` · version 1 · max steps 100 · starts at `queue`
+
+Input:
+
+| Name | Type |
+|---|---|
+| `due` | number |
+| `object_id` | string |
+| `priority` | number |
+| `skills` | array |
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `queue` | `tool:feed_queue_put` | `{"due":"${input.due}","object":"${input.object_id}","priority":"${input.priority}","skills":"${input.skills}"}` | end |
 
 ## `index-documents` — 文書のインデックス作成
 

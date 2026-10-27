@@ -1,0 +1,178 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Feed work queue</title>
+<!--
+  Issue #114 slice 5's screen, served by the platform at /api/x/feeds/bundle/ to
+  a caller with a bearer token, answered `private, no-store`.
+
+  A PLUGIN SCREEN RATHER THAN A CORE CONSOLE TAB — the owner's call on #114
+  question 2. It wears the instance's (or the company's) theme by reading the
+  same public branding document the console reads and mapping the same tokens,
+  so a customer's palette reaches this surface without this file knowing the
+  palette. And everything it loads, it ships: the CSP is same-origin, so a CDN
+  font or script would be blocked, by design.
+-->
+<style>
+  :root{ --bg:#0b1a2b; --panel:#12253a; --ink:#f2ede1; --muted:#93a4b8;
+         --brand:#6fa0d1; --brandink:#ffffff; --radius:8px;
+         --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif }
+  body{margin:0;padding:2rem;background:var(--bg);color:var(--ink);font:15px/1.6 var(--font)}
+  main{max-width:60rem;margin:0 auto}
+  h1{font-size:22px;margin:0}
+  .muted{color:var(--muted)}
+  .bar{display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap;margin:1rem 0}
+  label{display:block;color:var(--muted);font-size:12px;margin-bottom:3px}
+  select,input{padding:.45rem .55rem;border-radius:var(--radius);border:1px solid var(--muted);
+               background:transparent;color:var(--ink);font:inherit}
+  button{padding:.45rem .9rem;border:0;border-radius:var(--radius);
+         background:var(--brand);color:var(--brandink);font:inherit;font-weight:600;cursor:pointer}
+  button.ghost{background:transparent;border:1px solid var(--muted);color:var(--ink);font-weight:400}
+  table{width:100%;border-collapse:collapse;margin-top:.6rem;font-size:14px}
+  th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid rgba(255,255,255,.08);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+  .pri{font-variant-numeric:tabular-nums;font-weight:700}
+  .pill{display:inline-block;padding:.08rem .45rem;border-radius:999px;border:1px solid var(--muted);
+        font-size:12px;color:var(--muted);margin-right:.25rem}
+  .card{background:var(--panel);border-radius:var(--radius);padding:1rem 1.2rem;margin-top:1rem}
+  .empty{padding:1.4rem;text-align:center}
+  .order{font-size:12px}
+</style>
+<main>
+  <h1>Feed work queue</h1>
+  <p class="muted">The documents a feed pulled, ranked. The queue is an index over
+    them — the documents stay the source of truth, and every row here was
+    re-authorized on the one it points at.</p>
+
+  <div class="bar">
+    <div><label for="status">Status</label>
+      <select id="status"></select></div>
+    <div><label for="feed">Feed slug</label>
+      <input id="feed" placeholder="any" size="14"></div>
+    <div><label for="skill">Skill</label>
+      <input id="skill" placeholder="any" size="12"></div>
+    <button id="go">Refresh</button>
+  </div>
+
+  <div class="card">
+    <div id="summary" class="muted order">…</div>
+    <table>
+      <thead><tr><th>Pri</th><th>Item</th><th>Due</th><th>Skills</th><th>Status</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty" class="empty muted" hidden>Nothing actionable. A feed has to be
+      polled and its items triaged (the <code>feed-triage</code> workflow) before
+      anything appears here.</div>
+  </div>
+</main>
+<script>
+  const token = localStorage.getItem('tmx_token');
+  const auth = { Authorization: 'Bearer ' + token };
+  let STATUSES = ['open','claimed','done','dropped'];
+
+  // ---- wear the instance's (or the company's) theme -------------------------
+  const HEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+  const FONTS = { System:'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif',
+                  Serif:'Georgia,Cambria,"Times New Roman",serif',
+                  Mono:'ui-monospace,SFMono-Regular,Menlo,monospace',
+                  Rounded:'ui-rounded,"SF Pro Rounded",system-ui,sans-serif' };
+  async function applyBrandTheme(){
+    try {
+      const r = await fetch('/api/branding', { headers: auth });
+      if(!r.ok) return;
+      const b = await r.json();
+      document.title = (b.title ? b.title + ' — ' : '') + 'Feed work queue';
+      const th = b.theme; if(!th) return;
+      const s = document.documentElement.style;
+      const put = (name, key) => { if(HEX.test(String(th[key]||''))) s.setProperty(name, th[key]); };
+      put('--bg','bg'); put('--panel','surface'); put('--ink','ink');
+      put('--muted','muted'); put('--brand','brand'); put('--brandink','brandInk');
+      if(/^[0-9]{1,2}px$/.test(String(th.radius||''))) s.setProperty('--radius', th.radius);
+      if(FONTS[th.fontBody]) s.setProperty('--font', FONTS[th.fontBody]);
+    } catch (e) { /* unthemed is a fine fallback; never block the screen on it */ }
+  }
+
+  // The status list comes from the SERVER's own answer, so this screen cannot
+  // offer a status the queue does not have — the `available locales` rule.
+  function fillStatuses(){
+    const sel = document.getElementById('status');
+    if(sel.options.length) return;
+    const opts = [['','actionable (open + claimed)'], ['all','all']]
+                   .concat(STATUSES.map(s => [s, s]));
+    for(const [v,label] of opts){
+      const o = document.createElement('option'); o.value = v; o.textContent = label;
+      sel.appendChild(o);
+    }
+  }
+
+  const when = (epoch) => {
+    if(epoch === null || epoch === undefined) return '—';
+    const d = new Date(epoch * 1000);
+    return isNaN(d) ? '—' : d.toISOString().slice(0,10);
+  };
+
+  async function load(){
+    fillStatuses();
+    const q = new URLSearchParams();
+    const st = document.getElementById('status').value;
+    const feed = document.getElementById('feed').value.trim();
+    const skill = document.getElementById('skill').value.trim();
+    if(st) q.set('status', st);
+    if(feed) q.set('feed', feed);
+    if(skill) q.set('skill', skill);
+    const body = document.getElementById('rows');
+    const summary = document.getElementById('summary');
+    summary.textContent = '…';
+    const r = await fetch('/api/x/feeds/queue?' + q.toString(), { headers: auth });
+    const j = await r.json().catch(() => ({}));
+    if(!r.ok){ summary.textContent = j.error || 'failed'; body.replaceChildren(); return; }
+    if(Array.isArray(j.statuses) && j.statuses.length) STATUSES = j.statuses;
+    summary.textContent = j.count + (j.count === 1 ? ' item' : ' items') + ' — ' + (j.order || '');
+    document.getElementById('empty').hidden = j.count > 0;
+    body.replaceChildren();
+    for(const it of (j.items || [])){
+      const tr = document.createElement('tr');
+      const td = (fill) => { const c = document.createElement('td'); fill(c); tr.appendChild(c); return c; };
+      td(c => { c.className = 'pri'; c.textContent = it.priority; });
+      td(c => {
+        const a = document.createElement('a');
+        a.href = '/api/repo-obj/' + encodeURIComponent(it.object_id) + '/content';
+        a.textContent = it.title || it.key;
+        a.style.color = 'var(--ink)';
+        c.appendChild(a);
+        if(it.feed_slug){
+          const p = document.createElement('span'); p.className = 'pill';
+          p.textContent = it.feed_slug; c.appendChild(document.createTextNode(' ')); c.appendChild(p);
+        }
+      });
+      td(c => c.textContent = when(it.due));
+      td(c => {
+        for(const s of (it.skills || [])){
+          const p = document.createElement('span'); p.className = 'pill'; p.textContent = s;
+          c.appendChild(p);
+        }
+        if(!(it.skills || []).length) c.textContent = '—';
+      });
+      td(c => c.textContent = it.status);
+      td(c => {
+        for(const next of STATUSES){
+          if(next === it.status) continue;
+          const b = document.createElement('button');
+          b.className = 'ghost'; b.textContent = next; b.style.marginRight = '.3rem';
+          b.onclick = async () => {
+            b.disabled = true;
+            await fetch('/api/x/feeds/items/' + encodeURIComponent(it.object_id) + '/status',
+                        { method: 'POST',
+                          headers: Object.assign({ 'Content-Type': 'application/json' }, auth),
+                          body: JSON.stringify({ status: next }) });
+            load();
+          };
+          c.appendChild(b);
+        }
+      });
+      body.appendChild(tr);
+    }
+  }
+
+  document.getElementById('go').onclick = load;
+  applyBrandTheme().then(load);
+</script>

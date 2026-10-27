@@ -1,0 +1,7 @@
+{
+  "id": "feeds",
+  "name": "Feed work queue",
+  "version": "0.1.0",
+  "description": "Issue #114 slices 5 and 6: a ranked, typed index over the documents a feed pulled, and an agent that PROPOSES what to do about one — with a review step between the proposal and any act.",
+  "entry": "main.rkt"
+}

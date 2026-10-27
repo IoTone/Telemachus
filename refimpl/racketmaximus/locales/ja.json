@@ -200,6 +200,10 @@
       "text": "会社のタイトル・タグライン・ロゴ・テーマを設定する：会社のホスト名で、またその会社のサインイン済みユーザーに対して、コンソールがまとうもの。テーマトークンはインスタンスの場合とまったく同じように検証され、コントラストの下限で制限されます。",
       "hash": "999005b24f8ad5bf7e9099934d4fedd77ee9f5af"
     },
+    "doc.tool.feed_queue_put.priority": {
+      "text": "0（最低）から 100（最高）。省略時は 50。",
+      "hash": "0d53a9be59087c5d6d1e7a1a00212b0d161afecb"
+    },
     "ui.s3once": {
       "text": "シークレットは今だけ表示されます。必ず控えてください。",
       "hash": "58ff28282647b815e7b8ddcf698f92e4c4fab60d"
@@ -235,6 +239,10 @@
     "doc.route.post.api.admin.users.id.password": {
       "text": "サインインできなくなったユーザーのパスワードを設定する：{new_password}。そのユーザーのセッションは失効します。リセットリンクを送るメール送信手段がないため、サインインできない人にとって唯一の復帰手段です。",
       "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
+    },
+    "doc.tool.feed_queue_put.due": {
+      "text": "期限（エポック秒）",
+      "hash": "f6e5789fe8525cd64d48ea011b1da10e64cf8cd0"
     },
     "doc.route.post.api.workflows.slug.run": {
       "text": "{input} で実行を開始する；宣言された入力は必須で型付きです。202 と実行を返します。",
@@ -451,6 +459,10 @@
     "doc.tool.kg_query.type": {
       "text": "名前検索を1つのエンティティ種別に絞る。例：organization",
       "hash": "bf3b06e97454031c475151174af5ebabf873a414"
+    },
+    "doc.route.get.api.x.feeds.queue": {
+      "text": "チームのフィード作業キュー。優先度の高い順、次に期限の近い順。?status= は open|claimed|done|dropped|all（既定：対応中の 2 つ）、?feed= はフィードのスラッグ、?skill= は 1 つのスキル、?limit= と ?offset= でページングします。各行は参照先のドキュメントに対してあらためて権限確認されるので、件数は「そこにある数」ではなく「呼び出し側が読める数」です。",
+      "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
     },
     "ui.l10nexport": {
       "text": "書き出し",
@@ -1044,6 +1056,10 @@
       "text": "更新",
       "hash": "f2f8570ddd7b1e7b571311bbf9159efb02571e07"
     },
+    "doc.workflow.feed-triage.name": {
+      "text": "取得したフィード項目をトリアージする",
+      "hash": "7714344cfd792dd58afd504a76826d18b48439a1"
+    },
     "doc.tool.doc_translate.locale": {
       "text": "目標言語コード、例：ja, nl, es-419",
       "hash": "03cb185c90710c7edc1228422a36374b2dd99cff"
@@ -1164,6 +1180,10 @@
       "text": "チームのインデックスド文書から知識グラフへエンティティや関係を抽出するワークフロー。すべての事実は元となる文書とバージョンに追溯可能。変更があった部分のみが影響を受けます。再実行可能です。",
       "hash": "05dfb3f0955f1d3e8c3af7a4870181947a094d67"
     },
+    "doc.tool.feed_queue_status.object": {
+      "text": "項目のリポジトリオブジェクト ID",
+      "hash": "8f595886ef395ccb54a13b8a15d9e6117b5a7f22"
+    },
     "beta.field_too_short": {
       "text": "{field}は{n}文字以上で入力してください。",
       "hash": "9bc5e0bc2c67ac40c8d80b883133576d46478278"
@@ -1180,6 +1200,10 @@
       "text": "すべての状態",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
+    "doc.workflow.feed-propose": {
+      "text": "エージェントが取得済みの項目 1 件を読み、その隣に提案を書き出します。その後、実行は人の判断を待って停止します。提案に対して何も実行されません — v1 に実行するツールはなく、将来できたとしても approve の分岐にのみ置かれます。",
+      "hash": "273f8add79363523aa57b166f84d1a852c876324"
+    },
     "ui.fires": {
       "text": "履歴",
       "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
@@ -1191,6 +1215,10 @@
     "doc.route.post.api.instance.suspend": {
       "text": "ホストモード：テナントを一時停止（書き込みは402で拒否されます）",
       "hash": "486b39af0ee101cada5503b8d09206cb4beaf703"
+    },
+    "doc.tool.feed_queue_put.skills": {
+      "text": "チーム自身の言葉による振り分けの手がかり。例：[\"racket\",\"ops\"]",
+      "hash": "e8d5c44545ccca3af2573bc5fe383aff33e54a28"
     },
     "ui.brandtagline": {
       "text": "タグライン",
@@ -1332,9 +1360,17 @@
       "text": "アンカー受領証を JSONL（古い順）で返す。このインスタンスの信頼境界の外に保管するためのもの。`?since_seq=` は保管側がまだ持っていない分だけを要求するので、ファイルに追記できる。保管した写しは `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` でオフライン検証する —— このサーバーもそのデータベースも必要としない。アンカーが意味を持つのは、まさにそのインスタンス自身が疑われている場合だからである。",
       "hash": "79290dffd7c07c40d69bdb0eae588710bf99ace2"
     },
+    "doc.tool.feed_queue_put": {
+      "text": "取得済みのフィード項目をチームの作業キューに載せる、または更新します：優先度（0〜100）、任意の期限（エポック秒）、状態、スキルの一覧。キューはドキュメントに対する「インデックス」なので、これはトリアージが決めた内容を記録するものであり、決めるものではありません。",
+      "hash": "0abd789dfe99b920ce6be17c1f4d75b2badd749a"
+    },
     "doc.tool.kg_query": {
       "text": "チームの文書がエンティティについて述べていること：その関係と、それに言及する文書を抜粋付きで。名前（またはエンティティ ID）を指定；hops 1 は近傍を、hops 2 はその近傍まで返します。",
       "hash": "d6dc9485ecac2f80742e0ddea83e96860cd52f49"
+    },
+    "doc.tool.feed_queue_put.status": {
+      "text": "既定は open",
+      "hash": "ae650e1d3f893611c541c424ab66de9fd71dcafd"
     },
     "doc.route.put.api.l10n.messages.id": {
       "text": "1メッセージの翻訳を提出します。",
@@ -1347,6 +1383,10 @@
     "doc.route.get.api.notes.id": {
       "text": "1件のノート。",
       "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
+    },
+    "doc.tool.feed_queue_status": {
+      "text": "キューにある項目を別の状態へ移します：open、claimed、done、dropped のいずれか。",
+      "hash": "a4371b500c8fc586e526ec8c7be2d66e0afa717c"
     },
     "ui.locavail": {
       "text": "このビルドに含まれる言語",
@@ -1407,6 +1447,10 @@
     "ui.translate": {
       "text": "翻訳",
       "hash": "2be17aa181d8226bfad83ce993e838fa79dcce4d"
+    },
+    "doc.tool.feed_queue_status.status": {
+      "text": "新しい状態",
+      "hash": "22dad84c7f9e73b5959e03bd54fd9e4bdd67f15c"
     },
     "ui.wkdrainhint": {
       "text": "指示により新しい仕事を受け取っていません。トークンは保持したまま報告を続けるので、存在していることは確認できます。",
@@ -1543,6 +1587,10 @@
     "authz.forbidden": {
       "text": "権限がありません：{perm}",
       "hash": "55300596a09f48634bde05b8d4d93ff0dcbf9b1b"
+    },
+    "doc.workflow.feed-propose.name": {
+      "text": "フィード項目について何をすべきかを提案する",
+      "hash": "5d76cb34696d2bf139ff6b71aca92b53ada7623d"
     },
     "doc.route.post.api.executors.id.drain": {
       "text": "プルエグゼキュータをローテーションから外す（FLEET-3）：新しい仕事は渡されず、トークンは保持されるため、要求とハートビートを続け、稼働していることが見える状態を保つ。トークンを失効させる廃止とは異なり、元に戻せる。すでに保持しているジョブはそのまま実行される — 実行中の作業を止めるのはキャンセルの役目である。",
@@ -1784,6 +1832,10 @@
       "text": "1つのリポジトリドキュメントのテキストを検索インデックスに抽出します。",
       "hash": "abc97e3c3258563662360c069c8ec834c527371f"
     },
+    "doc.plugin.feeds": {
+      "text": "イシュー #114 のスライス 5 と 6：フィードが取得したドキュメントに対する、優先度付きで型のあるインデックスと、その 1 件について何をすべきかを「提案する」エージェント。提案と実行のあいだにはレビュー手順が入ります。",
+      "hash": "e36acab80869ec3bb13c07c3d9f03338ff9147c8"
+    },
     "ui.l10nstatus": {
       "text": "状態",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
@@ -1935,6 +1987,10 @@
     "ui.thbrandink": {
       "text": "ブランド上のテキスト",
       "hash": "f6248b16f2f73b99ad6b63c1dde8532e45e6e548"
+    },
+    "doc.tool.feed_propose.object": {
+      "text": "項目のリポジトリオブジェクト ID",
+      "hash": "8f595886ef395ccb54a13b8a15d9e6117b5a7f22"
     },
     "doc.perm.documents:delete": {
       "text": "テキストドキュメントを削除します。",
@@ -2388,6 +2444,14 @@
       "text": "チームのラベル付きフィクスチャ — 接頭辞配下で doc_type_expected 属性を持つ文書 — に対して分類器を測定する。各バックエンドを単独で、かつラベルごとに正解率とカバレッジを報告し、各ラベルが何と誤認されたか、正答と誤答がどれほど確信を持っていたかも併せて示します。何も書き込みません: 種別は記録されずトリガーも起動しないため、フィクスチャ集合は何度でも評価できます。",
       "hash": "6eecc1c3c8fb42402d04817a5c255ddea25bf1c3"
     },
+    "doc.tool.feed_propose": {
+      "text": "取得済みのフィード項目を読み、それについて何をすべきかの「提案」を、その項目の隣のドキュメントとして書き出します。提案するだけで、人が判断するまで提案に対して何も実行されません。そのための仕組みが feed-propose ワークフローのレビュー手順です。",
+      "hash": "8c212196feb64173f0a202e4f057fc88bb101fe2"
+    },
+    "doc.tool.feed_queue_put.object": {
+      "text": "項目のリポジトリオブジェクト ID",
+      "hash": "8f595886ef395ccb54a13b8a15d9e6117b5a7f22"
+    },
     "ui.pass": {
       "text": "パスワード",
       "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
@@ -2572,6 +2636,10 @@
       "text": "組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view|edit|manage, expires_at?}。{user_id} は従来どおり view を意味します。",
       "hash": "cd82f7d35429e191de508ed5238a7b3b4dabbdd8"
     },
+    "doc.route.post.api.x.feeds.items.id.status": {
+      "text": "キューの 1 件を別の状態へ移します：{\"status\": \"claimed\"}。オブジェクト ID はインスタンス全体で一意なので、ドキュメントに加えて行そのもののチームでも保護しています。",
+      "hash": "dfff589d91c44dc9eb5fd8a4604ecda788095c2e"
+    },
     "ui.brandtheme": {
       "text": "テーマ",
       "hash": "a797e30923ac1be590300ce6b08e63b4e6dc6688"
@@ -2615,6 +2683,10 @@
     "doc.route.get.api.retention.plan": {
       "text": "現在のポリシーが削除する「予定」のみを返し、実際には何も変更しません。対象のオブジェクトツリー、派生オブジェクト、ジョブのペイロード、そしてリーガルホールドによって保護されている件数を示します。保持ルールは無人で実行されるため、ドライランが最も必要な操作です。リーガルホールド中のオブジェクトは後から除外されるのではなく計画自体に現れないため、ルールが触れられないものを計画が約束することはありません。",
       "hash": "da6cf2e104ab373fa890106ae02c2c864aca8673"
+    },
+    "doc.workflow.feed-triage": {
+      "text": "取得済みの項目 1 件を、優先度・期限・スキルとともに作業キューに載せます。キューはインデックスであり、これはトリアージが決めた内容の記録です。",
+      "hash": "c2cfa5a2a1a3bd69124a30633ecf8e152dd5a0b1"
     },
     "doc.route.put.api.notes.id": {
       "text": "ノートを更新します。",
@@ -2731,6 +2803,10 @@
     "ui.l10nimport": {
       "text": "カタログを取り込む",
       "hash": "931d093acdb94b2e01b57f7170c3e6f7119d923b"
+    },
+    "doc.tool.feed_propose.run": {
+      "text": "ワークフロー実行 ID（由来の記録用）。",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "beta.field_digits": {
       "text": "{field}は半角数字のみで入力してください。",
@@ -3067,6 +3143,10 @@
     "doc.route.post.api.ai.chat": {
       "text": "モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text|json_object|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。`redact: true`（`redact_detectors` / `redact_terms` と併用、#91 要件2）は、識別子を安定したトークンに置き換えた伏せ字のテキストから要求を組み立て、応答を返す前に元の値へ戻します。応答の `redaction` がどの検出器を実行したかを示します。受け付けるのは文字列のプロンプトのみです: コンテンツパートの配列は、どの検出器も読めない画像を含み得るため、その組み合わせは 400 になります。",
       "hash": "f9ebe8564b74c3055904eeca8f049f78429bd0ef"
+    },
+    "doc.tool.feed_propose.step": {
+      "text": "ワークフローステップ ID（由来の記録用）。",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "doc.route.post.api.l10n.draft": {
       "text": "ロケールの未翻訳文字列に対して AI の下書きを、20件ずつのスケジューラジョブでキューに入れる。クォータで計量されます。",

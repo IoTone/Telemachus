@@ -186,13 +186,12 @@
 ;; invoice's fields are team-visible), the source's live grants, a derivation row.
 (define (derive! conn p src #:key key #:bytes bs #:content-type ct
                  #:run [run-id #f] #:step [step-id #f])
-  (define o (repo-put! conn p #:key key #:port (open-input-bytes bs)
-                       #:content-type ct #:filename (basename key)
-                       #:visibility (hash-ref src 'visibility)
-                       #:allow-empty? #t
-                       #:derived? (or run-id #t)))   ; a trigger must not re-fire on its own output
-  (repo-inherit! conn p #:source (hash-ref src 'id) #:target (hash-ref o 'id)
-                 #:run-id run-id #:step-id step-id))
+  ;; The ORDER — visibility at the put, grants and the derivation row after —
+  ;; moved to `repo-derive!` in repo.rkt when the feeds plugin became its second
+  ;; asker (#114 slice 6). One rule, two askers; the comment above used to be
+  ;; the only thing keeping them the same.
+  (repo-derive! conn p src #:key key #:bytes bs #:content-type ct
+                #:run run-id #:step step-id))
 
 ;; every pipeline output is an ARTIFACT (slice 64): the model sees one line, the
 ;; console a card, and a workflow step still binds (out step result object_id)
