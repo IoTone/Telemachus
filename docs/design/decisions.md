@@ -2910,3 +2910,110 @@ Eight controls on the engine and 29 assertions over HTTP:
   bytes passes vacuously against a build that dropped the variant flag
   altogether; the case decompresses with qpdf's QDF mode, as the AcroForm suite
   does one directory along.
+
+## OFFICE — a filled DOCX, converted to PDF (issue #88 requirement 3)
+
+Decided and built 26 Oct 2026, which closes #88. `domain/repo/docxpdf.rkt` plus
+one more member of `RENDER-ENGINES`. **No migration, no environment variable, no
+route, no permission, and nothing added to the shipped image.**
+
+`doc_render` has filled DOCX templates since slice 59 and has refused to turn one
+into a PDF ever since, on the grounds that LibreOffice is not a dependency this
+platform takes on. **That refusal is still the default.** What changes is that an
+integrator who installed it can ask: `engine: "libreoffice"`.
+
+- **OFFICE‑1 — OFF UNLESS INSTALLED, and NOT in the image.** `soffice` is found
+  with `find-executable-path` at call time, so a box without it behaves exactly
+  as it did before this slice. It is roughly a gigabyte, which for the OCI image
+  is the trade `container.md` has already declined twice (all tesseract
+  languages for 63%, a slim variant for 23%), so it belongs in `extraPath` as the
+  OCR engine does — **and the refusal says so**, because "needs LibreOffice" with
+  no indication of where it is meant to come from is how an integrator concludes
+  the feature is broken. That is the OCR plugin's own rule.
+- **OFFICE‑2 — THE SANDBOX IS NOT A FLAG HERE, AND THAT IS THE HONEST DIFFERENCE
+  FROM THE HTML ENGINE.** Requirement 3 asks for "the same sandbox and timeout"
+  as requirement 1. The timeout is the same (`run-bounded`, 180s for a whole
+  office suite starting up). The sandbox cannot be: WeasyPrint takes
+  `--allowed-protocols data` and refuses a `file:` or `http:` URL **by name**,
+  and soffice has no equivalent — no command-line argument will give it one. So
+  the constraint is applied to the **INPUT** instead: a template that DECLARES an
+  external relationship — which is how Word stores a linked image or an OLE
+  object — is refused by name, naming the target, before anything is converted.
+  That is the shape of the HTML engine's guarantee, achieved the only way
+  available here.
+
+  **And it is not a proof, which is stated where somebody might otherwise trust
+  it.** A field code (`INCLUDEPICTURE`) or a reference this check does not know
+  about is not covered. Headless soffice does not update document links on load,
+  but that is the ENGINE's behaviour and not something this platform enforces —
+  which is the whole reason the engine is opt-in and absent from the image.
+  Overclaiming here would be #119's shape: a protection recorded as working on
+  the strength of a sentence.
+- **OFFICE‑3 — the check matched by looking for `TargetMode="External"` anywhere
+  in a relationship element, so it FAILS CLOSED.** A shape the expression does
+  not understand is treated as external and refused, which is the safe
+  direction; the opposite reading would convert a template whose links nobody had
+  looked at. Read off the `.rels` parts of the package, which is where OOXML
+  declares them.
+- **OFFICE‑4 — THE INPUT IS CHECKED BEFORE THE BINARY IS LOOKED FOR.** A template
+  that will not be converted whatever is installed should say so on every box —
+  and that ordering is also what makes the refusal testable where LibreOffice
+  **cannot** be installed, which is this project's own development platform. Six
+  of the suite's eight cases and all but two of the smoke block's ten assertions
+  therefore run everywhere.
+- **OFFICE‑5 — a PRIVATE PROFILE PER CALL, and it is not optional.** Two
+  independent reasons. The container's `HOME` is `/data`, the one declared
+  volume, and under `--read-only` there is no writable home at all, while soffice
+  insists on one. And two conversions sharing a profile collide: the second finds
+  "another instance is already running", which is the classic way this tool fails
+  under any concurrency whatsoever. `-env:UserInstallation=file://<temp>` per
+  call fixes both, and the suite converts twice in succession to say so.
+- **The exit code is not the verdict here either, for a DIFFERENT reason than the
+  HTML engine's**: soffice exits 0 having converted nothing at all when it
+  dislikes the input, printing its complaint and writing no output file. So the
+  OUTPUT is what is checked — the file's existence and its `%PDF-` header — not
+  the status.
+- **The template is filled exactly as it always was**, and only the finished
+  document is handed to the converter: the same order `render-pdf` uses for
+  pandoc, and what keeps the DOCX template language one implementation.
+  `<key>.form.pdf` through `derive!`, as every other PDF.
+
+### How it was verified, and why that mattered
+
+**LibreOffice is unsupported on `aarch64-darwin`** — `nix build` fails inside the
+derivation's own `assert` — so the conversion could not be exercised on the
+development box at all. The previous slice recorded requirement 3 as unbuilt for
+exactly that reason. It is built now because it was **verified on `red5buntu`**,
+the x86_64 Linux test lab box ([[red5buntu-test-lab]]): 658 MiB of substitutable
+closure, then the unit suite with `soffice` on PATH (8 cases, up from 7 — the
+conversion case replaces the missing-binary one) and the whole
+`doc-pipeline-smoke.sh` including §5k's conversion branch. The PDF's text was
+read back with `pdftotext` and contains the template's filled content, because a
+converter that wrote a blank page of the right size would pass every other
+assertion.
+
+**CI does not install LibreOffice and should not**, so §5k's conversion branch is
+skipped there and the refusal branch runs instead. That is a gap stated rather
+than papered over: this engine's happy path is covered by a hand-run on a Linux
+host, and the suite says which case it is skipping and why.
+
+### What the controls found
+
+Six controls, all biting, and one of them is about the controls themselves:
+
+- **A CONTROL'S PATCH THAT DOES NOT APPLY IS NOT A CONTROL.** The harness
+  reported "patch did not apply" for the `TargetMode` test because the Racket
+  regexp literal was mis-escaped in the harness — printed plainly, and easy to
+  read past as if the control had passed. Re-run with the right literal it fails
+  two cases. A harness has to say the difference between "did not bite" and "did
+  not run".
+- **THREE SMOKE ASSERTIONS PASSED FOR THE WRONG REASON, and the one after them
+  is what showed it.** The strict template renderer runs BEFORE any engine is
+  reached, so the fixture's `{{customer}}` — a placeholder the reused spec's
+  `data` does not bind — failed the step with "template references {{customer}}
+  but the data has no customer", and "a template with an external reference is
+  refused" was green because the run had indeed errored. Assert the REASON beside
+  the status, every time; the fixture binds the names the spec actually passes.
+- **`assert` IS A GREP AND THE RUN JSON ESCAPES ITS QUOTES**, so a needle
+  containing a double quote can never match: `engine "libreoffice"` is
+  `engine \"libreoffice\"` in the body. Assert the prose around it.

@@ -2857,6 +2857,86 @@ bash test/doc-pipeline-smoke.sh        # the "== 5h." block, 24 assertions
   `TELEMACHUS_MODEL_TIMEOUT`. Assert the refusal (which precedes any socket), and
   the not-stopped half against `egress-refusal` directly.
 
+## A filled DOCX, converted to PDF (OFFICE‑1…5, issue #88 req 3)
+
+Built 26 Oct 2026, which **closes #88**. `domain/repo/docxpdf.rkt` plus one more
+member of `RENDER-ENGINES`. **No migration, no environment variable, no route, no
+permission, and nothing added to the shipped image.**
+
+```sh
+raco test test/docxpdf-tests.rkt   # 7 cases on a box with no LibreOffice, 8 with
+bash test/doc-pipeline-smoke.sh    # the "== 5k." block, 10 assertions
+```
+
+`doc_render` has filled DOCX templates since slice 59 and refused to turn one
+into a PDF ever since. **That refusal is still the default**; `engine:
+"libreoffice"` is how an integrator who installed it says so.
+
+- **OFF UNLESS INSTALLED, AND NOT IN THE IMAGE** (OFFICE‑1). `soffice` is found
+  at call time, so a box without it behaves exactly as before. It is ~1 GB, the
+  trade `container.md` declines twice already, so it belongs in `extraPath` as
+  the OCR engine does — **and the refusal says so**, because "needs LibreOffice"
+  with no hint where it comes from is how somebody concludes the feature is
+  broken.
+- **THE SANDBOX IS NOT A FLAG HERE, and that is the honest difference from the
+  HTML engine** (OFFICE‑2). The timeout is the same (`run-bounded`, 180s — a
+  whole office suite starts up). The sandbox cannot be: weasyprint takes
+  `--allowed-protocols data`, soffice has no equivalent and no argument will give
+  it one. So the constraint goes on the **INPUT** — a template that DECLARES an
+  external relationship, which is how Word stores a linked image, is refused by
+  name before anything converts. **It is not a proof, and the module says so**: a
+  field code (`INCLUDEPICTURE`) is not covered, and headless soffice not updating
+  links is the ENGINE's behaviour, not something enforced here. Overclaiming
+  would be #119's shape.
+- **The check FAILS CLOSED** (OFFICE‑3): it looks for `TargetMode="External"`
+  anywhere in a relationship element, so a shape it does not understand is
+  refused rather than converted.
+- **THE INPUT IS CHECKED BEFORE THE BINARY IS LOOKED FOR** (OFFICE‑4). A template
+  that will not convert whatever is installed should say so on every box — and
+  that ordering is what makes the refusal testable where LibreOffice *cannot* be
+  installed, which is this project's own development platform. Six of eight unit
+  cases and eight of ten smoke assertions therefore run everywhere.
+- **A PRIVATE PROFILE PER CALL, not optional** (OFFICE‑5):
+  `-env:UserInstallation=file://<temp>`. The container's HOME is `/data` and
+  under `--read-only` there is no writable home at all; and two conversions
+  sharing a profile collide with "another instance is already running", which is
+  how this tool fails under any concurrency at all. The suite converts twice in
+  succession to say so.
+- **THE EXIT CODE IS NOT THE VERDICT HERE EITHER, for a different reason than
+  weasyprint's**: soffice exits 0 having converted nothing when it dislikes the
+  input, printing its complaint and writing no file. The OUTPUT is checked — the
+  file's existence and its `%PDF-` header — never the status.
+
+**LIBREOFFICE IS UNSUPPORTED ON `aarch64-darwin`** (`nix build` fails inside the
+derivation's own `assert`), so the conversion cannot be exercised on the Mac at
+all. It is verified by hand on **red5buntu** ([[red5buntu-test-lab]]): 658 MiB of
+substitutable closure, then the unit suite with `soffice` on PATH (8 cases) and
+the whole `doc-pipeline-smoke.sh` including §5k's conversion branch, with the
+PDF's text read back through `pdftotext` — a converter that wrote a blank page of
+the right size passes every other assertion. **CI does not install LibreOffice
+and should not**, so §5k's conversion branch skips there and the refusal branch
+runs; that gap is stated rather than papered over.
+
+**Three things the controls and the first red run taught:**
+
+- **A CONTROL WHOSE PATCH DOES NOT APPLY IS NOT A CONTROL.** The harness printed
+  "patch did not apply" for the `TargetMode` test — a mis-escaped Racket regexp
+  literal — which is easy to read past as if it had passed. A harness must
+  distinguish "did not bite" from "did not run".
+- **THE STRICT TEMPLATE RENDERER RUNS BEFORE ANY ENGINE**, so a placeholder the
+  spec's `data` does not bind fails the step first — which made three smoke
+  assertions green for a reason with nothing to do with LibreOffice ("a template
+  with an external reference is refused" passed because the run had indeed
+  errored). Assert the REASON beside the status, every time.
+- **`assert` IS A GREP AND THE RUN JSON ESCAPES ITS QUOTES**, so a needle
+  containing a double quote can never match: `engine "libreoffice"` is
+  `engine \"libreoffice\"` in the body. Assert the prose around it.
+- **A CHECKOUT ON ANOTHER BOX CARRIES STALE BYTECODE.** The first Linux run died
+  with `reference to a variable that is not exported` from `extract.rkt` into
+  `index-tools.rkt` — the documented trap, because that checkout was many commits
+  behind. `find . -name compiled -type d -prune -exec rm -rf {} +` before
+  anything, `plugins/*/compiled` included.
+
 ## A branded, paged document out of HTML and CSS (HPDF‑1…8, issue #88 req 1)
 
 Built 26 Oct 2026, on top of the AcroForm slice. `domain/repo/htmlpdf.rkt` (the

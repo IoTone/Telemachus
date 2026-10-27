@@ -68,6 +68,9 @@
          ;; HTML and already-resolved assets, because only a caller holds a
          ;; principal and `repo-open` is where `can?` answers.
          "htmlpdf.rkt"
+         ;; #88 req 3: a filled DOCX, converted by LibreOffice. Opt-in, off by
+         ;; default and absent from the shipped image.
+         "docxpdf.rkt"
          "extract.rkt")
 
 (provide current-doc-chat
@@ -853,8 +856,8 @@
   (template string #:description "The template document's object id or key")
   (data object #:description "The data to fill in, e.g. the extracted fields")
   (format string #:optional #:description "Output format: the template's own (default) or \"pdf\" — Markdown and HTML templates only")
-  (engine string #:optional #:enum ("latex" "weasyprint")
-          #:description "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents) or \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\". The HTML engine needs an HTML template and can inline a repository document as an image with src=\"repo:<object id>\".")
+  (engine string #:optional #:enum ("latex" "weasyprint" "libreoffice")
+          #:description "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with src=\"repo:<object id>\"; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.")
   (pdf_variant string #:optional #:enum ("pdf/a-2b")
                #:description "Ask the HTML engine for an archival PDF: \"pdf/a-2b\". A raster image makes the output non-conformant (the engine marks images Interpolate true, which PDF/A forbids) — use an SVG logo.")
   (object string #:optional #:description "The source document's object id — the form is written beside it (default: beside the template)")
@@ -1074,8 +1077,12 @@
   (define-values (_t tbytes) (read-doc-bytes conn p (hash-ref tmpl-obj 'id)))
   (define ct (hash-ref tmpl-obj 'content_type))
   (define docx? (or (string=? ct DOCX-TYPE) (equal? (ext-of (hash-ref tmpl-obj 'key)) "docx")))
-  (when (and pdf? docx?)
-    (error 'doc_render "a DOCX template cannot be rendered to PDF — use a Markdown or HTML template for format \"pdf\""))
+  ;; A DOCX template could not become a PDF at all until #88 req 3; the refusal
+  ;; stays the DEFAULT, because LibreOffice is not a dependency this platform
+  ;; takes on — `engine: "libreoffice"` is how an integrator who installed it
+  ;; says so. The message names the way through rather than just the wall.
+  (when (and pdf? docx? (not (equal? (let ([e (opt-arg args 'engine)]) (and e (string-downcase (string-trim e)))) "libreoffice")))
+    (error 'doc_render "a DOCX template is converted to PDF only by the libreoffice engine — pass engine \"libreoffice\" (and have soffice on the server's PATH), or use a Markdown or HTML template"))
   (define html? (string-prefix? ct "text/html"))
   ;; #88 req 1. `latex` is what `format: "pdf"` has meant since DWF-6, so it
   ;; stays the default and an existing caller keeps the renderer it has — the
@@ -1084,6 +1091,7 @@
   (unless (member engine (cons #f RENDER-ENGINES))
     (error 'doc_render "unknown engine ~s — it offers: ~a" engine (string-join RENDER-ENGINES ", ")))
   (define weasy? (equal? engine "weasyprint"))
+  (define office? (equal? engine "libreoffice"))
   (define variant (let ([v (opt-arg args 'pdf_variant)]) (and v (string-downcase (string-trim v)))))
   (when (and engine (not pdf?))
     (error 'doc_render "engine applies to format \"pdf\" only — leave format out for the template's own format"))
@@ -1096,8 +1104,17 @@
   ;; whose paged media somebody else invented.
   (when (and weasy? (not html?))
     (error 'doc_render "the weasyprint engine needs an HTML template (this one is ~a) — its whole point is the template's own @page CSS, which a Markdown template does not carry" ct))
+  ;; …and the LibreOffice engine needs a DOCX, for the mirror-image reason: what
+  ;; it converts is a Word document, and it is here so that a template an office
+  ;; produced can become a PDF without being rewritten in something else.
+  (when (and office? (not docx?))
+    (error 'doc_render "the libreoffice engine needs a DOCX template (this one is ~a)" ct))
   (define out-bytes
     (cond
+      ;; The DOCX is filled exactly as it always was, and only the FINISHED
+      ;; document is handed to the converter — the same order `render-pdf` uses
+      ;; for pandoc, and what keeps the template language one implementation.
+      [(and docx? office?) (docx->pdf (render-docx tbytes data) #:who 'doc_render)]
       [docx? (render-docx tbytes data)]
       [else
        (define filled (render-template (bytes->string/utf-8 tbytes #\?) data #:escape? html?))
@@ -1128,7 +1145,9 @@
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
   (obj-summary o
                #:summary (string-append "filled from " (hash-ref tmpl-obj 'key)
-                                        (cond [weasy? " as PDF (HTML engine)"] [pdf? " as PDF"] [else ""]))
+                                        (cond [weasy? " as PDF (HTML engine)"]
+                                              [office? " as PDF (LibreOffice)"]
+                                              [pdf? " as PDF"] [else ""]))
                #:extra (if pdf?
                            (hasheq 'engine (or engine "latex")
                                    'pdf_variant (or variant 'null))

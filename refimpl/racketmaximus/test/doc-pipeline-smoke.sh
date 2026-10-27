@@ -1276,6 +1276,121 @@ assert "the block removed its own documents" \
   "$(G "/api/repo?prefix=wk/source.txt")" '"objects":[]'
 echo
 
+echo "== 5k. a filled DOCX, converted to PDF (#88 req 3, OFFICE-1…5) ================"
+# `doc_render` has filled DOCX templates since slice 59 and REFUSED to turn one
+# into a PDF ever since, because LibreOffice is not a dependency this platform
+# takes on. That refusal is still the DEFAULT; `engine: "libreoffice"` is how an
+# integrator who installed it says so.
+#
+# Most of this block runs EVERYWHERE, and that is the point of checking the input
+# before the binary: the external-reference refusal is the only sandbox this
+# engine can have, and it is exercised on a box where LibreOffice cannot be
+# installed at all — which includes this project's own development platform.
+python3 - "$TELEMACHUS_DATA_DIR/office.docx" <<'PY'
+import sys, zipfile
+xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+       '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+       '<w:body><w:p><w:r><w:t>Service report: {{title}}</w:t></w:r></w:p>'
+       '<w:p><w:r><w:t>For: {{author}}</w:t></w:r></w:p></w:body></w:document>')
+types = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+         '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+         '<Default Extension="xml" ContentType="application/xml"/>'
+         '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+         '</Types>')
+root = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+        '</Relationships>')
+def rels(external):
+    extra = ''
+    if external:
+        extra = ('<Relationship Id="rId9" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+                 'Target="%s" TargetMode="External"/>' % external)
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + extra + '</Relationships>')
+def write(path, external=None):
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr('[Content_Types].xml', types)
+        z.writestr('_rels/.rels', root)
+        z.writestr('word/document.xml', xml)
+        z.writestr('word/_rels/document.xml.rels', rels(external))
+write(sys.argv[1])
+write(sys.argv[1].replace('.docx', '-linked.docx'), 'https://cdn.example/logo.png')
+PY
+ODOCX_CT='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+OTPL=$(up templates/office.docx "$ODOCX_CT" "$TELEMACHUS_DATA_DIR/office.docx" | jq_ 'd["id"]')
+OLINK=$(up templates/office-linked.docx "$ODOCX_CT" "$TELEMACHUS_DATA_DIR/office-linked.docx" | jq_ 'd["id"]')
+printf 'the source this office report is about\n' > "$TELEMACHUS_DATA_DIR/o-src.txt"
+OSRC=$(up office/source.txt text/plain "$TELEMACHUS_DATA_DIR/o-src.txt" | jq_ 'd["id"]')
+# §5j removes its own HTML template, so this block uploads the one it needs for
+# the wrong-template refusal rather than reaching for a dangling id — which
+# would fail the assertion for "no such template" instead of for the engine.
+printf '<!doctype html><html><head><meta charset="utf-8"><title>{{title}}</title></head><body><p>{{author}}</p></body></html>\n' > "$TELEMACHUS_DATA_DIR/o-tpl.html"
+OHTML=$(up templates/office-wrong.html text/html "$TELEMACHUS_DATA_DIR/o-tpl.html" | jq_ 'd["id"]')
+
+# `brand-report` (published in 5j) already passes template, engine and
+# pdf_variant through to doc_render — reused rather than published again, which
+# is the point of having declared those as inputs.
+OR=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$OSRC\",\"template\":\"$OTPL\",\"engine\":\"libreoffice\",\"variant\":\"\"}}")
+wait_run "$(printf '%s' "$OR" | grep -oP '\"id\":\"\K[^\"]+' | head -1)"
+if command -v soffice >/dev/null 2>&1 || command -v libreoffice >/dev/null 2>&1; then
+  assert "the DOCX becomes a PDF"             "$RUNST" done
+  assert "…beside the source"                 "$RUNJSON" 'office/source.txt.form.pdf'
+  assert "…and says which engine answered"    "$RUNJSON" '"engine":"libreoffice"'
+  OLIST=$(G "/api/repo?prefix=office/source.txt.form.pdf")
+  assert "…typed as a PDF"                    "$OLIST" '"content_type":"application/pdf"'
+  OPID=$(printf '%s' "$OLIST" | jq_ 'd["objects"][0]["id"]')
+  curl -s "$B/api/repo-obj/$OPID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/office.pdf"
+  assert "it really is a PDF"                 "$(head -c 4 "$TELEMACHUS_DATA_DIR/office.pdf")" '%PDF'
+  if command -v pdftotext >/dev/null 2>&1; then
+    # a converter that wrote a blank page of the right size would pass every
+    # assertion above, so the TEMPLATE's own filled text is what is asserted
+    assert "the filled text survived the conversion" \
+      "$(pdftotext "$TELEMACHUS_DATA_DIR/office.pdf" - | tr -s '[:space:]' ' ')" 'Service report: Acme Service Report'
+  fi
+else
+  # OFF UNLESS INSTALLED, and the message has to say where it is meant to come
+  # from — the OCR plugin's rule, where "enabled with nothing on PATH" was once a
+  # silent failure.
+  assert "with no LibreOffice the one call is refused by name" "$RUNJSON" 'needs LibreOffice'
+  assert "…and says where it belongs"                          "$RUNJSON" 'extraPath'
+fi
+
+# THE ONLY SANDBOX THIS ENGINE CAN HAVE, and it runs everywhere. WeasyPrint takes
+# `--allowed-protocols data` and refuses a fetch by name; soffice has no such
+# flag and no argument will give it one, so the constraint is applied to the
+# INPUT: a template that DECLARES an external relationship — how Word stores a
+# linked image — is refused before anything is converted.
+OR2=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$OSRC\",\"template\":\"$OLINK\",\"engine\":\"libreoffice\",\"variant\":\"\"}}")
+wait_run "$(printf '%s' "$OR2" | grep -oP '\"id\":\"\K[^\"]+' | head -1)"
+assert "a template with an external reference is refused"  "$RUNST" error
+assert "…naming the reference"                             "$RUNJSON" 'cdn.example'
+assert "…and what to do instead"                           "$RUNJSON" 'Embed the image'
+
+# The DEFAULT is unchanged: a DOCX template and format pdf with NO engine is the
+# refusal slice 59 shipped — and it now names the way through rather than just
+# the wall.
+OR3=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$OSRC\",\"template\":\"$OTPL\",\"engine\":\"\",\"variant\":\"\"}}")
+wait_run "$(printf '%s' "$OR3" | grep -oP '\"id\":\"\K[^\"]+' | head -1)"
+assert "a DOCX with no engine is still refused"  "$RUNST" error
+assert "…and the refusal names the way through"  "$RUNJSON" 'converted to PDF only by the libreoffice engine'
+
+# …and the engine needs a DOCX, the mirror of the HTML engine needing HTML.
+OR4=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$OSRC\",\"template\":\"$OHTML\",\"engine\":\"libreoffice\",\"variant\":\"\"}}")
+wait_run "$(printf '%s' "$OR4" | grep -oP '\"id\":\"\K[^\"]+' | head -1)"
+assert "the libreoffice engine refuses a non-DOCX template" "$RUNST" error
+assert "…saying what it needs"                              "$RUNJSON" 'needs a DOCX template'
+
+# The block removes its own documents (§5h's and §5j's lesson).
+for id in "$OTPL" "$OLINK" "$OSRC" "$OHTML"; do
+  [ -n "$id" ] || continue
+  curl -s -X DELETE "$B/api/repo-obj/$id?cascade=1" -H "Authorization: Bearer $TOK" >/dev/null
+done
+assert "the block removed its own documents" "$(G "/api/repo?prefix=office/source.txt")" '"objects":[]'
+echo
+
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",

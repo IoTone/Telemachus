@@ -48,9 +48,11 @@
          (only-in "pdfform.rkt" run-bounded))
 
 ;; CLOSED, and pinned by the test. `latex` is what `format: "pdf"` has meant
-;; since DWF-6 (pandoc -> tectonic); naming it is what makes the second engine an
-;; addition rather than a change — an existing caller keeps the renderer it has.
-(define RENDER-ENGINES '("latex" "weasyprint"))
+;; since DWF-6 (pandoc -> tectonic); naming it is what makes the other engines
+;; additions rather than a change — an existing caller keeps the renderer it has.
+;; `libreoffice` (#88 req 3) lives in docxpdf.rkt; the LIST lives here because
+;; `doc_render` validates against it once, for every engine.
+(define RENDER-ENGINES '("latex" "weasyprint" "libreoffice"))
 
 ;; ONE MEMBER, and that is deliberate. `pdf/a-2b` is the variant requirement 1
 ;; names and the only one whose output was put through a validator; WeasyPrint

@@ -113,7 +113,7 @@
 ;; with any change to it, and the point of a closed vocabulary is that adding a
 ;; member is a decision somebody makes on purpose (vocabulary-tests' rule).
 (test-case "the engines are a closed, pinned vocabulary"
-  (check-equal? RENDER-ENGINES '("latex" "weasyprint"))
+  (check-equal? RENDER-ENGINES '("latex" "weasyprint" "libreoffice"))
   ;; `latex` is named so the SECOND engine is an addition rather than a change —
   ;; an existing `format: "pdf"` caller keeps the renderer it has.
   (check-true (and (member "latex" RENDER-ENGINES) #t)))

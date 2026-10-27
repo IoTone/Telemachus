@@ -178,8 +178,13 @@ filled exactly as before and the finished text goes through **pandoc → tectoni
 the two tools the developer e-book had already pinned in `flake.nix` and that the
 packaged server carries on its PATH. The toolchain is looked up at call time, so
 a box without it boots and renders every other format; the one PDF call fails by
-name. A DOCX template is refused rather than converted — LibreOffice is not a
-dependency this platform takes on (DWF‑6). **A second PDF engine came with
+name. A DOCX template is refused rather than converted by DEFAULT — LibreOffice is not
+a dependency this platform takes on (DWF‑6) — and **issue #88 requirement 3
+(decisions OFFICE‑1…5) makes it askable**: `engine: "libreoffice"` converts the
+filled DOCX with `soffice --headless`, off unless `soffice` is on the server's
+PATH and absent from the shipped image. Its sandbox cannot be weasyprint's flag,
+so it is applied to the input instead: a template declaring an external
+relationship is refused by name. **A second PDF engine came with
 issue #88 requirement 1** (decisions HPDF‑1…8): `engine: "weasyprint"` renders an
 HTML template's own CSS — `@page` margins, `position: running()` headers and
 footers, `counter(pages)` for "Page X of Y" — and takes `pdf_variant: "pdf/a-2b"`

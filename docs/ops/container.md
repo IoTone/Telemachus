@@ -322,9 +322,25 @@ Measure the marginal closure, not the standalone one, before declining a
 dependency on size: the standalone figure here is nine times the truth.
 
 It runs no JavaScript and is invoked with `--allowed-protocols data`, so a
-template can reach neither the network nor the container's filesystem. **LibreOffice is deliberately absent** (#88 req 3 is
-unbuilt): it is roughly a gigabyte, which is the trade declined twice above, and
-it would belong in `extraPath` as tesseract does rather than in this image.
+template can reach neither the network nor the container's filesystem. **LibreOffice is deliberately absent, and #88 req 3 is BUILT anyway**: it is
+roughly a gigabyte, which is the trade declined twice above, so `doc_render`'s
+`engine: "libreoffice"` finds `soffice` at call time and is refused — by name,
+pointing here — when it is not installed. Add it the way the OCR engine is added:
+
+```nix
+packages.container-office = import ./nix/container.nix {
+  inherit pkgs;
+  telemachus = pkgs.callPackage ./nix/telemachus.nix {
+    weasyprint = pkgs.python3Packages.weasyprint;
+  };
+  version = "0.1.0";
+  extraPath = [ pkgs.libreoffice ];
+};
+```
+
+The conversion needs a writable `HOME`, which soffice wants for its profile — the
+platform gives it a private one per call under the temp directory, so `--tmpfs
+/tmp` (already required above) is enough and `/data` is not written to.
 
 `pdfcpu` and `qpdf` — the AcroForm toolchain `doc_fill_form` and
 `GET /api/repo-obj/:id/form-fields` use (#88 req 2) — ARE in the image, on the
