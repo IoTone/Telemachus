@@ -8,6 +8,9 @@
 { lib, stdenv, makeWrapper, racket, openssl
 , poppler-utils
 , pandoc, tectonic   # PDF forms (DWF-6, slice 68): doc_render md/html -> pandoc -> tectonic
+, weasyprint         # #88 req 1: the HTML/CSS paged-media PDF engine. Found at
+                     # CALL time like pandoc and tectonic, so a box without it
+                     # boots and only an `engine: "weasyprint"` call is refused.
 , pdfcpu, qpdf       # AcroForm fields (#88 req 2): pdfcpu lists and fills them,
                      # qpdf flattens. Two binaries because pdfcpu 0.15 has no
                      # flatten and qpdf cannot set a value; both are found with
@@ -73,7 +76,7 @@ stdenv.mkDerivation (finalAttrs: {
       makeWrapper ${racket}/bin/racket $out/bin/telemachus-$name \
         --add-flags "$out/share/telemachus/$path" \
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
-        --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic pdfcpu qpdf ]} \
+        --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic weasyprint pdfcpu qpdf ]} \
         --set-default TZDIR "${tzdata}/share/zoneinfo" \
         --run 'export TELEMACHUS_DATA_DIR="''${TELEMACHUS_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
     done

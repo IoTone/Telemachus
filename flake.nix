@@ -14,7 +14,10 @@
     in
     {
       packages = forAll (pkgs: rec {
-        telemachus = pkgs.callPackage ./nix/telemachus.nix { };
+        telemachus = pkgs.callPackage ./nix/telemachus.nix {
+          # not a top-level attribute, so callPackage cannot find it by name
+          weasyprint = pkgs.python3Packages.weasyprint;
+        };
         default = telemachus;
       } // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
         # The OCI image (issue #89) — Linux only, because an image's contents are
@@ -22,7 +25,10 @@
         # builder); `nix build .#container` there produces the same bytes.
         container = import ./nix/container.nix {
           inherit pkgs;
-          telemachus = pkgs.callPackage ./nix/telemachus.nix { };
+          telemachus = pkgs.callPackage ./nix/telemachus.nix {
+          # not a top-level attribute, so callPackage cannot find it by name
+          weasyprint = pkgs.python3Packages.weasyprint;
+        };
           version = "0.1.0";
         };
       });
@@ -68,6 +74,14 @@
             qpdf            # …and the flatten half, which pdfcpu 0.15 does not have:
                             # `--generate-appearances --flatten-annotations=all`
                             # draws the filled fields into the page content.
+            python3Packages.weasyprint
+                            # #88 req 1: the HTML/CSS paged-media PDF engine —
+                            # @page margins, running headers, "Page X of Y" and
+                            # `--pdf-variant pdf/a-2b`, none of which Chromium
+                            # headless implements. It runs NO JavaScript, which
+                            # for an operator- or customer-authored template is
+                            # the property worth having. The reasoning, with the
+                            # measurements, is in domain/repo/htmlpdf.rkt.
             # The book's CJK editions. xeCJK resolves these BY NAME through
             # fontconfig, so the packages alone are not enough — FONTCONFIG_FILE
             # below is what makes them findable. CLAUDE.md and TRANSLATING.md both
