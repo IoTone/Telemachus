@@ -972,6 +972,22 @@
       "text": "送信",
       "hash": "9bc2575c3930437e80555f78757b783c842e8e66"
     },
+    "ui.sending": {
+      "text": "送信中…",
+      "hash": "cf765512cc6dcf8d2870b8038ce0ffc6cbaa817d"
+    },
+    "ui.stop": {
+      "text": "停止",
+      "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
+    },
+    "ui.stopped": {
+      "text": "中断しました",
+      "hash": "5acf4111241386b9b6b6926c05df8453f376eb04"
+    },
+    "ui.sendhint": {
+      "text": "Enterで送信・Shift+Enterで改行",
+      "hash": "21df6acdc3d4596a6cc5bc5beca989cd54d22bc4"
+    },
     "ui.body": {
       "text": "本文",
       "hash": "718a7e8a582e982e452dd5700addba4ffc1cf40d"

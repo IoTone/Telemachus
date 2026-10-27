@@ -42,7 +42,10 @@ for (const evname of ['click','input','change','keydown']) {
 }
 
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
-  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0 };
+  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0,
+  // the AbortController of a stream in flight, or null: the guard and the
+  // pending state in one, as S.signingIn is for the sign-in button (#174)
+  chatAbort:null, agentAbort:null };
 // The console's strings are no longer here. English is the source of truth in
 // static/ui-strings.json (a JSON surface the extractor folds into locales/en.json
 // under the `ui.` namespace); every other language is a catalog under locales/,
@@ -212,4 +215,29 @@ async function logout(){
   S.token=null; localStorage.removeItem('tmx_token'); S.me=null; S.forceLogin=false; render();
 }
 const val = id => document.getElementById(id).value.trim();
+
+// ---- sending a prompt (issues #174, #181) ----------------------------------
+// Enter sends, Shift+Enter inserts a newline. `isComposing` (and the 229 that
+// older engines report instead) is what keeps this usable in Japanese: the
+// Enter that CONFIRMS an IME conversion arrives as an ordinary keydown, and
+// sending a half-typed prompt on it would make the console unusable in the
+// language it already ships in.
+function sendKey(ev, fn){
+  if(ev.key!=='Enter' || ev.shiftKey || ev.isComposing || ev.keyCode===229) return;
+  ev.preventDefault(); fn(); return false;
+}
+// One send at a time. The flag is BOTH the guard and the pending state, which
+// is the shape `S.signingIn` already has on the sign-in button: without it two
+// activations started two streams and the team was billed for both (#174).
+// A focused button activates on Enter and Space as well as a click, so this
+// never needed a deliberate double-click.
+function sendBusy(sendId, stopId, busy){
+  const b=document.getElementById(sendId), s=document.getElementById(stopId);
+  if(b){ b.disabled=busy; b.textContent = busy ? t('sending') : t('send'); }
+  if(s) s.style.display = busy ? '' : 'none';
+}
+// A stream is abandoned by aborting its fetch: the reader then throws, the
+// partial answer stays on screen and is marked, and the guard clears in the
+// `finally` — a stop that left the flag set would block every later send.
+function stopStream(key){ const ac=S[key]; if(ac) ac.abort(); }
 
