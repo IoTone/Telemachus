@@ -31,16 +31,16 @@
 ;;     all.
 
 (require db-kit/portable
-         json racket/string racket/list racket/port
+         json racket/string racket/list racket/port net/url
          (only-in sha2-kit sha256-hex)
          (only-in "../authz/authz.rkt" audit! user-principal principal-team-id)
          (only-in "../orgs/orgs.rkt" tenant-quota-record!)
-         (only-in "../net/fetch.rkt" fetch safe-url exn:fail:egress? exn:fail:egress-reason)
+         (only-in "../net/fetch.rkt" fetch safe-url same-origin? exn:fail:egress? exn:fail:egress-reason)
          (only-in "../repo/repo.rkt" repo-put! repo-get repo-set-attributes!
                   repo-fields-declare!)
          "adapters.rkt"
-         (only-in "feeds.rkt" feed-by-id feed-auth-apply feed-cursor-set! feed-poll-recorded!
-                  feed-item-ref feed-item-record! record-fetch! FEED-KINDS))
+         (only-in "feeds.rkt" feed-by-id feed-auth-apply feed-credential-headers feed-cursor-set!
+                  feed-poll-recorded! feed-item-ref feed-item-record! record-fetch! FEED-KINDS))
 
 (provide (struct-out exn:fail:feed-store)
          poll-feed! FEED-MAX-PAGES FEED-MAX-ITEM-BYTES FEED-POLL-TIMEOUT FEED-MAX-BYTES
@@ -162,6 +162,9 @@
                    #:policy 'trusted
                    #:timeout FEED-POLL-TIMEOUT
                    #:max-bytes FEED-MAX-BYTES
+                   ;; the source may redirect this request, and the credential is
+                   ;; addressed to the origin the operator configured
+                   #:credential-headers (feed-credential-headers feed)
                    #:headers request-headers))
           (cond
             [(not (and (>= status 200) (< status 300)))
@@ -182,8 +185,40 @@
              (hasheq 'ok #t 'status status 'next next 'items (length items))])))
       (cond
         [(not (hash-ref res 'ok #f)) res]
-        [(and (hash-ref res 'next #f) (< page max-pages))
-         (loop (hash-ref res 'next) (add1 page))]
+        ;; A `Link: rel="next"` IS A URL THE SOURCE CHOSE, and `feed-auth-apply`
+        ;; would put this feed's credential on it. The fetcher's redirect rule
+        ;; cannot help: this is the first hop of a NEW request. Refused rather
+        ;; than followed with the credential withheld, because a page that
+        ;; cannot authenticate would be a 401 at best, and at worst a page of
+        ;; somebody else's items landed under this feed's key prefix.
+        ;;
+        ;; RESOLVED against the page just read before it is compared, because a
+        ;; source may answer with a relative `Link`. `fetch` would refuse a
+        ;; hostless URL outright, so resolving is the only reading that can work,
+        ;; and comparing an unresolved value would report the refusal as
+        ;; "cross-origin" when the real answer is "relative", which sends an
+        ;; operator looking for the wrong problem.
+        [(hash-ref res 'next #f)
+         (define next-url (url->string (combine-url/relative (string->url url) (hash-ref res 'next))))
+         (cond
+           [(not (< page max-pages)) (hash-set res 'truncated #t)]
+           [(same-origin? next-url first-url) (loop next-url (add1 page))]
+           [else
+            ;; REFUSED, not followed without the credential. Following it would
+            ;; ingest whatever the named host serves under this feed's key
+            ;; prefix, which is content the operator did not configure and cannot
+            ;; retract by fixing the URL later. RFC 8288 requires no origin rule
+            ;; and RFC 5005 explicitly declines to define one, so this is the
+            ;; instance's own choice — and the message names the way out rather
+            ;; than only the difference, because an operator cannot guess that
+            ;; pagination is origin-bound.
+            (hasheq 'ok #f 'status (hash-ref res 'status #f) 'reason "cross-origin"
+                    'error (format (string-append
+                                    "the source pointed its next page at ~a, which is not the feed's own ~a. "
+                                    "A next page is followed only within one origin, because the feed's credential "
+                                    "may not leave it and the page's items would land under this feed. "
+                                    "Serve the whole series from one host, or point the feed at the page that is complete.")
+                                   (safe-url next-url) (safe-url first-url)))])]
         [else (hash-set res 'truncated (and (hash-ref res 'next #f) #t))])))
 
   ;; The cursor and the counters are recorded whatever the outcome: a poll that

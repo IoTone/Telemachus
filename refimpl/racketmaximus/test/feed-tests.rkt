@@ -360,3 +360,65 @@
   (check-true (listed? "webhooks" "secret"))
   (check-true (listed? "users" "totp_secret"))
   (check-false (listed? "feeds" "url")))
+
+;; ---- the credential is addressed to an ORIGIN -------------------------------------
+(test-case "a secret with a control character is refused, because it would add a header"
+  (define (prob #:auth [auth "bearer"] #:secret [secret "t0ken"])
+    (feed-problem #:slug "jira" #:kind "http.json" #:url "https://h/x"
+                  #:auth auth #:auth-name "X-Api-Key" #:secret secret))
+  ;; a break in the secret adds a header to `name: value`, in every mode that
+  ;; carries one
+  (for ([bad (in-list (list "t0ken\r\nx-injected: 1" "t0ken\nx-injected: 1"
+                            (string-append "t0ken" (string #\u0000) "x")))])
+    (check-true (string? (prob #:secret bad)) (format "~s must be refused" bad))
+    (check-true (string? (prob #:auth "header" #:secret bad)))
+    (check-true (string? (prob #:auth "query" #:secret bad))))
+  ;; and the ordinary case is still accepted, so this is not "any secret fails"
+  (check-false (prob #:secret "t0ken"))
+  ;; `none` carries no secret at all, and the new rule must not make that look fine
+  (check-true (string? (prob #:auth "none" #:secret "t0ken"))))
+
+(test-case "moving a feed to another origin demands the secret in the same patch"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define id (mk c tid uid #:url "https://src.example.com/api/items" #:auth "bearer" #:secret "t0ken"))
+  ;; another host, another port, another scheme: three different origins, and the
+  ;; one thing all three would do is send a sealed secret somewhere new
+  (for ([u (in-list '("https://evil.example/api/items"
+                      "https://src.example.com:8443/api/items"
+                      "http://src.example.com/api/items"))])
+    (check-equal? (feed-update! c id tid #:url u) 'secret-required (format "~a" u)))
+  ;; refused means NOT WRITTEN: the row and the secret are as they were
+  (check-equal? (hash-ref (feed-get c id tid) 'url) "https://src.example.com/api/items")
+  (check-equal? (feed-secret-of c id) "t0ken")
+  ;; the way through is to rotate the secret in the same patch
+  (check-true (hash? (feed-update! c id tid #:url "https://evil.example/api/items" #:secret "n3w")))
+  (check-equal? (feed-secret-of c id) "n3w")
+  ;; a PATH change is the same origin, which is the case this must not break
+  (check-true (hash? (feed-update! c id tid #:url "https://evil.example/other")))
+  (check-equal? (feed-secret-of c id) "n3w")
+  ;; clearing it, paired with `auth: none`, is the other way out
+  (check-true (hash? (feed-update! c id tid #:url "https://third.example/x" #:auth "none" #:secret #f)))
+  (check-equal? (feed-secret-of c id) #f)
+  (close-db! c))
+
+(test-case "a probe does not replay the credential to another origin"
+  ;; A source may redirect wherever it likes, and an operator's credential does
+  ;; not go with it. The second listener is a different port, which is a
+  ;; different origin, and it records what it was sent.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (with-source (lambda (o _l) (respond o 200 "{\"items\":[]}"))
+    (lambda (b-url b-seen)
+      (with-source
+        (lambda (o _l)
+          (fprintf o "HTTP/1.1 302 Found\r\nlocation: ~a\r\ncontent-length: 0\r\nconnection: close\r\n\r\n" b-url)
+          (flush-output o))
+        (lambda (a-url _a-seen)
+          (define id (mk c tid uid #:url a-url #:auth "header" #:auth-name "X-Api-Key" #:secret "t0ken"))
+          (define outcome (probe-feed! c (feed-get c id tid)))
+          (check-true (hash-ref outcome 'ok) (format "~a" (hash-ref outcome 'error #f)))
+          (define hs (map string-downcase (car (unbox b-seen))))
+          (check-false (member "x-api-key: t0ken" hs)
+                       "the operator's header must not follow the redirect")))))
+  (close-db! c))

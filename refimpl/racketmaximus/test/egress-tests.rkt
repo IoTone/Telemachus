@@ -238,3 +238,122 @@
                    (with-handlers ([exn:fail:egress? values]) (fetch u) #f))
                   'bad-url
                   (format "~a must be refused" u))))
+
+;; ---- a credential does not follow a redirect off its origin ----------------------
+;; A credential is addressed to the origin it was configured for, and a redirect
+;; to another one must not carry it. `with-server` above reads the request and
+;; throws it away; these cases are about what was IN it, so this variant hands
+;; the lines back.
+(define (with-recording-server respond proc)
+  (define L (tcp-listen 0 8 #t "127.0.0.1"))
+  (define-values (_h p _rh _rp) (tcp-addresses L #t))
+  (define seen (box '()))
+  (define t
+    (thread (lambda ()
+              (with-handlers ([(lambda (_) #t) void])
+                (let loop ()
+                  (define-values (i o) (tcp-accept L))
+                  (thread (lambda ()
+                            (with-handlers ([(lambda (_) #t) void])
+                              (define lines
+                                (let rl ([acc '()])
+                                  (define l (read-line i 'return-linefeed))
+                                  (cond [(or (eof-object? l) (string=? l "")) (reverse acc)]
+                                        [else (rl (cons l acc))])))
+                              (set-box! seen (cons lines (unbox seen)))
+                              (respond o lines)
+                              (with-handlers ([(lambda (_) #t) void]) (close-output-port o))
+                              (with-handlers ([(lambda (_) #t) void]) (close-input-port i)))))
+                  (loop))))))
+  ;; The same restore `with-server` does, for the same reason: these cases set a
+  ;; process-global allowlist, `raco test` runs several files in one process, and
+  ;; a leaked allowlist would quietly re-point every later case.
+  (define allow-was (getenv "TELEMACHUS_EGRESS_ALLOW"))
+  (dynamic-wind
+   (lambda () (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8"))
+   (lambda () (proc (format "http://127.0.0.1:~a/x" p) seen p))
+   (lambda ()
+     (putenv "TELEMACHUS_EGRESS_ALLOW" (or allow-was ""))
+     (kill-thread t)
+     (tcp-close L))))
+
+(test-case "same-origin? treats a scheme, host or port change as a different place"
+  (check-true (same-origin? "https://H.example/x" "https://h.example:443/y"))
+  (check-true (same-origin? "http://h.example/x" "http://h.example:80/y"))
+  ;; the upgrade is another origin, as it is for a browser — so an operator whose
+  ;; source redirects http to https configures the https URL
+  (check-false (same-origin? "http://h.example/x" "https://h.example/x"))
+  (check-false (same-origin? "https://h.example/x" "https://h.example:8443/x"))
+  (check-false (same-origin? "https://a.example/x" "https://b.example/x"))
+  (check-false (same-origin? "not a url" "https://a.example/x")))
+
+(test-case "a credential header is withheld when a redirect changes origin"
+  ;; B is a second listener: a different PORT on 127.0.0.1 is a different origin,
+  ;; which is what makes this expressible without DNS or a second host.
+  (with-recording-server (ok-response #"second")
+    (lambda (b-url b-seen _bp)
+      (with-recording-server
+        (lambda (o _l)
+          (fprintf o "HTTP/1.1 302 Found\r\nlocation: ~a\r\ncontent-length: 0\r\nconnection: close\r\n\r\n" b-url)
+          (flush-output o))
+        (lambda (a-url _a-seen _ap)
+          (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+          (define-values (status _hs body)
+            (fetch a-url #:policy 'trusted
+                   #:headers '(("authorization" . "Bearer s3cret")
+                               ("x-api-key" . "k3y")
+                               ("accept" . "application/json"))
+                   ;; the caller names its OWN credential header, because no fixed
+                   ;; list covers an operator-chosen name
+                   #:credential-headers '("X-Api-Key")))
+          (check-equal? status 200)
+          (define hs (map string-downcase (car (unbox b-seen))))
+          (check-false (member "authorization: bearer s3cret" hs)
+                       "the standard credential header must not follow the redirect")
+          (check-false (member "x-api-key: k3y" hs)
+                       "a caller-named credential header must not follow it either")
+          (check-true (and (member "accept: application/json" hs) #t)
+                      "a header that is not a credential still arrives, so this asserts a rule and not silence"))))))
+
+(test-case "a credential header is KEPT when the redirect stays on the same origin"
+  ;; The other half: a rule that dropped every header on every redirect would pass
+  ;; the case above and break every source that redirects to itself.
+  (define n (box 0))
+  (with-recording-server
+    (lambda (o _l)
+      (set-box! n (add1 (unbox n)))
+      (if (= 1 (unbox n))
+          (fprintf o "HTTP/1.1 302 Found\r\nlocation: /again\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+          (fprintf o "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"))
+      (flush-output o))
+    (lambda (url seen _p)
+      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (define-values (status _hs _body)
+        (fetch url #:policy 'trusted
+               #:headers '(("authorization" . "Bearer s3cret"))))
+      (check-equal? status 200)
+      (define all (reverse (unbox seen)))
+      (check-equal? (length all) 2)
+      (check-true (and (member "authorization: bearer s3cret"
+                               (map string-downcase (cadr all)))
+                       #t)
+                  "a same-origin hop keeps the credential"))))
+
+(test-case "a header with a line break is refused, and nothing is sent"
+  ;; A header is written as `name: value\r\n`, so a break in either half adds a
+  ;; header to the request. Refused, not escaped: no encoding of a credential with
+  ;; a newline in it is the value the caller meant.
+  (with-recording-server (ok-response #"x")
+    (lambda (url seen _p)
+      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (define e (with-handlers ([exn:fail:egress? values])
+                  (fetch url #:policy 'trusted
+                         #:headers '(("x-k" . "a\r\ninjected: 1"))) #f))
+      (check-true (exn:fail:egress? e))
+      (check-equal? (exn:fail:egress-reason e) 'bad-header)
+      (check-equal? (unbox seen) '())
+      ;; …and the NUL case, which is what a C string would truncate at
+      (define e2 (with-handlers ([exn:fail:egress? values])
+                   (fetch url #:policy 'trusted
+                          #:headers (list (cons "x-k" (string #\u0000)))) #f))
+      (check-equal? (exn:fail:egress-reason e2) 'bad-header))))

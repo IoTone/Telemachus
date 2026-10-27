@@ -181,6 +181,35 @@ token into the `url` field where it would be unsealed. Userinfo in the URL
 a sealed home available, and silently relocating it would leave the operator
 unsure which home was in use.
 
+**A credential is addressed to an ORIGIN** (FEED‑23). Sealing it and never
+returning it are half the rule; the other half is where it is sent. `fetch` takes
+the header names a caller considers its credential — `authorization` and `cookie`
+by default, plus a feed's own `auth_name` — and withholds them from any hop whose
+scheme, host or port differs from the URL the caller supplied. RFC 9110 §15.4 and
+the Fetch standard say the same for `Authorization`; the caller-named list is what
+makes it hold for `header` mode, which no fixed list covers. An `http` to `https`
+upgrade on one host counts as another origin, as it does for a browser, so an
+operator whose source upgrades configures the `https` URL.
+
+The same problem exists one level up, where no redirect rule reaches: a
+`Link: rel="next"` is the source naming a URL, and a poll applies the credential
+to it before fetching. The poll refuses a next page on another origin rather than
+following it without the credential, because an unauthenticated page is a 401 at
+best and somebody else's items landed under this feed's key prefix at worst. No
+standard decides this for us: RFC 8288 gives `rel=next` no origin rule and RFC 5005
+says it does not define what a feed whose documents use different security
+mechanisms means. Browsers strip credentials at the boundary and allow the follow,
+which is safe for a page view and not safe here, because what lands is content this
+team's repository now holds. A source that pages must therefore serve the series
+from one host, and the refusal names both URLs and says so.
+
+Two writes enforce the same idea at configuration time: a PATCH that moves a
+feed's URL to another origin must carry `secret` in the same request, since the
+stored one was sealed for the old origin, and a secret containing a control
+character is refused, because a header is written as `name: value\r\n` and a
+line break in it adds a header. The fetcher refuses that too, so a row written
+before the check existed cannot still send one.
+
 ### FEED‑6 · A failing fetch records the host and the status, never the URL
 
 The customer's words are *"without spilling credentials in logs that go into the
