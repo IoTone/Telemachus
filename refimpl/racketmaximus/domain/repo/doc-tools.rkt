@@ -12,6 +12,7 @@
 ;;   doc_set_type        (object, labels, label, …)     -> the type a PERSON decided
 ;;   doc_extract_fields  (text, schema, object?, …)    -> fields that VALIDATE, or refused
 ;;   doc_render          (template, data, object?, …)  -> a filled form, as a document
+;;   doc_fill_form       (object, values, flatten?, …) -> a PDF form filled in place
 ;;   doc_translate       (object, locale, …)           -> the document in a language
 ;;
 ;; Every output is a REPOSITORY DOCUMENT beside its source (DWF-4): versioned by
@@ -31,6 +32,7 @@
 ;;   inbox/acme.pdf.classification.json  the type that was decided, and by what
 ;;   inbox/acme.pdf.extracted.json fields
 ;;   inbox/acme.pdf.form.md        the filled form (extension = the template's)
+;;   inbox/acme.pdf.filled.pdf     the same PDF with its AcroForm fields filled in
 ;;   inbox/acme.pdf.form.ja.md     its translation (locale before the extension)
 ;;   inbox/acme.ja.txt             a translation of the SOURCE (text out of a PDF)
 
@@ -56,6 +58,10 @@
          "classify.rkt"
          "redact.rkt"
          "redactions.rkt"
+         ;; #88 req 2: the AcroForm engine. Pure of the repository, like
+         ;; classify.rkt — it takes and answers bytes, so `can?`, derivation and
+         ;; provenance stay here.
+         "pdfform.rkt"
          "extract.rkt")
 
 (provide current-doc-chat
@@ -66,7 +72,7 @@
          document-egress
          extract-fields render-template render-docx docx-prepare
          render-pdf pdf-toolchain
-         DOCX-TYPE)
+         DOCX-TYPE PDF-TYPE)
 
 ;; ---- the model seam --------------------------------------------------------------
 ;; (chat prompt #:system sys) -> (values reply tokens). Temperature 0: extraction and
@@ -181,11 +187,13 @@
 
 ;; every pipeline output is an ARTIFACT (slice 64): the model sees one line, the
 ;; console a card, and a workflow step still binds (out step result object_id)
-(define (obj-summary o #:summary [summary ""])
+(define (obj-summary o #:summary [summary ""] #:extra [extra (hasheq)])
   (artifact #:kind "document" #:title (hash-ref o 'key) #:summary summary
             #:content-type (hash-ref o 'content_type) #:object-id (hash-ref o 'id) #:version-id (hash-ref o 'version_id)
-            #:extra (hasheq 'object_id (hash-ref o 'id) 'version_id (hash-ref o 'version_id)
-                            'key (hash-ref o 'key) 'version (hash-ref o 'version))))
+            #:extra (for/fold ([h (hasheq 'object_id (hash-ref o 'id) 'version_id (hash-ref o 'version_id)
+                                          'key (hash-ref o 'key) 'version (hash-ref o 'version))])
+                              ([(k v) (in-hash extra)])
+                      (hash-set h k v))))
 
 ;; ---- doc_text --------------------------------------------------------------------
 (define-tool doc_text
@@ -1074,6 +1082,45 @@
                      #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
   (obj-summary o #:summary (string-append "filled from " (hash-ref tmpl-obj 'key) (if pdf? " as PDF" ""))))
 
+;; ---- doc_fill_form (#88 req 2) ---------------------------------------------------
+;; The other half of "render a form", and the half with no workaround: `doc_render`
+;; fills a TEMPLATE somebody wrote, this fills a PDF somebody ELSE wrote and sent.
+;; The engine is pdfform.rkt; everything this function adds is the repository —
+;; `can?` on the source through `read-doc-bytes`, and the filled document derived
+;; beside it so "which form produced this" is a click (DWF-4).
+(define-tool doc_fill_form
+  #:description "Fill the AcroForm fields of a PDF in the repository from a JSON object of field names to values, and write the result beside it as <key>.filled.pdf. A text field takes a string, a checkbox true or false, and a radio group, combo box or list box one of its own options. Field names that the form does not carry are REPORTED in `unmatched` (every name wrong is refused instead). With flatten true the fields are drawn into the page and the document is no longer editable."
+  (object string #:description "The form document's object id — a PDF carrying AcroForm fields")
+  (values object #:description "Field name to value, e.g. {\"applicant\": \"Arun Patel\", \"urgent\": true}")
+  (flatten boolean #:optional #:description "Draw the filled fields into the page content and remove them, so the result cannot be edited (needs qpdf)")
+  (run string #:optional #:description "The workflow run id, for provenance")
+  (step string #:optional #:description "The workflow step id, for provenance"))
+
+(define (doc-fill-form conn p args)
+  (define id (arg args 'object))
+  (define vals (hash-ref args 'values #f))
+  (unless (hash? vals) (error 'doc_fill_form "values must be a JSON object of field names to values"))
+  (define flatten? (and (eq? (hash-ref args 'flatten #f) #t) #t))
+  (define-values (src bs) (read-doc-bytes conn p id))
+  ;; A form is a PDF. Refusing by content type rather than letting the engine
+  ;; report "no AcroForm fields" is the difference between "this is the wrong
+  ;; document" and "this document has no form" — two different mistakes.
+  (define ct (hash-ref src 'content_type))
+  (unless (or (string=? ct PDF-TYPE) (equal? (ext-of (hash-ref src 'key)) "pdf"))
+    (error 'doc_fill_form "~a is ~a, not a PDF — only a PDF carries AcroForm fields" (hash-ref src 'key) ct))
+  (define-values (out unmatched)
+    (pdf-form-fill bs vals #:flatten? flatten? #:who 'doc_fill_form))
+  (define o (derive! conn p src
+                     #:key (string-append (hash-ref src 'key) ".filled.pdf")
+                     #:bytes out #:content-type PDF-TYPE
+                     #:run (opt-arg args 'run) #:step (opt-arg args 'step)))
+  (obj-summary o
+               #:summary (string-append "form filled" (if flatten? " and flattened" "")
+                                        (if (null? unmatched)
+                                            ""
+                                            (format ", ~a field(s) not on the form" (length unmatched))))
+               #:extra (hasheq 'unmatched unmatched 'flattened flatten?)))
+
 ;; ---- doc_translate ---------------------------------------------------------------
 (define-tool doc_translate
   #:description "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt)."
@@ -1207,4 +1254,5 @@
 (register-tool! "doc_set_type"       doc_set_type       "files:write" doc-set-type)
 (register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields)
 (register-tool! "doc_render"         doc_render         "files:write" doc-render)
+(register-tool! "doc_fill_form"      doc_fill_form      "files:write" doc-fill-form)
 (register-tool! "doc_translate"      doc_translate      "files:write" doc-translate)

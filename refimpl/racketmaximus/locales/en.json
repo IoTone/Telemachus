@@ -19,6 +19,14 @@
       "text": "Update password",
       "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
     },
+    "doc.route.get.api.repo-obj.id.form-fields": {
+      "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
+      "hash": "73c99d2a62d3623714b2ff633415089de4ebc3f5"
+    },
+    "doc.workflow.index-documents": {
+      "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
+      "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
+    },
     "ui.quotaheldorg": {
       "text": "This team's company has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "c278db3a6c6604c5e8583793f3419c1b22b54bce"
@@ -163,6 +171,14 @@
       "text": "Delete a team.",
       "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
     },
+    "doc.tool.doc_text.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.tool.doc_fill_form.flatten": {
+      "text": "Draw the filled fields into the page content and remove them, so the result cannot be edited (needs qpdf)",
+      "hash": "0b1ca7f41ae7c892069aa2d8e764cb40d953626c"
+    },
     "doc.tool.doc_classify.labels": {
       "text": "The document types to choose between — one of these, and nothing else, can be the answer",
       "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
@@ -186,14 +202,6 @@
     "doc.workflow.process-upload": {
       "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
       "hash": "41dfd3404a1fc0ec4a33fc8dbf03232097d86cbb"
-    },
-    "doc.workflow.index-documents": {
-      "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
-      "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
-    },
-    "doc.tool.doc_text.object": {
-      "text": "The repository object id",
-      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
     },
     "doc.route.put.api.org.branding": {
       "text": "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.",
@@ -223,6 +231,14 @@
       "text": "Team",
       "hash": "218887269ad5946d9dc53238651c90472884fb0f"
     },
+    "doc.route.post.api.workflows.slug.run": {
+      "text": "Start a run with {input}; declared inputs are required and typed. Returns 202 with the run.",
+      "hash": "1e305174211be63642083ac5f6d52e3fb3ad453a"
+    },
+    "doc.tool.doc_fill_form": {
+      "text": "Fill the AcroForm fields of a PDF in the repository from a JSON object of field names to values, and write the result beside it as <key>.filled.pdf. A text field takes a string, a checkbox true or false, and a radio group, combo box or list box one of its own options. Field names that the form does not carry are REPORTED in `unmatched` (every name wrong is refused instead). With flatten true the fields are drawn into the page and the document is no longer editable.",
+      "hash": "0ddc9997abff072d76744c0a6d33d0ab9bba8986"
+    },
     "ui.thmuted": {
       "text": "Muted text",
       "hash": "dee48bca04ebefcf164cb6d7f91b3ea08807f968"
@@ -238,10 +254,6 @@
     "doc.route.post.api.admin.users.id.password": {
       "text": "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link.",
       "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
-    },
-    "doc.route.post.api.workflows.slug.run": {
-      "text": "Start a run with {input}; declared inputs are required and typed. Returns 202 with the run.",
-      "hash": "1e305174211be63642083ac5f6d52e3fb3ad453a"
     },
     "ui.addterm": {
       "text": "Add term",
@@ -535,13 +547,17 @@
       "text": "No one else on this team",
       "hash": "febe46f64a159938cceb6ffe80ced0fabc0c494d"
     },
-    "doc.tool.doc_extract_fields.object": {
-      "text": "The source document's object id — write the fields as a derived document beside it",
-      "hash": "af8362ab557f0334dca5f227dac8d3c64c401ab8"
+    "doc.tool.doc_fill_form.step": {
+      "text": "The workflow step id, for provenance",
+      "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "doc.perm.*:*": {
       "text": "Everything at the team tier. Never reaches instance:* or org:*.",
       "hash": "9858077204559abb30b4e1ca17cb76ef2d5d35f4"
+    },
+    "doc.tool.doc_extract_fields.object": {
+      "text": "The source document's object id — write the fields as a derived document beside it",
+      "hash": "af8362ab557f0334dca5f227dac8d3c64c401ab8"
     },
     "doc.route.post.api.schedules": {
       "text": "Create a job schedule: `kind` (a registered job kind) plus a cadence. `interval` wants `interval_seconds` (at least 60); `daily` and `weekly` want `at_minute` (the whole minute of the local day, 0 to 1439) and a `timezone`, which defaults to the caller's own; `weekly` also wants `days_of_week`, a comma-separated set of 0-6 with Sunday as 0. Optionally `payload`, `requirements`, `priority`, `name` and `paused`. The first firing is never immediate. The timezone is stored ON the schedule rather than resolved from its owner when it fires: a schedule is a standing instruction, and if its author travels and changes their profile, \"07:00 before the morning meeting\" must not silently move for everybody else. The schedule runs as the CALLER, whose authority every job it fires then spends — an unknown kind is refused here rather than enqueueing work nothing can run, for ever.",
@@ -682,6 +698,14 @@
     "doc.route.post.api.translate.catalog": {
       "text": "Translate a whole locale catalog, placeholders preserved.",
       "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
+    "doc.tool.doc_fill_form.values": {
+      "text": "Field name to value, e.g. {\"applicant\": \"Arun Patel\", \"urgent\": true}",
+      "hash": "3a34a2dd1c7b88c8bd9b0645b0c01b993280e31a"
+    },
+    "beta.field_required": {
+      "text": "{field} is required",
+      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
     },
     "ui.key": {
       "text": "Path",
@@ -838,10 +862,6 @@
     "doc.route.get.api.retention": {
       "text": "The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing.",
       "hash": "c9231f778313d4e931e44e514ab8f69f3968987a"
-    },
-    "beta.field_required": {
-      "text": "{field} is required",
-      "hash": "dda50f3ba4eb211a894985a368919f4833011910"
     },
     "doc.tool.doc_classify": {
       "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
@@ -1482,6 +1502,10 @@
     "doc.route.delete.api.executors.id": {
       "text": "Retire an executor: its worker token is revoked and any job it holds returns to the queue.",
       "hash": "49be93f4008a33d3904c3754b0190ca6a87c55c5"
+    },
+    "doc.tool.doc_fill_form.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "ui.memberremoved": {
       "text": "Removed",
@@ -3007,6 +3031,14 @@
       "text": "The company's audit trail.",
       "hash": "c709a0e57ace017ced6c3b073c4d646da3787214"
     },
+    "ui.bxtouch": {
+      "text": "We’ll be in touch.",
+      "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "doc.tool.doc_fill_form.object": {
+      "text": "The form document's object id — a PDF carrying AcroForm fields",
+      "hash": "46268aa7ef58f1bb41ea31f7c2cefa813291d0ee"
+    },
     "ui.brandthemehint": {
       "text": "The palette this console wears — the same tokens the beta funnel uses. Changes preview live; Save applies them for everyone.",
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
@@ -3154,10 +3186,6 @@
     "ui.wkunreportedhint": {
       "text": "This worker has never said what it is doing. It was written against an older protocol, or it has not claimed yet — not a fault.",
       "hash": "3b3ff5a8019733c73cc6f9496176e19394352d2f"
-    },
-    "ui.bxtouch": {
-      "text": "We’ll be in touch.",
-      "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
     },
     "ui.qsub": {
       "text": "sub",

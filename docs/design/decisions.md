@@ -2623,3 +2623,129 @@ Twenty controls, and the two that did not bite first time were both real gaps:
 - **A block that changes GLOBAL state has to put it back.** Leaving a configured
   policy and a labelled document behind is what produced RED‑34 above; the
   last-owner fixture in `server-smoke.sh` is the same lesson from the other end.
+
+## FORM — filling a PDF form somebody else wrote (issue #88 requirement 2)
+
+Decided and built 26 Oct 2026. `doc_render` (DWF‑6) fills a TEMPLATE this
+platform's own user authored; requirement 2 is the other direction — an AcroForm
+that ARRIVED, from a ministry, an insurer or a customer's procurement system —
+and it is the half of #88 with **no workaround today**: the LaTeX path cannot
+touch an existing form's fields at all, whereas a branded layout can at least be
+approximated. So it is built first, which inverts the issue's own numbering.
+
+`domain/repo/pdfform.rkt` (the engine, pure of the repository), `doc_fill_form`
+in `doc-tools.rkt`, and `GET /api/repo-obj/:id/form-fields`. **No migration, no
+new environment variable, no new permission.**
+
+- **FORM‑1 — TWO BINARIES, each for the half it is good at.** `pdfcpu` lists and
+  fills: its `form list --json` export already describes every field with its
+  kind, value and options, which IS the shape requirement 2 asks a discovery
+  endpoint to return, and a trimmed copy of it is the fill input — so nothing has
+  to be composed in FDF, which is what made `pdftk` the usual answer and would
+  have brought a JVM with it. `qpdf` flattens
+  (`--generate-appearances --flatten-annotations=all`), because **pdfcpu 0.15 has
+  no flatten of any kind** and qpdf's pass builds the appearance streams a filled
+  field needs and then draws the annotations into the page content, which is what
+  "flattened" means to everything downstream. Both are small, both are already in
+  the pin, and neither is a Python application.
+- **FORM‑2 — found at CALL time, and SEPARATELY.** DWF‑6's rule for pandoc and
+  tectonic: a box with neither binary still boots and every other tool keeps
+  working, and the failure is a named error on the one call that asked. Looked up
+  separately because a box with pdfcpu and no qpdf can fill a form perfectly
+  well — only `flatten: true` is refused there, and the discovery read says so in
+  `can_flatten` rather than letting a caller find out from a refusal.
+- **FORM‑3 — THE UNMATCHED LIST IS COMPUTED HERE, and it has to be.** Measured:
+  pdfcpu accepts a field name no field on the form carries, writes the output and
+  **exits 0**. So requirement 2's "reports unmatched fields" cannot be delegated
+  to the tool, and without computing it a caller who misspelled one field would
+  be handed a document that looks filled with nothing saying which half of their
+  request was ignored. The control for this is the first one in the harness.
+- **FORM‑4 — a PARTIAL match is reported and EVERY name wrong is refused.**
+  Filling four of nine fields now is an ordinary thing to do, so `unmatched` is a
+  report. Every name wrong is somebody addressing the wrong document or using the
+  wrong vocabulary, and a report is no use to them — so that is a refusal, and it
+  **lists the fields the form does have** (CLS‑15's shape, where the refusal
+  names what was on offer rather than guessing).
+- **FORM‑5 — a value is held to its FIELD's kind, and a choice field to its own
+  options.** A checkbox takes a boolean; a radio group, combo box or list box
+  takes one of the options the form itself declares. The second is the one worth
+  the code: a `/V` the form's own reader cannot interpret renders as **blank**
+  while the document claims it was filled, which is the failure shape this whole
+  area has to avoid. The set is known, so guessing is not needed — CLS‑5's
+  argument about a label, applied to a field.
+- **FORM‑6 — a read-only field is REFUSED, not skipped.** `/Ff` bit 1 is the
+  form's author saying this field is not the filler's to set. Filling it silently
+  would be a lie either way: write it and the document disagrees with its own
+  design, skip it and the caller believes it landed.
+- **FORM‑7 — a PDF with no form answers an EMPTY LIST; a document that is not a
+  PDF is a 400.** Whether a document is a form is exactly what the discovery
+  endpoint is being asked, so failing there would make every ordinary PDF read as
+  a broken server. A non-PDF is a different mistake and gets a different answer —
+  and the smoke's first version conflated them, asserting the empty list against
+  a text file and failing against a correct server. `doc_fill_form` refuses by
+  **content type** before the engine is reached for the same reason: without that
+  guard a text document comes back as `xref table: no header version available`,
+  which names pdfcpu's internals rather than the caller's error. That is what the
+  control showed.
+- **FORM‑8 — every pdfcpu call carries `-c disable` and `--offline`.** Without
+  the first it CREATES a configuration directory under the server's `HOME` on
+  first use — which in the container is `/data`, the one declared volume, and
+  under `--read-only` there is no writable home at all. The second is
+  requirement 1's sandbox applied to a form: a PDF may name a remote resource,
+  and nothing here needs the network. **Not `-q`**, which suppresses the stdout
+  the JSON export is written to — the first run of the suite reported "the form
+  export was not a JSON object" against a perfectly good PDF for exactly that
+  reason.
+- **FORM‑9 — the subprocess is BOUNDED, and `render-pdf`'s is not.** These parse
+  somebody else's bytes on the request path, so a hostile or merely broken PDF
+  must not hold a request thread for ever; `run-bounded` kills the process
+  after 60 seconds and the refusal says so. It is exported because what matters
+  is what ONE run DECIDES, not when it happens (`lease-tick!`'s rule). It is
+  **not** retrofitted onto `render-pdf` in this slice: tectonic legitimately
+  spends a minute fetching TeX packages on a cold cache, so a bound there needs
+  its own number and its own thought. Named rather than quietly left.
+- **The flattened output is a derived DOCUMENT**, `<key>.filled.pdf` through
+  `derive!` — the source's visibility at `repo-put!`, THEN `repo-inherit!`, and a
+  `repo_derivations` row, so "which form produced this, and from what" is a click
+  (DWF‑4). Re-filling versions the same key rather than littering.
+
+**Not built at this slice, by the issue's own numbering**: requirement 1 (an
+HTML/CSS Chromium or WeasyPrint engine with paged media, PDF/A‑2b and a metadata
+block), requirement 3 (DOCX → PDF through LibreOffice headless) and
+requirement 6's byte-for-byte determinism flag. Requirement 4 — a template as a
+versioned, access-controlled repository object with the derivation recorded — is
+satisfied for this half by `derive!`, since the form being filled IS a repository
+object. Requirement 5's "stored as a derived object with `application/pdf` and a
+SHA‑256" is satisfied by the content-addressed store, which keys every blob by
+its SHA‑256 already.
+
+### What the controls found
+
+Ten controls, nine on the engine and one through HTTP, and all ten bite:
+
+- **A control that reports its own verdict agrees with you.** The harness reads
+  the verdict off `raco test`'s summary line — `dump-leak-tests.rkt`'s lesson,
+  where a file printing "the needle is in: …" as ordinary output made every
+  control look like it bit.
+- **A restore must invalidate the bytecode**, `plugins/*/compiled` included. The
+  harness walks the tree and removes every `compiled/` directory before each run,
+  because `shutil.copy2` puts the original file back looking OLDER than the `.zo`
+  built from the mutated one (the Matrix slice paid for this).
+- **The checkbox needed an appearance dictionary before anything could toggle
+  it.** The first fixture had no `/AP`, and pdfcpu answered
+  `corrupt form field: missing entry "AP"` — which is a property of the FORM, not
+  of the request, so the message says which and the suite asserts the refusal
+  against a fixture built deliberately without one.
+- **The flatten assertion had to decompress to mean anything.** "No fields any
+  more" passes against a version that simply threw the answers away, so the case
+  also reads the filled text back out of the page content — through qpdf's own
+  QDF mode, since the stream is compressed. Dropping that half because the
+  literal is not findable in the raw bytes would have left the case passing
+  against a flatten that lost the data.
+- **The fixture is HAND-BUILT, not produced by pdfcpu's own `create`.** A form
+  filled by the same program that wrote it proves only that the program agrees
+  with itself, and the documents this tool exists for come out of Acrobat,
+  LibreOffice and a government website. There are two copies of the fixture — one
+  in Racket for the unit suite, one in Python for the smoke, which drives the
+  platform over HTTP and has no Racket to hand. Two fixtures, not two rules: the
+  rule they exercise has one home.

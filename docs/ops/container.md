@@ -303,6 +303,14 @@ missing. `TELEMACHUS_OCR_LANGUAGES` must name languages that were actually
 compiled in — the plugin passes the value to tesseract as-is, and
 `tesseract --list-langs` is the authority on what a given image can read.
 
+`pdfcpu` and `qpdf` — the AcroForm toolchain `doc_fill_form` and
+`GET /api/repo-obj/:id/form-fields` use (#88 req 2) — ARE in the image, on the
+server's PATH. They are about 19 MiB between them, so the 1.74 GB figure above,
+which was measured before they were added, is still right to within a percent.
+Both are found with `find-executable-path` at call time, so removing them from a
+derived image leaves the instance booting and only a form call refused, with a
+message naming the missing binary.
+
 ## Startup checks
 
 The instance refuses to serve when the blob store is not writable, when

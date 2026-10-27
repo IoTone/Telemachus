@@ -9,6 +9,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `doc_classify` | `files:write` | built-in | この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。 |
 | `doc_classify_eval` | `files:read` | built-in | ラベル付きのフィクスチャ集合に対して分類器を測定する: キー接頭辞配下で doc_type_expected 属性を持つ文書が対象です。バックエンドごと、かつラベルごとの正解率とカバレッジ、各ラベルが何と誤認されたか、そして正答と誤答それぞれの平均確信度 — レビューのしきい値で両者を切り分けられるかを示す数値 — を報告します。各バックエンドは連鎖させずに個別に実行するため rules と llm を比較でき、連鎖自体の答えも並べて報告します。何も書き込みません: 種別は記録されず、トリガーも起動しません。 |
 | `doc_extract_fields` | `files:write` | built-in | JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。 |
+| `doc_fill_form` | `files:write` | built-in | リポジトリ内の PDF の AcroForm フィールドに、フィールド名と値の JSON オブジェクトから値を埋め込み、結果をその隣に <key>.filled.pdf として書き出します。テキストフィールドは文字列、チェックボックスは true または false、ラジオグループ・コンボボックス・リストボックスはそれ自身の選択肢のいずれかを取ります。フォームが持たないフィールド名は `unmatched` で報告されます（すべての名前が誤っている場合は代わりに拒否されます）。flatten が true のときはフィールドがページに描き込まれ、文書は編集できなくなります。 |
 | `doc_list_unclassified` | `files:read` | built-in | まだ文書種別が付いていない、キー接頭辞配下のリポジトリ文書を一覧する — 分類バックフィルへの入力です。オブジェクト ID を返し、1 バッチで打ち切ります。続きはバックフィルをもう一度実行してください。すでに doc_type を持つ文書は飛ばされるため再実行は無償で、他の実行が派生させた出力は一覧されません。 |
 | `doc_redact` | `files:write` | built-in | 文書テキスト中の識別子を安定したトークン — <PERSON_1>、<DATE_2>、<ID_3> — に置き換え、残りからモデルへの要求を組み立てられるようにする。検出器は呼び出し側が記述するのではなく名前で選びます: email、date、id_number、dictionary（語句は呼び出し側が渡します）、phone。置き換え後のテキストは元文書の隣に <key>.redacted.txt として書き出し、トークンから値へ戻す対応表は、どのエンドポイントも返さない封緘済みの行に保存します。検出器ごとの件数を報告するため、取りこぼしが見て分かります。 |
 | `doc_render` | `files:write` | built-in | フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が "pdf" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。 |
@@ -99,6 +100,20 @@ Permission: `files:write` · source: built-in
 | `schema` | object | yes | 抽出オブジェクトが適合するJSONスキーマ |
 | `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
 | `text` | string | yes | ドキュメントのテキスト |
+
+## `doc_fill_form`
+
+リポジトリ内の PDF の AcroForm フィールドに、フィールド名と値の JSON オブジェクトから値を埋め込み、結果をその隣に <key>.filled.pdf として書き出します。テキストフィールドは文字列、チェックボックスは true または false、ラジオグループ・コンボボックス・リストボックスはそれ自身の選択肢のいずれかを取ります。フォームが持たないフィールド名は `unmatched` で報告されます（すべての名前が誤っている場合は代わりに拒否されます）。flatten が true のときはフィールドがページに描き込まれ、文書は編集できなくなります。
+
+Permission: `files:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `flatten` | boolean | no | 埋め込んだフィールドをページの内容に描き込んで取り除き、結果を編集できないようにします（qpdf が必要） |
+| `object` | string | yes | フォーム文書のオブジェクト ID — AcroForm フィールドを持つ PDF |
+| `run` | string | no | ワークフロー実行 ID（由来の記録用）。 |
+| `step` | string | no | ワークフローステップ ID（由来の記録用）。 |
+| `values` | object | yes | フィールド名から値へ。例：{"applicant": "Arun Patel", "urgent": true} |
 
 ## `doc_list_unclassified`
 

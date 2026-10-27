@@ -8,7 +8,7 @@
 ;; constructors — is server/kit.rkt.
 
 (provide ep-repo-fields-get ep-repo-fields-put ep-repo-attributes
-         ep-repo-spans ep-repo-put ep-repo-list ep-repo-meta ep-repo-get
+         ep-repo-spans ep-repo-form-fields ep-repo-put ep-repo-list ep-repo-meta ep-repo-get
          ep-repo-visibility ep-repo-share ep-repo-unshare ep-repo-grants
          ep-repo-processing ep-share-targets ep-repo-derivations
          ep-repo-reads ep-repo-presign ep-s3-creds ep-s3-cred-create
@@ -29,6 +29,9 @@
          "../../domain/repo/repo.rkt"
          (only-in "../../domain/audit/reads.rkt" audit-presign-issued! object-reads)
          (only-in "../../domain/repo/extract.rkt" repo-spans-for spans-covering)
+         ;; #88 req 2: what fields a form carries, so a caller knows what to send
+         ;; `doc_fill_form`. The engine is pure of the repository; the `can?` is here.
+         (only-in "../../domain/repo/pdfform.rkt" FORM-FIELD-KINDS pdfcpu-path pdf-form-fields qpdf-path)
          (only-in "../../domain/repo/triggers.rkt" object-processing)
          (only-in "../../domain/i18n/i18n.rkt" t)
          "../kit.rkt")
@@ -93,6 +96,47 @@
        (json-response (hasheq 'object_id id
                               'spans (if at (spans-covering all at) all)
                               'total (length all)))]))))
+
+;; ---- a form's fields (#88 req 2) ---------------------------------------------
+;; Requirement 2's discovery half. `files:read`, because it is a reading of the
+;; document — a form's field names are part of what the document SAYS, and
+;; somebody who may read the PDF may read them out of it by hand anyway.
+;;
+;; A PDF with no form answers `fields: []`, not an error: whether a document is a
+;; form is exactly what the caller is asking. A box with no pdfcpu answers 501
+;; rather than 500 — the question is fine and this instance cannot answer it,
+;; which is the S3 listener's rule for an unimplemented sub-resource.
+(define (ep-repo-form-fields req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "files:read")
+    (define o (repo-get db-conn p id))
+    (cond
+      [(not o) (err "no such document" 404)]
+      [(not (pdfcpu-path))
+       (err "this instance cannot read PDF form fields — pdfcpu is not on the server's PATH" 501)]
+      [else
+       (define-values (_o in) (repo-open db-conn p id))
+       (define bs (if in
+                      (dynamic-wind void (lambda () (port->bytes in)) (lambda () (close-input-port in)))
+                      #""))
+       ;; The engine's own message comes through, because it describes the
+       ;; DOCUMENT's structure — which the caller can already read, holding
+       ;; `files:read` on it — and because a timeout and a malformed xref table
+       ;; have different remedies. #123's line: a 400 may carry what a 500 may
+       ;; not, and the line is who supplied the input.
+       (define-values (fields problem)
+         (with-handlers ([exn:fail? (lambda (e) (values #f (exn-message e)))])
+           (values (pdf-form-fields bs #:who 'form-fields) #f)))
+       (cond
+         [problem (err problem 400)]
+         [else
+          (json-response (hasheq 'object_id id 'key (hash-ref o 'key)
+                                 'content_type (hash-ref o 'content_type)
+                                 'fields fields 'kinds FORM-FIELD-KINDS
+                                 ;; flattening is a SECOND binary, so a caller is
+                                 ;; told whether `flatten: true` will work here
+                                 ;; rather than finding out from a refusal
+                                 'can_flatten (and (qpdf-path) #t)))])]))))
 
 (define (obj-json o)
   (hasheq 'id (hash-ref o 'id) 'key (hash-ref o 'key)

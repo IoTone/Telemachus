@@ -181,6 +181,16 @@ a box without it boots and renders every other format; the one PDF call fails by
 name. A DOCX template is refused rather than converted — LibreOffice is not a
 dependency this platform takes on (DWF‑6).
 
+**`doc_fill_form`** — the other direction, and a different thing: `doc_render`
+fills a template THIS platform's user authored, while this fills the AcroForm
+fields of a PDF that ARRIVED (issue #88 req 2, decisions FORM‑1…9). Discovery is
+`GET /api/repo-obj/:id/form-fields`, because the field names are in somebody
+else's document and nothing else publishes them. `pdfcpu` lists and fills,
+`qpdf` flattens, both found at call time like pandoc and tectonic; the result is
+`<key>.filled.pdf` through `derive!`. Field names the form does not carry come
+back in `unmatched` — pdfcpu accepts one and exits 0, so that report is computed
+here or not at all.
+
 **`doc_translate`** — wraps `translate!`: a document's text (or a rendered form)
 into a target locale, glossary applied, written as `<key>.<locale>.<ext>`. Fanned
 out with `map` over a list of locales.

@@ -2857,6 +2857,83 @@ bash test/doc-pipeline-smoke.sh        # the "== 5h." block, 24 assertions
   `TELEMACHUS_MODEL_TIMEOUT`. Assert the refusal (which precedes any socket), and
   the not-stopped half against `egress-refusal` directly.
 
+## Filling a PDF form somebody ELSE wrote (FORM‑1…9, issue #88 req 2)
+
+Built 26 Oct 2026. `domain/repo/pdfform.rkt` (the engine, pure of the
+repository), `doc_fill_form` in `doc-tools.rkt`, and
+`GET /api/repo-obj/:id/form-fields`. **No migration, no environment variable, no
+new permission.** `doc_render` fills a TEMPLATE this platform's user authored;
+this fills an AcroForm that ARRIVED, which is the half of #88 with no workaround
+at all today.
+
+```sh
+raco test test/pdfform-tests.rkt   # 17 cases, ten controls, all biting
+bash test/doc-pipeline-smoke.sh    # the "== 5i." block, 28 assertions
+python3 -I test/make-acroform.py out.pdf            # the fixture
+python3 -I test/make-acroform.py --plain out.pdf    # …and a PDF with no form
+```
+
+- **TWO BINARIES, each for the half it is good at** (FORM‑1). `pdfcpu` lists
+  (`form list --json`) and fills (`form fill`) — its export already names every
+  field with its kind, value and options, so nothing has to be composed in FDF,
+  which is what made `pdftk` the usual answer and would have brought a JVM.
+  `qpdf` flattens (`--generate-appearances --flatten-annotations=all`), because
+  **pdfcpu 0.15 has no flatten of any kind**. Both are in the devShell and on the
+  packaged wrapper's PATH.
+- **Found at CALL time, and SEPARATELY** (FORM‑2) — DWF‑6's rule. A box with
+  neither boots and every other tool works; a box with pdfcpu and no qpdf fills
+  perfectly well and only `flatten: true` is refused, which the discovery read
+  says in `can_flatten` rather than leaving a caller to find out from a refusal.
+- **NOT `-q` ON A pdfcpu CALL.** It suppresses stdout, which is where
+  `form list --json` writes the export — the first run of the suite reported
+  "the form export was not a JSON object" against a perfectly good PDF. Every
+  call does carry `-c disable` (it otherwise CREATES a config directory under the
+  server's `HOME`, which in the container is `/data` and under `--read-only` does
+  not exist) and `--offline`.
+- **THE UNMATCHED LIST IS COMPUTED HERE, because pdfcpu exits 0 on a field name
+  no field carries** (FORM‑3) — measured, not assumed. So "reports unmatched
+  fields" cannot be delegated, and without it a misspelled field hands back a
+  document that looks filled with nothing saying which half was ignored. A
+  PARTIAL match is a report; EVERY name wrong is a refusal that lists the fields
+  the form does have (FORM‑4, CLS‑15's shape).
+- **A value is held to its field's kind, and a choice field to its OWN options**
+  (FORM‑5). The second is the one worth the code: a `/V` the form's own reader
+  cannot interpret renders **blank** while the document claims it was filled. A
+  read-only field is refused rather than skipped (FORM‑6) — filling it silently
+  lies either way.
+- **A PDF with no form answers an EMPTY LIST; a document that is not a PDF is a
+  400** (FORM‑7). Whether a document is a form is exactly what the discovery
+  endpoint is asked, so failing there would make every ordinary PDF read as a
+  broken server — and the smoke's first version conflated the two, asserting the
+  empty list against a TEXT file and failing against a correct server.
+  `doc_fill_form` refuses by CONTENT TYPE before the engine is reached for the
+  same reason: without that guard a text document comes back as `xref table: no
+  header version available`, which names pdfcpu's internals rather than the
+  caller's mistake. The control showed exactly that.
+- **A CHECKBOX WITH NO `/AP` CANNOT BE TOGGLED BY ANYTHING**, and pdfcpu says
+  `corrupt form field: missing entry "AP"`. It is a property of the FORM, not of
+  the request, so the message says which and the remedy is to fix the form. The
+  fixture has a deliberate no-`/AP` mode so the refusal has a subject.
+- **`run-bounded` kills the subprocess after 60 seconds**, because these parse
+  somebody else's bytes on the request path (FORM‑9). `render-pdf` has no bound
+  and that is NAMED rather than fixed: tectonic legitimately spends a minute
+  fetching TeX packages on a cold cache, so a bound there needs its own number.
+- **THE FIXTURE IS HAND-BUILT, not produced by pdfcpu's own `create`.** A form
+  filled by the program that wrote it proves only that the program agrees with
+  itself; the documents this exists for come out of Acrobat, LibreOffice and a
+  government website. There are two copies — Racket for the unit suite, Python
+  for the smoke, which has no Racket to hand. Two fixtures, not two rules.
+- **THE FLATTEN ASSERTION HAS TO DECOMPRESS TO MEAN ANYTHING.** "No fields any
+  more" passes against a version that threw the answers away, so the case also
+  reads the filled text back out of the page content, through qpdf's own QDF
+  mode. Do not drop that half because the literal is not findable in the raw
+  bytes.
+- **Not built, by the issue's own numbering**: req 1 (an HTML/CSS Chromium or
+  WeasyPrint engine, paged media, PDF/A‑2b, a metadata block), req 3 (DOCX → PDF
+  through LibreOffice headless) and req 6's determinism flag. Req 4 and req 5 are
+  satisfied for this half by `derive!` and by the content-addressed store, which
+  keys every blob by its SHA‑256 already.
+
 ## A worker token expires, and a rotation overlaps (PULL‑15, issue #60)
 
 Built 22 Oct 2026 — the last of #54's four deferred questions. Migration

@@ -294,6 +294,7 @@
    'feed-poll ep-feed-poll
    ;; #65: a region a person marked. LAY-5's spans are where a machine says it
    ;; read something; these are what somebody said about a place.
+   'repo-form-fields ep-repo-form-fields
    'annotations-list ep-annotations-list 'annotations-create ep-annotations-create
    'annotation-get ep-annotation-get 'annotation-patch ep-annotation-patch
    'annotation-delete ep-annotation-delete

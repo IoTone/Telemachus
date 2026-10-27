@@ -972,6 +972,129 @@ assert "the block removes its own documents" \
 # asserted in test/sensitivity-tests.rkt, where there is no queue to hang in.
 echo
 
+echo "== 5i. filling a PDF form somebody ELSE wrote (#88 req 2, FORM-1…9) ==========="
+# doc_render fills a TEMPLATE this platform's user authored. This fills an
+# AcroForm that arrived — the half of #88 with no workaround at all today.
+#
+# The toolchain is found at CALL time (DWF-6's rule), so a box without pdfcpu is
+# a SUPPORTED box and this block skips there, loudly. CI's devShell carries both
+# binaries, so the skip cannot hide a regression where it matters.
+if ! command -v pdfcpu >/dev/null 2>&1; then
+  echo "  skip  no pdfcpu on PATH — the form block needs it (CI's devShell has it)"
+else
+python3 -I test/make-acroform.py "$TELEMACHUS_DATA_DIR/request.pdf"
+FOBJ=$(up forms/request.pdf application/pdf "$TELEMACHUS_DATA_DIR/request.pdf" | jq_ 'd["id"]')
+python3 -I test/make-acroform.py --plain "$TELEMACHUS_DATA_DIR/plain.pdf"
+FPDF=$(up forms/plain.pdf application/pdf "$TELEMACHUS_DATA_DIR/plain.pdf" | jq_ 'd["id"]')
+printf 'an ordinary document, not a form\n' > "$TELEMACHUS_DATA_DIR/f-plain.txt"
+FTXT=$(up forms/plain.txt text/plain "$TELEMACHUS_DATA_DIR/f-plain.txt" | jq_ 'd["id"]')
+
+# DISCOVERY FIRST, because a caller cannot send values without it: the names are
+# in somebody else's document and nothing else publishes them.
+FF=$(G "/api/repo-obj/$FOBJ/form-fields")
+assert "the form's text fields are found"   "$FF" '"name":"applicant"'
+assert "…with their kind"                   "$FF" '"kind":"textfield"'
+assert "…the checkbox too"                  "$FF" '"name":"urgent"'
+assert "…and the choice field's options"    "$FF" '"options":["amer","emea","apac"]'
+assert "…and whether flattening works here" "$FF" '"can_flatten"'
+
+# A PDF WITH NO FORM IS AN ANSWER, not an error — whether a document is a form is
+# exactly the question being asked, and failing here would make every ordinary
+# PDF read as a broken server. A document that is not a PDF AT ALL is the other
+# case and is a 400: "this is not a form" and "this cannot be read" are two
+# different mistakes, and the first version of this block conflated them.
+assert "a PDF with no form answers an empty list" \
+  "$(G "/api/repo-obj/$FPDF/form-fields")" '"fields":[]'
+assert "…while a document that is not a PDF cannot be read at all" \
+  "$(G "/api/repo-obj/$FTXT/form-fields")" 'could not be read'
+
+# No route runs a single tool, so the tool is reached through a one-step spec —
+# `pdf-form`'s pattern, and for its reason: adding an input to a PUBLISHED spec
+# breaks every caller, so this block publishes its own.
+FWF='{"spec":1,"slug":"fill-acroform","input":{"object_id":"string","values":"object","flatten":"boolean"},"steps":[
+  {"id":"fill","uses":"tool:doc_fill_form","with":{"object":"${input.object_id}","values":"${input.values}",
+   "flatten":"${input.flatten}","run":"${run.id}","step":"fill"},"end":true}]}'
+assert "the filling spec published" "$(P /api/workflows "$FWF")" '"slug":"fill-acroform"'
+
+FR=$(P /api/workflows/fill-acroform/run "{\"input\":{\"object_id\":\"$FOBJ\",\"values\":{\"applicant\":\"Arun Patel\",\"reference\":\"ACME-2026-0042\",\"urgent\":true,\"region\":\"apac\"},\"flatten\":false}}")
+wait_run "$(printf '%s' "$FR" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "the form is filled"                 "$RUNST" done
+assert "…as a document beside the source"   "$RUNJSON" 'forms/request.pdf.filled.pdf'
+assert "…typed as a PDF"                    "$RUNJSON" 'application/pdf'
+assert "…with nothing left unmatched"       "$RUNJSON" '"unmatched":[]'
+assert "…and it says it did not flatten"    "$RUNJSON" '"flattened":false'
+
+# THE VALUES REALLY LANDED, asserted over the DERIVED DOCUMENT's own fields
+# rather than over the run's output — which is the only way HTTP can see inside
+# the PDF, and it is the discovery endpoint doing the reading.
+FILLED=$(G "/api/repo?prefix=forms/request.pdf.filled.pdf" | jq_ 'd["objects"][0]["id"]')
+FFF=$(G "/api/repo-obj/$FILLED/form-fields")
+assert "the applicant's name is in the field" "$FFF" '"value":"Arun Patel"'
+assert "…and the reference"                   "$FFF" 'ACME-2026-0042'
+assert "…and the choice moved"                "$FFF" '"value":"apac"'
+
+# A FIELD THE FORM DOES NOT HAVE IS REPORTED, and this is the assertion the
+# whole report exists for: pdfcpu takes a name no field carries, writes the
+# output and exits 0, so without `unmatched` a misspelled field would hand back
+# a document that looks filled with nothing saying which half was ignored.
+FR2=$(P /api/workflows/fill-acroform/run "{\"input\":{\"object_id\":\"$FOBJ\",\"values\":{\"applicant\":\"Lena Mori\",\"middle_name\":\"Q\"},\"flatten\":false}}")
+wait_run "$(printf '%s' "$FR2" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "a partial match still fills"         "$RUNST" done
+assert "…and names what was not on the form" "$RUNJSON" '"unmatched":["middle_name"]'
+
+# …while EVERY name wrong is a refusal rather than a report, because a report is
+# no use to somebody addressing the wrong document. The refusal lists the fields
+# the form has (CLS-15's shape).
+FR3=$(P /api/workflows/fill-acroform/run "{\"input\":{\"object_id\":\"$FOBJ\",\"values\":{\"nope\":\"x\"},\"flatten\":false}}")
+wait_run "$(printf '%s' "$FR3" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "every field wrong is refused"        "$RUNST" error
+assert "…and the refusal lists the real ones" "$RUNJSON" 'applicant'
+
+# A choice field's options are known, so a value outside them is a typo this
+# tool can see — and must not write: a /V the form's own reader cannot interpret
+# renders blank while the document claims it was filled.
+FR4=$(P /api/workflows/fill-acroform/run "{\"input\":{\"object_id\":\"$FOBJ\",\"values\":{\"region\":\"antarctica\"},\"flatten\":false}}")
+wait_run "$(printf '%s' "$FR4" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "a value outside a field's options is refused" "$RUNST" error
+assert "…and the refusal names the options"           "$RUNJSON" 'amer, emea, apac'
+
+# THE ISSUE'S ACCEPTANCE CRITERION, both halves: flattened, and the unmatched
+# list empty. "No fields any more" is what flattened MEANS to everything
+# downstream; that the values survived into the page content is asserted in
+# test/pdfform-tests.rkt, which can decompress the stream.
+if command -v qpdf >/dev/null 2>&1; then
+  FR5=$(P /api/workflows/fill-acroform/run "{\"input\":{\"object_id\":\"$FOBJ\",\"values\":{\"applicant\":\"Arun Patel\",\"reference\":\"ACME-2026-0042\"},\"flatten\":true}}")
+  wait_run "$(printf '%s' "$FR5" | grep -oP '"id":"\K[^"]+' | head -1)"
+  assert "a flattened fill succeeds"        "$RUNST" done
+  assert "…and says so"                     "$RUNJSON" '"flattened":true'
+  assert "…with nothing unmatched"          "$RUNJSON" '"unmatched":[]'
+  FLAT=$(G "/api/repo?prefix=forms/request.pdf.filled.pdf" | jq_ 'd["objects"][0]["id"]')
+  assert "the flattened document has no editable fields" \
+    "$(G "/api/repo-obj/$FLAT/form-fields")" '"fields":[]'
+else
+  echo "  skip  no qpdf on PATH — the flatten assertions need it"
+fi
+
+# A form is a PDF, and refusing by CONTENT TYPE rather than letting the engine
+# report "no AcroForm fields" is the difference between "this is the wrong
+# document" and "this document has no form" — two different mistakes.
+FR6=$(P /api/workflows/fill-acroform/run "{\"input\":{\"object_id\":\"$FTXT\",\"values\":{\"applicant\":\"x\"},\"flatten\":false}}")
+wait_run "$(printf '%s' "$FR6" | grep -oP '"id":"\K[^"]+' | head -1)"
+assert "a document that is not a PDF is refused" "$RUNST" error
+assert "…and the refusal says why"               "$RUNJSON" 'not a PDF'
+
+# THE BLOCK REMOVES ITS OWN DOCUMENTS. §8's knowledge graph extracts a BOUNDED
+# batch per run, and §5h's two leftovers once displaced the team-visible scans
+# out of it — a visibility assertion 250 lines away failing because this section
+# added documents. Three here (the form and two fills, versioned under one key),
+# so the cascade is not optional.
+assert "the block removes its own documents" \
+  "$(curl -s -X DELETE "$B/api/repo-obj/$FOBJ?cascade=1" -H "Authorization: Bearer $TOK")" '"deleted"'
+curl -s -X DELETE "$B/api/repo-obj/$FTXT?cascade=1" -H "Authorization: Bearer $TOK" >/dev/null
+curl -s -X DELETE "$B/api/repo-obj/$FPDF?cascade=1" -H "Authorization: Bearer $TOK" >/dev/null
+fi
+echo
+
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
