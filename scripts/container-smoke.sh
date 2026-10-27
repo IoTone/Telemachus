@@ -58,8 +58,8 @@ CFG=$(docker image inspect "$IMAGE" --format '{{json .Config}}')
 assert "runs as a non-root uid"        "$CFG" '"User":"65532:65532"'
 assert "declares /data as a volume"    "$CFG" '"/data"'
 assert "declares a healthcheck"        "$CFG" 'Healthcheck'
-assert "binds every interface"         "$CFG" 'TELEMACHUS_BIND=0.0.0.0'
-assert "points the data dir at /data"  "$CFG" 'TELEMACHUS_DATA_DIR=/data'
+assert "binds every interface"         "$CFG" 'TMACH_BIND=0.0.0.0'
+assert "points the data dir at /data"  "$CFG" 'TMACH_DATA_DIR=/data'
 # A shell is the first thing an attacker looks for, and nothing in the image
 # needs one — the healthcheck is the exec form for exactly this reason.
 refute "ships no /bin/sh"              "$(docker run --rm --entrypoint /bin/sh "$IMAGE" -c 'echo reachable' 2>&1)" 'reachable'
@@ -134,9 +134,9 @@ docker run -d --name "$NAME" $DOCKER_NET_ARGS $EXTRA_HOSTS \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
   -v "$NAME-data:/data" \
   -e DATABASE_URL="$DB_URL" \
-  -e TELEMACHUS_SECRET_KEY="$(printf '0%.0s' $(seq 1 64))" \
-  -e TELEMACHUS_SECRET="container-smoke-secret" \
-  -e TELEMACHUS_BOOTSTRAP_SECRET="container-smoke-bootstrap" \
+  -e TMACH_SECRET_KEY="$(printf '0%.0s' $(seq 1 64))" \
+  -e TMACH_SECRET="container-smoke-secret" \
+  -e TMACH_BOOTSTRAP_SECRET="container-smoke-bootstrap" \
   -e PORT=8835 \
   $PUBLISH \
   "$IMAGE" >/dev/null || { echo "  FAIL the container did not start"; exit 1; }
@@ -166,7 +166,7 @@ assert "the process is the non-root uid"  "$(docker exec "$NAME" id -u 2>/dev/nu
 
 echo
 echo "== 3. the API works end to end, through the published port =="
-# POST /api/bootstrap is LOOPBACK-ONLY unless TELEMACHUS_BOOTSTRAP_SECRET is set
+# POST /api/bootstrap is LOOPBACK-ONLY unless TMACH_BOOTSTRAP_SECRET is set
 # (issue #40) — a fresh instance on a network otherwise belongs to whoever calls
 # first.
 #

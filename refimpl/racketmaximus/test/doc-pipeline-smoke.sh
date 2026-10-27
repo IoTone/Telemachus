@@ -2,7 +2,7 @@
 # test/doc-pipeline-smoke.sh — the document pipeline, end to end over HTTP (slice 57).
 #
 #   bash test/doc-pipeline-smoke.sh                      # deterministic: scripted mock model
-#   TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # against a live model
+#   TMACH_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # against a live model
 #
 # The first-user path: upload an invoice and a form template, run `process-upload`
 # by hand (DWF-7 — the same run endpoint a trigger will use), and find four
@@ -11,7 +11,7 @@
 # a provenance row naming the run. Then a NON-conforming extraction, which must fail
 # the run and write nothing (DWF-5).
 #
-# Without TELEMACHUS_MODEL_URL this boots test/mock-llm.rkt in CHAT mode: the
+# Without TMACH_MODEL_URL this boots test/mock-llm.rkt in CHAT mode: the
 # extraction prompt is answered with a conforming object, the translation prompt
 # with a marker — so the assertions are exact. With a live model, the content
 # assertions are relaxed to "exists and conforms".
@@ -22,33 +22,33 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # unused: a developer working on a downstream plugin exports them in their own
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 export PORT="${PORT:-8841}"
 MOCK_PORT="${MOCK_PORT:-8901}"
 
 port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
 if port_busy "$PORT"; then echo "port $PORT is in use — set PORT=<free port>" >&2; exit 1; fi
 
-export TELEMACHUS_DATA_DIR="$(mktemp -d)"
-export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/telemachus.db}"
-export TELEMACHUS_BIND=127.0.0.1
+export TMACH_DATA_DIR="$(mktemp -d)"
+export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMACH_DATA_DIR/telemachus.db}"
+export TMACH_BIND=127.0.0.1
 S3_PORT="${S3_PORT:-8842}"
-export TELEMACHUS_S3_PORT="$S3_PORT"      # section 7 uploads through the S3 endpoint
+export TMACH_S3_PORT="$S3_PORT"      # section 7 uploads through the S3 endpoint
 LIVE=1; MOCK=""
-if [ -z "${TELEMACHUS_MODEL_URL:-}" ]; then
+if [ -z "${TMACH_MODEL_URL:-}" ]; then
   LIVE=0
   if port_busy "$MOCK_PORT"; then echo "port $MOCK_PORT is in use — set MOCK_PORT=<free port>" >&2; exit 1; fi
-  export MOCK_REPLY_FILE="$TELEMACHUS_DATA_DIR/reply.json"
+  export MOCK_REPLY_FILE="$TMACH_DATA_DIR/reply.json"
   cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
  "You classify a document": "{\"label\":\"report\",\"confidence\":0.42,\"rationale\":\"mock\"}",
  "professional translator": "VERTAALD: Purchase approval for Acme Corp",
  "*": "MOCK"}
 JSON
-  MOCK_PORT="$MOCK_PORT" racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock.log" 2>&1 &
+  MOCK_PORT="$MOCK_PORT" racket test/mock-llm.rkt >"$TMACH_DATA_DIR/mock.log" 2>&1 &
   MOCK=$!
-  export TELEMACHUS_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions"
-  export TELEMACHUS_MODEL=mock
+  export TMACH_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions"
+  export TMACH_MODEL=mock
 fi
 
 fail=0
@@ -64,12 +64,12 @@ refute(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  FAIL $1 — must 
 differ(){ if [ "$2" != "$3" ]; then echo "  ok   $1"; else echo "  FAIL $1 — both were: $2"; fail=1; fi; }
 jq_(){ python3 -c 'import sys,json;print(eval(sys.argv[1],{"d":json.load(sys.stdin)}))' "$1"; }
 
-racket server/main.rkt >"$TELEMACHUS_DATA_DIR/server.log" 2>&1 &
+racket server/main.rkt >"$TMACH_DATA_DIR/server.log" 2>&1 &
 SRV=$!
-cleanup(){ kill $SRV 2>/dev/null; [ -n "$MOCK" ] && kill $MOCK 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"; }
+cleanup(){ kill $SRV 2>/dev/null; [ -n "$MOCK" ] && kill $MOCK 2>/dev/null; rm -rf "$TMACH_DATA_DIR"; }
 trap cleanup EXIT
 tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
-  tries=$((tries+1)); [ $tries -gt 40000 ] && { echo "server never came up"; cat "$TELEMACHUS_DATA_DIR/server.log"; exit 1; }
+  tries=$((tries+1)); [ $tries -gt 40000 ] && { echo "server never came up"; cat "$TMACH_DATA_DIR/server.log"; exit 1; }
 done; exec 3>&- 2>/dev/null || true
 
 B="localhost:$PORT"
@@ -102,7 +102,7 @@ except Exception: print("")')
     case "$RUNST" in done|error|canceled) break;; esac; sleep 0.5
   done; }
 
-echo "doc-pipeline smoke — model: ${TELEMACHUS_MODEL:-?} at $TELEMACHUS_MODEL_URL ($([ $LIVE = 1 ] && echo live || echo mock))"
+echo "doc-pipeline smoke — model: ${TMACH_MODEL:-?} at $TMACH_MODEL_URL ($([ $LIVE = 1 ] && echo live || echo mock))"
 echo
 echo "== 0. bootstrap, a colleague, a budget ========================================"
 TOK=$(curl -s -X POST $B/api/bootstrap -d '{"username":"alice","password":"demo-pass1"}' | jq_ 'd["token"]')
@@ -131,13 +131,13 @@ assert "...and so is the indexer's"       "$(G /api/tools)" '"name":"repo_extrac
 
 echo
 echo "== 1. a PRIVATE invoice shared with bob, and a form template ==================="
-printf 'INVOICE\nAcme Corp\n2026-09-01\nWidgets 1000\nShipping 250.50\nTotal 1250.50\n' > "$TELEMACHUS_DATA_DIR/inv.txt"
-INV=$(curl -s -X PUT "$B/api/repo/inbox/acme.txt?visibility=private" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/inv.txt")
+printf 'INVOICE\nAcme Corp\n2026-09-01\nWidgets 1000\nShipping 250.50\nTotal 1250.50\n' > "$TMACH_DATA_DIR/inv.txt"
+INV=$(curl -s -X PUT "$B/api/repo/inbox/acme.txt?visibility=private" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' --data-binary @"$TMACH_DATA_DIR/inv.txt")
 INVID=$(printf '%s' "$INV" | jq_ 'd["id"]')
 assert "invoice is private" "$INV" '"visibility":"private"'
 assert "shared with bob (view)" "$(P "/api/repo-obj/$INVID/share" "{\"user_id\":\"$BOBID\"}")" '"capability":"view"'
-printf '# Purchase approval\n\nVendor: {{vendor}}\nTotal: {{total}}\n\n{{#each items}}- {{description}}: {{amount}}\n{{/each}}' > "$TELEMACHUS_DATA_DIR/tmpl.md"
-assert "template uploaded" "$(curl -s -X PUT "$B/api/repo/templates/approval.md" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/markdown' --data-binary @"$TELEMACHUS_DATA_DIR/tmpl.md")" '"key":"templates/approval.md"'
+printf '# Purchase approval\n\nVendor: {{vendor}}\nTotal: {{total}}\n\n{{#each items}}- {{description}}: {{amount}}\n{{/each}}' > "$TMACH_DATA_DIR/tmpl.md"
+assert "template uploaded" "$(curl -s -X PUT "$B/api/repo/templates/approval.md" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/markdown' --data-binary @"$TMACH_DATA_DIR/tmpl.md")" '"key":"templates/approval.md"'
 
 echo
 echo "== 2. run process-upload by hand: text -> fields -> form -> ja + nl ============="
@@ -196,7 +196,7 @@ assert "the form step's result is an artifact" "$RUNJSON_FORM" '"artifact":{'
 assert "shared with me: the invoice"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt"'
 assert "shared with me: its outputs"  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $BOB")" '"key":"inbox/acme.txt.form.md"'
 # a DOCX template (DWF-6, step 5): the form comes back as a .docx
-python3 - "$TELEMACHUS_DATA_DIR/approval.docx" <<'PY'
+python3 - "$TMACH_DATA_DIR/approval.docx" <<'PY'
 import sys, zipfile
 xml = ('<w:document><w:body><w:p><w:r><w:t>Vendor: {{ven</w:t></w:r><w:r><w:t>dor}}</w:t></w:r></w:p>'
        '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>{{#each items}}</w:t></w:r></w:p></w:tc></w:tr>'
@@ -206,7 +206,7 @@ with zipfile.ZipFile(sys.argv[1], 'w') as z:
     z.writestr('[Content_Types].xml', '<Types/>'); z.writestr('word/document.xml', xml)
 PY
 DOCX_CT='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-assert "docx template uploaded" "$(curl -s -X PUT "$B/api/repo/templates/approval.docx" -H "Authorization: Bearer $TOK" -H "Content-Type: $DOCX_CT" --data-binary @"$TELEMACHUS_DATA_DIR/approval.docx")" '"key":"templates/approval.docx"'
+assert "docx template uploaded" "$(curl -s -X PUT "$B/api/repo/templates/approval.docx" -H "Authorization: Bearer $TOK" -H "Content-Type: $DOCX_CT" --data-binary @"$TMACH_DATA_DIR/approval.docx")" '"key":"templates/approval.docx"'
 RUND=$(P /api/workflows/process-upload/run "{\"input\":{\"object_id\":\"$INVID\",\"schema\":$SCHEMA,\"template\":\"templates/approval.docx\",\"locales\":[]}}")
 RIDD=$(printf '%s' "$RUND" | grep -oP '"id":"\K[^"]+' | head -1)
 wait_run "$RIDD"; STD="$RUNST"; [ "$STD" = done ] || STD="$STD — $(printf '%s' "$RUNJSON" | head -c 300)"
@@ -215,8 +215,8 @@ LISTD=$(G "/api/repo?prefix=inbox/acme.txt.form.docx")
 assert "the form is a .docx beside the source" "$LISTD" '"key":"inbox/acme.txt.form.docx"'
 assert "…with the DOCX content type" "$LISTD" "\"content_type\":\"$DOCX_CT\""
 DID=$(printf '%s' "$LISTD" | python3 -c 'import sys,json;print(json.load(sys.stdin)["objects"][0]["id"])')
-curl -s "$B/api/repo-obj/$DID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/form.docx"
-assert "the .docx opens and is filled" "$(python3 -c 'import sys,zipfile;print(zipfile.ZipFile(sys.argv[1]).read("word/document.xml").decode())' "$TELEMACHUS_DATA_DIR/form.docx")" 'Vendor: Acme Corp'
+curl -s "$B/api/repo-obj/$DID/content" -H "Authorization: Bearer $TOK" -o "$TMACH_DATA_DIR/form.docx"
+assert "the .docx opens and is filled" "$(python3 -c 'import sys,zipfile;print(zipfile.ZipFile(sys.argv[1]).read("word/document.xml").decode())' "$TMACH_DATA_DIR/form.docx")" 'Vendor: Acme Corp'
 
 echo
 echo "== 3b. PDF output (DWF-6): a workflow that binds format \"pdf\" ================"
@@ -236,10 +236,10 @@ if command -v pandoc >/dev/null && command -v tectonic >/dev/null; then
   assert "the form is a .pdf beside the source" "$LISTP" '"key":"inbox/acme.txt.form.pdf"'
   assert "…with the PDF content type" "$LISTP" '"content_type":"application/pdf"'
   PDID=$(printf '%s' "$LISTP" | python3 -c 'import sys,json;print(json.load(sys.stdin)["objects"][0]["id"])')
-  curl -s "$B/api/repo-obj/$PDID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/form.pdf"
-  assert "it is a PDF" "$(head -c 4 "$TELEMACHUS_DATA_DIR/form.pdf")" '%PDF'
+  curl -s "$B/api/repo-obj/$PDID/content" -H "Authorization: Bearer $TOK" -o "$TMACH_DATA_DIR/form.pdf"
+  assert "it is a PDF" "$(head -c 4 "$TMACH_DATA_DIR/form.pdf")" '%PDF'
   if command -v pdftotext >/dev/null; then
-    assert "the PDF's text is the filled form" "$(pdftotext "$TELEMACHUS_DATA_DIR/form.pdf" -)" 'Vendor: Acme Corp'
+    assert "the PDF's text is the filled form" "$(pdftotext "$TMACH_DATA_DIR/form.pdf" -)" 'Vendor: Acme Corp'
   fi
 else
   assert "pdf refused by name without the toolchain" "$STP" 'needs pandoc and tectonic'
@@ -260,8 +260,8 @@ if [ $LIVE = 0 ]; then
   cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"total\":\"one thousand\",\"items\":[]}", "*": "MOCK"}
 JSON
-  printf 'a memo about nothing in particular' > "$TELEMACHUS_DATA_DIR/memo.txt"
-  MEMO=$(curl -s -X PUT "$B/api/repo/inbox/memo.txt" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/memo.txt")
+  printf 'a memo about nothing in particular' > "$TMACH_DATA_DIR/memo.txt"
+  MEMO=$(curl -s -X PUT "$B/api/repo/inbox/memo.txt" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' --data-binary @"$TMACH_DATA_DIR/memo.txt")
   MEMOID=$(printf '%s' "$MEMO" | jq_ 'd["id"]')
   RUN3=$(P /api/workflows/process-upload/run "{\"input\":{\"object_id\":\"$MEMOID\",\"schema\":$SCHEMA,\"template\":\"templates/approval.md\",\"locales\":[\"ja\"]}}")
   RID3=$(printf '%s' "$RUN3" | grep -oP '"id":"\K[^"]+' | head -1)
@@ -287,15 +287,15 @@ fi
 # A letter, an invoice, a photograph and a report under ONE prefix — the case
 # `process-upload` could not serve, because one schema cannot read all four and
 # nothing told it which it was reading.
-printf 'INVOICE 4471\nAcme Corp\nTotal due 1250.50\n' > "$TELEMACHUS_DATA_DIR/m-inv.txt"
-printf 'Dear Ms Smith,\n\nYour tenancy begins on 2026-11-01.\n\nYours,\nAcme\n' > "$TELEMACHUS_DATA_DIR/m-let.txt"
-printf 'not really a jpeg' > "$TELEMACHUS_DATA_DIR/m-pho.jpg"
-printf 'Quarterly summary of levee inspections for the north reach.\n' > "$TELEMACHUS_DATA_DIR/m-rep.txt"
+printf 'INVOICE 4471\nAcme Corp\nTotal due 1250.50\n' > "$TMACH_DATA_DIR/m-inv.txt"
+printf 'Dear Ms Smith,\n\nYour tenancy begins on 2026-11-01.\n\nYours,\nAcme\n' > "$TMACH_DATA_DIR/m-let.txt"
+printf 'not really a jpeg' > "$TMACH_DATA_DIR/m-pho.jpg"
+printf 'Quarterly summary of levee inspections for the north reach.\n' > "$TMACH_DATA_DIR/m-rep.txt"
 up(){ curl -s -X PUT "$B/api/repo/$1" -H "Authorization: Bearer $TOK" -H "Content-Type: $2" --data-binary @"$3"; }
-MINV=$(up mixed/a.txt text/plain "$TELEMACHUS_DATA_DIR/m-inv.txt" | jq_ 'd["id"]')
-MLET=$(up mixed/b.txt text/plain "$TELEMACHUS_DATA_DIR/m-let.txt" | jq_ 'd["id"]')
-MPHO=$(up mixed/c.jpg image/jpeg "$TELEMACHUS_DATA_DIR/m-pho.jpg" | jq_ 'd["id"]')
-MREP=$(up mixed/d.txt text/plain "$TELEMACHUS_DATA_DIR/m-rep.txt" | jq_ 'd["id"]')
+MINV=$(up mixed/a.txt text/plain "$TMACH_DATA_DIR/m-inv.txt" | jq_ 'd["id"]')
+MLET=$(up mixed/b.txt text/plain "$TMACH_DATA_DIR/m-let.txt" | jq_ 'd["id"]')
+MPHO=$(up mixed/c.jpg image/jpeg "$TMACH_DATA_DIR/m-pho.jpg" | jq_ 'd["id"]')
+MREP=$(up mixed/d.txt text/plain "$TMACH_DATA_DIR/m-rep.txt" | jq_ 'd["id"]')
 assert "the workflow arrived from the plugin" "$(G /api/workflows)" '"slug":"classify-and-extract"'
 assert "doc_classify is registered"           "$(G /api/tools)" '"name":"doc_classify"'
 
@@ -404,10 +404,10 @@ rattr(){ G "/api/repo-obj/$1" | python3 -c 'import sys,json;print(json.load(sys.
 assert "the review workflow arrived from the plugin" "$(G /api/workflows)" '"slug":"classify-review-extract"'
 assert "doc_set_type is registered"                  "$(G /api/tools)" '"name":"doc_set_type"'
 
-printf 'Dear Ms Smith,\n\nYour tenancy begins on 2026-11-01.\n\nYours,\nAcme\n' > "$TELEMACHUS_DATA_DIR/r-let.txt"
-printf 'Minutes of the site meeting, 14 October.\n' > "$TELEMACHUS_DATA_DIR/r-min.txt"
-RLET=$(up rev/b.txt text/plain "$TELEMACHUS_DATA_DIR/r-let.txt" | jq_ 'd["id"]')
-RMIN=$(up rev/c.txt text/plain "$TELEMACHUS_DATA_DIR/r-min.txt" | jq_ 'd["id"]')
+printf 'Dear Ms Smith,\n\nYour tenancy begins on 2026-11-01.\n\nYours,\nAcme\n' > "$TMACH_DATA_DIR/r-let.txt"
+printf 'Minutes of the site meeting, 14 October.\n' > "$TMACH_DATA_DIR/r-min.txt"
+RLET=$(up rev/b.txt text/plain "$TMACH_DATA_DIR/r-let.txt" | jq_ 'd["id"]')
+RMIN=$(up rev/c.txt text/plain "$TMACH_DATA_DIR/r-min.txt" | jq_ 'd["id"]')
 
 # --- the gate (CLS-13). The threshold is a `choice` on the confidence, not a flag
 # on the tool: only a STEP can park a run (LAY-1), and `lt` with a `number` input
@@ -488,14 +488,14 @@ echo "== 5d. the backlog: a backfill over a prefix (#87 req 5, CLS-24…28) ====
 # was already there when the labels were decided — requirement 5, and the thing
 # CLS-23 deliberately does not do: creating a trigger does not fire it on what
 # already matches.
-printf 'INVOICE 9001\nAcme Corp\nTotal due 42.00\n' > "$TELEMACHUS_DATA_DIR/b-inv.txt"
-printf 'Dear Mr Jones,\n\nThe survey is enclosed.\n' > "$TELEMACHUS_DATA_DIR/b-let.txt"
-printf 'nor is this a jpeg' > "$TELEMACHUS_DATA_DIR/b-pho.jpg"
-BINV=$(up back/a.txt text/plain "$TELEMACHUS_DATA_DIR/b-inv.txt" | jq_ 'd["id"]')
-BLET=$(up back/b.txt text/plain "$TELEMACHUS_DATA_DIR/b-let.txt" | jq_ 'd["id"]')
-BPHO=$(up back/c.jpg image/jpeg "$TELEMACHUS_DATA_DIR/b-pho.jpg" | jq_ 'd["id"]')
+printf 'INVOICE 9001\nAcme Corp\nTotal due 42.00\n' > "$TMACH_DATA_DIR/b-inv.txt"
+printf 'Dear Mr Jones,\n\nThe survey is enclosed.\n' > "$TMACH_DATA_DIR/b-let.txt"
+printf 'nor is this a jpeg' > "$TMACH_DATA_DIR/b-pho.jpg"
+BINV=$(up back/a.txt text/plain "$TMACH_DATA_DIR/b-inv.txt" | jq_ 'd["id"]')
+BLET=$(up back/b.txt text/plain "$TMACH_DATA_DIR/b-let.txt" | jq_ 'd["id"]')
+BPHO=$(up back/c.jpg image/jpeg "$TMACH_DATA_DIR/b-pho.jpg" | jq_ 'd["id"]')
 # a document OUTSIDE the prefix, to prove the window is the window
-BOUT=$(up outside/d.txt text/plain "$TELEMACHUS_DATA_DIR/b-inv.txt" | jq_ 'd["id"]')
+BOUT=$(up outside/d.txt text/plain "$TMACH_DATA_DIR/b-inv.txt" | jq_ 'd["id"]')
 
 assert "the backfill workflow arrived"       "$(G /api/workflows)" '"slug":"classify-backfill"'
 assert "doc_list_unclassified is registered" "$(G /api/tools)" '"name":"doc_list_unclassified"'
@@ -565,12 +565,12 @@ if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
  "*": "MOCK"}
 JSON
 fi
-printf 'INVOICE 7001\nAcme Corp\nTotal due 7.00\n' > "$TELEMACHUS_DATA_DIR/e-inv.txt"
-printf 'Dear Ms Patel,\n\nThe inspection is booked.\n' > "$TELEMACHUS_DATA_DIR/e-let.txt"
-printf 'still not a jpeg' > "$TELEMACHUS_DATA_DIR/e-pho.jpg"
-EINV=$(up eval/a.txt text/plain "$TELEMACHUS_DATA_DIR/e-inv.txt" | jq_ 'd["id"]')
-ELET=$(up eval/b.txt text/plain "$TELEMACHUS_DATA_DIR/e-let.txt" | jq_ 'd["id"]')
-EPHO=$(up eval/c.jpg image/jpeg "$TELEMACHUS_DATA_DIR/e-pho.jpg" | jq_ 'd["id"]')
+printf 'INVOICE 7001\nAcme Corp\nTotal due 7.00\n' > "$TMACH_DATA_DIR/e-inv.txt"
+printf 'Dear Ms Patel,\n\nThe inspection is booked.\n' > "$TMACH_DATA_DIR/e-let.txt"
+printf 'still not a jpeg' > "$TMACH_DATA_DIR/e-pho.jpg"
+EINV=$(up eval/a.txt text/plain "$TMACH_DATA_DIR/e-inv.txt" | jq_ 'd["id"]')
+ELET=$(up eval/b.txt text/plain "$TMACH_DATA_DIR/e-let.txt" | jq_ 'd["id"]')
+EPHO=$(up eval/c.jpg image/jpeg "$TMACH_DATA_DIR/e-pho.jpg" | jq_ 'd["id"]')
 
 assert "the evaluation workflow arrived"  "$(G /api/workflows)" '"slug":"classify-eval"'
 assert "doc_classify_eval is registered"  "$(G /api/tools)" '"name":"doc_classify_eval"'
@@ -671,8 +671,8 @@ echo "== 5f. what the model is NOT told: redaction (#91 req 1, RED-1…9) ======
 # Every block above sends a document's text to a model entire. This is the step
 # that minimises it — and the artifact is a DOCUMENT, because "show me what you
 # would have sent" is the only way a person can audit a redaction.
-printf 'Dear Ms Patel,\n\nYour claim 44719823 was received on 2026-10-14. We wrote to Arun Patel\nat arun.patel@example.com and tried to reach him on +44 20 7946 0958.\nHis date of birth is 3 April 1981.\n' > "$TELEMACHUS_DATA_DIR/r-let.txt"
-RLET=$(up red/letter.txt text/plain "$TELEMACHUS_DATA_DIR/r-let.txt" | jq_ 'd["id"]')
+printf 'Dear Ms Patel,\n\nYour claim 44719823 was received on 2026-10-14. We wrote to Arun Patel\nat arun.patel@example.com and tried to reach him on +44 20 7946 0958.\nHis date of birth is 3 April 1981.\n' > "$TMACH_DATA_DIR/r-let.txt"
+RLET=$(up red/letter.txt text/plain "$TMACH_DATA_DIR/r-let.txt" | jq_ 'd["id"]')
 
 assert "the redaction workflow arrived"   "$(G /api/workflows)" '"slug":"redact-document"'
 assert "doc_redact is registered"         "$(G /api/tools)" '"name":"doc_redact"'
@@ -748,8 +748,8 @@ assert "…and why the caller cannot write one" "$RUNJSON" 'rather than one the 
 # RED-4: a document already containing a token is refused, because a token minted
 # here could not be told from it — and putting values back would then write an
 # identifier where the document never had one
-printf 'see <PERSON_1> above\n' > "$TELEMACHUS_DATA_DIR/r-tok.txt"
-RTOK=$(up red/tokened.txt text/plain "$TELEMACHUS_DATA_DIR/r-tok.txt" | jq_ 'd["id"]')
+printf 'see <PERSON_1> above\n' > "$TMACH_DATA_DIR/r-tok.txt"
+RTOK=$(up red/tokened.txt text/plain "$TMACH_DATA_DIR/r-tok.txt" | jq_ 'd["id"]')
 RT=$(P /api/workflows/redact-document/run \
   "{\"input\":{\"object_id\":\"$RTOK\",\"detectors\":[\"email\"],\"terms\":[]}}")
 wait_run "$(printf '%s' "$RT" | grep -oP '"id":"\K[^"]+' | head -1)"
@@ -774,8 +774,8 @@ if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
  "*": "MOCK"}
 JSON
 fi
-printf 'Dear Ms Patel,\n\nYour claim 44719823 was received on 2026-10-14. We wrote to Arun Patel\nat arun.patel@example.com and tried to reach him on +44 20 7946 0958.\nHis date of birth is 3 April 1981.\n' > "$TELEMACHUS_DATA_DIR/g-let.txt"
-GLET=$(up redstep/letter.txt text/plain "$TELEMACHUS_DATA_DIR/g-let.txt" | jq_ 'd["id"]')
+printf 'Dear Ms Patel,\n\nYour claim 44719823 was received on 2026-10-14. We wrote to Arun Patel\nat arun.patel@example.com and tried to reach him on +44 20 7946 0958.\nHis date of birth is 3 April 1981.\n' > "$TMACH_DATA_DIR/g-let.txt"
+GLET=$(up redstep/letter.txt text/plain "$TMACH_DATA_DIR/g-let.txt" | jq_ 'd["id"]')
 
 GSCHEMA='{"type":"object","required":["who","phone","dob"],"properties":{"who":{"type":"string"},"phone":{"type":"string"},"dob":{"type":"string"}}}'
 GWF='{"spec":1,"slug":"redacted-extract","input":{"object_id":"string"},"steps":[
@@ -848,8 +848,8 @@ fs.append({"key":"sensitivity","label":"Sensitivity"})
 print(json.dumps({"fields":fs}))')
 assert "the team defines a sensitivity field" "$(PU /api/repo-fields "$HFIELDS")" '"key":"sensitivity"'
 
-printf 'Dear Ms Patel,\n\nYour claim 44719823 was received.\n' > "$TELEMACHUS_DATA_DIR/h-let.txt"
-HOBJ=$(up sens/letter.txt text/plain "$TELEMACHUS_DATA_DIR/h-let.txt" | jq_ 'd["id"]')
+printf 'Dear Ms Patel,\n\nYour claim 44719823 was received.\n' > "$TMACH_DATA_DIR/h-let.txt"
+HOBJ=$(up sens/letter.txt text/plain "$TMACH_DATA_DIR/h-let.txt" | jq_ 'd["id"]')
 assert "the document is marked confidential" \
   "$(PA "/api/repo-obj/$HOBJ/attributes" '{"attributes":{"sensitivity":"confidential"}}')" \
   '"sensitivity":"confidential"'
@@ -982,12 +982,12 @@ echo "== 5i. filling a PDF form somebody ELSE wrote (#88 req 2, FORM-1…9) ====
 if ! command -v pdfcpu >/dev/null 2>&1; then
   echo "  skip  no pdfcpu on PATH — the form block needs it (CI's devShell has it)"
 else
-python3 -I test/make-acroform.py "$TELEMACHUS_DATA_DIR/request.pdf"
-FOBJ=$(up forms/request.pdf application/pdf "$TELEMACHUS_DATA_DIR/request.pdf" | jq_ 'd["id"]')
-python3 -I test/make-acroform.py --plain "$TELEMACHUS_DATA_DIR/plain.pdf"
-FPDF=$(up forms/plain.pdf application/pdf "$TELEMACHUS_DATA_DIR/plain.pdf" | jq_ 'd["id"]')
-printf 'an ordinary document, not a form\n' > "$TELEMACHUS_DATA_DIR/f-plain.txt"
-FTXT=$(up forms/plain.txt text/plain "$TELEMACHUS_DATA_DIR/f-plain.txt" | jq_ 'd["id"]')
+python3 -I test/make-acroform.py "$TMACH_DATA_DIR/request.pdf"
+FOBJ=$(up forms/request.pdf application/pdf "$TMACH_DATA_DIR/request.pdf" | jq_ 'd["id"]')
+python3 -I test/make-acroform.py --plain "$TMACH_DATA_DIR/plain.pdf"
+FPDF=$(up forms/plain.pdf application/pdf "$TMACH_DATA_DIR/plain.pdf" | jq_ 'd["id"]')
+printf 'an ordinary document, not a form\n' > "$TMACH_DATA_DIR/f-plain.txt"
+FTXT=$(up forms/plain.txt text/plain "$TMACH_DATA_DIR/f-plain.txt" | jq_ 'd["id"]')
 
 # DISCOVERY FIRST, because a caller cannot send values without it: the names are
 # in somebody else's document and nothing else publishes them.
@@ -1102,17 +1102,17 @@ echo "== 5j. a branded, paged document out of HTML and CSS (#88 req 1, HPDF-1…
 #
 # Found at CALL time, so a box without weasyprint is a SUPPORTED box and this
 # block asserts the named refusal there instead of skipping silently.
-cat > "$TELEMACHUS_DATA_DIR/logo.svg" <<'SVG'
+cat > "$TMACH_DATA_DIR/logo.svg" <<'SVG'
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#334455"/></svg>
 SVG
-WLOGO=$(up brand/logo.svg image/svg+xml "$TELEMACHUS_DATA_DIR/logo.svg" | jq_ 'd["id"]')
+WLOGO=$(up brand/logo.svg image/svg+xml "$TMACH_DATA_DIR/logo.svg" | jq_ 'd["id"]')
 
 # The template is a repository document, versioned and access-controlled, which
 # is requirement 4 — and the logo is reached BY OBJECT ID, which is requirement
 # 1's "images from repo objects by id". A scheme rather than a path, because
 # every reference has to be resolvable BEFORE anything runs: each one is read as
 # the caller and inlined, and then the renderer is allowed to fetch nothing else.
-python3 - "$TELEMACHUS_DATA_DIR/report.html" "$WLOGO" <<'PY'
+python3 - "$TMACH_DATA_DIR/report.html" "$WLOGO" <<'PY'
 import sys
 path, logo = sys.argv[1], sys.argv[2]
 rows = "".join(
@@ -1138,9 +1138,9 @@ td.wrap { width: 55%%; }
 <tbody>%s</tbody></table></body></html>
 """ % (logo, rows))
 PY
-WTPL=$(up templates/report.html text/html "$TELEMACHUS_DATA_DIR/report.html" | jq_ 'd["id"]')
-printf 'the source this report is about\n' > "$TELEMACHUS_DATA_DIR/w-src.txt"
-WSRC=$(up wk/source.txt text/plain "$TELEMACHUS_DATA_DIR/w-src.txt" | jq_ 'd["id"]')
+WTPL=$(up templates/report.html text/html "$TMACH_DATA_DIR/report.html" | jq_ 'd["id"]')
+printf 'the source this report is about\n' > "$TMACH_DATA_DIR/w-src.txt"
+WSRC=$(up wk/source.txt text/plain "$TMACH_DATA_DIR/w-src.txt" | jq_ 'd["id"]')
 
 WWF='{"spec":1,"slug":"brand-report","input":{"object_id":"string","template":"string","engine":"string","variant":"string"},"steps":[
   {"id":"doc","uses":"tool:doc_render","with":{"template":"${input.template}","object":"${input.object_id}",
@@ -1161,10 +1161,10 @@ else
   WLIST=$(G "/api/repo?prefix=wk/source.txt.form.pdf")
   assert "…typed as a PDF"                   "$WLIST" '"content_type":"application/pdf"'
   WPID=$(printf '%s' "$WLIST" | jq_ 'd["objects"][0]["id"]')
-  curl -s "$B/api/repo-obj/$WPID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/report.pdf"
-  assert "it really is a PDF"                "$(head -c 4 "$TELEMACHUS_DATA_DIR/report.pdf")" '%PDF'
+  curl -s "$B/api/repo-obj/$WPID/content" -H "Authorization: Bearer $TOK" -o "$TMACH_DATA_DIR/report.pdf"
+  assert "it really is a PDF"                "$(head -c 4 "$TMACH_DATA_DIR/report.pdf")" '%PDF'
   if command -v pdftotext >/dev/null 2>&1; then
-    WTXT=$(pdftotext "$TELEMACHUS_DATA_DIR/report.pdf" - | tr -s '[:space:]' ' ')
+    WTXT=$(pdftotext "$TMACH_DATA_DIR/report.pdf" - | tr -s '[:space:]' ' ')
     # THE ACCEPTANCE CRITERION, over HTTP: the data reached the template, the
     # table broke across pages, the running header repeats, and the page TOTAL is
     # right — `counter(pages)`, which is the thing the LaTeX path and Chromium
@@ -1194,13 +1194,13 @@ else
   # without reading its log this would hand a customer a report with a hole where
   # the logo was. A template may reach a repository document by id and nothing
   # else — no network, no local file.
-  python3 - "$TELEMACHUS_DATA_DIR/evil.html" <<'PY'
+  python3 - "$TMACH_DATA_DIR/evil.html" <<'PY'
 import sys
 open(sys.argv[1], "w").write(
     '<!doctype html><html><head><meta charset="utf-8"><title>{{title}}</title></head>'
     '<body><img src="file:///etc/hosts" alt="local"><p>{{title}}</p></body></html>\n')
 PY
-  WEVIL=$(up templates/evil.html text/html "$TELEMACHUS_DATA_DIR/evil.html" | jq_ 'd["id"]')
+  WEVIL=$(up templates/evil.html text/html "$TMACH_DATA_DIR/evil.html" | jq_ 'd["id"]')
   WR4=$(P /api/workflows/brand-report/run "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WEVIL\",\"engine\":\"weasyprint\",\"variant\":\"\"}}")
   wait_run "$(printf '%s' "$WR4" | grep -oP '"id":"\K[^"]+' | head -1)"
   assert "a template reaching a local file is refused"  "$RUNST" error
@@ -1217,21 +1217,21 @@ PY
   # and an operator passes everything team-tier, so the private document really
   # was read, exactly as designed, and the case failed against correct code. The
   # subject is alice's private document now and the run is bob's, a plain member.
-  printf 'ALICEONLYNEEDLE kept private\n' > "$TELEMACHUS_DATA_DIR/w-priv.txt"
+  printf 'ALICEONLYNEEDLE kept private\n' > "$TMACH_DATA_DIR/w-priv.txt"
   WPRIV=$(curl -s -X PUT "$B/api/repo/alices/private.txt?visibility=private" \
             -H "Authorization: Bearer $TOK" -H "Content-Type: text/plain" \
-            --data-binary @"$TELEMACHUS_DATA_DIR/w-priv.txt" | jq_ 'd["id"]')
+            --data-binary @"$TMACH_DATA_DIR/w-priv.txt" | jq_ 'd["id"]')
   assert "alice's document really is private" \
     "$(G "/api/repo-obj/$WPRIV")" '"visibility":"private"'
   refute "…and bob cannot read it directly" \
     "$(curl -s "$B/api/repo-obj/$WPRIV/content" -H "Authorization: Bearer $BOB")" 'ALICEONLYNEEDLE'
-  python3 - "$TELEMACHUS_DATA_DIR/peek.html" "$WPRIV" <<'PY'
+  python3 - "$TMACH_DATA_DIR/peek.html" "$WPRIV" <<'PY'
 import sys
 open(sys.argv[1], "w").write(
     '<!doctype html><html><head><meta charset="utf-8"><title>{{title}}</title></head>'
     '<body><img src="repo:%s"><p>{{title}}</p></body></html>\n' % sys.argv[2])
 PY
-  WPEEK=$(up templates/peek.html text/html "$TELEMACHUS_DATA_DIR/peek.html" | jq_ 'd["id"]')
+  WPEEK=$(up templates/peek.html text/html "$TMACH_DATA_DIR/peek.html" | jq_ 'd["id"]')
   WR5=$(curl -s -X POST "$B/api/workflows/brand-report/run" -H "Authorization: Bearer $BOB" \
           -d "{\"input\":{\"object_id\":\"$WSRC\",\"template\":\"$WPEEK\",\"engine\":\"weasyprint\",\"variant\":\"\"}}")
   wait_run "$(printf '%s' "$WR5" | grep -oP '"id":"\K[^"]+' | head -1)"
@@ -1243,7 +1243,7 @@ PY
   # HAD read the private document and base64'd it into the HTML, and the refusal
   # quoted the data: URI — so the needle was right there, encoded, and the
   # refutation was green. Refute the ENCODED form beside the plain one.
-  WB64=$(python3 -c 'import base64,sys;print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$TELEMACHUS_DATA_DIR/w-priv.txt")
+  WB64=$(python3 -c 'import base64,sys;print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$TMACH_DATA_DIR/w-priv.txt")
   refute "…nor a base64 copy of it"           "$RUNJSON" "$WB64"
   curl -s -X DELETE "$B/api/repo-obj/$WPRIV?cascade=1" -H "Authorization: Bearer $TOK" >/dev/null
 fi
@@ -1286,7 +1286,7 @@ echo "== 5k. a filled DOCX, converted to PDF (#88 req 3, OFFICE-1…5) =========
 # before the binary: the external-reference refusal is the only sandbox this
 # engine can have, and it is exercised on a box where LibreOffice cannot be
 # installed at all — which includes this project's own development platform.
-python3 - "$TELEMACHUS_DATA_DIR/office.docx" <<'PY'
+python3 - "$TMACH_DATA_DIR/office.docx" <<'PY'
 import sys, zipfile
 xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
@@ -1320,15 +1320,15 @@ write(sys.argv[1])
 write(sys.argv[1].replace('.docx', '-linked.docx'), 'https://cdn.example/logo.png')
 PY
 ODOCX_CT='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-OTPL=$(up templates/office.docx "$ODOCX_CT" "$TELEMACHUS_DATA_DIR/office.docx" | jq_ 'd["id"]')
-OLINK=$(up templates/office-linked.docx "$ODOCX_CT" "$TELEMACHUS_DATA_DIR/office-linked.docx" | jq_ 'd["id"]')
-printf 'the source this office report is about\n' > "$TELEMACHUS_DATA_DIR/o-src.txt"
-OSRC=$(up office/source.txt text/plain "$TELEMACHUS_DATA_DIR/o-src.txt" | jq_ 'd["id"]')
+OTPL=$(up templates/office.docx "$ODOCX_CT" "$TMACH_DATA_DIR/office.docx" | jq_ 'd["id"]')
+OLINK=$(up templates/office-linked.docx "$ODOCX_CT" "$TMACH_DATA_DIR/office-linked.docx" | jq_ 'd["id"]')
+printf 'the source this office report is about\n' > "$TMACH_DATA_DIR/o-src.txt"
+OSRC=$(up office/source.txt text/plain "$TMACH_DATA_DIR/o-src.txt" | jq_ 'd["id"]')
 # §5j removes its own HTML template, so this block uploads the one it needs for
 # the wrong-template refusal rather than reaching for a dangling id — which
 # would fail the assertion for "no such template" instead of for the engine.
-printf '<!doctype html><html><head><meta charset="utf-8"><title>{{title}}</title></head><body><p>{{author}}</p></body></html>\n' > "$TELEMACHUS_DATA_DIR/o-tpl.html"
-OHTML=$(up templates/office-wrong.html text/html "$TELEMACHUS_DATA_DIR/o-tpl.html" | jq_ 'd["id"]')
+printf '<!doctype html><html><head><meta charset="utf-8"><title>{{title}}</title></head><body><p>{{author}}</p></body></html>\n' > "$TMACH_DATA_DIR/o-tpl.html"
+OHTML=$(up templates/office-wrong.html text/html "$TMACH_DATA_DIR/o-tpl.html" | jq_ 'd["id"]')
 
 # `brand-report` (published in 5j) already passes template, engine and
 # pdf_variant through to doc_render — reused rather than published again, which
@@ -1342,13 +1342,13 @@ if command -v soffice >/dev/null 2>&1 || command -v libreoffice >/dev/null 2>&1;
   OLIST=$(G "/api/repo?prefix=office/source.txt.form.pdf")
   assert "…typed as a PDF"                    "$OLIST" '"content_type":"application/pdf"'
   OPID=$(printf '%s' "$OLIST" | jq_ 'd["objects"][0]["id"]')
-  curl -s "$B/api/repo-obj/$OPID/content" -H "Authorization: Bearer $TOK" -o "$TELEMACHUS_DATA_DIR/office.pdf"
-  assert "it really is a PDF"                 "$(head -c 4 "$TELEMACHUS_DATA_DIR/office.pdf")" '%PDF'
+  curl -s "$B/api/repo-obj/$OPID/content" -H "Authorization: Bearer $TOK" -o "$TMACH_DATA_DIR/office.pdf"
+  assert "it really is a PDF"                 "$(head -c 4 "$TMACH_DATA_DIR/office.pdf")" '%PDF'
   if command -v pdftotext >/dev/null 2>&1; then
     # a converter that wrote a blank page of the right size would pass every
     # assertion above, so the TEMPLATE's own filled text is what is asserted
     assert "the filled text survived the conversion" \
-      "$(pdftotext "$TELEMACHUS_DATA_DIR/office.pdf" - | tr -s '[:space:]' ' ')" 'Service report: Acme Service Report'
+      "$(pdftotext "$TMACH_DATA_DIR/office.pdf" - | tr -s '[:space:]' ' ')" 'Service report: Acme Service Report'
   fi
 else
   # OFF UNLESS INSTALLED, and the message has to say where it is meant to come
@@ -1403,10 +1403,10 @@ assert "…and its proposal workflow"         "$(G /api/workflows)" '"slug":"fee
 assert "its tools are registered"           "$(G /api/tools)" '"name":"feed_queue_put"'
 
 # An item shaped the way poll.rkt writes one: JSON under feeds/<slug>/.
-printf '{"title":"flaky webhook test","number":41}\n' > "$TELEMACHUS_DATA_DIR/q-a.json"
-printf '{"title":"certificate expiring","number":42}\n' > "$TELEMACHUS_DATA_DIR/q-b.json"
-QA=$(up feeds/gh/acme-repo-41.json application/json "$TELEMACHUS_DATA_DIR/q-a.json" | jq_ 'd["id"]')
-QB=$(up feeds/gh/acme-repo-42.json application/json "$TELEMACHUS_DATA_DIR/q-b.json" | jq_ 'd["id"]')
+printf '{"title":"flaky webhook test","number":41}\n' > "$TMACH_DATA_DIR/q-a.json"
+printf '{"title":"certificate expiring","number":42}\n' > "$TMACH_DATA_DIR/q-b.json"
+QA=$(up feeds/gh/acme-repo-41.json application/json "$TMACH_DATA_DIR/q-a.json" | jq_ 'd["id"]')
+QB=$(up feeds/gh/acme-repo-42.json application/json "$TMACH_DATA_DIR/q-b.json" | jq_ 'd["id"]')
 
 # THE QUEUE IS AN INDEX, NOT A POLICY: the priority, the due date and the skills
 # are the caller's — a plugin that read "critical" out of somebody's GitHub label
@@ -1516,8 +1516,8 @@ assert "trigger created"  "$TRG" '"match_prefix":"inbox/auto/"'
 assert "trigger listed with the team budget" "$(G /api/doc-triggers)" '"budget":{'
 assert "a member cannot create one" "$(curl -s -X POST $B/api/doc-triggers -H "Authorization: Bearer $BOB" -d '{"workflow_slug":"process-upload"}')" 'Forbidden: workflows:write'
 # bob uploads: the run is bob's
-printf 'INVOICE\nAcme Corp\nWidgets 1000\nShipping 250.50\nTotal 1250.50\n' > "$TELEMACHUS_DATA_DIR/auto.txt"
-AUTO=$(curl -s -X PUT "$B/api/repo/inbox/auto/scan-001.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt")
+printf 'INVOICE\nAcme Corp\nWidgets 1000\nShipping 250.50\nTotal 1250.50\n' > "$TMACH_DATA_DIR/auto.txt"
+AUTO=$(curl -s -X PUT "$B/api/repo/inbox/auto/scan-001.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TMACH_DATA_DIR/auto.txt")
 AUTOID=$(printf '%s' "$AUTO" | jq_ 'd["id"]')
 assert "upload returned at once" "$AUTO" '"key":"inbox/auto/scan-001.txt"'
 FIRES=$(G "/api/doc-triggers/$TID")
@@ -1534,12 +1534,12 @@ done
 # DWF-3: the three outputs match the prefix; none of them re-fired the trigger
 assert "one fire, not four" "$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))')" "1"
 # an upload outside the prefix, and a non-matching type inside it, stay quiet
-curl -s -X PUT "$B/api/repo/inbox/manual/x.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt" >/dev/null
-curl -s -X PUT "$B/api/repo/inbox/auto/pic.png" -H "Authorization: Bearer $BOB" -H 'Content-Type: image/png' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt" >/dev/null
+curl -s -X PUT "$B/api/repo/inbox/manual/x.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TMACH_DATA_DIR/auto.txt" >/dev/null
+curl -s -X PUT "$B/api/repo/inbox/auto/pic.png" -H "Authorization: Bearer $BOB" -H 'Content-Type: image/png' --data-binary @"$TMACH_DATA_DIR/auto.txt" >/dev/null
 assert "still one fire" "$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))')" "1"
 # disable, upload, nothing; enable again
 assert "disabled" "$(curl -s -X PATCH "$B/api/doc-triggers/$TID" -H "Authorization: Bearer $TOK" -d '{"enabled":false}')" '"enabled":false'
-curl -s -X PUT "$B/api/repo/inbox/auto/scan-002.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TELEMACHUS_DATA_DIR/auto.txt" >/dev/null
+curl -s -X PUT "$B/api/repo/inbox/auto/scan-002.txt" -H "Authorization: Bearer $BOB" -H 'Content-Type: text/plain' --data-binary @"$TMACH_DATA_DIR/auto.txt" >/dev/null
 assert "a disabled trigger is silent" "$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["fires"]))')" "1"
 curl -s -X PATCH "$B/api/doc-triggers/$TID" -H "Authorization: Bearer $TOK" -d '{"enabled":true}' >/dev/null
 
@@ -1568,10 +1568,10 @@ TTRG=$(P /api/doc-triggers "{\"workflow_slug\":\"process-upload\",\"match_attrs\
 TTID=$(printf '%s' "$TTRG" | jq_ 'd["id"]')
 assert "a trigger on the document TYPE is created" "$TTRG" '"match_attrs":{"doc_type":"invoice"}'
 
-printf 'INVOICE 9002\nAcme Corp\nTotal due 42.00\n' > "$TELEMACHUS_DATA_DIR/t-inv.txt"
-printf 'Dear Ms Smith,\n\nRegards,\nAcme\n' > "$TELEMACHUS_DATA_DIR/t-let.txt"
-TINV=$(up typed/a.txt text/plain "$TELEMACHUS_DATA_DIR/t-inv.txt" | jq_ 'd["id"]')
-TLET=$(up typed/b.txt text/plain "$TELEMACHUS_DATA_DIR/t-let.txt" | jq_ 'd["id"]')
+printf 'INVOICE 9002\nAcme Corp\nTotal due 42.00\n' > "$TMACH_DATA_DIR/t-inv.txt"
+printf 'Dear Ms Smith,\n\nRegards,\nAcme\n' > "$TMACH_DATA_DIR/t-let.txt"
+TINV=$(up typed/a.txt text/plain "$TMACH_DATA_DIR/t-inv.txt" | jq_ 'd["id"]')
+TLET=$(up typed/b.txt text/plain "$TMACH_DATA_DIR/t-let.txt" | jq_ 'd["id"]')
 # the arrival itself can match nothing: the documents have no type yet
 assert "the uploads fired nothing" "$(nfires "$TTID")" "0"
 
@@ -1596,7 +1596,7 @@ assert "…and extracted the invoice's fields"   "$(G "/api/repo?prefix=typed/a.
 classify_run "$TINV" "$CRULES"
 assert "re-classifying does not re-fire"       "$(nfires "$TTID")" "1"
 # a NEW VERSION legitimately fires again, exactly as DWF-3 already said for uploads
-up typed/a.txt text/plain "$TELEMACHUS_DATA_DIR/t-inv.txt" >/dev/null
+up typed/a.txt text/plain "$TMACH_DATA_DIR/t-inv.txt" >/dev/null
 classify_run "$TINV" "$CRULES"
 assert "a new version of the document does"    "$(nfires "$TTID")" "2"
 
@@ -1614,14 +1614,14 @@ if command -v aws >/dev/null 2>&1; then
   export AWS_DEFAULT_REGION=us-east-1 AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
   E="http://127.0.0.1:$S3_PORT"
   BUCKET=default        # the bucket is the team slug; bootstrap names the first team "default"
-  aws --endpoint-url "$E" s3 cp "$TELEMACHUS_DATA_DIR/auto.txt" "s3://$BUCKET/inbox/auto/scan-s3-a.txt" --content-type text/plain >/dev/null 2>&1
+  aws --endpoint-url "$E" s3 cp "$TMACH_DATA_DIR/auto.txt" "s3://$BUCKET/inbox/auto/scan-s3-a.txt" --content-type text/plain >/dev/null 2>&1
   F1=$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(((f["error"] or "") for f in d["fires"] if f["key"]=="inbox/auto/scan-s3-a.txt"),""))')
   assert "S3 PUT with a files-only key: recorded, not run" "$F1" 'workflows:run'
   # a key issued with workflows:run fires the run
   CRED2=$(P /api/s3/credentials '{"name":"pipeline","scopes":["files:read","files:write","files:delete","workflows:read","workflows:run"]}')
   export AWS_ACCESS_KEY_ID=$(printf '%s' "$CRED2" | jq_ 'd["access_key_id"]')
   export AWS_SECRET_ACCESS_KEY=$(printf '%s' "$CRED2" | jq_ 'd["secret_access_key"]')
-  aws --endpoint-url "$E" s3 cp "$TELEMACHUS_DATA_DIR/auto.txt" "s3://$BUCKET/inbox/auto/scan-s3-b.txt" --content-type text/plain >/dev/null 2>&1
+  aws --endpoint-url "$E" s3 cp "$TMACH_DATA_DIR/auto.txt" "s3://$BUCKET/inbox/auto/scan-s3-b.txt" --content-type text/plain >/dev/null 2>&1
   SRID=$(G "/api/doc-triggers/$TID" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(next(((f["run_id"] or "") for f in d["fires"] if f["key"]=="inbox/auto/scan-s3-b.txt"),""))')
   assert "S3 PUT with workflows:run started a run" "$SRID" "-"
   wait_run "$SRID"; SST="$RUNST"; [ "$SST" = done ] || SST="$SST — $(printf '%s' "$RUNJSON" | head -c 300)"
@@ -1668,4 +1668,4 @@ JSON
 fi
 
 echo
-if [ $fail = 0 ]; then echo "doc-pipeline-smoke: PASS"; else echo "doc-pipeline-smoke: FAIL"; tail -30 "$TELEMACHUS_DATA_DIR/server.log"; exit 1; fi
+if [ $fail = 0 ]; then echo "doc-pipeline-smoke: PASS"; else echo "doc-pipeline-smoke: FAIL"; tail -30 "$TMACH_DATA_DIR/server.log"; exit 1; fi

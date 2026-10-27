@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/ai/egress.rkt — where a model request is going, and what that backend
 ;; has been declared to do with it. Issue #91 requirement 3 (RED-20, RED-21).
 ;;
@@ -67,7 +71,7 @@
 ;; real default means an upgrade silently starts refusing model calls on
 ;; instances that work today, and here those calls are the product.
 (define (require-no-content-logging?)
-  (and (member (or (getenv "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING") "")
+  (and (member (or (tmach-env "REQUIRE_NO_CONTENT_LOGGING") "")
                '("1" "true" "yes" "on"))
        #t))
 
@@ -87,7 +91,7 @@
                 "executor ~a is not on this host and does not declare no_content_logging, "
                 "so this instance will not send it content "
                 "(set that capability on the executor, or unset "
-                "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING)")
+                "TMACH_REQUIRE_NO_CONTENT_LOGGING)")
                (or executor "the configured local model"))))
 
 ;; ---- what this request is carrying (RED-26, issue #91 requirement 4) ---------

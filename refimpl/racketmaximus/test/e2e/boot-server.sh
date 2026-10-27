@@ -9,7 +9,7 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # unused: a developer working on a downstream plugin exports them in their own
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 # Refuse a port somebody else is on. Playwright's webServer polls for readiness
 # and would happily attach to a FOREIGN server, running the tour against an
 # instance this script did not boot.
@@ -18,12 +18,12 @@ if [ -n "${PORT:-}" ] && bash -c "exec 3<>/dev/tcp/127.0.0.1/$PORT" >/dev/null 2
   exit 1
 fi
 : "${E2E_DATA_DIR:=$(mktemp -d)}"
-export TELEMACHUS_DATA_DIR="$E2E_DATA_DIR"
+export TMACH_DATA_DIR="$E2E_DATA_DIR"
 export DATABASE_URL="sqlite:///$E2E_DATA_DIR/e2e.db"
-export TELEMACHUS_BIND=127.0.0.1
+export TMACH_BIND=127.0.0.1
 # A demo federated executor so the Admin › Compute table has something to show
 # (it is only listed, never called — no second endpoint required).
-export TELEMACHUS_EXECUTORS="${TELEMACHUS_EXECUTORS:-$PWD/test/e2e/executors.example.json}"
+export TMACH_EXECUTORS="${TMACH_EXECUTORS:-$PWD/test/e2e/executors.example.json}"
 # The model is inherited from the environment (run.sh sets it when a local ollama
 # is reachable). With none set the server uses its deterministic fallback, so the
 # tour still passes on CI runners that have no GPU/model.

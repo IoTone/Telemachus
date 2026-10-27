@@ -4,7 +4,9 @@
 rename covered PROSE and the displayed name only — the README pair, the design
 docs and runbooks, the e-book both editions, the generated reference's heading,
 the site builder, the default `<title>` and the console's fallback title. It
-deliberately did NOT touch the 71 `TELEMACHUS_*` variables, the
+deliberately did NOT touch the variables; **job 2 did** — every one is
+`TMACH_*` now, with its old `TELEMACHUS_*` spelling still answering as a
+fallback (ENVN‑1…9 below). Still untouched: the
 `X-Telemachus-*` headers, `tmx_*` in the browser, `data/telemachus.db`, the
 `cli/telemachus-*.rkt` commands, `refimpl/racketmaximus/`, the Racket module
 namespace, `define-sealed-column`'s thirteen AAD context strings, `CHAIN-VERSION`
@@ -2856,6 +2858,65 @@ bash test/doc-pipeline-smoke.sh        # the "== 5h." block, 24 assertions
   proves a request was NOT stopped by letting it try costs the whole
   `TELEMACHUS_MODEL_TIMEOUT`. Assert the refusal (which precedes any socket), and
   the not-stopped half against `egress-refusal` directly.
+
+## The operator's own names: `TMACH_*` with the old ones still working (ENVN‑1…9, #128 job 2)
+
+Built 27 Oct 2026. `tmach-env` in `config.rkt` is the ONE place an
+operator-facing variable name is composed. **No migration, no new variable, and
+nothing anybody has deployed stops working.**
+
+```sh
+raco test test/env-names-tests.rkt          # 11 cases, and the gate
+bash scripts/check-config-reference.sh      # 93 variables, both directions
+```
+
+- **A DUAL READ, NO FLAG DAY, NO DEADLINE** (ENVN‑1). `TMACH_<name>` is the name;
+  the old spelling still answers; the new wins when both are set; an empty value
+  is absent under either, so setting the new one to `""` falls THROUGH rather
+  than masking the old. There is deliberately no horizon: a deprecation with a
+  date is a promise to break somebody later, and two reads cost one `cond` arm.
+- **THE SUFFIX IS THE ARGUMENT** (ENVN‑2) — `(tmach-env "PORT")`, never the full
+  name. This is the whole design, because **a missed site goes on working**: the
+  old name is the fallback, so a miss surfaces only for the operator who sets the
+  new name and nothing else. Composing the name once is what makes a miss
+  impossible rather than unlikely.
+- **THE NUMERIC HELPERS TAKE THE VALUE** (ENVN‑4): `(pos-env (tmach-env
+  "OCR_TIMEOUT") 20)`. So every variable is spelled exactly once in the tree and
+  no gate has to know which helpers forward to the accessor.
+- **AN `unset` MUST CLEAR BOTH SPELLINGS** (ENVN‑7). The harnesses unset
+  `PLUGINS`/`PLUGINS_LINKS` because a developer exports them in their own shell;
+  with a fallback in place, clearing only the new name lets the old one leak a
+  downstream plugin into every harness. A regression this change would have
+  INTRODUCED — caught by reading the diff, not by a test.
+- **THE SUITE SETS THE NEW NAMES; ONE FILE KEEPS THE OLD** (ENVN‑6). A suite
+  setting only the old names exercises the fallback every run and the primary
+  read never, which is how a dual read rots into a single one pointing the wrong
+  way. `test/env-names-tests.rkt` is the only file that may mention the old
+  spelling, besides `config.rkt` which defines it.
+- **EIGHT COPIES OF THE SAME HELPER BECAME ONE** (ENVN‑9) — `env*` plus seven
+  local `env` definitions, all treating `""` as absent. That property is
+  load-bearing: CI's sqlite leg sets `DATABASE_URL` to the empty string (#123).
+- **Not in this change**: the `X-Telemachus-*` headers (the CLIENT picks the
+  spelling there, so it is a different dual-read question), the
+  `cli/telemachus-*` command names (muscle memory and every unit's `ExecStart`)
+  and `data/telemachus.db` (a path inside a volume — a migration, not an alias).
+  Four surfaces half-done would be worse than one verified.
+
+**THE GATE WAS DEFEATED THREE TIMES, AND EVERY FIX MADE THE RULE LESS CLEVER.**
+This is the part worth reading before writing another source-scanning gate:
+
+- **It followed a `result` symlink into the Nix store** and read a PACKAGED COPY
+  of the source from before the change — reporting offenders already fixed.
+  `grep` said zero; the gate said twelve. Use `#:follow-links? #f`, and anchor
+  the root with `define-runtime-path`, never `current-directory`.
+- **It enumerated the helpers it knew about** (`getenv`, `env`, `env*`) and three
+  more existed (`pos-env`, `env-int`, `env-num`). What caught it was the OTHER
+  gate: `check-config-reference.sh` reported six variables documented-but-read-
+  nowhere, by name. Two gates on adjacent properties caught what neither would.
+- **It matched fully-quoted literals only**, so operator-facing MESSAGES naming
+  the variable inside a longer format string sailed past — three suites failed on
+  `"…(<old>_MAX_JOB_SECONDS=~a)"`. 64 lines across 30 files; the rule is now "no
+  mention on a non-comment line".
 
 ## The feed work queue, and a proposal that does not act (QUEUE‑1…9, #114 slices 5–6)
 

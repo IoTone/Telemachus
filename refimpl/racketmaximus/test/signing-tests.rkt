@@ -107,22 +107,22 @@
                 thunk
                 (lambda () (putenv var (or old "")))))
 
-(with-env "TELEMACHUS_ANCHOR_KEY" #f
+(with-env "TMACH_ANCHOR_KEY" #f
   (lambda ()
     (check-false (anchor-key-seed) "unset means no anchoring")
     (check-false (anchor-signing-enabled?))))
 
-(with-env "TELEMACHUS_ANCHOR_KEY" sk2
+(with-env "TMACH_ANCHOR_KEY" sk2
   (lambda ()
     (check-equal? (anchor-key-seed) (H sk2))
     (check-true (anchor-signing-enabled?))))
 
-(with-env "TELEMACHUS_ANCHOR_KEY" "correct horse battery staple"
+(with-env "TMACH_ANCHOR_KEY" "correct horse battery staple"
   (lambda ()
     (check-exn #px"64 hex" (lambda () (anchor-key-seed))
                "a passphrase is refused, and the message names the generator")))
 
-(with-env "TELEMACHUS_ANCHOR_KEY" (substring sk2 0 62)
+(with-env "TMACH_ANCHOR_KEY" (substring sk2 0 62)
   (lambda ()
     (check-exn #px"64 hex" (lambda () (anchor-key-seed))
                "a key of the wrong length is refused rather than padded")))
@@ -130,7 +130,7 @@
 ;; the memo is keyed by the RAW VALUE, not by the variable name — secretbox's
 ;; rule. A cache that remembered only "this was read" would pin whatever was set
 ;; first, so a rotated environment in one process would keep the old key.
-(with-env "TELEMACHUS_ANCHOR_KEY" sk3
+(with-env "TMACH_ANCHOR_KEY" sk3
   (lambda () (check-equal? (anchor-key-seed) (H sk3) "a changed key is re-read")))
 
 (printf "signing tests: ok\n")

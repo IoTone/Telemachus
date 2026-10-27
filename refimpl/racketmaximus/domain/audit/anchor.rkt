@@ -120,7 +120,7 @@
      'anchor
      (string-append "no anchor key is configured, so a receipt cannot be signed. "
                     "Generate one with `racket cli/telemachus-anchor.rkt keygen` and set "
-                    "TELEMACHUS_ANCHOR_KEY.")))
+                    "TMACH_ANCHOR_KEY.")))
   (define pubkey (bytes->hex (ed25519-public-key seed)))
   (define iid (instance-id conn))
   (define rows (append (audit-chain-heads conn) (review-chain-heads conn)))

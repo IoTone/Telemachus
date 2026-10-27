@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/beta/beta.rkt — beta onboarding: capture pre-sales PROSPECTS (not users
 ;; /accounts) for an internal team to vet, each judged by the LLM for validity +
 ;; revenue estimate. The onboarding EXPERIENCE (landing copy + form fields + judge
@@ -33,7 +37,7 @@
 (define (onboarding-names) (sort (hash-keys (unbox *providers*)) string<?))
 
 (define (active-onboarding)
-  (define want (let ([v (getenv "TELEMACHUS_ONBOARDING")]) (and v (not (string=? v "")) v)))
+  (define want (let ([v (tmach-env "ONBOARDING")]) (and v (not (string=? v "")) v)))
   (define ps (unbox *providers*))
   (or (and want (hash-ref ps want #f))
       (hash-ref ps "beta" #f)

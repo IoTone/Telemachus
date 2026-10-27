@@ -10,7 +10,7 @@
 # submit-path feedback a real applicant gets is localized — three things that can
 # each fail silently while every API assertion still passes.
 #
-# The server must serve the funnel at /, so this boots with TELEMACHUS_HOME=beta.
+# The server must serve the funnel at /, so this boots with TMACH_HOME=beta.
 set -u
 cd "$(dirname "$0")"
 
@@ -50,11 +50,11 @@ if [ "$OWN_SERVER" = "1" ]; then
   # unused: a developer working on a downstream plugin exports them in their own
   # shell, and an inherited value would put someone else's plugin — and its load
   # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-  unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
-  export TELEMACHUS_DATA_DIR="$TMPDATA"
+  unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+  export TMACH_DATA_DIR="$TMPDATA"
   export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMPDATA/funnel.db}"
-  export TELEMACHUS_BIND=127.0.0.1
-  export TELEMACHUS_HOME=beta            # the funnel IS the front page here
+  export TMACH_BIND=127.0.0.1
+  export TMACH_HOME=beta            # the funnel IS the front page here
   export PORT
   echo "booting funnel on $BASE (data: $TMPDATA)"
   racket server/main.rkt >"$TMPDATA/server.log" 2>&1 &

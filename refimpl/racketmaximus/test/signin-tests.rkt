@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/signin-tests.rkt — the sign-in path (issues #116, #117, #118).
 ;;
 ;; Three reports, one code path. What has to hold:
@@ -127,9 +131,9 @@
   ;; the env var is process-global, so it is restored in a dynamic-wind — a
   ;; failing check raises, and a leaked lock setting would fail later files
   (define c2 (fresh))
-  (define old (getenv "TELEMACHUS_LOGIN_LOCK_FAILURES"))
+  (define old (tmach-env "LOGIN_LOCK_FAILURES"))
   (dynamic-wind
-   (lambda () (putenv "TELEMACHUS_LOGIN_LOCK_FAILURES" "5"))
+   (lambda () (putenv "TMACH_LOGIN_LOCK_FAILURES" "5"))
    (lambda ()
      (check-equal? (login-lock-after) 5)
      (for ([_ (in-range 4)]) (login-failed! c2 "carol"))
@@ -141,8 +145,8 @@
      ;; the only way back in, and the reason ep-admin-password-reset calls it
      (login-lock-clear! c2 "carol")
      (check-false (login-throttle c2 "carol")))
-   (lambda () (if old (putenv "TELEMACHUS_LOGIN_LOCK_FAILURES" old)
-                  (putenv "TELEMACHUS_LOGIN_LOCK_FAILURES" ""))))
+   (lambda () (if old (putenv "TMACH_LOGIN_LOCK_FAILURES" old)
+                  (putenv "TMACH_LOGIN_LOCK_FAILURES" ""))))
   (disconnect c2))
 
 ;; ---- 3. a person's own sessions (#118) ---------------------------------------
@@ -208,9 +212,9 @@
 
 (test-case "the cap evicts the OLDEST and never refuses a sign-in"
   (define-values (c owner team bob) (setup))
-  (define old (getenv "TELEMACHUS_MAX_SESSIONS"))
+  (define old (tmach-env "MAX_SESSIONS"))
   (dynamic-wind
-   (lambda () (putenv "TELEMACHUS_MAX_SESSIONS" "3"))
+   (lambda () (putenv "TMACH_MAX_SESSIONS" "3"))
    (lambda ()
      (check-equal? (max-sessions) 3)
      (define toks
@@ -230,20 +234,20 @@
      ;; that would have been refused by a cap that refuses, is among the living
      (check-equal? (for/list ([x (in-list toks)]) (and (resolve-token c (car x)) #t))
                    '(#f #f #t #t #t)))
-   (lambda () (if old (putenv "TELEMACHUS_MAX_SESSIONS" old) (putenv "TELEMACHUS_MAX_SESSIONS" ""))))
+   (lambda () (if old (putenv "TMACH_MAX_SESSIONS" old) (putenv "TMACH_MAX_SESSIONS" ""))))
   (disconnect c))
 
 (test-case "the cap can be turned off, and a nonsense value falls back to the default"
-  (define old (getenv "TELEMACHUS_MAX_SESSIONS"))
+  (define old (tmach-env "MAX_SESSIONS"))
   (dynamic-wind
    void
    (lambda ()
-     (putenv "TELEMACHUS_MAX_SESSIONS" "never") (check-false (max-sessions))
-     (putenv "TELEMACHUS_MAX_SESSIONS" "0")     (check-false (max-sessions))
+     (putenv "TMACH_MAX_SESSIONS" "never") (check-false (max-sessions))
+     (putenv "TMACH_MAX_SESSIONS" "0")     (check-false (max-sessions))
      ;; never to 0 — the platform's rule for every knob
-     (putenv "TELEMACHUS_MAX_SESSIONS" "banana") (check-equal? (max-sessions) 10)
-     (putenv "TELEMACHUS_MAX_SESSIONS" "-4")     (check-equal? (max-sessions) 10))
-   (lambda () (if old (putenv "TELEMACHUS_MAX_SESSIONS" old) (putenv "TELEMACHUS_MAX_SESSIONS" "")))))
+     (putenv "TMACH_MAX_SESSIONS" "banana") (check-equal? (max-sessions) 10)
+     (putenv "TMACH_MAX_SESSIONS" "-4")     (check-equal? (max-sessions) 10))
+   (lambda () (if old (putenv "TMACH_MAX_SESSIONS" old) (putenv "TMACH_MAX_SESSIONS" "")))))
 
 ;; ---- a monitoring credential (issue #124) -----------------------------------
 ;; The operational read routes all required `instance:manage`, and a token with

@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/ai/executor.rkt — the local-model executor (data plane). Calls an
 ;; OpenAI-compatible chat endpoint (llama-server / ollama / vLLM / …) configured
 ;; by env, and reports actual token usage for metering. When no model is
@@ -118,9 +122,9 @@
     [else "transport"]))
 
 (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
-(define (model-url)  (env "TELEMACHUS_MODEL_URL"))
-(define (model-name) (or (env "TELEMACHUS_MODEL") "local"))
-(define (model-key)  (env "TELEMACHUS_MODEL_KEY"))
+(define (model-url)  (tmach-env "MODEL_URL"))
+(define (model-name) (or (tmach-env "MODEL") "local"))
+(define (model-key)  (tmach-env "MODEL_KEY"))
 
 ;; What the ENV-CONFIGURED local model can do (LAY-9). The named backends keep
 ;; their capability document on the executor row; the local model has no row, and
@@ -135,7 +139,7 @@
 ;; Unset, or a key left out, means UNKNOWN — and unknown is permissive, so
 ;; nothing that works today starts failing.
 (define (model-caps)
-  (define raw (env "TELEMACHUS_MODEL_CAPS"))
+  (define raw (tmach-env "MODEL_CAPS"))
   (cond
     [(not raw) (hasheq)]
     [else
@@ -154,7 +158,7 @@
   (define caps (model-caps))
   (for/or ([k (in-list needs)])
     (and (eq? (hash-ref caps k 'unknown) #f)
-         (format "the configured model (~a) declares it cannot do ~a — see TELEMACHUS_MODEL_CAPS"
+         (format "the configured model (~a) declares it cannot do ~a — see TMACH_MODEL_CAPS"
                  (model-name) k))))
 
 (define (model-configured?) (and (model-url) #t))
@@ -271,7 +275,7 @@
   ;; refusal a CALLER has to see — and until the 500 stopped carrying
   ;; exn-message, the only reason it reached them was that leak. It is the
   ;; caller's mistake (or their operator's), so it is a 400.
-  (unless conf? (raise-user-error who "no model configured (set TELEMACHUS_MODEL_URL)"))
+  (unless conf? (raise-user-error who "no model configured (set TMACH_MODEL_URL)"))
   (define body
     (for/fold ([b (hasheq 'model mdl 'messages (sanitize-wire-messages messages)
                           'temperature temp 'stream #f)])

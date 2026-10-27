@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/exec/pull.rkt — pull-model executors (slice 66, PULL-1…8): inference
 ;; hosts that come to the work.
 ;;
@@ -117,7 +121,7 @@
 ;; back to "never" rather than to 0 — which would expire a token as it was
 ;; minted, taking every executor on the instance down on the next deploy.
 (define (worker-token-seconds)
-  (define t (let ([v (getenv "TELEMACHUS_WORKER_TOKEN_DAYS")]) (and v (string-trim v))))
+  (define t (let ([v (tmach-env "WORKER_TOKEN_DAYS")]) (and v (string-trim v))))
   (cond
     [(or (not t) (string=? t "") (string-ci=? t "never")) #f]
     [else (define n (string->number t))
@@ -349,7 +353,7 @@
            (executor-secret conn (hash-ref e 'id))))
        (cond
          [(eq? key 'unopenable)
-          (log (format "~a — SKIPPED: its stored key could not be unsealed (did TELEMACHUS_SECRET_KEY change?)" name))
+          (log (format "~a — SKIPPED: its stored key could not be unsealed (did TMACH_SECRET_KEY change?)" name))
           (values loaded (add1 skipped))]
          [else
           (register-executor! name #:url url

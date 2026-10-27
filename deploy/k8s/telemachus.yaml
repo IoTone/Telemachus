@@ -25,7 +25,7 @@ spec:
   resources:
     requests:
       storage: 20Gi
-  # Document bytes live here when TELEMACHUS_BLOB_STORE is the default `rs3`.
+  # Document bytes live here when TMACH_BLOB_STORE is the default `rs3`.
   # Back this up together with the database: a restore that mixes a new database
   # with an old volume leaves rows pointing at blobs that are not there. An
   # S3-backed store (issue #82, unbuilt) is what removes this coupling.
@@ -55,7 +55,7 @@ spec:
   # cannot steal a sibling's work). The limit is storage.
   #
   # ISSUE #82 HAS LANDED, so that limit is now removable: with
-  # TELEMACHUS_BLOB_STORE=s3 the bytes live in a bucket, every replica reaches
+  # TMACH_BLOB_STORE=s3 the bytes live in a bucket, every replica reaches
   # them, and neither this PVC nor the Recreate strategy below is needed. To
   # scale out:
   #
@@ -88,7 +88,7 @@ spec:
         fsGroup: 65532          # so the mounted volume is writable by that uid
         seccompProfile:
           type: RuntimeDefault
-      # Must be at least TELEMACHUS_DRAIN_SECONDS (25) or the drain is SIGKILLed
+      # Must be at least TMACH_DRAIN_SECONDS (25) or the drain is SIGKILLed
       # halfway, leaving jobs `running` until their lease expires. The default is
       # 30, which fits; it is spelled out so a later change to one is noticed
       # against the other.
@@ -106,28 +106,28 @@ spec:
             capabilities:
               drop: [ALL]
           env:
-            # The image already sets TELEMACHUS_BIND=0.0.0.0, PORT, HOME and
-            # TELEMACHUS_DATA_DIR=/data. Everything here is a deployment choice.
+            # The image already sets TMACH_BIND=0.0.0.0, PORT, HOME and
+            # TMACH_DATA_DIR=/data. Everything here is a deployment choice.
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: telemachus, key: database-url }
-            - name: TELEMACHUS_SECRET_KEY
+            - name: TMACH_SECRET_KEY
               valueFrom:
                 secretKeyRef: { name: telemachus, key: secret-key }
-            - name: TELEMACHUS_SECRET
+            - name: TMACH_SECRET
               valueFrom:
                 secretKeyRef: { name: telemachus, key: secret }
             # TLS is terminated by the Ingress; the pod network carries plaintext.
             # With a secret key set and TLS in front, every startup check passes,
             # so strict mode is safe to turn on — and an unattended deployment is
             # exactly what it is for.
-            - name: TELEMACHUS_STRICT_STARTUP
+            - name: TMACH_STRICT_STARTUP
               value: "1"
-            - name: TELEMACHUS_DRAIN_SECONDS
+            - name: TMACH_DRAIN_SECONDS
               value: "25"
             # Point this at an in-cluster model service, or leave it unset and
             # accept that the AI paths refuse (and say so at boot).
-            # - name: TELEMACHUS_MODEL_URL
+            # - name: TMACH_MODEL_URL
             #   value: http://vllm.models.svc.cluster.local:8000/v1/chat/completions
           volumeMounts:
             - name: data
@@ -166,14 +166,14 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
-# TLS terminates here. The app sends HSTS only when TELEMACHUS_TLS=1, which is
+# TLS terminates here. The app sends HSTS only when TMACH_TLS=1, which is
 # for terminating IN the process; behind an Ingress, let the Ingress send it.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: telemachus
   annotations:
-    # Document uploads are capped by TELEMACHUS_MAX_UPLOAD (32 MiB) in the app;
+    # Document uploads are capped by TMACH_MAX_UPLOAD (32 MiB) in the app;
     # an Ingress with a smaller body limit would reject them first, with an
     # error that says nothing about Telemachus.
     nginx.ingress.kubernetes.io/proxy-body-size: 32m

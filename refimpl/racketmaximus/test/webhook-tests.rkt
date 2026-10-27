@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/webhook-tests.rkt — outbound webhooks (#85).
 ;;
 ;; Delivery runs against a REAL receiver on a real socket, because every
@@ -147,15 +151,15 @@
                        (with-handlers ([(lambda (_) #t) void]) (close-output-port o))
                        (with-handlers ([(lambda (_) #t) void]) (close-input-port i)))))
                   (loop))))))
-  (define was (getenv "TELEMACHUS_EGRESS_ALLOW"))
+  (define was (tmach-env "EGRESS_ALLOW"))
   ;; the receiver is on loopback, which #142 refuses unless the OPERATOR allowed
   ;; that network — so the test says so, and puts it back afterwards
-  (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+  (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
   (dynamic-wind
    void
    (lambda () (proc (format "http://127.0.0.1:~a/hook" p) seen))
    (lambda ()
-     (putenv "TELEMACHUS_EGRESS_ALLOW" (or was ""))
+     (putenv "TMACH_EGRESS_ALLOW" (or was ""))
      (kill-thread t)
      (tcp-close L))))
 

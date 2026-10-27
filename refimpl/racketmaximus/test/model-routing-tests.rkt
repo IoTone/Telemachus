@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/model-routing-tests.rkt — ONE way to reach a model, and ONE registry of
 ;; named backends.
 ;;
@@ -233,14 +237,14 @@
 (test-case "the LOCAL model can declare its capabilities too — the path most calls take"
   ;; the named backends keep a document on their row; the env-configured model has
   ;; no row, and without this the operator who most needs the warning gets none
-  (define old (getenv "TELEMACHUS_MODEL_CAPS"))
-  (putenv "TELEMACHUS_MODEL_CAPS" "tools=false,json_schema=true")
+  (define old (tmach-env "MODEL_CAPS"))
+  (putenv "TMACH_MODEL_CAPS" "tools=false,json_schema=true")
   (check-exn #rx"declares it cannot do tools"
              (lambda () (model-exchange (list (hasheq 'role "user" 'content "hi")) #:needs '(tools))))
   (check-equal? (hash-ref (model-info) 'capabilities) (hasheq 'tools #f 'json_schema #t))
-  (putenv "TELEMACHUS_MODEL_CAPS" "")
+  (putenv "TMACH_MODEL_CAPS" "")
   (check-equal? (hash-ref (model-info) 'capabilities) (hasheq) "unset is unknown, not false")
-  (void (if old (putenv "TELEMACHUS_MODEL_CAPS" old) (putenv "TELEMACHUS_MODEL_CAPS" ""))))
+  (void (if old (putenv "TMACH_MODEL_CAPS" old) (putenv "TMACH_MODEL_CAPS" ""))))
 
 (test-case "the listing carries the capability document, and still never leaks a key"
   (register-executor! "shown2" #:url "http://x/v1" #:model "m" #:key "sk-secret" #:source 'db

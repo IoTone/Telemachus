@@ -274,7 +274,7 @@
     [(no-object) (err "an object id is required" 400)]
     [(not-in-job) (err "that document is not named by this job's payload" 403)]
     [(no-such-document) (err "no such document, or not one this job's user may read" 404)]
-    [(too-large) (err "document is over the inline-read ceiling (TELEMACHUS_MAX_UPLOAD)" 413)]
+    [(too-large) (err "document is over the inline-read ceiling (TMACH_MAX_UPLOAD)" 413)]
     [(no-source) (err "a source object id is required — a worker's output must derive from a document its job names" 400)]
     [(no-key) (err "a key is required" 400)]
     [(no-bytes) (err "bytes_b64 is required" 400)]
@@ -542,7 +542,7 @@
     (when ex (require-perm db-conn p "instance:manage"))
     (cond
       [(and (not ex) (not (agent-configured?)))
-       (err "agent mode requires a configured model (set TELEMACHUS_MODEL_URL)" 503)]
+       (err "agent mode requires a configured model (set TMACH_MODEL_URL)" 503)]
       [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
       [else
        (define prompt (hash-ref b 'prompt ""))

@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/secretbox-tests.rkt — secrets at rest (issue #19).
 ;;
 ;; Two layers. The PRIMITIVE is pinned to NIST's GCM vectors, for the same reason
@@ -80,9 +84,9 @@
 ;; ---- the stored form ---------------------------------------------------------
 
 (define (with-key key thunk)                  ; the key is read from the environment
-  (define old (getenv "TELEMACHUS_SECRET_KEY"))
-  (putenv "TELEMACHUS_SECRET_KEY" key)
-  (dynamic-wind void thunk (lambda () (putenv "TELEMACHUS_SECRET_KEY" (or old "")))))
+  (define old (tmach-env "SECRET_KEY"))
+  (putenv "TMACH_SECRET_KEY" key)
+  (dynamic-wind void thunk (lambda () (putenv "TMACH_SECRET_KEY" (or old "")))))
 
 (test-case "with no key, wrapping is the identity — the 'trusted database' position"
   (check-false (secrets-enabled?))
@@ -119,8 +123,8 @@
 
 (test-case "a rotation reads the old key and writes the new one"
   (define old-sealed (with-key KEY-HEX (lambda () (secret-wrap "users.totp_secret:u1" "SEED"))))
-  (define old (getenv "TELEMACHUS_SECRET_KEY_OLD"))
-  (putenv "TELEMACHUS_SECRET_KEY_OLD" KEY-HEX)
+  (define old (tmach-env "SECRET_KEY_OLD"))
+  (putenv "TMACH_SECRET_KEY_OLD" KEY-HEX)
   (with-key KEY-HEX-2
     (lambda ()
       ;; the new key alone cannot open it…
@@ -131,7 +135,7 @@
       (define new-sealed (secret-wrap "users.totp_secret:u1" plain))
       (check-true (string-prefix? new-sealed (string-append "enc:v1:" (secret-key-id) ":")))
       (check-false (equal? (substring old-sealed 0 15) (substring new-sealed 0 15)) "a different key id")))
-  (void (putenv "TELEMACHUS_SECRET_KEY_OLD" (or old ""))))
+  (void (putenv "TMACH_SECRET_KEY_OLD" (or old ""))))
 
 ;; ---- the three seams, through the database ----------------------------------
 

@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/pull-tests.rkt — slice 66: pull-model executors (PULL-1…6).
 ;;   raco test test/pull-tests.rkt
 ;;
@@ -425,11 +429,11 @@
                                   #:key "../escape.txt" #:bytes-b64 (b64 "x")))
   (check-true (and (pair? refused) (eq? (car refused) 'refused)) (format "~a" refused))
   ;; the ceiling: a worker is not a way past TELEMACHUS_MAX_UPLOAD
-  (putenv "TELEMACHUS_MAX_UPLOAD" "8")
+  (putenv "TMACH_MAX_UPLOAD" "8")
   (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
                                 #:key "x.txt" #:bytes-b64 (b64 "well over eight bytes"))
                 'too-large)
-  (putenv "TELEMACHUS_MAX_UPLOAD" "")
+  (putenv "TMACH_MAX_UPLOAD" "")
   ;; a settled job writes nothing — the fence is the ATTEMPT
   (void (worker-complete! c ex j (hasheq 'reply "x" 'tokens_used 1) #:token fence))
   (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
@@ -718,11 +722,11 @@
 ;; would silently change what every later test in this file mints (the trap
 ;; set-cap-for! set in test/fleet-tests.rkt).
 (define (with-token-days days thunk)
-  (define had (getenv "TELEMACHUS_WORKER_TOKEN_DAYS"))
+  (define had (tmach-env "WORKER_TOKEN_DAYS"))
   (dynamic-wind
-    (lambda () (putenv "TELEMACHUS_WORKER_TOKEN_DAYS" days))
+    (lambda () (putenv "TMACH_WORKER_TOKEN_DAYS" days))
     thunk
-    (lambda () (putenv "TELEMACHUS_WORKER_TOKEN_DAYS" (or had "")))))
+    (lambda () (putenv "TMACH_WORKER_TOKEN_DAYS" (or had "")))))
 
 (define (token-expiry c tok-id)
   (define v (query-maybe-value c "SELECT expires_at FROM api_tokens WHERE id = ?" tok-id))

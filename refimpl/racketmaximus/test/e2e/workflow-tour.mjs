@@ -3,7 +3,7 @@
 // run with its map fan-out, and a deliberately failed run. Shots + captions land in
 // catalog/workflow/.  BASE_URL defaults to 127.0.0.1:8835.
 //
-// A real model makes the translation steps meaningful; without TELEMACHUS_MODEL_URL
+// A real model makes the translation steps meaningful; without TMACH_MODEL_URL
 // the server's simulated echo still exercises every step, so the tour passes on CI.
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';

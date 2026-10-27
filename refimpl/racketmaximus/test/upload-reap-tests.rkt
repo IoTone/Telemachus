@@ -88,25 +88,25 @@
 (test-case "the horizon: never disables it, and nonsense falls back, never to 0"
   (define default (upload-reap-seconds))
   (check-equal? default (* 7 24 3600))
-  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "never")
+  (putenv "TMACH_UPLOAD_REAP_HOURS" "never")
   (check-false (upload-reap-seconds))
-  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "2")
+  (putenv "TMACH_UPLOAD_REAP_HOURS" "2")
   (check-equal? (upload-reap-seconds) 7200)
   ;; 0 would reap an upload the instant its first part landed
-  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "0")
+  (putenv "TMACH_UPLOAD_REAP_HOURS" "0")
   (check-equal? (upload-reap-seconds) default)
-  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "soon")
+  (putenv "TMACH_UPLOAD_REAP_HOURS" "soon")
   (check-equal? (upload-reap-seconds) default)
-  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" ""))
+  (putenv "TMACH_UPLOAD_REAP_HOURS" ""))
 
 (test-case "never means nothing is swept, however old"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (define-values (up d) (stage! c tid "org-never" #:age-part (* 90 24 3600) #:age-upload (* 90 24 3600)))
-  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "never")
+  (putenv "TMACH_UPLOAD_REAP_HOURS" "never")
   (check-equal? (reap-uploads! c) 0)
   (check-equal? (uploads c) 1)
-  (putenv "TELEMACHUS_UPLOAD_REAP_HOURS" "")
+  (putenv "TMACH_UPLOAD_REAP_HOURS" "")
   (check-equal? (reap-uploads! c) 1))
 
 ;; ---- one blob-release rule, org-scoped on BOTH halves (issue #86 r6) -----------

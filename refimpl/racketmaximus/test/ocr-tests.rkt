@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/ocr-tests.rkt — issue #92: reading text out of photographs and scans.
 ;;
 ;; The fixtures are GENERATED, with racket/draw, rather than committed as binary
@@ -157,13 +161,13 @@
 ;; init! is OPT-IN on TELEMACHUS_OCR (see the plugin): the tests set it so they
 ;; exercise the real entry point rather than reaching past it to the registry.
 (define (with-ocr thunk)
-  (define saved (getenv "TELEMACHUS_OCR"))
+  (define saved (tmach-env "OCR"))
   (dynamic-wind
-    (lambda () (putenv "TELEMACHUS_OCR" "1")
+    (lambda () (putenv "TMACH_OCR" "1")
                (parameterize ([current-plugin "ocr"]) (ocr-init!)))
     thunk
     (lambda ()
-      (putenv "TELEMACHUS_OCR" (or saved ""))
+      (putenv "TMACH_OCR" (or saved ""))
       (for ([ct (in-list '("image/jpeg" "image/png" "image/tiff" "image/bmp"
                            "image/webp" "image/x-portable-pixmap" "application/pdf"))])
         (unregister-extractor! ct)))))
@@ -274,9 +278,9 @@
 
 ;; ---- the switch ------------------------------------------------------------------
 (test-case "unset, the switch leaves the platform's own PDF reader in place"
-  (define saved (getenv "TELEMACHUS_OCR"))
+  (define saved (tmach-env "OCR"))
   (dynamic-wind
-    (lambda () (putenv "TELEMACHUS_OCR" ""))
+    (lambda () (putenv "TMACH_OCR" ""))
     (lambda ()
       (parameterize ([current-plugin "ocr"]) (ocr-init!))
       ;; nothing registered, so a scan still reports what it always did
@@ -287,18 +291,18 @@
                                            "application/pdf"))
         (check-false t)
         (check-equal? r 'needs-ocr)))
-    (lambda () (putenv "TELEMACHUS_OCR" (or saved "")))))
+    (lambda () (putenv "TMACH_OCR" (or saved "")))))
 
 (test-case "set with no engine, init! refuses loudly rather than reading nothing"
-  (define saved-ocr (getenv "TELEMACHUS_OCR"))
+  (define saved-ocr (tmach-env "OCR"))
   (define saved-path (getenv "PATH"))
   (dynamic-wind
-    (lambda () (putenv "TELEMACHUS_OCR" "1") (putenv "PATH" ""))
+    (lambda () (putenv "TMACH_OCR" "1") (putenv "PATH" ""))
     (lambda ()
       (check-exn #px"tesseract"
                  (lambda () (parameterize ([current-plugin "ocr"]) (ocr-init!)))
                  "the operator asked for OCR; silence would look like a broken feature"))
-    (lambda () (putenv "TELEMACHUS_OCR" (or saved-ocr "")) (putenv "PATH" saved-path))))
+    (lambda () (putenv "TMACH_OCR" (or saved-ocr "")) (putenv "PATH" saved-path))))
 
 ;; ---- 7. multi-page ---------------------------------------------------------------
 (when (and HAVE-TESSERACT? HAVE-PDFTOPPM?)
@@ -321,9 +325,9 @@
   (test-case "a ten-page scan comes back in page order, not lexicographic order"
     ;; 72dpi: this reads ten pages and the words are 48pt, so the cheapest
     ;; rasterisation that still reads keeps the suite quick.
-    (define saved (getenv "TELEMACHUS_OCR_DPI"))
+    (define saved (tmach-env "OCR_DPI"))
     (dynamic-wind
-      (lambda () (putenv "TELEMACHUS_OCR_DPI" "72"))
+      (lambda () (putenv "TMACH_OCR_DPI" "72"))
       (lambda ()
         (with-ocr
           (lambda ()
@@ -340,4 +344,4 @@
             ;; and the spans' own page numbers rise with the text
             (define pages (remove-duplicates (map (lambda (s) (hash-ref s 'page)) spans)))
             (check-equal? pages (sort pages <) "span pages must ascend with the offsets"))))
-      (lambda () (putenv "TELEMACHUS_OCR_DPI" (or saved ""))))))
+      (lambda () (putenv "TMACH_OCR_DPI" (or saved ""))))))

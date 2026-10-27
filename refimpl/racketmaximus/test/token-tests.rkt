@@ -70,9 +70,9 @@
                 "…and was rehashed to v1 on that first use")
   (check-true (and (resolve-token c raw) #t) "…and keeps resolving")
   ;; a different pepper invalidates every token
-  (putenv "TELEMACHUS_TOKEN_PEPPER" "rotated-pepper")
+  (putenv "TMACH_TOKEN_PEPPER" "rotated-pepper")
   (check-false (resolve-token c raw) "rotating the pepper invalidates issued tokens")
-  (putenv "TELEMACHUS_TOKEN_PEPPER" "")
+  (putenv "TMACH_TOKEN_PEPPER" "")
   (check-true (and (resolve-token c raw) #t))
   ;; garbage never resolves, whatever its shape
   (check-false (resolve-token c "tk_notatoken"))

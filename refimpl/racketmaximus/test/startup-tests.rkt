@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/startup-tests.rkt — the checks an instance runs before it serves
 ;; (issue #89).  raco test test/startup-tests.rkt
 ;;
@@ -55,7 +59,7 @@
   (check-eq? (startup-problem-severity p) 'error)
   (check-eq? (startup-problem-key p) 'blob-store)
   ;; the message has to say what to change, not just what failed
-  (check-true (regexp-match? #px"TELEMACHUS_DATA_DIR" (startup-problem-message p)))
+  (check-true (regexp-match? #px"TMACH_DATA_DIR" (startup-problem-message p)))
   (delete-file f))
 
 (test-case "a root that does not exist yet is CREATED, not refused"
@@ -147,10 +151,10 @@
 ;; `secret-wrap` passes plaintext through when no key is configured (#19, so that
 ;; adopting a key needs no migration), so the switch would write exactly the
 ;; plaintext it was turned on to prevent — and report success.
-(test-case "TELEMACHUS_ENCRYPT_CONTENT without a key is FATAL, not advisory"
-  (define saved (getenv "TELEMACHUS_ENCRYPT_CONTENT"))
+(test-case "TMACH_ENCRYPT_CONTENT without a key is FATAL, not advisory"
+  (define saved (tmach-env "ENCRYPT_CONTENT"))
   (dynamic-wind
-    (lambda () (putenv "TELEMACHUS_ENCRYPT_CONTENT" "1"))
+    (lambda () (putenv "TMACH_ENCRYPT_CONTENT" "1"))
     (lambda ()
       (define ps (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #f))
       (define p (findf (lambda (x) (eq? (startup-problem-key x) 'encrypt-without-key)) ps))
@@ -162,4 +166,4 @@
       ;; with a key present it is not a problem at all
       (define ok (startup-problems #:bind-ip "127.0.0.1" #:tls? #f #:secrets? #t))
       (check-false (findf (lambda (x) (eq? (startup-problem-key x) 'encrypt-without-key)) ok)))
-    (lambda () (putenv "TELEMACHUS_ENCRYPT_CONTENT" (or saved "")))))
+    (lambda () (putenv "TMACH_ENCRYPT_CONTENT" (or saved "")))))

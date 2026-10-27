@@ -10,7 +10,64 @@
          (only-in web-kit default-max-body-length))
 
 (provide app-version impl-root data-dir database-url call-with-app-db anchor-path
-         max-upload-bytes content-encryption-enabled?)
+         max-upload-bytes content-encryption-enabled?
+         ;; #128 job 2: the ONE place an operator-facing variable is read.
+         tmach-env tmach-env-legacy-names legacy-env-warning)
+
+;; ---- the operator's own names (#128 job 2) --------------------------------------
+;; The product is branded TMach; the variables said TELEMACHUS_. Job 1 renamed the
+;; PROSE and deliberately left these alone, because a variable is a contract with
+;; every deployment that already exists — a compose file, a systemd unit, a
+;; Kubernetes secret, somebody's shell history.
+;;
+;; So this is a DUAL READ with no flag day: `TMACH_<name>` is the name, the old spelling
+;; still answers, the new name wins when both are set, and the instance SAYS at
+;; boot which old names it is still reading. Nothing that works today stops
+;; working, and an operator can migrate one variable at a time.
+;;
+;; THE SUFFIX IS THE ARGUMENT, not the whole name, and that is what makes the
+;; gate in test/env-names-tests.rkt possible: with the full name at the call site
+;; a reader cannot tell a dual read from a single one, and a missed site would go
+;; on working — silently, until the day somebody sets only the new name. That is
+;; the one failure this slice has to make impossible rather than unlikely.
+(define NEW-PREFIX "TMACH_")
+(define OLD-PREFIX "TELEMACHUS_")
+
+;; Which old names actually answered, in first-read order. A SET rather than a
+;; counter: an operator wants the list to migrate, not a tally, and a variable
+;; read on every request would otherwise dominate it.
+(define *legacy* (box '()))
+(define (note-legacy! suffix)
+  (unless (member suffix (unbox *legacy*))
+    (set-box! *legacy* (append (unbox *legacy*) (list suffix)))))
+(define (tmach-env-legacy-names) (unbox *legacy*))
+
+;; An EMPTY value is absent, which is the behaviour all eight of the hand-written
+;; copies of this helper already had — and it matters here beyond tidiness: CI's
+;; sqlite leg sets DATABASE_URL to the empty string, and #123 records a test that
+;; passed everywhere except there because of it.
+(define (tmach-env suffix [default #f])
+  (define (live k) (let ([v (getenv k)]) (and v (not (string=? (string-trim v) "")) v)))
+  (define new (live (string-append NEW-PREFIX suffix)))
+  (cond
+    [new new]
+    [(live (string-append OLD-PREFIX suffix))
+     => (lambda (v) (note-legacy! suffix) v)]
+    [else default]))
+
+;; -> a string for the boot line, or #f when nothing legacy was read. Printed by
+;; the server once, the way the plugin-failure block is: an operator who never
+;; reads it loses nothing, and one who is migrating gets the list.
+(define (legacy-env-warning)
+  (define names (tmach-env-legacy-names))
+  (and (pair? names)
+       (format (string-append
+                "NOTE: ~a variable(s) are still being read under the old ~a names: ~a.\n"
+                "      The ~a spellings are the current ones and win when both are set;\n"
+                "      the old names keep working. See docs/ops/configuration.md.")
+               (length names) OLD-PREFIX
+               (string-join (for/list ([n (in-list names)]) (string-append OLD-PREFIX n)) ", ")
+               NEW-PREFIX)))
 
 (define app-version "0.1.0")
 
@@ -36,7 +93,7 @@
 ;; App data dir; TELEMACHUS_DATA_DIR overrides for tests/CI. A relative override
 ;; is anchored to impl-root, so it means the same thing from any cwd.
 (define (data-dir)
-  (define e (getenv "TELEMACHUS_DATA_DIR"))
+  (define e (tmach-env "DATA_DIR"))
   (if (and e (not (string=? e ""))) (anchor-path e) (build-path impl-root "data")))
 
 ;; Prototyping default is sqlite. DATABASE_URL overrides; when the Postgres
@@ -64,7 +121,7 @@
 ;; S3 door (domain/s3/server.rkt), which is a separate listener with no ceiling of
 ;; its own otherwise.
 (define (max-upload-bytes)
-  (define raw (getenv "TELEMACHUS_MAX_UPLOAD"))
+  (define raw (tmach-env "MAX_UPLOAD"))
   (define n (and raw (string->number raw)))
   (if (and n (exact-positive-integer? n)) n default-max-body-length))
 
@@ -86,6 +143,6 @@
 ;; migration. `server/startup.rkt` therefore REFUSES to serve in that combination
 ;; rather than leaving an operator believing their text is encrypted.
 (define (content-encryption-enabled?)
-  (and (member (string-downcase (string-trim (or (getenv "TELEMACHUS_ENCRYPT_CONTENT") "")))
+  (and (member (string-downcase (string-trim (or (tmach-env "ENCRYPT_CONTENT") "")))
                '("1" "yes" "true" "on"))
        #t))

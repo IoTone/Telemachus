@@ -154,7 +154,7 @@ if [ -n "$RECORD" ]; then exit 0; fi
 # sets every shared kanji in another language's shapes, which is the same failure
 # xeCJK's Chinese default produces).
 #
-# TELEMACHUS_CJK_DIR overrides the search for a deployment that keeps its fonts
+# TMACH_CJK_DIR overrides the search for a deployment that keeps its fonts
 # somewhere of its own.
 # Serif and sans are SEPARATE packages, so each is resolved on its own. Using one
 # directory for both built fine and was a trap: fontspec loads a face lazily, so a
@@ -162,8 +162,8 @@ if [ -n "$RECORD" ]; then exit 0; fi
 # which no chapter has yet.
 cjk_args=""
 cjk_dir_for() {   # $1 = a file that must be in the directory
-  if [ -n "${TELEMACHUS_CJK_DIR:-}" ] && [ -f "$TELEMACHUS_CJK_DIR/$1" ]; then
-    echo "$TELEMACHUS_CJK_DIR"; return
+  if [ -n "${TMACH_CJK_DIR:-}" ] && [ -f "$TMACH_CJK_DIR/$1" ]; then
+    echo "$TMACH_CJK_DIR"; return
   fi
   command -v fc-list >/dev/null 2>&1 || return 0
   d=$(fc-list : file 2>/dev/null | sed 's/: *$//' | grep -m1 "/$1$" || true)

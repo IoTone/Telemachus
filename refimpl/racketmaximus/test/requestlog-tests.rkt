@@ -89,10 +89,10 @@
   ;; unset: an upgrade must not start refusing calls on instances that work
   ;; today, so the undeclared hosted backend is allowed and the ROW is what
   ;; carries the gap
-  (setenv! "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING" "")
+  (setenv! "TMACH_REQUIRE_NO_CONTENT_LOGGING" "")
   (check-false (require-no-content-logging?))
   (check-false (content-logging-refusal "far" "https://api.example.com/v1"))
-  (setenv! "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING" "1")
+  (setenv! "TMACH_REQUIRE_NO_CONTENT_LOGGING" "1")
   (check-true (require-no-content-logging?))
   (define bad (content-logging-refusal "far" "https://api.example.com/v1"))
   (check-true (string? bad))
@@ -102,14 +102,14 @@
   ;; about content leaving the box, not about paperwork for its own sake
   (check-false (content-logging-refusal "ok" "https://api.example.com/v1"))
   (check-false (content-logging-refusal #f "http://127.0.0.1:11434/v1"))
-  (setenv! "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING" "")
+  (setenv! "TMACH_REQUIRE_NO_CONTENT_LOGGING" "")
   (unregister-executor! "far") (unregister-executor! "ok"))
 
 ;; ---- 3. the digest (RED-18) ------------------------------------------------
 
 (test-case "the digest is keyed by the instance, and says which it is"
   (define key "d0d0cafe00000000000000000000000000000000000000000000000000000001")
-  (setenv! "TELEMACHUS_SECRET_KEY" "")
+  (setenv! "TMACH_SECRET_KEY" "")
   (define-values (h0 a0 k0) (model-request-digest "Arun Patel"))
   ;; with no key it is a plain SHA-256 and REPORTS that: an instance in the
   ;; documented plaintext posture still gets a digest it can compare with
@@ -118,7 +118,7 @@
   (check-equal? a0 "sha256")
   (check-false k0)
   (check-equal? (string-length h0) 64)
-  (setenv! "TELEMACHUS_SECRET_KEY" key)
+  (setenv! "TMACH_SECRET_KEY" key)
   (define-values (h1 a1 k1) (model-request-digest "Arun Patel"))
   (check-equal? a1 "hmac-sha256")
   (check-true (string? k1))
@@ -132,7 +132,7 @@
   (check-equal? h1 h2)
   (define-values (h3 _a3 _k3) (model-request-digest "Arun Patell"))
   (check-not-equal? h1 h3)
-  (setenv! "TELEMACHUS_SECRET_KEY" ""))
+  (setenv! "TMACH_SECRET_KEY" ""))
 
 ;; ---- 4. the row ------------------------------------------------------------
 
@@ -291,7 +291,7 @@
                              #:error-kind ek #:http-status hs #:ms ms)))
   (define asked (box #f))
   (set-box! pull-router (lambda (name msgs temp rf) (set-box! asked #t) (cons "ACK" 1)))
-  (setenv! "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING" "1")
+  (setenv! "TMACH_REQUIRE_NO_CONTENT_LOGGING" "1")
   (check-exn #rx"no_content_logging" (lambda () (run-chat NEEDLE #:executor "stub")))
   ;; THE REFUSAL HAPPENS BEFORE THE CONTENT MOVES. A check that fired after the
   ;; dispatch would be a report, not a policy — so this assertion, not the
@@ -301,7 +301,7 @@
   (check-equal? (hash-ref got 'status) "refused")
   (check-equal? (hash-ref got 'error_kind) "policy")
   (check-equal? (hash-ref got 'tokens_used) 'null)
-  (setenv! "TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING" "")
+  (setenv! "TMACH_REQUIRE_NO_CONTENT_LOGGING" "")
   (set-box! pull-router (lambda (name msgs temp rf) #f))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
@@ -320,7 +320,7 @@
                              #:executor e #:transport tr #:model m #:endpoint u*
                              #:messages msgs #:tokens tok #:status st
                              #:error-kind ek #:http-status hs #:ms ms)))
-  (setenv! "TELEMACHUS_MODEL_URL" "")
+  (setenv! "TMACH_MODEL_URL" "")
   (define-values (reply _tokens) (run-chat "hello"))
   (check-equal? reply "HELLO")
   (check-equal? (length (rows c)) 0)
@@ -363,8 +363,8 @@
                              #:messages msgs #:tokens tok #:status st
                              #:error-kind ek #:http-status hs #:ms ms)))
   ;; port 1 on loopback: nothing listens, and the refusal is immediate
-  (setenv! "TELEMACHUS_MODEL_URL" "http://127.0.0.1:1/v1/chat/completions")
-  (setenv! "TELEMACHUS_MODEL_RETRIES" "1")
+  (setenv! "TMACH_MODEL_URL" "http://127.0.0.1:1/v1/chat/completions")
+  (setenv! "TMACH_MODEL_RETRIES" "1")
   (check-exn exn:fail? (lambda () (run-chat "hello")))
   (define got (car (model-requests-for c p)))
   (check-equal? (hash-ref got 'status) "error")
@@ -375,8 +375,8 @@
   (check-false (hash-ref got 'hosted))
   (check-equal? (hash-ref got 'content_logging) "local")
   (check-equal? (hash-ref got 'endpoint) "127.0.0.1")
-  (setenv! "TELEMACHUS_MODEL_URL" "")
-  (setenv! "TELEMACHUS_MODEL_RETRIES" "")
+  (setenv! "TMACH_MODEL_URL" "")
+  (setenv! "TMACH_MODEL_RETRIES" "")
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
              #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))

@@ -16,8 +16,8 @@
 # nothing — so this script refuses to start rather than lie.
 #
 #   ollama serve &  &&  ollama run qwen2.5:7b   # warm it first; cold start is slow
-#   export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
-#   export TELEMACHUS_MODEL=qwen2.5:7b
+#   export TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+#   export TMACH_MODEL=qwen2.5:7b
 #   bash test/translate-chat-demo.sh
 set -u
 cd "$(dirname "$0")/.."
@@ -26,25 +26,25 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # unused: a developer working on a downstream plugin exports them in their own
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 
-if [ -z "${TELEMACHUS_MODEL_URL:-}" ]; then
+if [ -z "${TMACH_MODEL_URL:-}" ]; then
   cat >&2 <<'MSG'
-TELEMACHUS_MODEL_URL is not set.
+TMACH_MODEL_URL is not set.
 
 This demo translates real text, so it needs a real model. Without one the server
 silently falls back to a simulated uppercase echo — every assertion would pass and
 the demo would mean nothing, which is worse than failing.
 
-  export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
-  export TELEMACHUS_MODEL=qwen2.5:7b
+  export TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+  export TMACH_MODEL=qwen2.5:7b
 MSG
   exit 2
 fi
 
-export TELEMACHUS_DATA_DIR="$(mktemp -d)"
+export TMACH_DATA_DIR="$(mktemp -d)"
 export PORT="${PORT:-8840}"
-export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/telemachus.db}"
+export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMACH_DATA_DIR/telemachus.db}"
 MESSAGE="${MESSAGE:-I just shipped the workflow engine and I am cautiously proud of it.}"
 NATIVE="${NATIVE:-en}"
 
@@ -58,7 +58,7 @@ if port_busy "$PORT"; then echo "port $PORT is in use — set PORT=<free port>" 
 
 racket server/main.rkt >/tmp/tmx-tc.log 2>&1 &
 SRV=$!
-trap 'kill $SRV 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"' EXIT
+trap 'kill $SRV 2>/dev/null; rm -rf "$TMACH_DATA_DIR"' EXIT
 tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
   tries=$((tries+1)); [ $tries -gt 40000 ] && { echo "server never came up"; cat /tmp/tmx-tc.log; exit 1; }
 done; exec 3>&- 2>/dev/null || true
@@ -67,7 +67,7 @@ B="localhost:$PORT"
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
 P(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
 
-echo "translate-chat demo — model: ${TELEMACHUS_MODEL:-?} at $TELEMACHUS_MODEL_URL"
+echo "translate-chat demo — model: ${TMACH_MODEL:-?} at $TMACH_MODEL_URL"
 echo
 
 echo "== 0. bootstrap, and set the user's own language ==============================="

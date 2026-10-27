@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/egress-tests.rkt — the outbound fetcher (#142).
 ;;
 ;; Two halves. The address table is pure and exhaustive about the ranges that
@@ -105,7 +109,7 @@
                                       (with-handlers ([(lambda (_) #t) void]) (close-output-port o))
                                       (with-handlers ([(lambda (_) #t) void]) (close-input-port i)))))
                           (loop))))))
-  (define allow-was (getenv "TELEMACHUS_EGRESS_ALLOW"))
+  (define allow-was (tmach-env "EGRESS_ALLOW"))
   ;; A test that sets process-global state restores it in a dynamic-wind — a
   ;; failing check raises, and a leaked allowlist would quietly re-point every
   ;; later case in the file.
@@ -113,7 +117,7 @@
    void
    (lambda () (proc (format "http://127.0.0.1:~a/x" p) p))
    (lambda ()
-     (putenv "TELEMACHUS_EGRESS_ALLOW" (or allow-was ""))
+     (putenv "TMACH_EGRESS_ALLOW" (or allow-was ""))
      (kill-thread t)
      (tcp-close L))))
 
@@ -130,12 +134,12 @@
       (check-true (exn:fail:egress? e))
       (check-equal? (exn:fail:egress-reason e) 'refused-address)
       ;; trusted alone is not enough — the operator has allowed nothing
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "")
+      (putenv "TMACH_EGRESS_ALLOW" "")
       (check-equal? (exn:fail:egress-reason
                      (with-handlers ([exn:fail:egress? values]) (fetch url #:policy 'trusted) #f))
                     'refused-address)
       ;; …and with the network allowed, it goes through
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define-values (status hs body) (fetch url #:policy 'trusted))
       (check-equal? status 200)
       (check-equal? body #"hello feed"))))
@@ -148,7 +152,7 @@
       (fprintf o "HTTP/1.1 302 Found\r\nlocation: http://169.254.169.254/latest/meta-data/\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
       (flush-output o))
     (lambda (url _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define e (with-handlers ([exn:fail:egress? values]) (fetch url #:policy 'trusted) #f))
       (check-true (exn:fail:egress? e))
       (check-equal? (exn:fail:egress-reason e) 'refused-address)
@@ -163,7 +167,7 @@
       (fprintf o "HTTP/1.1 302 Found\r\nlocation: /again\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
       (flush-output o))
     (lambda (url _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define e (with-handlers ([exn:fail:egress? values]) (fetch url #:policy 'trusted) #f))
       (check-true (exn:fail:egress? e))
       (check-equal? (exn:fail:egress-reason e) 'too-many-redirects))))
@@ -177,7 +181,7 @@
       (fprintf o "HTTP/1.1 200 OK\r\ncontent-length: 4\r\nconnection: close\r\n\r\n")
       (write-bytes (make-bytes 5000 65) o) (flush-output o))
     (lambda (url _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define e (with-handlers ([exn:fail:egress? values])
                   (fetch url #:policy 'trusted #:max-bytes 1000) #f))
       (check-true (exn:fail:egress? e))
@@ -186,7 +190,7 @@
   ;; makes the boundary right rather than off by one
   (with-server (ok-response (make-bytes 1000 66))
     (lambda (url _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define-values (_s _h body) (fetch url #:policy 'trusted #:max-bytes 1000))
       (check-equal? (bytes-length body) 1000))))
 
@@ -197,7 +201,7 @@
       (fprintf o "5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n")
       (flush-output o))
     (lambda (url _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define-values (status _h body) (fetch url #:policy 'trusted))
       (check-equal? status 200)
       (check-equal? body #"hello world"))))
@@ -206,7 +210,7 @@
   (with-server
     (lambda (o _p) (sync (make-semaphore 0)))      ; never answers
     (lambda (url _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define t0 (current-inexact-milliseconds))
       (define e (with-handlers ([exn:fail:egress? values])
                   (fetch url #:policy 'trusted #:timeout 1) #f))
@@ -268,12 +272,12 @@
   ;; The same restore `with-server` does, for the same reason: these cases set a
   ;; process-global allowlist, `raco test` runs several files in one process, and
   ;; a leaked allowlist would quietly re-point every later case.
-  (define allow-was (getenv "TELEMACHUS_EGRESS_ALLOW"))
+  (define allow-was (tmach-env "EGRESS_ALLOW"))
   (dynamic-wind
-   (lambda () (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8"))
+   (lambda () (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8"))
    (lambda () (proc (format "http://127.0.0.1:~a/x" p) seen p))
    (lambda ()
-     (putenv "TELEMACHUS_EGRESS_ALLOW" (or allow-was ""))
+     (putenv "TMACH_EGRESS_ALLOW" (or allow-was ""))
      (kill-thread t)
      (tcp-close L))))
 
@@ -297,7 +301,7 @@
           (fprintf o "HTTP/1.1 302 Found\r\nlocation: ~a\r\ncontent-length: 0\r\nconnection: close\r\n\r\n" b-url)
           (flush-output o))
         (lambda (a-url _a-seen _ap)
-          (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+          (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
           (define-values (status _hs body)
             (fetch a-url #:policy 'trusted
                    #:headers '(("authorization" . "Bearer s3cret")
@@ -327,7 +331,7 @@
           (fprintf o "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"))
       (flush-output o))
     (lambda (url seen _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define-values (status _hs _body)
         (fetch url #:policy 'trusted
                #:headers '(("authorization" . "Bearer s3cret"))))
@@ -345,7 +349,7 @@
   ;; a newline in it is the value the caller meant.
   (with-recording-server (ok-response #"x")
     (lambda (url seen _p)
-      (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+      (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
       (define e (with-handlers ([exn:fail:egress? values])
                   (fetch url #:policy 'trusted
                          #:headers '(("x-k" . "a\r\ninjected: 1"))) #f))

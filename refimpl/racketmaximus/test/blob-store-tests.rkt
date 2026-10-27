@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/blob-store-tests.rkt — the blob seam at load and at boot (#119, #120).
 ;;
 ;; #119: `server/startup.rkt`'s probe took a filesystem PATH and wrote a file
@@ -39,14 +43,14 @@
         'cells cells))
 
 (define (with-store name store thunk)
-  (define old (getenv "TELEMACHUS_BLOB_STORE"))
+  (define old (tmach-env "BLOB_STORE"))
   (dynamic-wind
    (lambda ()
      (parameterize ([current-plugin (string-append "test-" name)])
        (register-blob-store! name store))
-     (putenv "TELEMACHUS_BLOB_STORE" name))
+     (putenv "TMACH_BLOB_STORE" name))
    thunk
-   (lambda () (if old (putenv "TELEMACHUS_BLOB_STORE" old) (putenv "TELEMACHUS_BLOB_STORE" "")))))
+   (lambda () (if old (putenv "TMACH_BLOB_STORE" old) (putenv "TMACH_BLOB_STORE" "")))))
 
 ;; ---- #119: the probe goes through the ACTIVE store ---------------------------
 (test-case "a working store probes clean, and leaves nothing behind"
@@ -112,7 +116,7 @@
   (check-true (string? e) "the second registration must fail, not win silently")
   (check-true (string-contains? e "alpha") "names the plugin that holds it")
   (check-true (string-contains? e "beta") "…and the one that tried")
-  (check-true (string-contains? e "TELEMACHUS_BLOB_STORE")
+  (check-true (string-contains? e "TMACH_BLOB_STORE")
               "…and tells the integrator what to do instead"))
 
 (test-case "a plugin may re-register its OWN name, because the loader runs twice"

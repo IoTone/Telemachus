@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; cli/telemachus-docs.rkt — generate the reference documentation from the source
 ;; of truth, and gate drift (slice 60, DOCGEN-1…6).
 ;;
@@ -51,7 +55,7 @@
 
 (define (repo-root) (simplify-path (build-path impl-root 'up 'up)))
 (define (default-out) (build-path (repo-root) "docs" "reference"))
-(define (locales-dir opts) (hash-ref opts 'locales (or (getenv "TELEMACHUS_LOCALES") (path->string (build-path impl-root "locales")))))
+(define (locales-dir opts) (hash-ref opts 'locales (or (tmach-env "LOCALES") (path->string (build-path impl-root "locales")))))
 
 ;; ---- describe --------------------------------------------------------------------
 (define (js-get h k [d 'null]) (if (hash? h) (hash-ref h k d) d))
@@ -480,7 +484,7 @@
    "## The blob store\n\n"
    "`register-blob-store! name (hash 'put! 'get 'delete! 'stat)`. The store is "
    "handed a namespace (the org id) and a SHA-256 digest, never a principal — a "
-   "backend has no authorization to get wrong. `TELEMACHUS_BLOB_STORE` selects one.\n\n"
+   "backend has no authorization to get wrong. `TMACH_BLOB_STORE` selects one.\n\n"
    "## The onboarding provider\n\n"
    "`register-onboarding! name experience` contributes a beta funnel experience "
    "document (fields, copy, theme, judge prompt). The published one in the database "

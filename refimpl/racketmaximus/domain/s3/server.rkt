@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/s3/server.rkt — the S3 protocol front door (slice 52).
 ;;
 ;; A second door onto the same authorization, never a second authorization system
@@ -42,7 +46,7 @@
          ;; over-wide export (#110 r4).
          op-get-object parse-range)
 
-(define (s3-region) (or (getenv "TELEMACHUS_S3_REGION") "us-east-1"))
+(define (s3-region) (or (tmach-env "S3_REGION") "us-east-1"))
 (define MAX-KEYS-DEFAULT 1000)
 
 ;; ---- XML ------------------------------------------------------------------------
@@ -669,7 +673,7 @@
 ;; guidance suggests for incomplete multipart uploads.
 (define UPLOAD-REAP-DEFAULT (* 7 24 3600))
 (define (upload-reap-seconds)
-  (define v (getenv "TELEMACHUS_UPLOAD_REAP_HOURS"))
+  (define v (tmach-env "UPLOAD_REAP_HOURS"))
   (define t (and v (string-trim v)))
   (cond
     [(and t (string-ci=? t "never")) #f]

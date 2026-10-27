@@ -6,7 +6,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 
 | Method | Path | Auth | Permission | Checked | Feature | Description |
 |---|---|---|---|---|---|---|
-| GET | `/` | public | — | — | — | コンソール（TELEMACHUS_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。 |
+| GET | `/` | public | — | — | — | コンソール（TMACH_HOME=beta のときはベータ申込フロー）。HTML のタイトルはインスタンスのブランディングから書き換えられます。 |
 | GET | `/index.html` | public | — | — | — | コンソール |
 | GET | `/login` | public | — | — | — | コンソール、まずサインイン — ベータのランディングに依存しない URL。 |
 | GET | `/activate` | public | — | — | — | マジックリンク認証画面（ホストモード）のコンソール. |
@@ -61,7 +61,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/instance/suspend` | provision | — | — | — | ホストモード：テナントを一時停止（書き込みは402で拒否されます） |
 | POST | `/api/instance/resume` | provision | — | — | — | ホストモード：一時停止したテナントを再開 |
 | POST | `/api/instance/quota` | provision | — | — | — | ホストモード：テナントチームのクォータ制限を設定します。 |
-| POST | `/api/login` | public | — | — | — | ユーザー名とパスワード（2FA 有効時は TOTP コードも）でサインインする。ベアラートークンを返す。試行はアドレス単位とアカウント単位で制限され、遅延は段階的に伸びる（429 と `Retry-After`）。すべての試行は `user.login` として監査に記録される。運用者が TELEMACHUS_LOGIN_LOCK_FAILURES を設定した場合はアカウントがロックされる（423、解除は運用者によるパスワードリセット）。 |
+| POST | `/api/login` | public | — | — | — | ユーザー名とパスワード（2FA 有効時は TOTP コードも）でサインインする。ベアラートークンを返す。試行はアドレス単位とアカウント単位で制限され、遅延は段階的に伸びる（429 と `Retry-After`）。すべての試行は `user.login` として監査に記録される。運用者が TMACH_LOGIN_LOCK_FAILURES を設定した場合はアカウントがロックされる（423、解除は運用者によるパスワードリセット）。 |
 | GET | `/api/sessions` | bearer | — | — | — | 呼び出し元自身のブラウザセッション一覧 — プレフィックス、作成時刻と最終使用時刻、有効期限、そしてこのリクエストが使っているセッションの印。トークンそのものは返さない。 |
 | POST | `/api/logout` | bearer | — | — | — | このリクエストが使っているセッションを終了する。これ以前はコンソールのサインアウトが何も呼んでいなかったため、ベアラーは期限まで有効なままだった。 |
 | DELETE | `/api/sessions` | bearer | — | — | — | 呼び出し元の「他のすべて」のセッションを終了する（他の場所からサインアウト）。すべてではない — パスワード変更はすべてを終了するが、こちらは今使っているセッションを残す。 |
@@ -125,7 +125,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PUT | `/api/notes/:id` | bearer | `notes:write` | resource | — | ノートを更新します。 |
 | DELETE | `/api/notes/:id` | bearer | `notes:delete` | resource | — | ノートを削除します。 |
 | POST | `/api/ai/echo` | bearer | `chat:use` | role | — | クォータの動作確認用の、モデルを使わない計量付きエコー。 |
-| POST | `/api/ai/chat` | bearer | `chat:use` | role | `chat` | モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text\|json_object\|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TELEMACHUS_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。`redact: true`（`redact_detectors` / `redact_terms` と併用、#91 要件2）は、識別子を安定したトークンに置き換えた伏せ字のテキストから要求を組み立て、応答を返す前に元の値へ戻します。応答の `redaction` がどの検出器を実行したかを示します。受け付けるのは文字列のプロンプトのみです: コンテンツパートの配列は、どの検出器も読めない画像を含み得るため、その組み合わせは 400 になります。 |
+| POST | `/api/ai/chat` | bearer | `chat:use` | role | `chat` | モデルの1ターン。`prompt` は文字列またはコンテンツパートの配列です。`response_format`（{type: text\|json_object\|json_schema}）はモデルへ渡され、応答がそれに従わない場合は拒否されます。クォータで許可され（ai.requests、ai.tokens.total）、チームの ai.concurrency で制御されます。名前付きエグゼキュータへのルーティングには instance:manage が必要です。応答の `simulated: true` は、モデルが一切応答していないことを意味します：TMACH_MODEL_URL が未設定で、返答はプロンプトを決まった形で返したものです。実際のモデル呼び出しではこのキーは付きません。`redact: true`（`redact_detectors` / `redact_terms` と併用、#91 要件2）は、識別子を安定したトークンに置き換えた伏せ字のテキストから要求を組み立て、応答を返す前に元の値へ戻します。応答の `redaction` がどの検出器を実行したかを示します。受け付けるのは文字列のプロンプトのみです: コンテンツパートの配列は、どの検出器も読めない画像を含み得るため、その組み合わせは 400 になります。 |
 | POST | `/api/ai/chat/stream` | bearer | `chat:use` | role | `chat` | 同じターンを Server-Sent Events で返し、終了時に計量します。response_format はストリーム終了後に判定され、最後のイベントに `parsed`、またはモデルが従わなかった場合は `schema_error` が入ります。モデルが一切応答していない場合は `simulated: true` が入ります。`redact` はここでは無視せず拒否します（#91、RED-14）: トークンは2つのイベントに分割され得るため、値を戻すには応答全体をいったん溜める必要があり、それはストリームの目的に反します — POST /api/ai/chat を使ってください。 |
 | POST | `/api/agent` | bearer | `chat:use` | role | `agent` | チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。 |
 | POST | `/api/translate/catalog` | bearer | `chat:use` | role | `translate` | ロケールカタログ全体を、プレースホルダーを保ったまま翻訳する。 |
@@ -153,8 +153,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/workers/jobs/:id/complete` | bearer | `jobs:execute` | role | — | 結果を送信する：{result, claim_token}。現在のリース保持者であり、かつ claim_token が示す試行からのみ受け付けます（失効した試行は、それを置き換えた試行に結果を書き込めません）。種別ごとに検証されます。 |
 | POST | `/api/workers/jobs/:id/fail` | bearer | `jobs:execute` | role | — | 失敗を報告する：{error, claim_token}。現在のリース保持者、かつその試行からのみ受け付けます。 |
 | POST | `/api/workers/jobs/:id/release` | bearer | `jobs:execute` | role | — | 試行回数を消費せずにジョブを返却する（issue #61）：{claim_token, reason?} — busy、unsupported、shutdown のいずれか。それ以外は拒否せず `other` として記録する。ワーカーはすでにそのジョブを実行できないと申告しているためである。ジョブは直ちにキューへ戻り、他のワーカーはすぐに取得できる一方、返却したエグゼキュータには30秒間そのジョブを渡さない — これが返却ループの歯止めであり、試行回数を変えないこの経路では他に止めるものがない。10回を超えて返却された場合はジョブを失敗とし、返却したホストの名前を記録する：どのワーカーも実行しない作業には人の判断が必要である。 |
-| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | role | — | このジョブが指定したドキュメントを読む：{object, claim_token, version?, as?}。新しい認可コードは不要で、条件は3つ — 呼び出し元がこの試行を保持していること、オブジェクト ID がそのジョブ自身のペイロードに現れること、そして読み取りがそのジョブのユーザーとして行われること（公開範囲・付与・組織ゲートがすべて適用されます）。`as: "bytes"`（base64、上限は TELEMACHUS_MAX_UPLOAD）または `as: "text"` で、スキャンの場合は {text: null, reason: "needs-ocr"} を返します。 |
-| POST | `/api/workers/jobs/:id/derive` | bearer | `jobs:execute` | role | — | このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TELEMACHUS_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。 |
+| POST | `/api/workers/jobs/:id/document` | bearer | `jobs:execute` | role | — | このジョブが指定したドキュメントを読む：{object, claim_token, version?, as?}。新しい認可コードは不要で、条件は3つ — 呼び出し元がこの試行を保持していること、オブジェクト ID がそのジョブ自身のペイロードに現れること、そして読み取りがそのジョブのユーザーとして行われること（公開範囲・付与・組織ゲートがすべて適用されます）。`as: "bytes"`（base64、上限は TMACH_MAX_UPLOAD）または `as: "text"` で、スキャンの場合は {text: null, reason: "needs-ocr"} を返します。 |
+| POST | `/api/workers/jobs/:id/derive` | bearer | `jobs:execute` | role | — | このジョブが指定したドキュメントから派生した文書を書き込む（issue #62）：{source, key, bytes_b64, claim_token, content_type?, filename?}。上記の読み取りの書き込み版で、同じ3条件の下にある — 呼び出し元がこの試行を保持していること、`source` がそのジョブ自身のペイロードに現れること、そして書き込みがそのジョブのユーザーとして行われること（files:write、ストレージクォータ、組織ゲートがすべて適用される）。出力はソースの公開範囲を受け取り、次にその付与を継承する。派生としてマークされるため、オプトインしたトリガーがワーカー自身の出力で発火することはない。TMACH_MAX_UPLOAD が上限となる：ワーカーは正面玄関の上限を迂回する手段ではない。独立した put は意図的に存在しない — 何にも結び付かない出力は、ワーカートークンをチームのリポジトリへの鍵にしてしまうためである。 |
 | GET | `/api/usage` | bearer | — | — | — | チームのクォータ指標を、使用量・上限・残量・期間のリセット時刻とともに返す。さらに `held` が、現在このチームのキュー内ジョブを保留している上限を示します（保留がなければ null）。 |
 | POST | `/api/quota` | bearer | `quota:manage` | role | — | 呼び出し元チームのクォータ上限を設定する（次元、上限、ウィンドウ）。必要な権限は `instance:manage` ではなく `quota:manage` です（issue #113）: チームのオーナーが自チームの上限を設定でき、組織管理者も設定できます。チームがいくら要求しても会社自身の上限が依然として効く（受け入れ判定は組織の判断を先に取る）ためです。チームの ADMIN は意図的にこの権限を持ちません — 支出はオーナーの判断です。 |
 | GET | `/api/tools` | bearer | — | — | — | 登録済みのツールとその権限、ソースおよびチーム別に有効化された状態。 |
@@ -207,7 +207,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | DELETE | `/api/annotations/:id` | bearer | `files:read` | resource | — | 注釈を削除します。自分のものは作成した事実だけで削除できます。他人のものには文書に対する `files:manage` が必要で、これは文書に付随するものの管理責任にあたります（DSH-2 の原則）。これは意図的に、編集よりも弱い権限です — 編集は作成者以外にはできません。 |
 | GET | `/api/repo-obj/:id/processing` | bearer | `files:read` | resource | — | 「処理履歴」：派生した文書、元の文書、そしてこの文書に触れたすべての実行。 |
 | GET | `/api/admin/anchor` | bearer | `instance:read` | role | — | アンカーの状態（#66）：受領証の発行が設定されているか、受領証の署名に使う公開鍵、このインスタンスのシリーズ ID、受領証の総数、最新の連番とハッシュを返す。報告するのは「発行された」内容だけであり、「保管された」ことは決して主張しない —— アンカーとなるのは外部に保管された写しであり、他者がそれを保持しているかどうかをプラットフォームは検証できない。 |
-| POST | `/api/admin/anchor/emit` | bearer | `instance:manage` | role | — | アンカー受領証を直ちに発行する：監査チェーンを封印し、両方のチェーンのヘッド（チームごとのレビューチェーン、組織ごとの監査チェーン）を読み、その測定値を TELEMACHUS_ANCHOR_KEY で署名する。アンカー鍵が未設定の場合は 400。同時に 2 件発行しようとした場合は、再試行せず連番の一意インデックスで拒否する —— 分岐したシリーズは偽造と区別できないからである。 |
+| POST | `/api/admin/anchor/emit` | bearer | `instance:manage` | role | — | アンカー受領証を直ちに発行する：監査チェーンを封印し、両方のチェーンのヘッド（チームごとのレビューチェーン、組織ごとの監査チェーン）を読み、その測定値を TMACH_ANCHOR_KEY で署名する。アンカー鍵が未設定の場合は 400。同時に 2 件発行しようとした場合は、再試行せず連番の一意インデックスで拒否する —— 分岐したシリーズは偽造と区別できないからである。 |
 | GET | `/api/admin/anchor/receipts` | bearer | `instance:read` | role | — | アンカー受領証を新しい順に返す。`?since_seq=` を指定した場合は古い順。各受領証は署名対象となった正確なバイト列、その署名、署名に使われた公開鍵、連番、直前の受領証のハッシュを含む。`limit` の上限は 1000。 |
 | GET | `/api/admin/anchor/export` | bearer | `instance:read` | role | — | アンカー受領証を JSONL（古い順）で返す。このインスタンスの信頼境界の外に保管するためのもの。`?since_seq=` は保管側がまだ持っていない分だけを要求するので、ファイルに追記できる。保管した写しは `racket cli/telemachus-anchor.rkt verify <file> --public-key <hex>` でオフライン検証する —— このサーバーもそのデータベースも必要としない。アンカーが意味を持つのは、まさにそのインスタンス自身が疑われている場合だからである。 |
 | GET | `/api/admin/audit/verify` | bearer | `instance:read` | role | — | 1つの組織の監査ログのハッシュチェーンを検証し、最初に壊れたエントリを示す。 |

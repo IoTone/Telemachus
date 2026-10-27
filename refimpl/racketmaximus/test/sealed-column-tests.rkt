@@ -30,8 +30,8 @@
                 (lambda () (putenv name (or saved "")))))
 
 (define (sealed thunk)
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
-    (lambda () (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1" thunk))))
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
+    (lambda () (with-env "TMACH_ENCRYPT_CONTENT" "1" thunk))))
 
 ;; the thirteen columns, declared exactly as the five modules now declare them
 (define-sealed-column "jobs.payload"             (s-payload u-payload) (id))
@@ -87,15 +87,15 @@
 ;; ---- 3. the rule itself ----------------------------------------------------------
 (test-case "seal is conditional on the switch; unseal never is"
   (define plain
-    (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\b)
-      (lambda () (with-env "TELEMACHUS_ENCRYPT_CONTENT" ""
+    (with-env "TMACH_SECRET_KEY" (make-string 64 #\b)
+      (lambda () (with-env "TMACH_ENCRYPT_CONTENT" ""
                    (lambda () (s-payload "J2" "visible"))))))
   (check-equal? plain "visible" "with the switch off, nothing is sealed")
   ;; a row sealed while the switch was ON must still open after it is turned OFF,
   ;; or turning it off would lose the data it was turned on to protect
   (define ct (sealed (lambda () (s-payload "J3" "secret"))))
   (check-true (string-prefix? ct "enc:v1:"))
-  (check-equal? (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
+  (check-equal? (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
                   (lambda () (u-payload "J3" ct)))
                 "secret"
                 "the unseal is unconditional"))
@@ -150,8 +150,8 @@
 (define-sealed-column "webhooks.secret" (s-hook u-hook) (id) #:credential)
 
 (define (keyed-no-content thunk)
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
-    (lambda () (with-env "TELEMACHUS_ENCRYPT_CONTENT" "" thunk))))
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
+    (lambda () (with-env "TMACH_ENCRYPT_CONTENT" "" thunk))))
 
 (test-case "a credential column seals with a key alone; a content column waits for the switch"
   (keyed-no-content
@@ -167,7 +167,7 @@
      (check-equal? (s-payload "J9" "{\"a\":1}") "{\"a\":1}")
      (check-false (wrapped-secret? (s-payload "J9" "{\"a\":1}")))))
   ;; …and with no key at all, nothing is sealed and the value passes through
-  (with-env "TELEMACHUS_SECRET_KEY" ""
+  (with-env "TMACH_SECRET_KEY" ""
     (lambda ()
       (check-equal? (s-feed "F1" "t0p-s3cret") "t0p-s3cret")))
   ;; the AAD is the compatibility surface for these two as well

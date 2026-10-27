@@ -57,7 +57,7 @@
 ;; -> (values ssl? host port)
 (define (s3-endpoint-parts endpoint)
   (define m (regexp-match #px"^(https?)://([^/:]+)(?::([0-9]+))?/?$" endpoint))
-  (unless m (error 's3-client "TELEMACHUS_S3_BLOB_ENDPOINT must be http(s)://host[:port], got ~s" endpoint))
+  (unless m (error 's3-client "TMACH_S3_BLOB_ENDPOINT must be http(s)://host[:port], got ~s" endpoint))
   (define ssl? (string=? (list-ref m 1) "https"))
   (values ssl? (list-ref m 2)
           (cond [(list-ref m 3) (string->number (list-ref m 3))] [ssl? 443] [else 80])))
@@ -352,11 +352,11 @@
          (unless got
            (s3-error status "unencrypted"
                      (string-append "the bucket stored ~a WITHOUT reporting server-side "
-                                    "encryption, and TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION is on. "
+                                    "encryption, and TMACH_S3_BLOB_REQUIRE_ENCRYPTION is on. "
                                     "The object exists and may be in plaintext — it is left in "
                                     "place deliberately so you can inspect it. Check the bucket's "
                                     "default encryption and any policy that strips the header, or "
-                                    "set TELEMACHUS_S3_BLOB_SSE=none if plaintext is intended.")
+                                    "set TMACH_S3_BLOB_SSE=none if plaintext is intended.")
                      key)))
        (void)]
       [else

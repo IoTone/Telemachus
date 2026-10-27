@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env legacy-env-warning))
+
 ;; server/main.rkt — the HTTP surface (slice 3). Wires web-kit + AuthzService +
 ;; the Localizer:
 ;;   • identity from `Authorization: Bearer <token>` (issuer-perms ∩ scopes) or a
@@ -553,15 +557,15 @@
   (warn-dev-pepper!)
   ;; hosted VM launch: self-seed the owner from env on first boot, emit the
   ;; activation token to stdout (the provisioning sink) for the control plane.
-  (when (and (saas-mode?) (env* "TELEMACHUS_SEED_OWNER_EMAIL")
+  (when (and (saas-mode?) (tmach-env "SEED_OWNER_EMAIL")
              (not (query-maybe-value db-conn "SELECT id FROM users LIMIT 1")))
     (define-values (tok uid tid _st)
-      (provision! db-conn #:provision-id (or (env* "TELEMACHUS_SEED_PROVISION_ID") "seed")
-                  #:owner-email (env* "TELEMACHUS_SEED_OWNER_EMAIL")
-                  #:owner-name (env* "TELEMACHUS_SEED_OWNER_NAME")
-                  #:org (env* "TELEMACHUS_SEED_ORG")
-                  #:plan (or (env* "TELEMACHUS_SEED_PLAN") "trial") #:source "vm"))
-    (printf "seed: provisioned ~a — activation token: ~a\n" (env* "TELEMACHUS_SEED_OWNER_EMAIL") tok)
+      (provision! db-conn #:provision-id (or (tmach-env "SEED_PROVISION_ID") "seed")
+                  #:owner-email (tmach-env "SEED_OWNER_EMAIL")
+                  #:owner-name (tmach-env "SEED_OWNER_NAME")
+                  #:org (tmach-env "SEED_ORG")
+                  #:plan (or (tmach-env "SEED_PLAN") "trial") #:source "vm"))
+    (printf "seed: provisioned ~a — activation token: ~a\n" (tmach-env "SEED_OWNER_EMAIL") tok)
     (flush-output))
   ;; issue #45: TELEMACHUS_PLUGINS is a LIST, searched after the built-in
   ;; directory — `:`-separated, like a path variable. It used to name the one
@@ -569,7 +573,7 @@
   ;; doc-pipeline and every other shipped plugin. A literal `-` entry drops the
   ;; built-ins, for a deployment that means to ship only its own.
   (define plugins-dirs
-    (let* ([entries (let ([e (env* "TELEMACHUS_PLUGINS")])
+    (let* ([entries (let ([e (tmach-env "PLUGINS")])
                       (if e (filter (lambda (x) (not (string=? x ""))) (string-split e ":")) '()))]
            [builtin? (not (member "-" entries))]
            [extra (map string->path (filter (lambda (x) (not (string=? x "-"))) entries))])
@@ -583,7 +587,7 @@
   ;; plugin's own collections are gone and it DOES fail), and a customer's routes
   ;; and tools would otherwise show up in the suite's assertions. Opt-in means a
   ;; local link can never change a test, a generated document or a CI result.
-  (define include-links? (and (env* "TELEMACHUS_PLUGINS_LINKS") #t))
+  (define include-links? (and (tmach-env "PLUGINS_LINKS") #t))
   (define plugins (load-plugins! plugins-dirs
                                  #:skip-links? (not include-links?)
                                  #:log (lambda (s) (printf "  plugin: ~a\n" s))))
@@ -616,10 +620,10 @@
   ;; TELEMACHUS_BLOB_STORE quietly wrote every document to local disk while the
   ;; instance reported healthy — the same shape as the relative root below, and
   ;; the same answer: fail where the message is about the configuration.
-  (let ([want (env* "TELEMACHUS_BLOB_STORE")])
+  (let ([want (tmach-env "BLOB_STORE")])
     (when (and want (not (string=? want "")) (not (member want (blob-store-names))))
       (error 'telemachus
-             (string-append "TELEMACHUS_BLOB_STORE names a store that is not registered: ~a\n"
+             (string-append "TMACH_BLOB_STORE names a store that is not registered: ~a\n"
                             "  registered: ~a\n"
                             "  Documents would silently go to the local store instead.")
              want (string-join (blob-store-names) ", "))))
@@ -628,8 +632,8 @@
       (error 'telemachus
              (string-append "blob store root is relative (~a).\n"
                             "  It would be resolved against the web server's working directory at write\n"
-                            "  time, not against the install. Set TELEMACHUS_DATA_DIR (or\n"
-                            "  TELEMACHUS_RS3_ROOT) to an absolute path.")
+                            "  time, not against the install. Set TMACH_DATA_DIR (or\n"
+                            "  TMACH_RS3_ROOT) to an absolute path.")
              r)))
   ;; issue #89: everything else an unattended deployment gets wrong silently.
   ;; AFTER plugins, because the store that will be used is the one a plugin
@@ -663,16 +667,16 @@
       (printf "WARNING: ~a plugin(s) FAILED to load — their tools, workflows, routes and job kinds are MISSING:\n"
               (length bad))
       (for ([f (in-list bad)]) (printf "  ~a: ~a\n" (hash-ref f 'plugin) (hash-ref f 'error)))
-      (when (env* "TELEMACHUS_PLUGINS_STRICT")
-        (eprintf "TELEMACHUS_PLUGINS_STRICT is set — refusing to start.\n")
+      (when (tmach-env "PLUGINS_STRICT")
+        (eprintf "TMACH_PLUGINS_STRICT is set — refusing to start.\n")
         (exit 1))))
-  (define mcp-config (let ([e (env* "TELEMACHUS_MCP")]) (if e (string->path e) (build-path impl-root "mcp.json"))))
+  (define mcp-config (let ([e (tmach-env "MCP")]) (if e (string->path e) (build-path impl-root "mcp.json"))))
   (define mcps (connect-mcp-servers! mcp-config #:log (lambda (s) (printf "  mcp: ~a\n" s))))
   (when (pair? mcps) (printf "connected ~a MCP server(s)\n" (length mcps)))
-  (define oop-config (let ([e (env* "TELEMACHUS_OOP")]) (if e (string->path e) (build-path impl-root "oop.json"))))
+  (define oop-config (let ([e (tmach-env "OOP")]) (if e (string->path e) (build-path impl-root "oop.json"))))
   (define oops (connect-oop-plugins! oop-config #:log (lambda (s) (printf "  oop: ~a\n" s))))
   (when (pair? oops) (printf "connected ~a sandboxed plugin(s)\n" (length oops)))
-  (define exec-config (let ([e (env* "TELEMACHUS_EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
+  (define exec-config (let ([e (tmach-env "EXECUTORS")]) (if e (string->path e) (build-path impl-root "executors.json"))))
   (define fx (connect-executors! exec-config #:log (lambda (s) (printf "  executor: ~a\n" s))))
   (when (pair? fx) (printf "registered ~a federated executor(s)\n" (length fx)))
   ;; The executors table's PUSH rows belong in the same registry. They were only
@@ -768,7 +772,7 @@
   ;; falls back to the default, never to 0, which would emit on every tick and
   ;; bury the series it is meant to protect.
   (define ANCHOR-EVERY
-    (let ([raw (string-downcase (string-trim (or (getenv "TELEMACHUS_ANCHOR_EVERY") "")))])
+    (let ([raw (string-downcase (string-trim (or (tmach-env "ANCHOR_EVERY") "")))])
       (cond
         [(string=? raw "") 86400]
         [(string=? raw "never") #f]
@@ -1086,10 +1090,18 @@
   ;; answer looks like its own prompt shouted back. Said once, at boot, in the
   ;; shape the plugin failures already use.
   (unless (model-configured?)
-    (printf "\nWARNING: no model is configured (TELEMACHUS_MODEL_URL is unset).\n")
+    (printf "\nWARNING: no model is configured (TMACH_MODEL_URL is unset).\n")
     (printf "  /api/ai/chat answers with a SIMULATED upper-cased echo, flagged `simulated` in\n")
     (printf "  the response; the document tools, the knowledge graph and the agent refuse\n")
-    (printf "  outright. Set TELEMACHUS_MODEL_URL to an OpenAI-compatible endpoint.\n\n"))
+    (printf "  outright. Set TMACH_MODEL_URL to an OpenAI-compatible endpoint.\n\n"))
+  ;; #128 job 2: the instance says which variables it is still reading under
+  ;; their OLD names, once, in the shape the plugin failures already use. An
+  ;; operator migrating a compose file needs the list; one who has already
+  ;; migrated sees nothing. It is a NOTE rather than a WARNING because nothing is
+  ;; wrong — the old names are supported, and shouting about a supported
+  ;; configuration is how an operator learns to ignore the boot output.
+  (let ([note (legacy-env-warning)])
+    (when note (printf "\n~a\n\n" note)))
   ;; The S3 front door is a SEPARATE listener on a separate port: it runs on
   ;; web-kit/http1 because it must answer `Expect: 100-continue` and stream bodies
   ;; the servlet would buffer. Off unless TELEMACHUS_S3_PORT is set — an S3 endpoint
@@ -1120,7 +1132,7 @@
   (define (drain! why)
     (unless (unbox drained?)
       (set-box! drained? #t)
-      (printf "\n~a — draining (TELEMACHUS_DRAIN_SECONDS=~a)\n" why (drain-seconds))
+      (printf "\n~a — draining (TMACH_DRAIN_SECONDS=~a)\n" why (drain-seconds))
       (flush-output)
       (define-values (finished requeued)
         (with-handlers ([exn:fail? (lambda (e)

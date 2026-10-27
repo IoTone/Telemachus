@@ -63,9 +63,9 @@
 (test-case "on, the row holds no fixture text, and it still reads back"
   (define c (fresh))
   (define oid (new-id))
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
+      (with-env "TMACH_ENCRYPT_CONTENT" "1"
         (lambda ()
           (check-true (content-encryption-enabled?))
           (repo-text-upsert! c oid "v1" SECRET
@@ -86,7 +86,7 @@
           (check-equal? (hash-ref (car (repo-spans-for c oid)) 'page) 7)))))
   ;; 3. the switch going OFF must not lose what was sealed while it was on. The
   ;;    key is still present; only the switch changed.
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
     (lambda ()
       (check-false (content-encryption-enabled?))
       (check-equal? (repo-text-for c oid) SECRET
@@ -97,9 +97,9 @@
   (define c (fresh))
   (define a (new-id))
   (define b (new-id))
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\b)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\b)
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
+      (with-env "TMACH_ENCRYPT_CONTENT" "1"
         (lambda ()
           (repo-text-upsert! c a "v1" SECRET)
           (repo-text-upsert! c b "v1" "something else entirely")
@@ -123,14 +123,14 @@
 (test-case "a row that cannot be unsealed fails without quoting content or key material"
   (define c (fresh))
   (define oid (new-id))
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\c)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\c)
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
+      (with-env "TMACH_ENCRYPT_CONTENT" "1"
         (lambda () (repo-text-upsert! c oid "v1" SECRET)))))
   ;; a DIFFERENT key: the row is now unreadable, which is the real operational
   ;; failure (a rotated key, a restored dump) rather than a contrived one
   (define captured
-    (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\d)
+    (with-env "TMACH_SECRET_KEY" (make-string 64 #\d)
       (lambda ()
         (define out (open-output-string))
         (parameterize ([current-error-port out])

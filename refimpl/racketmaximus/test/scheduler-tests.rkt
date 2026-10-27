@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/scheduler-tests.rkt — the async job scheduler, driven synchronously via
 ;; process-one! (no thread races).  raco test test/scheduler-tests.rkt
 
@@ -276,8 +280,8 @@
   (check-false (sql-null? (query-value c "SELECT started_epoch FROM jobs WHERE id = ?" j2))))
 
 (test-case "the ceiling is configurable, and never silently zero"
-  (define old (getenv "TELEMACHUS_MAX_JOB_SECONDS"))
-  (define (cap v) (void (putenv "TELEMACHUS_MAX_JOB_SECONDS" v)))
+  (define old (tmach-env "MAX_JOB_SECONDS"))
+  (define (cap v) (void (putenv "TMACH_MAX_JOB_SECONDS" v)))
   (cap "") (check-equal? (max-job-seconds) 1800)        ; unset → the shipped default
   (cap "60") (check-equal? (max-job-seconds) 60)
   (cap " 90 ") (check-equal? (max-job-seconds) 90)
@@ -286,7 +290,7 @@
   (cap "nonsense") (check-equal? (max-job-seconds) 1800) ; never a surprise 0, which would
   (cap "0") (check-equal? (max-job-seconds) 1800)        ; cancel every job as it started
   (cap "-5") (check-equal? (max-job-seconds) 1800)
-  (void (if old (putenv "TELEMACHUS_MAX_JOB_SECONDS" old) (putenv "TELEMACHUS_MAX_JOB_SECONDS" ""))))
+  (void (if old (putenv "TMACH_MAX_JOB_SECONDS" old) (putenv "TMACH_MAX_JOB_SECONDS" ""))))
 
 (test-case "a tick past the ceiling cancels the job; before it, it extends the lease"
   (define c (fresh))
@@ -304,7 +308,7 @@
   ;; past the ceiling: canceling, with a reason that names the knob
   (check-equal? (lease-tick! c j tok (- (current-seconds) 1)) 'timed-out)
   (check-equal? (query-value c "SELECT status FROM jobs WHERE id = ?" j) "canceling")
-  (check-regexp-match #rx"TELEMACHUS_MAX_JOB_SECONDS"
+  (check-regexp-match #rx"TMACH_MAX_JOB_SECONDS"
                       (query-value c "SELECT error FROM jobs WHERE id = ?" j))
   ;; "no limit" never times anything out
   (check-equal? (lease-tick! c j tok #f) 'refreshed))
@@ -323,13 +327,13 @@
 
 (test-case "drain-seconds: a default, an off switch, and never 0 by accident"
   (define (with-env v thunk)
-    (define old (getenv "TELEMACHUS_DRAIN_SECONDS"))
+    (define old (tmach-env "DRAIN_SECONDS"))
     (dynamic-wind
-     (lambda () (if v (putenv "TELEMACHUS_DRAIN_SECONDS" v) (putenv "TELEMACHUS_DRAIN_SECONDS" "")))
+     (lambda () (if v (putenv "TMACH_DRAIN_SECONDS" v) (putenv "TMACH_DRAIN_SECONDS" "")))
      thunk
      ;; restore in a dynamic-wind: a failing check raises, and a leaked value
      ;; would change what every later test in this file measures
-     (lambda () (putenv "TELEMACHUS_DRAIN_SECONDS" (or old "")))))
+     (lambda () (putenv "TMACH_DRAIN_SECONDS" (or old "")))))
   (with-env #f    (lambda () (check-equal? (drain-seconds) 25)))
   (with-env "60"  (lambda () (check-equal? (drain-seconds) 60)))
   ;; An off switch has to be spelled, and it is the one case 0 is meant.

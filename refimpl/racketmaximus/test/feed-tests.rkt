@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/feed-tests.rkt — external feed configuration (#114, FEED-2/-5/-6).
 ;;
 ;;   raco test test/feed-tests.rkt
@@ -106,7 +110,7 @@
 (test-case "the secret is sealed in the row, never in a read, and rotates with the key"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
-  (with-env "TELEMACHUS_SECRET_KEY" KEY-A
+  (with-env "TMACH_SECRET_KEY" KEY-A
     (lambda ()
       (define id (mk c tid uid #:auth "bearer" #:secret "t0p-s3cret"))
       ;; off the RAW ROW, which is what a dump holds
@@ -124,9 +128,9 @@
       ;; write with the current one. A sealed column outside `CREDENTIAL-SECRETS`
       ;; is silently unrotatable, which is the step #83's notes say people forget
       ;; — so the registry row is pinned in `test/secrets-registry` below.
-      (with-env "TELEMACHUS_SECRET_KEY_OLD" KEY-A
+      (with-env "TMACH_SECRET_KEY_OLD" KEY-A
         (lambda ()
-          (with-env "TELEMACHUS_SECRET_KEY" KEY-B
+          (with-env "TMACH_SECRET_KEY" KEY-B
             (lambda ()
               (define plain (feed-secret-of c id))
               (check-equal? plain "t0p-s3cret")
@@ -136,7 +140,7 @@
                                          (query-value c "SELECT secret FROM feeds WHERE id = ?" id)))
               (check-equal? (feed-secret-of c id) "t0p-s3cret")))))
       ;; …and the old key no longer opens it, which is what a rotation means
-      (with-env "TELEMACHUS_SECRET_KEY" KEY-B
+      (with-env "TMACH_SECRET_KEY" KEY-B
         (lambda () (check-equal? (feed-secret-of c id) "t0p-s3cret")))))
   (close-db! c))
 
@@ -261,15 +265,15 @@
                               (with-handlers ([(lambda (_) #t) void]) (close-output-port o))
                               (with-handlers ([(lambda (_) #t) void]) (close-input-port i)))))
                   (loop))))))
-  (define was (getenv "TELEMACHUS_EGRESS_ALLOW"))
+  (define was (tmach-env "EGRESS_ALLOW"))
   ;; the source is on loopback, which #142 refuses unless the OPERATOR allowed
   ;; that network — which is exactly the customer's "feeds in our network" case
-  (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+  (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
   (dynamic-wind
    void
    (lambda () (proc (format "http://127.0.0.1:~a/api/items" p) seen))
    (lambda ()
-     (putenv "TELEMACHUS_EGRESS_ALLOW" (or was ""))
+     (putenv "TMACH_EGRESS_ALLOW" (or was ""))
      (kill-thread t)
      (tcp-close L))))
 

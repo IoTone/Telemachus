@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/matrix-tests.rkt — the Matrix notification plugin (issue #133).
 ;;
 ;;   raco test test/matrix-tests.rkt
@@ -141,9 +145,9 @@
   (void (room-create! c #:team tid #:user uid #:room-id ROOM))
   ;; A homeserver that does not exist. A sink that POSTED would hang here for
   ;; MATRIX-TIMEOUT or raise; a sink that enqueues does not care.
-  (with-env "TELEMACHUS_MATRIX_HOMESERVER" "http://127.0.0.1:1"
+  (with-env "TMACH_MATRIX_HOMESERVER" "http://127.0.0.1:1"
     (lambda ()
-      (with-env "TELEMACHUS_MATRIX_TOKEN" "syt_test"
+      (with-env "TMACH_MATRIX_TOKEN" "syt_test"
         (lambda ()
           (define before (query-value c "SELECT COUNT(*) FROM jobs"))
           (notify-sink c "run.failed" tid (hasheq 'run_id "r-1" 'url "/api/runs/r-1"))
@@ -209,18 +213,18 @@
                               (with-handlers ([(lambda (_) #t) void]) (close-output-port o))
                               (with-handlers ([(lambda (_) #t) void]) (close-input-port i)))))
                   (loop))))))
-  (define was (getenv "TELEMACHUS_EGRESS_ALLOW"))
+  (define was (tmach-env "EGRESS_ALLOW"))
   ;; a self-hosted homeserver is on a private network, which #142 refuses unless
   ;; the OPERATOR allowed it — which is this issue's whole case
-  (putenv "TELEMACHUS_EGRESS_ALLOW" "127.0.0.0/8")
+  (putenv "TMACH_EGRESS_ALLOW" "127.0.0.0/8")
   (dynamic-wind
    void
    (lambda ()
-     (with-env "TELEMACHUS_MATRIX_HOMESERVER" (format "http://127.0.0.1:~a" port)
-       (lambda () (with-env "TELEMACHUS_MATRIX_TOKEN" "syt_s3cret"
+     (with-env "TMACH_MATRIX_HOMESERVER" (format "http://127.0.0.1:~a" port)
+       (lambda () (with-env "TMACH_MATRIX_TOKEN" "syt_s3cret"
                     (lambda () (proc seen))))))
    (lambda ()
-     (putenv "TELEMACHUS_EGRESS_ALLOW" (or was ""))
+     (putenv "TMACH_EGRESS_ALLOW" (or was ""))
      (kill-thread t)
      (tcp-close L))))
 
@@ -324,9 +328,9 @@
 
 ;; ---- off unless configured --------------------------------------------------------------
 (test-case "with no homeserver the plugin registers nothing and the read says so"
-  (with-env "TELEMACHUS_MATRIX_HOMESERVER" ""
+  (with-env "TMACH_MATRIX_HOMESERVER" ""
     (lambda ()
-      (with-env "TELEMACHUS_MATRIX_TOKEN" ""
+      (with-env "TMACH_MATRIX_TOKEN" ""
         (lambda ()
           (check-false (matrix-configured?))
           (check-false (matrix-homeserver))
@@ -353,9 +357,9 @@
           (check-exn exn:fail? (lambda () (send-to-room! ROOM "x" #:txn "t")))))))
   ;; configured, it registers both — and `init!` twice in one process is fine,
   ;; because the loader may run twice
-  (with-env "TELEMACHUS_MATRIX_HOMESERVER" "http://127.0.0.1:1"
+  (with-env "TMACH_MATRIX_HOMESERVER" "http://127.0.0.1:1"
     (lambda ()
-      (with-env "TELEMACHUS_MATRIX_TOKEN" "syt_test"
+      (with-env "TMACH_MATRIX_TOKEN" "syt_test"
         (lambda ()
           (dynamic-wind
            void

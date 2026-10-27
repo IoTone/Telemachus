@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/redact-tests.rkt — issue #91 requirement 1: keeping identifiers out of a
 ;; model request (decisions RED-1…9).
 ;;   raco test test/redact-tests.rkt
@@ -200,10 +204,10 @@
   ;; out of a model request. The content switch's documented default is OFF, so a
   ;; map gated on it would be stored in the clear on the ordinary instance, which
   ;; is a feature doing the opposite of its name.
-  (define was-key (getenv "TELEMACHUS_SECRET_KEY"))
-  (define was-content (getenv "TELEMACHUS_ENCRYPT_CONTENT"))
-  (putenv "TELEMACHUS_SECRET_KEY" (make-string 64 #\a))
-  (putenv "TELEMACHUS_ENCRYPT_CONTENT" "")        ; the documented default: OFF
+  (define was-key (tmach-env "SECRET_KEY"))
+  (define was-content (tmach-env "ENCRYPT_CONTENT"))
+  (putenv "TMACH_SECRET_KEY" (make-string 64 #\a))
+  (putenv "TMACH_ENCRYPT_CONTENT" "")        ; the documented default: OFF
   (dynamic-wind
    void
    (lambda ()
@@ -222,8 +226,8 @@
      (define-values (rec m) (redaction-get conn alice (hash-ref r 'redaction_id)))
      (check-equal? (cdr (assoc "<EMAIL_1>" m)) "arun.patel@example.com"))
    (lambda ()
-     (putenv "TELEMACHUS_SECRET_KEY" (or was-key ""))
-     (putenv "TELEMACHUS_ENCRYPT_CONTENT" (or was-content "")))))
+     (putenv "TMACH_SECRET_KEY" (or was-key ""))
+     (putenv "TMACH_ENCRYPT_CONTENT" (or was-content "")))))
 
 (test-case "RED-6/RED-7: a map opens only for somebody who may read the document"
   (define conn (fresh))

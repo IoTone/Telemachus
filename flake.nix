@@ -48,7 +48,7 @@
             racket          # 9.3 CS — the version the project develops against
             sqlite          # the default backend, plus its CLI for poking at a DB
             postgresql      # the OTHER dialect: migrations must pass on both
-            openssl         # TELEMACHUS_TLS=1 shells out to it for a self-signed cert
+            openssl         # TMACH_TLS=1 shells out to it for a self-signed cert
             tzdata          # #137: the IANA zone database; TZDIR below points at it
             poppler-utils   # pdftotext — PDF text extraction for the search index (slice 54);
                             # ALSO pdftoppm, which is how the OCR extractor renders a

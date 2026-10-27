@@ -325,7 +325,7 @@
 (define (default-feed-chat prompt #:system [sys #f] #:conn [conn #f] #:team [team #f])
   (define ex (and conn team (model-role-executor conn team "utility")))
   (unless (or ex (model-configured?))
-    (error 'feed_propose "no model configured — set TELEMACHUS_MODEL_URL, or a utility executor in Model roles"))
+    (error 'feed_propose "no model configured — set TMACH_MODEL_URL, or a utility executor in Model roles"))
   (run-chat prompt #:system sys #:temperature 0 #:executor ex))
 
 (define current-feed-chat (make-parameter default-feed-chat))

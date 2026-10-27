@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; server/api/beta.rkt — the public beta funnel: anti-abuse, signup, the
 ;; judge, brand assets
 ;;
@@ -31,9 +35,9 @@
 ;; ---- beta onboarding (public signup → LLM judge → owner review) -------------
 
 ;; anti-abuse state (in-memory, per-process)
-(define beta-secret (or (env* "TELEMACHUS_SECRET") "telemachus-dev-secret"))     ; set in prod
+(define beta-secret (or (tmach-env "SECRET") "telemachus-dev-secret"))     ; set in prod
 
-(define pow-bits    (or (string->number (or (env* "TELEMACHUS_POW_BITS") "")) 16))
+(define pow-bits    (or (string->number (or (tmach-env "POW_BITS") "")) 16))
 (define beta-limiter (make-limiter))
 (define beta-used    (new-used-set))
 (define (client-key req)
@@ -178,8 +182,8 @@
          (define email (fmt b 'email))
          (define domain (or (email-domain email) ""))
          (define since (- now 86400))                        ; 24h velocity window
-         (define email-cap  (or (string->number (or (env* "TELEMACHUS_BETA_EMAIL_CAP") "")) 1))
-         (define domain-cap (or (string->number (or (env* "TELEMACHUS_BETA_DOMAIN_CAP") "")) 10))
+         (define email-cap  (or (string->number (or (tmach-env "BETA_EMAIL_CAP") "")) 1))
+         (define domain-cap (or (string->number (or (tmach-env "BETA_DOMAIN_CAP") "")) 10))
          (define dom-count (count-recent-domain db-conn team domain since))
          (cond
           [(>= (count-recent-email db-conn team email since) email-cap)

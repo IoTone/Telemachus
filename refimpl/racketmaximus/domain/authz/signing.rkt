@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/authz/signing.rkt — Ed25519 signatures over libcrypto's EVP interface,
 ;; for issue #66's anchor receipts (decision ANCHOR‑4).
 ;;
@@ -159,15 +163,15 @@
 (define *seeds* (make-hash))
 
 (define (anchor-key-seed)
-  (define raw (env "TELEMACHUS_ANCHOR_KEY"))
+  (define raw (tmach-env "ANCHOR_KEY"))
   (and raw
        (hash-ref! *seeds* raw
                   (lambda ()
                     (unless (regexp-match? #px"^[0-9a-fA-F]{64}$" raw)
                       (error 'signing
                              (string-append
-                              "TELEMACHUS_ANCHOR_KEY must be 64 hex characters (a 32-byte Ed25519 seed). "
-                              "Unlike TELEMACHUS_SECRET_KEY it is NOT a passphrase: generate one with "
+                              "TMACH_ANCHOR_KEY must be 64 hex characters (a 32-byte Ed25519 seed). "
+                              "Unlike TMACH_SECRET_KEY it is NOT a passphrase: generate one with "
                               "`racket cli/telemachus-anchor.rkt keygen` and keep it in a secret store.")))
                     (hex->bytes raw)))))
 

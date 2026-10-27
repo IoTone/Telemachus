@@ -106,7 +106,7 @@
   (check-exn exn:fail:forbidden? (lambda () (experience-save! c v (hasheq 'name "beta"))))
   (check-exn exn:fail:forbidden? (lambda () (experience-publish! c v))))
 
-(test-case "ENV launch defaults: TELEMACHUS_ONBOARDING_FILE seeds the base (judge_system normalized)"
+(test-case "ENV launch defaults: TMACH_ONBOARDING_FILE seeds the base (judge_system normalized)"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (define f (make-temporary-file "tmx-onb-~a.json"))
@@ -116,7 +116,7 @@
         (lambda (o) (write-json (hasheq 'name "beta" 'title "ENV Beta" 'subtitle "from env"
                                         'fields (list (hasheq 'key "email" 'label "Email" 'type "email" 'required #t))
                                         'judge_system "env judge prompt") o)))
-      (putenv "TELEMACHUS_ONBOARDING_FILE" (path->string f)))
+      (putenv "TMACH_ONBOARDING_FILE" (path->string f)))
     (lambda ()
       ;; base picks up ENV overrides; judge_system is normalized to 'judge-system
       (check-equal? (hash-ref (base-experience) 'title) "ENV Beta")
@@ -126,7 +126,7 @@
       (check-equal? (experience-judge-system c tid) "env judge prompt")
       (check-false (hash-has-key? (resolve-experience-public c tid) 'judge-system)))
     (lambda ()
-      (putenv "TELEMACHUS_ONBOARDING_FILE" "")
+      (putenv "TMACH_ONBOARDING_FILE" "")
       (delete-file f))))
 
 ;; Regression (see issue: renamed experience silently lost). The console's

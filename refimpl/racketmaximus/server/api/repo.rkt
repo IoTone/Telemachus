@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; server/api/repo.rkt — the document repository, its metadata, its shares
 ;; and its S3 keys
 ;;
@@ -325,7 +329,7 @@
     (define cred (and o (s3-cred-newest db-conn p)))
     (cond
       [(not o) (err "not found" 404)]
-      [(not port) (err "the S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT)" 409)]
+      [(not port) (err "the S3 endpoint is not enabled on this instance (set TMACH_S3_PORT)" 409)]
       [(not cred) (err "create an S3 access key first — a link is signed with one" 409)]
       [else
        (define secs (max 1 (min 604800 (or (string->number (query-param req 'expires "900")) 900))))
@@ -376,7 +380,7 @@
 ;; transport requirements differ (Expect: 100-continue, unbuffered bodies), and
 ;; path-style addressing because virtual-host style would need wildcard DNS.
 (define (s3-port)
-  (define raw (env* "TELEMACHUS_S3_PORT"))
+  (define raw (tmach-env "S3_PORT"))
   (define n (and raw (string->number raw)))
   (and n (exact-positive-integer? n) n))
 

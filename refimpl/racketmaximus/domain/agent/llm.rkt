@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to the old spelling.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/agent/llm.rkt — the #:llm effect: an OpenAI-compatible chat adapter.
 ;;
 ;; Splits into a PURE parser (chat-response->assistant-msg) — fully unit-tested —
@@ -78,14 +82,13 @@
 ;; The request runs in a thread under its OWN custodian: on a timeout we shut that
 ;; custodian down, which closes the TCP ports the request opened. Killing the
 ;; thread alone would leave the socket.
-(define (env-num k default)
-  (define v (getenv k))
+(define (env-num v default)               ; the VALUE since #128 job 2
   (define n (and v (string->number (string-trim v))))
   (if (and (real? n) (> n 0)) n default))
 
-(define (model-timeout)      (env-num "TELEMACHUS_MODEL_TIMEOUT" 120))
-(define (model-idle-timeout) (env-num "TELEMACHUS_MODEL_IDLE_TIMEOUT" 60))
-(define (model-retries)      (inexact->exact (floor (env-num "TELEMACHUS_MODEL_RETRIES" 1))))
+(define (model-timeout)      (env-num (tmach-env "MODEL_TIMEOUT") 120))
+(define (model-idle-timeout) (env-num (tmach-env "MODEL_IDLE_TIMEOUT") 60))
+(define (model-retries)      (inexact->exact (floor (env-num (tmach-env "MODEL_RETRIES") 1))))
 
 ;; A failure worth trying again: a timeout, an unreachable endpoint, a stalled
 ;; stream. `reason` is for the message and for tests, never for control flow.

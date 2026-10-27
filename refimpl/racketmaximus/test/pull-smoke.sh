@@ -10,7 +10,7 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # unused: a developer working on a downstream plugin exports them in their own
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 export PORT="${PORT:-8845}"; MOCK_PORT="${MOCK_PORT:-8905}"
 # A mock that REFUSES (issue #93), and a port with nothing on it at all — the two
 # shapes of "this host cannot serve the job" that must not cost a job an attempt.
@@ -21,21 +21,21 @@ MOCK503_PORT="${MOCK503_PORT:-8906}"; MOCK500_PORT="${MOCK500_PORT:-8908}"; DEAD
 ROT_PORT="${ROT_PORT:-8909}"
 port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
 for p in "$PORT" "$MOCK_PORT" "$MOCK503_PORT" "$MOCK500_PORT" "$DEAD_PORT" "$ROT_PORT"; do port_busy "$p" && { echo "port $p is in use"; exit 1; }; done
-export TELEMACHUS_DATA_DIR="$(mktemp -d)"
-export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/t.db}"
-export TELEMACHUS_BIND=127.0.0.1
+export TMACH_DATA_DIR="$(mktemp -d)"
+export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMACH_DATA_DIR/t.db}"
+export TMACH_BIND=127.0.0.1
 # the SERVER has no model; the WORKER has the mock
-export MOCK_REPLY_FILE="$TELEMACHUS_DATA_DIR/reply.json"
+export MOCK_REPLY_FILE="$TMACH_DATA_DIR/reply.json"
 printf '{"*": "pulled: hello from the worker"}' > "$MOCK_REPLY_FILE"
-MOCK_PORT="$MOCK_PORT" racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock.log" 2>&1 & MOCK=$!
+MOCK_PORT="$MOCK_PORT" racket test/mock-llm.rkt >"$TMACH_DATA_DIR/mock.log" 2>&1 & MOCK=$!
 MOCK_PORT="$MOCK503_PORT" MOCK_STATUS=503 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
-  racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock503.log" 2>&1 & MOCK503=$!
+  racket test/mock-llm.rkt >"$TMACH_DATA_DIR/mock503.log" 2>&1 & MOCK503=$!
 MOCK_PORT="$MOCK500_PORT" MOCK_STATUS=500 MOCK_REPLY_FILE="$MOCK_REPLY_FILE" \
-  racket test/mock-llm.rkt >"$TELEMACHUS_DATA_DIR/mock500.log" 2>&1 & MOCK500=$!
-unset TELEMACHUS_MODEL_URL
-racket server/main.rkt >"$TELEMACHUS_DATA_DIR/server.log" 2>&1 & SRV=$!
+  racket test/mock-llm.rkt >"$TMACH_DATA_DIR/mock500.log" 2>&1 & MOCK500=$!
+unset TMACH_MODEL_URL TELEMACHUS_MODEL_URL
+racket server/main.rkt >"$TMACH_DATA_DIR/server.log" 2>&1 & SRV=$!
 WORKER=""; SRV2=""
-cleanup(){ kill $SRV $MOCK $MOCK503 $MOCK500 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; [ -n "$SRV2" ] && kill $SRV2 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR" "${ROT_DIR:-/nonexistent-rot}"; }
+cleanup(){ kill $SRV $MOCK $MOCK503 $MOCK500 2>/dev/null; [ -n "$WORKER" ] && kill $WORKER 2>/dev/null; [ -n "$SRV2" ] && kill $SRV2 2>/dev/null; rm -rf "$TMACH_DATA_DIR" "${ROT_DIR:-/nonexistent-rot}"; }
 trap cleanup EXIT
 until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do :; done; exec 3>&- 2>/dev/null || true
 fail=0
@@ -69,15 +69,15 @@ assert "a user token cannot claim"    "$(curl -s -X POST $B/api/workers/claim -H
 
 echo "== 3. a chat routed to the pull executor waits for the worker ==="
 # start the chat in the background (it blocks on the sub-job), then the worker
-( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" -d '{"prompt":"hello","executor":"laptop-gpu"}' > "$TELEMACHUS_DATA_DIR/chat.json" ) & CHAT=$!
+( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" -d '{"prompt":"hello","executor":"laptop-gpu"}' > "$TMACH_DATA_DIR/chat.json" ) & CHAT=$!
 sleep 1
 assert "the sub-job is queued for a worker" "$(G /api/jobs)" '"kind":"infer.chat"'
-TELEMACHUS_URL="http://127.0.0.1:$PORT" TELEMACHUS_WORKER_TOKEN="$WT" TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions" TELEMACHUS_WORKER_MODELS=mock \
-  racket cli/telemachus-worker.rkt --once >"$TELEMACHUS_DATA_DIR/worker.log" 2>&1
+TMACH_URL="http://127.0.0.1:$PORT" TMACH_WORKER_TOKEN="$WT" TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions" TMACH_WORKER_MODELS=mock \
+  racket cli/telemachus-worker.rkt --once >"$TMACH_DATA_DIR/worker.log" 2>&1
 wait $CHAT
-assert "the worker ran the job"      "$(cat "$TELEMACHUS_DATA_DIR/worker.log")" 'done'
-assert "the chat got the worker's reply" "$(cat "$TELEMACHUS_DATA_DIR/chat.json")" 'pulled: hello from the worker'
-assert "…attributed to the executor"  "$(cat "$TELEMACHUS_DATA_DIR/chat.json")" '"executor":"laptop-gpu"'
+assert "the worker ran the job"      "$(cat "$TMACH_DATA_DIR/worker.log")" 'done'
+assert "the chat got the worker's reply" "$(cat "$TMACH_DATA_DIR/chat.json")" 'pulled: hello from the worker'
+assert "…attributed to the executor"  "$(cat "$TMACH_DATA_DIR/chat.json")" '"executor":"laptop-gpu"'
 assert "the sub-job is done"          "$(G /api/jobs)" '"status":"done"'
 assert "the executor is active now"   "$(G /api/executors)" '"status":"active"'
 assert "AI spend was metered"         "$(G /api/usage)" '"dimension":"ai.tokens.total"'
@@ -118,33 +118,33 @@ echo "== 3b. issue #18: a schema-shaped chat, and a parts prompt, through the wo
 # the mock re-reads its reply file per request; a needle now answers with JSON
 printf '{"give me the invoice": "Sure:\\n```json\\n{\\"total\\": 42, \\"currency\\": \\"JPY\\"}\\n```", "*": "pulled: hello from the worker"}' > "$MOCK_REPLY_FILE"
 SCHEMA='{"type":"json_schema","json_schema":{"name":"invoice","schema":{"type":"object","properties":{"total":{"type":"number"},"currency":{"type":"string"}},"required":["total","currency"]}}}'
-run_worker(){ TELEMACHUS_URL="http://127.0.0.1:$PORT" TELEMACHUS_WORKER_TOKEN="$WT" TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions" TELEMACHUS_WORKER_MODELS=mock \
-  racket cli/telemachus-worker.rkt --once >>"$TELEMACHUS_DATA_DIR/worker.log" 2>&1; }
+run_worker(){ TMACH_URL="http://127.0.0.1:$PORT" TMACH_WORKER_TOKEN="$WT" TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions" TMACH_WORKER_MODELS=mock \
+  racket cli/telemachus-worker.rkt --once >>"$TMACH_DATA_DIR/worker.log" 2>&1; }
 
 ( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
-    -d "{\"prompt\":\"give me the invoice\",\"executor\":\"laptop-gpu\",\"response_format\":$SCHEMA}" > "$TELEMACHUS_DATA_DIR/schema.json" ) & C2=$!
+    -d "{\"prompt\":\"give me the invoice\",\"executor\":\"laptop-gpu\",\"response_format\":$SCHEMA}" > "$TMACH_DATA_DIR/schema.json" ) & C2=$!
 sleep 1; run_worker; wait $C2
-assert "a schema request reaches the worker"  "$(cat "$TELEMACHUS_DATA_DIR/schema.json")" '"total":42'
-assert "…and comes back parsed"               "$(cat "$TELEMACHUS_DATA_DIR/schema.json")" '"parsed":'
-assert "…through the pull executor"           "$(cat "$TELEMACHUS_DATA_DIR/schema.json")" '"executor":"laptop-gpu"'
+assert "a schema request reaches the worker"  "$(cat "$TMACH_DATA_DIR/schema.json")" '"total":42'
+assert "…and comes back parsed"               "$(cat "$TMACH_DATA_DIR/schema.json")" '"parsed":'
+assert "…through the pull executor"           "$(cat "$TMACH_DATA_DIR/schema.json")" '"executor":"laptop-gpu"'
 
 # the same reply against a schema it does NOT satisfy: refused, naming the path.
 # The mock ignores response_format, exactly as a local server does — which is why
 # the platform checks the reply itself.
 BAD='{"type":"json_schema","json_schema":{"name":"invoice","schema":{"type":"object","properties":{"total":{"type":"string"}},"required":["total"]}}}'
 ( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
-    -d "{\"prompt\":\"give me the invoice\",\"executor\":\"laptop-gpu\",\"response_format\":$BAD}" > "$TELEMACHUS_DATA_DIR/bad.json" ) & C3=$!
+    -d "{\"prompt\":\"give me the invoice\",\"executor\":\"laptop-gpu\",\"response_format\":$BAD}" > "$TMACH_DATA_DIR/bad.json" ) & C3=$!
 sleep 1; run_worker; wait $C3
-assert "a reply that misses the schema is refused" "$(cat "$TELEMACHUS_DATA_DIR/bad.json")" 'does not honour response_format'
-assert "…and the refusal names the path"          "$(cat "$TELEMACHUS_DATA_DIR/bad.json")" '$.total'
+assert "a reply that misses the schema is refused" "$(cat "$TMACH_DATA_DIR/bad.json")" 'does not honour response_format'
+assert "…and the refusal names the path"          "$(cat "$TMACH_DATA_DIR/bad.json")" '$.total'
 
 # a PARTS prompt reaches the provider verbatim: the mock matches its needle in a
 # text part, so a parts prompt is not silently an empty one
 ( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
-    -d '{"prompt":[{"type":"text","text":"give me the invoice"}],"executor":"laptop-gpu"}' > "$TELEMACHUS_DATA_DIR/parts.json" ) & C4=$!
+    -d '{"prompt":[{"type":"text","text":"give me the invoice"}],"executor":"laptop-gpu"}' > "$TMACH_DATA_DIR/parts.json" ) & C4=$!
 sleep 1; run_worker; wait $C4
 # the invoice reply (not the "*" default) proves the needle was found in a TEXT PART
-assert "a parts prompt reaches the model"     "$(cat "$TELEMACHUS_DATA_DIR/parts.json")" '"reply":"Sure:'
+assert "a parts prompt reaches the model"     "$(cat "$TMACH_DATA_DIR/parts.json")" '"reply":"Sure:'
 
 echo "== 4. a stale result is refused; retire kills the token ==="
 JID=$(G /api/jobs | python3 -c 'import sys,json;print(json.load(sys.stdin)["jobs"][0]["id"])')
@@ -374,26 +374,26 @@ echo "== 8d. issue #93: a host whose model is down hands jobs back, and stops ta
 # the old behaviour was worse than "costs an attempt": worker-fail! is TERMINAL
 # (status error, no requeue), so one outage killed the job on its first try.
 # `busy` is the reason PULL-12 defined for exactly this and that nothing sent.
-W93(){ env TELEMACHUS_URL="http://127.0.0.1:$PORT" TELEMACHUS_WORKER_TOKEN="$WT" \
-        TELEMACHUS_WORKER_MODELS=mock "$@" racket cli/telemachus-worker.rkt --once \
-        >>"$TELEMACHUS_DATA_DIR/worker.log" 2>&1; }
+W93(){ env TMACH_URL="http://127.0.0.1:$PORT" TMACH_WORKER_TOKEN="$WT" \
+        TMACH_WORKER_MODELS=mock "$@" racket cli/telemachus-worker.rkt --once \
+        >>"$TMACH_DATA_DIR/worker.log" 2>&1; }
 newjob(){ P /api/jobs "{\"kind\":\"infer.chat\",\"payload\":{\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}]}}" | jq_ 'd["id"]'; }
 att(){ G /api/jobs/$1 | jq_ 'd["attempt"]'; }
 lastaudit(){ G '/api/audit?limit=1'; }
 
 # (a) nothing listening at all
 DJ=$(newjob "model is down"); DA=$(att $DJ)
-W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$DEAD_PORT"
+W93 TMACH_WORKER_MODEL_URL="http://127.0.0.1:$DEAD_PORT"
 assert "an unreachable model requeues the job"   "$(G /api/jobs/$DJ)" '"status":"queued"'
 # The point of the issue: the job is not blamed for the host's problem.
 assert "…spending no attempt"                    "$(att $DJ)" "$DA"
 assert "…recorded as a RELEASE, not a failure"   "$(lastaudit)" '"action":"job.released"'
-assert "…and the worker says it handed it back"  "$(tail -40 "$TELEMACHUS_DATA_DIR/worker.log")" 'HANDED BACK'
+assert "…and the worker says it handed it back"  "$(tail -40 "$TMACH_DATA_DIR/worker.log")" 'HANDED BACK'
 curl -s -X POST $B/api/jobs/$DJ/cancel -H "Authorization: Bearer $TOK" >/dev/null
 
 # (b) a gateway or a model server refusing: 502/503/504 is "not now"
 SJ=$(newjob "model refuses"); SA=$(att $SJ)
-W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK503_PORT"
+W93 TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK503_PORT"
 assert "a 503 from the model requeues the job"   "$(G /api/jobs/$SJ)" '"status":"queued"'
 assert "…spending no attempt"                    "$(att $SJ)" "$SA"
 assert "…recorded as a release too"              "$(lastaudit)" '"action":"job.released"'
@@ -403,18 +403,18 @@ curl -s -X POST $B/api/jobs/$SJ/cancel -H "Authorization: Bearer $TOK" >/dev/nul
 # input. Both are the job's problem and must still FAIL it, or a bad job would
 # ride the queue for ever being handed from worker to worker.
 FJ=$(newjob "model is broken")
-W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK500_PORT"
+W93 TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK500_PORT"
 assert "a 500 from the model still fails the job" "$(G /api/jobs/$FJ)" '"status":"error"'
 assert "…naming what the model said"              "$(G /api/jobs/$FJ)" 'model endpoint returned HTTP 500'
 
 # (d) the readiness gate. A release alone cannot cover a longer outage: the
 # cool-off is 30s for the releasing worker and MAX-RELEASES fails the job, so one
 # host busy for five minutes would fail every queued job it touched.
-# TELEMACHUS_WORKER_READY_URL is asked BEFORE each claim, so a host that cannot
+# TMACH_WORKER_READY_URL is asked BEFORE each claim, so a host that cannot
 # serve takes nothing at all.
 GJ=$(newjob "gated"); GA=$(att $GJ)
-W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
-    TELEMACHUS_WORKER_READY_URL="http://127.0.0.1:$DEAD_PORT/ready"
+W93 TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
+    TMACH_WORKER_READY_URL="http://127.0.0.1:$DEAD_PORT/ready"
 assert "a worker that is not ready claims nothing" "$(G /api/jobs/$GJ)" '"status":"queued"'
 assert "…spending no attempt"                      "$(att $GJ)" "$GA"
 # Visibly alive and REFUSING, rather than quiet — quiet is what a crashed worker
@@ -424,8 +424,8 @@ assert "…while status still says active"             "$(G /api/executors)" '"s
 # 2xx means take work. The server's own /health is a ready endpoint that needs no
 # stub, and the check is deliberately ignorant of what readiness MEANS — VRAM,
 # memory, load or a schedule are all the operator's business, not the platform's.
-W93 TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
-    TELEMACHUS_WORKER_READY_URL="http://127.0.0.1:$PORT/health"
+W93 TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
+    TMACH_WORKER_READY_URL="http://127.0.0.1:$PORT/health"
 assert "…and a ready host claims and runs it"      "$(G /api/jobs/$GJ)" '"status":"done"'
 
 echo
@@ -483,8 +483,8 @@ echo "== 8f. issue #60: the reference worker rotates itself, and refuses to with
 # read from the server's environment, so this cannot be done to the one above
 # without expiring every token the earlier sections depend on.
 ROT_DIR=$(mktemp -d)
-env TELEMACHUS_DATA_DIR="$ROT_DIR" DATABASE_URL="sqlite:///$ROT_DIR/t.db" \
-    PORT="$ROT_PORT" TELEMACHUS_WORKER_TOKEN_DAYS=0.0005 \
+env TMACH_DATA_DIR="$ROT_DIR" DATABASE_URL="sqlite:///$ROT_DIR/t.db" \
+    PORT="$ROT_PORT" TMACH_WORKER_TOKEN_DAYS=0.0005 \
     racket server/main.rkt >"$ROT_DIR/server.log" 2>&1 & SRV2=$!
 until (exec 3<>/dev/tcp/127.0.0.1/$ROT_PORT) 2>/dev/null; do :; done; exec 3>&- 2>/dev/null || true
 B2="localhost:$ROT_PORT"
@@ -498,8 +498,8 @@ assert "a configured lifetime reaches the token" \
 assert "…and the platform asks for a rotation at once" \
   "$(curl -s $B2/api/workers/token -H "Authorization: Bearer $WT_R")" '"rotate":true'
 
-W60(){ env TELEMACHUS_URL="http://127.0.0.1:$ROT_PORT" TELEMACHUS_WORKER_TOKEN="$WT_R" \
-        TELEMACHUS_WORKER_MODELS=mock TELEMACHUS_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
+W60(){ env TMACH_URL="http://127.0.0.1:$ROT_PORT" TMACH_WORKER_TOKEN="$WT_R" \
+        TMACH_WORKER_MODELS=mock TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT" \
         "$@" racket cli/telemachus-worker.rkt --once >>"$ROT_DIR/worker.log" 2>&1; }
 newjob2(){ curl -s -X POST $B2/api/jobs -H "Authorization: Bearer $TOK2" \
              -d "{\"kind\":\"infer.chat\",\"payload\":{\"messages\":[{\"role\":\"user\",\"content\":\"$1\"}]}}" | jq_ 'd["id"]'; }
@@ -508,7 +508,7 @@ newjob2(){ curl -s -X POST $B2/api/jobs -H "Authorization: Bearer $TOK2" \
 # one, forget it, and go on working on the outgoing credential until the overlap
 # ended — a rotation it asked for, turned into the outage the overlap prevents.
 RJ1=$(newjob2 "before rotation")
-W60 TELEMACHUS_WORKER_TOKEN_FILE=
+W60 TMACH_WORKER_TOKEN_FILE=
 assert "with no token file the worker does not rotate" \
   "$(curl -s $B2/api/executors -H "Authorization: Bearer $TOK2")" '"prev_token_id":null'
 assert "…and says an operator has to rotate for it" "$(cat $ROT_DIR/worker.log)" 'cannot keep a new one'
@@ -516,7 +516,7 @@ assert "…while still doing its work"                "$(curl -s $B2/api/jobs/$R
 
 # With somewhere to put it, the host rotates itself: no person, no outage.
 RJ2=$(newjob2 "after rotation")
-W60 TELEMACHUS_WORKER_TOKEN_FILE="$ROT_DIR/token"
+W60 TMACH_WORKER_TOKEN_FILE="$ROT_DIR/token"
 assert "with a token file it rotates itself"  "$(cat $ROT_DIR/worker.log)" 'worker token rotated'
 assert "…persisting the new token"            "$([ -s "$ROT_DIR/token" ] && echo yes)" 'yes'
 assert "…which is not the one it started with" "$([ "$(cat $ROT_DIR/token)" != "$WT_R" ] && echo differs)" 'differs'
@@ -539,4 +539,4 @@ assert "…and a retired executor cannot be drained" \
 assert "an unknown executor is a 400" "$(P /api/ai/chat '{"prompt":"x","executor":"laptop-gpu"}')" 'unknown executor'
 
 echo
-if [ $fail = 0 ]; then echo "pull-smoke: PASS"; else echo "pull-smoke: FAIL"; tail -20 "$TELEMACHUS_DATA_DIR/server.log"; tail -5 "$TELEMACHUS_DATA_DIR/worker.log"; exit 1; fi
+if [ $fail = 0 ]; then echo "pull-smoke: PASS"; else echo "pull-smoke: FAIL"; tail -20 "$TMACH_DATA_DIR/server.log"; tail -5 "$TMACH_DATA_DIR/worker.log"; exit 1; fi
