@@ -151,8 +151,10 @@ Permission: `files:write` · source: built-in
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `data` | object | yes | The data to fill in, e.g. the extracted fields |
+| `engine` | string (latex, weasyprint, libreoffice) | no | Which PDF engine, when format is "pdf": "latex" (the default — pandoc and tectonic, good for text-heavy documents), "weasyprint", which renders the HTML template's own CSS including @page margins, running headers and footers, and "Page X of Y", or "libreoffice", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with src="repo:<object id>"; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference. |
 | `format` | string | no | Output format: the template's own (default) or "pdf" — Markdown and HTML templates only |
 | `object` | string | no | The source document's object id — the form is written beside it (default: beside the template) |
+| `pdf_variant` | string (pdf/a-2b) | no | Ask the HTML engine for an archival PDF: "pdf/a-2b". A raster image makes the output non-conformant (the engine marks images Interpolate true, which PDF/A forbids) — use an SVG logo. |
 | `run` | string | no | The workflow run id, for provenance |
 | `step` | string | no | The workflow step id, for provenance |
 | `template` | string | yes | The template document's object id or key |
