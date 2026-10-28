@@ -1,0 +1,74 @@
+# One TMach pull worker per GPU, in front of the inference server pinned to it.
+#
+#   systemctl --user enable --now telemachus-worker@0 telemachus-worker@1 \
+#                                 telemachus-worker@2 telemachus-worker@3
+#
+# ONE WORKER PROCESS RUNS ONE JOB AT A TIME (claim -> run -> loop), so four
+# workers is what buys four concurrent jobs. One worker in front of four cards
+# gives one job at a time however much silicon is behind it — that shape is for
+# a model too big for one card, where the inference server splits layers and a
+# single worker fronts the group.
+#
+# The worker only ever connects OUT, so the rig needs no inbound rule, no public
+# address and no port forwarded. A tailnet address for TMACH_URL is enough.
+#
+# Full procedure, including the server-side steps this unit assumes:
+# docs/ops/gpu-fleet-runbook.md
+[Unit]
+Description=TMach pull worker for GPU %i
+After=network-online.target tmach-readyd@%i.service
+
+[Service]
+# TMACH_URL is the TMach SERVER this worker claims from, not this host.
+Environment=TMACH_URL=http://tmach.example.internal:8835
+
+# The token FILE, never the token. Two reasons, and the second is the one that
+# bites later: a unit file is world-readable by default and lands in backups and
+# `systemctl --user cat`, and with no file configured the worker REFUSES to
+# rotate its own credential and tells you to do it for it (#60). Write it with
+#   install -m600 /dev/null ~/tmach/token%i
+# and the worker replaces the contents itself when the platform asks.
+Environment=TMACH_WORKER_TOKEN_FILE=%h/tmach/token%i
+
+# Port 1143<i> — the scheme ollama-gpu@.service explains.
+Environment=TMACH_WORKER_MODEL_URL=http://127.0.0.1:1143%i/v1/chat/completions
+
+# LOAD-BEARING TWICE OVER, and a mis-declared card fails QUIETLY rather than
+# loudly. It is what `executor-can-run?` matches a job's `requirements.model`
+# against — so a 4 GB card that declares a 7B is offered 7B jobs it cannot
+# serve — AND it is the model the worker sends when a job names none, taking the
+# FIRST in this list. Override it per card with a drop-in:
+#   systemctl --user edit telemachus-worker@1
+Environment=TMACH_WORKER_MODELS=qwen2.5:7b
+
+# The readiness gate (#93). Unset, none of it does anything and a card that
+# loses its model fails jobs instead of standing down.
+Environment=TMACH_WORKER_READY_URL=http://127.0.0.1:890%i/
+Environment=TMACH_WORKER_READY_INTERVAL=15
+
+# An ABSOLUTE path, and confirm it with `command -v telemachus-worker` before
+# enabling: `~` does not expand in a unit file (use %h), and a path that is not
+# there restart-loops on 203/EXEC, which reads as a crashing worker rather than
+# as a wrong path. On a multi-user Nix install `~/.nix-profile` may not exist at
+# all until you have run `nix profile install` as this user.
+ExecStart=%h/.nix-profile/bin/telemachus-worker
+
+# WITHOUT A PACKAGED WORKER, from a checkout instead — note the `unset`, or a
+# TMACH_PLUGINS exported in your own shell joins the worker's environment:
+#   WorkingDirectory=%h/dev/projects/iotone/Telemachus
+#   ExecStart=/nix/var/nix/profiles/default/bin/nix develop --command bash -c \
+#     'unset TMACH_PLUGINS TMACH_PLUGINS_LINKS; cd refimpl/racketmaximus && \
+#      exec racket cli/telemachus-worker.rkt'
+
+Restart=always
+RestartSec=10
+
+# Give the worker time to hand its job back. It releases the claim it holds from
+# a plumber flush on the way out (PULL-12's blameless hand-back, which costs the
+# job no attempt), and a SIGKILL halfway through that leaves the job to wait out
+# its 120-second lease instead.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
