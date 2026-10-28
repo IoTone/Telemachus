@@ -1,0 +1,19 @@
+# The readiness endpoint for GPU %i (#93) — see readyd.py beside this file.
+#
+#   install -D readyd.py ~/tmach/readyd.py
+#   systemctl --user enable --now tmach-readyd@0 tmach-readyd@1 tmach-readyd@2 tmach-readyd@3
+#
+# Its own unit rather than a thread inside the worker, deliberately: it must
+# answer while the worker is being restarted, and what "ready" means is the
+# operator's to change without touching anything TMach ships.
+[Unit]
+Description=TMach worker readiness probe for GPU %i
+After=ollama-gpu@%i.service
+
+[Service]
+ExecStart=/usr/bin/python3 %h/tmach/readyd.py %i
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

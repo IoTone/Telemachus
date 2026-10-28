@@ -53,7 +53,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   buildPhase = ''
     runHook preBuild
-    raco make -j $NIX_BUILD_CORES server/main.rkt cli/telemachus-localize.rkt cli/telemachus-secrets.rkt
+    raco make -j $NIX_BUILD_CORES server/main.rkt cli/telemachus-localize.rkt cli/telemachus-secrets.rkt cli/telemachus-worker.rkt
     runHook postBuild
   '';
 
@@ -78,7 +78,20 @@ stdenv.mkDerivation (finalAttrs: {
 
     # telemachus-secrets is an OPERATOR tool (issue #19): adopting or rotating the
     # key that seals stored secrets is done from the shell, never at boot.
-    for entry in server:server/main.rkt localize:cli/telemachus-localize.rkt secrets:cli/telemachus-secrets.rkt; do
+    #
+    # telemachus-worker is here so a GPU host can join the fleet WITHOUT a
+    # checkout: until this was added, `docs/ops/gpu-fleet-runbook.md` step 1 read
+    # "clone the repository and run the worker inside `nix develop`", which puts
+    # the whole build toolchain and the test suite on a box whose only job is to
+    # claim a job and POST to a local model. `nix profile install
+    # github:IoTone/Telemachus` is now the whole of it.
+    #
+    # All four share ONE wrapper rule deliberately. The worker reaches none of
+    # pandoc, tectonic, weasyprint, pdfcpu or qpdf, so a narrower PATH for it
+    # would be more accurate and would also be a second rule to keep in step
+    # with the first — and every one of those is already in the closure because
+    # the server needs it, so the narrower wrapper would save nothing at all.
+    for entry in server:server/main.rkt localize:cli/telemachus-localize.rkt secrets:cli/telemachus-secrets.rkt worker:cli/telemachus-worker.rkt; do
       name=''${entry%%:*}; path=''${entry#*:}
       makeWrapper ${racket}/bin/racket $out/bin/telemachus-$name \
         --add-flags "$out/share/telemachus/$path" \

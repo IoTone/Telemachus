@@ -1,0 +1,37 @@
+# One inference server per GPU, pinned with CUDA_VISIBLE_DEVICES.
+#
+#   systemctl --user enable --now ollama-gpu@0 ollama-gpu@1 ollama-gpu@2 ollama-gpu@3
+#
+# A TMach worker OWNS NO GPU: it claims a job, POSTs to an OpenAI-compatible
+# endpoint and returns the answer. GPU placement is entirely this service's
+# business, which is why "split the fleet across four cards" is four of these
+# plus four workers and no TMach configuration at all.
+#
+# Install as ~/.config/systemd/user/ollama-gpu@.service and run
+# `loginctl enable-linger $USER`, or a user unit stops when you log out.
+[Unit]
+Description=ollama pinned to GPU %i
+After=network-online.target
+
+[Service]
+# %i is the GPU index, and it is the ONLY thing that differs between instances.
+Environment=CUDA_VISIBLE_DEVICES=%i
+# Port 1143<i>, NOT 11434+<i>. The arithmetic is why — a unit file cannot do
+# any — but the choice earns its keep twice: it leaves ollama's default 11434
+# free, so a stray unpinned `ollama serve` that grabbed GPU 0 cannot be mistaken
+# for a member of this fleet, and the digit in the port is the GPU index
+# wherever it appears (model endpoint, readiness endpoint, logs).
+Environment=OLLAMA_HOST=127.0.0.1:1143%i
+# Shared blob store, or four copies of every model are downloaded and stored.
+# Pull each model ONCE through any of the four — they all read this directory.
+Environment=OLLAMA_MODELS=%h/.ollama/models
+# One model resident per card. Without this, ollama will happily keep two
+# loaded and the second one will not fit.
+Environment=OLLAMA_MAX_LOADED_MODELS=1
+Environment=OLLAMA_KEEP_ALIVE=30m
+ExecStart=/usr/local/bin/ollama serve
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

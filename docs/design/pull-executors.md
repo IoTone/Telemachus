@@ -120,6 +120,13 @@ loop:
 The Bearer is the worker token. Every one of those four endpoints is a declared
 route with `auth: bearer`, `perm: jobs:execute`, and appears in `api.md`.
 
+**The reference worker is PACKAGED**, so an inference host needs no checkout:
+`nix profile install github:IoTone/Telemachus` puts `telemachus-worker` on the
+box beside `telemachus-server`. It is the same module either way — a worker-only
+host just has no reason to carry the build toolchain and the test suite. For a
+host with several GPUs, where the shape is one inference server and one worker
+per card, see [the GPU fleet runbook](../ops/gpu-fleet-runbook.md).
+
 ## Authorization
 
 - `jobs:execute` is a new permission, held by nothing but a worker token. It

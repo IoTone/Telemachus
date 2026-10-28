@@ -5523,6 +5523,77 @@ bash test/pull-smoke.sh                  # section 3e, 6 assertions over HTTP
   would break every test double. `GET /api/admin/queue` already names the
   executor per job, which is where an operator looks.
 
+## Four cards, four workers (the GPU fleet runbook)
+
+`docs/ops/gpu-fleet-runbook.md` plus four copyable files under
+`deploy/gpu-fleet/`. No platform change but one line in `nix/telemachus.nix`,
+and that line is the point: **the procedure's step 1 was "clone the repository
+and run the worker inside `nix develop`"**, which puts the build toolchain and
+the unit suite on a box whose whole job is to claim a job and POST to a local
+model. `telemachus-worker` is a packaged wrapper now, so a worker-only host is
+`nix profile install github:IoTone/Telemachus` and nothing else.
+
+- **A TMACH WORKER OWNS NO GPU, and the platform has no concept of one.** That
+  is the sentence the whole runbook follows from: "split the fleet across four
+  cards" is four inference servers, each pinned with `CUDA_VISIBLE_DEVICES`,
+  each with an ordinary pull worker pointed at its port. The platform sees four
+  executors and cannot tell them from four separate machines. It is also why
+  #93's gate asks a **URL** rather than reading a GPU — `readyd.py` is the seam
+  where an operator's own definition of ready goes, and ours (VRAM, a
+  temperature ceiling, "somebody is using the desktop this card drives") is not
+  a knob the worker could have carried.
+- **ONE WORKER RUNS ONE JOB AT A TIME, so four workers is what buys four
+  concurrent jobs.** One worker in front of four cards gives one job at a time
+  however much silicon is behind it; that shape is the fallback for a model too
+  big for one card, where the inference server splits layers and a single worker
+  fronts the group. On consumer cards with no NVLink that split crosses PCIe and
+  is markedly slower, so it is not a starting point.
+- **THE PORT SCHEME IS `1143<i>`, NOT `11434+<i>`**, and the arithmetic is only
+  half the reason — a unit file cannot do any. The other half is that it leaves
+  ollama's default `11434` free, so a stray unpinned `ollama serve` (which will
+  have taken GPU 0) cannot be mistaken for a member of the fleet. The GPU index
+  is then a digit in every port, endpoint and log line.
+- **`TMACH_WORKER_MODELS` IS THE ONE THING HERE THAT FAILS QUIETLY.** It is what
+  `executor-can-run?` matches `requirements.model` against AND the model the
+  worker sends when a job names none, taking the FIRST in the list. So a 4 GB
+  card declaring a 7B is offered exactly the jobs it cannot serve, and a
+  mis-declared card answers with the wrong model rather than refusing. What is
+  passed as `capabilities` at create time is aspirational: the worker re-declares
+  on every claim and `observe-capabilities!` records that.
+- **THE QUOTAS ARE THE STEP THAT SILENTLY WASTES THE RIG, and it looks like a
+  hang.** `ai.concurrency` defaults to **2** per team, so four workers still run
+  two jobs; `ai.tokens.total` is 2,000/day and `ai.requests` 200/day. Jobs sit
+  `queued` with nothing `running` and no error anywhere — the shape this file
+  already records for the knowledge-graph fan-out and for a bulk l10n draft, now
+  with a third way to meet it.
+- **VERIFY THE PINNING SEPARATELY FROM THE FLEET.** Four servers that all landed
+  on GPU 0 behave like one slow card and read as four healthy workers, so the
+  runbook checks `nvidia-smi --query-compute-apps` before minting anything. And
+  the acceptance test is a tally — twelve unpinned jobs, then
+  `GET /api/admin/queue?status=done | jq -r '.jobs[].executor' | sort | uniq -c`.
+  **One name is a fleet with one usable worker**, not a fleet.
+- **NEVER A SHARED WORKER TOKEN.** Two processes presenting one token resolve to
+  the SAME executor, so the fleet view is wrong about what is running and a drain
+  takes both out. One `POST /api/executors` per card, and the token is in that
+  201 and nowhere else ever — written to a mode-600 file, which is also what
+  lets the worker rotate its own credential (#60) instead of refusing to.
+- **`DELETE /api/executors/:id` is the retire**, not a `POST …/retire` — I wrote
+  the latter into the runbook from memory and the route table is what corrected
+  it. The day-to-day table offers `drain` everywhere `retire` is the reflex,
+  because a drain is reversible and leaves a running job alone.
+- **A unit file needs `%h`, never `~`**, and a wrong `ExecStart` restart-loops on
+  **203/EXEC**, which reads as a crashing worker rather than a wrong path — the
+  lesson [[red5buntu-test-lab]] already paid for once. `TimeoutStopSec=30`
+  because the worker hands its claim back on the way out (PULL‑12, no attempt
+  spent) and a SIGKILL halfway through that leaves the job to wait out its
+  120-second lease.
+- **The four `deploy/gpu-fleet/` files are not scanned by the config gate**
+  (`.service` and `.py` are not in its `--include` list), so every `TMACH_*` in
+  them is one a reader can meet and no gate is checking. They are written in the
+  `TMACH_*` spelling deliberately — new operator documentation should teach the
+  current name (#128 job 2) — and each one was grepped out of
+  `docs/ops/configuration.md` by hand.
+
 ## Which build is this? (the version footer)
 
 Reported from outside, and the report was a person looking at a deployment and
