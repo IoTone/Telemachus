@@ -8,19 +8,34 @@ async function chatView(){
     : `<span class="badge" style="color:var(--warn)" title="${esc(t('simulatedwhy'))}">${esc(S.model?.model||'local')} · ${esc(t('simulated'))}</span>`;
   return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
     <div class="card">
-      <label>${t('prompt')}</label><textarea id="cp" rows="3">Hello team</textarea>
-      <button class="btn" data-h-click="${H((el,ev)=>doChat())}">${t('send')}</button>
+      <label>${t('prompt')}</label>
+      <textarea id="cp" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doChat))}">Hello team</textarea>
+      <div class="row" style="align-items:center;gap:8px">
+        <button class="btn" id="cpsend" data-h-click="${H((el,ev)=>doChat())}">${t('send')}</button>
+        <button class="btn ghost" id="cpstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('chatAbort'))}">${t('stop')}</button>
+        <span class="muted" style="font-size:12px">${t('sendhint')}</span>
+      </div>
     </div><div id="chatlog"></div>`;
 }
 async function doChat(){
-  const prompt=val('cp'); const log=document.getElementById('chatlog'); const id='b'+Date.now();
+  // #174: one in-flight send. Returning early is the whole guard; everything
+  // below releases it in the `finally`, or one network error would leave the
+  // button dead with no way back but a reload.
+  if(S.chatAbort) return;
+  const prompt=val('cp'); if(!prompt) return;
+  const log=document.getElementById('chatlog'); const id='b'+Date.now();
   log.insertAdjacentHTML('afterbegin',
     `<div class="bubble" id="${id}"><div class="q">${esc(prompt)}</div><div class="rep"></div><div class="meta muted" style="font-size:12px;margin-top:6px">…</div></div>`);
   const rep=document.querySelector('#'+id+' .rep'), meta=document.querySelector('#'+id+' .meta');
   const headers={'X-Telemachus-Locale':S.lang,'Content-Type':'application/json'}; if(S.token) headers['Authorization']='Bearer '+S.token;
-  let res; try{ res=await fetch('/api/ai/chat/stream',{method:'POST',headers,body:JSON.stringify({prompt})}); }
-  catch(e){ toast('network error'); document.getElementById(id).remove(); return; }
+  const ac=new AbortController(); S.chatAbort=ac; sendBusy('cpsend','cpstop',true);
+  try{
+  let res; try{ res=await fetch('/api/ai/chat/stream',{method:'POST',headers,body:JSON.stringify({prompt}),signal:ac.signal}); }
+  catch(e){ if(e.name!=='AbortError') toast('network error'); document.getElementById(id).remove(); return; }
   if(!res.ok){ let j={}; try{j=await res.json()}catch(e){} toast((j.error||'error')+(j.dimension?` (${j.dimension})`:'')); document.getElementById(id).remove(); return; }
+  // The prompt is cleared only once the request has been ACCEPTED: a refusal
+  // (a quota, a bad request) leaves the text where the person can resend it.
+  const box=document.getElementById('cp'); if(box) box.value='';
   const reader=res.body.getReader(), dec=new TextDecoder(); let buf='';
   for(;;){ const {value,done}=await reader.read(); if(done) break; buf+=dec.decode(value,{stream:true});
     let i; while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
@@ -34,22 +49,38 @@ async function doChat(){
         if(ev.simulated) meta.insertAdjacentHTML('beforeend',
           ` · <span style="color:var(--warn)" title="${esc(t('simulatedwhy'))}">\u26a0 ${esc(t('simulated'))}</span>`); }
     } }
+  } catch(e){ if(e.name!=='AbortError') throw e;
+    // Stopped on purpose: keep what arrived and say so, rather than discarding
+    // an answer the reader may already have read half of.
+    if(meta) meta.textContent=(meta.textContent==='…'?'':meta.textContent+' · ')+t('stopped');
+  } finally { S.chatAbort=null; sendBusy('cpsend','cpstop',false); }
 }
 
 async function agentView(){
   return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
     <div class="card"><label>${t('prompt')}</label>
-      <textarea id="ap" rows="3">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
-      <button class="btn" data-h-click="${H((el,ev)=>doAgent())}">${t('send')}</button></div><div id="agentlog"></div>`;
+      <textarea id="ap" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doAgent))}">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
+      <div class="row" style="align-items:center;gap:8px">
+        <button class="btn" id="apsend" data-h-click="${H((el,ev)=>doAgent())}">${t('send')}</button>
+        <button class="btn ghost" id="apstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('agentAbort'))}">${t('stop')}</button>
+        <span class="muted" style="font-size:12px">${t('sendhint')}</span>
+      </div></div><div id="agentlog"></div>`;
 }
 async function doAgent(){
-  const prompt=val('ap'); const log=document.getElementById('agentlog'); const id='g'+Date.now();
+  // #174 again: an agent run is the more expensive of the two to double —
+  // a tool-using turn costs thousands of tokens where a chat costs tens.
+  if(S.agentAbort) return;
+  const prompt=val('ap'); if(!prompt) return;
+  const log=document.getElementById('agentlog'); const id='g'+Date.now();
   log.insertAdjacentHTML('afterbegin', `<div class="bubble" id="${id}"><div class="q">${esc(prompt)}</div><div class="steps"></div><div class="rep" style="margin-top:6px"></div></div>`);
   const steps=document.querySelector('#'+id+' .steps'), rep=document.querySelector('#'+id+' .rep');
   const headers={'X-Telemachus-Locale':S.lang,'Content-Type':'application/json'}; if(S.token) headers['Authorization']='Bearer '+S.token;
-  let res; try{ res=await fetch('/api/agent',{method:'POST',headers,body:JSON.stringify({prompt})}); }
-  catch(e){ toast('network error'); document.getElementById(id).remove(); return; }
+  const ac=new AbortController(); S.agentAbort=ac; sendBusy('apsend','apstop',true);
+  try{
+  let res; try{ res=await fetch('/api/agent',{method:'POST',headers,body:JSON.stringify({prompt}),signal:ac.signal}); }
+  catch(e){ if(e.name!=='AbortError') toast('network error'); document.getElementById(id).remove(); return; }
   if(!res.ok){ let j={}; try{j=await res.json()}catch(e){} toast((j.error||'error')+(j.dimension?` (${j.dimension})`:'')); document.getElementById(id).remove(); return; }
+  const box=document.getElementById('ap'); if(box) box.value='';
   const reader=res.body.getReader(), dec=new TextDecoder(); let buf='';
   for(;;){ const {value,done}=await reader.read(); if(done) break; buf+=dec.decode(value,{stream:true});
     let i; while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
@@ -60,6 +91,11 @@ async function doAgent(){
       if(ev.type==='done') rep.innerHTML = `<div>${esc(ev.reply)}</div><div class="muted" style="font-size:12px;margin-top:4px">${ev.rounds} rounds</div>`;
       if(ev.error) toast(ev.error);
     } }
+  } catch(e){ if(e.name!=='AbortError') throw e;
+    // A stopped agent run has already spent what it spent: the steps it took
+    // stay on screen, because they are what the person needs to see.
+    steps.insertAdjacentHTML('beforeend', `<div class="muted" style="margin:3px 0">${esc(t('stopped'))}</div>`);
+  } finally { S.agentAbort=null; sendBusy('apsend','apstop',false); }
 }
 // an artifact-shaped tool result (slice 64): the thing a tool produced, as a card
 // that opens it, rather than its payload as text

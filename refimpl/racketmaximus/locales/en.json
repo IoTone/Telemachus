@@ -259,6 +259,10 @@
       "text": "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link.",
       "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
     },
+    "ui.stop": {
+      "text": "Stop",
+      "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
+    },
     "doc.tool.feed_queue_put.due": {
       "text": "When it is due, epoch seconds",
       "hash": "f6e5789fe8525cd64d48ea011b1da10e64cf8cd0"
@@ -2251,6 +2255,10 @@
       "text": "One workflow definition with its spec.",
       "hash": "f3a279bebfb752bea2de432d2056d692f5131c8d"
     },
+    "ui.stopped": {
+      "text": "stopped",
+      "hash": "5acf4111241386b9b6b6926c05df8453f376eb04"
+    },
     "doc.route.get.api.repo-obj.id.derivations": {
       "text": "Provenance: what the document was derived from, by which run and step.",
       "hash": "a4913e813c9302f167c7e1c642e6851205f040f9"
@@ -2494,6 +2502,10 @@
     "doc.tool.doc_translate.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "ui.sendhint": {
+      "text": "Enter to send · Shift+Enter for a new line",
+      "hash": "21df6acdc3d4596a6cc5bc5beca989cd54d22bc4"
     },
     "doc.workflow.index-documents.name": {
       "text": "Index Documents",
@@ -3255,6 +3267,14 @@
       "text": "Creates the worker token this host signs in with. The token is shown once, here, and never again.",
       "hash": "941270892ca682b26a07e164797fc6522ebc43f2"
     },
+    "ui.wkunreportedhint": {
+      "text": "This worker has never said what it is doing. It was written against an older protocol, or it has not claimed yet — not a fault.",
+      "hash": "3b3ff5a8019733c73cc6f9496176e19394352d2f"
+    },
+    "ui.sending": {
+      "text": "Sending…",
+      "hash": "cf765512cc6dcf8d2870b8038ce0ffc6cbaa817d"
+    },
     "ui.reject": {
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
@@ -3274,10 +3294,6 @@
     "ui.shared": {
       "text": "Shared",
       "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
-    },
-    "ui.wkunreportedhint": {
-      "text": "This worker has never said what it is doing. It was written against an older protocol, or it has not claimed yet — not a fault.",
-      "hash": "3b3ff5a8019733c73cc6f9496176e19394352d2f"
     },
     "ui.qsub": {
       "text": "sub",

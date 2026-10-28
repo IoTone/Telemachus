@@ -84,3 +84,47 @@
   (check-equal? loaded script-files
                 "every file in static/console/ is loaded, in name order, and nothing else is")
   (check-true (> (length script-files) 1) "…and the split really happened"))
+
+;; ---- sending a prompt (issues #174, #181) ----------------------------------
+;; #174 was reported from outside: one Send billed two model calls. The console
+;; has no JS test runner, so the wiring is pinned here the way the permission
+;; gates are pinned — by reading the source. The claim is narrow and worth
+;; stating: this proves the guard is WIRED, not that it holds under a race.
+;; What makes the race uninteresting is that the check and the set are in the
+;; same synchronous run (no `await` between them), which the third case pins.
+(define (fn-body name)
+  (define m (regexp-match (pregexp (string-append "(?s:async function " name "[(][)].*?\n[}])")) html))
+  (and m (car m)))
+
+(test-case "a send path cannot start twice"
+  (for ([f '("doChat" "doAgent")] [flag '("chatAbort" "agentAbort")])
+    (define body (fn-body f))
+    (check-true (and body #t) (format "~a is still a function" f))
+    ;; the early return IS the guard
+    (check-true (string-contains? body (string-append "if(S." flag ") return;"))
+                (format "~a returns early while one send is in flight" f))
+    ;; …and it is released however the stream ends, or one network error leaves
+    ;; the button dead with no way back but a reload
+    (check-true (regexp-match? (pregexp (string-append "finally *[{] *S[.]" flag "=null")) body)
+                (format "~a clears ~a in a finally" f flag))))
+
+(test-case "the guard is set before anything can yield"
+  ;; Two activations in one tick must not both get past the check, so nothing
+  ;; between the early return and the assignment may `await`.
+  (for ([f '("doChat" "doAgent")] [flag '("chatAbort" "agentAbort")])
+    (define body (fn-body f))
+    (define head (car (regexp-split (pregexp (string-append "S\\." flag "=ac")) body)))
+    (check-false (string-contains? head "await")
+                 (format "~a does not await between the check and the set" f))))
+
+(test-case "Enter sends and Shift+Enter does not"
+  (check-true (string-contains? html "function sendKey(ev, fn)") "the shared key handler")
+  (define body (car (regexp-match #px"(?s:function sendKey[(]ev, fn[)][{].*?\n[}])" html)))
+  (check-true (string-contains? body "ev.shiftKey") "Shift+Enter is not a send")
+  ;; the Enter that CONFIRMS a Japanese IME conversion must not send
+  (check-true (string-contains? body "ev.isComposing") "an IME confirmation is not a send")
+  (check-true (string-contains? body "ev.preventDefault()") "…and the newline is suppressed when it sends")
+  ;; both prompts are wired to it, through the delegated form like everything else
+  (for ([id '("cp" "ap")])
+    (check-true (regexp-match? (pregexp (string-append "id=\"" id "\"[^>]*data-h-keydown")) html)
+                (format "#~a sends on a key" id))))

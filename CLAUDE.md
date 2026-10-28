@@ -5404,6 +5404,49 @@ model role at any executor name**, including another org's, because
   asset id when set. Same procedural `regexp-replace*` rule as the title — a
   string replacement would expand `&`.
 
+## Sending a prompt: one send, and the keyboard (#174, #181)
+
+`doChat` and `doAgent` in `static/console/03-tabs.js` each stream an SSE body.
+Until this slice neither had a guard, and **one Send could bill two model
+calls** — reported from outside, with the ledger as the evidence: two bubbles,
+60 and 48 tokens, and `remaining` differing by exactly the first reply's cost.
+The platform's own model-request log agreed, two rows with the same
+`prompt_digest`.
+
+- **The flag IS the guard and the pending state**, which is the shape
+  `S.signingIn` has had on the sign-in button since #116. `S.chatAbort` /
+  `S.agentAbort` hold the in-flight `AbortController`; `doChat` returns early
+  while one is set, and clears it in a `finally` — **without the `finally` one
+  network error leaves the button dead with no way back but a reload.**
+- **Nothing may `await` between the check and the set.** Two activations in one
+  tick both get past a guard that yields first, which is the whole race. It is
+  pinned by a test rather than by a comment, because it is invisible in review.
+- **A focused button activates on Enter and Space**, so this never needed a
+  deliberate double-click — and the prompt was not cleared and the button had no
+  pending state, so a slow first token looked like nothing had happened.
+- **The prompt clears only once the request is ACCEPTED.** A refusal (a quota, a
+  400) leaves the text where the person can resend it.
+- **`sendKey` lives in `01-base.js` and both tabs share it**: Enter sends,
+  Shift+Enter inserts a newline. **It must test `ev.isComposing` (and the 229
+  some engines report instead), or the Enter that CONFIRMS a Japanese IME
+  conversion sends a half-typed prompt** — the console ships in `ja`, so that is
+  not a hypothetical.
+- **Stop aborts the fetch**, which makes the reader throw; the partial answer
+  stays on screen and is marked. An `AbortError` is the one exception the
+  handler swallows — anything else is re-raised.
+- Search already sent on Enter and Chat did not, which is how the inconsistency
+  was found. If a fourth prompt surface appears, it uses `sendKey`.
+
+```sh
+raco test test/console-tests.rkt    # 7 cases; the four new ones are controlled
+```
+
+**The console has no JS test runner, so these are SOURCE assertions and the
+claim is narrow**: they prove the guard is wired, not that it holds under a
+race. What makes the race uninteresting is the no-`await` rule above, which has
+its own case. All four were positive-controlled — remove the guard, drop the
+`finally`, let Shift+Enter send, or unwire the textarea, and a named case fails.
+
 ## The sign-in screen: a repaint must not be empty
 
 - **`authView()`'s inputs are always EMPTY, and the sign-in screen DOES get
