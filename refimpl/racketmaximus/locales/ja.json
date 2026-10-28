@@ -592,6 +592,50 @@
       "text": "チーム層のすべて。instance:* や org:* には決して届きません。",
       "hash": "9858077204559abb30b4e1ca17cb76ef2d5d35f4"
     },
+    "ui.featallow": {
+      "text": "許可する",
+      "hash": "3ad0e3698278f45b2af94445396e9865f213f617"
+    },
+    "ui.featallowdone": {
+      "text": "{f} を再び許可しました — 会社やチームがオフにすることはなお可能です",
+      "hash": "e71f9bd918b407ed8af8399d818310ba2d367634"
+    },
+    "ui.featoffdone": {
+      "text": "{f} をインスタンス全体でオフにしました",
+      "hash": "ea19f68308a085e4219343c779ed436cad4b51dd"
+    },
+    "ui.featallowed": {
+      "text": "許可",
+      "hash": "c3de44d531c00ca3e0383de27927f390a0f419ac"
+    },
+    "ui.featdecided": {
+      "text": "決定元",
+      "hash": "d38a27aa688f16e959ddeba3669a68a44d9c8e76"
+    },
+    "ui.featlocked": {
+      "text": "上位の層が許可していません",
+      "hash": "39ab2edd8a83117aacf9242f9272be4ce052083e"
+    },
+    "ui.featoff": {
+      "text": "オフ",
+      "hash": "da7a68734367828e30b94927f4c2b43ed2c0f652"
+    },
+    "ui.featon": {
+      "text": "オン",
+      "hash": "db3d405b10675998c030223177d42e71b4e7a312"
+    },
+    "ui.featturnoff": {
+      "text": "オフにする",
+      "hash": "8807c2b3fd0fb52c4791bd1199d1bbc43da10e41"
+    },
+    "ui.instfeathint": {
+      "text": "インスタンス全体で機能をオフにします。会社もチームもオンに戻すことはできず、さらに制限することのみ可能です。",
+      "hash": "faeaa660b33d4852d96ea17ee93ce17afce1bf9d"
+    },
+    "ui.instfeatures": {
+      "text": "インスタンスの機能",
+      "hash": "131bccef1a2fe7b63f1c8b8612a70dc3ed9144e7"
+    },
     "ui.features": {
       "text": "機能",
       "hash": "fc338f87a058158eb824b53705961801516a9460"

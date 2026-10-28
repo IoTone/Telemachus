@@ -3721,6 +3721,76 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8d, the org l
   `settings.rkt`. Both directions checked: neither requires features, so no
   cycle.
 
+### …and the operator can finally see them (FEAT‑7…11, issue #177)
+
+Built 28 Oct 2026. An Admin card for the instance tier plus three statuses on the
+team card. **Console only** — no route, no migration, no permission, nothing in
+`docs/reference/`; the routes have existed since #63 and were reachable only by
+HTTP, which left the layer that means "this deployment does not do that" as the
+only one with no UI.
+
+```sh
+raco test test/console-tests.rkt   # 13 cases; the three new ones have five controls
+```
+
+- **THE PUT REPLACES THE WHOLE DOCUMENT, and that is the trap.** There is no
+  per-feature route at the instance tier — `feature-problem` validates the
+  document as a unit — so `doInstFeature` sends `Object.assign({}, S.instFeat.features)`
+  with the one key changed. A card that sent only the switch that moved would
+  wipe every other switch the operator had set, silently, and nothing would fail.
+- **TWO states at the instance tier, not the three the issue asked for.** The
+  document stores only `false`: absence and a stored `true` both mean "this layer
+  does not object", and there is nothing above the instance to object to, so an
+  explicit `true` computes nothing — offering a control that wrote one is what
+  FEAT‑6 refuses for an unknown key. **"Allow" REMOVES the key.** A `true`
+  written by hand over HTTP still reads as allowed and is normalized away the
+  first time it is toggled.
+- **The team card has no Enable control under a layer above it.** FEAT‑1 is
+  tighten-only and the attempt is a 409, so that button's only outcome is a
+  refusal. The deciding layer is its own column (the API's own `instance`/`org`/
+  `team` vocabulary, unlocalized like the feature names beside it) and the locked
+  row says why instead. **Disable stays** — a team recording its own intention
+  survives the instance switch being flipped back, which is the whole reason the
+  team row is kept.
+- **`S.features` IS DERIVED FROM THE ROWS NOW, in one place.** `GET /api/features`
+  has always carried `disabled_by` and the console dropped it on the floor, which
+  is why the team card could only ever show two states. `S.featRows` is what the
+  server sent and the map is `Object.fromEntries` of it on the next line — two
+  independently built maps is LIVE‑IN's shape.
+- **A switch moving calls `render()`, not `renderTab()`.** Turning a feature off
+  hides its tab for every team on the box including the operator's own, and the
+  tab list is built in `render()`; the existing `S.features[S.tab]===false` guard
+  then moves them off a tab that just vanished.
+- **FIVE features are gateable and the console's filter names TWELVE.**
+  `known-features` is `chat agent translate search workflows`, which is exactly
+  the set `server/routes.rkt` carries a `#:feature` for — measured, not assumed.
+  For the other seven `S.features[x]` is `undefined`, so `!== false` holds and
+  the tab always shows; `reviews`, `localize`, `beta` and `admin` are spliced in
+  AFTER the filter and are gated by permission instead. The filter is kept over
+  the whole list on purpose (it is how a tab starts hiding the day its feature
+  becomes switchable) and `known-features` was NOT widened: a key for a feature
+  no route gates would switch nothing off, which is FEAT‑6's own objection.
+- **`.badge.bad` was grepped for before it was used**, #178's lesson — a class
+  that matches no rule fails nothing and ships a bare user-agent element.
+- **`t('on')` with no `ui.on` key returns the string `"on"`**, because `t` is
+  `k => S.cat['ui.'+k] || k` and a miss shows the bare key. So `t('on')||'on'`
+  reads like a fallback and has none; the key is `ui.featon`, really in both
+  catalogs.
+- **I WROTE TWO ENGLISH LITERALS INTO THE TOAST AND CAUGHT IT READING MY OWN
+  DIFF.** `doSearch` shipped exactly that for a year — a Japanese operator told
+  "no results" in English — and the new toast went in right beside the existing
+  `doToggleFeature` one, which still has it. It is `ui.featallowdone` /
+  `ui.featoffdone` with a `{f}`, and a case pins it.
+- **The read joins the Promise.all it does not depend on**, rather than becoming a
+  FOURTH sequential await on the console's slowest tab (`adminView` already does
+  three in a row before its parallel round). The sign-in slice measured what that
+  costs: 300ms a call.
+- The eleven new `ui.*` strings are in `en.json` and `ja.json`, ja at 849/849 with
+  zero stale. **`extract` writes `en.json` in neither the source's order nor
+  sorted**, and adding nine keys MOVED one unrelated entry (`ui.l10nall`) six
+  lines — verified byte-identical across two separate processes before the diff
+  was trusted, so it is a deterministic rehash and not churn.
+
 ## Idempotency keys (IDEM‑1…9, issue #90)
 
 Built 20 Oct 2026. `domain/idem/idem.rkt`; migration `0048-idempotency`;
@@ -5107,8 +5177,10 @@ palette reaches their own screens. `test/server-smoke.sh` asserts all four seams
 so the example cannot rot silently.
 
 The guide states the gaps rather than papering over them: a plugin cannot add a
-tab to the core console, feature flags are per TEAM only (no instance-wide
-switch), and there is no hot reload.
+tab to the core console, individual TOOLS switch per team only
+(`POST /api/tools/<name>`), and there is no hot reload. **Feature flags are NOT
+per team only** — that line was stale from #63, which added the org and
+instance layers, and #177 gave the instance layer a console card.
 
 ## Plugin routes and artifact results (slices 63–64, issue #15)
 

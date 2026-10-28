@@ -257,8 +257,12 @@ async function adminView(){
   const spr=await api('/api/session-policy'); if(spr.ok) S.adminPolicy=spr.json;   // issue #38
   const stat=(k,l)=>`<div class="card"><label>${l}</label><h2>${M[k]??'–'}</h2></div>`;
   const body = r.ok ? `<div class="row">${stat('users','users')}${stat('teams','teams')}${stat('notes','notes')}${stat('translations','translations')}${stat('active_tokens','tokens')}${stat('audit_events','audit')}</div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
-  const [xr,fr,qr]=await Promise.all([api('/api/executors'), api('/api/admin/workers'+fleetQuery()),
-                                      api('/api/admin/queue'+queueQuery())]);
+  // #177's read joins the three that already go together rather than becoming a
+  // fourth sequential round trip — it depends on none of them, and this tab is
+  // already the slowest in the console.
+  const [xr,fr,qr,ifr]=await Promise.all([api('/api/executors'), api('/api/admin/workers'+fleetQuery()),
+                                      api('/api/admin/queue'+queueQuery()), api('/api/instance-features')]);
+  if(ifr.ok) S.instFeat=ifr.json;
   const compute=workersCard(xr, fr) + queueCard(qr, fr);
   const B = S.brand;
   const brandCard=`<div class="card" style="margin-top:14px"><h3>${t('branding')}</h3>
@@ -311,5 +315,47 @@ async function adminView(){
   const seedCard=`<div class="card" style="margin-top:14px"><h3>${t('testing')}</h3>
     <p class="muted" style="margin-top:0">Populate this team with sample notes, documents, and queued jobs (chat · translate · agent).</p>
     <button class="btn" data-h-click="${H((el,ev)=>doSeedSamples())}">${t('seed')}</button></div>`;
-  return `<h2>${t('admin')}</h2>${body}${compute}${brandCard}${locCard}${secCard}${seedCard}`;
+  return `<h2>${t('admin')}</h2>${body}${compute}${instFeatCard()}${brandCard}${locCard}${secCard}${seedCard}`;
+}
+
+// #177: the OPERATOR's feature switches. They have existed since #63 and were
+// reachable only by HTTP, which made the one layer that means "this deployment
+// does not do that" the only layer with no UI.
+//
+// TWO states here, not the three the team card shows, and that is a deliberate
+// departure from what the issue asked for. The document stores only `false`:
+// absence and a stored `true` are both "this layer does not object", and at the
+// INSTANCE tier there is no layer above to object, so an explicit `true` is
+// inert — a control that wrote one would be offering an operator a setting that
+// computes nothing, which is the same refusal `feature-problem` makes for an
+// unknown key. So "allow" REMOVES the key. A `true` written by hand over HTTP
+// still reads as allowed, and is normalized away the first time it is toggled.
+function instFeatCard(){
+  const F = S.instFeat;
+  if(!F) return '';                       // not an operator, or the read failed
+  const doc = F.features||{};
+  const rows = (F.known||[]).map(f=>{
+    const off = doc[f]===false;
+    const status = off ? `<span class="badge bad">${esc(t('featoff'))}</span>`
+                       : `<span class="badge ok">${esc(t('featallowed'))}</span>`;
+    return `<tr><td class="mono">${esc(f)}</td><td>${status}</td>
+      <td><button class="btn sm ${off?'ghost':'bad'}" data-h-click="${H((el,ev)=>doInstFeature((f),(off)))}">${off?t('featallow'):t('featturnoff')}</button></td></tr>`;
+  }).join('');
+  return `<div class="card" style="margin-top:14px"><h3>${t('instfeatures')}</h3>
+    <p class="muted" style="margin-top:0">${t('instfeathint')}</p>
+    <table id="instfeat"><thead><tr><th>feature</th><th>status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+// THE PUT REPLACES THE WHOLE DOCUMENT — there is no per-feature route at this
+// tier, because `feature-problem` validates the document as a unit. Sending one
+// key would wipe every other switch the operator had set, silently.
+async function doInstFeature(name, allow){
+  const doc = Object.assign({}, (S.instFeat&&S.instFeat.features)||{});
+  if(allow) delete doc[name]; else doc[name]=false;
+  const r = await api('/api/instance-features',{method:'PUT',body:{features:doc}});
+  if(!r.ok){ toast(r.json.error||'error'); return; }
+  S.instFeat = r.json;
+  toast(t(allow?'featallowdone':'featoffdone').replace('{f}', name), true);
+  // render(), not renderTab(): turning a feature off hides its tab for every
+  // team on the box INCLUDING this one, and the tab list is built in render().
+  render();
 }

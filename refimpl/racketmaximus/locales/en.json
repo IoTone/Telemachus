@@ -603,6 +603,10 @@
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
+    "ui.featoff": {
+      "text": "off",
+      "hash": "da7a68734367828e30b94927f4c2b43ed2c0f652"
+    },
     "ui.bxthanks": {
       "text": "Thanks — your request is in review.",
       "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
@@ -742,6 +746,10 @@
     "ui.buildsource": {
       "text": "Source",
       "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "ui.featturnoff": {
+      "text": "Turn off",
+      "hash": "8807c2b3fd0fb52c4791bd1199d1bbc43da10e41"
     },
     "ui.apitokens": {
       "text": "API tokens",
@@ -903,6 +911,10 @@
       "text": "Steps",
       "hash": "cdde4f20ba31a24db2cc7ae71135c8353631907b"
     },
+    "ui.featlocked": {
+      "text": "a layer above does not allow it",
+      "hash": "39ab2edd8a83117aacf9242f9272be4ce052083e"
+    },
     "doc.tool.translate_text.target": {
       "text": "Target language code, e.g. es, nl, is",
       "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
@@ -914,6 +926,14 @@
     "ui.wkconfig": {
       "text": "from file",
       "hash": "9b86f93c66562c2612bd5a911294e5d3d931fa4c"
+    },
+    "ui.featallow": {
+      "text": "Allow",
+      "hash": "3ad0e3698278f45b2af94445396e9865f213f617"
+    },
+    "ui.l10nall": {
+      "text": "All statuses",
+      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
     "ui.resets": {
       "text": "Resets",
@@ -970,6 +990,10 @@
     "doc.route.get.api.admin.workers": {
       "text": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.",
       "hash": "57debe14263c6fd7babde28e1412f4fbe9492a1f"
+    },
+    "ui.instfeathint": {
+      "text": "Turn a feature off for the whole instance. No company and no team can turn it back on — they may only tighten further.",
+      "hash": "faeaa660b33d4852d96ea17ee93ce17afce1bf9d"
     },
     "ui.norepoobjects": {
       "text": "No documents yet. Any format — pdf, svg, png, docx, xml, md.",
@@ -1074,10 +1098,6 @@
     "doc.route.delete.api.jobs.id.content": {
       "text": "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.",
       "hash": "9d189ecf693750416b1c4e3cb6036348589dbe1c"
-    },
-    "ui.l10nall": {
-      "text": "All statuses",
-      "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
     },
     "doc.workflow.feed-propose": {
       "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
@@ -1383,6 +1403,10 @@
       "text": "Publish workflows and manage triggers.",
       "hash": "f981778de4196069299c6a8866294e550bf4c456"
     },
+    "ui.featallowed": {
+      "text": "allowed",
+      "hash": "c3de44d531c00ca3e0383de27927f390a0f419ac"
+    },
     "ui.enabled": {
       "text": "enabled",
       "hash": "3ea3f9802accf8817bacd6f3df46a73b93ccddec"
@@ -1638,6 +1662,10 @@
     "doc.route.get.api.repo-obj.id.content": {
       "text": "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.",
       "hash": "e3519b90c5108493988f2a53343a1245023dbe5c"
+    },
+    "ui.featoffdone": {
+      "text": "{f} is off for the whole instance",
+      "hash": "ea19f68308a085e4219343c779ed436cad4b51dd"
     },
     "ui.vis_private": {
       "text": "Private — only me",
@@ -2019,6 +2047,10 @@
       "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with `src=\"repo:<object id>\"`; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.",
       "hash": "6fa73480e15fbd0e370e16f1e6f34b65cc8a3e34"
     },
+    "ui.featallowdone": {
+      "text": "{f} is allowed again — a company or a team may still turn it off",
+      "hash": "e71f9bd918b407ed8af8399d818310ba2d367634"
+    },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
@@ -2202,6 +2234,10 @@
     "ui.wkunclaimable": {
       "text": "no worker can run",
       "hash": "a857f59c856ab5b3b401c3e20f5a599694377503"
+    },
+    "ui.featon": {
+      "text": "on",
+      "hash": "db3d405b10675998c030223177d42e71b4e7a312"
     },
     "doc.route.get.api.executor-policy": {
       "text": "The instance's executor policy (#91 req 4): per sensitivity LABEL, which executors may be sent the text of a document carrying it. `attribute` names the LAY-4 object attribute the label is read from, and `unknown_executors` lists any name in the policy that no executor answers to — a typo there fails closed, so it is reported rather than refused.",
@@ -2503,6 +2539,10 @@
       "text": "Create a note for the current user's team.",
       "hash": "b647e9b2764c0eb907c2306751d03cbc7e8fee48"
     },
+    "ui.instfeatures": {
+      "text": "Instance features",
+      "hash": "131bccef1a2fe7b63f1c8b8612a70dc3ed9144e7"
+    },
     "doc.route.get.api.jobs.id": {
       "text": "One job with its result or error, and `waiting` if the platform is holding it (see GET /api/jobs).",
       "hash": "2e572acb3d944828286221241530d36698f6ee9d"
@@ -2578,6 +2618,10 @@
     "doc.route.post.api.features.name": {
       "text": "Enable or disable a feature for the team; a team may tighten what a layer above allows, never loosen it.",
       "hash": "9ab8adb7edffdb2b08f0fe8a41bb46abc5115422"
+    },
+    "ui.featdecided": {
+      "text": "decided by",
+      "hash": "d38a27aa688f16e959ddeba3669a68a44d9c8e76"
     },
     "ui.back": {
       "text": "Back",

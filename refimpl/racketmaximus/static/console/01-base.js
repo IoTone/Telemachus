@@ -42,7 +42,7 @@ for (const evname of ['click','input','change','keydown']) {
 }
 
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
-  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0,
+  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0,
   // the AbortController of a stream in flight, or null: the guard and the
   // pending state in one, as S.signingIn is for the sign-in button (#174)
   chatAbort:null, agentAbort:null,
