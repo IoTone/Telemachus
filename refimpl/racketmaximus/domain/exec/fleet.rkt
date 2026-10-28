@@ -133,7 +133,8 @@
     "SELECT MIN(created_epoch) FROM jobs WHERE status = 'queued' AND created_epoch IS NOT NULL"))
   (if (or (not v) (sql-null? v)) 'null (- (now) v)))
 
-;; How many queued REMOTE jobs no live executor can run, and why.
+;; How many queued REMOTE jobs no live executor can run, and why — and, since
+;; #172, the neighbouring question that figure could not answer.
 ;;
 ;; This is the number the platform could not express. "I forgot to start the GPU
 ;; box" and "the queue is moving fine" looked identical, so a stalled queue was
@@ -144,13 +145,35 @@
 ;; Only `active` executors count. A stale one may be coming back, but it is not
 ;; running anything now, and an operator asking "can this queue drain" wants the
 ;; answer about the fleet that exists.
-(define (unclaimable conn executors #:limit [lim 200])
+;;
+;; #172: THERE ARE THREE ANSWERS TO "WHY IS THIS NOT RUNNING", NOT TWO, and the
+;; third had nowhere to go. `unclaimable` is "nothing CAN run it" and QUOTA-3's
+;; `waiting` is "the platform will not let it yet"; a host that has reported
+;; `paused` (PULL-11) is neither — it is alive, it matches, and it has said it
+;; is not taking work, which is what the readiness gate (#93) produces every
+;; time a GPU host loses its card. It read as a live candidate, so a queue
+;; nothing was going to drain reported `unclaimable: 0` and an operator
+;; concluded work was about to run.
+;;
+;; `executor-can-run?` DELIBERATELY DOES NOT CHANGE. It is also the claim's
+;; authoritative check, and `worker_state` is self-reported and withdrawn when
+;; the row goes stale (PULL-11e) — folding it in would make the claim path
+;; depend on a field that flaps between polls, and would say a paused host
+;; CANNOT run work when the truth is that it will not right now. So the state is
+;; reported beside the capability answer rather than mixed into it, which is the
+;; same separation `waiting` and `runnable` already keep on a queue row.
+(define (live-pull? e)
+  (and (equal? (hash-ref e 'status) "active") (equal? (hash-ref e 'mode) "pull")))
+
+;; One scan, two questions. Asking the database twice would make the two figures
+;; samples of different instants, and they are meant to partition the same rows.
+(define (queue-blocked conn executors #:limit [lim 200])
   (define rk (remote-kinds))
   ;; `executor-can-run?` refuses a DRAINED executor itself, so this filter stays
   ;; about liveness alone and the two cannot disagree about intent.
-  (define live (filter (lambda (e) (and (equal? (hash-ref e 'status) "active")
-                                        (equal? (hash-ref e 'mode) "pull")))
-                       executors))
+  (define live (filter live-pull? executors))
+  ;; …and this one is about what the box SAID, which the predicate must not read.
+  (define ready (filter (lambda (e) (not (equal? (hash-ref e 'worker_state #f) "paused"))) live))
   (define rows
     (if (null? rk)
         '()
@@ -160,20 +183,27 @@
                               (string-join (make-list (length rk) "?") ",")
                               ") ORDER BY created_epoch ASC LIMIT " (number->string lim))
                rk)))
-  (define stuck
-    (for/list ([r (in-list rows)]
-               #:unless (for/or ([e (in-list live)])
-                          (executor-can-run? conn e
-                            #:kinds (caps-list e 'kinds) #:models (caps-list e 'models)
-                            #:kind (vector-ref r 1) #:team (vector-ref r 2)
-                            #:requirements (with-handlers ([exn:fail? (lambda (_) (hasheq))])
-                                             (let ([j (string->jsexpr (vector-ref r 3))])
-                                               (if (hash? j) j (hasheq)))))))
-      (hasheq 'job_id (vector-ref r 0) 'kind (vector-ref r 1) 'team_id (vector-ref r 2))))
-  (hasheq 'count (length stuck)
-          'scanned (length rows)
-          'truncated (= (length rows) lim)
-          'jobs (take stuck (min 20 (length stuck)))))
+  (define (runnable-by? execs r)
+    (for/or ([e (in-list execs)])
+      (executor-can-run? conn e
+        #:kinds (caps-list e 'kinds) #:models (caps-list e 'models)
+        #:kind (vector-ref r 1) #:team (vector-ref r 2)
+        #:requirements (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                         (let ([j (string->jsexpr (vector-ref r 3))])
+                           (if (hash? j) j (hasheq)))))))
+  (define (entry r) (hasheq 'job_id (vector-ref r 0) 'kind (vector-ref r 1) 'team_id (vector-ref r 2)))
+  (define stuck (for/list ([r (in-list rows)] #:unless (runnable-by? live r)) (entry r)))
+  ;; a job SOME live host matches, and no host that is taking work does
+  (define held (for/list ([r (in-list rows)]
+                          #:when (runnable-by? live r)
+                          #:unless (runnable-by? ready r))
+                 (entry r)))
+  (define (report xs)
+    (hasheq 'count (length xs)
+            'scanned (length rows)
+            'truncated (= (length rows) lim)
+            'jobs (take xs (min 20 (length xs)))))
+  (values (report stuck) (report held)))
 
 ;; ---- the report --------------------------------------------------------------
 
@@ -201,10 +231,16 @@
                   ;; counted `active` as well when it is alive, because it is —
                   ;; these are three answers to three questions, not a partition.
                   'drained (for/sum ([e (in-list pulls)]) (if (equal? (hash-ref e 'admin_state) "drained") 1 0)))
-   'queue (hasheq 'depth (queue-depth conn)
-                  'oldest_queued_seconds (oldest-queued conn)
-                  'remote_kinds (remote-kinds)
-                  'unclaimable (unclaimable conn executors))))
+   'queue (let-values ([(stuck held) (queue-blocked conn executors)])
+            (hasheq 'depth (queue-depth conn)
+                    'oldest_queued_seconds (oldest-queued conn)
+                    'remote_kinds (remote-kinds)
+                    'unclaimable stuck
+                    ;; #172: a machine that matches this work exists and has
+                    ;; said it is not taking any. Separate from `unclaimable`
+                    ;; because the remedy is different — nothing to buy, and
+                    ;; nothing an operator need do if the host is coming back.
+                    'held_by_paused held))))
 
 ;; ---- the queue, job by job (FLEET-4) -----------------------------------------
 ;;

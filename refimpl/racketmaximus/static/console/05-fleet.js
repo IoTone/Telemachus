@@ -101,6 +101,11 @@ function workersCard(xr, fr){
   // which the Jobs tab already badges (QUOTA-3).
   const depth=(q.depth||[]).filter(d=>d.remote);
   const stuck=(q.unclaimable||{}).count||0;
+  // #172: a THIRD answer to "why is this not running". `stuck` is "nothing can
+  // run it"; this is "a machine that can has said it is not taking work", which
+  // the readiness gate produces every time a GPU host loses its card. They were
+  // one number, and it read 0 while a queue sat still.
+  const heldp=(q.held_by_paused||{}).count||0;
   const queue=`<div class="row" style="margin-top:10px;align-items:center;gap:14px">
     <div><label>${t('wkqueued')}</label><h2>${depth.reduce((a,d)=>a+d.queued,0)}</h2>
       <span class="muted mono">${depth.length?depth.map(d=>esc(d.kind)+' '+d.queued).join(' · '):'–'}</span></div>
@@ -108,6 +113,9 @@ function workersCard(xr, fr){
     <div><label title="${esc(t('wkunclaimablehint'))}">${t('wkunclaimable')}</label>
       <h2${stuck?' style="color:var(--warn)"':''}>${stuck}</h2>
       ${stuck?`<span class="muted">${t('wkunclaimablewhy')}</span>`:''}</div>
+    <div><label title="${esc(t('wkheldpausedhint'))}">${t('wkheldpaused')}</label>
+      <h2${heldp?' style="color:var(--warn)"':''}>${heldp}</h2>
+      ${heldp?`<span class="muted">${t('wkheldpausedwhy')}</span>`:''}</div>
   </div>`;
 
   // The window is named on the screen rather than only in a tooltip, and it is

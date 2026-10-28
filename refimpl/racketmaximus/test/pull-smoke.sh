@@ -114,6 +114,35 @@ assert "a member cannot read the log" \
 assert "the filter narrows to one executor" "$(G '/api/model-requests?executor=laptop-gpu')" '"transport":"pull"'
 assert "…and an unknown one is empty"       "$(G '/api/model-requests?executor=nope')" '"requests":[]'
 
+echo "== 3d. issue #187: a STREAMED call is visible to its own team ==="
+# The defect this covers: the SSE body runs after the handler returns, outside
+# `with-auth`'s parameterize extent, so the model-request logger read no
+# principal and every streamed chat landed with a NULL team — while
+# GET /api/model-requests filters `WHERE team_id = ?`. The row was correct in
+# every respect except the one that makes it readable, which is why
+# requestlog-tests.rkt (which reads rows directly) could not see it.
+#
+# It needs a REAL backend, because the simulated echo is deliberately not logged
+# at all, so a push executor is pointed at the mock — which answers SSE when a
+# request asks for `stream: true` (added with this slice; nothing exercised the
+# streaming path end to end before).
+PUSH=$(P /api/executors "{\"name\":\"stream-box\",\"mode\":\"push\",\"url\":\"http://127.0.0.1:$MOCK_PORT/v1/chat/completions\",\"model\":\"mock\"}")
+assert "a push executor pointed at the mock" "$PUSH" '"mode":"push"'
+BEFORE_S=$(G /api/model-requests | grep -c '"transport":"stream"' || true)
+STREAM=$(curl -s -N -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $TOK" \
+  -d '{"prompt":"stream me the answer","executor":"stream-box"}')
+assert "the stream emits tokens"   "$STREAM" 'data: {"token"'
+assert "…and a final event"        "$STREAM" '"done":true'
+assert "…from the named backend"   "$STREAM" '"executor":"stream-box"'
+SLOG=$(G /api/model-requests)
+# THE ASSERTION THE ISSUE IS ABOUT: the team-scoped read can see it.
+assert "the streamed call is in the log"      "$SLOG" '"transport":"stream"'
+assert "…naming the backend it went to"       "$SLOG" '"executor":"stream-box"'
+AFTER_S=$(printf '%s' "$SLOG" | grep -c '"transport":"stream"' || true)
+assert "…and it was not there before"         "$BEFORE_S/$AFTER_S" "0/1"
+# RED-18 holds on this path too: the digest, never the words
+refute "the streamed prompt is not in the log" "$SLOG" 'stream me the answer'
+
 echo "== 3b. issue #18: a schema-shaped chat, and a parts prompt, through the worker ==="
 # the mock re-reads its reply file per request; a needle now answers with JSON
 printf '{"give me the invoice": "Sure:\\n```json\\n{\\"total\\": 42, \\"currency\\": \\"JPY\\"}\\n```", "*": "pulled: hello from the worker"}' > "$MOCK_REPLY_FILE"

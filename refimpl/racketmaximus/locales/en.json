@@ -947,6 +947,10 @@
       "text": "reports",
       "hash": "0b7ec688eeb9119f72f32b5b0f62681af8cde1a4"
     },
+    "ui.wkheldpausedwhy": {
+      "text": "a host that can run these has stood itself down — check its readiness endpoint",
+      "hash": "2504e6e597cbd3e5237720f677760eb5dc83817d"
+    },
     "doc.perm.files:delete": {
       "text": "Delete repository documents.",
       "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
@@ -2011,6 +2015,14 @@
       "text": "One trigger with its fire history (which version, which run, or why not).",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
     },
+    "ui.wklocal": {
+      "text": "local",
+      "hash": "939bb46a04c3640c8c427e92b1b557e882e2d2a0"
+    },
+    "ui.wkheldpausedhint": {
+      "text": "Queued jobs that a live worker matches, where every worker that matches has reported it is not taking work. There is nothing to start and nothing to buy: it clears when the host says it is ready again. A job no worker matches at all is counted under “no worker can run” instead.",
+      "hash": "15fec0dc004d27fcab00c4e8b72d916a75f98e5e"
+    },
     "ui.wkresume": {
       "text": "Resume",
       "hash": "b3bd0b5a70497bec4a02b7eb1cb0d4f37eb71a2a"
@@ -2202,10 +2214,6 @@
     "doc.route.post.api.workers.token": {
       "text": "Trade the token this worker is holding for the next one (issue #60): {token, expires_at, overlap_seconds}. The warrant is the credential it already holds, as for PULL-9's read and PULL-13's write. The old token keeps working for the overlap, so a worker must PERSIST the new one before using it — one that cannot persist it must not rotate, or it will stop when the overlap ends. Rotating twice inside five minutes is a 429 with Retry-After.",
       "hash": "abc29f3c75523fdb9b265a0d3a5b2839bbbdd6d5"
-    },
-    "ui.wklocal": {
-      "text": "local",
-      "hash": "939bb46a04c3640c8c427e92b1b557e882e2d2a0"
     },
     "ui.addtrigger": {
       "text": "Add trigger",
@@ -2514,6 +2522,10 @@
     "doc.tool.doc_translate.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "ui.wkheldpaused": {
+      "text": "waiting on a paused host",
+      "hash": "6677eaa3dfbe705e6403a7b3831e5e1f1218dd70"
     },
     "ui.sendhint": {
       "text": "Enter to send · Shift+Enter for a new line",
@@ -3064,8 +3076,8 @@
       "hash": "709a23220f2c3d64d1e1d6d18c4d5280f8d82fca"
     },
     "ui.wkunclaimablehint": {
-      "text": "Queued jobs that no live worker's declared models or kinds match. A job merely waiting for its team's AI budget is NOT counted here — the Jobs tab says so on the job itself.",
-      "hash": "167138294324197d2e1fc09e884b409989383bc7"
+      "text": "Queued jobs that no live worker's declared models or kinds match, and jobs whose only candidate you have drained — both need you to act on the fleet. A job merely waiting for its team's AI budget is NOT counted here (the Jobs tab says so on the job itself), and neither is one whose host has reported itself paused.",
+      "hash": "626c5d23a86a3f2d193b54255019879b6b5964bd"
     },
     "doc.perm.org:read-data": {
       "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
