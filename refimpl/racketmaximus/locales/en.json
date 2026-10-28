@@ -27,6 +27,10 @@
       "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
     },
+    "ui.noresults": {
+      "text": "Nothing matched.",
+      "hash": "b9d865c85161cd9dd4ec75f613fadaa44b45b87e"
+    },
     "ui.quotaheldorg": {
       "text": "This team's company has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "c278db3a6c6604c5e8583793f3419c1b22b54bce"
@@ -2136,8 +2140,8 @@
       "hash": "0be720759ff04d13c5706881d5d227a2621f91a6"
     },
     "ui.wkwindow": {
-      "text": "24h",
-      "hash": "0277959611310976682872bcb5d6423aa581a202"
+      "text": "last {window}",
+      "hash": "e15733d6ff39cc2bc7a225b5564785a1e8c86178"
     },
     "ui.logout": {
       "text": "Sign out",
@@ -2222,6 +2226,10 @@
     "ui.automationshint": {
       "text": "When a document matching a prefix and type lands in the repository — from the console or over S3 — run this workflow with it, as the uploader.",
       "hash": "e8de9f25fa8a76419dea748d8560a6629de7d7ce"
+    },
+    "ui.wkexpiredhint": {
+      "text": "Leases that expired: this host stopped answering while it held a job, so the platform gave the work back to the queue for somebody else to attempt. Above zero means it has been dropping work mid-job.",
+      "hash": "acc48d5f5aa5ae70c878d3c8a97e450e55e85b17"
     },
     "ui.newnote": {
       "text": "New note",
@@ -2338,6 +2346,10 @@
     "doc.route.post.api.provision": {
       "text": "Hosted mode: provision this instance with exactly one owner and a magic activation link.",
       "hash": "97856360470baac26856e94366d4bf93c51bb46e"
+    },
+    "ui.wklegend": {
+      "text": "✓ finished · ✗ failed · ⧖ lease expired — the host went quiet mid-job",
+      "hash": "d4f31db87a721d9cc7a9f8db4df4bc2a5aee10d8"
     },
     "ui.setquota": {
       "text": "Set limit",
@@ -2715,6 +2727,10 @@
       "text": "The type that was decided, spelled exactly as in the label set; empty to withdraw the type",
       "hash": "c05644c4235b6cc6e353c480e57173c6629ed9e1"
     },
+    "ui.wkerrhint": {
+      "text": "Jobs this host reported as failed in the window. The job itself was at fault, or the model refused it — a host that cannot run work releases it instead.",
+      "hash": "cfdbef058d05adb2200693df3e67b3ab5c0d7782"
+    },
     "doc.route.get.beta-sdk.js": {
       "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
       "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
@@ -2732,8 +2748,8 @@
       "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
     },
     "ui.wkwindowhint": {
-      "text": "Finished, failed, and leases that expired on this host in the last 24 hours. An expiry means the host stopped answering while it held a job; the job went back to the queue.",
-      "hash": "4ef5c224df2afcfd1006f4e8d1cfda09af18fdbc"
+      "text": "What this host finished, failed and dropped over the window selected above.",
+      "hash": "a0192cdf52217ebb65dd6e2357fd5df35f75afd1"
     },
     "doc.tool.doc_classify.step": {
       "text": "The workflow step id, for provenance",
@@ -2758,6 +2774,10 @@
     "ui.thisteam": {
       "text": "this team",
       "hash": "a0e16a05adc87d68631c59c6155c1de3a08c2d26"
+    },
+    "ui.wkwindowsel": {
+      "text": "window",
+      "hash": "320ad267d8d969f285eda5c184f5455bd29c8c95"
     },
     "ui.localization": {
       "text": "Localization",
@@ -2915,6 +2935,10 @@
       "text": "Retire {name}? Its worker token is revoked for good and any job it is holding goes back to the queue. To take it out of rotation for a while, drain it instead.",
       "hash": "bc19355c997cb1ed7a6b083c2784e3544d5dd4e7"
     },
+    "ui.wkdonehint": {
+      "text": "Jobs this host finished in the window.",
+      "hash": "86d779d9905eee77a71c6815ac5ba760df5028a9"
+    },
     "doc.route.post.api.feeds": {
       "text": "Configure a feed: `slug` (the key prefix pulled items land under), `kind`, `url`, and optionally `auth` with its `secret` — `bearer`, `header` or `query`, the last because a great many real sources authenticate that way and refusing it only pushes the token into the URL, unsealed. The secret is sealed at rest and rotated by `telemachus-secrets rewrap`. `user_id` is the team member a pull acts as and defaults to the caller; somebody outside the team is refused, because a feed cannot act as them.",
       "hash": "056b9c0b9f8e395e2e824fc973122e5d1282b718"
@@ -2998,6 +3022,10 @@
     "ui.wkretire": {
       "text": "Retire",
       "hash": "c9714c15af397514e267a29a83a2669dfe33365a"
+    },
+    "ui.searchmin": {
+      "text": "Type at least two characters.",
+      "hash": "d3baabd31945417f583b8bab0f75ce1aa7ec1f84"
     },
     "ui.wktokenhint": {
       "text": "Copy it now. It is not stored anywhere you can read it again; if it is lost, retire this worker and add another.",
