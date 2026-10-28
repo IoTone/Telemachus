@@ -202,8 +202,10 @@
 ;; rule drift, and here the drift would tell an operator to go and buy a machine
 ;; they already have).
 ;;
-;; `kinds` or `models` empty means "any", which is what the claim has always
-;; meant by an absent declaration — not "none".
+;; `kinds` empty means "any", which is what the claim has always meant by an
+;; absent declaration — not "none". `models` is stricter: a job that names a
+;; model needs that model in the list, so an empty `models` cannot run it. A job
+;; that names no model matches any host.
 (define (executor-can-run? conn ex #:kinds kinds #:models models #:kind kind #:team team
                            #:requirements [req (hasheq)])
   (define want-model (let ([m (hash-ref req 'model #f)]) (and (string? m) m)))
@@ -641,7 +643,7 @@
                       ;; deserves a different decision from one that will — retry a
                       ;; flaky model call now, or fail loudly with the reason, and
                       ;; do not spend an hour on something about to be retried
-                      ;; anyway. `attempt` is 0 on a first claim.
+                      ;; anyway. `attempt` is 1 on a first claim (the column default).
                       (hasheq 'id (vector-ref row 0) 'kind (vector-ref row 1)
                               ;; UNSEALED before it goes on the wire (#83 r2). A
                               ;; worker holds no key and could not decrypt; the
@@ -671,7 +673,7 @@
 ;; one, which every claim since 0031 does.
 (define (holder-check conn ex job-id [token #f])
   (define r (query-maybe-row conn "SELECT executor_id, status, claim_token FROM jobs WHERE id = ?" job-id))
-  (define st (vector-ref r 1))
+  (define st (and r (vector-ref r 1)))
   (define stopping? (and (member st '("canceling" "canceled")) #t))
   (cond [(not r) 'not-found]
         ;; queued / done / error answer 'not-running exactly as they always have;

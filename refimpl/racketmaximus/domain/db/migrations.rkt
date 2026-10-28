@@ -277,7 +277,7 @@
         "  team_id TEXT NOT NULL,"
         "  user_id TEXT NOT NULL,"
         "  kind TEXT NOT NULL,"
-        "  status TEXT NOT NULL DEFAULT 'queued',"     ; queued|running|done|error|canceled
+        "  status TEXT NOT NULL DEFAULT 'queued',"     ; queued|running|canceling|done|error|canceled
         "  priority INTEGER NOT NULL DEFAULT 0,"
         "  payload TEXT NOT NULL DEFAULT '{}',"
         "  result TEXT,"

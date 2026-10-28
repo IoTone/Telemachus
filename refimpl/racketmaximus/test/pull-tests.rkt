@@ -104,6 +104,8 @@
   (check-equal? (worker-heartbeat! c ex j #:token "not-the-token") 'not-holder
                 "…and a stale token is refused (issue #24)")
   (check-equal? (worker-heartbeat! c ex j) 'not-holder "…as is no token at all")
+  (check-equal? (worker-heartbeat! c ex "no-such-job" #:token fence) 'not-found
+                "an unknown job id is a verdict, not an exception")
   (check-equal? (reap-leases! c) 0 "a live lease is not reaped")
   ;; expire it by hand — the test must not sleep two minutes
   (define (expire!) (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j))
