@@ -5,7 +5,7 @@ config file**: an instance is configured entirely by its environment, and nothin
 is written at runtime, which is what lets the container run with a read-only root
 filesystem (issue #89).
 
-`scripts/check-config-reference.sh` is a CI gate: every `TELEMACHUS_*` name that
+`scripts/check-config-reference.sh` is a CI gate: every `TMACH_*` name that
 appears anywhere in the source must appear in a table below. A variable the code
 reads and this page does not mention is a build failure, because the one table an
 operator configures a deployment from must not quietly fall behind the code.
@@ -21,6 +21,35 @@ Conventions used throughout:
   non-positive value is **never** taken as `0` — a zero would mean "cancel every
   job the instant it starts" or "poll in a hot loop", so the platform refuses to
   read a typo that way.
+
+## The old `TELEMACHUS_*` names still work
+
+Every variable on this page was spelled `TELEMACHUS_<name>` until the TMach
+rename (issue #128). **Nothing anybody has deployed stopped working**: the
+platform reads `TMACH_<name>` first and falls back to `TELEMACHUS_<name>`, so an
+existing compose file, unit file or Kubernetes manifest needs no edit. Where both
+are set the `TMACH_*` one wins.
+
+There is deliberately **no deadline**. A removal date would be a promise to break
+somebody later, and the dual read costs one branch in one function (`tmach-env`
+in `config.rkt`, which is the only place an operator-facing name is composed).
+
+**The boot line tells you which old names you are still relying on**, once, as a
+`NOTE:` listing every variable that was read under its `TELEMACHUS_` spelling on
+this start. That is the migration checklist for a deployment you did not write:
+set those names under `TMACH_` and the note goes away. It is a note and not a
+warning, because nothing is wrong.
+
+Two consequences worth knowing:
+
+- **An empty value falls THROUGH rather than masking.** Setting `TMACH_<name>`
+  to the empty string does not override a `TELEMACHUS_<name>` that is also set,
+  because an empty value is the same as unset everywhere (above). To turn a
+  variable off, unset both spellings.
+- **This page documents the new spelling only.** `TELEMACHUS_*` appears nowhere
+  in the tables, and that is what `scripts/check-config-reference.sh` enforces —
+  so if you are reading a `TELEMACHUS_` name somewhere, the way to look it up is
+  to drop the prefix and find the `TMACH_` row.
 
 ---
 

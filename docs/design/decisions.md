@@ -3213,6 +3213,44 @@ operator will meet them: `define-sealed-column`'s AAD context strings,
 `CHAIN-VERSION` and `telemachus.digest.v1`, because changing any of them stops
 existing rows opening and existing exports verifying.
 
+**ENVN‑10 — the PROSE job, and why it was its own slice (#128).** Job 1 renamed
+the displayed name, job 2 renamed the variables in CODE, and nothing renamed the
+documents an operator FOLLOWS. For a week `docs/ops/configuration.md` was a
+gated page listing 94 `TMACH_*` rows while six runbooks beside it named 96
+`TELEMACHUS_*` variables — and that asymmetry is worse than a stale row, because
+the page nobody can break was the reference and the pages anybody could break
+were the instructions. 96 names across `docs/ops/*.md` and
+`docs/deploy-tailnet.md`, verified name by name against the reference page
+BEFORE the swap: all 28 distinct names already had a `TMACH_` row, so the
+rename could not invent a variable that does not exist.
+
+**ENVN‑11 — what operator prose may say, gated.** A legacy name in a document
+somebody follows is refused by `scripts/check-config-reference.sh`, in the same
+run and therefore with no change to `ci.yml` (the `telemachus-docs check
+--locale` rule: derive it rather than make CI remember). What is refused is a
+name an operator could **copy into a compose file**, so `TELEMACHUS_BIND` fails
+and the glob `TELEMACHUS_*` and the placeholder `TELEMACHUS_<name>` do not —
+they are ways of TALKING about the family, which the compatibility section has
+to do to be about it. **The gate found its own author**: the first version of
+that section used `TELEMACHUS_BIND` as its worked example. It fails in BOTH
+directions, or the allowance rots into a list of excuses — the second half
+asserts the compatibility section still EXISTS, because deleting it would leave
+a gate enforcing silence about a fallback every existing deployment depends on.
+The READMEs and the screenshot catalogs are in scope, and the catalogs are where
+the message points: the feature-tour region is generated, so a name fixed in
+`README.md` by hand is reverted by the next refresh.
+
+**Deliberately NOT renamed, and stated rather than discovered.** The design
+documents under `docs/design/` keep the spelling they were written with: a
+decision recorded in August named the variable that existed in August, and
+rewriting the record would make it say something that was not true when it was
+made — the names still work, so nothing a reader does from them fails. The
+**e-book** is left for its own slice, not out of reluctance: editing an English
+chapter makes every translated copy stale by the source-hash rule, so it is
+three chapters in two languages, a `build.sh ja --record` restamp and a rebuild
+of both editions — a large binary diff that does not belong in a documentation
+PR.
+
 ### What the gate found, three times
 
 Every narrowing chosen for convenience was defeated, and the fix each time was to

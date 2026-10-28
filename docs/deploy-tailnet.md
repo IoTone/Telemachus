@@ -4,10 +4,10 @@ How the `racketmaximus` reference implementation is shared **privately over a
 Tailscale tailnet**, how to also answer on the **local network**, plus the
 (optional, gated) paths to trusted HTTPS and a public URL.
 
-**Pick your reach first** — `TELEMACHUS_BIND` takes a *single* interface, so the
+**Pick your reach first** — `TMACH_BIND` takes a *single* interface, so the
 value you choose is the whole exposure decision:
 
-| `TELEMACHUS_BIND` | Reachable from | Use when |
+| `TMACH_BIND` | Reachable from | Use when |
 |---|---|---|
 | `127.0.0.1` *(default)* | this host only | developing |
 | `100.70.154.54` | tailnet devices | sharing with your own devices, anywhere |
@@ -27,9 +27,9 @@ browser padlock.
 ```bash
 cd refimpl/racketmaximus
 export PLTCOLLECTS="$(pwd)/pkgs:"
-TELEMACHUS_BIND=100.70.154.54 \                             # this host: `tailscale ip -4`
-TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions \
-TELEMACHUS_MODEL=qwen2.5:7b \                               # ollama (OpenAI-compatible)
+TMACH_BIND=100.70.154.54 \                             # this host: `tailscale ip -4`
+TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions \
+TMACH_MODEL=qwen2.5:7b \                               # ollama (OpenAI-compatible)
 racket server/main.rkt
 ```
 
@@ -37,7 +37,7 @@ racket server/main.rkt
 - **Model:** `qwen2.5:7b` via ollama — non-reasoning, streams cleanly (avoid the
   reasoning models like `qwen3.5:*`, whose answer lands in a `reasoning` field and
   reads as a blank reply here).
-- **Bind:** `TELEMACHUS_BIND` selects the interface (default `127.0.0.1`).
+- **Bind:** `TMACH_BIND` selects the interface (default `127.0.0.1`).
 
 ## Also on the local network (LAN)
 
@@ -46,7 +46,7 @@ to a laptop sitting on the same Wi-Fi** unless that laptop uses the tailnet
 address. To answer on both, bind every interface:
 
 ```bash
-TELEMACHUS_BIND=0.0.0.0 racket server/main.rkt     # + the model/db env from above
+TMACH_BIND=0.0.0.0 racket server/main.rkt     # + the model/db env from above
 ```
 
 - **LAN URL:** `http://10.0.0.244:8835` — this host on `eno1` (`ip -4 -o addr show eno1`)
@@ -103,12 +103,12 @@ Real Let's Encrypt cert on your MagicDNS name (green padlock), still tailnet-onl
    **HTTPS Certificates**. *(Check: `tailscale status --json | grep CertDomains` —
    now populated with `red5buntu.quokka-hippocampus.ts.net`, i.e. **already done**.)*
 2. On this host, once: `sudo tailscale set --operator=$USER`  (so serve runs without root)
-3. Run the app on `localhost` (`TELEMACHUS_BIND=127.0.0.1`), then:
+3. Run the app on `localhost` (`TMACH_BIND=127.0.0.1`), then:
    ```bash
    tailscale serve --bg 8835          # → https://<host>.<tailnet>.ts.net
    ```
 
-> The app's own `TELEMACHUS_TLS=1` self-signed cert is **not** recommended for the
+> The app's own `TMACH_TLS=1` self-signed cert is **not** recommended for the
 > tailnet — it just adds a browser warning. Let Tailscale terminate TLS instead.
 
 ## Public URL (later, deliberate) — `tailscale funnel`

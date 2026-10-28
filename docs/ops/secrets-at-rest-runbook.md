@@ -26,7 +26,7 @@ was enough to replay all of them.
 
 ## 2. What sealing them buys, exactly
 
-The key lives in the environment (`TELEMACHUS_SECRET_KEY`), never in the database.
+The key lives in the environment (`TMACH_SECRET_KEY`), never in the database.
 
 - **It defends a dump.** A dump travels without the process's environment, and the
   sealed rows are AES-256-GCM ciphertext.
@@ -72,10 +72,10 @@ Two switches, deliberately separate (ENC-1):
 
 | Variable | Seals | Default |
 |---|---|---|
-| `TELEMACHUS_SECRET_KEY` | the three replayable credentials above | unset (plaintext — a supported choice) |
-| `TELEMACHUS_ENCRYPT_CONTENT` | document-derived content: `repo_text`, job payloads/results/errors, workflow run and step bindings and errors, translations, trigger-fire errors | off |
+| `TMACH_SECRET_KEY` | the three replayable credentials above | unset (plaintext — a supported choice) |
+| `TMACH_ENCRYPT_CONTENT` | document-derived content: `repo_text`, job payloads/results/errors, workflow run and step bindings and errors, translations, trigger-fire errors | off |
 
-`TELEMACHUS_ENCRYPT_CONTENT` is its own switch because sealing `repo_text.content`
+`TMACH_ENCRYPT_CONTENT` is its own switch because sealing `repo_text.content`
 **removes content search** — the match is a SQL `LIKE` over that column — so it
 cannot ride along on a key every instance should set. Turning it on without a key
 refuses to start, because that combination writes the plaintext it was enabled to
@@ -112,8 +112,8 @@ there is no downtime.
 
 ```sh
 racket cli/telemachus-secrets.rkt keygen        # a 256-bit key, hex
-# put it in the service environment as TELEMACHUS_SECRET_KEY, then:
-DATABASE_URL=… TELEMACHUS_SECRET_KEY=… racket cli/telemachus-secrets.rkt rewrap
+# put it in the service environment as TMACH_SECRET_KEY, then:
+DATABASE_URL=… TMACH_SECRET_KEY=… racket cli/telemachus-secrets.rkt rewrap
 ```
 
 `rewrap` seals every plaintext row and leaves rows already sealed by the current
@@ -131,19 +131,19 @@ PBKDF2; it is not truncated. `keygen` is still the better answer.
 ## 5. Rotating the key
 
 ```sh
-export TELEMACHUS_SECRET_KEY_OLD=<the current key>
-export TELEMACHUS_SECRET_KEY=<the new key>
+export TMACH_SECRET_KEY_OLD=<the current key>
+export TMACH_SECRET_KEY=<the new key>
 racket cli/telemachus-secrets.rkt rewrap
 ```
 
 Rows sealed by either key are readable while both are set; `rewrap` re-seals every
 row under the new one. When `status` reports the new key id against every row,
-drop `TELEMACHUS_SECRET_KEY_OLD` and restart.
+drop `TMACH_SECRET_KEY_OLD` and restart.
 
 An unreadable row **stops the run** rather than being skipped — carrying on would
 quietly leave behind secrets nobody can decrypt.
 
-This is deliberately separate from `TELEMACHUS_SECRET` / `TELEMACHUS_TOKEN_PEPPER`.
+This is deliberately separate from `TMACH_SECRET` / `TMACH_TOKEN_PEPPER`.
 Rotating the pepper signs everyone out, which is a fine emergency action; if the
 same value sealed stored secrets, that action would also destroy them.
 
