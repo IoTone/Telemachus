@@ -162,6 +162,99 @@
   (check-exn #rx"no executor named" (lambda () (pull-dispatch! c #:team tid #:user uid #:executor "nope" #:messages '())))
   (disconnect c))
 
+(test-case "#173: `@fleet` dispatches to WHICHEVER host is free, and pins to none"
+  ;; The gap this closes: `run-chat #:executor <name>` and a model role both
+  ;; name ONE executor, so a routed chat waited for that box even with idle
+  ;; siblings. Measured on a three-host fleet: 24 unpinned jobs spread over all
+  ;; three, while every routed chat would have queued behind one card.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (a _ta) (executor-create! c p #:name "gpu-a" #:model "m"))
+  (define-values (b _tb) (executor-create! c p #:name "gpu-b" #:model "m"))
+  ;; both declare themselves while the queue is empty, so nothing is claimed yet
+  (worker-claim! c a #:kinds '("infer.chat") #:models '("qwen2.5:7b"))
+  (worker-claim! c b #:kinds '("infer.chat") #:models '("qwen2.5:7b"))
+
+  ;; gpu-B answers whatever it claims; gpu-A is left idle on purpose, so the
+  ;; job can only complete if nothing pinned it to A
+  (define done (make-semaphore 0))
+  (void (thread (lambda ()
+    (let loop ([n 0])
+      (define job (worker-claim! c b #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+      (cond [job (worker-complete! c b (hash-ref job 'id)
+                                   (hasheq 'reply "from B" 'tokens_used 2)
+                                   #:token (hash-ref job 'claim_token))
+                 (semaphore-post done)]
+            [(< n 400) (sleep 0.05) (loop (add1 n))])))))
+  (define-values (reply tokens)
+    (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
+                    #:messages (list (hasheq 'role "user" 'content "hi")) #:temperature 0))
+  (check-equal? reply "from B" "a host that was not named answered")
+  (semaphore-wait done)
+
+  ;; THE ASSERTION THE WHOLE SLICE IS ABOUT: no executor requirement was written
+  (define req (string->jsexpr (query-value c "SELECT requirements FROM jobs WHERE kind = 'infer.chat'")))
+  (check-false (hash-ref req 'executor #f) "a fleet job names no host")
+  (check-false (hash-ref req 'model #f) "…and no model, because the caller named none")
+  (disconnect c))
+
+(test-case "#173: a named model still bites, and an unmatched one is refused at once"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (a _t) (executor-create! c p #:name "small-card" #:model "m"))
+  (worker-claim! c a #:kinds '("infer.chat") #:models '("qwen2.5:3b"))
+
+  ;; A MODEL NOBODY DECLARES IS A REFUSAL, NOT A 300-SECOND WAIT. A pinned call
+  ;; waits for its host because the caller named it; "any host" with nothing
+  ;; matching has nothing to wait for.
+  (define t0 (current-inexact-milliseconds))
+  (check-exn #rx"no live worker declares qwen2.5:7b"
+             (lambda () (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
+                                        #:messages '() #:model "qwen2.5:7b")))
+  (check-true (< (- (current-inexact-milliseconds) t0) 5000) "…and it refused at once")
+  (check-equal? (length (list-jobs c tid)) 0 "nothing was enqueued")
+
+  ;; the model the fleet DOES have is carried into requirements, so capability
+  ;; matching goes on deciding — a 4 GB card is never offered a 7B job
+  (define done (make-semaphore 0))
+  (void (thread (lambda ()
+    (let loop ([n 0])
+      (define job (worker-claim! c a #:kinds '("infer.chat") #:models '("qwen2.5:3b")))
+      (cond [job (worker-complete! c a (hash-ref job 'id) (hasheq 'reply "ok" 'tokens_used 1)
+                                   #:token (hash-ref job 'claim_token))
+                 (semaphore-post done)]
+            [(< n 400) (sleep 0.05) (loop (add1 n))])))))
+  ;; two values, so a single-value context is an arity error
+  (define-values (_r _t2) (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
+                                          #:messages (list (hasheq 'role "user" 'content "hi"))
+                                          #:model "qwen2.5:3b"))
+  (semaphore-wait done)
+  (define req (string->jsexpr (query-value c "SELECT requirements FROM jobs WHERE kind = 'infer.chat'")))
+  (check-equal? (hash-ref req 'model #f) "qwen2.5:3b" "the model is carried")
+  (check-false (hash-ref req 'executor #f) "…and the host is still not pinned")
+  (disconnect c))
+
+(test-case "#173: fleet-can-run? asks the claim's own predicate"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (check-false (fleet-can-run? c #:kind "infer.chat" #:team tid) "an empty fleet runs nothing")
+  (define-values (a _t) (executor-create! c p #:name "gpu-a" #:model "m"))
+  (check-false (fleet-can-run? c #:kind "infer.chat" #:team tid)
+               "a host that has never claimed has declared nothing and is not live")
+  (worker-claim! c a #:kinds '("infer.chat") #:models '("qwen2.5:7b"))
+  (check-true (fleet-can-run? c #:kind "infer.chat" #:team tid) "now there is a candidate")
+  (check-true (fleet-can-run? c #:kind "infer.chat" #:team tid #:requirements (hasheq 'model "qwen2.5:7b")))
+  (check-false (fleet-can-run? c #:kind "infer.chat" #:team tid #:requirements (hasheq 'model "llama-70b"))
+               "a model nobody declares has no candidate")
+  ;; a DRAINED host is not a candidate — the operator said so (FLEET-3), and
+  ;; `executor-can-run?` is where that rule already lives
+  (executor-set-admin-state! c p (hash-ref a 'id) "drained")
+  (check-false (fleet-can-run? c #:kind "infer.chat" #:team tid) "a drained host answers nothing")
+  (disconnect c))
+
 ;; ---- the reaper covers the pool too (issue #17) --------------------------------
 
 (test-case "reap-leases! recovers an in-process job whose worker died"

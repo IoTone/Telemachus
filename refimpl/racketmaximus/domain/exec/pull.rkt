@@ -46,8 +46,19 @@
          rotate-worker-token! worker-token-status worker-token-seconds
          WORKER-TOKEN-OVERLAP WORKER-ROTATE-MIN-AGE
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
+         FLEET-EXECUTOR fleet-request? fleet-can-run?
          MAX-RELEASES RELEASE-BACKOFF
          pull-dispatch!)
+
+;; #173: "any host that can run this", where an executor NAME goes.
+;;
+;; The spelling is collision-proof BY THE GRAMMAR THAT ALREADY EXISTS rather
+;; than by a rule somebody has to remember: `executor-create!` holds a name to
+;; ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$, which cannot contain `@`. A reserved
+;; ordinary word would have the defect RED-24 had to design around, where a
+;; member of a list of real names collides invisibly with a real one.
+(define FLEET-EXECUTOR "@fleet")
+(define (fleet-request? name) (equal? name FLEET-EXECUTOR))
 
 (define LEASE-SECONDS 120)      ; a worker heartbeats every LEASE/3
 (define MAX-ATTEMPTS 3)         ; lease expiries before the job fails for good
@@ -221,6 +232,42 @@
        ;; the org gate: an org-bound executor never sees another company's job
        (let ([eorg (hash-ref ex 'org_id)])
          (or (eq? eorg 'null) (equal? eorg (team-org conn team))))))
+
+;; #173: could ANY live host run this, if it were asked? The fast-refusal half
+;; of a fleet request.
+;;
+;; A pinned call waits for its host because the caller named it — that wait is
+;; the caller's own doing. "Any host" with nothing live that matches is
+;; different: there is no host to wait for, and waiting the full WAIT-SECONDS
+;; for a queue that will never move is the worst answer available. So the
+;; capability question is asked BEFORE the job row is written.
+;;
+;; What it does NOT do is refuse when every matching host is merely busy or
+;; PAUSED. A paused host may be ready in fifteen seconds (that is what the
+;; readiness gate does when a card is hot), and refusing a request because the
+;; fleet is briefly standing down would make the feature flap. Nothing-can-run
+;; is a refusal; nothing-free-yet is a queue. The same line #172 drew between
+;; `unclaimable` and `held_by_paused`.
+;;
+;; It asks `executor-can-run?`, the predicate the claim itself decides with, so
+;; a refusal here can never disagree with what a worker would have taken.
+;; The rows are read here rather than through `executor-list`, which takes a
+;; PRINCIPAL and filters by the caller's org. This question is asked from
+;; `pull-dispatch!`, which has a team and no principal — and the org gate is
+;; already inside `executor-can-run?`, where it belongs.
+(define (fleet-can-run? conn #:kind kind #:team team #:requirements [req (hasheq)])
+  (for/or ([r (in-list (query-rows conn (string-append ESELECT " WHERE mode = 'pull' AND status <> 'retired'")))])
+    (define ex (row->executor r))
+    (and (equal? (hash-ref ex 'status) "active")
+         (executor-can-run? conn ex
+           #:kinds (caps-of ex 'kinds) #:models (caps-of ex 'models)
+           #:kind kind #:team team #:requirements req))))
+
+;; the declared list, as the claim recorded it (LAY-9's capability document)
+(define (caps-of ex key)
+  (define caps (hash-ref ex 'capabilities (hasheq)))
+  (define v (and (hash? caps) (hash-ref caps key '())))
+  (if (list? v) (filter string? v) '()))
 
 ;; the one channel a worker with NO job can use. A paused host is the case the
 ;; claim loop cannot report: it has stopped claiming, and it holds no job to
@@ -1059,15 +1106,48 @@
 (define (pull-dispatch! conn #:team team #:user user #:executor name #:messages msgs
                         #:model [model #f] #:temperature [temp 0.7] #:parent [parent #f]
                         #:response-format [rf #f])
-  (define ex (executor-by-name conn name))
-  (unless ex (error 'run-chat "no executor named ~a" name))
+  (define fleet? (fleet-request? name))
+  (define ex (and (not fleet?) (executor-by-name conn name)))
+  (when (and (not fleet?) (not ex)) (error 'run-chat "no executor named ~a" name))
+  ;; #173: WHAT GOES IN `requirements` IS THE WHOLE OF THE CHANGE.
+  ;;
+  ;; A pinned call writes `executor`, and `executor-can-run?` then admits that
+  ;; host and no other — which is correct for "run this there" and is exactly
+  ;; what made a fleet unreachable: if the named box is busy, paused, drained or
+  ;; dead, the job waits for IT while idle siblings poll an empty queue.
+  ;;
+  ;; A fleet call writes no `executor` at all, so every live host that matches
+  ;; is a candidate and the claim decides. That is the same shape as a job
+  ;; enqueued by hand with no requirements, which is the only thing that has
+  ;; ever fanned out here.
+  ;;
+  ;; The MODEL is carried when one was named and omitted when none was. Both
+  ;; halves matter on a mixed fleet: carried, capability matching still bites
+  ;; and a 4 GB card is never offered a 7B job; omitted, a worker answers with
+  ;; the first model it declared, which is what "any host, any model it has"
+  ;; honestly means. A worker that declares NO models cannot take a job that
+  ;; names one (the rule #197 corrected), so naming a model is also how an
+  ;; undeclared host is kept out.
+  (define want-model (and (string? model) model))
+  (define job-model (or want-model (and ex (hash-ref ex 'model)) 'null))
+  ;; Nothing to wait FOR is a refusal, not a 300-second wait (see fleet-can-run?).
+  (when (and fleet?
+             (not (fleet-can-run? conn #:kind "infer.chat" #:team team
+                                  #:requirements (if want-model (hasheq 'model want-model) (hasheq)))))
+    (error 'run-chat
+           (if want-model
+               (format "no live worker declares ~a — start one, or name a model the fleet has" want-model)
+               "no live worker can run this — the fleet is empty, drained or retired")))
   ;; response_format rides in the payload (issue #18): a worker must be able to
   ;; answer a schema request, or a pull executor could not run the same call the
   ;; local path can.
   (define id (enqueue-job! conn #:team team #:user user #:kind "infer.chat"
-                           #:payload (let ([pl (hasheq 'messages msgs 'model (or model (hash-ref ex 'model) 'null) 'temperature temp)])
+                           #:payload (let ([pl (hasheq 'messages msgs 'model job-model 'temperature temp)])
                                        (if rf (hash-set pl 'response_format rf) pl))
-                           #:requirements (hasheq 'executor name 'model (or model (hash-ref ex 'model) 'null))
+                           #:requirements (cond
+                                            [(and fleet? want-model) (hasheq 'model want-model)]
+                                            [fleet? (hasheq)]
+                                            [else (hasheq 'executor name 'model job-model)])
                            #:parent parent))
   (let loop ([waited 0])
     (define r (query-row conn "SELECT status, result, error FROM jobs WHERE id = ?" id))
@@ -1082,9 +1162,10 @@
                [else (let-values ([(t _p) (content->text (hash-ref res 'content ""))]) t)]))
        (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
       [(member st '("error" "canceled"))
-       (error 'run-chat "executor ~a: ~a" name
+       (error 'run-chat "executor ~a: ~a" (if fleet? "the fleet" name)
               (let ([e (vector-ref r 2)]) (if (sql-null? e) st (unseal-error id e))))]
       [(> waited WAIT-SECONDS)
        (query-exec conn "UPDATE jobs SET status = 'canceled', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','running')" id)
-       (error 'run-chat "executor ~a: no worker completed the request within ~a s" name WAIT-SECONDS)]
+       (error 'run-chat "executor ~a: no worker completed the request within ~a s"
+              (if fleet? "the fleet" name) WAIT-SECONDS)]
       [else (sleep 0.25) (loop (+ waited 0.25))])))

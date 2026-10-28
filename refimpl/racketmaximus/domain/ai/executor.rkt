@@ -384,6 +384,17 @@
 ;; after it has already streamed the answer.
 (define (run-chat-stream prompt on-token #:system [system #f] #:temperature [temp 0.7] #:executor [executor #f]
                          #:response-format [rf #f])
+  ;; #173: a fleet request CANNOT stream, and it says so rather than quietly
+  ;; streaming from somewhere else. `backend` answers the local model for any
+  ;; name it does not own, so without this guard a caller who asked for the
+  ;; fleet would be served by this box while the response named `@fleet` — the
+  ;; "misroute that lies about where it ran" this module already refuses for a
+  ;; named executor that is not a push backend. A pull worker returns a whole
+  ;; reply on a job row; there is no token stream to forward.
+  (when (equal? executor "@fleet")
+    (raise-user-error 'run-chat
+                      (string-append "the fleet cannot stream: a worker answers with a whole reply, "
+                                     "not a token stream — use POST /api/ai/chat")))
   (define-values (url mdl key conf?) (backend executor))
   (let ([bad (content-problem prompt)]) (when bad (error 'run-chat "~a" bad)))
   (when rf (let ([bad (response-format-problem rf)]) (when bad (error 'run-chat "~a" bad))))

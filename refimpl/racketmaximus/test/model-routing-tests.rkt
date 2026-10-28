@@ -125,6 +125,22 @@
              (lambda () (run-agent-flow c p "hi" void #:executor "puller")))
   (disconnect c))
 
+(test-case "#173: the fleet cannot stream, and cannot run the agent, and says so"
+  ;; Both would otherwise be SILENT MISROUTES, which is the one shape this
+  ;; module refuses everywhere else. `backend` answers the local model for any
+  ;; name it does not own, so a fleet request that fell through would be served
+  ;; by this box while the response named `@fleet`.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (check-exn #rx"the fleet cannot stream"
+             (lambda () (run-chat-stream "hi" void #:executor "@fleet")))
+  ;; the agent's wire (infer.chat) carries a reply, not tool calls — the same
+  ;; refusal a named pull executor gets, for the same reason
+  (check-exn #rx"runs on a push backend"
+             (lambda () (run-agent-flow c p "hi" void #:executor "@fleet")))
+  (disconnect c))
+
 ;; ---- step 3: one registry ---------------------------------------------------
 (test-case "a push executor created through the API survives a restart"
   (define c (fresh))

@@ -5447,6 +5447,82 @@ race. What makes the race uninteresting is the no-`await` rule above, which has
 its own case. All four were positive-controlled — remove the guard, drop the
 `finally`, let Shift+Enter send, or unwire the textarea, and a named case fails.
 
+## "Any host that can run this" (#173, and #175's answer)
+
+The queue has distributed work across GPU hosts since slice 66. Nothing a
+PERSON did could reach it: `run-chat #:executor <name>` and a model role both
+name ONE executor, `pull-dispatch!` wrote that name into the job's
+requirements, and `executor-can-run?` then admitted that host and no other. So
+a routed chat waited for its box while idle siblings polled an empty queue.
+Measured on a three-host fleet: 24 unpinned jobs spread over all three with
+four running at once; the same 24 routed through `/api/ai/chat` would have
+queued behind one card.
+
+```sh
+raco test test/pull-tests.rkt            # 29 cases; the three new ones are controlled
+raco test test/model-routing-tests.rkt   # the two refusals
+bash test/pull-smoke.sh                  # section 3e, 6 assertions over HTTP
+```
+
+- **THE SENTINEL IS COLLISION-PROOF BY A GRAMMAR THAT ALREADY EXISTS.**
+  `executor-create!` holds a name to `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`, which
+  cannot contain `@`, so **`@fleet`** can never be a real executor. A reserved
+  ordinary word would have RED‑24's defect, where a member of a list of real
+  names collides invisibly with a real one. It is `fleet-request?` in
+  `pull.rkt`, not a literal at each site, so the spelling has one home.
+- **WHAT GOES IN `requirements` IS THE WHOLE OF THE CHANGE.** A fleet call
+  writes no `executor` key at all, which is the same shape as a job enqueued by
+  hand — the only thing that has ever fanned out here. The claim decides.
+- **The MODEL is carried when one was named and omitted when none was**, and
+  both halves matter on a mixed fleet. Carried, capability matching still bites
+  and a 4 GB card is never offered a 7B job. Omitted, a worker answers with the
+  FIRST model it declared, which is what "any host, any model it has" honestly
+  means — and is why a worker's declared list is load-bearing twice over.
+  Naming a model is also how an undeclared host is kept out, since **an empty
+  `models` list cannot run a job that names a model** (#197's correction).
+- **NOTHING TO WAIT FOR IS A REFUSAL, NOT A 300-SECOND WAIT.** A pinned call
+  waits for its host because the caller named it; "any host" with nothing
+  matching has no host to wait for, and `WAIT-SECONDS` is 300. `fleet-can-run?`
+  asks `executor-can-run?` — the predicate the claim itself decides with — so a
+  refusal here can never disagree with what a worker would have taken.
+- **It does NOT refuse when every matching host is busy or PAUSED.** A paused
+  host may be ready in fifteen seconds; that is what the readiness gate does
+  when a card is hot. Nothing-can-run is a refusal, nothing-free-yet is a
+  queue — #172's line between `unclaimable` and `held_by_paused`, drawn again.
+- **THE STREAM REFUSES THE FLEET BY NAME, and that one is a near-miss worth
+  understanding.** `backend` answers the LOCAL model for any name it does not
+  own, so without an explicit guard `run-chat-stream #:executor "@fleet"` would
+  have been served by this box while the response said `@fleet` — the "misroute
+  that lies about where it ran" this module refuses everywhere else. The agent
+  refuses it too, through the check that already existed: its wire carries a
+  reply, not tool calls (#175's one hard blocker, unchanged).
+- **The default did NOT flip.** A chat with no executor still runs on the
+  server's own model. Flipping it would change where every existing single-box
+  instance runs its chat, and the deployments that want fan-out can set the
+  `utility` role once — which is the half with real value, since the knowledge
+  graph, the pipeline's extraction and the Localization Manager's drafts all go
+  through that role and all pinned. A per-TEAM default is the shape if it is
+  ever wanted; an instance-wide one is not.
+- **A sensitivity policy that lists executors REFUSES `@fleet`**, because the
+  sentinel is not in its allowlist. That is fail-closed and right — a labelled
+  document must not go to "whichever host is free" unless the policy says the
+  fleet is acceptable — and an operator using #91 req 4 has to name it
+  deliberately.
+- **`fleet-can-run?` reads rows directly rather than through `executor-list`**,
+  which takes a PRINCIPAL and filters by the caller's org. It is asked from
+  `pull-dispatch!`, which has a team and no principal, and the org gate is
+  already inside `executor-can-run?` where it belongs.
+- **`pull-dispatch!` returns TWO values**, so `(void (pull-dispatch! …))` is an
+  arity error, not a discard. Second time that shape has cost a run here.
+- **Backticks inside a double-quoted `echo` in a smoke are COMMAND
+  SUBSTITUTION.** `echo "== `@fleet` routes =="` ran `@fleet` as a command and
+  printed an empty heading. Single-quote a heading that contains code.
+- **Not built, deliberately**: which host actually answered is not reported back
+  to the caller. `pull-dispatch!` knows it at completion, but the `pull-router`
+  box's contract is `(name msgs temp rf) -> (cons reply tokens)` and widening it
+  would break every test double. `GET /api/admin/queue` already names the
+  executor per job, which is where an operator looks.
+
 ## Which build is this? (the version footer)
 
 Reported from outside, and the report was a person looking at a deployment and

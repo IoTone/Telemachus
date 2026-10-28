@@ -82,6 +82,36 @@ assert "the sub-job is done"          "$(G /api/jobs)" '"status":"done"'
 assert "the executor is active now"   "$(G /api/executors)" '"status":"active"'
 assert "AI spend was metered"         "$(G /api/usage)" '"dimension":"ai.tokens.total"'
 
+echo '== 3e. issue #173: @fleet routes to whichever host is free ==='
+# The gap: naming an executor PINS the job to it, so a routed chat waited for
+# one box while idle siblings polled an empty queue. `@fleet` writes no
+# executor requirement and the claim decides. The sentinel cannot collide with
+# a real name: @ is not legal in one.
+( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
+    -d '{"prompt":"hello","executor":"@fleet"}' > "$TMACH_DATA_DIR/fleet.json" ) & FCHAT=$!
+sleep 1
+FJOB=$(G /api/jobs)
+assert "a fleet chat queues an infer.chat job"  "$FJOB" '"kind":"infer.chat"'
+# the SAME worker as section 3 takes it, without having been named
+TMACH_URL="http://127.0.0.1:$PORT" TMACH_WORKER_TOKEN="$WT" TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions" TMACH_WORKER_MODELS=mock \
+  racket cli/telemachus-worker.rkt --once >"$TMACH_DATA_DIR/worker-fleet.log" 2>&1
+wait $FCHAT
+assert "an unnamed host answered it"        "$(cat "$TMACH_DATA_DIR/fleet.json")" 'pulled: hello from the worker'
+assert "…and the answer says it went to the fleet" "$(cat "$TMACH_DATA_DIR/fleet.json")" '"executor":"@fleet"'
+# a model role may name the fleet too — that is the half with real value, since
+# the knowledge graph, pipeline extraction and localization drafts all go
+# through `utility` and all pinned
+assert "a model role may name the fleet" \
+  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $TOK" -d '{"roles":{"utility":"@fleet"}}')" '"utility":"@fleet"'
+# …and a typo still cannot be set, which is what the sentinel had to not break
+assert "an unknown executor is still refused" \
+  "$(curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $TOK" -d '{"roles":{"utility":"@flee"}}')" 'unknown executor'
+curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $TOK" -d '{"roles":{"utility":null}}' >/dev/null
+# RED-14's shape: the stream refuses the field rather than quietly serving the
+# request from this box while naming the fleet
+assert "the fleet cannot stream, and says so" \
+  "$(curl -s -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $TOK" -d '{"prompt":"hi","executor":"@fleet"}')" 'the fleet cannot stream'
+
 echo "== 3c. issue #91 req 3: the request is in the model-request log, and the prompt is not ==="
 LOG=$(G /api/model-requests)
 assert "the pull chat is logged"        "$LOG" '"transport":"pull"'

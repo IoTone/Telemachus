@@ -71,13 +71,21 @@
   (define e (hash-ref b 'executor #f))
   (and e (let ([n (format "~a" e)]) (and (not (member n '("" "local"))) n))))
 (define (executor-model ex)
-  (if ex
+  (if (and ex (not (fleet-request? ex)))
       (let ([c (executor-config ex)])
          (cond [c (cadr c)]
               [(executor-by-name db-conn ex) => (lambda (e) (let ([m (hash-ref e 'model)]) (if (string? m) m ex)))]
               [else ex]))
+      ;; …and for `@fleet` that fallback is deliberately the instance's own
+      ;; model name ONLY when nothing was routed; see ep-ai-chat, which reports
+      ;; the model the job actually asked for.
       (hash-ref (model-info) 'model)))
-(define (executor-known? name) (or (executor-exists? name) (and (executor-by-name db-conn name) #t)))
+;; #173: `@fleet` is a legitimate value wherever an executor name is accepted —
+;; it names the whole pull fleet rather than a row, so there is nothing to look
+;; up. It is `fleet-request?` rather than a literal here so the spelling has ONE
+;; home (domain/exec/pull.rkt), where the collision argument lives.
+(define (executor-known? name)
+  (or (fleet-request? name) (executor-exists? name) (and (executor-by-name db-conn name) #t)))
 
 ;; ---- executors (slice 66) -----------------------------------------------------------
 ;; The env-configured push backends (executors.json) and the API-created ones (the

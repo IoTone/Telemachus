@@ -68,7 +68,9 @@
          (only-in "../domain/ai/content.rkt" content->text)
          (only-in "../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
          (only-in "../domain/exec/federation.rkt" connect-executors!)
-         (only-in "../domain/exec/pull.rkt" executor-by-name load-push-executors! pull-dispatch! reap-leases!)
+         (only-in "../domain/exec/pull.rkt" executor-by-name load-push-executors! pull-dispatch! reap-leases!
+                  ;; #173: the "any host" sentinel
+                  fleet-request?)
          ;; RED-17: the model-request log's writer (issue #91 requirement 3)
          (only-in "../domain/ai/requestlog.rkt" model-request-record!)
          ;; #91 req 4: where a labelled document's text may go, and the host of
@@ -907,8 +909,11 @@
   ;; current job (or a top-level one on the request path) and wait for a worker
   (set-box! pull-router
     (lambda (name msgs temp rf)
-      (define ex (executor-by-name db-conn name))
-      (and ex (equal? (hash-ref ex 'mode) "pull")
+      ;; #173: `@fleet` is not a row. It means "any host that can run this", so
+      ;; there is nothing to look up and nothing to check the mode of — the
+      ;; dispatch writes no executor requirement and the claim decides.
+      (define ex (and (not (fleet-request? name)) (executor-by-name db-conn name)))
+      (and (or (fleet-request? name) (and ex (equal? (hash-ref ex 'mode) "pull")))
            (let* ([job (current-job)]
                   [p (current-request-principal)]
                   [team (cond [job (hash-ref job 'team)] [p (principal-team-id p)] [else #f])]
