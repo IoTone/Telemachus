@@ -154,7 +154,7 @@ Permission: `files:write` · source: built-in
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `data` | object | yes | 埋め込むデータ。例：抽出されたフィールド。 |
-| `engine` | string (latex, weasyprint, libreoffice) | no | format が "pdf" のときに使う PDF エンジン："latex"（既定 — pandoc と tectonic。文章中心の文書に向く）、"weasyprint"（HTML テンプレート自身の CSS を解釈し、@page の余白、ページをまたぐヘッダーとフッター、"Page X of Y" を描画）、または "libreoffice"（埋め込み済みの DOCX テンプレートを変換）。HTML エンジンは HTML テンプレートを必要とし、src="repo:<オブジェクト ID>" でリポジトリの文書を画像として埋め込めます。LibreOffice エンジンは DOCX テンプレートを必要とし、soffice がサーバーの PATH に無ければ無効で、外部参照を宣言しているテンプレートを拒否します。 |
+| `engine` | string (latex, weasyprint, libreoffice) | no | format が "pdf" のときに使う PDF エンジン："latex"（既定 — pandoc と tectonic。文章中心の文書に向く）、"weasyprint"（HTML テンプレート自身の CSS を解釈し、@page の余白、ページをまたぐヘッダーとフッター、"Page X of Y" を描画）、または "libreoffice"（埋め込み済みの DOCX テンプレートを変換）。HTML エンジンは HTML テンプレートを必要とし、`src="repo:<オブジェクト ID>"` でリポジトリの文書を画像として埋め込めます。LibreOffice エンジンは DOCX テンプレートを必要とし、soffice がサーバーの PATH に無ければ無効で、外部参照を宣言しているテンプレートを拒否します。 |
 | `format` | string | no | 出力形式：テンプレート自身の形式（既定）または "pdf" — Markdown と HTML のテンプレートのみ |
 | `object` | string | no | 元文書のオブジェクト ID — フォームはその隣に書き出されます（既定：テンプレートの隣）。 |
 | `pdf_variant` | string (pdf/a-2b) | no | HTML エンジンに保存用 PDF を要求します："pdf/a-2b"。ラスター画像があると出力は規格に適合しません（エンジンが画像に Interpolate true を付け、PDF/A はこれを禁じています）— ロゴには SVG を使ってください。 |

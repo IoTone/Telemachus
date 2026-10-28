@@ -2081,8 +2081,8 @@
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
     "doc.tool.doc_render.engine": {
-      "text": "format が \"pdf\" のときに使う PDF エンジン：\"latex\"（既定 — pandoc と tectonic。文章中心の文書に向く）、\"weasyprint\"（HTML テンプレート自身の CSS を解釈し、@page の余白、ページをまたぐヘッダーとフッター、\"Page X of Y\" を描画）、または \"libreoffice\"（埋め込み済みの DOCX テンプレートを変換）。HTML エンジンは HTML テンプレートを必要とし、src=\"repo:<オブジェクト ID>\" でリポジトリの文書を画像として埋め込めます。LibreOffice エンジンは DOCX テンプレートを必要とし、soffice がサーバーの PATH に無ければ無効で、外部参照を宣言しているテンプレートを拒否します。",
-      "hash": "60c8b48f526eb9f3636adc1ac36ac495cde2109c"
+      "text": "format が \"pdf\" のときに使う PDF エンジン：\"latex\"（既定 — pandoc と tectonic。文章中心の文書に向く）、\"weasyprint\"（HTML テンプレート自身の CSS を解釈し、@page の余白、ページをまたぐヘッダーとフッター、\"Page X of Y\" を描画）、または \"libreoffice\"（埋め込み済みの DOCX テンプレートを変換）。HTML エンジンは HTML テンプレートを必要とし、`src=\"repo:<オブジェクト ID>\"` でリポジトリの文書を画像として埋め込めます。LibreOffice エンジンは DOCX テンプレートを必要とし、soffice がサーバーの PATH に無ければ無効で、外部参照を宣言しているテンプレートを拒否します。",
+      "hash": "6fa73480e15fbd0e370e16f1e6f34b65cc8a3e34"
     },
     "doc.route.get.api.org.branding": {
       "text": "会社自身のブランディング（TEN-2d）— 何も設定していなければ、own:false を添えてインスタンスのもの。",

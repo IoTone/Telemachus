@@ -1461,6 +1461,27 @@ the README or the builder, and deploys with `actions/deploy-pages`.
 - CI needs only pandoc — no LaTeX, no Racket — because the book's PDF and HTML
   are committed artifacts. Rebuild them with `docs/book/build.sh` inside
   `nix develop` and commit them with the source.
+- **THE LINK CHECK PARSES THE MARKUP NOW, AND THE REGEX IT REPLACED HAD TAKEN
+  THE SITE DOWN FOR DAYS.** It matched `(href|src)="…"` over the raw bytes, so
+  it also matched prose and code spans that merely SHOW an attribute — and
+  `doc_render`'s `engine` description documents `src="repo:<object id>"`. Three
+  consecutive `pages.yml` runs on `main` failed on it, which means **the
+  published site silently stopped updating** when #88 req 1 landed and nothing
+  said so: a Pages failure is not a pull-request check, so nobody meets it. It
+  is an `html.parser` walk of real attributes, positive-controlled in both
+  directions — a genuinely dead `href` fails it, the same string inside
+  `<code>` does not.
+- **AND THE STRING WAS A SECOND, REAL DEFECT THE FALSE POSITIVE WAS HIDING.**
+  Raw `<object id>` is a VALID HTML tag name, so pandoc's `raw_html` passed it
+  through as an element and the published English reference read `src="repo:";`
+  — the documentation lost the very thing it was documenting. The Japanese page
+  was fine, because `<オブジェクト ID>` is not a tag name and got escaped. So
+  the fix is backticks in the tool description, which costs a stale `doc.*`
+  translation: the ja text is edited textually in the same place and re-stamped
+  with the new English sha1, never re-translated and never re-sorted.
+- **Check this gate from a checkout before trusting it.** It needs no Racket and
+  no LaTeX: `bash scripts/build-site.sh` then the workflow's own python. A gate
+  only CI runs is a gate whose failures nobody reads.
 
 ## Workflow engine (plugins that process in steps)
 

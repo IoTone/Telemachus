@@ -45,22 +45,42 @@ jobs:
       - name: Check every local link resolves
         run: |
           python3 - <<'PY'
-          import os, re, sys
+          # Parse the markup, do not grep it. A regex for `(href|src)="..."` over
+          # the raw bytes also matches prose and CODE SPANS that happen to show an
+          # attribute, and that is not hypothetical: `doc_render`'s `engine`
+          # description documents `src="repo:<object id>"`, so this gate reported
+          # two broken links in the generated tools reference and the site stopped
+          # deploying for days over documentation that was correct. A checker that
+          # cries wolf is worse than no checker, because the next person to see it
+          # red will assume it is wrong again.
+          import html.parser, os, sys
           root = 'build/site'
           missing = []
+
+          class Links(html.parser.HTMLParser):
+              def __init__(self, path):
+                  super().__init__(convert_charrefs=True)
+                  self.path = path
+                  self.targets = []
+              def handle_starttag(self, tag, attrs):
+                  for name, value in attrs:
+                      if name in ('href', 'src') and value:
+                          self.targets.append(value)
+
           for dirpath, _, files in os.walk(root):
               for f in files:
                   if not f.endswith('.html'): continue
                   p = os.path.join(dirpath, f)
-                  html = open(p, encoding='utf-8', errors='replace').read()
-                  for target in re.findall(r'(?:href|src)="([^"]+)"', html):
-                      if target.startswith(('http', '#', 'data:', 'mailto:')): continue
-                      t = target.split('#')[0]
+                  parser = Links(p)
+                  parser.feed(open(p, encoding='utf-8', errors='replace').read())
+                  for target in parser.targets:
+                      if target.startswith(('http', '//', '#', 'data:', 'mailto:')): continue
+                      t = target.split('#')[0].split('?')[0]
                       if not t: continue
                       if not os.path.exists(os.path.normpath(os.path.join(dirpath, t))):
                           missing.append(f'{p} -> {target}')
           for m in missing: print('MISSING', m)
-          print(f'{len(missing)} broken link(s)')
+          print(f'{len(missing)} broken link(s) in {root}')
           sys.exit(1 if missing else 0)
           PY
       - uses: actions/configure-pages@v5
