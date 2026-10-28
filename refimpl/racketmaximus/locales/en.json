@@ -888,8 +888,8 @@
       "hash": "c9231f778313d4e931e44e514ab8f69f3968987a"
     },
     "doc.tool.doc_classify": {
-      "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
-      "hash": "645cc6c8c208eea05540a6c6a8d252ad3c274f06"
+      "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
+      "hash": "f0effca4e2c91938adb06fcb1492a0a59546932e"
     },
     "doc.route.get.api.translate": {
       "text": "The team's translation history.",

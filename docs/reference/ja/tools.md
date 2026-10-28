@@ -6,7 +6,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 |---|---|---|---|
 | `chat_message` | `chat:use` | translate-chat | モデルにチャットメッセージを1つ送り、その返答を返す。 |
 | `create_note` | `notes:write` | built-in | 現在のユーザーのチームにメモを作成します。 |
-| `doc_classify` | `files:write` | built-in | この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。 |
+| `doc_classify` | `files:write` | built-in | この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います。`backends` で順序を変更でき、`embed`（最近傍ラベルによる埋め込みバックエンド）を指定することもできます。これには埋め込みエンドポイントの設定が必要で、既定の連鎖には含まれません。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。 |
 | `doc_classify_eval` | `files:read` | built-in | ラベル付きのフィクスチャ集合に対して分類器を測定する: キー接頭辞配下で doc_type_expected 属性を持つ文書が対象です。バックエンドごと、かつラベルごとの正解率とカバレッジ、各ラベルが何と誤認されたか、そして正答と誤答それぞれの平均確信度 — レビューのしきい値で両者を切り分けられるかを示す数値 — を報告します。各バックエンドは連鎖させずに個別に実行するため rules と llm を比較でき、連鎖自体の答えも並べて報告します。何も書き込みません: 種別は記録されず、トリガーも起動しません。 |
 | `doc_extract_fields` | `files:write` | built-in | JSON スキーマに照らして文書のテキストから構造化フィールドを抽出する。モデルの返答は検証され、適合しなければ拒否されます — 必須フィールドの欠落、型の誤り、勝手に作られたキーなど。`object` を指定すると、フィールドは元文書の隣に <key>.extracted.json として書き出されます。 |
 | `doc_fill_form` | `files:write` | built-in | リポジトリ内の PDF の AcroForm フィールドに、フィールド名と値の JSON オブジェクトから値を埋め込み、結果をその隣に <key>.filled.pdf として書き出します。テキストフィールドは文字列、チェックボックスは true または false、ラジオグループ・コンボボックス・リストボックスはそれ自身の選択肢のいずれかを取ります。フォームが持たないフィールド名は `unmatched` で報告されます（すべての名前が誤っている場合は代わりに拒否されます）。flatten が true のときはフィールドがページに描き込まれ、文書は編集できなくなります。 |
@@ -55,7 +55,7 @@ Permission: `notes:write` · source: built-in
 
 ## `doc_classify`
 
-この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います（`backends` で順序を変更できます）。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。
+この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います。`backends` で順序を変更でき、`embed`（最近傍ラベルによる埋め込みバックエンド）を指定することもできます。これには埋め込みエンドポイントの設定が必要で、既定の連鎖には含まれません。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。
 
 Permission: `files:write` · source: built-in
 

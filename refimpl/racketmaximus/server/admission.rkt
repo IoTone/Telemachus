@@ -48,7 +48,15 @@
 ;; team over its fetch budget must have its feeds STOP rather than keep hammering
 ;; somebody else's API — and because a poll is an ordinary job, holding the queue
 ;; is all that takes.
-(define QUOTA-HOLD-DIMS '("ai.requests" "ai.tokens.total" "ai.judgments.total" "feed.fetches"))
+(define QUOTA-HOLD-DIMS '("ai.requests" "ai.tokens.total" "ai.judgments.total"
+                          ;; #163 (EMB-6). Here for JUDGE-10's reason: where an
+                          ;; operator HAS set a limit, reaching it should hold
+                          ;; the team's queue rather than fail the jobs — an
+                          ;; embedding is spent inside a scheduler job like every
+                          ;; other model call. There is no default limit, so on
+                          ;; an instance nobody configured this holds nothing.
+                          "ai.embeddings.total"
+                          "feed.fetches"))
 
 ;; PURE, deliberately: the job listing calls this on every read (`team-hold` in
 ;; scheduler.rkt). The audit entry is `note-deferred!`'s business, and fires only

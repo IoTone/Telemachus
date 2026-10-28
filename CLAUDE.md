@@ -2397,6 +2397,102 @@ bash test/doc-pipeline-smoke.sh              # the "== 5d." block, 18 assertions
   backend (**req 2c** — no embedding wire, store or meter exists, so it is its own
   issue). The **evaluation harness (req 6)** is the section below.
 
+## An embedding wire, a label store, a meter (EMB‑1…11, issue #163)
+
+Built 28 Oct 2026 — #87 requirement 2c, split out because this build had no
+embedding ANYTHING. `domain/ai/executor.rkt` gains `embed-exchange`;
+`domain/ai/embedstore.rkt` is the label-vector cache; migration
+`0063-model-request-operation`; the `embed` backend in `classify.rkt`.
+
+```sh
+export TMACH_EMBED_URL=http://127.0.0.1:11434/v1/embeddings
+export TMACH_EMBED_MODEL=nomic-embed-text
+raco test test/embed-tests.rkt   # 17 cases, seven controls, all biting
+```
+
+- **THE ENDPOINT AND THE MODEL ARE THEIR OWN, and that is forced.** An embedding
+  model is a DIFFERENT model — `nomic-embed-text`, never `qwen2.5:7b` — so the
+  name cannot be shared with `TMACH_MODEL`, and once the name is separate the URL
+  may as well be. Deriving `/v1/embeddings` from `TMACH_MODEL_URL` is the obvious
+  shortcut and is wrong twice: it assumes one server, and it would send the chat
+  model's NAME to an endpoint that cannot use it.
+- **THE POLICY IS SHARED AND THE BODY IS NOT.** `embed-exchange` lives beside
+  `model-exchange` and goes through the same egress refusal, content-logging
+  policy, request log and transport-error classification — RED‑16's lesson, where
+  `model-exchange`'s own header called itself the one place a request leaves
+  while two other paths had their own. A separate module would have needed six
+  exports purely to re-implement the preamble.
+- **`known-features`' shape, in a different place: KNOWN and DEFAULT ARE TWO
+  LISTS.** I first added `embed` to `CLASSIFY-BACKENDS`, which is both the valid
+  set AND the default chain — so every existing `doc_classify` call on every
+  existing instance would have tried to embed against an endpoint nobody
+  configured. `CLASSIFY-BACKENDS-DEFAULT` is `("rules" "llm")`, unchanged;
+  naming `embed` is how you ask. A one-word diff that was a behaviour change.
+- **CONFIDENCE IS THE MARGIN, NOT THE SIMILARITY** (EMB‑10), and this is the
+  decision in the backend. Cosine against a label is uncalibrated: ordinary
+  English documents score 0.6–0.9 against everything, so the top similarity
+  would report 0.82 for a document that matched nothing and would park nothing
+  for review. The GAP to the runner-up is what carries information, so a
+  document equally close to two labels scores ~0 — exactly CLS‑13's case.
+- **THE RESPONSE IS READ BY `index`, NEVER BY POSITION.** The field exists
+  because a server may answer out of order, and pairing the wrong vector with
+  the wrong label does not fail — it classifies confidently and wrongly for
+  ever, with every figure in the evaluation harness blaming the model. Six more
+  shape refusals beside it (count, duplicate index, out-of-range index,
+  unusable vector, differing widths), because every one of them is silent.
+- **A ZERO VECTOR HAS NO DIRECTION, so `cosine` answers `#f`, not 0.** Zero would
+  make it the WORST match, which is a claim; `#f` lets the caller say it could
+  not compare. Providers really do return one for empty input.
+- **A MODEL CHANGE INVALIDATES EVERYTHING; A LABEL EDIT INVALIDATES ONE**
+  (EMB‑8). Vectors from two checkpoints are not comparable and mixing them does
+  not raise — RED‑18's discontinuity, which `digest_key_id` records for the
+  request log. The per-label `hash` is the sha1 of the text it was made from,
+  the rule `locales/ja.json` and the caption catalogs already live by.
+- **THE STORE IS LABEL VECTORS ONLY, AND SAYING SO IS THE DESIGN** (EMB‑7). A
+  vector per DOCUMENT is a different subsystem: no vector type in either dialect,
+  no index that makes a nearest neighbour anything but a full scan, and no JSON
+  SQL in the tree. So this store CANNOT serve document similarity, which forces
+  semantic search to answer the storage question rather than inherit an answer
+  nobody made on purpose. That also answers #163's fourth question — search
+  wants embeddings next, and it needs the half this deliberately does not build.
+- **NOT SEALED, and the reason is what the plaintext IS** (EMB‑9). #163 guessed
+  `TMACH_ENCRYPT_CONTENT`; that switch seals content the platform retains by
+  ITSELF. A label vector is a function of operator-authored configuration that is
+  stored unsealed two keys away, so sealing it protects nothing and would add a
+  column `rewrap` does not walk — how a sealed value becomes silently
+  unrotatable.
+- **`ai.embeddings.total`, its own dimension** (EMB‑6, JUDGE‑10's answer to
+  JUDGE‑10's shape): an input count with no output cannot share the completion
+  budget, and folding it in would make a nearest-label classification silently
+  eat the budget the `llm` backend needs. No default limit, in
+  `QUOTA-HOLD-DIMS`, and `ai.requests` is charged too.
+- **THE SEAMS METER THEMSELVES, and that is forced rather than stylistic.**
+  There is no single number `classify-embed` could hand back that its caller
+  could bill, because the two backends spend different dimensions — returning
+  embedding tokens in the slot `classify` adds to the chat count would charge
+  input tokens to the completion budget, EMB‑5's mistake one layer up.
+
+**THE LOGGER BOX IS A CONTRACT, AND BREAKING IT IS SILENT.** Adding
+`#:operation` broke every installed logger at once — three test suites and the
+server's own — and not one raised, because RED‑17 has the wrapper swallow any
+failure so an unwritable log never costs somebody their answer. What it produces
+is the log simply not being written: `dump-leak-tests.rkt` reported "the request
+really was logged: expected 1, actual 0", which points at the logging and says
+nothing about the keyword. **The swallow that protects the model call also hides
+a contract change.** The no-op in the box now carries every keyword the wrapper
+sends, with a case asserting exactly that — and a second one asserting that a
+logger which does NOT take it fails invisibly, which is why the first is needed.
+
+**A CONTROL THAT DID NOT BITE MEANT THE TEST WAS CHECKING THE WRONG PROPERTY.**
+Inverting the one-label guard still answered `#f`, because the "fewer than two
+comparable vectors" guard below catches the same case — so the guard looked
+redundant, CLS‑23's shape. It is not: what it uniquely does is decline BEFORE
+calling the two seams, each of which is a metered model request. The case
+asserts the seams were never called, and the control bites now.
+
+**`(void (label-vectors …))` is an arity error, not a discard** — third
+appearance of that shape in these notes. `call-with-values`.
+
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
 Built 25 Oct 2026 — the last piece of #87 this build can hold. One tool

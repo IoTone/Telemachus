@@ -1924,9 +1924,31 @@
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_model_requests_team ON model_requests (team_id, created_epoch)")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_model_requests_executor ON model_requests (executor)"))))
 
+(define m-0063-model-request-operation
+  (migration "0063-model-request-operation"
+    (lambda (conn)
+      ;; EMB-5 (issue #163). The log could say by which ROUTE content left
+      ;; (push / stream / pull) and not WHAT was asked for, because until the
+      ;; embedding wire there was only ever one answer. An embedding sends
+      ;; document text to a backend exactly as a chat does, so it belongs in this
+      ;; table — but `tokens_used` means something different on its row (an INPUT
+      ;; count, with no output at all) and an operator reading a mixed log with
+      ;; no way to tell them apart would be reading two units in one column.
+      ;;
+      ;; Overloading `transport` with a fourth value was the cheaper option and
+      ;; is wrong: push/stream/pull answer "by what route", which is a different
+      ;; question, and `stream` is already a push. Two questions, two columns.
+      ;;
+      ;; NULLABLE, with no backfill: every row written before this migration was
+      ;; a chat, and `COALESCE(operation,'chat')` says so at every read. A
+      ;; backfilled column would claim the rows had been classified when nothing
+      ;; had classified them — migration 0045's lesson, where COALESCE(epoch,0)
+      ;; read an un-backfilled row as infinitely old.
+      (exec* conn "ALTER TABLE model_requests ADD COLUMN operation TEXT"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
                              m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts
                              m-0059-feed-items m-0060-trigger-attrs m-0061-redactions
-                             m-0062-model-requests))
+                             m-0062-model-requests m-0063-model-request-operation))
