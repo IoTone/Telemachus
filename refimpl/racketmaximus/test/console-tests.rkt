@@ -93,7 +93,8 @@
 ;; What makes the race uninteresting is that the check and the set are in the
 ;; same synchronous run (no `await` between them), which the third case pins.
 (define (fn-body name)
-  (define m (regexp-match (pregexp (string-append "(?s:async function " name "[(][)].*?\n[}])")) html))
+  (define m (regexp-match
+             (pregexp (string-append "(?s:(?:async )?function " name "[(][^)]*[)].*?\n[}])")) html))
   (and m (car m)))
 
 (test-case "a send path cannot start twice"
@@ -128,3 +129,49 @@
   (for ([id '("cp" "ap")])
     (check-true (regexp-match? (pregexp (string-append "id=\"" id "\"[^>]*data-h-keydown")) html)
                 (format "#~a sends on a key" id))))
+
+;; ---- the search control, and the fleet's figures (issues #176, #178) --------
+;; Both were reported from outside, with a screenshot each, and both are layout
+;; — which this file cannot judge. What it CAN pin is the half of each fix that
+;; a later edit would silently undo: the Enter handler the search issue asks
+;; twice to keep, and the per-figure explanations the workers issue is about.
+
+(test-case "the search field and its button are one control, and Enter still searches"
+  (define body (fn-body "searchView"))
+  (check-true (and body #t) "searchView is still a function")
+  (check-true (string-contains? body "class=\"searchbar\"") "one composed control")
+  (check-false (string-contains? body "align-items:end")
+               "not two flex columns of different heights, which is what hung the button low")
+  (check-true (regexp-match? #px"id=\"sq\"[^>]*data-h-keydown" body) "#sq still sends on a key")
+  ;; through #174's shared rule, so a Japanese IME confirmation is no longer a search
+  (check-true (string-contains? body "sendKey(ev,doSearch)") "…and through the one Enter rule")
+  ;; a button whose whole label is a glyph needs an accessible name
+  (check-true (string-contains? body "aria-label=") "the magnifier button is named")
+  (check-true (string-contains? shell ".searchbar:focus-within")
+              "the focus ring is on the wrapper — a borderless input inside a bordered box shows none"))
+
+(test-case "every fleet figure explains itself, and its window is selectable"
+  (define body (fn-body "wkFigs"))
+  (check-true (and body #t) "wkFigs is still a function")
+  ;; one tooltip per figure, not one for the column: the three numbers answer
+  ;; different questions and the lease expiry is the one worth finding
+  (check-true (string-contains? body "title=\"${esc(t(key))}\"")
+              "a figure is rendered with a tooltip of its own, not one for the column")
+  (check-equal? (length (regexp-match* #px"fig[(]w[.]" body)) 3
+                "done, failed and lease-expired are three figures, each with its own key")
+  (for ([k '("wkdonehint" "wkerrhint" "wkexpiredhint")])
+    (check-true (string-contains? body k) (format "~a is used" k)))
+  ;; the header NAMES the window rather than hardcoding one, because the window moved
+  (check-true (string-contains? html "t('wkwindow').replace('{window}'")
+              "the column header carries the window that was actually asked for")
+  (check-true (string-contains? html "function fleetQuery()") "…and the read asks for it")
+  (check-true (string-contains? html "/api/admin/workers'+fleetQuery()")
+              "the fleet read carries the selected window")
+  (check-true (regexp-match? #px"WKWINDOWS[.]map[(]h=>`<option" html) "the window is a control")
+  ;; the destructive button is not flush against an unexplained number any more
+  (check-true (string-contains? html "class=\"btn sm bad\" style=\"margin-left:14px\"")
+              "Retire stands apart from Drain, and looks irreversible")
+  ;; `class="small"` and `class="small danger"` matched NO rule in the shell, so
+  ;; these were bare user-agent buttons and the irreversible one did not look it
+  (check-equal? (regexp-match* #px"class=\"small( danger)?\"" html) '()
+                "the fleet card uses the shell's own button vocabulary (.btn.sm / .btn.bad)"))

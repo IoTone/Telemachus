@@ -16,9 +16,30 @@ function wkAge(sec){
   if(s<172800) return Math.round(s/3600)+'h';
   return Math.round(s/86400)+'d';
 }
+// #178: the ✓ ✗ ⧖ figures are over a WINDOW, and the window was a hardcoded
+// "24h" in a column header's tooltip — so the three numbers an operator reads
+// beside a Drain button said nothing about themselves, and the figure that
+// matters most (a lease expiry: this host went quiet mid-job and the platform
+// gave the work back to the queue) was the least explained. The window is a
+// control now, and the server clamps `hours` to 720, so the list stops there.
+const WKWINDOWS = [6, 24, 168, 720];
+function wkWindowLabel(h){ return h<48 ? h+'h' : Math.round(h/24)+'d'; }
+function wkHours(){ return WKWINDOWS.indexOf(S.wkHours)>=0 ? S.wkHours : 24; }
+function wkSetHours(h){ S.wkHours = h; renderTab(); }
+function fleetQuery(){ return '?hours='+wkHours(); }
 function wkHealth(st){
   const cls = st==='active' ? 'ok' : (st==='stale' ? 'warn' : '');
   return `<span class="badge ${cls}">${esc(st)}</span>`;
+}
+// Each figure carries its OWN tooltip, and a non-zero failure or expiry is
+// coloured: a muted row of three numbers reads as decoration, and two of the
+// three are the ones somebody is looking for. Zero stays muted, so a healthy
+// fleet is quiet.
+function wkFigs(w){
+  const fig=(n, sym, key, hue)=>`<span${n?` style="color:var(--${hue})"`:' class="muted"'} title="${esc(t(key))}">${n}&nbsp;${sym}</span>`;
+  return [fig(w.done||0, '✓', 'wkdonehint', 'ok'),
+          fig(w.error||0, '✗', 'wkerrhint', 'bad'),
+          fig(w.leases_expired||0, '⧖', 'wkexpiredhint', 'warn')].join(' ');
 }
 function workersCard(xr, fr){
   if(!fr||!fr.ok) return '';
@@ -48,11 +69,11 @@ function workersCard(xr, fr){
       <td>${e.worker_state?`<span class="badge">${esc(e.worker_state)}</span>`:`<span class="muted" title="${esc(t('wkunreportedhint'))}">–</span>`}</td>
       <td class="muted">${e.last_seen_at?wkAge(now-e.last_seen_at):'–'}</td>
       <td>${cur?`${held} ${lease}`:held}</td>
-      <td class="mono muted">${w.done||0}&nbsp;✓ ${w.error||0}&nbsp;✗ ${w.leases_expired||0}&nbsp;⧖</td>
-      <td style="white-space:nowrap">${e.mode==='pull'?
-        (drained ? `<button class="small" data-h-click="${H(()=>wkAdmin(e.id,'resume'))}">${t('wkresume')}</button>`
-                 : `<button class="small" data-h-click="${H(()=>wkAdmin(e.id,'drain'))}">${t('wkdrain')}</button>`)
-        + ` <button class="small danger" data-h-click="${H(()=>wkRetire(e.id,e.name))}">${t('wkretire')}</button>`
+      <td class="mono" style="white-space:nowrap">${wkFigs(w)}</td>
+      <td style="white-space:nowrap;border-left:1px solid var(--line)">${e.mode==='pull'?
+        (drained ? `<button class="btn sm ghost" data-h-click="${H(()=>wkAdmin(e.id,'resume'))}">${t('wkresume')}</button>`
+                 : `<button class="btn sm ghost" data-h-click="${H(()=>wkAdmin(e.id,'drain'))}">${t('wkdrain')}</button>`)
+        + ` <button class="btn sm bad" style="margin-left:14px" data-h-click="${H(()=>wkRetire(e.id,e.name))}">${t('wkretire')}</button>`
         : ''}</td></tr>`;
   };
 
@@ -89,17 +110,29 @@ function workersCard(xr, fr){
       ${stuck?`<span class="muted">${t('wkunclaimablewhy')}</span>`:''}</div>
   </div>`;
 
+  // The window is named on the screen rather than only in a tooltip, and it is
+  // selectable: the figures silently change meaning when `hours` does.
+  const win = `<div class="row" style="align-items:center;gap:8px;margin:0 0 2px">
+    <div style="flex:0 0 auto"><label>${t('wkwindowsel')}</label></div>
+    <div style="flex:0 0 auto"><select style="margin:0" data-h-change="${H((el)=>wkSetHours(parseInt(el.value,10)))}">
+      ${WKWINDOWS.map(h=>`<option value="${h}"${h===wkHours()?' selected':''}>${wkWindowLabel(h)}</option>`).join('')}
+    </select></div>
+    <div class="muted" style="font-size:12px">${esc(t('wklegend'))}</div></div>`;
+
   const tok = S.wkToken ? `<div class="card" style="margin-top:10px;border-color:var(--warn)">
       <label>${t('wktoken')}</label>
       <p class="mono" style="word-break:break-all">${esc(S.wkToken.token)}</p>
       <p class="muted">${t('wktokenhint')}</p>
       <p class="mono muted" style="word-break:break-all">racket cli/telemachus-worker.rkt --url ${esc(location.origin)} --token &lt;${t('wktokenph')}&gt;</p>
-      <button class="small" data-h-click="${H(()=>{S.wkToken=null;renderTab();})}">${t('wkgotit')}</button></div>` : '';
+      <button class="btn sm ghost" data-h-click="${H(()=>{S.wkToken=null;renderTab();})}">${t('wkgotit')}</button></div>` : '';
 
   return `<div class="card" id="wkcard" style="margin-top:14px"><h3>${t('workers')} <span class="muted" style="font-size:13px">— ${t('workershint')}</span></h3>
     <p>${sum}</p>
+    ${win}
     <table><thead><tr><th>${t('name')}</th><th>${t('model')}</th><th>${t('wkhealth')}</th><th>${t('wkreports')}</th>
-      <th>${t('wklastseen')}</th><th>${t('wkholding')}</th><th title="${esc(t('wkwindowhint'))}">${t('wkwindow')}</th><th></th></tr></thead>
+      <th>${t('wklastseen')}</th><th>${t('wkholding')}</th>
+      <th title="${esc(t('wkwindowhint'))}">${t('wkwindow').replace('{window}', wkWindowLabel(wkHours()))}</th>
+      <th style="border-left:1px solid var(--line)"></th></tr></thead>
       <tbody>${body}</tbody></table>
     ${none}
     ${queue}
@@ -108,7 +141,7 @@ function workersCard(xr, fr){
     <div class="row">
       <div><input id="wkn" placeholder="${esc(t('name'))}" maxlength="64"></div>
       <div><input id="wkm" placeholder="${esc(t('model'))}" maxlength="64"></div>
-      <div><button data-h-click="${H(()=>wkCreate())}">${t('create')}</button></div>
+      <div><button class="btn" data-h-click="${H(()=>wkCreate())}">${t('create')}</button></div>
     </div>
     <p class="muted">${t('wkaddhint')}</p>
     ${tok}</div>`;
@@ -193,8 +226,8 @@ function queueCard(qr, fr){
   };
   const from=(Q.offset||0)+1, to=(Q.offset||0)+rows.length;
   const pager = Q.total>rows.length ? `<p class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',Q.total)}
-      <button class="small" data-h-click="${H(()=>qPage(-25))}"${(Q.offset||0)<=0?' disabled':''}>←</button>
-      <button class="small" data-h-click="${H(()=>qPage(25))}"${to>=Q.total?' disabled':''}>→</button></p>` : '';
+      <button class="btn sm ghost" data-h-click="${H(()=>qPage(-25))}"${(Q.offset||0)<=0?' disabled':''}>←</button>
+      <button class="btn sm ghost" data-h-click="${H(()=>qPage(25))}"${to>=Q.total?' disabled':''}>→</button></p>` : '';
   // `order` is reported rather than assumed: a list that LOOKED like the drain
   // order and was not would mislead about what runs next.
   const ord = Q.order==='drain' ? t('qdrainorder') : t('qrecentorder');
@@ -216,7 +249,7 @@ async function adminView(){
   const spr=await api('/api/session-policy'); if(spr.ok) S.adminPolicy=spr.json;   // issue #38
   const stat=(k,l)=>`<div class="card"><label>${l}</label><h2>${M[k]??'–'}</h2></div>`;
   const body = r.ok ? `<div class="row">${stat('users','users')}${stat('teams','teams')}${stat('notes','notes')}${stat('translations','translations')}${stat('active_tokens','tokens')}${stat('audit_events','audit')}</div>` : `<p class="badge">${esc(r.json.error||'error')}</p>`;
-  const [xr,fr,qr]=await Promise.all([api('/api/executors'), api('/api/admin/workers'),
+  const [xr,fr,qr]=await Promise.all([api('/api/executors'), api('/api/admin/workers'+fleetQuery()),
                                       api('/api/admin/queue'+queueQuery())]);
   const compute=workersCard(xr, fr) + queueCard(qr, fr);
   const B = S.brand;

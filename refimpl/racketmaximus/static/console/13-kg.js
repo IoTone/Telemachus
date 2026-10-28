@@ -57,17 +57,28 @@ async function kgDetailHtml(id){
     <table><tbody>${ments}</tbody></table></div>`;
 }
 
+// The field and the button are one `.searchbar` control (#176), full card width.
+// The `label` is gone and the button's own word with it: the heading already says
+// Search, so the old shape said it three times on one screen. A button with only
+// a glyph needs an accessible name, hence title + aria-label — never a bare 🔍.
+// `sendKey` is #174's shared Enter rule; the field has always sent on Enter and
+// it must go on doing so.
 async function searchView(){
   return `<h2>${t('search')}</h2>
     <div class="card">
-      <div class="row" style="align-items:end"><div style="flex:1"><label>${t('search')}</label>
-        <input id="sq" data-h-keydown="${H((el,ev)=>{if(ev.key==='Enter')doSearch()})}" placeholder="${t('searchph')}"></div>
-        <div><button class="btn" data-h-click="${H((el,ev)=>doSearch())}">${t('search')}</button></div></div>
-      <div id="sres" style="margin-top:12px"></div></div>`;
+      <div class="searchbar">
+        <input id="sq" data-h-keydown="${H((el,ev)=>sendKey(ev,doSearch))}" placeholder="${t('searchph')}">
+        <button class="btn" title="${esc(t('search'))}" aria-label="${esc(t('search'))}"
+          data-h-click="${H((el,ev)=>doSearch())}">\u{1F50D}</button>
+      </div>
+      <div id="sres"></div></div>`;
 }
+// Two of this function's three messages shipped as English literals in a console
+// that is otherwise entirely in the catalogs — so a Japanese operator searched
+// and was told "no results" in English.
 async function doSearch(){
   const q=val('sq'); const el=document.getElementById('sres');
-  if(q.length<2){ el.innerHTML='<p class="muted">type at least 2 characters</p>'; return; }
+  if(q.length<2){ el.innerHTML=`<p class="muted">${esc(t('searchmin'))}</p>`; return; }
   const r=await api('/api/search?q='+encodeURIComponent(q));
   const res=r.ok?r.json.results:[];
   el.innerHTML = res.length
@@ -76,7 +87,7 @@ async function doSearch(){
         <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}</td>
         <td class="muted">${esc(x.snippet||'')}</td>
         <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
-    : '<p class="muted">no results</p>';
+    : `<p class="muted">${esc(t('noresults'))}</p>`;
 }
 // `render` awaits at several points (two rounds of fetches, then the tab's own).
 // Anything that changes S while one is in flight — logout nulling S.me is the

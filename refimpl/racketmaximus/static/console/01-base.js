@@ -45,7 +45,9 @@ const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.g
   i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0,
   // the AbortController of a stream in flight, or null: the guard and the
   // pending state in one, as S.signingIn is for the sign-in button (#174)
-  chatAbort:null, agentAbort:null };
+  chatAbort:null, agentAbort:null,
+  // the Workers card's figure window, in hours (#178) — the server clamps to 720
+  wkHours:24 };
 // The console's strings are no longer here. English is the source of truth in
 // static/ui-strings.json (a JSON surface the extractor folds into locales/en.json
 // under the `ui.` namespace); every other language is a catalog under locales/,

@@ -73,6 +73,22 @@
            border:1px solid #5e332c;border-top:none;color:#f2c9bf;box-shadow:0 8px 30px rgba(0,0,0,.4);
            font-size:13px;max-width:92vw}
   h1,h2,h3{letter-spacing:-.01em} h2{margin:.2em 0 .6em}
+  /* #176: a search field and its button are ONE control. They were a `.row`,
+     whose children are flex columns: the left one carried a label and the input,
+     the right one a bare button, so `align-items:end` aligned the button to the
+     taller column's bottom edge and it hung low beside the field. A composed
+     control has no two heights to reconcile. The focus ring moves to the WRAPPER
+     (`:focus-within`), or a borderless input inside a bordered box shows nothing
+     at all when it has the caret. */
+  .searchbar{display:flex;align-items:stretch;background:var(--panel2);
+    border:1px solid var(--line);border-radius:var(--radius,10px);overflow:hidden}
+  .searchbar:focus-within{border-color:var(--accent)}
+  .searchbar input{flex:1;min-width:0;margin:0;border:0;border-radius:0;background:transparent;padding:12px 14px}
+  .searchbar input:focus{outline:none}
+  .searchbar button{flex:none;border-radius:0;padding:0 20px;font-size:17px;line-height:1}
+  /* the results area reserves nothing until it holds something: an empty card
+     with a gap under the field is what the report's screenshot was of */
+  #sres:not(:empty){margin-top:12px}
   /* ---- Tier-A skinnable beta landing: fully theme-token driven, scoped to .bx ---- */
   .bx{min-height:100vh;background:var(--bx-bg,#0b1a2b);color:var(--bx-ink,#f2ede1);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
   .bx-wrap{max-width:940px;margin:0 auto;padding:0 20px}

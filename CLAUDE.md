@@ -5447,6 +5447,64 @@ race. What makes the race uninteresting is the no-`await` rule above, which has
 its own case. All four were positive-controlled — remove the guard, drop the
 `finally`, let Shift+Enter send, or unwire the textarea, and a named case fails.
 
+## A search field, and figures that explain themselves (#176, #178)
+
+Two layout reports from outside, one console slice. Neither is cosmetic in the
+way a layout report usually is.
+
+- **A FIELD AND ITS BUTTON ARE ONE CONTROL** (#176). `searchView` was a `.row`,
+  whose children are flex COLUMNS — the left one a label plus the input, the
+  right one a bare button — so `align-items:end` aligned the button to the
+  taller column's bottom edge and it hung low beside the field. Nudging the CSS
+  would have left two heights to reconcile for ever; `.searchbar` is one
+  bordered box with a borderless input inside it, so there are none. **The focus
+  ring moves to the WRAPPER** (`:focus-within`), or an input with no border of
+  its own shows nothing at all when it has the caret.
+- **The label went with it, and so did the button's word.** The heading already
+  says Search, so the old shape said it three times on one screen. A button
+  whose whole label is a glyph needs an accessible name, so the magnifier
+  carries `title` AND `aria-label` — never a bare 🔍.
+- **The search field goes through `sendKey` now (#174), and should always have.**
+  It had its own `ev.key==='Enter'` test and therefore no `isComposing` check,
+  so the Enter that CONFIRMS a Japanese IME conversion searched for a half-typed
+  word — the same defect #174 fixed in the chat prompt, in the one field that
+  already sent on Enter. One rule, three surfaces.
+- **A NUMBER NOBODY CAN READ IS DECORATION** (#178). The Workers card drew
+  `12 ✓ 0 ✗ 3 ⧖` per host, muted, over a window named only in a column header's
+  `title` — and the third figure is the fleet's central failure event (the host
+  went quiet mid-job and the platform gave the work back to the queue). Each
+  figure carries its OWN tooltip now, a non-zero failure or expiry is coloured
+  while zero stays muted, and there is a visible legend. **The window is a
+  control** (`?hours=`, which the server clamps to 720, so the list stops at
+  30d): the figures silently changed meaning when anybody passed it.
+- **`class="small"` AND `class="small danger"` MATCHED NO RULE IN THE SHELL**,
+  for as long as this card has existed. Six buttons — Drain, Resume, Retire, the
+  token dismiss and both pagers — were bare user-agent buttons, and the one
+  IRREVERSIBLE control on the card (a retire revokes the worker token) looked
+  exactly like the reversible one beside it, flush against an unexplained
+  number. They use the shell's own vocabulary now (`.btn.sm.ghost` /
+  `.btn.sm.bad`), the actions cell has a border, and Retire stands clear of
+  Drain. **Grep the stylesheet for a class before inventing one** — nothing
+  fails when a class does nothing.
+- **Changing an English string makes its Japanese STALE**, which the CI gate
+  fails on: `ui.wkwindow` ("24h" → "last {window}") and `ui.wkwindowhint` cost
+  two ja edits beside the five new keys. A window in a string is a lie as soon
+  as the window moves.
+- **Two of `doSearch`'s three messages were English LITERALS** in a console that
+  is otherwise entirely in the catalogs, so a Japanese operator searched and was
+  told "no results" in English. Found by reading the function this slice was
+  already reshaping; they are `ui.searchmin` and `ui.noresults` now.
+- **The results area reserves nothing until it holds something** (`#sres:not(:empty)`),
+  which is the other half of "the card is mostly empty space" — an inline
+  `style="margin-top"` on an empty div beats any stylesheet rule, so the margin
+  had to move to the sheet rather than be overridden there.
+- **The shell is cached at startup**, so the `.searchbar` rule needs a restart
+  on a live box; the console's own JS is read per request and does not.
+
+```sh
+raco test test/console-tests.rkt    # 9 cases; the eight new assertions are controlled
+```
+
 ## The sign-in screen: a repaint must not be empty
 
 - **`authView()`'s inputs are always EMPTY, and the sign-in screen DOES get
