@@ -203,3 +203,80 @@
   (check-true (string-contains? f "rel=\"noopener noreferrer\"") "the source link is safe to click")
   (check-true (string-contains? shell "<main class=\"wrap\" id=\"main\"></main>")
               "…and it sits after the page body, not inside it"))
+
+;; ---- the operator's own feature switches (issue #177) -----------------------
+;; Feature switches have had three layers since #63 and the INSTANCE layer — the
+;; one that means "this deployment does not do that" — had no UI at all. These
+;; cases pin the two things a later edit would silently undo, both of them rules
+;; FEAT-1…6 already decided and a UI can contradict without failing anything.
+
+(test-case "the instance tier has a card, and it sends the WHOLE document"
+  (define card (fn-body "instFeatCard"))
+  (check-true (and card #t) "instFeatCard is a function")
+  (check-true (string-contains? (or (fn-body "adminView") "") "instFeatCard()")
+              "…and the Admin tab renders it")
+  ;; found by id, as every other asserted card on this tab is: a `.card` locator
+  ;; with hasText matched the wrong card once already (#178's Queue/Workers clash)
+  (check-true (string-contains? card "id=\"instfeat\"") "the table has an id to assert on")
+  ;; the read is what makes the card appear at all; a non-operator gets no card
+  ;; rather than an empty one
+  (check-true (string-contains? html "api('/api/instance-features')") "the stored document is read")
+  (check-true (string-contains? card "if(!F) return ''")
+              "no document, no card — a non-operator is not shown an empty one")
+  ;; THE TRAP. `PUT /api/instance-features` replaces the document: there is no
+  ;; per-feature route at this tier, because `feature-problem` validates the
+  ;; document as a unit. A card that sent one key would wipe every other switch.
+  (define save (fn-body "doInstFeature"))
+  (check-true (and save #t) "doInstFeature is a function")
+  (check-true (string-contains? save "Object.assign({}, (S.instFeat&&S.instFeat.features)||{})")
+              "the PUT carries every switch, not just the one that moved")
+  (check-true (string-contains? save "method:'PUT'") "…to the instance route")
+  ;; "allow" REMOVES the key. Absence and a stored `true` both mean "this layer
+  ;; does not object", and nothing sits above the instance to object to, so a
+  ;; written `true` would be a setting that computes nothing.
+  (check-true (string-contains? save "delete doc[name]")
+              "allowing clears the key rather than storing an inert true")
+  ;; turning a feature off hides its tab for this team too, and the tab list is
+  ;; built in render(), not renderTab()
+  (check-true (regexp-match? #px"(?s:S\\.instFeat = r\\.json.*?\n *render\\(\\))" save)
+              "the tab list is rebuilt after a switch moves")
+  ;; the console is entirely in the catalogs, and two of doSearch's three
+  ;; messages were English literals for a year — a Japanese operator was told
+  ;; "no results" in English. A new one must not go in beside them.
+  (check-true (string-contains? save "t(allow?'featallowdone':'featoffdone')")
+              "the toast comes from the catalogs, not a literal")
+  ;; and the read is not a fourth sequential round trip on the slowest tab
+  (check-true (string-contains? (or (fn-body "adminView") "") "api('/api/instance-features')]")
+              "the read joins the Promise.all it does not depend on"))
+
+(test-case "a team is not offered a switch a layer above has locked"
+  ;; FEAT-1 is tighten-only: a team cannot turn on what the instance or its
+  ;; company turned off, and the attempt is a 409 naming the layer. A button
+  ;; whose only outcome is a refusal should not be drawn.
+  (define body (fn-body "teamView"))
+  (check-true (and body #t) "teamView is still a function")
+  (check-true (string-contains? body "x.disabled_by") "the deciding layer is read")
+  (check-true (string-contains? body "by!=='team'")
+              "…and a layer ABOVE the team is what withdraws the control")
+  ;; the locked branch carries no handler at all
+  (define locked
+    (car (regexp-match #px"const act = above \\? [^\n]*" body)))
+  (check-false (string-contains? locked "data-h-click")
+               "the locked row has no control, not a disabled-looking one")
+  (check-true (string-contains? locked "featlocked") "…it says why instead")
+  ;; Disable stays available even under a layer that already says no: a team
+  ;; recording its own intention survives the instance switch being flipped back,
+  ;; which is the whole reason the team row is kept.
+  (check-true (string-contains? body "t('disable')") "a team may still tighten"))
+
+(test-case "the feature map and the deciding layer cannot disagree"
+  ;; `GET /api/features` carries `disabled_by` and this used to drop it, which is
+  ;; why the team card could only ever show two states. Two independently built
+  ;; maps is LIVE-IN's shape; the map is DERIVED from the rows in one place.
+  (check-true (string-contains? html "S.featRows = fr.ok ? fr.json.features : []")
+              "the rows are kept as sent")
+  (check-true (string-contains? html "S.features = Object.fromEntries(S.featRows.map(")
+              "…and the map is derived from them, not built a second time")
+  ;; the tab filter and the fallback still read the map, so neither changed
+  (check-true (string-contains? html "S.features[x]!==false") "the tab filter is unchanged")
+  (check-true (string-contains? html "S.features[S.tab]===false") "…and so is the fallback"))

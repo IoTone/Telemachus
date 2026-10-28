@@ -373,6 +373,18 @@ try {
   step('admin: branding');
   ok('branding card present in Admin', await goTab(page, 'admin', '#brt'));
 
+  // #177 (FEAT-7): the instance feature switches. They existed since #63 and had
+  // no UI, so the layer that means "this deployment does not do that" was the
+  // only one an operator could not see. READ-ONLY here on purpose: toggling one
+  // hides a tab for every team on the box, and the localize block runs 150 lines
+  // below — a fixture that changes global state breaking a distant block is a
+  // shape this suite has paid for twice. The PUT is covered in server-smoke.sh.
+  ok('instance features card present in Admin', await goTab(page, 'admin', '#instfeat'));
+  const instFeatRows = await page.locator('#instfeat tbody tr').count();
+  eq('every switchable feature is listed', instFeatRows, 5);
+  ok('a feature reads as allowed until somebody turns it off',
+     (await page.locator('#instfeat tbody').innerText()).includes('chat'));
+
   // FLEET-3: the Workers card. It replaced a three-column table that showed an
   // empty endpoint for every pull worker and drew a dead box exactly like a busy
   // one, so what is asserted here is that the three ANSWERS are on screen.

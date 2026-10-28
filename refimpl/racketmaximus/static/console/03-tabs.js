@@ -166,9 +166,24 @@ async function teamView(){
   const audRows = audits.slice(0,20).map(a=>`<tr><td class="mono muted">${esc((a.at||'').replace('T',' ').slice(0,19))}</td><td>${esc(a.action)}</td><td class="mono muted">${esc((a.actor_id||'').slice(0,8))}</td><td class="mono muted">${a.resource_type?esc(a.resource_type)+' '+esc((a.resource_id||'').slice(0,8)):''}</td></tr>`).join('');
   const audCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('audit')} <span class="muted" style="font-size:13px">— recent activity</span></h3>
       <table><thead><tr><th>time</th><th>action</th><th>actor</th><th>resource</th></tr></thead><tbody>${audRows}</tbody></table></div>` : '';
-  const featRows = Object.entries(S.features||{}).map(([f,on])=>`<tr><td class="mono">${esc(f)}</td><td>${on?'<span class="badge ok">on</span>':'<span class="badge">off</span>'}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?t('disable'):t('enable')}</button></td></tr>`).join('');
+  // #177: THREE statuses, not two. A feature is on; or this team turned it off;
+  // or a layer ABOVE this team did, which a team cannot undo — the attempt is a
+  // 409 naming the layer (FEAT-1's tighten-only rule). So where `disabled_by` is
+  // not "team" there is no Enable control at all, rather than a button whose
+  // only outcome is a refusal. Disable stays available even then: a team
+  // recording its own intention survives the instance's switch being flipped
+  // back, which is the one thing that makes the team row worth keeping.
+  const featRows = (S.featRows||[]).map(x=>{
+    const f=x.feature, on=x.enabled, by=x.disabled_by||'';
+    const above = !on && by && by!=='team';
+    const status = on ? `<span class="badge ok">${esc(t('featon'))}</span>`
+                      : `<span class="badge">${esc(t('featoff'))}</span>`;
+    const act = above ? `<span class="muted" style="font-size:12px">${esc(t('featlocked'))}</span>`
+      : `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doToggleFeature((f),(!on)))}">${on?t('disable'):t('enable')}</button>`;
+    return `<tr><td class="mono">${esc(f)}</td><td>${status}</td><td class="mono muted">${esc(by)}</td><td>${act}</td></tr>`;
+  }).join('');
   const featCard = manage ? `<div class="card" style="margin-top:14px"><h3>${t('features')} <span class="muted" style="font-size:13px">— activate / deactivate</span></h3>
-      <table><thead><tr><th>feature</th><th>status</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
+      <table><thead><tr><th>feature</th><th>status</th><th>${t('featdecided')}</th><th></th></tr></thead><tbody>${featRows}</tbody></table></div>` : '';
   return `<h2>${t('team')}</h2>
     <div class="card"><table><thead><tr><th>${t('user')}</th><th>${t('role')}</th><th>id</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="card" style="margin-top:14px"><h3>${t('addmember')}</h3>

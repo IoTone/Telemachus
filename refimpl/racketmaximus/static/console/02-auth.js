@@ -79,6 +79,16 @@ function langBtns(){ if(!S.i18n.enabled) return '';
   const av = S.i18n.available||['en']; if(av.length<2) return '';
   return av.map(l=>`<button class="${S.lang===l?'active':''}" data-h-click="${H((el,ev)=>setLang((l)))}">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
 function appShell(){
+  // #177: TWELVE names go through this filter and only FIVE can ever match —
+  // `known-features` is chat / agent / translate / search / workflows, which is
+  // exactly the set of features `server/routes.rkt` carries a `#:feature` for.
+  // For the other seven `S.features[x]` is undefined, so `!== false` always
+  // holds and the tab is always shown. The filter is kept over the whole list
+  // deliberately: it is how a tab starts hiding the day its feature becomes
+  // switchable, which needs a `#:feature` on its routes first — a decision about
+  // what an operator may turn off, not something a tab list should assume.
+  // `reviews`, `localize`, `beta` and `admin` are spliced in BELOW, after the
+  // filter, so they are outside it entirely and are gated by permission instead.
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canPerm('reviews:read')) tabs.splice(tabs.indexOf('workflows')+1, 0, 'reviews');
   if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');

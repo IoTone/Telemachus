@@ -149,7 +149,14 @@ async function render(){
   // other, so they go together
   const [, fr] = await Promise.all([loadCatalog(), api('/api/features')]);
   if(stale()) return;
-  S.features = fr.ok ? Object.fromEntries(fr.json.features.map(x=>[x.feature,x.enabled])) : {};
+  // #177: the ROWS are what the server sent, and the map is derived from them in
+  // the same breath. `GET /api/features` carries `disabled_by` — which layer said
+  // no — and this used to drop it on the floor, so the team's Features card could
+  // only ever show two states and offered an Enable button that a layer above
+  // would 409. Two independently built maps is LIVE-IN's shape; one derivation
+  // cannot disagree with itself.
+  S.featRows = fr.ok ? fr.json.features : [];
+  S.features = Object.fromEntries(S.featRows.map(x=>[x.feature,x.enabled]));
   if(S.features[S.tab]===false) S.tab='team';
   if(!S.me) return;                      // signed out while we were awaiting
   const wasAuth=!!document.getElementById('lu');
