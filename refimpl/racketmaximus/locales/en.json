@@ -1692,8 +1692,8 @@
       "hash": "f66056e9c2aa6897e0faea5a7bb94b5592402334"
     },
     "doc.route.post.api.ai.chat.stream": {
-      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all. `redact` is REFUSED here rather than ignored (#91, RED-14): a token can be split across two events, so putting the values back would mean buffering the whole answer — use POST /api/ai/chat.",
-      "hash": "fc785dc81d4e4ef9828b9efb9054fbab0b77f111"
+      "text": "The same turn as server-sent events, metered at the end. A response_format is judged after the stream ends: the final event carries `parsed`, or `schema_error` when the model did not honour it, and `simulated: true` when no model answered at all. `redact` is REFUSED here rather than ignored (#91, RED-14): a token can be split across two events, so putting the values back would mean buffering the whole answer — use POST /api/ai/chat. `executor: @fleet` is refused here too (#173): a worker answers with a whole reply on a job row, so there is no token stream to forward, and serving the request from this box while naming the fleet would be a misroute that lies about where it ran.",
+      "hash": "4901b79963cc4c58ef36425b6de25bf3518996ef"
     },
     "doc.route.post.api.deliveries.id.redeliver": {
       "text": "Send a dead or delivered event again. The attempt count is reset — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does NOT change, so a receiver that already applied it recognises the idempotency key.",
@@ -2716,8 +2716,8 @@
       "hash": "6c2bb735a46a8ff307fe2e638d581295b2a49e09"
     },
     "doc.route.put.api.model-roles": {
-      "text": "Set a team's model roles: {roles: {utility: <executor name> | null}}. The executor must exist; null returns to the instance default, then the local model.",
-      "hash": "bebca9dad4acba56a3bb609e0b2e098c0bcf8fc1"
+      "text": "Set a team's model roles: {roles: {utility: <executor name> | @fleet | null}}. The executor must exist; `@fleet` (#173) sends the role's work to whichever pull worker is free instead of pinning it to one host; null returns to the instance default, then the local model.",
+      "hash": "7a4ccddc61b39393a950680b329dc5a572eb16a3"
     },
     "doc.tool.kg_query.hops": {
       "text": "1 (default) or 2",
@@ -3192,8 +3192,8 @@
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
     },
     "doc.route.post.api.ai.chat": {
-      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TMACH_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. `redact: true` (with `redact_detectors` / `redact_terms`, #91 req 2) builds the request from REDACTED text — identifiers replaced with stable tokens — and puts the values back before the reply is returned; `redaction` on the response says which detectors ran. It takes a STRING prompt: a content-parts prompt may carry an image no detector can read, so that combination is a 400.",
-      "hash": "f84ae49f3b973022cea10a7a98308c97d93ac913"
+      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage; `executor: @fleet` (#173) means ANY live pull worker that can run it, so the queue picks whichever host is free rather than pinning to one. A model named with it must still be one a worker declared, and a fleet request that nothing live can run is refused at once rather than waiting out the dispatch bound. `simulated: true` on the response means NO model answered: TMACH_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. `redact: true` (with `redact_detectors` / `redact_terms`, #91 req 2) builds the request from REDACTED text — identifiers replaced with stable tokens — and puts the values back before the reply is returned; `redaction` on the response says which detectors ran. It takes a STRING prompt: a content-parts prompt may carry an image no detector can read, so that combination is a 400.",
+      "hash": "e41d24cb5ff2bcdab458a8bfe81525800fefdfad"
     },
     "doc.tool.feed_propose.step": {
       "text": "The workflow step id, for provenance",
