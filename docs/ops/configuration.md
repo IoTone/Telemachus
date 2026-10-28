@@ -89,6 +89,7 @@ Conventions used throughout:
 |---|---|---|
 | `TMACH_MAX_JOB_SECONDS` | `1800` | A job past this is cancelled, with a reason naming the knob. `never` disables; an unparseable or non-positive value falls back to the default, never to `0`. Enforced in the lease refresher, not the reaper. |
 | `TMACH_DRAIN_SECONDS` | `25` | On SIGTERM or SIGINT, how long to let in-flight jobs finish before handing them back to the queue **un-charged** (no attempt spent). Must fit inside the orchestrator's own grace period: Kubernetes allows 30s by default, systemd 90s, `docker stop` only 10 — pass `-t`/`stop_grace_period`. `0` or `never` hands work back immediately. |
+| `TMACH_BUILD_COMMIT` | from `.git`, else `dev` | The revision this instance is running, shown in the console footer and on `GET /api/whoami` and `/api/admin/status`. **`nix build` sets it** — a store path has no `.git` beside it, so a packaged install cannot work it out. Run from a checkout it is read from `.git` and you need not set it. It is never guessed: an unknown build reports `dev`. |
 | `TMACH_STRICT_STARTUP` | off | Boolean. Turns the advisory startup checks into refusals — recommended for an unattended deployment. See *Startup checks* below. |
 
 ## Plugins and extensions

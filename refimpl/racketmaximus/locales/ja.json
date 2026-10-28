@@ -2184,6 +2184,18 @@
       "text": "チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。",
       "hash": "ba6777989b583f514ff66b05e086ce6523bef0bc"
     },
+    "ui.builddev": {
+      "text": "未リリースビルド",
+      "hash": "26c708905abec8bfa87bd642b1a3f9b04db8ffc7"
+    },
+    "ui.buildsource": {
+      "text": "ソース",
+      "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
+    "ui.buildstarted": {
+      "text": "起動",
+      "hash": "da7153ee73f1131089a979c73ad72c9c7725d658"
+    },
     "ui.branding": {
       "text": "ブランディング",
       "hash": "d17dc3843de8e54fc084f0b952690209018ca128"

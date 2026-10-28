@@ -17,7 +17,7 @@
 (require db-kit/portable
          json
          web-kit
-         (only-in "../../config.rkt" app-version)
+         (only-in "../../config.rkt" app-version app-build)
          "../../domain/authz/authz.rkt"
          (only-in "../../domain/authz/passwords.rkt" kdf-name)
          (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
@@ -33,6 +33,14 @@
   (define p (current-principal req))
   (if (not p) (unauthorized)
       (json-response (hasheq 'user_id (principal-user-id p)
+                             ;; Which build is this? Nothing in the UI said, and
+                             ;; two instances a day apart are identical on
+                             ;; screen. It rides here rather than on a route of
+                             ;; its own because the console already fetches
+                             ;; whoami on every render pass, and because #11's
+                             ;; rule stands: a version is for someone who has
+                             ;; signed in, never for a public front door.
+                             'build (app-build)
                              'team_id (principal-team-id p)
                              'is_operator (principal-is-operator p)
                              'org_id (or (principal-org-id p) 'null)
@@ -199,7 +207,8 @@
      (require-perm db-conn p "instance:read")            ; → localized 403
      (json-response (hasheq 'ok #t
       ;; issue #11: what /health used to say, now behind instance:read
-      'service "telemachus" 'version app-version 'tls (tls-on?) 'kdf (kdf-name)
+      'service "telemachus" 'version app-version 'build (app-build)
+                            'tls (tls-on?) 'kdf (kdf-name)
                             ;; issue #19: is a dump of this database replayable?
                             'secrets (if (secrets-enabled?) "sealed" "plaintext")
                             'secret_key_id (or (secret-key-id) 'null)

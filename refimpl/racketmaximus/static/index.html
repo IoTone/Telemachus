@@ -73,6 +73,12 @@
            border:1px solid #5e332c;border-top:none;color:#f2c9bf;box-shadow:0 8px 30px rgba(0,0,0,.4);
            font-size:13px;max-width:92vw}
   h1,h2,h3{letter-spacing:-.01em} h2{margin:.2em 0 .6em}
+  /* which build is this: quiet, on every console page, and never on a public one */
+  footer.build{display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+    padding:14px 20px;margin-top:10px;border-top:1px solid var(--line);
+    color:var(--muted);font-size:12px}
+  footer.build a{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+  footer.build a:hover,footer.build a:focus-visible{color:var(--fg)}
   /* #176: a search field and its button are ONE control. They were a `.row`,
      whose children are flex columns: the left one carried a label and the input,
      the right one a bare button, so `align-items:end` aligned the button to the

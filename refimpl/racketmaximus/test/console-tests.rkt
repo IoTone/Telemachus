@@ -175,3 +175,31 @@
   ;; these were bare user-agent buttons and the irreversible one did not look it
   (check-equal? (regexp-match* #px"class=\"small( danger)?\"" html) '()
                 "the fleet card uses the shell's own button vocabulary (.btn.sm / .btn.bad)"))
+
+;; ---- which build is this? (the version footer) ------------------------------
+;; Two instances a day apart were identical on screen, and the console was where
+;; a person would have looked. The version alone could not have told them apart
+;; (0.1.0 on both), so the commit is what the footer is really for.
+
+(test-case "every console page carries the build, and the sign-in screen does not"
+  (define shell (fn-body "appShell"))
+  (check-true (and shell #t) "appShell is still a function")
+  (check-true (string-contains? shell "buildFooter()") "the footer is in the shell, so it is on every tab")
+  (define f (fn-body "buildFooter"))
+  (check-true (and f #t) "…and it exists")
+  ;; #11: the version, the KDF and the TLS state were moved OFF the public
+  ;; /health because an exact version is a shopping list. The footer reads
+  ;; whoami, which is authenticated, and the sign-in screen must not show it.
+  (check-true (string-contains? f "S.me && S.me.build") "it reads the authenticated whoami")
+  (check-false (string-contains? (or (fn-body "authView") "") "buildFooter")
+               "the sign-in screen carries no version")
+  ;; an older server that does not send the field renders nothing rather than a
+  ;; blank line or a guess
+  (check-true (string-contains? f "if(!b) return ''") "absent build, absent footer")
+  ;; the full commit is reachable (the short one is what is shown), and the
+  ;; source link is what makes a self-hosted MIT instance checkable
+  (check-true (string-contains? f "b.commit_short") "the line is short")
+  (check-true (string-contains? f "title=") "…and the full sha is on hover")
+  (check-true (string-contains? f "rel=\"noopener noreferrer\"") "the source link is safe to click")
+  (check-true (string-contains? shell "<main class=\"wrap\" id=\"main\"></main>")
+              "…and it sits after the page body, not inside it"))

@@ -17,6 +17,10 @@
         telemachus = pkgs.callPackage ./nix/telemachus.nix {
           # not a top-level attribute, so callPackage cannot find it by name
           weasyprint = pkgs.python3Packages.weasyprint;
+          # `self.rev` exists only for a CLEAN tree; a dirty one has
+          # `dirtyRev` and a build from it is not a revision anybody can
+          # check out, so it reports "dev" rather than a near-miss.
+          commit = self.rev or "dev";
         };
         default = telemachus;
       } // nixpkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
@@ -28,6 +32,7 @@
           telemachus = pkgs.callPackage ./nix/telemachus.nix {
           # not a top-level attribute, so callPackage cannot find it by name
           weasyprint = pkgs.python3Packages.weasyprint;
+          commit = self.rev or "dev";
         };
           version = "0.1.0";
         };

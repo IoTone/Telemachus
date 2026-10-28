@@ -16,7 +16,14 @@
                      # flatten and qpdf cannot set a value; both are found with
                      # find-executable-path at CALL time, so a box without them
                      # boots and only a form call is refused.
-, tzdata }:          # #137: the IANA zone database. TZDIR is SET, not prefixed onto
+, tzdata               # #137: the IANA zone database.
+                     #
+, commit ? "dev" }:  # The revision this was built from. A store path has no
+                     # `.git` beside it, so the checkout fallback in config.rkt
+                     # cannot answer on a packaged install — the flake passes
+                     # `self.rev` and the wrapper SETS it. "dev" is the honest
+                     # answer for a build from a dirty tree, never a guess.
+                     # TZDIR is SET, not prefixed onto
                      # PATH: the image has no /usr/share/zoneinfo and no shell to
                      # debug with, so an undeclared tz database would make every
                      # zone resolve to UTC on a packaged install while working on
@@ -78,6 +85,7 @@ stdenv.mkDerivation (finalAttrs: {
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
         --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic weasyprint pdfcpu qpdf ]} \
         --set-default TZDIR "${tzdata}/share/zoneinfo" \
+        --set-default TMACH_BUILD_COMMIT "${commit}" \
         --run 'export TMACH_DATA_DIR="''${TMACH_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
     done
     runHook postInstall
