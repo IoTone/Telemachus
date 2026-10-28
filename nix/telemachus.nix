@@ -57,7 +57,7 @@ stdenv.mkDerivation (finalAttrs: {
     # `*-tests.rkt`, never `*.rkt`: the wider glob pulls in test/mock-*.rkt, which
     # are mock SERVERS that block forever. Both suites here are hermetic — no
     # network, and no model (the LLM path falls back to a deterministic reply when
-    # TELEMACHUS_MODEL_URL is unset). The HTTP smoke binds a port, so it lives in
+    # TMACH_MODEL_URL is unset). The HTTP smoke binds a port, so it lives in
     # `checks.smoke` instead of the build sandbox.
     raco test test/*-tests.rkt
     racket cli/telemachus-localize.rkt check surface/messages.rkt surface/greetings.rkt --required en
@@ -78,7 +78,7 @@ stdenv.mkDerivation (finalAttrs: {
         --set PLTCOLLECTS "$out/share/telemachus/pkgs:" \
         --prefix PATH : ${lib.makeBinPath [ racket openssl poppler-utils pandoc tectonic weasyprint pdfcpu qpdf ]} \
         --set-default TZDIR "${tzdata}/share/zoneinfo" \
-        --run 'export TELEMACHUS_DATA_DIR="''${TELEMACHUS_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
+        --run 'export TMACH_DATA_DIR="''${TMACH_DATA_DIR:-''${XDG_STATE_HOME:-$HOME/.local/state}/telemachus}"'
     done
     runHook postInstall
   '';

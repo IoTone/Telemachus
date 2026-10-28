@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test/multitenant-demo.sh — the multi-tenancy demo + validation (slice 45).
 #
-# Boots a server with TELEMACHUS_MULTITENANT=1 on a temp DB, seeds two complete
+# Boots a server with TMACH_MULTITENANT=1 on a temp DB, seeds two complete
 # companies (Acme Robotics + Globex Media) with known dev logins, and asserts the
 # properties that make "several companies on one system" actually true:
 #
@@ -26,11 +26,11 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # unused: a developer working on a downstream plugin exports them in their own
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
-export TELEMACHUS_DATA_DIR="$(mktemp -d)"
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+export TMACH_DATA_DIR="$(mktemp -d)"
 export PORT="${PORT:-8836}"
-export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/telemachus.db}"
-export TELEMACHUS_MULTITENANT=1
+export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMACH_DATA_DIR/telemachus.db}"
+export TMACH_MULTITENANT=1
 echo "multitenant demo — DATABASE_URL=$DATABASE_URL"
 
 fail=0
@@ -66,7 +66,7 @@ done
 
 racket server/main.rkt >/tmp/tmx-mt.log 2>&1 &
 SRV=$!
-trap 'kill $SRV $SRV2 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR" "$DIR2"' EXIT
+trap 'kill $SRV $SRV2 2>/dev/null; rm -rf "$TMACH_DATA_DIR" "$DIR2"' EXIT
 tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
   tries=$((tries+1)); [ $tries -gt 30000 ] && { echo "server never came up"; cat /tmp/tmx-mt.log; exit 1; }
 done; exec 3>&- 2>/dev/null || true
@@ -411,7 +411,7 @@ kill $SRV 2>/dev/null; wait $SRV 2>/dev/null
 # virgin database to bootstrap into, which on Postgres would mean provisioning a
 # second one. The flag-off parity check does not depend on the backend.
 DIR2="$(mktemp -d)"   # declared empty above
-TELEMACHUS_MULTITENANT=0 TELEMACHUS_DATA_DIR="$DIR2" DATABASE_URL="sqlite:///$DIR2/telemachus.db" \
+TMACH_MULTITENANT=0 TMACH_DATA_DIR="$DIR2" DATABASE_URL="sqlite:///$DIR2/telemachus.db" \
   PORT=$((PORT+1)) racket server/main.rkt >/tmp/tmx-st.log 2>&1 &
 SRV2=$!
 B2="localhost:$((PORT+1))"

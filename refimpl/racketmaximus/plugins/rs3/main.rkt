@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; rs3 — the local backing store for the document repository (DOC-5).
 ;;
 ;; This whole file is the extension contract for a blob backend. It registers four
@@ -31,7 +35,7 @@
 ;; inside the read-only Nix store. The failure surfaces as EACCES on the first
 ;; upload from the console, long after startup looked healthy.
 (define (rs3-root)
-  (define explicit (getenv "TELEMACHUS_RS3_ROOT"))
+  (define explicit (tmach-env "RS3_ROOT"))
   (if (and explicit (not (string=? explicit "")))
       (anchor-path explicit)
       (build-path (data-dir) "blobs")))

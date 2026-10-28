@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/time/zones.rkt — what the clock on somebody's wall says (issue #137).
 ;;
 ;; Every date computation in this tree was UTC: `(seconds->date secs #f)`,
@@ -42,7 +46,7 @@
 ;; lookup would fail there while working on every developer's box.
 (define (zoneinfo-dir)
   (define candidates
-    (filter values (list (getenv "TELEMACHUS_ZONEINFO")
+    (filter values (list (tmach-env "ZONEINFO")
                          (getenv "TZDIR")
                          "/usr/share/zoneinfo")))
   (for/first ([d (in-list candidates)]

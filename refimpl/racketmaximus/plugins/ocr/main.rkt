@@ -1,4 +1,8 @@
 #lang racket/base
+
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
 ;; OCR — reading text out of photographs and scanned PDFs (issue #92).
 ;;
 ;; Scanned paperwork is the normal case for the documents this platform is for.
@@ -37,22 +41,26 @@
 ;; ---- configuration --------------------------------------------------------------
 ;; Every knob follows the platform's rule for interval/limit knobs: an
 ;; unparseable or non-positive value falls back to the default, NEVER to 0.
-(define (pos-env name default)
-  (define n (string->number (or (getenv name) "")))
+;; Takes the VALUE, not the name: every operator variable is spelled exactly
+;; once in the tree, as `(tmach-env "<SUFFIX>")` at the call site, so neither the
+;; gate in test/env-names-tests.rkt nor scripts/check-config-reference.sh has to
+;; know which helpers forward to the accessor.
+(define (pos-env v default)
+  (define n (string->number (or v "")))
   (if (and (exact-integer? n) (> n 0)) n default))
 
 ;; Languages are passed to tesseract as-is (`eng`, `eng+spa`). The nixpkgs build
 ;; bundles 129 language files, so #92's "at least eng, spa" needs no override;
 ;; `tesseract --list-langs` is the authority on a given box.
-(define (ocr-languages) (or (getenv "TELEMACHUS_OCR_LANGUAGES") "eng"))
+(define (ocr-languages) (or (tmach-env "OCR_LANGUAGES") "eng"))
 
 ;; A ceiling on work per document, because this is the one extractor whose cost
 ;; scales with the input rather than being a single read. A 400-page scan at
 ;; 150dpi is minutes of CPU; without a bound one upload holds a scheduler slot
 ;; for the whole of it.
-(define (ocr-max-pages)   (pos-env "TELEMACHUS_OCR_MAX_PAGES" 20))
-(define (ocr-timeout)     (pos-env "TELEMACHUS_OCR_TIMEOUT" 120))
-(define (ocr-dpi)         (pos-env "TELEMACHUS_OCR_DPI" 150))
+(define (ocr-max-pages)   (pos-env (tmach-env "OCR_MAX_PAGES") 20))
+(define (ocr-timeout)     (pos-env (tmach-env "OCR_TIMEOUT") 120))
+(define (ocr-dpi)         (pos-env (tmach-env "OCR_DPI") 150))
 
 ;; ---- running the engine ---------------------------------------------------------
 ;; Found at CALL time, never at load (DWF-6's rule for pandoc/tectonic): a box
@@ -310,7 +318,7 @@
 ;; behaviour exactly: with the switch unset, nothing here registers and a scan
 ;; still reports 'needs-ocr.
 (define (ocr-enabled?)
-  (member (string-downcase (string-trim (or (getenv "TELEMACHUS_OCR") "")))
+  (member (string-downcase (string-trim (or (tmach-env "OCR") "")))
           '("1" "yes" "true" "on")))
 
 (define (init!)
@@ -323,7 +331,7 @@
     ;; TELEMACHUS_PLUGINS_STRICT=1 turns that into a refusal to start, which is
     ;; the escalation an unattended deployment wants.
     [(not (find-executable-path "tesseract"))
-     (error 'ocr "TELEMACHUS_OCR is set but `tesseract` is not on PATH — install it or unset the switch")]
+     (error 'ocr "TMACH_OCR is set but `tesseract` is not on PATH — install it or unset the switch")]
     [else
      (for ([ct (in-list IMAGE-TYPES)]) (register-extractor! ct extract-image))
      ;; REPLACES the built-in PDF reader — LAY-7's stated purpose, and the whole

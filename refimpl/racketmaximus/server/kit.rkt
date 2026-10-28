@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; server/kit.rkt — what every HTTP handler in this server needs (#110 r3).
 ;;
 ;; r3 splits main.rkt's 40-odd feature areas into `server/api/*.rkt`, and this is
@@ -67,25 +71,25 @@
 
 ;; ---- TLS --------------------------------------------------------------------
 (define (env* k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
-(define (saas-mode?) (equal? (env* "TELEMACHUS_MODE") "saas"))   ; hosted: bootstrap off, provisioning on
-(define (home-mode) (or (env* "TELEMACHUS_HOME") "login"))       ; what the root route shows: login | beta
+(define (saas-mode?) (equal? (tmach-env "MODE") "saas"))   ; hosted: bootstrap off, provisioning on
+(define (home-mode) (or (tmach-env "HOME") "login"))       ; what the root route shows: login | beta
 ;; multi-tenancy (slice 45): several companies on one instance. OFF is the default
 ;; and off is byte-for-byte the previous product — the flag switches surface area
 ;; (the /api/orgs + /api/org management planes), not the authorization semantics.
-(define (multitenant?) (and (member (or (env* "TELEMACHUS_MULTITENANT") "") '("1" "true" "yes" "on")) #t))
-(define (bind-ip) (or (env* "TELEMACHUS_BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
+(define (multitenant?) (and (member (or (tmach-env "MULTITENANT") "") '("1" "true" "yes" "on")) #t))
+(define (bind-ip) (or (tmach-env "BIND") "127.0.0.1"))   ; set to a tailnet IP to share privately
 ;; max-upload-bytes now lives in config.rkt (shared with domain/s3/server.rkt,
 ;; which needs the same ceiling and can't require this module back).
 (define default-port 8835)                                     ; "TEL" on a keypad; 8080 is too crowded to squat on
-(define (listen-port)   ; TELEMACHUS_PORT wins, then PORT (the common convention), else the default
-  (define raw (or (env* "TELEMACHUS_PORT") (env* "PORT")))
+(define (listen-port)   ; TMACH_PORT wins, then PORT (the common convention), else the default
+  (define raw (or (tmach-env "PORT") (env* "PORT")))
   (cond
     [(not raw) default-port]
     [(let ([n (string->number raw)]) (and (exact-integer? n) (<= 1 n 65535) n))]
     [else (error 'telemachus "invalid port ~s — expected an integer in 1–65535" raw)]))
-(define (tls-on?) (and (member (or (env* "TELEMACHUS_TLS") "") '("1" "true" "yes" "on")) #t))
-(define (tls-cert) (or (env* "TELEMACHUS_TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
-(define (tls-key)  (or (env* "TELEMACHUS_TLS_KEY")  (path->string (build-path (data-dir) "key.pem"))))
+(define (tls-on?) (and (member (or (tmach-env "TLS") "") '("1" "true" "yes" "on")) #t))
+(define (tls-cert) (or (tmach-env "TLS_CERT") (path->string (build-path (data-dir) "cert.pem"))))
+(define (tls-key)  (or (tmach-env "TLS_KEY")  (path->string (build-path (data-dir) "key.pem"))))
 (define (ensure-cert!)
   (unless (and (file-exists? (tls-cert)) (file-exists? (tls-key)))
     (make-directory* (data-dir))
@@ -113,7 +117,7 @@
 ;; its throwaway database held. It did once — idempotently, by luck. Suites point
 ;; this at a temp copy; a deployment leaves it unset.
 (define (locales-dir)
-  (define e (env* "TELEMACHUS_LOCALES"))
+  (define e (tmach-env "LOCALES"))
   (if e (anchor-path e) (build-path impl-root "locales")))
 
 ;; What this request is actually answered in. The instance policy decides: with
@@ -159,7 +163,7 @@
 ;; trusted reverse proxy names it in TELEMACHUS_TRUSTED_HEADER_PEERS.
 (define (header-identity-allowed? req)
   (define ip (with-handlers ([exn:fail? (lambda (_) #f)]) (request-client-ip req)))
-  (peer-trusted? ip (parse-peer-allowlist (env* "TELEMACHUS_TRUSTED_HEADER_PEERS"))))
+  (peer-trusted? ip (parse-peer-allowlist (tmach-env "TRUSTED_HEADER_PEERS"))))
 
 (define (current-principal req)
   (define auth (req-header req #"authorization"))
@@ -371,7 +375,7 @@
            (let ([p (current-principal req)]) (and p (caller-org p))))))
 
 (define (public-base req)
-  (or (env* "TELEMACHUS_PUBLIC_URL")
+  (or (tmach-env "PUBLIC_URL")
       (let ([h (req-header req #"host")])
         (string-append (if (tls-on?) "https://" "http://") (or h (bind-ip))))))
 
@@ -437,4 +441,4 @@
 ;; running on the dev default is loud at boot, not silent
 (define (warn-dev-pepper!)
   (when (token-pepper-is-default?)
-    (printf "WARNING: TELEMACHUS_SECRET / TELEMACHUS_TOKEN_PEPPER not set — tokens are hashed with the dev pepper; set one in production\n")))
+    (printf "WARNING: TMACH_SECRET / TMACH_TOKEN_PEPPER not set — tokens are hashed with the dev pepper; set one in production\n")))

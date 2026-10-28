@@ -53,7 +53,7 @@ let
 
   # /etc/passwd, /etc/group and the TLS trust store. `fakeNss` would give us a
   # `nobody`; a named uid is clearer in `docker top` and in a pod spec, and the
-  # CA bundle is needed the moment TELEMACHUS_MODEL_URL is an https endpoint.
+  # CA bundle is needed the moment TMACH_MODEL_URL is an https endpoint.
   etc = pkgs.runCommand "telemachus-etc" { } ''
     mkdir -p $out/etc $out/data
     cat > $out/etc/passwd <<EOF
@@ -138,14 +138,14 @@ pkgs.dockerTools.buildLayeredImage {
       # Everything the server needs that is NOT configuration an operator should
       # have to supply. Each of these has a real failure behind it:
       #   HOME — Racket wants a writable one, and the wrapper derives
-      #          TELEMACHUS_DATA_DIR from it when that is unset.
-      #   TELEMACHUS_DATA_DIR — named explicitly so it never depends on the above.
-      #   TELEMACHUS_BIND — a container that binds loopback is unreachable from
+      #          TMACH_DATA_DIR from it when that is unset.
+      #   TMACH_DATA_DIR — named explicitly so it never depends on the above.
+      #   TMACH_BIND — a container that binds loopback is unreachable from
       #          outside itself, which is the single most common first-run
       #          mistake with a server image.
       "HOME=/data"
-      "TELEMACHUS_DATA_DIR=/data"
-      "TELEMACHUS_BIND=0.0.0.0"
+      "TMACH_DATA_DIR=/data"
+      "TMACH_BIND=0.0.0.0"
       "PORT=8835"
       "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
       # extraPath comes FIRST so an operator-supplied tool wins over anything of
@@ -158,17 +158,17 @@ pkgs.dockerTools.buildLayeredImage {
       # Under an orchestrator the stop signal arrives with a deadline;
       # 25s fits inside Kubernetes' default 30s grace period. See
       # domain/sched/scheduler.rkt's drain-seconds.
-      "TELEMACHUS_DRAIN_SECONDS=25"
+      "TMACH_DRAIN_SECONDS=25"
     ];
 
     ExposedPorts = {
       "8835/tcp" = { };
-      # The S3 front door, off unless TELEMACHUS_S3_PORT is set. Declared so
+      # The S3 front door, off unless TMACH_S3_PORT is set. Declared so
       # `-P` and a Service that forwards it need no extra knowledge.
       "8836/tcp" = { };
     };
 
-    # The blob store lives here when TELEMACHUS_BLOB_STORE is the default `rs3`
+    # The blob store lives here when TMACH_BLOB_STORE is the default `rs3`
     # (local filesystem), and so does the SQLite database. Declaring it means a
     # plain `docker run` keeps documents across a restart instead of losing them
     # with the container layer.

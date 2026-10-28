@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/beta/experience.rkt — the beta onboarding EXPERIENCE as admin-editable data
 ;; (slice 40). Resolution layers, most-authoritative first:
 ;;
@@ -34,7 +38,7 @@
   (if j (hash-set (hash-remove cfg 'judge_system) 'judge-system j) cfg))
 
 (define (experience-file-config)
-  (define path (let ([v (getenv "TELEMACHUS_ONBOARDING_FILE")]) (and v (not (string=? v "")) v)))
+  (define path (let ([v (tmach-env "ONBOARDING_FILE")]) (and v (not (string=? v "")) v)))
   (and path
        (with-handlers ([exn:fail? (lambda (_) #f)])
          (define j (call-with-input-file path read-json))

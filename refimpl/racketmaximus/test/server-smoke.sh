@@ -9,7 +9,7 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # unused: a developer working on a downstream plugin exports them in their own
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 export PORT="${PORT:-8835}"   # must be exported — the server reads it from the environment
 
 # Refuse to start if the port is taken — BEFORE creating the temp dir, so a refusal
@@ -25,11 +25,11 @@ if port_busy "$PORT"; then
   exit 1
 fi
 
-export TELEMACHUS_DATA_DIR="$(mktemp -d)"
+export TMACH_DATA_DIR="$(mktemp -d)"
 # Work on a COPY of the catalogs: the Localization Manager block exports, and an
 # export must never land in the checkout's tracked locales/ during a test run.
-cp -r locales "$TELEMACHUS_DATA_DIR/locales" && export TELEMACHUS_LOCALES="$TELEMACHUS_DATA_DIR/locales"
-DB="$TELEMACHUS_DATA_DIR/telemachus.db"
+cp -r locales "$TMACH_DATA_DIR/locales" && export TMACH_LOCALES="$TMACH_DATA_DIR/locales"
+DB="$TMACH_DATA_DIR/telemachus.db"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$DB}"   # respect a pre-set URL (e.g. postgres)
 echo "smoke DATABASE_URL=$DATABASE_URL"
 
@@ -38,20 +38,20 @@ assert(){ # <label> <haystack> <needle>
   if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1"; else echo "  FAIL $1 — expected to contain: $3 — got: $2"; fail=1; fi
 }
 
-# Issue #83: with TELEMACHUS_ENCRYPT_CONTENT on, the extracted text is sealed and
+# Issue #83: with TMACH_ENCRYPT_CONTENT on, the extracted text is sealed and
 # CONTENT SEARCH is unavailable by design — the match is a SQL LIKE over that
 # column. Three assertions below depend on it, so they are skipped in that mode
 # rather than left to fail: a suite that reports four red lines an operator has to
 # triage into "expected" and "not" is worse than one that says which capability is
 # off. The skip is LOUD, because a silent one is how a gap hides (issue #25).
 CONTENT_SEARCH=1
-case "${TELEMACHUS_ENCRYPT_CONTENT:-}" in 1|yes|true|on) CONTENT_SEARCH=0;; esac
-[ "$CONTENT_SEARCH" = 0 ] && echo "  note TELEMACHUS_ENCRYPT_CONTENT is on — content-search assertions are SKIPPED (#83 ENC-2)"
+case "${TMACH_ENCRYPT_CONTENT:-}" in 1|yes|true|on) CONTENT_SEARCH=0;; esac
+[ "$CONTENT_SEARCH" = 0 ] && echo "  note TMACH_ENCRYPT_CONTENT is on — content-search assertions are SKIPPED (#83 ENC-2)"
 
 # <label> <haystack> <needle>, run only when document content is searchable.
 assert_content(){
   if [ "$CONTENT_SEARCH" = 1 ]; then assert "$1" "$2" "$3"
-  else echo "  skip $1 — content search is off (TELEMACHUS_ENCRYPT_CONTENT)"; fi
+  else echo "  skip $1 — content search is off (TMACH_ENCRYPT_CONTENT)"; fi
 }
 
 # <label> <haystack> <needle-that-must-be-ABSENT>. The other smokes have had this
@@ -79,17 +79,17 @@ differ(){
 # it here is the operator's decision, made explicitly, which is the whole shape
 # of EGR-2 — and it is what lets the smoke assert the refusal for an address
 # OUTSIDE the allowance (169.254/16) rather than for everything.
-export TELEMACHUS_EGRESS_ALLOW="127.0.0.0/8"
+export TMACH_EGRESS_ALLOW="127.0.0.0/8"
 # #66: the anchor block needs a signing key in the SERVER's environment — it is
 # read per call, but this process is the one that reads it. A fixed test seed, so
 # the public key in the assertions is stable. The OFF path (no key: `enabled`
 # false, and an emit refused by name) cannot be exercised here, because the key
 # is fixed for the life of the process — it is case 7 of test/anchor-tests.rkt.
-export TELEMACHUS_ANCHOR_KEY="${TELEMACHUS_ANCHOR_KEY:-4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb}"
+export TMACH_ANCHOR_KEY="${TMACH_ANCHOR_KEY:-4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb}"
 # `never`, so the sweep does not emit a receipt in the middle of this run and
 # move the sequence the assertions below count on. The emissions here are the
 # ones this block asks for.
-export TELEMACHUS_ANCHOR_EVERY=never
+export TMACH_ANCHOR_EVERY=never
 # ---- a Matrix homeserver, before the server starts (#133) --------------------
 # The plugin registers its event sink in `init!` only when a homeserver is
 # configured, so the variable has to be set BEFORE the server boots — which is
@@ -120,12 +120,12 @@ class H(http.server.BaseHTTPRequestHandler):
 http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PYEOF
 MX_LOG="$MX_LOG" python3 "$MX_DIR/home.py" $MX_PORT & MX_PID=$!
-export TELEMACHUS_MATRIX_HOMESERVER="http://127.0.0.1:$MX_PORT"
-export TELEMACHUS_MATRIX_TOKEN="syt_sm0ke-t0ken"
+export TMACH_MATRIX_HOMESERVER="http://127.0.0.1:$MX_PORT"
+export TMACH_MATRIX_TOKEN="syt_sm0ke-t0ken"
 
 racket server/main.rkt >/tmp/tmx-smoke.log 2>&1 &
 SRV=$!
-trap 'kill $SRV $MX_PID 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR" "$MX_DIR"' EXIT
+trap 'kill $SRV $MX_PID 2>/dev/null; rm -rf "$TMACH_DATA_DIR" "$MX_DIR"' EXIT
 tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do tries=$((tries+1)); [ $tries -gt 30000 ] && { echo "server never came up"; cat /tmp/tmx-smoke.log; exit 1; }; done; exec 3>&- 2>/dev/null || true
 
 B="localhost:$PORT"
@@ -193,9 +193,9 @@ assert "carol reads shared" "$(curl -s $B/api/notes/$NID -H "Authorization: Bear
 # AI jobs: concurrency governor (cap 2) + quota (429 when exhausted)
 # NB: wait ONLY the curl PIDs — a bare `wait` would also wait on the server job.
 pids=""
-for i in 1 2 3 4; do curl -s -X POST $B/api/ai/echo -H "Authorization: Bearer $OP" -d '{"prompt":"hello world"}' > "$TELEMACHUS_DATA_DIR/ai-$i.txt" & pids="$pids $!"; done
+for i in 1 2 3 4; do curl -s -X POST $B/api/ai/echo -H "Authorization: Bearer $OP" -d '{"prompt":"hello world"}' > "$TMACH_DATA_DIR/ai-$i.txt" & pids="$pids $!"; done
 wait $pids
-MAXC=$(cat "$TELEMACHUS_DATA_DIR"/ai-*.txt | grep -oP '"concurrent":\s*\K[0-9]+' | sort -nr | head -1)
+MAXC=$(cat "$TMACH_DATA_DIR"/ai-*.txt | grep -oP '"concurrent":\s*\K[0-9]+' | sort -nr | head -1)
 if [ "${MAXC:-9}" -le 2 ]; then echo "  ok   concurrency cap (max=$MAXC of 2)"; else echo "  FAIL concurrency cap (max=$MAXC)"; fail=1; fi
 assert "ai model info"   "$(curl -s $B/api/ai/model -H "Authorization: Bearer $OP")" '"configured":false'
 assert "ai chat reply"   "$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $OP" -d '{"prompt":"hello"}')" '"reply":"HELLO"'
@@ -1888,11 +1888,11 @@ A1H=$(printf '%s' "$AR1" | grep -oP '"hash":"\K[^"]+')
 assert "anchor: ...and each receipt names its predecessor" "$AR2" "\"prev_hash\":\"$A1H\""
 
 # The retained artifact. JSONL, oldest first, so a retention system appends.
-curl -s "$B/api/admin/anchor/export" -H "Authorization: Bearer $OP" > "$TELEMACHUS_DATA_DIR/receipts.jsonl"
+curl -s "$B/api/admin/anchor/export" -H "Authorization: Bearer $OP" > "$TMACH_DATA_DIR/receipts.jsonl"
 assert "anchor: the export is one receipt per line" \
   "$(python3 -c "
 import json,sys
-ls=[l for l in open('$TELEMACHUS_DATA_DIR/receipts.jsonl') if l.strip()]
+ls=[l for l in open('$TMACH_DATA_DIR/receipts.jsonl') if l.strip()]
 rs=[json.loads(l) for l in ls]
 print('ok' if len(rs)==2 and [r['seq'] for r in rs]==[1,2] else 'BAD')")" "ok"
 assert "anchor: ...and ?since_seq= gives only what a retainer lacks" \
@@ -1905,34 +1905,34 @@ print('ok' if [r['seq'] for r in rs]==[2] else 'BAD')")" "ok"
 # THE POINT OF THE WHOLE FEATURE: the retained copy verifies OFFLINE, with no
 # server and no database — an anchor is worth something precisely when the
 # instance is the suspect.
-AVER=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/receipts.jsonl" --public-key "$ANCHPUB" 2>&1)
+AVER=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TMACH_DATA_DIR/receipts.jsonl" --public-key "$ANCHPUB" 2>&1)
 assert "anchor: a retained series verifies offline"    "$AVER" "self-consistent: yes"
 assert "anchor: ...against the key supplied out of band" "$AVER" "VERIFIED against the key you supplied"
 # and without that key it refuses to call itself verified (ANCHOR-6): a key taken
 # from the file being checked proves nothing, because a forger supplies both
-ASELF=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/receipts.jsonl" 2>&1)
+ASELF=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TMACH_DATA_DIR/receipts.jsonl" 2>&1)
 assert "anchor: ...and says so when no key was given" "$ASELF" "not verified"
 # a tampered retained copy fails, and the CLI exits non-zero so a cron job notices
 python3 -c "
 import json
-p='$TELEMACHUS_DATA_DIR/receipts.jsonl'
+p='$TMACH_DATA_DIR/receipts.jsonl'
 rs=[json.loads(l) for l in open(p) if l.strip()]
 rs[1]['payload']=rs[1]['payload'].replace('telemachus.anchor.v1','telemachus.anchor.v1 ')
-open('$TELEMACHUS_DATA_DIR/tampered.jsonl','w').write(''.join(json.dumps(r)+chr(10) for r in rs))"
-ATAMP=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/tampered.jsonl" --public-key "$ANCHPUB" 2>&1; echo "exit=$?")
+open('$TMACH_DATA_DIR/tampered.jsonl','w').write(''.join(json.dumps(r)+chr(10) for r in rs))"
+ATAMP=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TMACH_DATA_DIR/tampered.jsonl" --public-key "$ANCHPUB" 2>&1; echo "exit=$?")
 assert "anchor: an edited retained receipt is refused" "$ATAMP" "PROBLEM at receipt"
 assert "anchor: ...and the verifier exits non-zero"    "$ATAMP" "exit=1"
 # a gap is what suppression looks like from the retainer's side
 python3 -c "
 import json
-p='$TELEMACHUS_DATA_DIR/receipts.jsonl'
+p='$TMACH_DATA_DIR/receipts.jsonl'
 rs=[json.loads(l) for l in open(p) if l.strip()]
-open('$TELEMACHUS_DATA_DIR/gapped.jsonl','w').write(json.dumps(rs[1])+chr(10))"
+open('$TMACH_DATA_DIR/gapped.jsonl','w').write(json.dumps(rs[1])+chr(10))"
 # A file that does not reach seq 1 is a valid SUB-CHAIN, not a forgery — a
 # retainer may have started later — so the verdict stays ok and the report says
 # it does not reach the origin. That distinction is the honest one: this file
 # cannot tell "retention began later" from "the earlier ones were suppressed".
-AGAP=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/gapped.jsonl" --public-key "$ANCHPUB" 2>&1)
+AGAP=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TMACH_DATA_DIR/gapped.jsonl" --public-key "$ANCHPUB" 2>&1)
 assert "anchor: a series that misses its first receipt does not reach the origin" \
   "$AGAP" "reaches origin:  NO"
 assert "anchor: ...and says it cannot tell suppression from late retention" \
@@ -1942,15 +1942,15 @@ assert "anchor: ...and says it cannot tell suppression from late retention" \
 # vacuously sound; this command is asked "is my retained copy good", and for a
 # cron job the answer has to be no — exiting 0 there is a monitor reporting
 # success for retaining nothing at all.
-: > "$TELEMACHUS_DATA_DIR/none.jsonl"
-ANONE=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/none.jsonl" --public-key "$ANCHPUB" 2>&1; echo "exit=$?")
+: > "$TMACH_DATA_DIR/none.jsonl"
+ANONE=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TMACH_DATA_DIR/none.jsonl" --public-key "$ANCHPUB" 2>&1; echo "exit=$?")
 assert "anchor: an empty retained file says there is nothing to verify" \
   "$ANONE" "nothing to verify"
 assert "anchor: ...and is not reported as a pass"  "$ANONE" "exit=1"
 # ...while a file that HAS receipts and fails must not claim to be empty: `checked`
 # is also 0 when the walk broke at the very first receipt, so the message is read
 # off the file instead.
-AWRONG=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TELEMACHUS_DATA_DIR/receipts.jsonl" --public-key "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025" 2>&1)
+AWRONG=$(DATABASE_URL="" racket cli/telemachus-anchor.rkt verify "$TMACH_DATA_DIR/receipts.jsonl" --public-key "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025" 2>&1)
 assert "anchor: a wrong key fails against the key supplied" "$AWRONG" "FAILED against the key you supplied"
 refute "anchor: ...and does not claim the file is empty"     "$AWRONG" "nothing to verify"
 
@@ -2070,8 +2070,8 @@ refute "…nor the one that was guessed"     "$AUD" 'password\":\"wrong'
 
 # ---- issue #19: secrets at rest, and a TOTP seed that can be revoked
 assert "admin status says whether a dump is replayable" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":'
-# Inapplicable when a key IS configured, which TELEMACHUS_ENCRYPT_CONTENT requires.
-if [ -n "${TELEMACHUS_SECRET_KEY:-}" ]; then
+# Inapplicable when a key IS configured, which TMACH_ENCRYPT_CONTENT requires.
+if [ -n "${TMACH_SECRET_KEY:-}" ]; then
   echo "  skip …plaintext when no key is configured — a key is set in this run"
 else
   assert "…plaintext when no key is configured"           "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"secrets":"plaintext"'

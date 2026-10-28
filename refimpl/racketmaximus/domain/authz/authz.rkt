@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/authz/authz.rkt — the AuthzService over db-kit.
 ;;
 ;; Implements the RBAC contract from docs/design/rbac-and-teams.md:
@@ -541,7 +545,7 @@
 (define DEV-PEPPER "telemachus-dev-secret")
 (define (token-pepper)
   (define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
-  (or (env "TELEMACHUS_TOKEN_PEPPER") (env "TELEMACHUS_SECRET") DEV-PEPPER))
+  (or (tmach-env "TOKEN_PEPPER") (tmach-env "SECRET") DEV-PEPPER))
 (define (token-pepper-is-default?) (string=? (token-pepper) DEV-PEPPER))
 (define (hash-token tok)
   (string-append "v1:" (bytes->hex-lower (hmac-sha256 (string->bytes/utf-8 (token-pepper)) (string->bytes/utf-8 tok)))))
@@ -741,7 +745,7 @@
 ;; default, never to 0 — the platform's rule for every knob.
 (define DEFAULT-MAX-SESSIONS 10)
 (define (max-sessions)
-  (define raw (getenv "TELEMACHUS_MAX_SESSIONS"))
+  (define raw (tmach-env "MAX_SESSIONS"))
   (cond
     [(or (not raw) (string=? raw "")) DEFAULT-MAX-SESSIONS]
     [(member raw '("never" "0" "unlimited")) #f]
@@ -778,7 +782,7 @@
 ;; an operator opts into — the shape TELEMACHUS_STRICT_STARTUP and the retention
 ;; rules already use for a one-way door. Unset means "throttle only".
 (define (login-lock-after)
-  (define raw (getenv "TELEMACHUS_LOGIN_LOCK_FAILURES"))
+  (define raw (tmach-env "LOGIN_LOCK_FAILURES"))
   (and raw (not (string=? raw ""))
        (let ([n (string->number raw)]) (and (exact-integer? n) (positive? n) n))))
 (define LOCK-FOREVER (* 100 365 24 3600))   ; "until an operator clears it"

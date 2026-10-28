@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; server/api/instance.rkt — health, bootstrap, hosted provisioning and the
 ;; public /api/config
 ;;
@@ -38,7 +42,7 @@
 ;; because "403" alone on a fresh instance reads as a broken build.
 (define (bootstrap-allowed? req body)
   (or (header-identity-allowed? req)
-      (let ([want (env* "TELEMACHUS_BOOTSTRAP_SECRET")]
+      (let ([want (tmach-env "BOOTSTRAP_SECRET")]
             [got (or (let ([h (req-header req #"x-telemachus-bootstrap")]) (and (string? h) h))
                      (let ([v (hash-ref body 'secret #f)]) (and (string? v) v)))])
          (and want got (constant-time=? want got)))))
@@ -50,7 +54,7 @@
     [(saas-mode?) (err "interactive bootstrap is disabled in hosted mode" 403)]
     [(not (bootstrap-allowed? req body))
      (err (string-append "bootstrap is allowed from this host only. Run it on the server, "
-                         "or set TELEMACHUS_BOOTSTRAP_SECRET and send it as X-Telemachus-Bootstrap.")
+                         "or set TMACH_BOOTSTRAP_SECRET and send it as X-Telemachus-Bootstrap.")
           403)]
     [(not username) (err "username required" 400)]
     [(query-maybe-value db-conn "SELECT id FROM users LIMIT 1") (err (msg-already-init) 409)]
@@ -74,7 +78,7 @@
 
 ;; ---- hosted provisioning (control-plane facing; provision-token auth) --------
 (define (require-provision-token req)
-  (define want (env* "TELEMACHUS_PROVISION_TOKEN"))
+  (define want (tmach-env "PROVISION_TOKEN"))
   (define got (req-header req #"x-provision-token"))
   (and want got (string=? want got)))
 

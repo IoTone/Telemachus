@@ -49,7 +49,7 @@ Every step is a scheduler job: durability, cancellation, quota admission and the
 
 ## The blob store
 
-`register-blob-store! name (hash 'put! 'get 'delete! 'stat)`. The store is handed a namespace (the org id) and a SHA-256 digest, never a principal — a backend has no authorization to get wrong. `TELEMACHUS_BLOB_STORE` selects one.
+`register-blob-store! name (hash 'put! 'get 'delete! 'stat)`. The store is handed a namespace (the org id) and a SHA-256 digest, never a principal — a backend has no authorization to get wrong. `TMACH_BLOB_STORE` selects one.
 
 ## The onboarding provider
 

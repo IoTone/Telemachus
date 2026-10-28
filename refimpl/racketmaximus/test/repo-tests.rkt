@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/repo-tests.rkt — slices 49 & 50: the document repository.
 ;;   raco test test/repo-tests.rkt   (from refimpl/racketmaximus/, pkgs on PLTCOLLECTS)
 ;;
@@ -446,13 +450,13 @@
     (check-equal? a b "data-dir must not depend on current-directory"))
 
   ;; a RELATIVE override is anchored too — otherwise it reintroduces the same bug
-  (define saved (getenv "TELEMACHUS_DATA_DIR"))
-  (putenv "TELEMACHUS_DATA_DIR" "some-relative-state")
+  (define saved (tmach-env "DATA_DIR"))
+  (putenv "TMACH_DATA_DIR" "some-relative-state")
   (define r1 (parameterize ([current-directory elsewhere]) (data-dir)))
   (define r2 (data-dir))
-  (check-true (absolute-path? r1) "a relative TELEMACHUS_DATA_DIR must still resolve absolute")
-  (check-equal? r1 r2 "a relative TELEMACHUS_DATA_DIR must not depend on current-directory")
-  (if saved (putenv "TELEMACHUS_DATA_DIR" saved) (putenv "TELEMACHUS_DATA_DIR" ""))
+  (check-true (absolute-path? r1) "a relative TMACH_DATA_DIR must still resolve absolute")
+  (check-equal? r1 r2 "a relative TMACH_DATA_DIR must not depend on current-directory")
+  (if saved (putenv "TMACH_DATA_DIR" saved) (putenv "TMACH_DATA_DIR" ""))
 
   ;; the STORE's own default root, which is what actually broke
   (parameterize ([current-blob-root #f])

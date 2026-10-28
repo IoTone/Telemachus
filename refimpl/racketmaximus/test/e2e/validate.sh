@@ -74,26 +74,26 @@ if [ "$OWN_SERVER" = "1" ]; then
   # unused: a developer working on a downstream plugin exports them in their own
   # shell, and an inherited value would put someone else's plugin — and its load
   # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-  unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+  unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
   # NOTE: an ABSOLUTE temp data dir, for isolation. That means this job cannot
   # catch the relative-blob-root class of bug by itself — an absolute root is
   # already safe. Two other things cover that: the unit assertion in
   # test/repo-tests.rkt ("blob roots are absolute and cwd-independent") and the
   # boot guard in server/main.rkt, which refuses to serve with a relative root.
-  export TELEMACHUS_DATA_DIR="$TMPDATA"
+  export TMACH_DATA_DIR="$TMPDATA"
   # a COPY of the catalogs, so the Localize checks can never export into the checkout
-  cp -r locales "$TMPDATA/locales" && export TELEMACHUS_LOCALES="$TMPDATA/locales"
+  cp -r locales "$TMPDATA/locales" && export TMACH_LOCALES="$TMPDATA/locales"
   # Honour a pre-set DATABASE_URL, like the unit suite and both smoke suites do,
   # so this can be run against Postgres: drop/recreate the database first,
   # because bootstrap is first-run-only.
   export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMPDATA/validate.db}"
-  export TELEMACHUS_BIND=127.0.0.1
-  export TELEMACHUS_HOME=login
+  export TMACH_BIND=127.0.0.1
+  export TMACH_HOME=login
   export PORT
   # The document-pipeline scenario needs a model. Without a real one configured,
   # boot the scripted mock (test/mock-llm.rkt, chat mode) so the gate stays
-  # deterministic and runs in seconds; with TELEMACHUS_MODEL_URL set, it is live.
-  if [ -z "${TELEMACHUS_MODEL_URL:-}" ]; then
+  # deterministic and runs in seconds; with TMACH_MODEL_URL set, it is live.
+  if [ -z "${TMACH_MODEL_URL:-}" ]; then
     MOCK_PORT="${MOCK_PORT:-$((PORT+100))}"
     export MOCK_REPLY_FILE="$TMPDATA/mock-reply.json"
     cat > "$MOCK_REPLY_FILE" <<'JSON'
@@ -103,8 +103,8 @@ if [ "$OWN_SERVER" = "1" ]; then
 JSON
     MOCK_PORT="$MOCK_PORT" racket test/mock-llm.rkt >"$TMPDATA/mock.log" 2>&1 &
     MOCK_PID=$!
-    export TELEMACHUS_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions"
-    export TELEMACHUS_MODEL=mock
+    export TMACH_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions"
+    export TMACH_MODEL=mock
     export VALIDATE_PIPELINE="${VALIDATE_PIPELINE:-1}"
   fi
   echo "booting server on $BASE_URL (data: $TMPDATA)"

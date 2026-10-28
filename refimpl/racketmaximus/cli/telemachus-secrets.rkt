@@ -98,12 +98,12 @@
     [(and (zero? plain) (secrets-enabled?)) (printf "\nA dump of this database carries no replayable secret.\n")]
     [(secrets-enabled?) (printf "\n~a secret(s) are still in the clear — run `rewrap`.\n" plain)]
     [else (printf (string-append "\nNo key is configured, so every stored secret is readable from a dump. "
-                                 "That is a supported choice; set TELEMACHUS_SECRET_KEY and run `rewrap` "
+                                 "That is a supported choice; set TMACH_SECRET_KEY and run `rewrap` "
                                  "if it is not the one you meant to make.\n"))]))
 
 (define (rewrap conn)
   (unless (secrets-enabled?)
-    (die "TELEMACHUS_SECRET_KEY is not set — there is nothing to seal secrets with."))
+    (die "TMACH_SECRET_KEY is not set — there is nothing to seal secrets with."))
   (define changed
     (for/sum ([spec (in-list (SECRETS))])
       (define-values (table col idcol prefix) (apply values spec))
@@ -132,7 +132,7 @@
 
 (define (keygen)
   (printf "~a\n" (bytes->hex-string (crypto-random-bytes KEY-BYTES)))
-  (eprintf (string-append "\nSet it as TELEMACHUS_SECRET_KEY, keep it OUT of the database and out of the\n"
+  (eprintf (string-append "\nSet it as TMACH_SECRET_KEY, keep it OUT of the database and out of the\n"
                           "same backup as the database, and run `telemachus-secrets rewrap`.\n"
                           "Losing it means losing every TOTP seed and S3 secret it sealed.\n")))
 

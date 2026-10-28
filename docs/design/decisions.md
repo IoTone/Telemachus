@@ -3138,3 +3138,102 @@ second is the more interesting:
   needs a non-empty 'label'`. A checklist item's field is `label`, not `title`.
   One line in sixty before #48; a named failure now, and the reason that slice
   was worth building.
+
+## ENVN — the operator's own names (issue #128 job 2)
+
+Decided and built 27 Oct 2026. `tmach-env` in `config.rkt`, every read in the
+tree moved onto it, and a gate that makes a missed one impossible. **No
+migration, no new variable, and nothing anybody has deployed stops working.**
+
+Job 1 renamed the PROSE and deliberately left the variables alone. The reason
+stands: a variable is a contract with every deployment that already exists — a
+compose file, a systemd unit, a Kubernetes secret, somebody's shell history — and
+a flag day on 94 of them would be an outage distributed across every installation
+at a time of our choosing rather than theirs.
+
+- **ENVN‑1 — A DUAL READ, WITH NO FLAG DAY AND NO DEADLINE.** `TMACH_<name>` is
+  the name; the old spelling still answers; the new name wins when both are set;
+  an empty value is absent under either, so setting the new one to `""` falls
+  through rather than masking the old. There is deliberately no horizon after
+  which the old names stop: a deprecation with a date is a promise to break
+  somebody later, and the cost of keeping two reads is one `cond` arm.
+- **ENVN‑2 — THE SUFFIX IS THE ARGUMENT, and that is the whole design.**
+  `(tmach-env "PORT")`, never `(tmach-env "TMACH_PORT")`. With the full name at
+  the call site a reader cannot tell a dual read from a single one, and — far
+  worse — **a missed site goes on working**, because the old name is the
+  fallback. It surfaces only for the one operator who sets the new name and
+  nothing else, which is the worst possible audience for it. Composing the name
+  in exactly one place is what turns that from unlikely into impossible.
+- **ENVN‑3 — THE GATE FORBIDS THE SPELLING, not a list of helpers.** No module
+  mentions an operator variable's full old name on a non-comment line (comment
+  lines may explain the fallback; `config.rkt` and the test that proves it are
+  the two named exceptions). **This rule replaced two narrower ones, and the
+  narrowing was defeated both times** — see below.
+- **ENVN‑4 — the numeric helpers take the VALUE, not the name.** `pos-env`,
+  `env-int` and `env-num` are now `(pos-env (tmach-env "OCR_TIMEOUT") 20)`. So
+  every operator variable is spelled exactly ONCE in the Racket tree, and neither
+  gate has to know which helpers forward to the accessor — a gate that enumerated
+  them would agree with whoever last added one.
+- **ENVN‑5 — the boot line lists the old names actually read**, once, in the
+  shape the plugin failures already use. An operator migrating a compose file
+  gets the list; one who has finished sees nothing. It is a NOTE and not a
+  WARNING because nothing is wrong: the old names are supported, and shouting
+  about a supported configuration is how an operator learns to ignore the boot
+  output. A SET rather than a counter — a variable read on every request would
+  dominate a tally, and what the reader wants is the list.
+- **ENVN‑6 — the harnesses set the NEW names, and one test proves the old ones.**
+  A suite that set only the old names would exercise the fallback on every run
+  and the primary read never, which is how a dual read rots into a single one
+  pointing the wrong way. So all 104 test writes and 380 harness, Nix, compose
+  and manifest occurrences were flipped, and `test/env-names-tests.rkt` keeps the
+  old spelling deliberately — it is the only file that may.
+- **ENVN‑7 — an `unset` clears BOTH spellings.** The harnesses unset
+  `PLUGINS`/`PLUGINS_LINKS` because a developer exports them in their own shell;
+  with a fallback in place, unsetting only the new name would let the old one
+  leak a downstream plugin into every harness. A regression this change would
+  have INTRODUCED, caught by reading the diff rather than by a test.
+- **ENVN‑8 — the page documents the current spelling only.** Listing all 94
+  variables twice would double the page an operator reads in order to say
+  nothing; the compatibility window is stated once, at the top, and the gate's
+  job is that each variable's CURRENT name is documented.
+- **ENVN‑9 — eight copies of the same helper became one.** `env*` in
+  `server/kit.rkt` plus seven local `env` definitions all read a variable and
+  treated `""` as absent. That property is load-bearing beyond tidiness: CI's
+  sqlite leg sets `DATABASE_URL` to the empty string, and #123 records a test
+  that passed everywhere except there because of it.
+
+**Not in this change, each for its own reason.** The `X-Telemachus-*` request
+headers (a second dual-read question, on a surface where the *client* chooses the
+spelling), the `cli/telemachus-*` command names (operator muscle memory and every
+systemd unit's `ExecStart`), and `data/telemachus.db` (a path inside a volume, so
+renaming it is a migration rather than an alias). Four surfaces half-done would
+have been worse than one verified. **Job 3 is written** — the three families that
+must never be renamed are now stated in `docs/ops/configuration.md` where an
+operator will meet them: `define-sealed-column`'s AAD context strings,
+`CHAIN-VERSION` and `telemachus.digest.v1`, because changing any of them stops
+existing rows opening and existing exports verifying.
+
+### What the gate found, three times
+
+Every narrowing chosen for convenience was defeated, and the fix each time was to
+make the rule LESS clever:
+
+- **IT FOLLOWED A SYMLINK INTO THE NIX STORE.** `nix build` leaves a `result`
+  symlink in the implementation directory; `find-files` follows it; the gate read
+  a PACKAGED COPY OF THE SOURCE from before the change and duly reported
+  offenders that were already fixed. `grep` over the repository said zero, the
+  gate said twelve. `#:follow-links? #f`, and the root anchored with
+  `define-runtime-path` rather than `current-directory` — this file's own
+  "anchor at definition, never at use" rule, which a blob root resolving into the
+  store had already paid for once.
+- **IT ENUMERATED THE HELPERS IT KNEW ABOUT.** The first rule matched `getenv`,
+  `env` and `env*`; three more (`pos-env`, `env-int`, `env-num`) read a full
+  literal and the sweep missed all three. What found it was the OTHER gate:
+  `scripts/check-config-reference.sh` reported six variables as documented but
+  read nowhere, by name. Two gates checking adjacent properties caught what
+  neither would alone.
+- **IT MATCHED FULLY-QUOTED LITERALS ONLY.** Three suites then failed on
+  operator-facing MESSAGES that still named the old variable inside a longer
+  format string — `"…(TELEMACHUS_MAX_JOB_SECONDS=~a)"`. A message naming a
+  variable is the text an operator acts on, so it must name the current
+  spelling; 64 lines across 30 files were renamed and the pattern broadened.

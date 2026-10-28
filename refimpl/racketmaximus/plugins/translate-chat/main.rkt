@@ -48,7 +48,7 @@
   (unless (model-configured?)
     ;; Without this the platform's uppercase-echo fallback answers, the workflow
     ;; goes green, and the demo proves nothing. Fail loudly instead.
-    (error 'translate-chat "no model configured — set TELEMACHUS_MODEL_URL"))
+    (error 'translate-chat "no model configured — set TMACH_MODEL_URL"))
   (require-perm conn p "chat:use")
   (define locale (user-locale conn (principal-user-id p)))
   (define-values (reply _tokens)
@@ -66,7 +66,7 @@
 
 (define (translate-text conn p args)
   (unless (model-configured?)
-    (error 'translate-chat "no model configured — set TELEMACHUS_MODEL_URL"))
+    (error 'translate-chat "no model configured — set TMACH_MODEL_URL"))
   (define text (arg args 'text))
   (when (string=? (string-trim text) "")
     (error 'translate-chat "nothing to translate — the previous step produced no text"))

@@ -21,7 +21,7 @@
 
 (define (role-key team) (string-append "model-roles:" team))
 (define (env-default role)
-  (define v (getenv (string-append "TELEMACHUS_MODEL_" (string-upcase role))))
+  (define v (getenv (string-append "TMACH_MODEL_" (string-upcase role))))
   (and v (not (string=? v "")) v))
 
 ;; -> an executor name, or #f for the local model

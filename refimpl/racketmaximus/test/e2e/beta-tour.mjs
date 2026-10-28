@@ -26,7 +26,7 @@ try {
   await page.goto(BASE + '/', { waitUntil: 'networkidle', timeout: 20000 });
   await page.waitForSelector('#bf_name', { timeout: 15000 });
   await shot(page, '01-funnel-landing', 'The funnel is the default experience',
-    'With home routing set to beta (TELEMACHUS_HOME=beta), the root route serves the public beta landing — not a login screen. The form is rendered from a pluggable onboarding provider whose copy, fields, and judge prompt are customizable via the SDK.');
+    'With home routing set to beta (TMACH_HOME=beta), the root route serves the public beta landing — not a login screen. The form is rendered from a pluggable onboarding provider whose copy, fields, and judge prompt are customizable via the SDK.');
 
   // ── 2. SETUP: staff sign-in → create the operator (and the internal team) ────
   await page.click('a:has-text("Team sign-in")');

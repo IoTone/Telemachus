@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/repo/repo.rkt — the document repository (slice 50).
 ;;
 ;; An object is an ownable resource with the same three fields notes and documents
@@ -936,7 +940,7 @@
 ;; the default, never to 0 — the platform's rule for every interval knob.
 (define DEFAULT-STAGE-REAP-MINUTES 60)
 (define (stage-reap-seconds)
-  (define raw (getenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES"))
+  (define raw (tmach-env "BLOB_STAGE_REAP_MINUTES"))
   (cond
     [(or (not raw) (string=? raw "")) (* 60 DEFAULT-STAGE-REAP-MINUTES)]
     [(string=? raw "never") #f]

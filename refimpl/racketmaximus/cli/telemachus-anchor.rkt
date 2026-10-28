@@ -75,7 +75,7 @@
 
 (define (cmd-keygen)
   (define seed (ed25519-generate-seed))
-  (printf "TELEMACHUS_ANCHOR_KEY=~a\n" (bytes->hex seed))
+  (printf "TMACH_ANCHOR_KEY=~a\n" (bytes->hex seed))
   (printf "public key: ~a\n" (bytes->hex (ed25519-public-key seed)))
   (displayln "")
   (displayln "Keep the first line secret — it signs receipts. Publish the public key:")
@@ -84,7 +84,7 @@
 
 (define (cmd-pubkey)
   (define pk (anchor-public-key-hex))
-  (unless pk (die "no TELEMACHUS_ANCHOR_KEY is configured"))
+  (unless pk (die "no TMACH_ANCHOR_KEY is configured"))
   (displayln pk))
 
 ;; ---- status / emit / export ---------------------------------------------------
@@ -92,7 +92,7 @@
 (define (cmd-status)
   (with-db (lambda (conn)
   (define st (anchor-status conn))
-  (printf "anchoring:   ~a\n" (if (hash-ref st 'enabled) "on" "OFF (no TELEMACHUS_ANCHOR_KEY)"))
+  (printf "anchoring:   ~a\n" (if (hash-ref st 'enabled) "on" "OFF (no TMACH_ANCHOR_KEY)"))
   (printf "public key:  ~a\n" (hash-ref st 'public_key))
   (printf "instance:    ~a\n" (hash-ref st 'instance_id))
   (printf "receipts:    ~a\n" (hash-ref st 'receipts))
@@ -103,7 +103,7 @@
   (displayln "retained copy is the anchor. Check your copy with `verify`."))))
 
 (define (cmd-emit)
-  (unless (anchor-key-seed) (die "no TELEMACHUS_ANCHOR_KEY is configured — run `keygen` first"))
+  (unless (anchor-key-seed) (die "no TMACH_ANCHOR_KEY is configured — run `keygen` first"))
   (with-db (lambda (conn)
     (define r (anchor-emit! conn))
     (printf "receipt ~a emitted, covering ~a chain(s)\n" (hash-ref r 'seq) (hash-ref r 'chains))
@@ -199,7 +199,7 @@
      (displayln "usage: telemachus-anchor <keygen|pubkey|status|emit|export|verify>")
      (displayln "")
      (displayln "  keygen                      a fresh Ed25519 anchor key")
-     (displayln "  pubkey                      the public key for TELEMACHUS_ANCHOR_KEY")
+     (displayln "  pubkey                      the public key for TMACH_ANCHOR_KEY")
      (displayln "  status                      how far the receipt series has got (needs the database)")
      (displayln "  emit                        take a measurement of both chains now")
      (displayln "  export [file|-]             receipts as JSONL  [--since-seq N]")

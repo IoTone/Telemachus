@@ -20,7 +20,7 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # unused: a developer working on a downstream plugin exports them in their own
 # shell, and an inherited value would put someone else's plugin — and its load
 # failure, since PLTCOLLECTS is reset just above — into this suite's assertions.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 fail=0
 assert(){ if printf '%s' "$2" | grep -qF -- "$3"; then echo "  ok   $1";
   else echo "  FAIL $1 — expected: $3 — got: $(printf '%s' "$2" | tr -d '\000' | head -c 300)"; fail=1; fi; }
@@ -40,21 +40,21 @@ for p in "$PORT" "$S3_PORT"; do
 done
 
 TMP=$(mktemp -d)
-export TELEMACHUS_DATA_DIR="$TMP/data"
+export TMACH_DATA_DIR="$TMP/data"
 # respect a pre-set URL so this suite can run against BOTH dialects — the migrations
 # and every query in it are meant to be portable, and that claim is only worth
 # something if it is exercised on Postgres too
 export DATABASE_URL="${DATABASE_URL:-sqlite://$TMP/s3.db}"
 echo "s3-smoke DATABASE_URL=$DATABASE_URL"
-export TELEMACHUS_BIND=127.0.0.1
+export TMACH_BIND=127.0.0.1
 # Issue #25: the credential's secret is SEALED at rest (issue #19) unless an
 # instance opts out, and SigV4 has to unwrap it on every signed request. Run this
 # suite the way a real deployment runs — with a key — so the sealed path is what
-# the real client exercises. Pass TELEMACHUS_SECRET_KEY=... to use your own, or
-# TELEMACHUS_SECRET_KEY= (empty) to check the plaintext path instead.
-export TELEMACHUS_SECRET_KEY="${TELEMACHUS_SECRET_KEY-2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe}"
-[ -n "$TELEMACHUS_SECRET_KEY" ] && echo "s3-smoke: secrets sealed (key set)" || echo "s3-smoke: secrets in the clear"
-export TELEMACHUS_S3_PORT="$S3_PORT"
+# the real client exercises. Pass TMACH_SECRET_KEY=... to use your own, or
+# TMACH_SECRET_KEY= (empty) to check the plaintext path instead.
+export TMACH_SECRET_KEY="${TMACH_SECRET_KEY-2b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfe}"
+[ -n "$TMACH_SECRET_KEY" ] && echo "s3-smoke: secrets sealed (key set)" || echo "s3-smoke: secrets in the clear"
+export TMACH_S3_PORT="$S3_PORT"
 racket server/main.rkt >"$TMP/server.log" 2>&1 &
 SRV=$!
 trap 'kill $SRV 2>/dev/null; rm -rf "$TMP"' EXIT
@@ -144,7 +144,7 @@ PY
 
 # ---- the byte ceiling is enforced on the data plane too ---------------------------
 # PutObject reaches the same blob write the JSON upload route uses, so it obeys
-# TELEMACHUS_MAX_UPLOAD (32 MiB unless overridden) rather than staging an unbounded body
+# TMACH_MAX_UPLOAD (32 MiB unless overridden) rather than staging an unbounded body
 # to disk. s3api put-object is one PUT at any size — `s3 cp` would switch to multipart
 # above 8 MiB, and each PART would be under the ceiling, so it would prove nothing.
 head -c 40000000 /dev/urandom > "$TMP/oversize.bin"

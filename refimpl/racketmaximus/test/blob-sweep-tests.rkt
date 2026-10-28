@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/blob-sweep-tests.rkt — bytes with nothing pointing at them (issue #122).
 ;;
 ;; `repo-put!` writes the blob BEFORE admission (the size is not known until it
@@ -119,34 +123,34 @@
 
 ;; ---- the knob ---------------------------------------------------------------
 (test-case "the floor is configurable, disablable, and never falls back to zero"
-  (define old (getenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES"))
+  (define old (tmach-env "BLOB_STAGE_REAP_MINUTES"))
   (dynamic-wind
    void
    (lambda ()
-     (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "")      (check-equal? (stage-reap-seconds) 3600)
-     (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "5")     (check-equal? (stage-reap-seconds) 300)
-     (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "never") (check-false (stage-reap-seconds))
+     (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "")      (check-equal? (stage-reap-seconds) 3600)
+     (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "5")     (check-equal? (stage-reap-seconds) 300)
+     (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "never") (check-false (stage-reap-seconds))
      ;; a zero floor would delete the bytes of an upload in progress, so these
      ;; fall back to the default rather than to 0 — the platform's rule
-     (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "0")      (check-equal? (stage-reap-seconds) 3600)
-     (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "-10")    (check-equal? (stage-reap-seconds) 3600)
-     (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "banana") (check-equal? (stage-reap-seconds) 3600))
-   (lambda () (if old (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" old)
-                  (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "")))))
+     (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "0")      (check-equal? (stage-reap-seconds) 3600)
+     (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "-10")    (check-equal? (stage-reap-seconds) 3600)
+     (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "banana") (check-equal? (stage-reap-seconds) 3600))
+   (lambda () (if old (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" old)
+                  (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "")))))
 
 (test-case "`never` really disables it, even for a row past any floor"
   (with-blobs (lambda ()
     (define-values (c p uid tid org) (setup))
     (stage-blob! c org (digest-of-bytes #"x"))
     (query-exec c "UPDATE repo_blob_staging SET staged_epoch = 0")
-    (define old (getenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES"))
+    (define old (tmach-env "BLOB_STAGE_REAP_MINUTES"))
     (dynamic-wind
-     (lambda () (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" "never"))
+     (lambda () (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" "never"))
      (lambda ()
        (define-values (n k) (reap-staged-blobs! c))
        (check-equal? (list n k) '(0 0))
        (check-equal? (query-value c "SELECT COUNT(*) FROM repo_blob_staging") 1
                      "the row is left alone too, not silently cleared"))
-     (lambda () (if old (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" old)
-                    (putenv "TELEMACHUS_BLOB_STAGE_REAP_MINUTES" ""))))
+     (lambda () (if old (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" old)
+                    (putenv "TMACH_BLOB_STAGE_REAP_MINUTES" ""))))
     (disconnect c))))

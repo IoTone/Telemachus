@@ -166,9 +166,9 @@
 (define (key-for var)
   (define raw (env var))
   (hash-ref! *keys* (cons var raw) (lambda () (parse-secret-key raw))))
-(define (current-secret-key) (key-for "TELEMACHUS_SECRET_KEY"))
+(define (current-secret-key) (key-for "TMACH_SECRET_KEY"))
 ;; the previous key, during a rotation: read with either, write with the current
-(define (current-previous-secret-key) (key-for "TELEMACHUS_SECRET_KEY_OLD"))
+(define (current-previous-secret-key) (key-for "TMACH_SECRET_KEY_OLD"))
 
 (define (secrets-enabled?) (and (current-secret-key) #t))
 
@@ -249,7 +249,7 @@
      (when (null? candidates)
        (error 'secretbox
               (string-append "no configured key matches this stored secret (sealed by key " kid "). "
-                             "Set TELEMACHUS_SECRET_KEY to it, or TELEMACHUS_SECRET_KEY_OLD while rotating.")))
+                             "Set TMACH_SECRET_KEY to it, or TMACH_SECRET_KEY_OLD while rotating.")))
      (define pt (for/or ([k (in-list candidates)]) (aes-256-gcm-decrypt k nonce (aad-for context) ct)))
      (unless pt
        (error 'secretbox

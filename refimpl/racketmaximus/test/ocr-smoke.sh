@@ -18,7 +18,7 @@ export PLTCOLLECTS="$(pwd)/pkgs:"
 # The SHIPPED plugin set, for the reason the other eight harnesses say: a
 # developer exports these in their own shell and a downstream plugin would
 # otherwise fail to load here and fail this suite with it.
-unset TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
+unset TMACH_PLUGINS TMACH_PLUGINS_LINKS TELEMACHUS_PLUGINS TELEMACHUS_PLUGINS_LINKS
 
 port_busy(){ bash -c "exec 3<>/dev/tcp/127.0.0.1/$1" >/dev/null 2>&1; }
 export PORT="${PORT:-8843}"
@@ -30,12 +30,12 @@ if ! command -v tesseract >/dev/null 2>&1; then
   exit 0
 fi
 
-export TELEMACHUS_DATA_DIR="$(mktemp -d)"
-export DATABASE_URL="${DATABASE_URL:-sqlite:///$TELEMACHUS_DATA_DIR/telemachus.db}"
-export TELEMACHUS_BIND=127.0.0.1
+export TMACH_DATA_DIR="$(mktemp -d)"
+export DATABASE_URL="${DATABASE_URL:-sqlite:///$TMACH_DATA_DIR/telemachus.db}"
+export TMACH_BIND=127.0.0.1
 # The switch under test. Without it the instance behaves exactly as it did
 # before this plugin existed, which section 1 asserts before turning it on.
-export TELEMACHUS_OCR=1
+export TMACH_OCR=1
 
 fail=0
 assert(){ case "$2" in *"$3"*) echo "  ok   $1";;
@@ -43,14 +43,14 @@ assert(){ case "$2" in *"$3"*) echo "  ok   $1";;
 refute(){ case "$2" in *"$3"*) echo "  FAIL $1 — did NOT expect: $3"; fail=1;;
                        *) echo "  ok   $1";; esac; }
 
-cleanup(){ [ -n "${SRV:-}" ] && kill $SRV 2>/dev/null; rm -rf "$TELEMACHUS_DATA_DIR"; }
+cleanup(){ [ -n "${SRV:-}" ] && kill $SRV 2>/dev/null; rm -rf "$TMACH_DATA_DIR"; }
 trap cleanup EXIT
 
 # ---- the fixture ---------------------------------------------------------------
 # Generated, not committed: a .png nobody can diff is a poor fixture, and the
 # expected text then lives in the same file as the assertion. racket/draw writes
 # both PNG and PDF, so the "scan" costs no extra tool either.
-cat > "$TELEMACHUS_DATA_DIR/gen.rkt" <<'RKT'
+cat > "$TMACH_DATA_DIR/gen.rkt" <<'RKT'
 #lang racket/base
 (require racket/draw racket/class)
 ;; The photo and the scan carry DIFFERENT words on purpose. They were identical
@@ -79,22 +79,22 @@ cat > "$TELEMACHUS_DATA_DIR/gen.rkt" <<'RKT'
 (send dc end-page) (send dc end-doc)
 (displayln "fixtures written")
 RKT
-racket "$TELEMACHUS_DATA_DIR/gen.rkt" "$TELEMACHUS_DATA_DIR" >/dev/null || {
+racket "$TMACH_DATA_DIR/gen.rkt" "$TMACH_DATA_DIR" >/dev/null || {
   echo "ocr-smoke: could not generate fixtures" >&2; exit 1; }
 
 echo "ocr-smoke DATABASE_URL=$DATABASE_URL"
 raco make server/main.rkt
-racket server/main.rkt >"$TELEMACHUS_DATA_DIR/server.log" 2>&1 &
+racket server/main.rkt >"$TMACH_DATA_DIR/server.log" 2>&1 &
 SRV=$!
 tries=0; until (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; do
-  tries=$((tries+1)); [ $tries -gt 600 ] && { echo "server never came up"; cat "$TELEMACHUS_DATA_DIR/server.log"; exit 1; }
+  tries=$((tries+1)); [ $tries -gt 600 ] && { echo "server never came up"; cat "$TMACH_DATA_DIR/server.log"; exit 1; }
   sleep 0.1
 done
 
 B="localhost:$PORT"
 TOK=$(curl -s -X POST "$B/api/bootstrap" -d '{"username":"ops","password":"ops-pw-pw1"}' \
       | grep -oE '"token":"[^"]+"' | head -1 | cut -d'"' -f4)
-[ -n "$TOK" ] || { echo "no bootstrap token"; cat "$TELEMACHUS_DATA_DIR/server.log"; exit 1; }
+[ -n "$TOK" ] || { echo "no bootstrap token"; cat "$TMACH_DATA_DIR/server.log"; exit 1; }
 G(){ curl -s "$B$1" -H "Authorization: Bearer $TOK"; }
 P(){ curl -s -X POST "$B$1" -H "Authorization: Bearer $TOK" -d "${2:-{\}}"; }
 PUT(){ curl -s -X PUT "$B/api/repo/$1" -H "Authorization: Bearer $TOK" \
@@ -134,10 +134,10 @@ assert "no plugin failed to load"        "$PL" '"failed":[]'
 assert "the ocr plugin is listed"        "$PL" '"id":"ocr"'
 assert "…and reports its extractors"     "$PL" 'image/jpeg'
 assert "…including application/pdf"      "$PL" 'application/pdf'
-assert "the boot line says it is enabled" "$(cat "$TELEMACHUS_DATA_DIR/server.log")" 'ocr: enabled'
+assert "the boot line says it is enabled" "$(cat "$TMACH_DATA_DIR/server.log")" 'ocr: enabled'
 
 echo "== 1. ACCEPTANCE: a photograph of a printed page reads ======================="
-PHOTO=$(PUT "inbox/photo.png" "image/png" "$TELEMACHUS_DATA_DIR/photo.png")
+PHOTO=$(PUT "inbox/photo.png" "image/png" "$TMACH_DATA_DIR/photo.png")
 assert "the photo uploaded"               "$PHOTO" '"key":"inbox/photo.png"'
 PID=$(printf '%s' "$PHOTO" | grep -oE '"id":"[^"]+"' | head -1 | cut -d'"' -f4)
 
@@ -161,7 +161,7 @@ assert "a region is reported for an offset" "$(G "/api/repo-obj/$PID/spans?at=3"
 assert "…naming the page"                   "$(G "/api/repo-obj/$PID/spans?at=3")" '"page":1'
 
 echo "== 3. ACCEPTANCE: a scanned PDF, which used to be a dead end ================="
-SCAN=$(PUT "inbox/scan.pdf" "application/pdf" "$TELEMACHUS_DATA_DIR/scan.pdf")
+SCAN=$(PUT "inbox/scan.pdf" "application/pdf" "$TMACH_DATA_DIR/scan.pdf")
 assert "the scan uploaded"                 "$SCAN" '"key":"inbox/scan.pdf"'
 SID=$(printf '%s' "$SCAN" | grep -oE '"id":"[^"]+"' | head -1 | cut -d'"' -f4)
 IDX2=$(P /api/workflows/index-documents/run '{}')
@@ -202,6 +202,6 @@ else
   echo "--- the indexing runs ---"
   G "/api/runs/$RUNID"; echo; G "/api/runs/$RUN2ID"; echo
   echo "--- server log ---"
-  tail -30 "$TELEMACHUS_DATA_DIR/server.log"
+  tail -30 "$TMACH_DATA_DIR/server.log"
   exit 1
 fi

@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/sensitivity-tests.rkt — issue #91 requirement 4: where a labelled
 ;; document's text may go (decisions RED-24…RED-33).
 ;;   raco test test/sensitivity-tests.rkt
@@ -322,12 +326,12 @@
   ;; reach a socket and fail with something about the network instead, which is
   ;; exactly what distinguishes the two outcomes.
   (define old-policy (unbox egress-policy))
-  (define old-url (getenv "TELEMACHUS_MODEL_URL"))
+  (define old-url (tmach-env "MODEL_URL"))
   (define (setenv! k v) (if v (putenv k v) (putenv k "")) (void))
   (dynamic-wind
    void
    (lambda ()
-     (setenv! "TELEMACHUS_MODEL_URL" FAR)
+     (setenv! "TMACH_MODEL_URL" FAR)
      (set-box! egress-policy (lambda (#:executor e #:endpoint u #:document d)
                                "refused by test policy"))
      (parameterize ([current-egress-document (hasheq 'label "confidential" 'redacted #f)])
@@ -347,7 +351,7 @@
      ;; by letting it try costs the suite the whole model timeout.
      (void))
    (lambda ()
-     (setenv! "TELEMACHUS_MODEL_URL" old-url)
+     (setenv! "TMACH_MODEL_URL" old-url)
      (set-box! egress-policy old-policy))))
 
 (test-case "A POLICY THAT CANNOT BE READ REFUSES, and a BREAK still escapes"

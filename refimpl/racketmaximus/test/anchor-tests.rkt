@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/anchor-tests.rkt — issue #66: the external anchor for both hash chains.
 ;;
 ;;   raco test test/anchor-tests.rkt
@@ -29,13 +33,13 @@
 (define PUB (bytes->hex (ed25519-public-key (hex->bytes KEY))))
 
 (define (with-key k thunk)
-  (define old (getenv "TELEMACHUS_ANCHOR_KEY"))
-  (dynamic-wind (lambda () (putenv "TELEMACHUS_ANCHOR_KEY" (or k "")))
+  (define old (tmach-env "ANCHOR_KEY"))
+  (dynamic-wind (lambda () (putenv "TMACH_ANCHOR_KEY" (or k "")))
                 thunk
                 ;; restored in a dynamic-wind: a failing check raises, and a key
                 ;; leaking into a later test in this file is the trap FLEET-4's
                 ;; `set-cap-for!` case documents.
-                (lambda () (putenv "TELEMACHUS_ANCHOR_KEY" (or old "")))))
+                (lambda () (putenv "TMACH_ANCHOR_KEY" (or old "")))))
 
 (define (fresh)
   (define conn (fresh-db #:migrate? #f))

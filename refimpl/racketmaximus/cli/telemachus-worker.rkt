@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; cli/telemachus-worker.rkt — the reference pull worker (slice 66, PULL-7).
 ;;
 ;;   TELEMACHUS_URL=http://host:8835 TELEMACHUS_WORKER_TOKEN=tk_… \
@@ -35,39 +39,39 @@
          (only-in "../domain/ai/content.rkt" content->text))
 
 (define (env k [d #f]) (let ([v (getenv k)]) (if (and v (not (string=? v ""))) v d)))
-(define BASE  (regexp-replace #rx"/+$" (env "TELEMACHUS_URL" "http://127.0.0.1:8835") ""))
+(define BASE  (regexp-replace #rx"/+$" (tmach-env "URL" "http://127.0.0.1:8835") ""))
 ;; issue #60: a worker token may now EXPIRE, and a worker that can persist the
 ;; next one rotates itself. The file is the durable home and the environment
 ;; variable is the bootstrap: the token minted when the executor was created goes
 ;; in the environment, and the first rotation writes the file that every later
 ;; start reads. With no file configured this worker behaves exactly as before and
 ;; says so the first time the platform asks it to rotate.
-(define TOKEN-FILE (env "TELEMACHUS_WORKER_TOKEN_FILE"))
+(define TOKEN-FILE (tmach-env "WORKER_TOKEN_FILE"))
 (define (read-token-file)
   (and TOKEN-FILE (file-exists? TOKEN-FILE)
        (let ([t (string-trim (call-with-input-file TOKEN-FILE port->string))])
          (and (not (string=? t "")) t))))
-(define TOKEN (or (read-token-file) (env "TELEMACHUS_WORKER_TOKEN")))
-(define MODEL-URL (env "TELEMACHUS_WORKER_MODEL_URL"))
-(define MODEL-KEY (env "TELEMACHUS_WORKER_MODEL_KEY"))
-(define MODELS (let ([m (env "TELEMACHUS_WORKER_MODELS" "")]) (filter (lambda (s) (not (string=? s ""))) (map string-trim (string-split m ",")))))
+(define TOKEN (or (read-token-file) (tmach-env "WORKER_TOKEN")))
+(define MODEL-URL (tmach-env "WORKER_MODEL_URL"))
+(define MODEL-KEY (tmach-env "WORKER_MODEL_KEY"))
+(define MODELS (let ([m (tmach-env "WORKER_MODELS" "")]) (filter (lambda (s) (not (string=? s ""))) (map string-trim (string-split m ",")))))
 ;; JUDGE-14: a loopback `laya_serve.py --port` (run it with --batch-size 1).
 ;; Set, it adds judge.typed to this worker's kinds; the chat endpoint is then
 ;; optional, so a Mac can be a judge host and nothing else.
-(define LAYA-URL (let ([u (env "TELEMACHUS_WORKER_LAYA_URL")])
+(define LAYA-URL (let ([u (tmach-env "WORKER_LAYA_URL")])
                    (and u (regexp-replace #rx"/+$" u ""))))
 (define KINDS (append (if MODEL-URL '("infer.chat") '())
                       (if LAYA-URL '("judge.typed") '())))
 (define ONCE? (member "--once" (vector->list (current-command-line-arguments))))
 
 ;; issue #93. Unset, this worker behaves exactly as before.
-(define READY-URL (env "TELEMACHUS_WORKER_READY_URL"))
+(define READY-URL (tmach-env "WORKER_READY_URL"))
 ;; An unparseable or non-positive interval falls back to the default, never to
 ;; 0 — a zero here would be a hot loop against the readiness endpoint, which is
 ;; the platform's own rule for every other interval knob (see
 ;; TELEMACHUS_MAX_JOB_SECONDS, TELEMACHUS_UPLOAD_REAP_HOURS).
 (define READY-INTERVAL
-  (let* ([raw (env "TELEMACHUS_WORKER_READY_INTERVAL")]
+  (let* ([raw (tmach-env "WORKER_READY_INTERVAL")]
          [n (and raw (string->number (string-trim raw)))])
     (if (and (real? n) (> n 0)) (inexact->exact (floor n)) 15)))
 ;; How long to wait after handing a job back for want of capacity. The SERVER
@@ -78,9 +82,9 @@
 ;; not spinning is.
 (define BUSY-BACKOFF 30)
 
-(unless TOKEN (eprintf "TELEMACHUS_WORKER_TOKEN is not set\n") (exit 2))
+(unless TOKEN (eprintf "TMACH_WORKER_TOKEN is not set\n") (exit 2))
 (when (null? KINDS)
-  (eprintf "set TELEMACHUS_WORKER_MODEL_URL (an OpenAI-compatible chat endpoint) and/or TELEMACHUS_WORKER_LAYA_URL (a loopback laya_serve.py)\n")
+  (eprintf "set TMACH_WORKER_MODEL_URL (an OpenAI-compatible chat endpoint) and/or TMACH_WORKER_LAYA_URL (a loopback laya_serve.py)\n")
   (exit 2))
 
 ;; The bearer is a BOX because a rotation replaces it mid-loop (issue #60), so
@@ -358,7 +362,7 @@
 ;; unparseable or non-positive value falls back to the default, never to 0 — the
 ;; platform's rule for every interval knob.
 (define TOKEN-CHECK
-  (let* ([raw (env "TELEMACHUS_WORKER_TOKEN_CHECK")]
+  (let* ([raw (tmach-env "WORKER_TOKEN_CHECK")]
          [n (and raw (string->number (string-trim raw)))])
     (if (and (real? n) (> n 0)) (inexact->exact (floor n)) 3600)))
 (define last-token-check (box 0))
@@ -409,7 +413,7 @@
         [TOKEN-FILE (rotate-token!)]
         [(not (unbox warned-no-file))
          (set-box! warned-no-file #t)
-         (eprintf (string-append "telemachus-worker: this token expires soon and TELEMACHUS_WORKER_TOKEN_FILE is not set, "
+         (eprintf (string-append "telemachus-worker: this token expires soon and TMACH_WORKER_TOKEN_FILE is not set, "
                                  "so this worker cannot keep a new one — set it, or have an operator run "
                                  "POST /api/executors/<id>/rotate-token and redeploy\n"))]
         [else (void)]))))

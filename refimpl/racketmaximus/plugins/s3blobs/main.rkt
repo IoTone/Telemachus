@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; s3blobs — the object-storage backing store for the document repository (#82).
 ;;
 ;; The same four procedures `plugins/rs3/` registers, over a bucket instead of a
@@ -61,40 +65,40 @@
         [(member (string-downcase v) '("0" "no" "false" "off")) #f]
         [else default]))
 
-(define (env-int name default)
-  (define n (string->number (or (env name) "")))
+(define (env-int v default)               ; the VALUE since #128 job 2
+  (define n (string->number (or v "")))
   (if (and (exact-integer? n) (> n 0)) n default))
 
 (define (s3-blob-config)
-  (define sse (string-downcase (or (env "TELEMACHUS_S3_BLOB_SSE") "kms")))
+  (define sse (string-downcase (or (tmach-env "S3_BLOB_SSE") "kms")))
   (unless (member sse '("kms" "s3" "none"))
-    (error 's3blobs "TELEMACHUS_S3_BLOB_SSE must be kms, s3 or none — got ~s" sse))
+    (error 's3blobs "TMACH_S3_BLOB_SSE must be kms, s3 or none — got ~s" sse))
   (s3-config
-   (or (env "TELEMACHUS_S3_BLOB_ENDPOINT")
-       (error 's3blobs "TELEMACHUS_S3_BLOB_ENDPOINT is required (http(s)://host[:port])"))
-   (or (env "TELEMACHUS_S3_BLOB_BUCKET")
-       (error 's3blobs "TELEMACHUS_S3_BLOB_BUCKET is required"))
-   (or (env "TELEMACHUS_S3_BLOB_REGION") "us-east-1")
-   (or (env "TELEMACHUS_S3_BLOB_PREFIX") "blobs")
+   (or (tmach-env "S3_BLOB_ENDPOINT")
+       (error 's3blobs "TMACH_S3_BLOB_ENDPOINT is required (http(s)://host[:port])"))
+   (or (tmach-env "S3_BLOB_BUCKET")
+       (error 's3blobs "TMACH_S3_BLOB_BUCKET is required"))
+   (or (tmach-env "S3_BLOB_REGION") "us-east-1")
+   (or (tmach-env "S3_BLOB_PREFIX") "blobs")
    ;; The AWS_* names are accepted as a fallback because that is how most
    ;; deployments already inject credentials, and refusing to read them would
    ;; make an operator duplicate what their platform has set.
-   (or (env "TELEMACHUS_S3_BLOB_ACCESS_KEY") (env "AWS_ACCESS_KEY_ID")
-       (error 's3blobs "no access key: set TELEMACHUS_S3_BLOB_ACCESS_KEY or AWS_ACCESS_KEY_ID"))
-   (or (env "TELEMACHUS_S3_BLOB_SECRET_KEY") (env "AWS_SECRET_ACCESS_KEY")
-       (error 's3blobs "no secret key: set TELEMACHUS_S3_BLOB_SECRET_KEY or AWS_SECRET_ACCESS_KEY"))
+   (or (tmach-env "S3_BLOB_ACCESS_KEY") (env "AWS_ACCESS_KEY_ID")
+       (error 's3blobs "no access key: set TMACH_S3_BLOB_ACCESS_KEY or AWS_ACCESS_KEY_ID"))
+   (or (tmach-env "S3_BLOB_SECRET_KEY") (env "AWS_SECRET_ACCESS_KEY")
+       (error 's3blobs "no secret key: set TMACH_S3_BLOB_SECRET_KEY or AWS_SECRET_ACCESS_KEY"))
    sse
-   (env "TELEMACHUS_S3_BLOB_KMS_KEY_ID")
+   (tmach-env "S3_BLOB_KMS_KEY_ID")
    ;; Defaults to ON whenever encryption was asked for. An operator who sets
    ;; sse=none has said they want plaintext, and asserting a header they
    ;; deliberately turned off would refuse every write.
-   (env-bool "TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION" (not (string=? sse "none")))
+   (env-bool "TMACH_S3_BLOB_REQUIRE_ENCRYPTION" (not (string=? sse "none")))
    ;; Path-style by DEFAULT, unlike the AWS SDKs: MinIO and Ceph RGW are the
    ;; deployments this exists for and neither gets virtual-host DNS for free,
    ;; while AWS still accepts path-style.
-   (env-bool "TELEMACHUS_S3_BLOB_PATH_STYLE" #t)
-   (env-int "TELEMACHUS_S3_BLOB_RETRIES" 3)
-   (env-int "TELEMACHUS_S3_BLOB_TIMEOUT" 120)))
+   (env-bool "TMACH_S3_BLOB_PATH_STYLE" #t)
+   (env-int (tmach-env "S3_BLOB_RETRIES") 3)
+   (env-int (tmach-env "S3_BLOB_TIMEOUT") 120)))
 
 ;; <prefix>/<org>/<digest>. The digest reached us through blobs.rkt's whitelist
 ;; (exactly 64 lowercase hex), which is what stands between a corrupt database row

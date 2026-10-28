@@ -90,7 +90,7 @@
   ;; KG-7: bulk work goes to the team's `utility` executor when one is set
   (define ex (current-utility-executor))
   (unless (or ex (model-configured?))
-    (error 'doc-tools "no model configured — set TELEMACHUS_MODEL_URL, or a utility executor in Model roles"))
+    (error 'doc-tools "no model configured — set TMACH_MODEL_URL, or a utility executor in Model roles"))
   (run-chat prompt #:system sys #:temperature 0 #:executor ex))
 
 (define current-doc-chat (make-parameter default-chat))

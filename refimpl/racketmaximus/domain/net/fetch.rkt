@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/net/fetch.rkt — the ONE outbound HTTP request (#142).
 ;;
 ;; Everything this platform has fetched until now went to an endpoint the
@@ -99,7 +103,7 @@
 ;; a parse against a request that is about to cross the network, and a cache
 ;; keyed on nothing is how a test that sets the variable stops working.
 (define (egress-allowlist)
-  (parse-cidr-list (getenv "TELEMACHUS_EGRESS_ALLOW")))
+  (parse-cidr-list (tmach-env "EGRESS_ALLOW")))
 
 ;; ---- the request ----------------------------------------------------------------
 ;; -> (values status headers body-bytes)

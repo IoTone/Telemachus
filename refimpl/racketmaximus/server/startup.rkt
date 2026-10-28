@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; server/startup.rkt — the checks an instance runs before it serves (issue #89).
 ;;
 ;; A container is handed its whole configuration as environment variables by
@@ -56,7 +60,7 @@
 (struct startup-problem (severity key message) #:transparent)
 
 (define (strict-startup?)
-  (and (member (or (getenv "TELEMACHUS_STRICT_STARTUP") "") '("1" "true" "yes" "on")) #t))
+  (and (member (or (tmach-env "STRICT_STARTUP") "") '("1" "true" "yes" "on")) #t))
 
 ;; Is the address we BIND to one only this host can reach? 0.0.0.0 is NOT
 ;; loopback — it is every interface, which is the whole case the TLS check
@@ -91,8 +95,8 @@
     (startup-problem 'error 'blob-store
                      (string-append
                       (apply format fmt args)
-                      "\n  Documents could not be stored. Point TELEMACHUS_DATA_DIR"
-                      "\n  (or TELEMACHUS_RS3_ROOT) at a writable directory, and on a"
+                      "\n  Documents could not be stored. Point TMACH_DATA_DIR"
+                      "\n  (or TMACH_RS3_ROOT) at a writable directory, and on a"
                       "\n  read-only root filesystem make sure it is a mounted volume.")))
   (with-handlers ([exn:fail? (lambda (e) (problem "blob store root ~a is not usable: ~a"
                                                   root (exn-message e)))])
@@ -232,14 +236,14 @@
      (and (content-encryption-enabled?) (not secrets?)
           (startup-problem 'error 'encrypt-without-key
                            (string-append
-                            "TELEMACHUS_ENCRYPT_CONTENT is on but there is no TELEMACHUS_SECRET_KEY."
+                            "TMACH_ENCRYPT_CONTENT is on but there is no TMACH_SECRET_KEY."
                             "\n  Derived document content would be written in PLAINTEXT anyway — a"
                             "\n  wrap with no key passes the value through, so the switch would do"
                             "\n  nothing while reporting success. Set a key, or unset the switch.")))
      (and (not secrets?)
           (startup-problem advisory 'no-secret-key
                            (string-append
-                            "no TELEMACHUS_SECRET_KEY — stored secrets (TOTP seeds, S3 and"
+                            "no TMACH_SECRET_KEY — stored secrets (TOTP seeds, S3 and"
                             "\n  executor keys) are written in PLAINTEXT. A dump, a replica or a"
                             "\n  volume snapshot of this database is replayable. This is a supported"
                             "\n  position (the trusted-database one); set a key to seal them, and see"
@@ -249,7 +253,7 @@
                            (format (string-append
                                     "serving PLAINTEXT HTTP on ~a, which is not loopback — tokens and"
                                     "\n  document bytes cross the network in the clear. Terminate TLS in"
-                                    "\n  front of this instance and set TELEMACHUS_TLS=1 so HSTS is sent,"
+                                    "\n  front of this instance and set TMACH_TLS=1 so HSTS is sent,"
                                     "\n  or bind to 127.0.0.1 and reach it through a proxy. Safe to ignore"
                                     "\n  only if the network itself is private (a tailnet, a pod network).")
                                    bind-ip)))))
@@ -276,6 +280,6 @@
      (when (pair? problems)
        (fprintf out
                 (string-append
-                 "\n  (Set TELEMACHUS_STRICT_STARTUP=1 to make the warnings above refuse"
+                 "\n  (Set TMACH_STRICT_STARTUP=1 to make the warnings above refuse"
                  "\n   to start instead — recommended for an unattended deployment.)\n\n")))
      #t]))

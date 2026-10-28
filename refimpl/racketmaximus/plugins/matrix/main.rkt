@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; plugins/matrix/main.rkt — notify a team in a Matrix room (issue #133).
 ;;
 ;; "We find matrix to be useful for sending notifications to teams securely.
@@ -64,8 +68,8 @@
 
 ;; ---- the operator's half -------------------------------------------------------------
 (define (env n) (let ([v (getenv n)]) (and v (not (string=? (string-trim v) "")) (string-trim v))))
-(define (matrix-homeserver) (env "TELEMACHUS_MATRIX_HOMESERVER"))
-(define (matrix-token) (env "TELEMACHUS_MATRIX_TOKEN"))
+(define (matrix-homeserver) (tmach-env "MATRIX_HOMESERVER"))
+(define (matrix-token) (tmach-env "MATRIX_TOKEN"))
 (define (matrix-configured?) (and (matrix-homeserver) (matrix-token) #t))
 (define MATRIX-TIMEOUT 15)
 (define MATRIX-KIND "x.matrix.notify")
@@ -408,7 +412,7 @@
   (unless room (raise-user-error 'matrix "no such room subscription"))
   (unless (matrix-configured?)
     (raise-user-error 'matrix (string-append "no Matrix homeserver is configured on this instance: set "
-                                             "TELEMACHUS_MATRIX_HOMESERVER and TELEMACHUS_MATRIX_TOKEN")))
+                                             "TMACH_MATRIX_HOMESERVER and TMACH_MATRIX_TOKEN")))
   (define jid (enqueue-job! conn #:team (principal-team-id p) #:user (hash-ref room 'user_id)
                             #:kind MATRIX-KIND
                             #:payload (hasheq 'room (hash-ref room 'id)

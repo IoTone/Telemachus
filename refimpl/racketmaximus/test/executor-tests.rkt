@@ -7,7 +7,7 @@
 (require rackunit "../domain/ai/executor.rkt")
 
 (test-case "executor: simulated fallback when no model configured"
-  (check-false (model-configured?))                     ; TELEMACHUS_MODEL_URL unset in tests
+  (check-false (model-configured?))                     ; TMACH_MODEL_URL unset in tests
   (define-values (reply tokens) (run-chat "hello world"))
   (check-equal? reply "HELLO WORLD")
   (check-true (> tokens 0)))

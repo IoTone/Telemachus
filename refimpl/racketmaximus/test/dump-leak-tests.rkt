@@ -160,9 +160,9 @@
 (test-case "ACCEPTANCE: with encryption on, no column anywhere holds the fixture text"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\e)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\e)
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
+      (with-env "TMACH_ENCRYPT_CONTENT" "1"
         (lambda ()
           (define-values (oid j) (do-work! c uid tid))
           (define hits (scan-for c NEEDLE))
@@ -190,9 +190,9 @@
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))
   (define p (user-principal c uid tid))
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\f)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\f)
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
+      (with-env "TMACH_ENCRYPT_CONTENT" "1"
         (lambda ()
           (define rid (run-a-workflow! c p))
           ;; FUNCTIONAL FIRST: the engine must still work with every binding
@@ -309,9 +309,9 @@
   ;; #19's documented "trusted database" position — no key means plaintext
   ;; everywhere — and here it is what proves the scanner can SEE this column. The
   ;; acceptance case below is worthless without it.
-  (with-env "TELEMACHUS_SECRET_KEY" ""
+  (with-env "TMACH_SECRET_KEY" ""
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" ""
+      (with-env "TMACH_ENCRYPT_CONTENT" ""
         (lambda ()
           (define c (fresh))
           (define-values (uid tid) (bootstrap! c #:username "alice"))
@@ -326,9 +326,9 @@
                       (format "the scanner must find an unsealed map; it found ~a" hits)))))))
 
 (test-case "ACCEPTANCE (#91): a key alone seals the map, with the content switch OFF"
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\b)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\b)
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" ""
+      (with-env "TMACH_ENCRYPT_CONTENT" ""
         (lambda ()
           (define c (fresh))
           (define-values (uid tid) (bootstrap! c #:username "alice"))
@@ -371,9 +371,9 @@
                #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))))
 
 (test-case "ACCEPTANCE (#91 req 3): a model request is recorded and no column of it holds the prompt"
-  (with-env "TELEMACHUS_SECRET_KEY" ""
+  (with-env "TMACH_SECRET_KEY" ""
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" ""
+      (with-env "TMACH_ENCRYPT_CONTENT" ""
         (lambda ()
           (define c (fresh))
           (define-values (uid tid) (bootstrap! c #:username "alice"))
@@ -412,9 +412,9 @@
   ;; to a third party.
   (define out (open-output-string))
   (define err (open-output-string))
-  (with-env "TELEMACHUS_SECRET_KEY" (make-string 64 #\a)
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
     (lambda ()
-      (with-env "TELEMACHUS_ENCRYPT_CONTENT" "1"
+      (with-env "TMACH_ENCRYPT_CONTENT" "1"
         (lambda ()
           (parameterize ([current-output-port out] [current-error-port err])
             (define-values (j rid) (failing-work! c uid tid))

@@ -9,7 +9,7 @@
 #   curl -XPOST localhost:8835/api/bootstrap \
 #        -H 'X-Telemachus-Bootstrap: compose-evaluation-bootstrap' \
 #        -d '{"username":"ops","password":"pw-pw-pw1"}'
-#   # (the header is why TELEMACHUS_BOOTSTRAP_SECRET is set below — bootstrap is
+#   # (the header is why TMACH_BOOTSTRAP_SECRET is set below — bootstrap is
 #   #  loopback-only, and from your shell the container is not loopback)
 #
 # This is for EVALUATION. Three things make it unsuitable as-is for production,
@@ -17,7 +17,7 @@
 # terminates in front of the app, and there is no backup of the `data` volume.
 #
 # On object storage: issue #82 has LANDED, so document bytes can live in a bucket
-# (`TELEMACHUS_BLOB_STORE=s3`) rather than on the data volume. There is still no
+# (`TMACH_BLOB_STORE=s3`) rather than on the data volume. There is still no
 # bucket service in this file, and the reason has changed — it is no longer
 # "nothing would talk to it":
 #
@@ -39,12 +39,12 @@
 #     ports: ["4566:4566"]
 #
 # …and on the app:
-#   TELEMACHUS_BLOB_STORE: s3
-#   TELEMACHUS_S3_BLOB_ENDPOINT: http://s3:4566
-#   TELEMACHUS_S3_BLOB_BUCKET: telemachus     # create it first; nothing here does
-#   TELEMACHUS_S3_BLOB_ACCESS_KEY: test
-#   TELEMACHUS_S3_BLOB_SECRET_KEY: test
-#   TELEMACHUS_S3_BLOB_SSE: s3
+#   TMACH_BLOB_STORE: s3
+#   TMACH_S3_BLOB_ENDPOINT: http://s3:4566
+#   TMACH_S3_BLOB_BUCKET: telemachus     # create it first; nothing here does
+#   TMACH_S3_BLOB_ACCESS_KEY: test
+#   TMACH_S3_BLOB_SECRET_KEY: test
+#   TMACH_S3_BLOB_SSE: s3
 #
 # The default remains the local `rs3` store, which needs no second service and is
 # the right default for an evaluation.
@@ -75,7 +75,7 @@ services:
   # `racket` on PATH (see nix/container.nix), so it cannot host the repo's own
   # test/mock-llm.rkt. A four-line stub in a stock image is honest about being a
   # stub. To use a real model instead, delete this service and point
-  # TELEMACHUS_MODEL_URL at e.g. http://host.docker.internal:11434/v1/chat/completions.
+  # TMACH_MODEL_URL at e.g. http://host.docker.internal:11434/v1/chat/completions.
   model-stub:
     image: python:3.12-alpine
     command:
@@ -115,35 +115,35 @@ services:
       # app, and the configuration-reference gate scans for that prefix.
       - "${HOST_PORT:-8835}:8835"
       # The S3 front door. Commented out because it is off unless
-      # TELEMACHUS_S3_PORT is set below — surface area should be asked for.
+      # TMACH_S3_PORT is set below — surface area should be asked for.
       # - "8836:8836"
     environment:
       DATABASE_URL: postgres://telemachus:telemachus@postgres:5432/telemachus
-      # The image already sets TELEMACHUS_BIND=0.0.0.0, PORT, HOME and
-      # TELEMACHUS_DATA_DIR; everything here is a deployment's own choice.
-      TELEMACHUS_MODEL_URL: http://model-stub:8900/v1/chat/completions
-      TELEMACHUS_MODEL: mock
+      # The image already sets TMACH_BIND=0.0.0.0, PORT, HOME and
+      # TMACH_DATA_DIR; everything here is a deployment's own choice.
+      TMACH_MODEL_URL: http://model-stub:8900/v1/chat/completions
+      TMACH_MODEL: mock
       # Seals TOTP seeds and S3/executor keys at rest. 64 hex = the key itself.
       # EVALUATION ONLY — generate your own with `telemachus-secrets keygen`.
-      TELEMACHUS_SECRET_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-      TELEMACHUS_SECRET: compose-evaluation-secret
+      TMACH_SECRET_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      TMACH_SECRET: compose-evaluation-secret
       # POST /api/bootstrap is LOOPBACK-ONLY (issue #40): a fresh instance on a
       # network otherwise belongs to whoever calls first. From your shell the
       # container sees the bridge gateway, not loopback, so without this the
       # documented first step — bootstrapping the first operator — is refused.
       # EVALUATION ONLY: in production leave it unset and bootstrap over an SSH
       # tunnel or `docker exec`, or set a real secret.
-      TELEMACHUS_BOOTSTRAP_SECRET: compose-evaluation-bootstrap
+      TMACH_BOOTSTRAP_SECRET: compose-evaluation-bootstrap
       # Refuse to start on anything the startup checks consider wrong. Left ON
       # here because this file supplies a secret key — the remaining advisory
       # check is "plaintext HTTP on a non-loopback bind", and inside a compose
       # network that is the intended posture, so it is waived with TLS below.
-      # TELEMACHUS_STRICT_STARTUP: "1"
+      # TMACH_STRICT_STARTUP: "1"
       #
       # NO TLS TERMINATES HERE. For production put a reverse proxy in front and
-      # set TELEMACHUS_TLS=1 so HSTS is sent, or terminate in the proxy and bind
+      # set TMACH_TLS=1 so HSTS is sent, or terminate in the proxy and bind
       # this service to the internal network only.
-      TELEMACHUS_DRAIN_SECONDS: "25"
+      TMACH_DRAIN_SECONDS: "25"
     # The image is built to run this way: nothing is written outside /data.
     read_only: true
     # /tmp is not in the image. Request bodies and the PDF toolchain need it, and
@@ -151,12 +151,12 @@ services:
     tmpfs:
       - /tmp
     volumes:
-      # Blobs, and the generated TLS cert if TELEMACHUS_TLS is turned on.
+      # Blobs, and the generated TLS cert if TMACH_TLS is turned on.
       # NOT BACKED UP by anything here: document bytes live in this volume when
-      # TELEMACHUS_BLOB_STORE is the default `rs3`, so back it up alongside the
+      # TMACH_BLOB_STORE is the default `rs3`, so back it up alongside the
       # database or the two will disagree after a restore.
       - data:/data
-    # Must be at least TELEMACHUS_DRAIN_SECONDS, or the drain is SIGKILLed
+    # Must be at least TMACH_DRAIN_SECONDS, or the drain is SIGKILLed
     # halfway — which is worse than not draining, because jobs are then left
     # `running` until their lease expires. `docker stop` allows only 10s by
     # default, which is why this is spelled out.

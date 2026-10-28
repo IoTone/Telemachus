@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/authz/passwords.rkt — password hashing + TOTP, with a pluggable KDF.
 ;;
 ;; Backends (auto-selected, hashes are versioned so they interoperate):
@@ -41,7 +45,7 @@
   #f)
 
 (define DEFAULT-ITERS
-  (or (let ([v (getenv "TELEMACHUS_PBKDF2_ITERS")]) (and v (string->number v))) 100000))
+  (or (let ([v (tmach-env "PBKDF2_ITERS")]) (and v (string->number v))) 100000))
 (define DKLEN 20)
 
 ;; ---- PBKDF2-HMAC-SHA1 backend ----------------------------------------------
@@ -79,7 +83,7 @@
              (pwhash-verify #f #"self-test" h)
              (list pwhash pwhash-verify libcrypto-factory crypto-factories))))))
 
-(define (argon2-disabled?) (equal? (getenv "TELEMACHUS_KDF") "pbkdf2"))
+(define (argon2-disabled?) (equal? (tmach-env "KDF") "pbkdf2"))
 (define (argon2-active?) (and (not (argon2-disabled?)) (force argon2-backend) #t))
 
 (define (argon2-hash pw)

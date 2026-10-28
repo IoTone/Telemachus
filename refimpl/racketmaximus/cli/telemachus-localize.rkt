@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; cli/telemachus-localize.rkt — the localization CLI + CI gate.
 ;;
 ;;   telemachus-localize extract <surface…>        [--locales DIR]
@@ -40,7 +44,7 @@
       [else (loop (cdr xs) (cons (car xs) pos) opts)])))
 
 (define (locales-dir opts)
-  (hash-ref opts 'locales (or (getenv "TELEMACHUS_LOCALES") "locales")))
+  (hash-ref opts 'locales (or (tmach-env "LOCALES") "locales")))
 
 ;; scan surface paths → (values en-base-catalog violations)
 (define (scan surface)

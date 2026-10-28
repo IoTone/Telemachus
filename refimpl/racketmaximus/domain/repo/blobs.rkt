@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/repo/blobs.rkt — the content-addressed blob store seam (DOC-5).
 ;;
 ;; A blob store is four procedures over (namespace, digest). It is handed a digest
@@ -56,7 +60,7 @@
   (when (and (not (eq? owner 'none)) (not (equal? owner pid)))
     (error 'register-blob-store!
            (string-append "blob store ~s is already registered by ~a, so ~a cannot claim it. "
-                          "Pick another name and select it with TELEMACHUS_BLOB_STORE.")
+                          "Pick another name and select it with TMACH_BLOB_STORE.")
            name (or owner "the platform") (or pid "the platform")))
   (set-box! *store-owners* (hash-set (unbox *store-owners*) name pid))
   (set-box! *stores* (hash-set (unbox *stores*) name store)))
@@ -70,7 +74,7 @@
 (define (blob-store-names) (sort (hash-keys (unbox *stores*)) string<?))
 
 (define (active-blob-store-name)
-  (define want (let ([v (getenv "TELEMACHUS_BLOB_STORE")]) (and v (not (string=? v "")) v)))
+  (define want (let ([v (tmach-env "BLOB_STORE")]) (and v (not (string=? v "")) v)))
   (define ps (unbox *stores*))
   (cond [(and want (hash-ref ps want #f)) want]
         [(hash-ref ps "rs3" #f) "rs3"]

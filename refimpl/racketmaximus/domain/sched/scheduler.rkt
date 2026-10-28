@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../../config.rkt" tmach-env))
+
 ;; domain/sched/scheduler.rkt — the async AI workload scheduler (slice 27).
 ;;
 ;; Submit a unit of work (a "job") and let a bounded worker pool run it later,
@@ -427,7 +431,7 @@
 ;; every job the instant it started.
 (define MAX-JOB-SECONDS-DEFAULT 1800)
 (define (max-job-seconds)
-  (define v (getenv "TELEMACHUS_MAX_JOB_SECONDS"))
+  (define v (tmach-env "MAX_JOB_SECONDS"))
   (define t (and v (string-trim v)))
   (cond
     [(and t (string-ci=? t "never")) #f]
@@ -517,7 +521,7 @@
                       LIVE-IN " AND claim_token = ?")
        (seal-error id
          (~a "exceeded the instance's maximum job run time ("
-             "TELEMACHUS_MAX_JOB_SECONDS=" (or (max-job-seconds) "never") ")"))
+             "TMACH_MAX_JOB_SECONDS=" (or (max-job-seconds) "never") ")"))
        id token)
      'timed-out]
     [else
@@ -691,7 +695,7 @@
 ;; "graceful" path identical to a kill.
 (define DEFAULT-DRAIN-SECONDS 25)
 (define (drain-seconds)
-  (define raw (getenv "TELEMACHUS_DRAIN_SECONDS"))
+  (define raw (tmach-env "DRAIN_SECONDS"))
   (define n (and raw (string->number (string-trim raw))))
   (cond [(and (real? n) (> n 0)) (inexact->exact (floor n))]
         [(and raw (member (string-downcase (string-trim raw)) '("never" "0"))) 0]

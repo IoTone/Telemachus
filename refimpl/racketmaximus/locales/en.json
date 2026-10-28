@@ -664,8 +664,8 @@
       "hash": "2e9e3a1c65607294e84f75aaf0e451cbe24dd34c"
     },
     "doc.route.post.api.workers.jobs.id.derive": {
-      "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TELEMACHUS_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
-      "hash": "e4bb9f9f29173beda9f6c6d65a5a077825f91b5c"
+      "text": "Write a document DERIVED from one THIS job names (issue #62): {source, key, bytes_b64, claim_token, content_type?, filename?}. The write counterpart of the read above, under the same three conditions — the caller holds this attempt, `source` appears in the job's own payload, and the write happens as the job's user, so files:write, the storage quotas and the org gate all apply. The output takes the source's visibility and then its grants, is marked derived so an opted-in trigger cannot fire on a worker's own output, and is capped at TMACH_MAX_UPLOAD: a worker is not a way past the front door's ceiling. There is deliberately no standalone put — an output anchored to nothing would make the worker token a key to the team's repository.",
+      "hash": "8ee5e319cdcdfac6c8c0917743484a7380901f26"
     },
     "ui.started": {
       "text": "Started",
@@ -1028,8 +1028,8 @@
       "hash": "2c46f3380d93d3e842b6c8bfd3d579e611841d94"
     },
     "doc.route.post.api.login": {
-      "text": "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. Attempts are throttled per address and per account with a growing delay (429 and `Retry-After`), every attempt is audited as `user.login`, and an account may be locked outright when the operator sets TELEMACHUS_LOGIN_LOCK_FAILURES (423, cleared by an operator password reset).",
-      "hash": "adc7eea2f8c26585c02629375a0bab24d243421c"
+      "text": "Sign in with username and password (and a TOTP code when 2FA is enabled). Returns a bearer token. Attempts are throttled per address and per account with a growing delay (429 and `Retry-After`), every attempt is audited as `user.login`, and an account may be locked outright when the operator sets TMACH_LOGIN_LOCK_FAILURES (423, cleared by an operator password reset).",
+      "hash": "701de5a59e549a5905d29ff030ef058b9b5070ee"
     },
     "doc.plugin.knowledge-graph": {
       "text": "A workflow that extracts entities and relations from the team's indexed documents into the knowledge graph, every fact traceable to the document and version it came from. Re-run it any time; it only touches what changed.",
@@ -1584,8 +1584,8 @@
       "hash": "c3ed5753cea882d8ebba13447927ef2d101ab9cd"
     },
     "doc.route.get.": {
-      "text": "The console (or the beta funnel when TELEMACHUS_HOME=beta). The HTML title is rewritten from instance branding.",
-      "hash": "f0005618dfc54747edeb17e48ae0fcfd56c23355"
+      "text": "The console (or the beta funnel when TMACH_HOME=beta). The HTML title is rewritten from instance branding.",
+      "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
     },
     "doc.tool.doc_list_unclassified.prefix": {
       "text": "Only documents whose key starts with this (default: every document in the team)",
@@ -1900,8 +1900,8 @@
       "hash": "bce06414177f72ab70e6387b6af9f8ceef0d6049"
     },
     "doc.route.post.api.admin.anchor.emit": {
-      "text": "Emit an anchor receipt now: seal the audit chain, read both chains' heads (the review chain per team, the audit chain per org) and sign the measurement with TELEMACHUS_ANCHOR_KEY. 400 when no anchor key is configured. Two concurrent emissions are refused by the sequence's unique index rather than retried — a forked series could not be told from a forgery.",
-      "hash": "6bf79d437077eccbd46d7b9c9361d83d513117a2"
+      "text": "Emit an anchor receipt now: seal the audit chain, read both chains' heads (the review chain per team, the audit chain per org) and sign the measurement with TMACH_ANCHOR_KEY. 400 when no anchor key is configured. Two concurrent emissions are refused by the sequence's unique index rather than retried — a forked series could not be told from a forgery.",
+      "hash": "dc5ac13298a900047e4782224f363413ae5a5f14"
     },
     "doc.route.delete.api.documents.id": {
       "text": "Delete a text document.",
@@ -2280,8 +2280,8 @@
       "hash": "7138c15c403d14dc29ff02593fa0f27f089cd859"
     },
     "doc.route.post.api.workers.jobs.id.document": {
-      "text": "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TELEMACHUS_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.",
-      "hash": "8fe2695a70c21864bd58de5827005ddcaed241f1"
+      "text": "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TMACH_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.",
+      "hash": "91b96f7bd40f890633de373ba45dffd1433509c2"
     },
     "doc.route.get.beta.template": {
       "text": "The Tier-C sandboxed HTML template, localized by the experience overlay.",
@@ -3128,8 +3128,8 @@
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
     },
     "doc.route.post.api.ai.chat": {
-      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TELEMACHUS_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. `redact: true` (with `redact_detectors` / `redact_terms`, #91 req 2) builds the request from REDACTED text — identifiers replaced with stable tokens — and puts the values back before the reply is returned; `redaction` on the response says which detectors ran. It takes a STRING prompt: a content-parts prompt may carry an image no detector can read, so that combination is a 400.",
-      "hash": "f9ebe8564b74c3055904eeca8f049f78429bd0ef"
+      "text": "One model turn. `prompt` is a string or a list of content parts; `response_format` ({type: text|json_object|json_schema}) rides to the model and the reply is refused if it does not honour it. Quota-admitted (ai.requests, ai.tokens.total), governed by the team's ai.concurrency. Routing to a named executor needs instance:manage. `simulated: true` on the response means NO model answered: TMACH_MODEL_URL is unset and the reply is a deterministic echo of the prompt. The key is absent on a real call. `redact: true` (with `redact_detectors` / `redact_terms`, #91 req 2) builds the request from REDACTED text — identifiers replaced with stable tokens — and puts the values back before the reply is returned; `redaction` on the response says which detectors ran. It takes a STRING prompt: a content-parts prompt may carry an image no detector can read, so that combination is a 400.",
+      "hash": "f84ae49f3b973022cea10a7a98308c97d93ac913"
     },
     "doc.tool.feed_propose.step": {
       "text": "The workflow step id, for provenance",

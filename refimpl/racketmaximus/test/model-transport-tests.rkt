@@ -1,5 +1,9 @@
 #lang racket/base
 
+;; #128 job 2: operator-facing variables are read through ONE accessor,
+;; which tries TMACH_<name> and falls back to TELEMACHUS_<name>.
+(require (only-in "../config.rkt" tmach-env))
+
 ;; test/model-transport-tests.rkt — the transport under every model call: a
 ;; deadline, a bounded retry, and an idle timeout on a stream.
 ;;
@@ -155,11 +159,11 @@
   (check-equal? (model-timeout) 120)
   (check-equal? (model-idle-timeout) 60)
   (check-equal? (model-retries) 1)
-  (define old (getenv "TELEMACHUS_MODEL_TIMEOUT"))
-  (putenv "TELEMACHUS_MODEL_TIMEOUT" "7")
+  (define old (tmach-env "MODEL_TIMEOUT"))
+  (putenv "TMACH_MODEL_TIMEOUT" "7")
   (check-equal? (model-timeout) 7)
-  (putenv "TELEMACHUS_MODEL_TIMEOUT" "nonsense")
+  (putenv "TMACH_MODEL_TIMEOUT" "nonsense")
   (check-equal? (model-timeout) 120 "an unparseable value falls back to the default, never to 0")
-  (putenv "TELEMACHUS_MODEL_TIMEOUT" "0")
+  (putenv "TMACH_MODEL_TIMEOUT" "0")
   (check-equal? (model-timeout) 120 "zero would mean every call times out instantly")
-  (void (if old (putenv "TELEMACHUS_MODEL_TIMEOUT" old) (putenv "TELEMACHUS_MODEL_TIMEOUT" ""))))
+  (void (if old (putenv "TMACH_MODEL_TIMEOUT" old) (putenv "TMACH_MODEL_TIMEOUT" ""))))
