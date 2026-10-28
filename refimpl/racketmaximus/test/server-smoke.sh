@@ -171,6 +171,22 @@ assert "login new pw"    "$NEWLOGIN" '"token":"tk_'
 OP=$(printf '%s' "$NEWLOGIN" | grep -oP '"token":\s*"\K[^"]+')
 assert "old pw rejected" "$(curl -s -X POST $B/api/login -d '{"username":"alice","password":"s3cret"}')" 'Authentication required'
 assert "whoami operator" "$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")" '"is_operator":true'
+
+# which build is this? Two instances a day apart were identical on screen, and
+# nothing in the product said which code it was running. The console footer
+# reads this; a monitoring credential reads the same record on admin/status.
+WHO=$(curl -s $B/api/whoami -H "Authorization: Bearer $OP")
+assert "whoami carries the build"       "$WHO" '"build":'
+assert "…with the version"              "$WHO" '"version":"'
+assert "…the commit"                    "$WHO" '"commit":"'
+assert "…its short form"                "$WHO" '"commit_short":"'
+assert "…the boot time"                 "$WHO" '"started":'
+assert "…and where the source is"       "$WHO" '"source":"https://github.com/IoTone/Telemachus"'
+# issue #11: the version is for somebody who has signed in. /health is the
+# public front door and must go on saying nothing about the build.
+refute "health does not name the build" "$(curl -s $B/health)" 'version'
+refute "…nor the commit"                "$(curl -s $B/health)" 'commit'
+assert "the monitoring read has it too" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"commit_short":"'
 assert "admin operator"  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
 assert "admin status carries the version now" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"kdf":"'
 MB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')

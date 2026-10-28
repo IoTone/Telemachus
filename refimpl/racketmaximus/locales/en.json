@@ -739,6 +739,10 @@
       "text": "Turn a feature off for the whole instance; no org or team can turn it back on.",
       "hash": "3fd2086209d81528b5888e710a6801d66f40d345"
     },
+    "ui.buildsource": {
+      "text": "Source",
+      "hash": "6da13addb000b67d42a6d66391713819e634149f"
+    },
     "ui.apitokens": {
       "text": "API tokens",
       "hash": "c82c659fec74e0798871f55b1aa99fe92d3c8f84"
@@ -1799,6 +1803,10 @@
       "text": "Workflow",
       "hash": "d7a484140f5f9f7f5427e1f2c44dbfc1d3ad9eea"
     },
+    "ui.buildstarted": {
+      "text": "started",
+      "hash": "da7153ee73f1131089a979c73ad72c9c7725d658"
+    },
     "ui.open": {
       "text": "Open",
       "hash": "cf9b77061f7b3126b49d50a6fa68f7ca8c26b7a3"
@@ -2082,6 +2090,10 @@
     "doc.route.put.api.documents.id": {
       "text": "Update a text document's title, body or visibility (a new version).",
       "hash": "3fe2ff530ad25f0415478ddb3b6cf245d43a2000"
+    },
+    "ui.builddev": {
+      "text": "unreleased build",
+      "hash": "26c708905abec8bfa87bd642b1a3f9b04db8ffc7"
     },
     "doc.route.post.api.reviews.id.decide": {
       "text": "Decide a review: {verdict: approve|revise|reject, rationale, answers}. A rationale is required for revise and reject; a four-eyes review refuses the author. The run it parked resumes down the branch the verdict names.",

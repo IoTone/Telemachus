@@ -5447,6 +5447,62 @@ race. What makes the race uninteresting is the no-`await` rule above, which has
 its own case. All four were positive-controlled — remove the guard, drop the
 `finally`, let Shift+Enter send, or unwire the textarea, and a named case fails.
 
+## Which build is this? (the version footer)
+
+Reported from outside, and the report was a person looking at a deployment and
+concluding it had not taken. It had: **two instances of this platform were
+running on one box** — the demo on `:8835` at the merge of #194, and a
+validation lab on `:8845` still serving the previous day's code — and the only
+way to tell them apart was to read `/proc/<pid>/environ` over SSH. The screens
+are identical.
+
+```sh
+raco test test/build-identity-tests.rkt   # 6 cases, no server and no subprocess
+raco test test/console-tests.rkt          # 10 cases; the footer is the last one
+bash test/server-smoke.sh                 # the build block, 9 assertions
+```
+
+- **`app-version` ALONE COULD NOT HAVE ANSWERED IT.** It is `"0.1.0"`,
+  hardcoded, and was `0.1.0` on both instances; it will stay `0.1.0` until
+  somebody bumps it. The COMMIT is the field that answers "is this the code I
+  just merged", which is why this is a build identity and not a version string.
+- **Resolved once, at instantiation, in three steps, and the last one is
+  `"dev"`.** `TMACH_BUILD_COMMIT` (what the packaging stamps) → `.git` in the
+  repo this file lives in → `"dev"`. **Never a guess**: a wrong commit is worse
+  than an absent one, because somebody will act on it.
+- **It does NOT shell out to `git`.** This runs at boot in a container that has
+  no git and no shell, and a subprocess on the startup path to answer a cosmetic
+  question is the wrong trade. HEAD is read, then the ref it names, then
+  **packed-refs** — a freshly cloned branch has no loose ref file, which is
+  exactly the state a deployment box is in, and a reader that stopped at the
+  loose ref would answer `dev` on every clean clone.
+- **A worktree's `.git` is a FILE** (`gitdir: …`), not a directory. Both shapes
+  are handled and both have a case.
+- **Dirty-or-clean is NOT reported**, because it cannot be known without reading
+  the whole working tree, and a commit that silently means "that commit plus
+  whatever was edited" is the half-truth this field exists to remove. The flake
+  passes `self.rev or "dev"` for the same reason: a dirty tree has `dirtyRev`,
+  and a build from it is not a revision anybody can check out.
+- **`app-commit` is computed at MODULE INSTANTIATION, so it must come after
+  `impl-root`** — a module body runs in order, and the first version of this sat
+  above it and died with "cannot reference an identifier before its definition".
+  The resolution is exported (`commit-from-git`) FOR the test, which is the only
+  way to reach logic that is fixed at instantiation (#110 r4's rule).
+- **THE VERSION IS FOR SOMEBODY WHO HAS SIGNED IN** (#11). Version, KDF and TLS
+  state were deliberately moved off the public `/health` because an exact
+  version is a shopping list; the footer therefore reads `GET /api/whoami`,
+  which is authenticated and already fetched on every render pass, and the
+  sign-in screen carries none. Both halves are asserted — the smoke `refute`s
+  `version` and `commit` on `/health`, and a console case checks `authView`
+  does not call the footer.
+- **An older server that does not send the field renders nothing**, rather than
+  a blank line or a guess.
+- The record rides on `admin/status` too, where a monitoring credential already
+  read the version (#124's `instance:read`).
+- **Not done, deliberately**: the beta funnel carries no footer. It is a public
+  marketing page, so it would get the product name and the source link and
+  never the version — which is a different decision about a different surface.
+
 ## Two answers the fleet could not give (#172, #187)
 
 Both were found by the #169 validation across two machines, and both are the

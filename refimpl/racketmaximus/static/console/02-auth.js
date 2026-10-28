@@ -91,7 +91,31 @@ function appShell(){
       <button class="btn ghost sm" data-h-click="${H((el,ev)=>logout())}">${t('logout')}</button>
     </header>
     <nav class="tabs">${tabs.map(x=>`<button data-tab="${x}" class="${S.tab===x?'active':''}" data-h-click="${H((el,ev)=>go((x)))}">${t(x)}</button>`).join('')}</nav>
-    <main class="wrap" id="main"></main>`;
+    <main class="wrap" id="main"></main>
+    ${buildFooter()}`;
+}
+// WHICH BUILD IS THIS? Two instances of this platform a day apart are identical
+// on screen, and the version alone would not have told them apart — it is
+// 0.1.0 on both. The COMMIT is the field that answers it, so it is the one
+// rendered in full on hover and short in the line.
+//
+// Signed-in only, by #11's rule: the version, the KDF and the TLS state were
+// deliberately moved off the public `/health` because an exact version is a
+// shopping list. `S.me.build` comes from whoami, which is authenticated and
+// already fetched on every render pass. An older server that does not send it
+// renders nothing rather than a blank or a guess.
+function buildFooter(){
+  const b = (S.me && S.me.build) || null;
+  if(!b) return '';
+  const started = b.started ? new Date(b.started*1000).toLocaleString() : '';
+  const commit = b.commit_short || '';
+  const dev = (b.commit === 'dev');
+  return `<footer class="build">
+    <span>${esc(S.brand.title||'TMach')} <span class="mono">${esc(b.version||'')}</span></span>
+    ${commit?`<span class="mono" title="${esc(b.commit)}${started?' \u00b7 '+esc(t('buildstarted'))+' '+esc(started):''}">${
+        dev ? esc(t('builddev')) : esc(commit)}</span>`:''}
+    ${b.source?`<a href="${esc(b.source)}" target="_blank" rel="noopener noreferrer">${t('buildsource')}</a>`:''}
+  </footer>`;
 }
 function go(tab){ S.tab=tab; S.newToken=null;
   if(tab!=='workflows'){ S.wfRun=null; S.wfSel=null; S.wfSpec=null; }   // leaving drops any run poll in flight

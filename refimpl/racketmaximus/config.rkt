@@ -9,7 +9,12 @@
          db-kit
          (only-in web-kit default-max-body-length))
 
-(provide app-version impl-root data-dir database-url call-with-app-db anchor-path
+(provide app-version app-commit app-build
+         ;; exported FOR test/build-identity-tests.rkt: the resolution is the only
+         ;; logic here, and `app-commit` is fixed at instantiation so a test
+         ;; cannot reach it any other way (#110 r4's rule).
+         commit-from-git
+         impl-root data-dir database-url call-with-app-db anchor-path
          max-upload-bytes content-encryption-enabled?
          ;; #128 job 2: the ONE place an operator-facing variable is read.
          tmach-env tmach-env-legacy-names legacy-env-warning)
@@ -76,6 +81,92 @@
 ;; so the anchor is this file's own directory.
 (define-runtime-path here ".")
 (define impl-root (simplify-path here))
+
+;; ---- which build is this? ------------------------------------------------------
+;; Two instances of this platform on one box, one of them a day behind, are
+;; INDISTINGUISHABLE ON SCREEN — which is what prompted this. `app-version` alone
+;; could not have told them apart either: it is `0.1.0` on both, and will be
+;; `0.1.0` on every instance for as long as nobody bumps it. The COMMIT is the
+;; field that answers "is this the code I just merged".
+;;
+;; Resolved once, at instantiation, in this order:
+;;
+;;   1. `TMACH_BUILD_COMMIT` — what the packaging stamps. `nix build` knows the
+;;      revision it built from and nothing else here can, because a Nix store
+;;      path has no `.git` beside it.
+;;   2. `.git` in the repo this file lives in — the case that matters in
+;;      practice, since the demo box and every developer run the server straight
+;;      out of a checkout. HEAD is read, then the ref it names, then
+;;      packed-refs (a freshly-cloned branch has no loose ref file).
+;;   3. `"dev"`. NEVER a guess: a wrong commit is worse than an absent one,
+;;      because somebody will act on it.
+;;
+;; It deliberately does NOT shell out to `git`. This runs at boot in a container
+;; that has no git, and a subprocess on the startup path to answer a cosmetic
+;; question is the wrong trade.
+;;
+;; "Dirty or clean" is NOT reported, because it cannot be known without reading
+;; the whole working tree, and a commit that silently means "that commit plus
+;; whatever was edited" is the kind of half-truth this field exists to remove.
+(define (read-first-line path)
+  (and (file-exists? path)
+       (with-handlers ([exn:fail? (lambda (_) #f)])
+         (call-with-input-file path
+           (lambda (in) (let ([l (read-line in 'any)]) (and (string? l) (string-trim l))))))))
+
+(define (commit-from-git root)
+  (define git-dir
+    (let ([d (build-path root ".git")])
+      (cond
+        ;; a worktree or a submodule has a FILE here, naming the real directory
+        [(file-exists? d)
+         (let ([l (read-first-line d)])
+           (and l (regexp-match #px"^gitdir: (.+)$" l)
+                (let ([p (cadr (regexp-match #px"^gitdir: (.+)$" l))])
+                  (and (directory-exists? p) (string->path p)))))]
+        [(directory-exists? d) d]
+        [else #f])))
+  (and git-dir
+       (let ([head (read-first-line (build-path git-dir "HEAD"))])
+         (cond
+           [(not head) #f]
+           ;; detached HEAD: the line IS the sha
+           [(regexp-match? #px"^[0-9a-f]{40}$" head) head]
+           [(regexp-match #px"^ref: (.+)$" head)
+            => (lambda (m)
+                 (define ref (cadr m))
+                 (or (read-first-line (build-path git-dir ref))
+                     ;; a ref that has never been written loosely lives in packed-refs
+                     (let ([pr (build-path git-dir "packed-refs")])
+                       (and (file-exists? pr)
+                            (with-handlers ([exn:fail? (lambda (_) #f)])
+                              (call-with-input-file pr
+                                (lambda (in)
+                                  (for/or ([l (in-lines in)])
+                                    (define m2 (regexp-match
+                                                (pregexp (string-append "^([0-9a-f]{40}) " (regexp-quote ref) "$")) l))
+                                    (and m2 (cadr m2))))))))))]
+           [else #f]))))
+
+;; The repo root is two directories above this file (<repo>/refimpl/racketmaximus).
+(define (repo-root) (simplify-path (build-path impl-root 'up 'up)))
+
+(define app-commit
+  (or (let ([v (tmach-env "BUILD_COMMIT")]) (and v (not (string=? v "")) (string-trim v)))
+      (with-handlers ([exn:fail? (lambda (_) #f)]) (commit-from-git (repo-root)))
+      "dev"))
+
+;; What a person is shown, and what a monitoring credential reads. `started` is
+;; here because "did it restart" is the other half of "which code is it running",
+;; and a boot time is the only field that answers it.
+(define app-started (current-seconds))
+(define (app-build)
+  (hasheq 'version app-version
+          'commit app-commit
+          'commit_short (if (> (string-length app-commit) 7) (substring app-commit 0 7) app-commit)
+          'started app-started
+          'source "https://github.com/IoTone/Telemachus"))
+
 
 ;; Resolve a possibly-relative path against `impl-root` rather than the process's
 ;; current directory.
