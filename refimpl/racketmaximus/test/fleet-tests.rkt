@@ -182,6 +182,51 @@
 ;; host. These are the assertions that draining is reversible, that it leaves the
 ;; worker visibly alive, and that it does not touch work already in flight.
 
+(test-case "#172: a host that says `paused` is not an answer to the queue either"
+  ;; Found by the #169 validation across two machines: with the only capable
+  ;; host reporting `paused` (its readiness endpoint answering 503), a job sat
+  ;; queued for 42 seconds while `unclaimable` read 0 — the one field that
+  ;; exists to say a queue is not going to move.
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex _t) (executor-create! c p #:name "gpu-1" #:model "m"))
+  ;; The worker declares itself while the queue is EMPTY. A claim takes work, so
+  ;; declaring after a job is enqueued would leave nothing queued to count —
+  ;; which is its own trap, and is what a first attempt at this case did.
+  (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b"))
+  (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                #:payload (hasheq 'messages '()) #:requirements (hasheq 'model "qwen2.5:7b"))
+  (define (q) (hash-ref (fleet-report c p) 'queue))
+  (define (n k) (hash-ref (hash-ref (q) k) 'count))
+
+  (check-equal? (n 'unclaimable) 0 "a ready host that matches: the queue can drain")
+  (check-equal? (n 'held_by_paused) 0 "…and nothing is standing down")
+
+  ;; PULL-11: the box itself says it is not taking work
+  (worker-report-state! c ex "paused")
+  (check-equal? (n 'held_by_paused) 1
+                "a machine that matches exists and has said it is not taking work")
+  (check-equal? (n 'unclaimable) 0
+                "…and it is NOT unclaimable: there is nothing to buy and nothing to fix")
+
+  ;; a job no host matches is unclaimable whatever the host is reporting — the
+  ;; capability question goes on being answered by capability alone
+  (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                #:payload (hasheq 'messages '()) #:requirements (hasheq 'model "llama-70b"))
+  (check-equal? (n 'unclaimable) 1 "the model nobody has is still nobody's")
+  (check-equal? (n 'held_by_paused) 1 "and the matching one is still merely standing down")
+  ;; the two figures partition the rows: a job is in one answer or the other
+  (check-equal? (+ (n 'unclaimable) (n 'held_by_paused))
+                (hash-ref (hash-ref (q) 'unclaimable) 'scanned)
+                "every scanned row got exactly one answer")
+
+  ;; coming back needs no operator and no sweep: the next claim says `ready`
+  (worker-report-state! c ex "ready")
+  (check-equal? (n 'held_by_paused) 0 "a host that resumes clears it by itself")
+  (check-equal? (n 'unclaimable) 1 "…and the unmatched job is untouched by any of this")
+  (disconnect c))
+
 (test-case "FLEET-3: a drained worker is offered nothing, stays alive, and comes back"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "root"))

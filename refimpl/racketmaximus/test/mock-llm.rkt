@@ -90,6 +90,24 @@
                                  'message (hasheq 'role "assistant"
                                                   'content "DONE — integration step complete.")))))
 
+;; STREAM mode: a request asking for `stream: true` gets the same scripted reply
+;; back as SSE deltas, word by word, in the shape the real adapter reads
+;; (`choices[0].delta.content`, then `[DONE]`). Added for #187: the streaming
+;; path had no end-to-end coverage anywhere, which is how a defect that exists
+;; ONLY on that path survived — the row it wrote was correct in every respect
+;; except the one a team-scoped read needs.
+(define (sse-chunk ev)
+  (string-append "data: " (jsexpr->string ev) "\n\n"))
+(define (stream-body reply)
+  (define (delta c) (sse-chunk (hasheq 'id "chatcmpl-mock" 'object "chat.completion.chunk" 'model "mock"
+                                       'choices (list (hasheq 'index 0 'delta (hasheq 'content c))))))
+  (string-append
+   (apply string-append (for/list ([w (in-list (string-split reply))]) (delta (string-append w " "))))
+   (sse-chunk (hasheq 'id "chatcmpl-mock" 'object "chat.completion.chunk" 'model "mock"
+                      'usage (hasheq 'prompt_tokens 10 'completion_tokens 5 'total_tokens 15)
+                      'choices (list (hasheq 'index 0 'delta (hasheq) 'finish_reason "stop"))))
+   "data: [DONE]\n\n"))
+
 (define (read-headers in)
   (let loop ([hs '()])
     (define l (read-line in 'return-linefeed))
@@ -115,15 +133,25 @@
     (define has-tool? (for/or ([m (in-list msgs)] #:when (hash? m))
                         (equal? (hash-ref m 'role #f) "tool")))
     (define offers-tools? (let ([t (hash-ref parsed 'tools '())]) (and (list? t) (pair? t))))
+    (define answer (cond [(and reply-file (not offers-tools?)) (chat-response parsed)]
+                         [has-tool? (final-response)]
+                         [else (tool-call-response)]))
+    (define wants-stream? (and (eq? (hash-ref parsed 'stream #f) #t) (not forced-status)))
     (define payload
-      (jsexpr->bytes (cond [(and reply-file (not offers-tools?)) (chat-response parsed)]
-                           [has-tool? (final-response)]
-                           [else (tool-call-response)])))
+      (if wants-stream?
+          (string->bytes/utf-8
+           (stream-body (let* ([ch (hash-ref answer 'choices '())]
+                               [m (and (pair? ch) (hash-ref (car ch) 'message (hasheq)))]
+                               [c (and (hash? m) (hash-ref m 'content ""))])
+                          (if (string? c) c ""))))
+          (jsexpr->bytes answer)))
     (write-string (string-append
                    (if forced-status
                        (format "HTTP/1.1 ~a Refused\r\n" forced-status)
                        "HTTP/1.1 200 OK\r\n")
-                   "Content-Type: application/json\r\n"
+                   (if wants-stream?
+                       "Content-Type: text/event-stream\r\n"
+                       "Content-Type: application/json\r\n")
                    "Content-Length: " (number->string (bytes-length payload)) "\r\n"
                    "Connection: close\r\n\r\n") out)
     (write-bytes payload out)

@@ -354,15 +354,33 @@
        (apply build-path root (if (null? rest) '("index.html") rest))))
 
 ;; Server-Sent Events: proc receives an `emit` that pushes one JSON event.
+;;
+;; #187: THE BODY RUNS AFTER THE HANDLER HAS RETURNED, so it is outside
+;; `with-auth`'s parameterize extent and everything inside it that reads the
+;; request principal from the dynamic context sees #f. Three things do, and all
+;; three are in the model path a streaming endpoint exists for: the
+;; model-request logger (which wrote every streamed chat with a NULL team, so
+;; `GET /api/model-requests` — the one route that reads the log, and which
+;; filters `WHERE team_id = ?` — could never show it), the egress policy's
+;; request context, and the pull router's team/user.
+;;
+;; The principal is captured HERE, while the handler's extent still holds, and
+;; rebound around the body. It is a captured VALUE, not a second read, so it
+;; cannot go stale and does not care which thread the body is written on —
+;; which is the half that makes this different from the bug. Fixing it in the
+;; two call sites instead would leave the next SSE endpoint to rediscover it;
+;; both of today's are model calls, and both were wrong.
 (define (sse-response proc)
+  (define p (current-request-principal))
   (response/output
    #:mime-type #"text/event-stream; charset=utf-8"
    #:headers (list (make-header #"Cache-Control" #"no-cache")
                    (make-header #"X-Accel-Buffering" #"no"))
    (lambda (out)
      (define (emit ev) (write-string (string-append "data: " (jsexpr->string ev) "\n\n") out) (flush-output out))
-     (with-handlers ([exn:fail? (lambda (e) (emit (hasheq 'error (exn-message e))))])
-       (proc emit)))))
+     (parameterize ([current-request-principal p])
+       (with-handlers ([exn:fail? (lambda (e) (emit (hasheq 'error (exn-message e))))])
+         (proc emit))))))
 
 ;; ---- the company a request is for, and this instance's public base ---------
 ;; TEN-2d: the company a request is FOR — the Host header first (a company's own

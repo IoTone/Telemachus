@@ -5447,6 +5447,71 @@ race. What makes the race uninteresting is the no-`await` rule above, which has
 its own case. All four were positive-controlled — remove the guard, drop the
 `finally`, let Shift+Enter send, or unwire the textarea, and a named case fails.
 
+## Two answers the fleet could not give (#172, #187)
+
+Both were found by the #169 validation across two machines, and both are the
+same shape: something true, written where the only reader that exists cannot
+see it.
+
+```sh
+raco test test/fleet-tests.rkt   # 12 cases; the #172 one is controlled
+bash test/pull-smoke.sh          # section 3d, 8 assertions over a REAL stream
+```
+
+- **THERE ARE THREE ANSWERS TO "WHY IS THIS NOT RUNNING", NOT TWO** (#172).
+  `unclaimable` is "nothing CAN run it" and QUOTA‑3's `waiting` is "the
+  platform will not let it yet". A host that has reported `paused` (PULL‑11) is
+  neither — alive, matching, and not taking work, which is what the readiness
+  gate (#93) produces every time a GPU host loses its card. It counted as a live
+  candidate, so a queue nothing was going to drain reported `unclaimable: 0`
+  and an operator concluded work was about to run. `held_by_paused` is the
+  third figure, computed in the SAME scan so the two are samples of one instant
+  and partition the same rows.
+- **`executor-can-run?` DELIBERATELY DID NOT CHANGE.** It is also the claim's
+  authoritative check, and `worker_state` is self-reported and WITHDRAWN when
+  the row goes stale (PULL‑11e) — folding it in would make the claim path
+  depend on a field that flaps between polls, and would say a paused host
+  *cannot* run work when the truth is that it will not right now. The state is
+  reported BESIDE the capability answer, which is the separation `waiting` and
+  `runnable` already keep on a queue row.
+- **A DRAINED host still counts as `unclaimable`, and that is pinned** — "a
+  drained host must not read as a reason the queue can drain". What changed is
+  the console's hint, because "check a worker's models, or start one" is the
+  wrong advice when the remedy is to resume a box you drained yourself.
+- **MY OWN ISSUE HAD A MEASUREMENT WRONG, AND REPRODUCING IT IS WHAT SHOWED
+  ME.** #172 claimed the drained case shared the defect. It does not: the lab
+  reading that said so carried `scanned: 0`, i.e. a queue the report saw as
+  EMPTY, because a claim had already taken the job. The first attempt at the
+  regression case made the identical mistake — **`worker-claim!` TAKES WORK**,
+  so declaring a worker's capabilities after enqueueing leaves nothing queued
+  to count. Declare first, enqueue second. A number quoted from a live box is
+  evidence of what that box was doing, not of what the code does.
+- **AN SSE BODY RUNS AFTER ITS HANDLER HAS RETURNED** (#187), so it is outside
+  `with-auth`'s parameterize extent and everything inside it that reads the
+  request principal from the DYNAMIC CONTEXT sees `#f`. Three things do, and
+  all three are in the model path a streaming endpoint exists for: the
+  model-request logger — so every streamed chat was written with a NULL team
+  while `GET /api/model-requests` filters `WHERE team_id = ?`, leaving the row
+  correct in every respect except the one that makes it readable — the egress
+  policy's request context, and the pull router's team/user.
+- **The fix is in `sse-response`, not at the two call sites.** The principal is
+  captured while the handler's extent still holds and rebound around the body,
+  as a VALUE rather than a second read, so it cannot go stale and does not care
+  which thread writes the body. Both of today's SSE endpoints are model calls
+  and both were wrong; a third would have rediscovered it.
+- **The quota was right on the same path all along, and that was the clue.**
+  `tenant-quota-record!` takes the principal as an ARGUMENT, closed over
+  lexically; the parameter was the only thing that did not cross the boundary.
+  Where a value can be passed, pass it.
+- **NOTHING EXERCISED THE STREAMING PATH END TO END, ANYWHERE**, which is how a
+  defect that exists only there survived: `requestlog-tests.rkt` reads rows
+  directly, so it saw a perfectly good row. `test/mock-llm.rkt` answers SSE
+  when a request asks for `stream: true` now (the chunk shape the real adapter
+  reads, then `[DONE]`), and `pull-smoke.sh` §3d drives a real stream through a
+  push executor pointed at it. **The simulated echo is not logged at all** —
+  RED‑16, nothing left the process — so a streaming assertion needs a real
+  backend or it asserts nothing.
+
 ## A search field, and figures that explain themselves (#176, #178)
 
 Two layout reports from outside, one console slice. Neither is cosmetic in the
