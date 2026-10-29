@@ -15,7 +15,7 @@ A plugin is a directory with a manifest and an entry module, loaded at boot. It 
 
 ## Where plugins are found, and what happens when one is not
 
-The built-in directory is always searched; `TELEMACHUS_PLUGINS` adds more, as a `:`-separated list, and a literal `-` entry drops the built-ins for a deployment that means to ship only its own. It used to name the ONE directory to load, so adding a plugin of your own silently removed the document pipeline and every other shipped one — an instance that came up looking healthy with its workflows gone.
+The built-in directory is always searched; `TMACH_PLUGINS` adds more, as a `:`-separated list, and a literal `-` entry drops the built-ins for a deployment that means to ship only its own. It used to name the ONE directory to load, so adding a plugin of your own silently removed the document pipeline and every other shipped one — an instance that came up looking healthy with its workflows gone.
 
 That shape — healthy-looking and quietly missing — is worth naming, because the loader had a second instance of it. A plugin that throws while loading is caught, logged and skipped, which is right: one bad plugin must not stop the server. But it was ONLY logged, one line among sixty, and the instance then served an API with that plugin’s tools, workflows, routes and job kinds simply absent. Failures are kept now: a `failed` list beside the plugin listing, a warning block at boot that says how many and why, and a strict mode that refuses to start at all. Two plugins claiming one id is a failure too, rather than a silent shadow.
 

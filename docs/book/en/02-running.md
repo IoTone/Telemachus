@@ -16,14 +16,16 @@ Never run `raco test test/*.rkt`. The glob includes `test/mock-*.rkt`, which are
 ## Environment
 
     DATABASE_URL=sqlite:///$PWD/data/telemachus.db   # or postgres://user:pass@host:port/db
-    TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # any OpenAI-compatible endpoint
-    TELEMACHUS_MODEL=qwen2.5:7b
-    TELEMACHUS_HOME=login          # or `beta` to serve the onboarding funnel at /
-    TELEMACHUS_S3_PORT=8836        # turns on the S3 endpoint, a second listener
-    TELEMACHUS_MULTITENANT=1       # several companies on one instance
+    TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # any OpenAI-compatible endpoint
+    TMACH_MODEL=qwen2.5:7b
+    TMACH_HOME=login          # or `beta` to serve the onboarding funnel at /
+    TMACH_S3_PORT=8836        # turns on the S3 endpoint, a second listener
+    TMACH_MULTITENANT=1       # several companies on one instance
     PORT=8835
 
-Without `TELEMACHUS_MODEL_URL` the platform runs a simulated model that echoes its input in upper case. Chat works, the smoke suites work, and nothing that needs real inference does. The tools that need a model — the localization drafter, the document pipeline, the knowledge-graph extractor — refuse to run rather than fail every validation with a misleading message. This is deliberate: an operator needs to read “no model configured”, not “the reply was not JSON”.
+Each of these used to be spelled `TELEMACHUS_*`, and that spelling still answers: the platform reads the new name first and falls back to the old one, with no deadline and nothing to migrate. A deployment written against the old names keeps working untouched. `docs/ops/configuration.md` lists every variable the platform reads.
+
+Without `TMACH_MODEL_URL` the platform runs a simulated model that echoes its input in upper case. Chat works, the smoke suites work, and nothing that needs real inference does. The tools that need a model — the localization drafter, the document pipeline, the knowledge-graph extractor — refuse to run rather than fail every validation with a misleading message. This is deliberate: an operator needs to read “no model configured”, not “the reply was not JSON”.
 
 ## First run
 

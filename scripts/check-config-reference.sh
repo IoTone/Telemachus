@@ -125,7 +125,11 @@ fi
 # front door, and its feature-tour region is GENERATED from those manifests, so
 # a name fixed in README.md by hand is silently reverted by the next refresh.
 # The catalogs are therefore where the gate points, and the message says so.
-PROSE_DOCS="docs/ops/configuration.md docs/deploy-tailnet.md README.md README.ja.md docs/screenshots/manifest.json docs/screenshots/captions.ja.json docs/screenshots/beta/manifest.json docs/screenshots/beta/captions.ja.json $(ls docs/ops/*.md 2>/dev/null | grep -v '/configuration.md$' | tr '\n' ' ')"
+# The e-book's CHAPTER SOURCES are in scope too, both languages: the book is the
+# document a developer reads front to back, its two built editions are committed
+# artifacts generated from these files, and a translator working from the English
+# will copy whatever spelling it uses.
+PROSE_DOCS="docs/ops/configuration.md docs/deploy-tailnet.md docs/integrators-guide.md README.md README.ja.md docs/screenshots/manifest.json docs/screenshots/captions.ja.json docs/screenshots/beta/manifest.json docs/screenshots/beta/captions.ja.json $(ls docs/ops/*.md 2>/dev/null | grep -v '/configuration.md$' | tr '\n' ' ') docs/book/TRANSLATING.md $(ls docs/book/en/*.md docs/book/ja/*.md 2>/dev/null | tr '\n' ' ')"
 legacy_prose=""
 for f in $PROSE_DOCS; do
   [ -f "$f" ] || continue

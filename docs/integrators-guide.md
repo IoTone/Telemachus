@@ -99,7 +99,7 @@ Four things worth knowing before you fight the API:
 
 ### Per company, on a multi-tenant instance
 
-With `TELEMACHUS_MULTITENANT=1`, each company gets its own branding *and its own
+With `TMACH_MULTITENANT=1`, each company gets its own branding *and its own
 theme* — one more document, the same shape:
 
 ```sh
@@ -279,7 +279,7 @@ imports. To do anything on the platform it asks the host for a **capability**,
 and the host runs it only if the plugin DECLARED the scope in its manifest **and**
 the calling user holds the matching RBAC permission. Both halves, every call.
 
-Register it in `oop.json` (or `TELEMACHUS_OOP`):
+Register it in `oop.json` (or `TMACH_OOP`):
 
 ```json
 { "plugins": [ { "name": "ocr", "command": "python3", "args": ["oop-plugins/ocr/main.py"] } ] }
@@ -298,7 +298,7 @@ Bytes travel **base64 over the pipe**, not as a filesystem path or a URL. A path
 would couple your plugin to the local store and leak its layout — the blob store
 is never handed a principal, only a namespace and a digest, so a backend has no
 authorization to get wrong. The ceiling on an inline read or write is the same
-`TELEMACHUS_MAX_UPLOAD` the HTTP front door enforces: a plugin is not a way past
+`TMACH_MAX_UPLOAD` the HTTP front door enforces: a plugin is not a way past
 a limit.
 
 **`repo.text` answers "this is a scan" rather than failing.** A PDF with no text
@@ -382,7 +382,7 @@ the first reader in the tree that fills these spans — per-word page and boundi
 box, which `GET /api/repo-obj/<id>/spans?at=<offset>` resolves. Three things in it
 are worth copying rather than rediscovering:
 
-- it is **opt-in** on `TELEMACHUS_OCR`, because claiming `application/pdf`
+- it is **opt-in** on `TMACH_OCR`, because claiming `application/pdf`
   replaces the reader for the whole instance and a takeover nobody asked for is
   the wrong kind of surprise;
 - it tries the **text layer first** and rasterises only a PDF that has none — a
@@ -450,7 +450,7 @@ TMach rather than extending it, the deployment surface is two pages:
 ```sh
 nix build .#container && docker load < result    # on a Linux host
 docker run -d --read-only --tmpfs /tmp -v telemachus-data:/data \
-  -e DATABASE_URL='postgres://…' -e TELEMACHUS_SECRET_KEY="$(openssl rand -hex 32)" \
+  -e DATABASE_URL='postgres://…' -e TMACH_SECRET_KEY="$(openssl rand -hex 32)" \
   -p 8835:8835 --stop-timeout 30 telemachus:0.1.0
 ```
 
@@ -465,10 +465,10 @@ Four things about the image are worth knowing before you plan around it:
    **un-charged**. `docker stop` allows 10 seconds by default and then SIGKILLs,
    which leaves those jobs `running` until their lease expires.
 4. **`POST /api/bootstrap` is loopback-only** unless you set
-   `TELEMACHUS_BOOTSTRAP_SECRET` — from outside the container the caller is the
+   `TMACH_BOOTSTRAP_SECRET` — from outside the container the caller is the
    bridge gateway, not loopback.
 
-Set **`TELEMACHUS_STRICT_STARTUP=1`** for an unattended deployment: the checks
+Set **`TMACH_STRICT_STARTUP=1`** for an unattended deployment: the checks
 that are advisory by default (no sealing key; plaintext HTTP on a public bind)
 then refuse to start instead of running degraded.
 

@@ -106,14 +106,14 @@ Run a one-off without entering the shell: `nix develop --command <cmd>`.
 
 ```sh
 export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"   # or postgres://user:pass@host:port/db
-export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI-compat (ollama)
-export TELEMACHUS_MODEL=qwen2.5:7b
-export TELEMACHUS_HOME=login              # or `beta` to serve the beta funnel at /
-export PORT=8835                          # default; the server reads PORT / TELEMACHUS_PORT
+export TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI-compat (ollama)
+export TMACH_MODEL=qwen2.5:7b
+export TMACH_HOME=login              # or `beta` to serve the beta funnel at /
+export PORT=8835                          # default; the server reads PORT / TMACH_PORT
 racket server/main.rkt
 ```
 
-- **`TELEMACHUS_MODEL_URL` is required for real model calls** — without it `run-chat`
+- **`TMACH_MODEL_URL` is required for real model calls** — without it `run-chat`
   uses a *simulated* uppercase-echo fallback. It is no longer SILENT about it
   (issue #64): the boot line warns, `/api/ai/chat` and the stream's final event
   carry **`simulated: true`** (the key is absent on a real call), and the console
@@ -188,8 +188,8 @@ Skinnable, admin-configurable, plugin-owned funnel — see
 stores the experience; the plugin owns fields/copy/theme/frontend. Three render tiers,
 all through one anti-abuse gate: **A** built-in themeable shell, **B** custom plugin
 bundle (`/beta/bundle/<plugin>/` + `window.Telemachus.beta` SDK), **C** sandboxed HTML
-template (`/beta/template`). ENV seeds first-boot defaults (`TELEMACHUS_ONBOARDING`,
-`TELEMACHUS_ONBOARDING_FILE`); a published DB experience then wins.
+template (`/beta/template`). ENV seeds first-boot defaults (`TMACH_ONBOARDING`,
+`TMACH_ONBOARDING_FILE`); a published DB experience then wins.
 
 ### Configuring the funnel's fields
 
@@ -248,7 +248,7 @@ behaviour exactly.
 - The honeypot's fake success must use the SAME localized string as the real one.
 
 ```sh
-bash test/e2e/funnel-l10n.sh    # 16 browser assertions; boots with TELEMACHUS_HOME=beta
+bash test/e2e/funnel-l10n.sh    # 16 browser assertions; boots with TMACH_HOME=beta
 ```
 
 ## Localization (Admin > Localization)
@@ -390,7 +390,7 @@ approved strings back. Neither is on the request path.
   and the body field is **`decision`**, not `action`. `GET /api/l10n/messages`
   caps `limit` at 200 — page with `offset` or an id map comes back short and the
   writes land on the wrong rows.
-- **The server honours `TELEMACHUS_LOCALES`** (as the CLI does) because export
+- **The server honours `TMACH_LOCALES`** (as the CLI does) because export
   WRITES into that directory. The smoke and e2e suites point it at a temp copy
   and use the pseudo-locale `qps` for "a locale with no catalog" — a real locale
   name there is a bug waiting for the day someone produces it, which is exactly
@@ -441,7 +441,7 @@ chat endpoint, the stream and the pull wire cannot disagree.
 
 ## Multi-tenancy (several companies on one instance)
 
-Off by default. `TELEMACHUS_MULTITENANT=1` adds an **org** layer above teams plus two
+Off by default. `TMACH_MULTITENANT=1` adds an **org** layer above teams plus two
 management planes — see `docs/design/multi-tenancy.md` (decision TEN‑2, supersedes TEN).
 
 Operator runbook: `docs/ops/multi-tenancy-runbook.md`.
@@ -459,7 +459,7 @@ Operator runbook: `docs/ops/multi-tenancy-runbook.md`.
 - Org quotas nest above team quotas (`subject_type='org'`); admission needs both.
 - **Onboarding a company needs no restart** — `POST /api/orgs` writes rows and the
   org, its team and its owner are live on the next request. Setting
-  `TELEMACHUS_MULTITENANT=1` is the only restart the subsystem ever needs.
+  `TMACH_MULTITENANT=1` is the only restart the subsystem ever needs.
 - Every `/api/orgs/<ref>` route takes an **id or a slug** (`org-resolve`); a pipeline
   holds the slug it declared, not the id the server minted.
 - **Create is a converging operation** (TEN‑2f): an explicit `slug` is a natural key
@@ -508,7 +508,7 @@ Operator runbook: `docs/ops/multi-tenancy-runbook.md`.
   `org-teams-of` in authz.rkt is the org's team list for such listings.
 
 ```sh
-TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # 2 seeded companies + 1 provisioned, 84 assertions
+TMACH_MULTITENANT=1 bash test/multitenant-demo.sh   # 2 seeded companies + 1 provisioned, 84 assertions
 raco test test/tenancy-tests.rkt                          # the authz core, no server
 ```
 
@@ -517,9 +517,9 @@ passwords** (`admin@acme.test` / `acme-admin1`, etc.) — demo fixture only, nev
 
 ## S3 endpoint (slice 52)
 
-`TELEMACHUS_S3_PORT=8836` turns it on — a SECOND listener, on `web-kit/http1`, off by
+`TMACH_S3_PORT=8836` turns it on — a SECOND listener, on `web-kit/http1`, off by
 default. `aws`, `rclone`, `boto3` and Cyberduck all work. Bucket = team slug,
-path-style, region from `TELEMACHUS_S3_REGION` (default `us-east-1`).
+path-style, region from `TMACH_S3_REGION` (default `us-east-1`).
 
 - `domain/s3/sigv4.rkt` verifies signatures. **Built from the spec, not ported** —
   pinned to AWS's published vectors AND to real aws-cli requests captured on the wire.
@@ -548,11 +548,11 @@ bash test/s3-smoke.sh              # 33 checks with the real aws CLI (skips if a
 ```
 
 **The smoke runs with secrets SEALED** (issue #25): it exports a
-`TELEMACHUS_SECRET_KEY` unless you set one, because since #19 SigV4 unwraps the
+`TMACH_SECRET_KEY` unless you set one, because since #19 SigV4 unwraps the
 credential on every signed request and the presign path unwraps through
 `s3-cred-newest` — the case a mock cannot prove. `awscli2` is in the devShell and
 CI installs AWS CLI v2, so the suite no longer skips silently; a skip was how that
-path went unexercised in the first place. Pass `TELEMACHUS_SECRET_KEY=` (empty) to
+path went unexercised in the first place. Pass `TMACH_SECRET_KEY=` (empty) to
 exercise the plaintext path instead.
 
 The smoke EXPORTS `PORT` (default 8890): the server reads it from the environment,
@@ -596,13 +596,13 @@ Any format in, byte-identical out, with the creator setting visibility. See
   answer, the knowledge graph's rule — collapse them deliberately and say so.
 - Bytes live in a **content-addressed** store keyed by SHA-256, never in the DB.
   `domain/repo/blobs.rkt` is the seam; `plugins/rs3/` is the local filesystem one
-  (`TELEMACHUS_BLOB_STORE`, default `rs3`). **The store is never handed a principal**
+  (`TMACH_BLOB_STORE`, default `rs3`). **The store is never handed a principal**
   — only a namespace and a digest — so a backend has no authorization to get wrong.
 - The namespace is the **org id**, deliberately: global dedup across tenants is an
   existence oracle. Blob refcounts must be org-scoped too (DOC-6).
 - `domain/authz/sha2.rkt` is SHA-256/HMAC-SHA256 over **libcrypto** — do NOT add it
   to `crypto.rkt`, whose contract is "no native deps". Pinned to NIST/RFC vectors.
-- Uploads are a **raw `PUT` body**, not base64 in JSON. `TELEMACHUS_MAX_UPLOAD`
+- Uploads are a **raw `PUT` body**, not base64 in JSON. `TMACH_MAX_UPLOAD`
   (default 32 MiB) sets `web-kit`'s `#:max-body-length`; web-server's own default is
   1 MiB and it enforces it by **dropping the connection with no response at all**.
 - **Timestamps differ by dialect** and S3 clients *parse* `LastModified`: SQLite
@@ -795,7 +795,7 @@ raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, d
 - **The model is a parameter**: `current-doc-chat`. Tests script it; the HTTP
   smoke uses `test/mock-llm.rkt`'s CHAT mode (`MOCK_REPLY_FILE`, a `{"needle":
   "reply"}` map matched against the request text — needles are `"extract
-  structured data"` and `"professional translator"`); set `TELEMACHUS_MODEL_URL`
+  structured data"` and `"professional translator"`); set `TMACH_MODEL_URL`
   and the same smoke runs live. **With no model the tools refuse** ("no model
   configured") — the uppercase-echo fallback would otherwise fail every schema
   with "did not return a JSON object", which is true and useless.
@@ -836,7 +836,7 @@ raco test test/doc-triggers-tests.rkt      # matching, the seam, exactly-once, d
 ```sh
 raco test test/doc-pipeline-tests.rkt      # validator, renderer, refusals, the whole pipeline via the scheduler
 bash test/doc-pipeline-smoke.sh            # deterministic, scripted mock model; ends with an S3 PUT firing a trigger
-TELEMACHUS_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
+TMACH_MODEL_URL=… bash test/doc-pipeline-smoke.sh   # the same against a live model
 ```
 
 ## The route table ENFORCES what it declares (#110 r2)
@@ -1359,7 +1359,7 @@ that now has translations.
   every heading would otherwise be a faux-bold smear. Serif and sans are resolved
   SEPARATELY: one directory for both built fine and was a trap, since fontspec
   loads a face lazily and no chapter has a sans CJK glyph yet.
-  `TELEMACHUS_CJK_DIR` overrides the search; with no directory found the template
+  `TMACH_CJK_DIR` overrides the search; with no directory found the template
   falls back to the family name, which is what works on a box with the fonts
   installed system-wide.
 - Translator-facing instructions and the term list (pinned to the console's own
@@ -1515,7 +1515,7 @@ Operator runbook: `docs/ops/workflow-engine-runbook.md`.
 raco test test/flow-tests.rkt      # 20 cases, no server
 bash test/server-smoke.sh          # includes publish → run → assert over HTTP
 # needs a live model; refuses to start without one, on purpose:
-TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
+TMACH_MODEL_URL=... bash test/translate-chat-demo.sh
 ```
 
 ## Issue #54's remaining platform defects (built 12 Oct 2026)
@@ -1529,7 +1529,7 @@ TELEMACHUS_MODEL_URL=... bash test/translate-chat-demo.sh
   so there is no retry loop; `doc_text` refuses by name ("it is a scan, and needs
   OCR"). This is the prerequisite for any OCR work — without it nothing can tell
   which documents need it.
-- **A misconfigured `TELEMACHUS_BLOB_STORE` refuses to boot.**
+- **A misconfigured `TMACH_BLOB_STORE` refuses to boot.**
   `active-blob-store-name` falls back want → rs3 → builtin, so a typo quietly
   wrote every document to local disk while the instance reported healthy. Checked
   after plugins load, beside the relative-blob-root refusal, and the message
@@ -1607,7 +1607,7 @@ Built 12 Oct 2026 — SCHED‑8, SCHED‑9, PULL‑9, RBAC‑5b in `docs/design/
   is freed before the work provably stopped — a handler that ignored both the
   ceiling and `job-canceled?` has proven it will not stop, and holding its slot
   for ever is the worse failure.
-- `TELEMACHUS_MAX_JOB_SECONDS` defaults to **1800**, `never` disables it, and an
+- `TMACH_MAX_JOB_SECONDS` defaults to **1800**, `never` disables it, and an
   unparseable or non-positive value falls back to the default — **never to 0**,
   which would cancel every job the instant it started.
 - **The clock is `jobs.started_epoch` (migration `0038`), stamped in
@@ -1626,7 +1626,7 @@ Built 12 Oct 2026 — SCHED‑8, SCHED‑9, PULL‑9, RBAC‑5b in `docs/design/
   it, because the payload's shape is the kind's business), and the read happens
   **as the job's own user**, so `can?` decides. A `forbidden` and a miss collapse
   to ONE answer, as in the knowledge graph. `as: "bytes"` (base64, capped at
-  `TELEMACHUS_MAX_UPLOAD` — a worker is not a way past the front door's ceiling)
+  `TMACH_MAX_UPLOAD` — a worker is not a way past the front door's ceiling)
   or `as: "text"`, where a scan answers `{text: null, reason: "needs-ocr"}`
   rather than erroring, since that is the branch an OCR worker exists to take.
 - **`audit!` takes `#:resource-type`/`#:resource-id`, not `#:target-*`.** The
@@ -1646,7 +1646,7 @@ bash test/server-smoke.sh                                 # the four "cancel:" a
 Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
 
 - **An abandoned multipart upload is reaped** (`reap-uploads!` in
-  `domain/s3/server.rkt`), seven days by default, `TELEMACHUS_UPLOAD_REAP_HOURS`
+  `domain/s3/server.rkt`), seven days by default, `TMACH_UPLOAD_REAP_HOURS`
   (`never` disables; a nonsense or non-positive value falls back to the default,
   **never to 0**, which would reap an upload as its first part landed).
   Migration `0039-upload-age` adds `created_epoch` to `repo_uploads` AND
@@ -1663,7 +1663,7 @@ Decisions S3‑7, S3‑8, PULL‑10, LOC‑6 in `docs/design/decisions.md`.
   off would otherwise hold those bytes for ever.
 - **Staged parts are CHARGED against `storage.bytes` on arrival and refunded in
   `drop-upload!`.** Charging only at Complete left the quota walkable by a client
-  that never completes: `TELEMACHUS_MAX_UPLOAD` caps ONE part and nothing caps
+  that never completes: `TMACH_MAX_UPLOAD` caps ONE part and nothing caps
   their number. `drop-upload!` is the one place an upload stops existing, so
   Complete, Abort and the reaper all refund and no path can forget; at Complete
   the refund lands AFTER `repo-put!` charged the assembled object, so the steady
@@ -1852,8 +1852,8 @@ kind, an event sink) plus ONE platform change: `domain/events/events.rkt` holds
 several NAMED sinks. Decisions MTX‑1…9.
 
 ```sh
-export TELEMACHUS_MATRIX_HOMESERVER=https://matrix.example.internal
-export TELEMACHUS_MATRIX_TOKEN=syt_...        # a bot account's token
+export TMACH_MATRIX_HOMESERVER=https://matrix.example.internal
+export TMACH_MATRIX_TOKEN=syt_...        # a bot account's token
 raco test test/matrix-tests.rkt               # 11 cases, eight controls
 bash test/server-smoke.sh                     # the "matrix:" block, 23 assertions
 ```
@@ -1955,7 +1955,7 @@ bash test/server-smoke.sh                                     # the "feed:" bloc
   says so.
 - **`#:credential` ON `define-sealed-column`, and the reason is a LIVE DEFECT it
   found** (ENC‑23). The macro's default seal is conditional on
-  `TELEMACHUS_ENCRYPT_CONTENT` — right for #83's content columns, because sealing
+  `TMACH_ENCRYPT_CONTENT` — right for #83's content columns, because sealing
   extracted text costs content search — and **wrong for a replayable
   credential**. #85's `webhooks.secret` was the first credential declared through
   the macro, so with a key configured and the content switch off, **the
@@ -2647,7 +2647,7 @@ bash test/doc-pipeline-smoke.sh                            # the "== 5f." block,
   mode here that INVENTS data rather than losing it. A per-redaction nonce was the
   alternative and makes every token unreadable to the model.
 - **THE MAP IS SEALED WHENEVER A KEY EXISTS** (RED‑5) — `#:credential`, never
-  gated on `TELEMACHUS_ENCRYPT_CONTENT`. The flag is named for #85's signing
+  gated on `TMACH_ENCRYPT_CONTENT`. The flag is named for #85's signing
   secret; the property it names is "seal whenever a key is configured", and a
   column holding `<PERSON_1> -> Arun Patel` for every redacted document needs that
   more than anything else in the schema. Under the content switch, whose default
@@ -2824,7 +2824,7 @@ bash test/pull-smoke.sh                                         # the "== 3c." b
   `error_kind` is a short CLOSED label and never an exception message — #83 r4's
   reason, and the diagnostic already has a sealed home on the job row.
 - **`no_content_logging` IS AN ASSERTION NOTHING CAN VERIFY, AND WHAT IS ENFORCED
-  IS THAT SOMEBODY MADE IT** (RED‑20). `TELEMACHUS_REQUIRE_NO_CONTENT_LOGGING=1`
+  IS THAT SOMEBODY MADE IT** (RED‑20). `TMACH_REQUIRE_NO_CONTENT_LOGGING=1`
   refuses a model request to a backend that is not on this box until its own
   operator has declared, per executor, that the backend does not log content —
   raised BEFORE the body is composed, because a check after the POST is a report
@@ -2973,7 +2973,7 @@ bash test/doc-pipeline-smoke.sh        # the "== 5h." block, 24 assertions
   classify a document`.
 - **An unroutable address blackholes rather than refusing**, so a test that
   proves a request was NOT stopped by letting it try costs the whole
-  `TELEMACHUS_MODEL_TIMEOUT`. Assert the refusal (which precedes any socket), and
+  `TMACH_MODEL_TIMEOUT`. Assert the refusal (which precedes any socket), and
   the not-stopped half against `egress-refusal` directly.
 
 ## The operator's own names: `TMACH_*` with the old ones still working (ENVN‑1…9, #128 job 2)
@@ -3086,9 +3086,41 @@ bash scripts/check-config-reference.sh    # both halves; four positive controls
   the Japanese README.
 - **Not renamed, deliberately**: `docs/design/*` keeps what it was written with
   (a decision records the variable that existed when it was made, and the old
-  names still work), and the **e-book** is its own slice — three chapters in two
-  languages, a `build.sh ja --record` restamp and a rebuild of both editions,
-  which is a large binary diff that does not belong in a docs PR.
+  names still work).
+
+### Job 3 finished it: the book, the guide, and this file (ENVN‑12, #128)
+
+```sh
+cd docs/book && bash build.sh ja --record   # stamps, builds nothing
+bash build.sh && bash build.sh ja           # both editions, committed with the source
+bash scripts/check-config-reference.sh      # now covers the book and the guide too
+```
+
+- **EDITING AN ENGLISH CHAPTER IS EDITING A TRANSLATION.** The source-hash rule
+  makes every translated copy of that chapter stale, so the two move in one
+  commit. `build.sh ja --record` is a **whole-book** operation — it restamps all
+  nineteen chapters — so the thing to check is the DIFF: exactly the chapters you
+  edited may change their stamp. Any other one that moves was already stale and
+  you have just blessed it. Three moved here; sixteen were already in step.
+- **The book now says the old names still work**, one paragraph in chapter 02 in
+  both languages. It is the document somebody reads front to back, and it was the
+  one place an operator with a working compose file could not learn that it keeps
+  working.
+- **A BLANKET `sed` OVER THIS FILE WOULD HAVE LIED.** 93 of its 96 mentions were
+  the live name of a variable; **five are statements ABOUT the old spelling** and
+  are kept — the dual-read rule at the top, the gate's allowance for
+  `TELEMACHUS_*` and `TELEMACHUS_<name>`, and the narrative naming
+  `TELEMACHUS_BIND` and `TELEMACHUS_HOME` as what a draft and a stale manifest
+  once said. A prefix substitution turns the compatibility rule into "`TMACH_*`
+  falls back to `TMACH_*`", which **no gate can catch**, because the gate hunts
+  the old prefix and there would be none left. Protect this section and line 8,
+  swap the rest, then read the diff for any line that is about a NAME rather than
+  using one.
+- **The gate covers the book's chapter sources in both languages**, `TRANSLATING.md`
+  and `docs/integrators-guide.md`. Controlled in all four: the refusal must NAME
+  THE FILE, or a reader who cannot find the offending line disables the gate.
+- **What is left of #128 is a release decision** — when the `TELEMACHUS_*`
+  aliases are dropped — which has no deadline by ENVN‑1 and is #204.
 
 ## The feed work queue, and a proposal that does not act (QUEUE‑1…9, #114 slices 5–6)
 
@@ -3433,7 +3465,7 @@ raco test test/pull-tests.rkt   # 6 cases, five of them positive-controlled
 bash test/pull-smoke.sh         # sections 8e and 8f, 29 assertions
 ```
 
-- **IT IS OFF UNLESS CONFIGURED** (`TELEMACHUS_WORKER_TOKEN_DAYS`, 90
+- **IT IS OFF UNLESS CONFIGURED** (`TMACH_WORKER_TOKEN_DAYS`, 90
   recommended, `never` by default). The retention rule's call: a real default
   means an upgrade silently starts expiring credentials everywhere, including
   the third-party workers that cannot rotate themselves. Pre-existing rows carry
@@ -3462,7 +3494,7 @@ bash test/pull-smoke.sh         # sections 8e and 8f, 29 assertions
   whose token lapses tonight is exactly the one that needs telling.
 - **A worker that cannot persist a new token MUST NOT rotate.** It would receive
   one, forget it, and work on the outgoing credential until the overlap ended.
-  `TELEMACHUS_WORKER_TOKEN_FILE` is the durable home (`TELEMACHUS_WORKER_TOKEN`
+  `TMACH_WORKER_TOKEN_FILE` is the durable home (`TMACH_WORKER_TOKEN`
   is the bootstrap; a start reads the file when it exists); it is written and
   renamed BEFORE the in-memory token is swapped, and with no file configured the
   worker says once that an operator has to rotate for it.
@@ -3599,7 +3631,7 @@ docker compose up                               # app + Postgres + a model stub
 - **The drained attempt cannot land its result** — `drain-scheduler!` clears the
   `claim_token` and `finish!` names it (issue #24), so the handler that finishes
   afterwards is fenced out. `test/scheduler-tests.rkt` asserts exactly that.
-- `TELEMACHUS_DRAIN_SECONDS` defaults to **25**, to fit INSIDE the orchestrator's
+- `TMACH_DRAIN_SECONDS` defaults to **25**, to fit INSIDE the orchestrator's
   patience (k8s 30s, systemd 90s, `docker stop` only 10 — pass `-t`). A drain
   SIGKILLed halfway is worse than none. `0`/`never` hands work back at once; a
   typo falls back to the default.
@@ -3616,7 +3648,7 @@ satisfies every check by construction and can only exercise the allowed side.
   first document save); migrations still pending; **the database was migrated by
   a NEWER build** (old code against a new schema writes rows the new code
   misreads — the remedy is to deploy that version, so continuing corrupts data).
-- **Warnings by default, refusals under `TELEMACHUS_STRICT_STARTUP=1`**: no
+- **Warnings by default, refusals under `TMACH_STRICT_STARTUP=1`**: no
   secret key (plaintext at rest is the supported trusted-database position), and
   a non-loopback bind with no TLS (the demo box does exactly this across a
   tailnet). Making these fatal unconditionally would break every existing
@@ -3654,7 +3686,7 @@ satisfies every check by construction and can only exercise the allowed side.
 `getenv`/`env*` calls across the tree, so a registry would be a large refactor
 for a page read once. The gate fails in BOTH directions — read-but-undocumented,
 and documented-but-read-nowhere. It caught a stale row on its first run.
-`TELEMACHUS_MODEL_<ROLE>` is built at runtime, so the script carries a
+`TMACH_MODEL_<ROLE>` is built at runtime, so the script carries a
 `RUNTIME_PREFIXES` allowlist with the reason. **No associative arrays**: macOS
 ships bash 3.2, where `declare -A` becomes an indexed array and the subscript is
 evaluated as arithmetic, failing under `set -u` on the key itself.
@@ -3712,16 +3744,16 @@ raco test test/sealed-column-tests.rkt   # 6 cases, AAD compatibility first
 
 ## Encrypting derived document content (ENC, issue #83 slice 1)
 
-Built 20 Oct 2026. `TELEMACHUS_ENCRYPT_CONTENT`; seams in
+Built 20 Oct 2026. `TMACH_ENCRYPT_CONTENT`; seams in
 `domain/repo/extract.rkt`; decisions **ENC‑1…7**.
 
 ```sh
-export TELEMACHUS_SECRET_KEY=$(openssl rand -hex 32)
-export TELEMACHUS_ENCRYPT_CONTENT=1
+export TMACH_SECRET_KEY=$(openssl rand -hex 32)
+export TMACH_ENCRYPT_CONTENT=1
 raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
 ```
 
-- **It is a SEPARATE switch from `TELEMACHUS_SECRET_KEY`, and must stay one.**
+- **It is a SEPARATE switch from `TMACH_SECRET_KEY`, and must stay one.**
   Sealing `repo_text.content` makes content search impossible — the match is a
   SQL `LIKE` over that column — so riding on the key, which every instance
   should set, would silently remove a capability from everyone.
@@ -3730,7 +3762,7 @@ raco test test/content-encryption-tests.rkt   # 4 cases, read off the RAW row
   stops looking inside documents and the answer reads as "no such document". The
   flag is what distinguishes "not found" from "not looked for".
 - **The switch with NO key refuses to start**, and it is the one startup problem
-  that is fatal regardless of `TELEMACHUS_STRICT_STARTUP`: `secret-wrap` passes
+  that is fatal regardless of `TMACH_STRICT_STARTUP`: `secret-wrap` passes
   the value through without a key by design (#19), so that combination writes the
   plaintext it was turned on to prevent AND costs search, while reporting healthy.
 - **Unsealing is never conditional on the switch.** A row sealed while it was on
@@ -3841,7 +3873,7 @@ Built 20 Oct 2026. `domain/features/features.rkt`; `GET/PUT
 ```sh
 raco test test/instance-features-tests.rkt   # 11 cases, the resolution order first
 bash test/server-smoke.sh                     # the feature-switch block, 15 assertions
-TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8d, the org layer
+TMACH_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8d, the org layer
 ```
 
 - **TIGHTEN ONLY — SESS‑4's rule, not branding's.** A feature switch governs
@@ -4089,7 +4121,7 @@ Built 22 Oct 2026. Migration `0058-anchor-receipts`; `domain/authz/signing.rkt`
 could: LAY‑11's review chain per team and AUD‑10…16's audit chain per org.
 
 ```sh
-racket cli/telemachus-anchor.rkt keygen        # then set TELEMACHUS_ANCHOR_KEY
+racket cli/telemachus-anchor.rkt keygen        # then set TMACH_ANCHOR_KEY
 raco test test/anchor-tests.rkt test/signing-tests.rkt   # 13 + 7 cases, ten controls
 bash test/server-smoke.sh                       # the "external anchor" block, 24 assertions
 racket cli/telemachus-anchor.rkt verify receipts.jsonl --public-key <hex>
@@ -4117,8 +4149,8 @@ racket cli/telemachus-anchor.rkt verify receipts.jsonl --public-key <hex>
   already existed, does not have.
 - **Ed25519, NOT an HMAC** (ANCHOR‑4). With a shared secret the verifier could
   have produced the receipt, so it is evidence to nobody but the operator — no
-  better than unsigned retention. `TELEMACHUS_ANCHOR_KEY` is **64 hex and a
-  passphrase is REFUSED**, unlike `TELEMACHUS_SECRET_KEY` which stretches one: a
+  better than unsigned retention. `TMACH_ANCHOR_KEY` is **64 hex and a
+  passphrase is REFUSED**, unlike `TMACH_SECRET_KEY` which stretches one: a
   signing key is machine-generated once, and stretching a phrase would make the
   instance's published identity guessable, which rotating afterwards cannot undo.
 - **`verify` NEEDS NEITHER THE SERVER NOR THE DATABASE** (ANCHOR‑5), and that is
@@ -4142,7 +4174,7 @@ racket cli/telemachus-anchor.rkt verify receipts.jsonl --public-key <hex>
   changes, and a receipt naming one would make an honest instance fail its own
   later verification. `audit-chain-heads` seals first.
 - **OFF unless a key is configured** (ANCHOR‑7), DEL‑9's and PULL‑15a's call.
-  `TELEMACHUS_ANCHOR_EVERY` defaults to a day, `never` means manual only, and an
+  `TMACH_ANCHOR_EVERY` defaults to a day, `never` means manual only, and an
   unparseable or non-positive value falls back to the default, **never 0** —
   which would emit every tick and bury the series. EIGHTH thing on `set-reaper!`,
   and `last-anchor` is seeded to NOW so a box that restarts hourly does not
@@ -4349,7 +4381,7 @@ Built 20 Oct 2026. `domain/s3/client.rkt` + `plugins/s3blobs/` +
 `docs/ops/container.md`.
 
 ```sh
-export TELEMACHUS_BLOB_STORE=s3        # with the endpoint/bucket/keys set
+export TMACH_BLOB_STORE=s3        # with the endpoint/bucket/keys set
 raco test test/s3-client-tests.rkt     # 8 cases, no network
 bash test/s3-blobstore-smoke.sh        # 23 assertions over a real socket
 racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
@@ -4385,15 +4417,15 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   Reported from outside as #119. The old check, `blob-store-problem`, takes a
   filesystem PATH and writes a probe FILE into it; `main.rkt` passed
   `(blob-root)`, the local rs3 root, computed without reference to
-  `TELEMACHUS_BLOB_STORE`. It never obtained a store, so it could not call
+  `TMACH_BLOB_STORE`. It never obtained a store, so it could not call
   `s3-put!`. **#82's requirement 5 was recorded as satisfied "with no new code"
   on the strength of the claim** — the #113 shape, and worse, because the false
   declaration was the argument for not writing the check. Fixed: the probe is a
   function of the ACTIVE STORE's put/get/delete (patching the call site to pass a
   different path would not have fixed it), it runs after `load-plugins!` because
   a plugin registers the store, and a failure REFUSES TO SERVE. Positive control
-  is the reporter's own repro: `TELEMACHUS_BLOB_STORE=s3` with no endpoint now
-  prints `blob store s3: s3blobs: TELEMACHUS_S3_BLOB_ENDPOINT is required` and
+  is the reporter's own repro: `TMACH_BLOB_STORE=s3` with no endpoint now
+  prints `blob store s3: s3blobs: TMACH_S3_BLOB_ENDPOINT is required` and
   exits, where it used to start healthy and 500 on the first upload.
 - **The probe compares the DIGEST of what comes back**, not merely that
   something did: a store that answers a GET with the wrong object is worse than
@@ -4410,7 +4442,7 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   store. The path one is no longer the thing that claims to cover a bucket.
 - **`register-blob-store!` refuses a name another plugin owns** (#120), naming
   both plugins and telling the integrator to pick another name and select it with
-  `TELEMACHUS_BLOB_STORE`. It was a bare `hash-set`, and the reported direction is
+  `TMACH_BLOB_STORE`. It was a bare `hash-set`, and the reported direction is
   the one that reads worst: a downstream plugin registered `s3`, the platform's
   own s3blobs registered `s3` later in directory order, **the platform's won**,
   and every upload failed with an error naming configuration the integrator never
@@ -4425,11 +4457,11 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   the PATH, so a rotted file looks correct until something hashes it, and a
   corrupt blob is reported and left alone rather than copied under a name that
   lies about it.
-- **`TELEMACHUS_S3_PORT`/`_S3_REGION` are the listener's; the blob store's names
+- **`TMACH_S3_PORT`/`_S3_REGION` are the listener's; the blob store's names
   all carry BLOB.** One instance can legitimately serve an S3 API and write to a
   bucket at the same time.
-- **Do not write a bare `TELEMACHUS_S3_BLOB` prefix in a comment.**
-  `scripts/check-config-reference.sh` greps `TELEMACHUS_` tokens out of the
+- **Do not write a bare `TMACH_S3_BLOB` prefix in a comment.**
+  `scripts/check-config-reference.sh` greps `TMACH_` tokens out of the
   source, so a prefix in prose reads to it as an undocumented variable — it
   reported exactly that, twice, while that note was being written.
 - **MinIO's images are no longer freely pullable** (docker.io and quay.io both
@@ -4455,7 +4487,7 @@ Built 19 Oct 2026. `plugins/ocr/` + `tesseract`; decision block **OCR‑1…10**
 `docs/design/decisions.md`. The first thing that fills LAY‑5's spans.
 
 ```sh
-export TELEMACHUS_OCR=1          # OFF by default — see below
+export TMACH_OCR=1          # OFF by default — see below
 raco test test/ocr-tests.rkt     # 8 cases, generated fixtures, no server
 bash test/ocr-smoke.sh           # 19 assertions: a photo and a scan, end to end
 ```
@@ -4468,7 +4500,7 @@ bash test/ocr-smoke.sh           # 19 assertions: a photo and a scan, end to end
   **1135 tests, unchanged**.
 - **Enabled with no `tesseract` on PATH, `init!` RAISES** — reported by the
   plugin-failure surface, escalated to a refusal to start by
-  `TELEMACHUS_PLUGINS_STRICT=1`. Answering `'missing-tool` on every scan while
+  `TMACH_PLUGINS_STRICT=1`. Answering `'missing-tool` on every scan while
   the boot log says nothing is how a deployment concludes the feature is broken.
 - **The text layer is tried FIRST; only a PDF with none is rasterised.** A
   born-digital PDF carries exact text where OCR guesses. The order is
@@ -4494,7 +4526,7 @@ bash test/ocr-smoke.sh           # 19 assertions: a photo and a scan, end to end
   it would offer the document to the indexer forever.
 - `pdftoppm` (poppler-utils, already pinned) renders a scan's pages, so there is
   no `ocrmypdf` and no new Python application. The nixpkgs tesseract bundles
-  **129 language files**, so `TELEMACHUS_OCR_LANGUAGES=eng+spa` needs no
+  **129 language files**, so `TMACH_OCR_LANGUAGES=eng+spa` needs no
   override; `tesseract --list-langs` is the authority.
 - **Writing a test that polls `/api/runs/:id`: match the RUN's status, not a
   substring.** `case "$RUN" in *'"status":"done"'*)` breaks as soon as any
@@ -4515,7 +4547,7 @@ bash test/ocr-smoke.sh           # 19 assertions: a photo and a scan, end to end
 
 Built 18 Oct 2026. Both halves are **worker-side** — `cli/telemachus-worker.rkt`
 only: no route, no migration, no wire field, so a third-party worker needs no
-change and an unset `TELEMACHUS_WORKER_READY_URL` means none of it does anything.
+change and an unset `TMACH_WORKER_READY_URL` means none of it does anything.
 
 - **PULL‑12 defined `busy` and nothing ever sent it.** The reference worker
   released only on shutdown, so a model outage went to `/fail` — and
@@ -4539,14 +4571,14 @@ change and an unset `TELEMACHUS_WORKER_READY_URL` means none of it does anything
 - **A release alone cannot cover a longer outage**, which is why the readiness
   gate exists: the cool-off is 30 s for the releasing worker and `MAX-RELEASES`
   (10) fails a job, so one host busy for five minutes failed every queued job it
-  touched. `TELEMACHUS_WORKER_READY_URL` is GETted **before each claim**, 2xx =
+  touched. `TMACH_WORKER_READY_URL` is GETted **before each claim**, 2xx =
   ready. What readiness means stays the operator's (VRAM, memory, load, a
   schedule), so the platform needs no knowledge of GPUs.
 - **`paused` is reported ONCE per outage, not once per check.** A row every
   fifteen seconds tells an operator nothing the first one did not, and makes the
   executor's own history useless for finding when the outage began — PULL‑11e's
   rule. Coming back needs no post: the claim already carries `ready`.
-- **`TELEMACHUS_WORKER_READY_INTERVAL` defaults to 15 s**, and an unparseable or
+- **`TMACH_WORKER_READY_INTERVAL` defaults to 15 s**, and an unparseable or
   non-positive value falls back to the default, **never to 0** — the platform's
   rule for every interval knob, and here a 0 would be a hot loop against the
   operator's own endpoint.
@@ -4583,7 +4615,7 @@ for remote workers. `POST /api/workers/jobs/:id/derive`; `worker-derive!` in
   THEN `repo-inherit!` copies the grants and writes the derivation row — never
   reorder — and `#:derived?` is set so an opted-in trigger cannot fire on a
   worker's own output.
-- Bytes are base64 on the existing wire, capped at `TELEMACHUS_MAX_UPLOAD` — a
+- Bytes are base64 on the existing wire, capped at `TMACH_MAX_UPLOAD` — a
   worker is not a way past the front door's ceiling. Too big for that is what the
   S3 listener is for.
 - Audited `job.document.derived` (actor the executor, team the job's): the
@@ -4929,7 +4961,7 @@ beside `infer.chat`.
   job and the request's size — JUDGE‑4: state left the process for another
   host; the entry says so without copying it).
 - **The reference worker is the laya bridge** (JUDGE‑14):
-  `TELEMACHUS_WORKER_LAYA_URL` (a loopback `laya_serve.py --port`, run it with
+  `TMACH_WORKER_LAYA_URL` (a loopback `laya_serve.py --port`, run it with
   `--batch-size 1`) adds `judge.typed` to its kinds; the chat endpoint becomes
   optional, so a Mac can be a judge host and nothing else. It POSTs
   `request_json` RAW (`http-sendrecv`, not `http-post-json`, which would
@@ -5050,7 +5082,7 @@ was requested, the agent always asks for `tools`.
 
 - **An undeclared capability is UNKNOWN and unknown is PERMISSIVE.** Only an
   explicit `false` refuses, so nothing that works today starts failing.
-- **The local model declares its own** via `TELEMACHUS_MODEL_CAPS`
+- **The local model declares its own** via `TMACH_MODEL_CAPS`
   (`"tools=false,json_schema=true"`). It has no executor row and is the path most
   calls take — without it the operator who most needs the warning gets none.
 
@@ -5197,7 +5229,7 @@ domain pipeline the platform is for is out-of-process.
 - **Bytes are base64 over the existing pipe.** Not a path — that would couple a
   plugin to the local store and leak its layout, and the blob store is
   deliberately never handed a principal. Not a presigned URL — that needs the S3
-  listener and a second credential. Capped at `TELEMACHUS_MAX_UPLOAD`: a plugin is
+  listener and a second credential. Capped at `TMACH_MAX_UPLOAD`: a plugin is
   not a way past the limit the front door enforces.
 - **`repo.text` reports a scan as an ANSWER**, `{text: null, reason: "needs-ocr"}`,
   not an error — that is the branch an OCR plugin exists to take, and it should
@@ -5477,7 +5509,7 @@ bash test/pull-smoke.sh              # a chat routed through the reference worke
 
 `domain/ai/roles.rkt`: a role resolves to an executor NAME — the team's setting
 (`instance_settings` key `model-roles:<team>`, `PUT /api/model-roles`,
-settings:manage) → `TELEMACHUS_MODEL_<ROLE>` from the environment → `#f`, the
+settings:manage) → `TMACH_MODEL_<ROLE>` from the environment → `#f`, the
 local model. One role ships, **`utility`**: knowledge-graph extraction, the
 pipeline's field extraction and translation, and the Localization Manager's
 drafts go there when it is set; a person's chat never does. The tools set
@@ -5531,10 +5563,10 @@ ever. In a scheduler job the lease reaper requeued the WORK after 120s, but the
 thread kept its team's `ai.concurrency` slot — a flapping endpoint drained the
 pool while `/health` still said ok.
 
-- `TELEMACHUS_MODEL_TIMEOUT` (120s) bounds a non-streaming request end to end.
-  `TELEMACHUS_MODEL_IDLE_TIMEOUT` (60s) bounds the **gap between SSE events**, not
+- `TMACH_MODEL_TIMEOUT` (120s) bounds a non-streaming request end to end.
+  `TMACH_MODEL_IDLE_TIMEOUT` (60s) bounds the **gap between SSE events**, not
   the stream: a model still emitting may legitimately take minutes.
-  `TELEMACHUS_MODEL_RETRIES` (1) — a retry costs tokens, so the default is one.
+  `TMACH_MODEL_RETRIES` (1) — a retry costs tokens, so the default is one.
   An unparseable or zero value falls back to the default, never to 0.
 - **The request runs under its own custodian**, and a timeout shuts that custodian
   down: killing the thread alone would leave the socket open.
@@ -5562,7 +5594,7 @@ call resolves through, and it is filled from two places: `executors.json` at boo
   taking traffic until the next restart.
 - A row whose sealed key will not open is skipped with a named warning rather than
   raising — one unopenable executor must not stop the instance booting, and the
-  operator who rotated `TELEMACHUS_SECRET_KEY` needs to be told which.
+  operator who rotated `TMACH_SECRET_KEY` needs to be told which.
 - `GET /api/executors` lists each executor **once** (the DB row is the richer
   answer; the registry only contributes what `executors.json` owns) and every row
   carries `source`.
@@ -5591,8 +5623,8 @@ model role at any executor name**, including another org's, because
   `expires_at` and shows `status: "expired"` for a lapsed row that still says
   `active` in the table.
 - **The token hash is peppered HMAC-SHA-256, stored `v1:<hex>`** (the prototype
-  was bare SHA-1 with a compiled-in salt). The pepper is `TELEMACHUS_TOKEN_PEPPER`
-  → `TELEMACHUS_SECRET` → a dev default the server WARNS about at boot. A legacy
+  was bare SHA-1 with a compiled-in salt). The pepper is `TMACH_TOKEN_PEPPER`
+  → `TMACH_SECRET` → a dev default the server WARNS about at boot. A legacy
   40-hex row still resolves and is rehashed on first use (`token-row`), so an
   upgrade signs nobody out; rotating the pepper signs everyone out at once, on
   purpose. `resolve-token` rechecks the stored hash in constant time after the
@@ -5639,7 +5671,7 @@ model role at any executor name**, including another org's, because
 - **Baseline security headers on every response** (#11), added in `handle` via
   `with-security-headers`: nosniff, `Referrer-Policy: strict-origin-when-cross-origin`,
   `X-Frame-Options: SAMEORIGIN` (the Tier-C funnel iframe is same-origin), and
-  HSTS ONLY when `TELEMACHUS_TLS` is on — behind a TLS-terminating proxy, set it.
+  HSTS ONLY when `TMACH_TLS` is on — behind a TLS-terminating proxy, set it.
   A route that sets one of these itself wins. A console CSP is a separate audit
   (inline scripts); the download path already sends its own denying one.
 - **The shell carries a meta description and Open Graph tags** (#12), rewritten
@@ -6141,7 +6173,7 @@ bash test/server-smoke.sh           # the "timezone:" block, 14 assertions
 - **`TZDIR` is declared in the Nix closure, and the CONTAINER is why.** The image
   has no `/usr/share/zoneinfo` and no shell to debug with, so falling back to the
   system path works on every developer's box and resolves everything to UTC in
-  production. `TELEMACHUS_ZONEINFO` overrides it. With no database found, every
+  production. `TMACH_ZONEINFO` overrides it. With no database found, every
   zone is UTC — which is what the platform did before, so nothing breaks and
   nothing is local either.
 - **An unknown zone is REFUSED, never substituted** — validated against what is
@@ -6295,7 +6327,7 @@ raco test test/blob-sweep-tests.rkt   # 5 cases, both safety properties controll
 - **The age floor is a CORRECTNESS requirement.** The gap between `blob-stage!`
   and the version INSERT is exactly when a legitimate blob has no row yet, so a
   sweep with no floor deletes bytes an upload is about to reference.
-  `TELEMACHUS_BLOB_STAGE_REAP_MINUTES`, default 60, `never` off, and 0 falls back
+  `TMACH_BLOB_STAGE_REAP_MINUTES`, default 60, `never` off, and 0 falls back
   to the default rather than being honoured. **Positive-controlled: with the
   floor set to 0 the "nothing is collected inside the floor" case fails.**
 - **`blob-referenced?` is asked for every row — the ONE rule, not a second one.**
@@ -6443,7 +6475,7 @@ bash test/server-smoke.sh          # the "sign-in, sessions and the attempt thro
 - **The dummy hash is minted at first use from the live KDF**, not baked in as a
   literal: the iteration count is read at runtime, so a literal would silently
   stop matching the real cost the first time an operator raised
-  `TELEMACHUS_PBKDF2_ITERS`.
+  `TMACH_PBKDF2_ITERS`.
 - **A timing test is written as a RATIO, never an absolute.** `test/signin-tests.rkt`
   asserts the cheap path costs at least 40% of a known-wrong-password call in the
   same process. An absolute millisecond bound would flap under load; the ratio of
@@ -6463,7 +6495,7 @@ bash test/server-smoke.sh          # the "sign-in, sessions and the attempt thro
   failures are free, then the delay doubles to a 60-second cap. **The throttle
   refuses a CORRECT password too while the delay runs** — it has to, or it would
   be an oracle of a different kind — which is exactly why it is capped.
-- **The hard lock is OFF unless `TELEMACHUS_LOGIN_LOCK_FAILURES` is set**, because
+- **The hard lock is OFF unless `TMACH_LOGIN_LOCK_FAILURES` is set**, because
   a lock only an operator can clear is a denial-of-service primitive against a
   known username. The way back in is `POST /api/admin/users/:id/password`, which
   #54 built for this, and which now clears the counter — **without that a locked
@@ -6486,7 +6518,7 @@ bash test/server-smoke.sh          # the "sign-in, sessions and the attempt thro
   0032) is what makes the two separable.
 - **Somebody else's session id is a 404, not a 403.** Whether another person
   holds a given token id is not a question this route should answer.
-- **The cap EVICTS THE OLDEST and never refuses a sign-in** (`TELEMACHUS_MAX_SESSIONS`,
+- **The cap EVICTS THE OLDEST and never refuses a sign-in** (`TMACH_MAX_SESSIONS`,
   default 10, `never`/`0` off). "Refuse the N+1th" turns a full session table
   into a lockout, and before this slice nothing ended a session early, so an
   ordinary person on a laptop, a phone and a second browser would have reached it
@@ -6582,7 +6614,7 @@ which is what the OWASP Session Management Cheat Sheet asks for. Migration
 ```sh
 raco test test/session-policy-tests.rkt   # 19 cases: validation, tightening, both clocks, resolve-token
 bash test/server-smoke.sh                 # the "session policy:" block, 13 assertions
-TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org layer
+TMACH_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org layer
 ```
 
 ## Who may call: the peer gate (issues #40, #41)
@@ -6593,11 +6625,11 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   anyone who could reach it, ahead of RBAC, scopes, the org gate and session
   policy, none of which run before a principal exists. `domain/authz/peer.rkt`
   owns the rule (`peer-trusted?`), so it is unit-testable without a live server;
-  `TELEMACHUS_TRUSTED_HEADER_PEERS` names a reverse proxy that may assert
+  `TMACH_TRUSTED_HEADER_PEERS` names a reverse proxy that may assert
   identity, and nothing is trusted for looking private (10.x is somebody else's
   network).
 - **`POST /api/bootstrap` is loopback-only too**, or gated by
-  `TELEMACHUS_BOOTSTRAP_SECRET` (`X-Telemachus-Bootstrap`, compared in constant
+  `TMACH_BOOTSTRAP_SECRET` (`X-Telemachus-Bootstrap`, compared in constant
   time). Before this, a fresh instance on a LAN belonged to whoever called first.
   The refusal names both paths — a bare 403 on a fresh instance reads as a broken
   build.
@@ -6607,7 +6639,7 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
 
 ## Plugins: directories, pages and failures (issues #44, #45, #48)
 
-- **`TELEMACHUS_PLUGINS` is a `:`-separated LIST, searched after the built-in
+- **`TMACH_PLUGINS` is a `:`-separated LIST, searched after the built-in
   directory.** It used to name the ONE directory to load, so pointing it at a
   plugin of your own silently removed doc-pipeline and every other shipped one. A
   literal `-` entry drops the built-ins for a deployment that means to.
@@ -6618,7 +6650,7 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   filesystem layout is nobody's business. The listing does carry `bundle: true/false`.
 - **A plugin that fails to load is REPORTED**: `plugin-failures`, `failed` on
   `GET /api/plugins`, a `WARNING: N plugin(s) FAILED` block at boot, and
-  `TELEMACHUS_PLUGINS_STRICT=1` to refuse to start. It used to be one log line
+  `TMACH_PLUGINS_STRICT=1` to refuse to start. It used to be one log line
   among sixty, which is how a stale `plugins/*/compiled/*.zo` after the 9.3 bump
   left `example-tools` missing and the instance "healthy".
 - **Two plugins with one id: the first wins and the second is a failure**, rather
@@ -6637,24 +6669,24 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   strings short. The localize gate caught the second (the direction
   `--required en` exists for) and the drift gate caught the first; neither would
   have, had both run in the same broken state and been committed together.
-- **A SYMLINKED plugin directory is OPT-IN: `TELEMACHUS_PLUGINS_LINKS=1`.**
+- **A SYMLINKED plugin directory is OPT-IN: `TMACH_PLUGINS_LINKS=1`.**
   Symlinking a downstream plugin into `plugins/` is the normal way to develop one,
   and the only way for a plugin that requires TMach modules by relative path
-  (`../../domain/authz/authz.rkt`) to resolve them — `TELEMACHUS_PLUGINS` cannot,
+  (`../../domain/authz/authz.rkt`) to resolve them — `TMACH_PLUGINS` cannot,
   because the relative path only lands on `domain/` from two levels under
   `refimpl/racketmaximus/`. But `plugins/` is inside the checkout, so an
   always-on link would join every test run and every generated document. Three
   things now keep a local link from leaking:
     1. `load-plugins!` takes `#:skip-links?`, and `server/main.rkt` skips links
-       unless `TELEMACHUS_PLUGINS_LINKS` is set.
+       unless `TMACH_PLUGINS_LINKS` is set.
     2. `cli/telemachus-docs.rkt` ALWAYS skips them — `docs/reference/` is
        committed and CI fails on drift, so one developer's link would otherwise
        write a customer's routes into the repository and break the gate for
        everyone without it. This was observed: fixing the link's `PLTCOLLECTS` made
        it load, and the drift gate immediately reported `api.md plugins.md
        strings.json`.
-    3. All nine server-booting harnesses `unset TELEMACHUS_PLUGINS
-       TELEMACHUS_PLUGINS_LINKS` beside the `export PLTCOLLECTS` line they already
+    3. All nine server-booting harnesses `unset TMACH_PLUGINS
+       TMACH_PLUGINS_LINKS` beside the `export PLTCOLLECTS` line they already
        had. They are unset rather than merely unused because a developer exports
        them in their own shell, and `server-smoke.sh` asserts `"failed":[]` — with
        `PLTCOLLECTS` reset the downstream plugin's own collections are gone, so it
@@ -6679,7 +6711,7 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
   a replica or a volume snapshot travels without it. The old note in `creds.rkt`
   argued encryption "moves the secret from one file an attacker already has to
   another" — true of a host, false of the dump, which is the case that happens.
-- **`TELEMACHUS_SECRET_KEY` is NOT `TELEMACHUS_SECRET`.** Rotating the pepper
+- **`TMACH_SECRET_KEY` is NOT `TMACH_SECRET`.** Rotating the pepper
   signs everyone out (a fine emergency action); if it also sealed secrets, that
   same action would destroy them. 64 hex = the key; anything else is a
   passphrase, stretched with PBKDF2, never truncated.
@@ -6689,7 +6721,7 @@ TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh   # section 8c, the org l
 - **Storage is `enc:v1:<key-id>:<nonce>:<ct+tag>`; anything else is plaintext
   and reads as-is**, so adopting a key needs no migration. `cli/telemachus-secrets.rkt`
   (`status` / `keygen` / `rewrap`) seals existing rows and rotates
-  (`TELEMACHUS_SECRET_KEY_OLD` reads, the current key writes). Never do this at
+  (`TMACH_SECRET_KEY_OLD` reads, the current key writes). Never do this at
   boot: a mistyped key would seal every row with a key nobody has.
 - **The AAD is `<table>.<column>:<row-id>`**, so a ciphertext moved between rows
   does not open. Adding a new stored secret means adding a row to `SECRETS` in
