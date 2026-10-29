@@ -196,6 +196,101 @@ try {
   ok('note appears in the list',
     await until(page, () => document.body.innerText.includes('Validator note')));
 
+  // ── 3c. the editor, and the Markdown preview as a sanitiser (issue #180) ────
+  // A SOURCE assertion cannot establish that mdRender escapes; this runs the
+  // real function on the real page. Every case here is an input somebody would
+  // actually try.
+  step('editor: the Markdown preview');
+  {
+    const probe = await page.evaluate(() => ({
+      tag:    mdRender('<img src=x onerror="alert(1)">'),
+      script: mdRender('<script>alert(1)<\/script>'),
+      js:     mdRender('[click](javascript:alert(1))'),
+      entity: mdRender('[click](&#106;avascript:alert(1))'),
+      head:   mdRender('# Title'),
+      fence:  mdRender('```\n**not bold**\n```'),
+      table:  mdRender('| a | b |\n|---|---|\n| 1 | 2 |'),
+      link:   mdRender('[docs](https://example.test/x)'),
+      quote:  mdRender('> quoted'),
+      list:   mdRender('- one\n- two')
+    }));
+    ok('an img tag is escaped, not rendered',
+      !/<img/i.test(probe.tag) && probe.tag.includes('&lt;img'), probe.tag);
+    ok('a script tag is escaped, not rendered',
+      !/<script/i.test(probe.script), probe.script);
+    ok('a javascript: link is refused', !/href="javascript/i.test(probe.js), probe.js);
+    ok('…and an entity-encoded one cannot survive the escape',
+      !/href="&#106;avascript/i.test(probe.entity) && !/href="javascript/i.test(probe.entity),
+      probe.entity);
+    ok('a heading renders', probe.head.includes('<h1>Title</h1>'), probe.head);
+    ok('a fenced block keeps its asterisks literal',
+      probe.fence.includes('**not bold**') && !probe.fence.includes('<strong>'), probe.fence);
+    ok('a pipe table renders', probe.table.includes('<table>') && probe.table.includes('<td>1</td>'),
+      probe.table);
+    ok('an http link renders with rel=noopener',
+      probe.link.includes('href="https://example.test/x"') && probe.link.includes('rel="noopener'),
+      probe.link);
+    ok('a blockquote renders', probe.quote.includes('<blockquote>'), probe.quote);
+    ok('a list renders', probe.list.includes('<li>one</li>'), probe.list);
+  }
+
+  // The toolbar, the preview pane and the export, driven through the UI.
+  step('editor: the toolbar and the export');
+  await goTab(page, 'notes', '#nb');
+  await page.fill('#nb', '# Hello\n\nsome *body* text');
+  // Split view is a toolbar button; the preview pane only exists once it is on.
+  await page.evaluate(() => edToggle('note', 'preview', 'side'));
+  await page.waitForSelector('#edprev_note', { timeout: 5000 });
+  ok('the preview pane renders the body',
+    (await page.innerHTML('#edprev_note')).includes('<h1>Hello</h1>'));
+  ok('the count is shown', /\bwords\b|\u8a9e/.test(await page.textContent('#edcount_note')));
+  // Line numbers imply wrap off — the tie, through the real toggle.
+  await page.evaluate(() => edToggle('note', 'nums'));
+  await page.waitForSelector('#ednums_note', { timeout: 5000 });
+  ok('the gutter appears with line numbers on',
+    (await page.textContent('#ednums_note')).trim().startsWith('1'));
+  ok('…and soft wrap is off while they are on',
+    (await page.getAttribute('#nb', 'wrap')) === 'off');
+  await page.evaluate(() => edToggle('note', 'nums'));
+  await page.evaluate(() => edToggle('note', 'preview', 'off'));
+  // The export is a Blob and an a[download]; `default-src 'self'` governs this
+  // document, so the only question worth asking is whether the policy refuses
+  // it. The gate fails on any console error, which is how every other CSP
+  // claim in this console was established.
+  {
+    const before = pageErrors.length;
+    const dl = page.waitForEvent('download', { timeout: 8000 }).catch(() => null);
+    await page.evaluate(() => edExport('note', 'validator'));
+    const got = await dl;
+    ok('exporting .md is not refused by the CSP', pageErrors.length === before,
+      pageErrors.slice(before).join(' | '));
+    ok('…and a download really started', !!got && /\.md$/.test(got.suggestedFilename()),
+      got ? got.suggestedFilename() : 'no download event');
+  }
+
+  // Editing a note — the path that did not exist before #180.
+  step('editor: a note can be edited');
+  await page.fill('#nt', 'Editable note');
+  await page.fill('#nb', 'first body');
+  await page.evaluate(() => window.doCreateNote());
+  await page.waitForTimeout(600);
+  const edited = await page.evaluate(async () => {
+    const r = await fetch('/api/notes', { headers: { Authorization: 'Bearer ' + S.token } });
+    const j = await r.json();
+    const n = j.notes.filter(x => x.title === 'Editable note')[0];
+    noteEdit(n.id, n.body, n.title, n.visibility);
+    return n.id;
+  });
+  await page.waitForTimeout(600);
+  await page.fill('#nb', 'second body, edited in place');
+  await page.evaluate(() => window.doSaveNote ? doSaveNote() : null);
+  await page.waitForTimeout(800);
+  const after = await page.evaluate(async (id) => {
+    const r = await fetch('/api/notes/' + id, { headers: { Authorization: 'Bearer ' + S.token } });
+    return (await r.json()).body;
+  }, edited);
+  ok('the edit was stored through PUT', after === 'second body, edited in place', after);
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));

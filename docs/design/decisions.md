@@ -3622,3 +3622,101 @@ procedure" at request time rather than at compile time. What made it diagnosable
 in one read was #123: the 500 carries a request id and the message goes to
 stderr beside it, where before this year the body would have carried the whole
 exception and the log nothing.
+
+## ED — one editor, two surfaces (issue #180, built 29 Oct 2026)
+
+`static/console/15-editor.js`. Notes and Documents share it. No migration, no
+new route, no new permission — and **no new write path**: every endpoint this
+uses has existed as long as the route table.
+
+| | |
+|---|---|
+| **ED‑1** | ONE component, used by Notes AND Documents; the funnel's template editor stays out, with a reason |
+| **ED‑2** | The enabling half was not an editor: there was no way to EDIT at all |
+| **ED‑3** | No CDN and no vendored library — a stated Markdown subset, the one this platform's own documents are written in |
+| **ED‑4** | Safety is the ORDER: escape first, then rules over escaped text emitting a closed set of tags |
+| **ED‑5** | A link's scheme is allowlisted, and an entity-encoded one cannot survive the escape |
+| **ED‑6** | Line numbers turn soft wrap OFF, because a gutter that is subtly wrong is worse than none |
+| **ED‑7** | The view preferences are per-viewer and stored; the TEXT lives in `S` |
+| **ED‑8** | The textarea keeps the ids the fields it replaced had (`nb`, `dc`) |
+| **ED‑9** | Export is a Blob and an `a[download]`, and the CSP question is answered in the browser |
+| **ED‑10** | "Save to the repository" is one existing endpoint, because a text document IS a repository object |
+
+**ED‑1 is the decision the issue asks for up front**, and its own words are the
+argument: "three bare textareas becoming three different editors is the outcome
+to avoid." So Notes and Documents share one component. **The funnel's template
+editor is deliberately not folded in**: its content is HTML rather than
+Markdown and it already has a live preview of its own
+(`renderLandingShell(cfg,'preview')`), so including it would mean one component
+serving two languages and two previews — which is how a shared thing becomes
+three again with extra steps.
+
+**ED‑2 — THE CONSOLE COULD NOT EDIT A NOTE, AND HAD NEVER BEEN ABLE TO.** The
+body was an `<input>`, not even a textarea; Documents was a 4-row textarea; and
+both could be created and deleted and never changed. `PUT /api/notes/:id` and
+`PUT /api/documents/:id`, with a body-bearing `GET` beside each, have existed as
+long as `routes.rkt` — **#113's shape on this side of the wire**, a capability
+the server has always offered that no surface reached. An editor for a field
+somebody can only ever fill in once is worth very little, so the edit path lands
+with the editor rather than after it. The e2e gate had been editing a document
+over the API directly since the blob-write fix, which is how the gap stayed
+invisible: the write path was proven and the way to reach it was not.
+
+**ED‑4 — WHAT MAKES THE PREVIEW SAFE IS THE ORDER, NOT A SANITISER.** The
+source is HTML-escaped first; the block and inline rules then run over
+already-escaped text and emit a closed set of tags. Nothing from the source is
+ever passed through as markup, so there is no sanitiser to get wrong — a
+`<script>` in a note is `&lt;script&gt;` before any rule sees it, and the
+blockquote rule has to match `&gt;` rather than `>`, which is the tell that the
+rules really do run after the escape. The console's `script-src 'self'` is the
+backstop and explicitly not the defence: a preview that relied on it would be
+one policy change away from a stored XSS.
+
+**AND IT IS TESTED AT RUNTIME, BECAUSE A SOURCE ASSERTION CANNOT ESTABLISH
+THIS.** A Markdown renderer is effectively a sanitiser and "does it escape" is a
+question about what it COMPUTES. `test/e2e/demo-validate.mjs` §3c calls the real
+function on the real page with the inputs somebody would actually try — an
+`<img onerror>`, a `<script>`, `[click](javascript:…)`, the entity-encoded
+variant, a fenced block whose asterisks must stay literal — and asserts the
+output. That is the strongest form available here and it is where the claim
+lives; `test/console-tests.rkt` pins only the structure.
+
+**ED‑6 — A TIE, NOT A PREFERENCE.** A wrapped logical line occupies several
+visual rows, so a gutter of logical numbers stops aligning with the screen the
+moment one line wraps, and a gutter that is subtly wrong is worse than no
+gutter. With wrapping off the textarea is auto-sized to its line count instead,
+so it has **no internal vertical scroll to synchronise** and the two columns line
+up with no scroll handler at all — which is as well, because a `scroll` event
+does not bubble and the delegated dispatcher (#27) could not have carried one.
+
+**ED‑7 — the preferences are stored and the TEXT is not.** `preview`, `wrap`,
+`mono` and `nums` are per-viewer conveniences, so they go in `localStorage` with
+every read and write wrapped: the accessor throws in a private window and comes
+back empty with cleared site data, and a toolbar that would not render because a
+preference could not be read is a poor trade. The text lives in `S`, so a render
+pass does not lose what has been typed — `paintAuth()`'s rule, for the same
+reason — and `edRead` prefers the DOM and falls back to that, which covers both
+a value set programmatically and `preview: only`, where the textarea is
+`display:none` but still holds the text.
+
+**ED‑8 — the ids did not change, and that was a choice.** `page.fill('#nb', …)`
+and `#dc` appear in `demo-validate.mjs`, the screenshot tour and the funnel
+harness. Renaming a field to tidy it would have broken three harnesses with
+nothing on the other side.
+
+**ED‑10 — "save to the repository" needed no code.** A text document IS a
+repository object since migration `0022-fold-documents`: `content_type
+text/markdown`, the title in the version's filename. So the issue's "ideally
+save to the repository as a document, which is one `repo-put!` away" is in fact
+zero away — it is `POST /api/documents`, the endpoint the Documents tab already
+uses.
+
+**Leaving a tab abandons an edit in progress**, the way `go()` already drops a
+run poll: keeping it would leave a Save button on a card whose note is no longer
+on screen.
+
+**The screenshots are not refreshed here.** The Notes caption describes
+visibility and RBAC rather than the body field, so it is still accurate; the
+image is merely dated, and refreshing it needs a live model and regenerates both
+READMEs' feature-tour regions. Re-stamping a `captions.ja.json` hash for a
+caption whose text did not change would be churn with no reader.

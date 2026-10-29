@@ -4953,6 +4953,70 @@ raco test test/fleet-tests.rkt   # drain order, the two answers, the filters, pa
 bash test/pull-smoke.sh          # section 7b, 7 assertions over HTTP
 ```
 
+## One editor, two surfaces (ED‑1…10, issue #180)
+
+Built 29 Oct 2026. `static/console/15-editor.js`; Notes and Documents share it.
+**No migration, no new route, no new permission and no new write path** — every
+endpoint it uses has existed as long as the route table.
+
+```sh
+raco test test/console-tests.rkt   # 23 cases; six new, structure only
+bash test/e2e/validate.sh          # §3c — the sanitiser, on the real page
+```
+
+- **ONE component, and the issue's own words are the argument** (ED‑1): "three
+  bare textareas becoming three different editors is the outcome to avoid." The
+  funnel's template editor stays OUT deliberately — its content is HTML, not
+  Markdown, and it already has a live preview of its own, so folding it in means
+  one component serving two languages and two previews.
+- **THE CONSOLE COULD NOT EDIT A NOTE, AND NEVER HAD BEEN ABLE TO** (ED‑2). The
+  body was an `<input>` — not even a textarea — and both Notes and Documents
+  could be created and deleted and never changed, while `PUT /api/notes/:id` and
+  `PUT /api/documents/:id` have existed as long as `routes.rkt`. **#113's shape
+  on the console's side.** The e2e gate had been editing a document over the API
+  directly since the blob-write fix, which is exactly how the gap stayed
+  invisible: the write path was proven and the way to reach it was not.
+- **WHAT MAKES THE PREVIEW SAFE IS THE ORDER, NOT A SANITISER** (ED‑4). Escape
+  first; the block and inline rules then run over escaped text and emit a closed
+  set of tags, so nothing from the source is ever passed through as markup. The
+  tell is that the blockquote rule matches `&gt;` rather than `>`. `script-src
+  'self'` is the backstop and explicitly NOT the defence — a preview relying on
+  it would be one policy change from a stored XSS.
+- **AND IT IS TESTED AT RUNTIME, because a source assertion cannot establish
+  it.** A Markdown renderer is effectively a sanitiser and "does it escape" is a
+  question about what it COMPUTES, so `demo-validate.mjs` §3c calls the real
+  function on the real page with an `<img onerror>`, a `<script>`,
+  `[click](javascript:…)`, its entity-encoded variant and a fenced block whose
+  asterisks must stay literal. `console-tests.rkt` pins only the structure.
+- **LINE NUMBERS TURN SOFT WRAP OFF — a correctness tie, not a preference**
+  (ED‑6). A wrapped logical line takes several visual rows, so a gutter of
+  logical numbers stops aligning the moment one wraps, and a subtly wrong gutter
+  is worse than none. With wrap off the textarea is auto-sized to its line
+  count, so there is **no internal scroll to synchronise** — as well, because a
+  `scroll` event does not bubble and the delegated dispatcher could not have
+  carried one.
+- **The four view preferences are stored; the TEXT is not** (ED‑7). `preview`,
+  `wrap`, `mono`, `nums` go in `localStorage` with every access wrapped (the
+  accessor throws in a private window); the text lives in `S` so a render pass
+  does not lose it — `paintAuth()`'s rule. `edRead` prefers the DOM and falls
+  back to `S`, which covers a programmatic set and `preview: only`, where the
+  textarea is `display:none` but still holds the text.
+- **The textarea KEEPS the id the field it replaced had** (ED‑8): `#nb` and
+  `#dc` are filled by `demo-validate.mjs`, the screenshot tour and the funnel
+  harness. Renaming to tidy would break three harnesses for nothing.
+- **"Save to the repository" needed no code** (ED‑10). A text document IS a
+  repository object since `0022-fold-documents`, so the issue's "one `repo-put!`
+  away" is zero away — it is `POST /api/documents`.
+- **Export is a Blob and an `a[download]`, and the CSP question is answered in
+  the browser** (ED‑9), not argued: `default-src 'self'` governs the page, the
+  gate fails on any console error, and it also asserts a download event really
+  fired. That is how every other CSP claim in this console was established.
+- **The screenshots are NOT refreshed by this slice.** The Notes caption
+  describes visibility and RBAC rather than the body field, so it is still
+  accurate and only the image is dated; refreshing needs a live model and
+  regenerates both READMEs' tour regions, and re-stamping a `captions.ja.json`
+  hash for text that did not change is churn with no reader.
+
 ## Is this instance healthy? one screen (HEALTH‑1…8, issue #179)
 
 Built 29 Oct 2026. Five facts on `GET /api/admin/status` plus a **Health** tab.

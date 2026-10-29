@@ -95,6 +95,47 @@
   /* the results area reserves nothing until it holds something: an empty card
      with a gap under the field is what the report's screenshot was of */
   #sres:not(:empty){margin-top:12px}
+  /* #180: ONE editor, two surfaces (Notes and Documents). The gutter and the
+     textarea must share a line-height or the numbers stop lining up, which is
+     why the size and leading are set on both and only the FAMILY differs. Line
+     numbers imply no soft wrap (see edWrap): the textarea is auto-sized to its
+     line count instead, so it has no internal scroll to synchronise. */
+  .ed{border:1px solid var(--line);border-radius:10px;background:var(--panel2);margin:4px 0 10px}
+  .ed.zen{position:fixed;inset:0;z-index:80;margin:0;border-radius:0;overflow:auto;
+    background:var(--bg);padding:14px 16px}
+  .ed-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;
+    border-bottom:1px solid var(--line)}
+  .ed-seg{display:inline-flex;gap:4px}
+  .ed-panes{display:grid;grid-template-columns:1fr}
+  .ed.split .ed-panes{grid-template-columns:1fr 1fr}
+  .ed.prevonly .ed-input{display:none}
+  .ed-input{display:flex;min-width:0}
+  .ed-nums{flex:none;margin:0;padding:10px 8px;text-align:right;color:var(--muted);
+    background:transparent;border:0;border-right:1px solid var(--line);
+    font-size:13px;line-height:1.55;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    user-select:none;overflow:hidden}
+  .ed-ta{flex:1;min-width:0;margin:0;border:0;border-radius:0;background:transparent;
+    padding:10px 12px;font-size:13px;line-height:1.55;font-family:inherit;resize:vertical}
+  .ed-ta.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .ed-ta:focus{outline:none}
+  .ed-prev{padding:4px 14px 10px;overflow:auto;min-width:0}
+  .ed.split .ed-prev{border-left:1px solid var(--line)}
+  @media(max-width:760px){.ed.split .ed-panes{grid-template-columns:1fr}
+    .ed.split .ed-prev{border-left:0;border-top:1px solid var(--line)}}
+  /* the rendered Markdown subset — a closed set of tags (see mdRender) */
+  .md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin:.7em 0 .3em}
+  .md h1{font-size:1.5rem} .md h2{font-size:1.25rem} .md h3{font-size:1.1rem}
+  .md p{margin:.5em 0} .md ul,.md ol{margin:.5em 0;padding-left:1.4em}
+  .md hr{border:0;border-top:1px solid var(--line);margin:1em 0}
+  .md code{background:var(--panel);border:1px solid var(--line);border-radius:4px;
+    padding:1px 4px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+  .md pre.md-code{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    padding:10px 12px;overflow:auto;margin:.6em 0}
+  .md pre.md-code code{background:none;border:0;padding:0}
+  .md blockquote{margin:.6em 0;padding:.1em 0 .1em .9em;border-left:3px solid var(--line);
+    color:var(--muted)}
+  .md table{margin:.6em 0}
   /* ---- Tier-A skinnable beta landing: fully theme-token driven, scoped to .bx ---- */
   .bx{min-height:100vh;background:var(--bx-bg,#0b1a2b);color:var(--bx-ink,#f2ede1);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
   .bx-wrap{max-width:940px;margin:0 auto;padding:0 20px}
@@ -167,6 +208,7 @@
 <script src="/console/12-theme.js"></script>
 <script src="/console/13-kg.js"></script>
 <script src="/console/14-health.js"></script>
+<script src="/console/15-editor.js"></script>
 <script src="/console/99-boot.js"></script>
 </body>
 </html>

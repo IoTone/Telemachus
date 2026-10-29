@@ -136,6 +136,11 @@ function buildFooter(){
 function go(tab){ S.tab=tab; S.newToken=null;
   if(tab!=='workflows'){ S.wfRun=null; S.wfSel=null; S.wfSpec=null; }   // leaving drops any run poll in flight
   if(tab!=='repository'){ S.repoDetail=null; S.s3New=null; }
+  // #180: leaving a tab abandons an edit in progress, the same way it drops a
+  // run poll. Keeping it would show a Save button on a card whose note is no
+  // longer on screen.
+  if(tab!=='notes'){ S.noteEdit=null; edReset('note','', 'nb'); }
+  if(tab!=='documents'){ S.docEdit=null; edReset('doc','', 'dc'); }
   S.wfPoll++;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }

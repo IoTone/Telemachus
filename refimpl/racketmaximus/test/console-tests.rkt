@@ -339,3 +339,72 @@
       n))
   (check-equal? boots '("99-boot.js")
                 "exactly one file calls render() at top level, and it is the last one"))
+
+;; ---- one editor, two surfaces (issue #180) ----------------------------------
+;; The Markdown renderer is the one thing here a SOURCE assertion cannot
+;; establish: it is effectively a sanitiser, and "does it escape" is a question
+;; about what it computes. So the hostile inputs are asserted in the browser,
+;; where the real function runs on the real page — test/e2e/demo-validate.mjs
+;; §3c. What is pinned here is the structure: that there is ONE editor, that the
+;; escape happens FIRST, and that the edit paths exist at all.
+
+(test-case "there is ONE editor component, and both surfaces use it"
+  ;; The issue asks this to be decided up front and names the outcome to avoid:
+  ;; "three bare textareas becoming three different editors".
+  (check-equal? 1 (length (regexp-match* #px"function editorHTML\\(" html))
+                "exactly one editor component")
+  (check-true (string-contains? html "editorHTML('note'") "Notes uses it")
+  (check-true (string-contains? html "editorHTML('doc'") "…and so does Documents"))
+
+(test-case "the editor keeps the ids the fields it replaced had"
+  ;; `page.fill('#nb', …)` and `#dc` are in demo-validate, the screenshot tour
+  ;; and the funnel harness. Renaming a field to tidy it would break three
+  ;; harnesses for nothing.
+  (check-true (string-contains? html "editorHTML('note', {id:'nb'") "the note body is still #nb")
+  (check-true (string-contains? html "editorHTML('doc', {id:'dc'") "…and the document body still #dc"))
+
+(test-case "the Markdown subset escapes BEFORE it renders"
+  ;; What makes the preview safe is the order, not a sanitiser: everything is
+  ;; escaped first and the rules then run over escaped text emitting a closed
+  ;; set of tags, so nothing from the source is ever passed through as markup.
+  (define body (fn-body "mdRender"))
+  (check-true (and body #t) "mdRender exists")
+  (check-true (string-contains? body "esc(String(src") "the first thing it does is escape")
+  ;; …and the blockquote rule matches the ESCAPED form, which is the tell that
+  ;; the rules really do run after the escape rather than before it.
+  (check-true (string-contains? body "&gt;") "the block rules match escaped markup")
+  ;; a link's scheme is allowlisted rather than filtered
+  (check-true (string-contains? html "function mdSafeUrl") "there is a scheme allowlist")
+  (check-true (string-contains? html "mdSafeUrl(url)") "…and the link rule consults it"))
+
+(test-case "a note and a document can be EDITED, which they could not before"
+  ;; `PUT /api/notes/:id` and `PUT /api/documents/:id` have existed as long as
+  ;; the route table; the console called neither, so it could create and delete
+  ;; and never change. #113's shape on this side of the wire.
+  (check-true (regexp-match? #px"/api/notes/'\\+S\\.noteEdit[^\n]*method:'PUT'" html)
+              "notes save through PUT")
+  (check-true (regexp-match? #px"/api/documents/'\\+S\\.docEdit[^\n]*method:'PUT'" html)
+              "…and documents too"))
+
+(test-case "line numbers turn soft wrap off, rather than lying about it"
+  ;; A wrapped logical line takes several visual rows, so a gutter of logical
+  ;; numbers stops aligning the moment one line wraps — and a gutter that is
+  ;; subtly wrong is worse than none. The tie is in one function.
+  (define body (fn-body "edWrap"))
+  (check-true (and body #t) "edWrap exists")
+  (check-true (string-contains? body "nums") "…and it is the line-number preference that decides")
+  (check-true (string-contains? body "false")
+              "with numbers on, wrapping is off"))
+
+(test-case "the editor's text lives in S, not in localStorage"
+  ;; The four VIEW preferences are per-viewer conveniences and are stored, each
+  ;; access wrapped because the accessor throws in a private window. The TEXT is
+  ;; not: it belongs in S so a render pass does not lose what has been typed,
+  ;; which is paintAuth()'s rule for the same reason.
+  (check-true (string-contains? html "localStorage.setItem('tmx_ed'") "the preferences are stored")
+  (define save (fn-body "edSavePrefs"))
+  (check-true (and save (string-contains? save "try")) "…inside a try/catch")
+  (define prefs (fn-body "edPrefs"))
+  (check-true (and prefs (string-contains? prefs "try")) "…and so is the read")
+  (check-false (regexp-match? #px"setItem\\('tmx_ed[^)]*value" html)
+               "the text itself is never written to localStorage"))

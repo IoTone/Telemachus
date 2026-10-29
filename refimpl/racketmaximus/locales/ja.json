@@ -3511,6 +3511,94 @@
     "ui.hread": {
       "text": "{time} に取得",
       "hash": "a80ba7d0eb2987d343d436aa9f80babeb3d2ae81"
+    },
+    "ui.edit": {
+      "text": "編集",
+      "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
+    "ui.untitled": {
+      "text": "無題",
+      "hash": "621521f9a8788695ec292cbec54d2792cfdf0a7d"
+    },
+    "ui.editnote": {
+      "text": "ノートを編集",
+      "hash": "9751b2f323222b50b69e90ddb30dcf5466ef9b5d"
+    },
+    "ui.editdoc": {
+      "text": "ドキュメントを編集",
+      "hash": "ef6604a13d9d9962a59cf78c91b15a2a3dd1f437"
+    },
+    "ui.edwrite": {
+      "text": "編集",
+      "hash": "4a48932789d199bbed709777e2d743ca2bafdc6c"
+    },
+    "ui.edsplit": {
+      "text": "分割",
+      "hash": "fc8230b4119ad4b994db2324d71f4e0ae7ad932c"
+    },
+    "ui.edpreview": {
+      "text": "プレビュー",
+      "hash": "f1fbb2b43dca281d0138f4fcc92543ad143ef0b1"
+    },
+    "ui.ednums": {
+      "text": "行番号",
+      "hash": "c6fd3870c86e7422a0146e1e2a052437fb8e51e2"
+    },
+    "ui.edwrap": {
+      "text": "折り返し",
+      "hash": "c3447e7954fa5698ae957a33210094d617b1dc00"
+    },
+    "ui.edwraphint": {
+      "text": "行番号には折り返しをオフにする必要があります — 折り返した行は複数行を占め、番号と対応しなくなります",
+      "hash": "5bfa43c9ba9cf0241031f419926816b227f8c7c1"
+    },
+    "ui.edmono": {
+      "text": "等幅",
+      "hash": "c5c5533844c5249c3a9504a5197794dd80c644ca"
+    },
+    "ui.edzen": {
+      "text": "集中",
+      "hash": "fe7f55b8bf68fd47d248a271d541e7e183621010"
+    },
+    "ui.edleavezen": {
+      "text": "完了",
+      "hash": "e9b450d14bc2363d292c84f17cfad5cfbd58a458"
+    },
+    "ui.edzenhint": {
+      "text": "全幅表示。Esc で戻ります",
+      "hash": "f2f31483e8f093458460cd7615139a612587a25f"
+    },
+    "ui.edcount": {
+      "text": "{words} 語・{chars} 文字・{lines} 行",
+      "hash": "90eed01e3bac38eda8bbdd6f9485de162e3e2ebd"
+    },
+    "ui.edexport": {
+      "text": ".md で書き出す",
+      "hash": "eecde43c20946ff456a3efcab6b5970dd6b2034c"
+    },
+    "ui.edexporthint": {
+      "text": "本文を Markdown ファイルとしてダウンロードします",
+      "hash": "27e1b67ff7c841978c599f5f86b9975ecb670d3f"
+    },
+    "ui.edexportfail": {
+      "text": "ダウンロードが拒否されました",
+      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
+    },
+    "ui.edtorepo": {
+      "text": "リポジトリに保存",
+      "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
+    },
+    "ui.edtorepohint": {
+      "text": "パイプラインが処理できるドキュメントとして保存します",
+      "hash": "b02303f8f77dcdfce0e7cc36634a48161eddcb6a"
+    },
+    "ui.edsaved": {
+      "text": "リポジトリに保存しました",
+      "hash": "2d86aa9503b2392baca3c4d153ef475a270900b8"
+    },
+    "ui.edempty": {
+      "text": "保存する内容がありません",
+      "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
     }
   }
 }

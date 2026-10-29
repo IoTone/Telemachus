@@ -112,29 +112,64 @@ async function notesView(){
   const r=await api('/api/notes'); const notes=r.ok?r.json.notes:[];
   const mem=await api('/api/members'); const members=mem.ok?mem.json.members:[];
   const opts=members.map(m=>`<option value="${m.user_id}">${esc(m.username)}</option>`).join('');
+  // #180: there was no way to EDIT a note. `PUT /api/notes/:id` has existed
+  // since the routes were written and the console called it nowhere — #113's
+  // shape on this side of the wire. An editor for a field you can only fill in
+  // once is worth very little, so the edit path lands with the editor.
+  const editing = S.noteEdit ? notes.filter(n=>n.id===S.noteEdit)[0] : null;
   const list=notes.map(n=>`<div class="note">
       <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
-      <div class="muted">${esc(n.body)}</div>
+      <div class="md">${mdRender(n.body)}</div>
       <div class="row" style="margin-top:8px">
         <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility)))}">${t('edit')}</button></div>
         <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
       </div></div>`).join('') || `<p class="muted">—</p>`;
-  return `<h2>${t('notes')}</h2>
-    <div class="card"><h3>${t('newnote')}</h3>
+  const card = editing
+    ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
+      <label>${t('title')}</label><input id="nt" value="${esc(editing.title||'')}">
+      <label>${t('body')}</label>${editorHTML('note', {id:'nb'})}
+      <label>${t('visibility')}</label><select id="nv">${
+        ['team','private','shared'].map(x=>`<option${x===editing.visibility?' selected':''}>${x}</option>`).join('')}</select>
+      <button class="btn" data-h-click="${H((el,ev)=>doSaveNote())}">${t('save')}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>noteEditCancel())}">${t('cancel')}</button>
+      ${noteTools('note','nt')}</div>`
+    : `<div class="card"><h3>${t('newnote')}</h3>
       <label>${t('title')}</label><input id="nt" value="Secret plan">
-      <label>${t('body')}</label><input id="nb" value="only for me">
+      <label>${t('body')}</label>${editorHTML('note', {id:'nb', value:'only for me'})}
       <label>${t('visibility')}</label><select id="nv"><option>team</option><option>private</option><option>shared</option></select>
       <button class="btn" data-h-click="${H((el,ev)=>doCreateNote())}">${t('create')}</button>
-    </div>${list}`;
+      ${noteTools('note','nt')}</div>`;
+  return `<h2>${t('notes')}</h2>${card}${list}`;
 }
-async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:{title:val('nt'),body:val('nb'),visibility:val('nv')}});
-  if(r.ok){ toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
+// Export and "save to the repository" are the issue's fourth ask and they are
+// the same two buttons on both surfaces, so they are composed once here rather
+// than spelled out in each card.
+function noteTools(key, titleId){
+  return `<div class="row" style="margin-top:10px;gap:8px">
+    <div style="flex:0 0 auto"><button class="btn sm ghost"
+      data-h-click="${H(()=>edExport(key, (document.getElementById(titleId)||{}).value||'note'))}"
+      title="${esc(t('edexporthint'))}">${t('edexport')}</button></div>
+    <div style="flex:0 0 auto"><button class="btn sm ghost"
+      data-h-click="${H(()=>edToRepo(key, titleId))}"
+      title="${esc(t('edtorepohint'))}">${t('edtorepo')}</button></div></div>`;
+}
+function noteEdit(id, body, title, vis){ S.noteEdit=id; edReset('note', body, 'nb'); renderTab(); }
+function noteEditCancel(){ S.noteEdit=null; edReset('note', '', 'nb'); renderTab(); }
+async function doSaveNote(){
+  const r=await api('/api/notes/'+S.noteEdit,{method:'PUT',
+    body:{title:val('nt'), body:edRead('note'), visibility:val('nv')}});
+  if(r.ok){ S.noteEdit=null; edReset('note','', 'nb'); toast(t('saved'),true); renderTab(); }
+  else toast((r.json&&r.json.error)||'error');
+}
+async function doCreateNote(){ const r=await api('/api/notes',{method:'POST',body:{title:val('nt'),body:edRead('note'),visibility:val('nv')}});
+  if(r.ok){ edReset('note','', 'nb'); toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
 async function doShare(id){ const uid=document.getElementById('sh_'+id).value;
   const r=await api('/api/notes/'+id+'/share',{method:'POST',body:{user_id:uid,permission:'notes:read'}});
   toast(r.ok?'shared':(r.json.error||'error'), r.ok); }
 async function doDelNote(id){ const r=await api('/api/notes/'+id,{method:'DELETE'});
-  if(r.ok){ toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
+  if(r.ok){ if(S.noteEdit===id){ S.noteEdit=null; edReset('note','', 'nb'); } toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
 
 async function teamView(){
   const r=await api('/api/members'); const members=r.ok?r.json.members:[];
