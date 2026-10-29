@@ -3489,3 +3489,59 @@ them biting. Step 3 is the chunker, which is the one decision in this subsystem
 with no measurement behind it, because measuring recall needs a live
 `nomic-embed-text`; steps 4 and 5 are the table and the read. The arithmetic and
 the seal have no such dependency, which is why they land first.
+
+## QVIZ — a picture of the AI queue (issue #184) — DESIGNED, NOT BUILT
+
+#184 asks for "a short design in `docs/design/`, with the retention question
+answered, before any rendering code", which is what this is:
+`docs/design/ai-queue-visualization.md`. No migration, no route, no console
+code. Read it before building any of it.
+
+**The retention question has a third answer, and it is the useful one.** The
+issue offers client-side sampling (a live view, nothing on reload) or a decision
+to retain counters. The `jobs` table already carries two of the three series —
+`created_epoch` (migration 0041) for arrivals and `started_epoch` (0038) for
+claims — and the third needs **one column, not a store**: `finished_at` is TEXT
+`CURRENT_TIMESTAMP` and its format differs by dialect, so bucketing on it is
+wrong on one engine and invisible on the other, the trap 0038, 0039, 0040 and
+0041 each name in their own comment. `jobs.finished_epoch` is the fifth instance
+of that shape.
+
+What that buys is the part worth recording: **there is no retention decision to
+make at all.** How far back the picture reaches is bounded by what already
+bounds those rows — #59's per-job purge keeps the row, #86's retention rules
+delete it on the team's own horizon — so an operator who asked to keep seven
+days gets seven days of flow, with no new policy, no new sweep and nothing to
+configure. It survives a reload and a restart, which a sampled series does not,
+and it cannot disagree with the queue read because it is the same table. A
+counter table would be a second copy of a decision the rows already carry, which
+is the issue's own second constraint read back to it.
+
+| | |
+|---|---|
+| **QVIZ‑1** | The three flow series are derived from `jobs`; completions need `finished_epoch`, and then there is no retention question |
+| **QVIZ‑2** | Inline SVG drawn by hand, not a chart library — `script-src 'self'`, and all four pictures are shapes this codebase already draws |
+| **QVIZ‑3** | The attempt path is ALREADY recorded: FLEET‑1 writes the holder per attempt before the requeue nulls `executor_id` |
+| **QVIZ‑4** | No payload, no result, no tooltip exception — the queue read crosses every team |
+| **QVIZ‑5** | It lives on #179's Health screen and COMPOSES the Workers and Queue cards rather than re-rendering their figures |
+| **QVIZ‑6** | `instance:read`, and the refresh is explicit and defaults to off — a self-refreshing screen holds a session open (#38) |
+| **QVIZ‑7** | The minute grid is fixed, so a flat run of zeros is visibly a flat run of zeros |
+| **QVIZ‑8** | The window is a control and is named on screen — #178's lesson, already paid for on the Workers card |
+| **QVIZ‑9** | Declined: a chart library, a counter table, a timeline for every job, an OpenMetrics rendering, and any write |
+
+**QVIZ‑3 is the one that changed what the slice costs.** Priority 4 asks for
+attempts and releases "as a path, not a counter", which read like a new table
+until FLEET‑1's rule was re-read: the reaper writes `job.lease.expired` naming
+the executor **before** the UPDATE, precisely because the requeue clears
+`executor_id` and afterwards nothing in `jobs` says which machine dropped the
+work, and `job.attempts.exhausted` carries `holders` oldest-first. So the path
+is an audit read by resource id. What it needs that does not exist is a way to
+ask for ONE job's trail: `audit-list` filters by team and does not project
+`meta`, where the executor's name lives — the gap #59 and the anchor slice each
+paid for once.
+
+**QVIZ‑6 is a security answer wearing a convenience's clothes.** The console
+polls nothing today except a live workflow run, and #38's idle clock counts from
+the last REQUEST — so a dashboard that refreshed itself every ten seconds would
+hold a session open for as long as the tab was left on screen, which is an
+idle-timeout control switched off by a feature that looks like polish.

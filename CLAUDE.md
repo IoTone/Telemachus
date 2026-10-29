@@ -4953,6 +4953,45 @@ raco test test/fleet-tests.rkt   # drain order, the two answers, the filters, pa
 bash test/pull-smoke.sh          # section 7b, 7 assertions over HTTP
 ```
 
+## A picture of the queue (QVIZ‑1…9, issue #184) — DESIGNED, NOT BUILT
+
+`docs/design/ai-queue-visualization.md` plus the **QVIZ** block in
+`decisions.md`. #184 asks for a design with the retention question answered
+before any rendering code; this is that and nothing else — no migration, no
+route, no console code. **Read it before building any of it.**
+
+- **THE RETENTION QUESTION HAS A THIRD ANSWER, and the table already holds it.**
+  The issue offers client-side sampling (nothing on reload) or a counter table.
+  `jobs.created_epoch` (0041) gives arrivals and `jobs.started_epoch` (0038)
+  gives claims; completions need **one column**, because `finished_at` is TEXT
+  `CURRENT_TIMESTAMP` whose format differs by dialect — bucketing on it is wrong
+  on one engine and invisible on the other, the trap 0038/0039/0040/0041 each
+  name. `jobs.finished_epoch` is the fifth instance of that shape.
+- **WHICH MEANS THERE IS NO RETENTION DECISION TO MAKE.** How far back the
+  picture reaches is bounded by what already bounds the rows — #59's purge keeps
+  the row, #86's rules delete it on the team's own horizon — so an operator who
+  asked to keep seven days gets seven days of flow, with nothing to configure.
+  It also survives a reload and cannot disagree with the queue read, being the
+  same table.
+- **THE ATTEMPT PATH IS ALREADY RECORDED (QVIZ‑3), and that is FLEET‑1 paying
+  off.** "Attempts as a path, not a counter" reads like a new table until you
+  re-read why the reaper writes `job.lease.expired` naming the executor BEFORE
+  the UPDATE: the requeue clears `executor_id`, so afterwards nothing in `jobs`
+  says which machine dropped the work. What is missing is only a way to ask for
+  ONE job's trail — `audit-list` filters by team and does not project `meta`,
+  where the name lives.
+- **A SELF-REFRESHING DASHBOARD WOULD SWITCH OFF THE IDLE TIMEOUT** (QVIZ‑6).
+  #38's clock counts from the last REQUEST, and the console polls nothing but a
+  live workflow run, so a screen that refreshed itself would hold a session open
+  for as long as the tab was left up. The refresh is explicit and defaults to
+  off.
+- **Inline SVG, not a chart library** (QVIZ‑2): `script-src 'self'` blocks a CDN
+  and a vendored library is a third-party dependency for four small shapes, each
+  of which this codebase already draws by hand.
+- **It belongs on #179's Health screen and COMPOSES the Workers and Queue cards**
+  (QVIZ‑5) rather than re-rendering their figures — two renderings of one set of
+  numbers is LIVE‑IN's shape.
+
 ## A releasable claim (PULL‑12, issue #61)
 
 Built 15 Oct 2026. `POST /api/workers/jobs/:id/release` — the blameless
