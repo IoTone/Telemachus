@@ -2754,6 +2754,110 @@ raco test test/chunk-tests.rkt   # 17 cases; ten positive controls, all biting
   comparing against `#"md"` finds zero files and reports zero chunks, which
   reads as a corpus that is not there.
 
+## The vector table, the first binary column, and a write path (VEC‑18…25, #189 step 4)
+
+Built 29 Oct 2026 — step 4 of `docs/design/vector-store.md`'s build plan.
+Migration `0064-chunk-vectors`; `domain/ai/chunkstore.rkt` (the sealed column and
+the write) + `domain/repo/embed-tools.rkt` (two tools); an **Embed Documents**
+workflow beside Index Documents in `plugins/doc-indexer/`. **No route, no
+permission, no new environment variable** — `TMACH_EMBED_URL` /
+`TMACH_EMBED_MODEL` are #163's.
+
+```sh
+raco test test/chunkstore-tests.rkt test/embed-tools-tests.rkt   # 26 cases, eight controls
+DATABASE_URL="postgres://…" raco test test/chunkstore-tests.rkt  # the BYTEA half
+```
+
+- **THIS IS THE SCHEMA'S FIRST `BLOB`/`BYTEA` COLUMN — there were ZERO — and the
+  round trip was measured before the migration was written.** The type spelling
+  is branched by dialect, and getting THAT wrong is a syntax error at migration
+  time, which is the harmless half. The half that would not have been loud is
+  the round trip, so a probe pushed all 256 byte values through
+  `db-kit/portable` on SQLite and PostgreSQL and read them back identical first.
+  A vector that decodes to plausible-but-wrong numbers has no model name to
+  catch it — VEC‑13's own argument for pinning little-endian — and retrieves the
+  wrong chunk for ever. `test/chunkstore-tests.rkt` runs whole under
+  `DATABASE_URL`.
+- **`#:bytes`, AND THE AAD IS WHY `id` IS SYNTHETIC** (VEC‑19). A sealed
+  column's context is `<table>.<column>:<row-id>` and `telemachus-secrets
+  rewrap` walks a column by ONE id column, so the natural key
+  `(object_id, version_id, idx)` would have meant teaching the rotation CLI
+  about composite keys to satisfy VEC‑3. A uuid costs 36 bytes; the natural key
+  is a unique index instead — which is also what makes a mid-insert failure
+  testable.
+- **VEC‑3 MEANT CHANGING THE REWRAP CLI, and that was not a formality.** `rewrap`
+  and `status` were string-path throughout: `wrapped-secret?` is an `enc:v1:`
+  PREFIX test, which a packed vector has no prefix for, and **`secret-wrap` is
+  TOTAL — it passes non-strings through** — so the CLI would have left every
+  vector in the clear and reported having sealed it. Specs now carry an optional
+  fifth element, the stored form (`'bytes`), and `wrapped-bytes-key-id` is
+  exported from secretbox for the idempotence check, because without it the CLI
+  re-seals every vector on every run and `rewrapped 0 secret(s)` — the line an
+  operator reads to know a rotation finished — is unreachable.
+- **THE ROTATION IS VERIFIED BY HAND WITH THE REAL CLI, because there is no test
+  harness for `cli/telemachus-secrets.rkt` and never has been** — stated rather
+  than implied, the way §5k's LibreOffice branch and veraPDF are. On a seeded
+  row: adopt a key → `repo_chunks.vector chk_fixed`, `rewrapped 1`; re-run →
+  **`rewrapped 0`** (the idempotence `wrapped-bytes-key-id` exists for); rotate
+  with `TMACH_SECRET_KEY_OLD` → `rewrapped 1` under the new key id; and the
+  vector's first component reads `0.18257418274879456` before, between and
+  after. `status` under the switch says `repo_chunks.vector: 1 stored, 1 sealed,
+  0 in the clear`. A test for this wants a CLI harness, which is its own slice.
+
+- **A POSITIVE CONTROL SHOWED THAT THE ORDER, NOT THE TRANSACTION, PROTECTS THE
+  REFUSALS** (VEC‑21). Every validation in `chunks-replace!` runs before the
+  DELETE, so with `call-with-transaction` removed the "a refused write does not
+  destroy the previous set" case still passed. The transaction's own case had to
+  be written: two chunks claiming one `idx`, which the unique index refuses on
+  the second insert — the only failure that reaches the inserts at all. The
+  first case now says what it does and does not cover.
+- **THE DRAIN HAS TO TERMINATE, AND THE BLANK-TEXT FILTER CANNOT BE SQL**
+  (VEC‑23). `repo_extract_text` records an unreadable document as
+  processed-with-nothing — an EMPTY `repo_text` row — and the chunker answers
+  zero chunks for an empty string, so such a document can never acquire a vector
+  row and is listed by every run for ever: an operator running the workflow until
+  it finds nothing never finishes. And `t.content <> ''` cannot express it,
+  because under `TMACH_ENCRYPT_CONTENT` the stored content is a SEALED string, so
+  an empty text is not an empty column. The window is bounded in SQL
+  (`EMBED-SCAN`) and the test runs in Racket on the unsealed text — CLS‑27's
+  shape, for the dialect-divergence reason.
+- **A SECOND WORKFLOW, NOT TWO MORE STEPS ON `index-documents`** (VEC‑24). A step
+  that errors FAILS THE RUN and `repo_embed_chunks` refuses without
+  `TMACH_EMBED_URL`, which is unset on every instance today — so appending them
+  would make text indexing start failing everywhere. Controlled by doing it: the
+  run errors with `step 'efind' failed: no embedding model configured`.
+  `classify-backfill`'s precedent (CLS‑24).
+- **The store makes no model call and is handed no principal** (VEC‑25). The
+  vectors arrive as an argument, because `embed-exchange` is egress-gated,
+  request-logged and metered at the seam in `doc-tools.rkt`, and a second caller
+  inside the store is a second place those could be forgotten (RED‑16).
+  `meter-embed!` is exported now for its second asker — EMB‑6 is one decision,
+  and two copies of it is `executor-can-run?`'s drift.
+- **One request per 32 chunks, metered PER BATCH.** `ai.requests` defaults to
+  200/day, so one request per chunk lets a single 231-chunk document spend a
+  team's day. Per batch rather than at the end is FEED‑9's rule — a run that
+  fails on its third batch has spent the first two. A case pins that
+  `ai.tokens.total` stays at zero: folding an embedding into the completion
+  budget would make a retrieval index eat the budget chat needs.
+- **AND IT FOUND THAT THE TEXT INDEXER LEAKED A COLLEAGUE'S PRIVATE DOCUMENT
+  INTO A RUN THAT COULD NOT READ IT.** `repo-list` has applied `can?` per row
+  since slice 49; `repo_list_unindexed` (slice 54) selects by `team_id` alone, so
+  a member running **Index Documents** on a team holding one private document was
+  handed its id and `repo_extract_text` then raised `forbidden: files:read` —
+  failing the step and the run. The workflow was unusable for anyone but the
+  owner on any such team, and what it looked like was a broken indexer.
+  `repo-readable?` in repo.rkt is the ONE predicate both listers ask.
+  **The first regression case did not bite**: by then alice had already indexed
+  the private document, and the lister offers only what is unindexed — the
+  "exactly-once hides every later mistake" shape, in a lister. It needs a private
+  document created AFTER that run.
+- **`flvector` has no `list->flvector`**, which cost a compile.
+- **A test that saves and restores an operator variable must pass the NAME as a
+  value**, not write `(getenv "TMACH_…")` — ENVN‑2's gate fails on the literal,
+  and `content-encryption-tests`' `with-env` is the shape to copy.
+- **`sqlite:///:memory:` through `db-connector` creates a FILE called `:memory:`**
+  in the working directory. Harmless and easy to commit by accident.
+
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
 Built 25 Oct 2026 — the last piece of #87 this build can hold. One tool

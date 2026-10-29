@@ -46,7 +46,7 @@
          ;; the ONE implementation of the triple can? reads for an object —
          ;; exported so the audit read surface can ask for it instead of
          ;; rebuilding it (issue #84)
-         obj->resource
+         obj->resource repo-readable?
          repo-set-visibility! repo-delete! repo-usage
          blob-referenced? release-blob-if-unreferenced!
          derived-closure repo-delete-tree! repo-delete-prefix! repo-traces
@@ -249,6 +249,22 @@
   (hasheq 'resource_type "repo" 'resource_id (hash-ref o 'id)
           'team_id (hash-ref o 'team_id) 'owner_user_id (hash-ref o 'owner_user_id)
           'visibility (hash-ref o 'visibility)))
+
+
+;; MAY THIS PRINCIPAL READ THIS OBJECT — by id, collapsing a miss and a refusal
+;; into one #f, which is what a LISTER wants (the knowledge graph's rule).
+;;
+;; It exists because `repo-list` applies `can?` per row after its SQL window and
+;; two tool listers did not: `repo_list_unindexed` (slice 54) and, as first
+;; written, `repo_list_unembedded`. Both select by `team_id` alone, so both
+;; handed a colleague the id of somebody's PRIVATE document — and the step that
+;; followed then raised `forbidden: files:read`, which FAILS the run. So a member
+;; running Index Documents on a team holding one private document got a failed
+;; run and an un-indexed batch, which reads as a broken workflow rather than as a
+;; permission. One predicate, so a third lister cannot repeat it.
+(define (repo-readable? conn p id)
+  (define r (obj-row conn id))
+  (and r (can? conn p "files:read" #:resource (obj->resource (row->obj r)))))
 
 (define (obj-row conn id)
   (query-maybe-row conn (string-append OSELECT " WHERE o.id = ? AND o.deleted_at IS NULL") id))
@@ -1015,6 +1031,12 @@
          ;; it would leave a team's own deletion request half honoured — DEL's rule
          ;; that the audit log is what survives an erasure, not the content.
          (query-exec conn "DELETE FROM repo_annotations WHERE object_id = ?" id)
+         ;; …and the chunk vectors (#189 step 4). A vector inverts back towards
+         ;; the text it was made from, which is the whole argument for sealing the
+         ;; column (VEC-3), so leaving them behind would be the one copy of a
+         ;; deleted document's content that survives its deletion — exactly what
+         ;; DEL-7 says must NOT happen outside the audit log.
+         (query-exec conn "DELETE FROM repo_chunks WHERE object_id = ?" id)
          ((unbox delete-hook) conn id)
          ;; #85, and the KEY is deliberately absent here too (#84 r2)
          (emit! conn "object.deleted" (hash-ref o 'team_id)

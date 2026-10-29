@@ -8,6 +8,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | `classify-backfill` | doc-pipeline | 1 | 2 | 接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。 |
 | `classify-eval` | doc-pipeline | 1 | 1 | チームのラベル付きフィクスチャ — 接頭辞配下で doc_type_expected 属性を持つ文書 — に対して分類器を測定する。各バックエンドを単独で、かつラベルごとに正解率とカバレッジを報告し、各ラベルが何と誤認されたか、正答と誤答がどれほど確信を持っていたかも併せて示します。何も書き込みません: 種別は記録されずトリガーも起動しないため、フィクスチャ集合は何度でも評価できます。 |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | この文書がどの種類かを判定し、分類器の確信度が `min_confidence` を下回る場合は、推測せずに実行を保留して人に尋ねる。その判断は文書に記録されます — そのまま承認、別の種類へ訂正、あるいはいずれでもないときは取り下げ — そのうえで、その種類に対応するスキーマに照らしてフィールドを抽出します。 |
+| `embed-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントの抽出済みテキストをチャンクに分割し、意味検索のためにチャンクごとの埋め込みベクトルを保存します。現在のバージョンのベクトルがないドキュメント（または別のモデルで作成されたベクトルを持つドキュメント）を見つけたら、それぞれを埋め込みます。TMACH_EMBED_URL が必要です。再実行しても安全で、1回につき最大25ドキュメントを処理し、チームの埋め込み予算を消費します。 |
 | `feed-propose` | feeds | 1 | 2 | エージェントが取得済みの項目 1 件を読み、その隣に提案を書き出します。その後、実行は人の判断を待って停止します。提案に対して何も実行されません — v1 に実行するツールはなく、将来できたとしても approve の分岐にのみ置かれます。 |
 | `feed-triage` | feeds | 1 | 1 | 取得済みの項目 1 件を、優先度・期限・スキルとともに作業キューに載せます。キューはインデックスであり、これはトリアージが決めた内容の記録です。 |
 | `index-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
@@ -120,6 +121,21 @@ Steps:
 | `is_letter` | `choice` | when `{"eq":["${steps.classify.output.result.label}","letter"]}` then `letter_text` else `r_is_invoice` | next in order |
 | `r_is_invoice` | `choice` | when `{"eq":["${steps.correct.output.result.label}","invoice"]}` then `invoice_text` else `r_is_letter` | next in order |
 | `r_is_letter` | `choice` | when `{"eq":["${steps.correct.output.result.label}","letter"]}` then `letter_text` | next in order |
+
+## `embed-documents` — 文書の埋め込み
+
+リポジトリのドキュメントの抽出済みテキストをチャンクに分割し、意味検索のためにチャンクごとの埋め込みベクトルを保存します。現在のバージョンのベクトルがないドキュメント（または別のモデルで作成されたベクトルを持つドキュメント）を見つけたら、それぞれを埋め込みます。TMACH_EMBED_URL が必要です。再実行しても安全で、1回につき最大25ドキュメントを処理し、チームの埋め込み予算を消費します。
+
+Plugin: `doc-indexer` · version 1 · max steps 35 · starts at `find`
+
+Takes no input.
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `find` | `tool:repo_list_unembedded` | `{}` | next in order |
+| `embed` | `map` | over `${steps.find.output.result}` → `tool:repo_embed_chunks` with `{"id":"${item}"}` | end |
 
 ## `feed-propose` — フィード項目について何をすべきかを提案する
 

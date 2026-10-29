@@ -283,6 +283,10 @@
       "text": "Set a user's password when they are locked out: {new_password}. Their sessions are revoked. The only way back in for someone who cannot sign in — there is no mail transport to send a reset link.",
       "hash": "8c61f220aef15351f9b6ad32b51f802e508f3983"
     },
+    "doc.tool.repo_embed_chunks": {
+      "text": "Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version.",
+      "hash": "33d693225f27c0dcad7f1a1f5ef95c7e0cf86929"
+    },
     "ui.stop": {
       "text": "Stop",
       "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
@@ -802,6 +806,10 @@
     "beta.field_required": {
       "text": "{field} is required",
       "hash": "dda50f3ba4eb211a894985a368919f4833011910"
+    },
+    "doc.tool.repo_embed_chunks.id": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
     },
     "ui.key": {
       "text": "Path",
@@ -1398,6 +1406,10 @@
     "ui.editdoc": {
       "text": "Edit document",
       "hash": "ef6604a13d9d9962a59cf78c91b15a2a3dd1f437"
+    },
+    "doc.workflow.embed-documents": {
+      "text": "Chunk the extracted text of repository documents and store an embedding per chunk, for semantic retrieval. Finds documents whose text has no vectors for the current version (or vectors from a different model), then embeds each one. Needs TMACH_EMBED_URL. Safe to re-run; processes up to 25 documents per run and spends the team's embedding budget.",
+      "hash": "b0a01b6a2d7731507d231b069b5f06516c9d0112"
     },
     "doc.route.get.api.notes.id": {
       "text": "One note.",
@@ -2955,6 +2967,14 @@
       "text": "Literal names or phrases for the dictionary detector — not patterns",
       "hash": "12db93cf2841699f7c12d31b891267e07189338f"
     },
+    "doc.route.get.api.webhooks.id": {
+      "text": "One subscription. Another team's id is a 404, not a 403.",
+      "hash": "f6934d6e7166ec99d4ff601abcb8f6846d8d674c"
+    },
+    "doc.tool.repo_list_unembedded": {
+      "text": "List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue.",
+      "hash": "79b231e2c3b3f86ff407f006b6218a940dcb5f0f"
+    },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
       "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
@@ -2970,10 +2990,6 @@
     "doc.route.get.api.x.integrator-demo.eta": {
       "text": "Estimated days for ?lane=.",
       "hash": "2268d831fda2d55ab8ed18cab5d35a763a072dda"
-    },
-    "doc.route.get.api.webhooks.id": {
-      "text": "One subscription. Another team's id is a 404, not a 403.",
-      "hash": "f6934d6e7166ec99d4ff601abcb8f6846d8d674c"
     },
     "doc.route.get.api.l10n.messages": {
       "text": "The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged.",
@@ -3478,6 +3494,10 @@
     "doc.route.get.api.org.audit": {
       "text": "The company's audit trail.",
       "hash": "c709a0e57ace017ced6c3b073c4d646da3787214"
+    },
+    "doc.workflow.embed-documents.name": {
+      "text": "Embed Documents",
+      "hash": "3b526c6a6ba4894126caa893f960536848f10b58"
     },
     "ui.bxtouch": {
       "text": "We’ll be in touch.",

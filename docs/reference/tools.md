@@ -24,7 +24,9 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `kg_list_unextracted` | `files:read` | built-in | List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue. |
 | `kg_query` | `files:read` | built-in | What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too. |
 | `list_notes` | `notes:read` | built-in | List the current user's notes (title and visibility). |
+| `repo_embed_chunks` | `files:write` | built-in | Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version. |
 | `repo_extract_text` | `files:write` | built-in | Extract the text of one repository document into the search index. |
+| `repo_list_unembedded` | `files:read` | built-in | List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue. |
 | `repo_list_unindexed` | `files:read` | built-in | List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue. |
 | `shipment_eta` | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
 | `translate_text` | `chat:use` | translate-chat | Translate text into a target language. |
@@ -292,6 +294,16 @@ Permission: `notes:read` · source: built-in
 No parameters.
 
 
+## `repo_embed_chunks`
+
+Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version.
+
+Permission: `files:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The repository object id |
+
 ## `repo_extract_text`
 
 Extract the text of one repository document into the search index.
@@ -301,6 +313,15 @@ Permission: `files:write` · source: built-in
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `id` | string | yes | The repository object id |
+
+## `repo_list_unembedded`
+
+List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue.
+
+Permission: `files:read` · source: built-in
+
+No parameters.
+
 
 ## `repo_list_unindexed`
 

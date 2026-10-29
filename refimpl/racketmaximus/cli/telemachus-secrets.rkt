@@ -73,7 +73,16 @@
         ;; schedule is configuration that outlives key rotations. A sealed column
         ;; `rewrap` does not walk is silently unrotatable — here that means every
         ;; schedule stops firing for ever the first time the key is rotated.
-        (list "job_schedules" "payload" "id" "job_schedules.payload")))
+        (list "job_schedules" "payload" "id" "job_schedules.payload")
+        ;; #189 step 4: one chunk's embedding, as packed float32. THE FIRST
+        ;; BINARY SECRET IN THIS LIST, which is why every row above carries a
+        ;; 'text form and this one carries 'bytes — see `rows-of` and `rewrap`.
+        ;; VEC-3 requires it to be here, and the requirement is not a formality:
+        ;; a sealed column `rewrap` does not walk is silently unrotatable, and
+        ;; here that means every vector becomes undecodable on the first key
+        ;; rotation while the text they were made from is rotated fine, so
+        ;; retrieval would return nothing and nothing would say why.
+        (list "repo_chunks" "vector" "id" "repo_chunks.vector" 'bytes)))
 
 (define (SECRETS)
   (append CREDENTIAL-SECRETS
@@ -82,6 +91,30 @@
 (define (rows-of conn table col idcol)
   (query-rows conn (format "SELECT ~a, ~a FROM ~a WHERE ~a IS NOT NULL" idcol col table col)))
 
+;; A spec is (table column id-column context) and may carry a fifth element, the
+;; STORED FORM: 'text (the default, and every column until #189) or 'bytes.
+;;
+;; THE TWO FORMS ARE NOT INTERCHANGEABLE AND CONFUSING THEM IS SILENT. The text
+;; path tests `wrapped-secret?`, which is a `enc:v1:` PREFIX test on a string; a
+;; packed float32 vector may contain any byte, so it has no prefix to test and
+;; `string-prefix?` on it is a contract violation rather than a wrong answer —
+;; loud, and therefore the harmless half. The half that would NOT be loud is
+;; `secret-wrap` on bytes: it is total, so it would pass them straight through
+;; and `rewrap` would report having sealed a row it had left in the clear.
+(define (spec-form spec) (if (> (length spec) 4) (list-ref spec 4) 'text))
+(define (sealed-by? form stored)
+  (case form
+    [(bytes) (wrapped-bytes-key-id stored)]
+    [else (and (wrapped-secret? stored)
+               (string-prefix? stored (string-append "enc:v1:" (secret-key-id) ":"))
+               (secret-key-id))]))
+(define (unwrap-of form context stored)
+  (case form [(bytes) (secret-unwrap/bytes context stored)] [else (secret-unwrap context stored)]))
+(define (wrap-of form context plain)
+  (case form [(bytes) (secret-wrap/bytes context plain)] [else (secret-wrap context plain)]))
+(define (is-sealed? form stored)
+  (case form [(bytes) (wrapped-bytes? stored)] [else (wrapped-secret? stored)]))
+
 (define (status conn)
   (printf "secret key : ~a\n" (if (secrets-enabled?) (format "configured (id ~a)" (secret-key-id)) "NOT configured"))
   (when (current-previous-secret-key)
@@ -89,7 +122,8 @@
   (define totals
     (for/list ([spec (in-list (SECRETS))])
       (define rows (rows-of conn (car spec) (cadr spec) (caddr spec)))
-      (define sealed (for/sum ([r (in-list rows)]) (if (wrapped-secret? (vector-ref r 1)) 1 0)))
+      (define form (spec-form spec))
+      (define sealed (for/sum ([r (in-list rows)]) (if (is-sealed? form (vector-ref r 1)) 1 0)))
       (printf "~a.~a: ~a stored, ~a sealed, ~a in the clear\n"
               (car spec) (cadr spec) (length rows) sealed (- (length rows) sealed))
       (- (length rows) sealed)))
@@ -106,15 +140,15 @@
     (die "TMACH_SECRET_KEY is not set — there is nothing to seal secrets with."))
   (define changed
     (for/sum ([spec (in-list (SECRETS))])
-      (define-values (table col idcol prefix) (apply values spec))
+      (define-values (table col idcol prefix) (apply values (take spec 4)))
+      (define form (spec-form spec))
       (for/sum ([r (in-list (rows-of conn table col idcol))])
         (define id (vector-ref r 0))
         (define stored (vector-ref r 1))
         (define context (string-append prefix ":" id))
         (cond
           ;; already sealed by the CURRENT key — leave it alone (idempotent)
-          [(and (wrapped-secret? stored)
-                (string-prefix? stored (string-append "enc:v1:" (secret-key-id) ":"))) 0]
+          [(equal? (sealed-by? form stored) (secret-key-id)) 0]
           [else
            ;; unwrap with whichever key sealed it (the previous one, during a
            ;; rotation), then seal with the current. An unreadable row STOPS the
@@ -123,9 +157,9 @@
              (with-handlers ([exn:fail? (lambda (e)
                                           (die (format "~a ~a: ~a\nNothing further was written."
                                                        table id (exn-message e))))])
-               (secret-unwrap context stored)))
+               (unwrap-of form context stored)))
            (query-exec conn (format "UPDATE ~a SET ~a = ? WHERE ~a = ?" table col idcol)
-                       (secret-wrap context plain) id)
+                       (wrap-of form context plain) id)
            (printf "  ~a.~a ~a\n" table col id)
            1]))))
   (printf "rewrapped ~a secret(s) with key ~a\n" changed (secret-key-id)))

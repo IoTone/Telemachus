@@ -98,6 +98,7 @@
          ;; here leaves the tool registered BY THE PLUGIN, which is why the
          ;; control had to be run with the plugin out as well.
          (only-in "../domain/repo/index-tools.rkt")      ; slice 54
+         (only-in "../domain/repo/embed-tools.rkt")      ; #189 step 4
          (only-in "../domain/repo/doc-tools.rkt")        ; slice 57
          (only-in "../domain/kg/kg-tools.rkt")           ; slice 61
          ;; issue #89: the checks an instance runs before it serves. Their own

@@ -248,24 +248,51 @@ a person can see.
    runs near one token per character against English's four, so a chunk of
    Japanese carries roughly four times the tokens the calibration intends.
    **The recall measurement has to be made in both languages.**
-4. **The table and the write path**, as a step in the existing indexing
-   workflow (`plugins/doc-indexer`) rather than a new seam: a chunk's vector is
-   the same kind of thing as its extracted text, keyed on the version, replaced
-   wholesale by a new one.
+4. ~~**The table and the write path.**~~ **BUILT** — migration
+   `0064-chunk-vectors`, `domain/ai/chunkstore.rkt`,
+   `domain/repo/embed-tools.rkt`, and an **Embed Documents** workflow beside
+   Index Documents in `plugins/doc-indexer/`; decisions VEC‑18…25. One row per
+   chunk per VERSION, sealed as bytes under the content switch and listed in
+   `CONTENT-SECRETS` as VEC‑3 requires — which also meant teaching
+   `telemachus-secrets` the binary form, because `rewrap` and `status` were
+   string-path throughout and `secret-wrap` is total, so it would have passed a
+   vector through unsealed and reported having sealed it.
+   **It is this schema's first `BLOB`/`BYTEA` column**: the type spelling is
+   branched by dialect, and all 256 byte values were measured through
+   `db-kit/portable` on both engines before the migration was written, because a
+   vector that decodes to plausible-but-wrong numbers has no model name to catch
+   it. It is a SECOND workflow and not two steps on the published spec (VEC‑24),
+   since a step that errors fails the run and `repo_embed_chunks` refuses
+   without `TMACH_EMBED_URL` — which is unset on every instance today.
+   Still no model needed to BUILD or test it: the embedding seam is
+   `current-doc-embed`, scripted by the suite.
 5. **The read**: a nearest-chunk query, team-scoped in SQL, `can?` per row after
    the scan, returning the chunk's offsets so the caller can cite it.
 6. **A retrieval tool and `?semantic=` on search**, which is where #183 and #191
    pick it up.
 
-Steps 1–3 are built. **Step 4 is the next one and it needs no model**: the
-table, the sealed vector column and a write step in the existing indexing
-workflow. What waits for a live `nomic-embed-text` is step 3's CALIBRATION — the
-two numbers above — which is the same measurement `EMBED-MARGIN-SCALE` (#163)
-wants and is therefore a thing to do once, in both languages, when the GPU rig's
-driver upgrade lands. It is no longer a thing that blocks building.
+Steps 1–4 are built. **Step 5 is the next one and it needs no model either**:
+the nearest-chunk query, team-scoped in SQL, `can?` per row after the scan,
+returning the chunk's offsets so the caller can cite it. Everything it needs is
+now on disk — `vec-nearest` (step 1), the sealed column and `chunks-for`
+(step 4), and `spans-covering` for the citation (CHUNK‑1). What a query cannot be
+JUDGED on without a live `nomic-embed-text` is whether it retrieves the right
+chunk, which is step 3's CALIBRATION — the two numbers above — the same
+measurement `EMBED-MARGIN-SCALE` (#163) wants, and therefore a thing to do once,
+in both languages, when the GPU rig's driver upgrade lands. It does not block
+building any of steps 4–6.
 
-One thing step 4 must not forget, recorded here as well as in `decisions.md`
-because this is the document somebody reads before building it: **the vector
-column has to be added to `CONTENT-SECRETS` in `cli/telemachus-secrets.rkt` in
-the same commit as its `CREATE TABLE`.** VEC‑3 says so, and a sealed column
-`rewrap` does not walk is silently unrotatable.
+Two things step 5 should know, recorded here because this is the document
+somebody reads before building it:
+
+- **The scan's window joins `o.current_version_id`**, which is what makes a
+  superseded version's vectors unreachable rather than merely stale (VEC‑18),
+  and it filters `c.model` in SQL, because vectors from two checkpoints are not
+  comparable and mixing them answers confidently and wrongly (VEC‑20).
+- **A re-upload does not clear the old version's vector rows.** The lister sees
+  the document as un-embedded and offers it again, and `chunks-replace!` deletes
+  by `object_id`, so the rows go on the next embed — but between the upload and
+  that run they sit there, unreachable to the scan and counted by
+  `chunks-count`. That is storage, not correctness, and it is stated rather than
+  tidied because the alternative — clearing them at upload — would throw away a
+  usable index the moment somebody fixed a typo in a document.
