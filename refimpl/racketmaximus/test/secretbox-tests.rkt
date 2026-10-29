@@ -21,7 +21,10 @@
          "../domain/authz/secretbox.rkt"
          "../domain/authz/authz.rkt"
          (only-in "../domain/authz/crypto.rkt" totp base32-decode)   ; to prove a sealed seed still signs in
-         "../domain/s3/creds.rkt")
+         "../domain/s3/creds.rkt"
+         ;; the first caller the bytes path was built for (issue #189 step 1)
+         (only-in "../domain/ai/vectors.rkt" vec-pack vec-unpack vec-normalize vec-unit? vec-dot)
+         (only-in racket/flonum for/flvector))
 
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 (define (hx s) (hex-string->bytes s))
@@ -179,3 +182,107 @@
       ;; …including the presign path, which signs with the caller's newest key
       (check-equal? (cdr (s3-cred-newest c p)) secret)
       (disconnect c))))
+
+;; ---- the bytes stored form (issue #189 step 2) -------------------------------
+;;
+;; A second stored form exists because `secret-wrap` is a STRING API and #189
+;; measured what that costs on 29.3 MiB of packed float32: 2,240 ms and 52.1 MiB
+;; through base64+UTF-8, against 44 ms and 29.3 MiB on the raw bytes. These cases
+;; are about the properties, not the speed — the same key, the same cipher, the
+;; same AAD, and a sniff that has to work on bytes that may contain anything.
+
+(test-case "bytes seal and open, byte-identically, with nothing converted"
+  (with-key KEY-HEX
+    (lambda ()
+      ;; deliberately not UTF-8: a packed float32 vector is not text, and the
+      ;; string path would have mangled or refused exactly this
+      (define plain (bytes 0 1 255 128 0 0 #x80 #x3f 254))
+      (define stored (secret-wrap/bytes "repo_vectors.v:c1" plain))
+      (check-true (wrapped-bytes? stored))
+      (check-false (regexp-match? (regexp-quote plain) stored) "the plaintext is not in the row")
+      (check-equal? (secret-unwrap/bytes "repo_vectors.v:c1" stored) plain)
+      ;; and the stored size is the plaintext plus one fixed header, not 4/3 of it
+      (check-equal? (bytes-length stored) (+ (bytes-length plain) 8 8 NONCE-BYTES 16)))))
+
+(test-case "the bytes AAD is the row, so a ciphertext cannot be moved"
+  (with-key KEY-HEX
+    (lambda ()
+      (define stored (secret-wrap/bytes "repo_vectors.v:c1" #"\0\1\2\3"))
+      (check-exn exn:fail? (lambda () (secret-unwrap/bytes "repo_vectors.v:c2" stored))
+                 "another row's context must not open it")
+      ;; a flipped bit anywhere is a refusal, not a silently different vector
+      (define tampered (bytes-copy stored))
+      (bytes-set! tampered (- (bytes-length tampered) 1)
+                  (bitwise-xor (bytes-ref tampered (- (bytes-length tampered) 1)) 1))
+      (check-exn exn:fail? (lambda () (secret-unwrap/bytes "repo_vectors.v:c1" tampered))))))
+
+(test-case "a refusal names neither the plaintext nor the key"
+  (define stored (with-key KEY-HEX (lambda () (secret-wrap/bytes "repo_vectors.v:c1" #"SENSITIVE"))))
+  (with-key KEY-HEX-2
+    (lambda ()
+      (define msg
+        (with-handlers ([exn:fail? exn-message])
+          (secret-unwrap/bytes "repo_vectors.v:c1" stored)
+          "it opened, which it must not have"))
+      (check-true (string? msg))
+      (check-false (regexp-match? #rx"SENSITIVE" msg))
+      (check-false (regexp-match? (regexp (substring KEY-HEX 0 32)) msg))
+      (check-false (regexp-match? (regexp (substring KEY-HEX-2 0 32)) msg)))))
+
+(test-case "with no key configured the bytes path is the identity"
+  ;; the supported plaintext-at-rest posture, and the reason the unseal must be
+  ;; unconditional: a value sealed yesterday still opens today
+  (with-key ""
+    (lambda ()
+      (define plain (bytes 9 8 7))
+      (check-equal? (secret-wrap/bytes "repo_vectors.v:c1" plain) plain)
+      (check-false (wrapped-bytes? plain))
+      (check-equal? (secret-unwrap/bytes "repo_vectors.v:c1" plain) plain))))
+
+(test-case "the bytes path is total, like the string one"
+  (with-key KEY-HEX
+    (lambda ()
+      ;; a non-bytes value passes through, so a guard at the call site would be
+      ;; the redundancy sealed.rkt dropped
+      (check-equal? (secret-wrap/bytes "repo_vectors.v:c1" 'null) 'null)
+      (check-equal? (secret-unwrap/bytes "repo_vectors.v:c1" sql-null) sql-null)
+      (check-equal? (secret-wrap/bytes "repo_vectors.v:c1" "a string") "a string"))))
+
+(test-case "the sniff is the prefix AND the shape"
+  ;; a plaintext blob may contain any byte, so a prefix alone cannot answer
+  ;; "is this row sealed" — the magic, eight hex bytes of key id, and room for a
+  ;; GCM tag all have to hold
+  (check-false (wrapped-bytes? (bytes)))
+  (check-false (wrapped-bytes? #"tmbenc01"))                      ; magic, nothing else
+  (check-false (wrapped-bytes? (bytes-append #"tmbenc01" (make-bytes 40 0))))  ; kid not hex
+  (check-false (wrapped-bytes? (bytes-append #"TMBENC01" (make-bytes 40 97)))) ; wrong case
+  (check-false (wrapped-bytes? (bytes-append #"tmbenc01" (make-bytes 8 97) (make-bytes 4 0))))
+  (check-true  (wrapped-bytes? (bytes-append #"tmbenc01" (make-bytes 8 97) (make-bytes 40 0))))
+  ;; and a real sealed value, at the shortest it can be
+  (with-key KEY-HEX
+    (lambda () (check-true (wrapped-bytes? (secret-wrap/bytes "repo_vectors.v:c1" #""))))))
+
+(test-case "a rotation reads the previous key and writes the current one"
+  (define old (with-key KEY-HEX (lambda () (secret-wrap/bytes "repo_vectors.v:c1" #"\1\2\3"))))
+  (define saved (tmach-env "SECRET_KEY_OLD"))
+  (putenv "TMACH_SECRET_KEY_OLD" KEY-HEX)
+  (dynamic-wind
+   void
+   (lambda ()
+     (with-key KEY-HEX-2
+       (lambda ()
+         (check-equal? (secret-unwrap/bytes "repo_vectors.v:c1" old) #"\1\2\3")
+         ;; re-sealed under the current key, which is what `rewrap` does
+         (define new (secret-wrap/bytes "repo_vectors.v:c1" #"\1\2\3"))
+         (check-false (equal? new old))
+         (check-equal? (secret-unwrap/bytes "repo_vectors.v:c1" new) #"\1\2\3"))))
+   (lambda () (putenv "TMACH_SECRET_KEY_OLD" (or saved "")))))
+
+(test-case "a vector survives the seal exactly, which is the caller that asked"
+  (with-key KEY-HEX
+    (lambda ()
+      (define v (vec-normalize (for/flvector ([i (in-range 16)]) (- (* 0.1 i) 0.7))))
+      (define stored (secret-wrap/bytes "repo_vectors.v:c1" (vec-pack v)))
+      (define back (vec-unpack (secret-unwrap/bytes "repo_vectors.v:c1" stored)))
+      (check-true (vec-unit? back))
+      (check-true (< (abs (- (vec-dot back back) 1.0)) 1e-6)))))

@@ -2493,13 +2493,14 @@ asserts the seams were never called, and the control bites now.
 **`(void (label-vectors …))` is an arity error, not a discard** — third
 appearance of that shape in these notes. `call-with-values`.
 
-## Where a document vector would live (VEC‑1…10, issue #189) — EVALUATED, NOT BUILT
+## Where a document vector would live (VEC‑1…10, issue #189) — DECIDED; steps 1–2 BUILT
 
-#189 asked for "a story and an evaluation", which is what exists:
-`docs/design/vector-store.md` plus the **VEC** block in `decisions.md`. No code,
-no migration, no route. Read it before building retrieval — #183 (in-product
-help) and #191 (graph‑RAG) are both waiting on it, and the build plan is at the
-end of that document.
+#189 asked for "a story and an evaluation", which is what this was:
+`docs/design/vector-store.md` plus the **VEC** block in `decisions.md`. **Steps
+1 and 2 of its build plan are built now** — the section below — and the schema,
+the write path and the read are not. Read this before building retrieval: #183
+(in-product help) and #191 (graph‑RAG) are both waiting on it, and the build plan
+is at the end of that document.
 
 **The answer is a sealed `BLOB` column, one row per chunk, scanned in process.
 No extension, no new service, no ANN index — revisited at 50,000 chunks for one
@@ -2558,6 +2559,114 @@ normalized store, and a bytes-level seal under `sealed.rkt`'s existing AAD rule.
 Step 3, the chunker, is the one decision with no measurement behind it, because
 recall needs a live `nomic-embed-text` — the same calibration
 `EMBED-MARGIN-SCALE` is waiting on.
+
+## The vector arithmetic, and a seal that moves bytes (VEC‑11…17, ENC‑24, #189 steps 1–2)
+
+Built 28 Oct 2026 — the first half of `vector-store.md`'s build plan, which is
+the two steps it called prerequisites with their own tests and no behaviour
+change. `domain/ai/vectors.rkt` is new; `secret-wrap/bytes` /
+`secret-unwrap/bytes` join `secretbox.rkt`; `define-sealed-column` gains
+`#:bytes`. **No migration, no route, no environment variable, no permission.**
+
+```sh
+raco test test/vectors-tests.rkt test/secretbox-tests.rkt test/sealed-column-tests.rkt
+# 40 cases; ten positive controls across the three, all of which bite
+```
+
+- **NOTHING CALLS EITHER MODULE YET, AND THAT IS THE ORDERING RATHER THAN AN
+  OVERSIGHT.** #110 r4's rule is that an export in `domain/` with no consumer is
+  a claim the next reader must assume is load-bearing — and its stated exception
+  is an export with a test behind it. Step 3 is the chunker, the one decision in
+  this subsystem with **no measurement behind it**, because measuring recall
+  needs a live `nomic-embed-text`; the arithmetic and the seal have no such
+  dependency, so they land first and are measurable on their own.
+- **THE STORE IS NORMALIZED AT WRITE, SO THE READ IS A BARE DOT PRODUCT**
+  (VEC‑11). For unit vectors the cosine IS the inner product, so one
+  normalization per chunk removes both square roots and both norm loops from
+  every later comparison — `cosine` computes N+1 norms for one query against N
+  stored vectors where one would do. Re-measured with the real module at
+  100,000 × 768: boxed `cosine` **1,314 ms**, `flvector` dot **168 ms**, the
+  whole scan (decode + dot + bounded top‑k) **784 ms**; 76 ms at 10,000 and 8 ms
+  at 1,000. Those land on the prototype's *end-to-end* row, not its bare-decode
+  one, which is the honest comparison.
+- **`vec-dot` IS ONLY A SIMILARITY WHEN BOTH SIDES ARE UNIT, and it says so**
+  (VEC‑12). On un-normalized input it answers the inner product, honestly and
+  uselessly, so the invariant is **enforced at the write and asserted**
+  (`vec-unit?`) rather than described in a comment. A test pins that
+  `(vec-dot (vec-normalize a) (vec-normalize b))` equals `(cosine a b)`, and a
+  second pins that it does NOT on un-normalized input — the control against
+  somebody "simplifying" the normalization away.
+- **`cosine` IS UNCHANGED AND KEPT** (VEC‑14). Two functions with different
+  contracts are not `executor-can-run?`'s drift, which is about two copies of
+  ONE rule: the general similarity of two arbitrary vectors and the inner
+  product of two unit ones are different mathematical objects, and a shared
+  implementation would have to be the general — slow — one. EMB‑7's label store
+  compares against at most `MAX-LABELS` vectors, where 1,272 ms per hundred
+  thousand comparisons is 12 µs a classification.
+- **A ZERO VECTOR HAS NO DIRECTION, so `vec-normalize` answers `#f`.** Not a
+  vector of zeros, which would compare 0.0 against everything and read as the
+  WORST match — a claim where `#f` lets the write path refuse the chunk and say
+  why. `cosine`'s own rule, and reachable: a provider answers a zero vector for
+  empty input, and a chunker will eventually hand an embedder one whitespace-only
+  chunk. `fl>` is false for `+nan.0`, so one test covers a NaN component too —
+  a second explicit NaN guard would be #110 r1's redundant guard.
+- **FLOAT32 AT REST, LITTLE-ENDIAN PINNED** (VEC‑13), never
+  `(system-big-endian?)`: these bytes go into a file that is dumped, restored and
+  replicated, and a dump decoded on the other byte order yields plausible numbers
+  with no model name to catch it. **The test cannot catch an UNPINNED pin, only
+  an inverted one** — every machine anybody runs this on is little-endian — and
+  the case says so where somebody might otherwise trust it.
+- **A WIDTH MISMATCH ANSWERS `#f` AND NEVER RAISES; the scan skips it and COUNTS
+  it** (VEC‑15). By read time such a row survived a model change (the store is
+  keyed by model), so it is a survivor rather than a surprise and must not take
+  somebody's query down — and a scan that silently returned fewer results would
+  be a recall problem nobody could see, which is the shape `truncated` already
+  answers for CLS‑27. The width is read off the BYTES, so a foreign row costs a
+  remainder rather than a decode.
+- **The authorization is deliberately NOT in `vec-nearest`** (VEC‑17): it is
+  handed rows and knows nothing about who asked. VEC‑9 stands — the window is
+  bounded in SQL, `can?` per row AFTER the scan — and it is the same reason the
+  blob store is never handed a principal.
+- **`secret-wrap` IS A STRING API, AND THAT IS THE 51×** (ENC‑24). On 29.3 MiB
+  of packed float32: **2,240 ms and 52.1 MiB stored** through the string path
+  against **44 ms and 29.3 MiB** for `aes-256-gcm-decrypt` on the raw bytes —
+  and **none of it is the cipher**, which runs at about 665 MiB/s. It is base64
+  in, UTF‑8 out, UTF‑8 in, base64 out: four whole-buffer conversions, two of
+  which inflate the stored value by a third. Everything the string path has ever
+  sealed is text (the biggest is a 200 KB extraction, 18 ms), so the cost was
+  invisible until something asked it to move a vector.
+- **A second stored FORM, not a second key, cipher or AAD rule.** Same
+  `current-secret-key`, same AES‑256‑GCM, same 12-byte nonce, same `aad-for`,
+  and `define-sealed-column`'s `#:bytes` builds the context with the same
+  `sealed-context` — so a column declared through it is bound to its row by
+  exactly the string every other sealed column is bound by. **The AAD test
+  builds that string BY HAND**, which is `sealed-column-tests`' case‑2 rule: a
+  test where both sides are generated can pass while both were changed together.
+- **THE SNIFF IS THE PREFIX *AND* THE SHAPE, and that is forced by what the
+  plaintext is.** `wrapped-secret?` can test a text prefix safely — a TOTP seed
+  does not begin `enc:v1:` — but a packed float32 vector may contain any byte,
+  so "is this row sealed?" cannot be answered by a prefix. `wrapped-bytes?`
+  wants eight magic bytes, then eight that must be **lowercase hex** (the key
+  id), then room for a nonce and a GCM tag. One in 2^75 by chance; the remedy if
+  that ever matters is a column saying which rows are sealed, which is step 4's
+  to decide.
+- **`#:bytes` carries the CONTENT gate, not `#:credential`'s unconditional one**
+  (VEC‑3 arriving in code): a document vector is a function of
+  `repo_text.content`, embedding inversion recovers much of the source text, and
+  an unsealed vector column beside a sealed `repo_text` would undo #83 on exactly
+  the instance that asked for it. **Both directions are pinned** — a content
+  column waits to be asked where ENC‑23's credential seals on a key alone — and
+  the unseal is unconditional in both.
+- **STEP 4 MUST ADD THE VECTOR COLUMN TO `CONTENT-SECRETS`** in
+  `cli/telemachus-secrets.rkt`, in the same commit as its `CREATE TABLE`. It is
+  not there now because there is no column; VEC‑3 requires it, and a sealed
+  column `rewrap` does not walk is silently unrotatable.
+- **`(void (vec-nearest …))` is an arity error, not a discard** — it answers the
+  hits AND the skipped count. FOURTH appearance of that shape in these notes,
+  and it cost a benchmark run.
+- **`sort` and `remq` are in `racket/base`, not `racket/list`**, so
+  `(only-in racket/list sort)` is "identifier not included in nested require
+  spec" and names the require rather than the mistake.
 
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
