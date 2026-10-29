@@ -2556,9 +2556,10 @@ chunks. The thing actually waiting needs twelve hundred.
 **Two prerequisites have their own tests and no behaviour change**, and they are
 steps 1 and 2 of the plan for that reason: an `flvector` dot product over a
 normalized store, and a bytes-level seal under `sealed.rkt`'s existing AAD rule.
-Step 3, the chunker, is the one decision with no measurement behind it, because
-recall needs a live `nomic-embed-text` — the same calibration
-`EMBED-MARGIN-SCALE` is waiting on.
+Step 3, the chunker, was called the one decision with no measurement behind it;
+that is true of its two NUMBERS and not of its mechanism, so it is **built** and
+only the calibration waits on a live `nomic-embed-text` — the same measurement
+`EMBED-MARGIN-SCALE` is waiting on. **Step 4 needs no model.**
 
 ## The vector arithmetic, and a seal that moves bytes (VEC‑11…17, ENC‑24, #189 steps 1–2)
 
@@ -2667,6 +2668,91 @@ raco test test/vectors-tests.rkt test/secretbox-tests.rkt test/sealed-column-tes
 - **`sort` and `remq` are in `racket/base`, not `racket/list`**, so
   `(only-in racket/list sort)` is "identifier not included in nested require
   spec" and names the require rather than the mistake.
+
+## A chunker, and the half of step 3 that needed no model (CHUNK‑1…9, #189 step 3)
+
+Built 29 Oct 2026. `domain/ai/chunk.rkt` is new and nothing calls it yet, by the
+build plan's own ordering. **No migration, no route, no environment variable, no
+permission.**
+
+```sh
+raco test test/chunk-tests.rkt   # 17 cases; ten positive controls, all biting
+```
+
+- **"THE ONE DECISION WITH NO MEASUREMENT BEHIND IT" WAS TRUE OF TWO NUMBERS,
+  NOT OF THE MECHANISM** — which is why this landed rather than waiting on a
+  driver upgrade. Where a boundary falls, what an offset MEANS, that the walk
+  terminates and that two runs agree are each decidable with a string and no
+  model. What is left behind the GPU rig is the **size and overlap
+  calibration**, and the defaults say "provisional" at their definition with
+  what would change them, because a number that looks decided is
+  indistinguishable from one that was measured.
+- **THE OFFSETS ARE `repo_text.spans`' OWN COORDINATES, which costs nothing and
+  buys step 5** (CHUNK‑1). Both index the string the extractor returned, so
+  `spans-covering` resolves a chunk's start to a page and a bbox with **no new
+  code** and "cite where this was read" is a lookup. A chunker with its own
+  notion of position would need a mapping back, and a mapping can disagree. The
+  test asserts it against the real `spans-covering`.
+- **THE UNIT IS CHARACTERS BECAUSE THERE IS NO TOKENIZER HERE** (CHUNK‑2), so a
+  token count computed on this side is a guess wearing a measurement's clothes.
+  1,024 characters with 154 of overlap = the design doc's 256 tokens at ~4
+  English characters to the token. **Measured with the real module: 1,227 chunks
+  over the 62 English documents in `docs/`** against that document's 1,159
+  estimate (within 6%), and **231 chunks for a document at `EXTRACT-CAP`**,
+  which is the "about 230" it quotes — now a number somebody checked.
+- **AND THE RATIO IS AN ENGLISH ASSUMPTION, WHICH IS A FINDING.** This platform
+  ships a complete `ja` catalog, a Japanese book and a Japanese generated
+  reference, so Japanese documents are the normal case. The same book chapter is
+  **3,342 characters in English and 2,079 in Japanese**, yet Japanese runs near
+  one token per character against English's four — so a 1,024-character chunk of
+  Japanese carries roughly FOUR TIMES the tokens the default intends, and a
+  chunk that overruns the model's context is truncated BY THE MODEL, so the
+  failure is a quietly worse vector and never an error. **The recall measurement
+  has to be made in both languages.** Nothing here guesses at a locale; a
+  per-language default nobody has measured would be the confident wrong answer.
+- **THE BOUNDARY WINDOW IS WHAT MAKES A BACKWARD SEARCH SAFE** (CHUNK‑3), and
+  the fixture with NO boundary at all cannot see that — which a control showed.
+  The case is a document whose only boundary is near the START, then an unbroken
+  run (minified JSON, base64, an unspaced CJK line): searching the whole chunk
+  splits two characters in and every chunk after is a sliver, which is a recall
+  problem and a cost problem that looks like neither. The CJK enders `。！？` are
+  in the set because a whitespace search finds nothing inside a Japanese
+  paragraph; dropping them fails a case.
+- **A TEST FOUND A REAL BUG IN THE PROGRESS RULE** (CHUNK‑4). The overlap
+  subtracts from the end, so without an arm that stops once a chunk has reached
+  the end of the text the walk steps BACK inside a finished document and
+  re-emits its tail until the cap — a hundred-character document answering with
+  ten identical chunks and `truncated`, which reads as a cap set too low. One
+  rule in one place: three knobs interact, so an argument that the arithmetic
+  cannot stall is an argument about all three and the kind that stays true until
+  somebody changes one. It promises PROGRESS, not coverage — an overlap within a
+  character of the size advances one character per chunk and the cap says so,
+  which beats a hang.
+- **A WHITESPACE-ONLY CHUNK IS NEVER EMITTED** (CHUNK‑5): `vec-normalize`
+  answers `#f` for a zero vector, and not producing one costs no request, no
+  budget and no row. The ordinals stay DENSE over what was emitted — a gap would
+  be a key with a hole in it for step 4.
+- **THERE IS NO PARAGRAPH SCAN, AND A POSITIVE CONTROL REMOVED IT** (CHUNK‑8).
+  The first version preferred a blank line over a sentence end, which reads well
+  and did nothing: `#\newline` is already a sentence ender, so both scans walk
+  back to a newline and on ordinary prose find the same one — dropping it changed
+  **no test at all**, #110 r1's shape. Where they differ settles it: on a
+  hard-wrapped document the paragraph scan walks back through the whole window
+  and gives away a quarter of every chunk, against a coherence argument with no
+  number behind it, while the overlap already covers the seam. The
+  distinguishing case is a test now, so the question cannot go quiet again.
+- **The count is capped INDEPENDENTLY of `EXTRACT-CAP`** (CHUNK‑7), because
+  `size` is a caller's argument and a small one turns one document into
+  thousands of model requests against a 200/day `ai.requests` default.
+  `truncated` answers both ways: a flag that is only ever true tells an operator
+  nothing.
+- **`keyword-apply` needs `make-keyword-procedure` on the receiving side.** A
+  test helper written `(define (f t . args) …)` does not accept keywords at all,
+  and the error names the helper rather than the shape — three cases errored on
+  it before anything about the chunker was exercised.
+- **`path-get-extension` answers `#".md"`, with the dot.** A measurement script
+  comparing against `#"md"` finds zero files and reports zero chunks, which
+  reads as a corpus that is not there.
 
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
