@@ -290,13 +290,16 @@ racket server/main.rkt              # http://127.0.0.1:8835</code></pre>
 <code>test/*-tests.rkt</code> である。</p>
 <h2 data-number="2.2" id="環境変数"><span class="header-section-number">2.2</span> 環境変数</h2>
 <pre><code>DATABASE_URL=sqlite:///$PWD/data/telemachus.db   # または postgres://user:pass@host:port/db
-TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI 互換のエンドポイント
-TELEMACHUS_MODEL=qwen2.5:7b
-TELEMACHUS_HOME=login          # `beta` にするとオンボーディング用の導線を / で配信する
-TELEMACHUS_S3_PORT=8836        # S3 エンドポイントを有効にする。二つ目のリスナーである
-TELEMACHUS_MULTITENANT=1       # 一つのインスタンスに複数の会社を載せる
+TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # OpenAI 互換のエンドポイント
+TMACH_MODEL=qwen2.5:7b
+TMACH_HOME=login          # `beta` にするとオンボーディング用の導線を / で配信する
+TMACH_S3_PORT=8836        # S3 エンドポイントを有効にする。二つ目のリスナーである
+TMACH_MULTITENANT=1       # 一つのインスタンスに複数の会社を載せる
 PORT=8835</code></pre>
-<p><code>TELEMACHUS_MODEL_URL</code>
+<p>これらはかつて <code>TELEMACHUS_*</code>
+という綴りだった。その綴りはいまも応える。プラットフォームは新しい名前を先に読み、なければ古い名前へ落ちる。期限はなく、移行すべきものもない。古い名前で書かれた配備はそのまま動き続ける。プラットフォームが読む変数の一覧は
+<code>docs/ops/configuration.md</code> にある。</p>
+<p><code>TMACH_MODEL_URL</code>
 がないと、プラットフォームは入力を大文字で返すだけの模擬モデルで動く。チャットは動き、スモークスイートも動き、本物の推論を必要とするものだけが動かない。モデルを必要とするツール
 — 翻訳の下書き生成、ドキュメントパイプライン、知識グラフの抽出 —
 は、誤解を招くメッセージで毎回の検証に失敗するのではなく、実行そのものを拒否する。これは意図的である。運用者が読む必要があるのは「モデルが設定されていない」であって、「応答が
@@ -788,7 +791,7 @@ heartbeat / complete / fail  -&gt; その claim_token を運ばなければ 409<
 —
 ロールの検査、スコープ、組織のゲート、セッション方針の<em>前</em>である。そのどれも、プリンシパルが存在するまで走らない。その層での身元の誤りは、その上のどの制御でも捕まえられない。</p>
 <p>いまヘッダが尊重されるのは信頼された相手からだけである。ループバック、あるいはリバースプロキシが本当にそこで終端しているために運用者が
-<code>TELEMACHUS_TRUSTED_HEADER_PEERS</code>
+<code>TMACH_TRUSTED_HEADER_PEERS</code>
 で名指したアドレスである。私的に見えることを理由に信頼されるものは何もない
 — 「10.x
 は内部だ」は、他人のネットワークについての仮定である。<code>POST /api/bootstrap</code>
@@ -879,8 +882,8 @@ CSS は注入されたスクリプトよりはるかに小さな獲物である�
 </ul>
 <h2 data-number="15.2" id="プラグインはどこで見つかるのかそして見つからないとどうなるのか"><span class="header-section-number">15.2</span>
 プラグインはどこで見つかるのか、そして見つからないとどうなるのか</h2>
-<p>組み込みのディレクトリは常に探される。<code>TELEMACHUS_PLUGINS</code>
-は <code>:</code> 区切りの一覧としてそこへ足す。そして文字どおりの
+<p>組み込みのディレクトリは常に探される。<code>TMACH_PLUGINS</code> は
+<code>:</code> 区切りの一覧としてそこへ足す。そして文字どおりの
 <code>-</code>
 というエントリは、自分のものだけを出荷するつもりの配備のために組み込みを外す。これはかつて読み込む<em>唯一の</em>ディレクトリを名指していたので、自分のプラグインを足すとドキュメントパイプラインと他の同梱プラグインすべてが静かに消えた
 — ワークフローが失われたまま健全そうに立ち上がるインスタンスである。</p>

@@ -45,7 +45,7 @@ lose the chapter's sketch.
 
 **A code span must be ASCII.** Text inside backticks names a file, a function, an
 environment variable or a command — `domain/authz/authz.rkt`,
-`TELEMACHUS_MODEL_URL`, `raco test` — so it is never translated, and a full-width
+`TMACH_MODEL_URL`, `raco test` — so it is never translated, and a full-width
 character or a typographic quote inside one is always a mistake. A Japanese input
 method produces them easily. The build **refuses** and names the file, the span
 and the character:

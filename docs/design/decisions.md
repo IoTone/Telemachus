@@ -3250,11 +3250,51 @@ documents under `docs/design/` keep the spelling they were written with: a
 decision recorded in August named the variable that existed in August, and
 rewriting the record would make it say something that was not true when it was
 made — the names still work, so nothing a reader does from them fails. The
-**e-book** is left for its own slice, not out of reluctance: editing an English
-chapter makes every translated copy stale by the source-hash rule, so it is
-three chapters in two languages, a `build.sh ja --record` restamp and a rebuild
-of both editions — a large binary diff that does not belong in a documentation
-PR.
+**e-book** was left for its own slice, not out of reluctance, and that slice is
+ENVN‑12 below.
+
+**ENVN‑12 — the e-book, the integrator's guide, and these notes (#128 job 3).**
+The last three documents that still TAUGHT the old spelling. Fourteen names
+across three chapters in two languages, every one verified against a `TMACH_`
+row in `configuration.md` before the swap, as ENVN‑10 did.
+
+- **A chapter edit is a translation edit.** The source-hash rule makes every
+  translated copy of an edited chapter stale, so the English and the Japanese
+  move together or the next build reports three stale chapters. `build.sh ja
+  --record` is a WHOLE-BOOK operation — it restamped all nineteen — and the only
+  thing that stops it silently blessing somebody else's stale translation is that
+  the other sixteen were already in step. That is checked in the diff, not
+  assumed: exactly three stamps changed.
+- **The book gained a sentence it never had.** It is the narrative an operator
+  reads front to back, and nothing in it said the old names still answer — so a
+  reader with a working compose file had no way to learn from the book that it
+  keeps working. One paragraph in chapter 02, in both languages, pointing at
+  `configuration.md` for the list.
+- **The integrator's guide went with them**, because it is the document a
+  DOWNSTREAM team follows — the same class as a runbook, and the front door for
+  everybody building on this platform.
+- **`CLAUDE.md` was swapped by hand where a blanket `sed` would have lied.**
+  Ninety-three of its ninety-six mentions are the live name of a variable and
+  became `TMACH_*`; five are statements ABOUT the old spelling — the dual-read
+  rule itself, the gate's allowance for the glob and the placeholder, and the two
+  pieces of narrative naming `TELEMACHUS_BIND` and `TELEMACHUS_HOME` as things a
+  draft and a stale manifest once said. A prefix substitution would have rewritten
+  the compatibility rule into a statement that `TMACH_*` falls back to `TMACH_*`,
+  which is not merely wrong but unfalsifiable by any gate, because the gate is
+  looking for the old prefix and there would be none left to find.
+- **The gate was widened in the same change, and controlled in all four places.**
+  `scripts/check-config-reference.sh` now covers the book's chapter sources in
+  both languages, `TRANSLATING.md` and the integrator's guide. ENVN‑11's rule is
+  unchanged and is what makes that safe: the compatibility paragraph's
+  `TELEMACHUS_*` is a glob, not a name anybody can set, so the gate ignores it.
+  Each new entry was positive-controlled by planting a legacy name and checking
+  the refusal NAMES THAT FILE — a gate that fails without saying where is a gate
+  somebody disables.
+
+**What is left of #128 is a release decision, not a code change**: when the
+`TELEMACHUS_*` aliases are dropped. That has no deadline by ENVN‑1 and is tracked
+on #204, so the rebrand closes on the documents.
+
 
 ### What the gate found, three times
 

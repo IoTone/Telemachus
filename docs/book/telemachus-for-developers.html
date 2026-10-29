@@ -295,16 +295,22 @@ with “collection not found”.</p>
 The unit suite is <code>test/*-tests.rkt</code>.</p>
 <h2 data-number="2.2" id="environment"><span class="header-section-number">2.2</span> Environment</h2>
 <pre><code>DATABASE_URL=sqlite:///$PWD/data/telemachus.db   # or postgres://user:pass@host:port/db
-TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # any OpenAI-compatible endpoint
-TELEMACHUS_MODEL=qwen2.5:7b
-TELEMACHUS_HOME=login          # or `beta` to serve the onboarding funnel at /
-TELEMACHUS_S3_PORT=8836        # turns on the S3 endpoint, a second listener
-TELEMACHUS_MULTITENANT=1       # several companies on one instance
+TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions   # any OpenAI-compatible endpoint
+TMACH_MODEL=qwen2.5:7b
+TMACH_HOME=login          # or `beta` to serve the onboarding funnel at /
+TMACH_S3_PORT=8836        # turns on the S3 endpoint, a second listener
+TMACH_MULTITENANT=1       # several companies on one instance
 PORT=8835</code></pre>
-<p>Without <code>TELEMACHUS_MODEL_URL</code> the platform runs a
-simulated model that echoes its input in upper case. Chat works, the
-smoke suites work, and nothing that needs real inference does. The tools
-that need a model — the localization drafter, the document pipeline, the
+<p>Each of these used to be spelled <code>TELEMACHUS_*</code>, and that
+spelling still answers: the platform reads the new name first and falls
+back to the old one, with no deadline and nothing to migrate. A
+deployment written against the old names keeps working untouched.
+<code>docs/ops/configuration.md</code> lists every variable the platform
+reads.</p>
+<p>Without <code>TMACH_MODEL_URL</code> the platform runs a simulated
+model that echoes its input in upper case. Chat works, the smoke suites
+work, and nothing that needs real inference does. The tools that need a
+model — the localization drafter, the document pipeline, the
 knowledge-graph extractor — refuse to run rather than fail every
 validation with a misleading message. This is deliberate: an operator
 needs to read “no model configured”, not “the reply was not JSON”.</p>
@@ -961,14 +967,13 @@ with every permission that user holds. Note where this sits —
 none of which run until a principal exists. An identity mistake at that
 layer cannot be caught by any control above it.</p>
 <p>The headers are honoured only from a trusted peer now: loopback, or
-an address the operator names in
-<code>TELEMACHUS_TRUSTED_HEADER_PEERS</code> because a reverse proxy
-really does terminate there. Nothing is trusted for looking private —
-“10.x is internal” is an assumption about somebody else’s network.
-<code>POST /api/bootstrap</code> is gated the same way, because an
-un-bootstrapped instance belongs to whoever calls it first, and on a LAN
-that is a stranger; an operator who cannot reach loopback presents a
-secret instead.</p>
+an address the operator names in <code>TMACH_TRUSTED_HEADER_PEERS</code>
+because a reverse proxy really does terminate there. Nothing is trusted
+for looking private — “10.x is internal” is an assumption about somebody
+else’s network. <code>POST /api/bootstrap</code> is gated the same way,
+because an un-bootstrapped instance belongs to whoever calls it first,
+and on a LAN that is a stranger; an operator who cannot reach loopback
+presents a secret instead.</p>
 <p>The rule lives in its own small module so it can be tested directly.
 That matters more than it sounds: every smoke runs on the same host as
 the server, so a smoke can never <em>be</em> a stranger, and this gap
@@ -1125,13 +1130,13 @@ it.</p></li>
 </ul>
 <h2 data-number="15.2" id="where-plugins-are-found-and-what-happens-when-one-is-not"><span class="header-section-number">15.2</span> Where plugins are found, and
 what happens when one is not</h2>
-<p>The built-in directory is always searched;
-<code>TELEMACHUS_PLUGINS</code> adds more, as a <code>:</code>-separated
-list, and a literal <code>-</code> entry drops the built-ins for a
-deployment that means to ship only its own. It used to name the ONE
-directory to load, so adding a plugin of your own silently removed the
-document pipeline and every other shipped one — an instance that came up
-looking healthy with its workflows gone.</p>
+<p>The built-in directory is always searched; <code>TMACH_PLUGINS</code>
+adds more, as a <code>:</code>-separated list, and a literal
+<code>-</code> entry drops the built-ins for a deployment that means to
+ship only its own. It used to name the ONE directory to load, so adding
+a plugin of your own silently removed the document pipeline and every
+other shipped one — an instance that came up looking healthy with its
+workflows gone.</p>
 <p>That shape — healthy-looking and quietly missing — is worth naming,
 because the loader had a second instance of it. A plugin that throws
 while loading is caught, logged and skipped, which is right: one bad
