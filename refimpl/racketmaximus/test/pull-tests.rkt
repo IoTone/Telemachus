@@ -255,6 +255,85 @@
   (check-false (fleet-can-run? c #:kind "infer.chat" #:team tid) "a drained host answers nothing")
   (disconnect c))
 
+;; ---- #175: the fleet as the DEFAULT for a chat nobody routed -------------------
+
+;; `putenv` answers #t and rackunit hands a test case's last value back, so a
+;; case that restores an environment variable last prints a bare #t into the
+;; suite output — which reads like a leak and is not one. Restore through a
+;; wrapper answering void (the rule #91 req 3 paid for).
+(define (with-env name v th)
+  (define old (getenv name))
+  (dynamic-wind
+    (lambda () (void (if v (putenv name v) (putenv name ""))))
+    th
+    (lambda () (void (putenv name (or old ""))))))
+
+(test-case "#175: an unrouted chat defaults to the fleet, and FALLS BACK when it cannot"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  ;; THE WHOLE SAFETY ARGUMENT: on an instance with no pull workers the default
+  ;; is #f, which is the local model and is exactly where this call ran before.
+  ;; So nothing anybody has deployed changes behaviour; only a deployment that
+  ;; HAS a fleet does, which is what #175 asked for.
+  (check-false (fleet-default-executor c tid) "no fleet, no change: the local model")
+  (define-values (a _t) (executor-create! c p #:name "gpu-a" #:model "m"))
+  (check-false (fleet-default-executor c tid)
+               "a host that has never claimed has declared nothing and is not live")
+  (worker-claim! c a #:kinds '("infer.chat") #:models '("qwen2.5:7b"))
+  (check-equal? (fleet-default-executor c tid) "@fleet" "a live worker that can chat takes it")
+  ;; AND THIS IS WHY THE TEST IS `paused` RATHER THAN "is it ready": a claim that
+  ;; carried no `#:state` leaves `worker_state` NULL, which is where every
+  ;; third-party worker written against the old wire sits (the reference worker
+  ;; reports `ready`, but PULL-11 made that optional on purpose). A default
+  ;; withheld from a host with no reported state would be withheld from most of
+  ;; the fleet. The first check asserted "ready" and the suite corrected it.
+  (check-equal? (hash-ref (executor-by-name c "gpu-a") 'worker_state) 'null
+                "a claim with no #:state reports nothing, and is still a candidate")
+  ;; THE PLATFORM'S OWN CHOICE FALLS BACK; THE CALLER'S REQUEST IS HONOURED.
+  ;; A paused host is still a candidate for somebody who NAMED `@fleet` — it may
+  ;; be ready in fifteen seconds, which is #172's line and fleet-can-run?'s own
+  ;; argument — and it is NOT one for the default, which would otherwise make an
+  ;; interactive chat wait out WAIT-SECONDS where the local model answers in two.
+  ;; This pair is the positive control for `#:ready-only?`: drop the keyword's
+  ;; effect and the second check fails while the first still passes.
+  (worker-report-state! c (executor-by-name c "gpu-a") "paused")
+  (check-true (fleet-can-run? c #:kind "infer.chat" #:team tid)
+              "a paused host is still something a NAMED fleet request may wait for")
+  (check-false (fleet-default-executor c tid)
+               "…and is not something the platform picks on somebody's behalf")
+  (worker-report-state! c (executor-by-name c "gpu-a") "ready")
+  (check-equal? (fleet-default-executor c tid) "@fleet" "coming back needs no other call")
+  ;; a DRAINED host is not a candidate for either question (FLEET-3), inherited
+  ;; from `executor-can-run?` rather than re-decided here
+  (executor-set-admin-state! c p (hash-ref a 'id) "drained")
+  (check-false (fleet-default-executor c tid) "a drained host is not a default either")
+  (disconnect c))
+
+(test-case "#175: TMACH_FLEET_DEFAULT turns the default off without touching `@fleet`"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (a _t) (executor-create! c p #:name "gpu-a" #:model "m"))
+  (worker-claim! c a #:kinds '("infer.chat") #:models '("qwen2.5:7b"))
+  (check-equal? (fleet-default-executor c tid) "@fleet" "on by default")
+  (for ([v (in-list '("0" "no" "off" "false" "OFF"))])
+    (with-env "TMACH_FLEET_DEFAULT" v
+      (lambda ()
+        (check-false (fleet-default-enabled?) (format "~a turns it off" v))
+        (check-false (fleet-default-executor c tid) (format "~a keeps chat local" v))
+        ;; …and an EXPLICIT request is untouched: the knob is about the default,
+        ;; not about whether the fleet may be named.
+        (check-true (fleet-can-run? c #:kind "infer.chat" #:team tid)
+                    "naming `@fleet` still works with the default off"))))
+  ;; anything unparseable falls back to the DEFAULT, which is on — every
+  ;; default-bearing knob in this tree follows that rule, and falling back to
+  ;; `off` here would be a knob that silently did the opposite of its spelling
+  (for ([v (in-list '("1" "yes" "on" "true" "rubbish" ""))])
+    (with-env "TMACH_FLEET_DEFAULT" v
+      (lambda () (check-true (fleet-default-enabled?) (format "~s leaves it on" v)))))
+  (disconnect c))
+
 ;; ---- the reaper covers the pool too (issue #17) --------------------------------
 
 (test-case "reap-leases! recovers an in-process job whose worker died"

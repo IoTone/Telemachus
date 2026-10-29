@@ -112,6 +112,50 @@ curl -s -X PUT $B/api/model-roles -H "Authorization: Bearer $TOK" -d '{"roles":{
 assert "the fleet cannot stream, and says so" \
   "$(curl -s -X POST $B/api/ai/chat/stream -H "Authorization: Bearer $TOK" -d '{"prompt":"hi","executor":"@fleet"}')" 'the fleet cannot stream'
 
+echo '== 3f. issue #175: a chat NOBODY routed goes to the fleet by default ==='
+# #173 made `@fleet` reachable and left the default alone. This is the flip, and
+# what makes it safe is that it is a FALL-BACK: with no live worker the answer is
+# the local model, exactly as before. The reference worker reports `paused` from
+# its plumber flush on the way out (PULL-11), and the default correctly declines
+# a standing-down fleet — so say `ready` on the authoritative channel first,
+# which is what a running worker's claim loop does anyway.
+curl -s -X POST $B/api/workers/state -H "Authorization: Bearer $WT" \
+  -d '{"state":"ready"}' >/dev/null
+# NOTE: no `executor` in the body. That is the whole assertion.
+( curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" \
+    -d '{"prompt":"hello"}' > "$TMACH_DATA_DIR/fleetdef.json" ) & DCHAT=$!
+sleep 1
+assert "an unrouted chat queues an infer.chat job" "$(G /api/jobs)" '"kind":"infer.chat"'
+TMACH_URL="http://127.0.0.1:$PORT" TMACH_WORKER_TOKEN="$WT" TMACH_WORKER_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions" TMACH_WORKER_MODELS=mock \
+  racket cli/telemachus-worker.rkt --once >"$TMACH_DATA_DIR/worker-fleetdef.log" 2>&1
+wait $DCHAT
+DEF=$(cat "$TMACH_DATA_DIR/fleetdef.json")
+assert "a worker answered a chat that named nobody" "$DEF" 'pulled: hello from the worker'
+assert "…and the reply says the fleet took it"      "$DEF" '"executor":"@fleet"'
+# present only when the PLATFORM chose, so a caller can tell its own routing
+# from ours (QUOTA-3's rule for a field that is there only when it says something)
+assert "…and that the platform chose, not the caller" "$DEF" '"fleet_default":true'
+# the platform does not know which model a worker used — it sent no name, and a
+# worker answers with the first it declared — so it says nothing rather than
+# reporting this box's own model, which is the misroute-that-lies elsewhere
+assert "…and reports NO model, rather than guessing" "$DEF" '"model":null'
+refute "…and is never flagged simulated"             "$DEF" '"simulated"'
+# THE SAFETY ARGUMENT, over HTTP: stand the fleet down and the same request runs
+# where it always ran. This is what makes the flip safe for every single-box
+# instance — there, nothing ever matches and nothing ever changes.
+curl -s -X POST $B/api/workers/state -H "Authorization: Bearer $WT" \
+  -d '{"state":"paused"}' >/dev/null
+LOCAL=$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" -d '{"prompt":"hello"}')
+assert "a standing-down fleet falls back to this box" "$LOCAL" '"executor":"local"'
+refute "…and does not claim the platform routed it"   "$LOCAL" '"fleet_default"'
+# …and the escape hatch, with a READY fleet standing by: `"local"` pins to this
+# box. Before the flip, "say nothing" and "say local" were the same request;
+# now they differ, and this is the assertion that says so.
+curl -s -X POST $B/api/workers/state -H "Authorization: Bearer $WT" -d '{"state":"ready"}' >/dev/null
+PIN=$(curl -s -X POST $B/api/ai/chat -H "Authorization: Bearer $TOK" -d '{"prompt":"hello","executor":"local"}')
+assert "an explicit local declines the default" "$PIN" '"executor":"local"'
+refute "…and says the platform did not choose"    "$PIN" '"fleet_default"'
+
 echo "== 3c. issue #91 req 3: the request is in the model-request log, and the prompt is not ==="
 LOG=$(G /api/model-requests)
 assert "the pull chat is logged"        "$LOG" '"transport":"pull"'
@@ -134,7 +178,11 @@ assert "…and counts as off this box"    "$LOG" '"hosted":true'
 # the simulated echo never left the process, so there is no row for it: a row
 # would make the log answer "yes, this was sent" about a call nobody made
 BEFORE=$(printf '%s' "$LOG" | grep -c '"transport"' || true)
-P /api/ai/chat '{"prompt":"to the echo"}' >/dev/null
+# #175: `"executor":"local"` is how a caller asks for THIS BOX now that an
+# unrouted chat goes to the fleet by default. Without it this probe became a
+# fleet job and the assertion below passed vacuously — there was no echo to not
+# log. Asserting the echo path explicitly is the better test either way.
+P /api/ai/chat '{"prompt":"to the echo","executor":"local"}' >/dev/null
 AFTER=$(G /api/model-requests | grep -c '"transport"' || true)
 assert "the simulated echo is not logged" "$BEFORE/$AFTER" "$BEFORE/$BEFORE"
 # RED-22: it is the team's audit trail, so a plain member does not read it
