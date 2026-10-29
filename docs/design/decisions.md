@@ -3489,3 +3489,302 @@ them biting. Step 3 is the chunker, which is the one decision in this subsystem
 with no measurement behind it, because measuring recall needs a live
 `nomic-embed-text`; steps 4 and 5 are the table and the read. The arithmetic and
 the seal have no such dependency, which is why they land first.
+
+## QVIZ — a picture of the AI queue (issue #184) — DESIGNED, NOT BUILT
+
+#184 asks for "a short design in `docs/design/`, with the retention question
+answered, before any rendering code", which is what this is:
+`docs/design/ai-queue-visualization.md`. No migration, no route, no console
+code. Read it before building any of it.
+
+**The retention question has a third answer, and it is the useful one.** The
+issue offers client-side sampling (a live view, nothing on reload) or a decision
+to retain counters. The `jobs` table already carries two of the three series —
+`created_epoch` (migration 0041) for arrivals and `started_epoch` (0038) for
+claims — and the third needs **one column, not a store**: `finished_at` is TEXT
+`CURRENT_TIMESTAMP` and its format differs by dialect, so bucketing on it is
+wrong on one engine and invisible on the other, the trap 0038, 0039, 0040 and
+0041 each name in their own comment. `jobs.finished_epoch` is the fifth instance
+of that shape.
+
+What that buys is the part worth recording: **there is no retention decision to
+make at all.** How far back the picture reaches is bounded by what already
+bounds those rows — #59's per-job purge keeps the row, #86's retention rules
+delete it on the team's own horizon — so an operator who asked to keep seven
+days gets seven days of flow, with no new policy, no new sweep and nothing to
+configure. It survives a reload and a restart, which a sampled series does not,
+and it cannot disagree with the queue read because it is the same table. A
+counter table would be a second copy of a decision the rows already carry, which
+is the issue's own second constraint read back to it.
+
+| | |
+|---|---|
+| **QVIZ‑1** | The three flow series are derived from `jobs`; completions need `finished_epoch`, and then there is no retention question |
+| **QVIZ‑2** | Inline SVG drawn by hand, not a chart library — `script-src 'self'`, and all four pictures are shapes this codebase already draws |
+| **QVIZ‑3** | The attempt path is ALREADY recorded: FLEET‑1 writes the holder per attempt before the requeue nulls `executor_id` |
+| **QVIZ‑4** | No payload, no result, no tooltip exception — the queue read crosses every team |
+| **QVIZ‑5** | It lives on #179's Health screen and COMPOSES the Workers and Queue cards rather than re-rendering their figures |
+| **QVIZ‑6** | `instance:read`, and the refresh is explicit and defaults to off — a self-refreshing screen holds a session open (#38) |
+| **QVIZ‑7** | The minute grid is fixed, so a flat run of zeros is visibly a flat run of zeros |
+| **QVIZ‑8** | The window is a control and is named on screen — #178's lesson, already paid for on the Workers card |
+| **QVIZ‑9** | Declined: a chart library, a counter table, a timeline for every job, an OpenMetrics rendering, and any write |
+
+**QVIZ‑3 is the one that changed what the slice costs.** Priority 4 asks for
+attempts and releases "as a path, not a counter", which read like a new table
+until FLEET‑1's rule was re-read: the reaper writes `job.lease.expired` naming
+the executor **before** the UPDATE, precisely because the requeue clears
+`executor_id` and afterwards nothing in `jobs` says which machine dropped the
+work, and `job.attempts.exhausted` carries `holders` oldest-first. So the path
+is an audit read by resource id. What it needs that does not exist is a way to
+ask for ONE job's trail: `audit-list` filters by team and does not project
+`meta`, where the executor's name lives — the gap #59 and the anchor slice each
+paid for once.
+
+**QVIZ‑6 is a security answer wearing a convenience's clothes.** The console
+polls nothing today except a live workflow run, and #38's idle clock counts from
+the last REQUEST — so a dashboard that refreshed itself every ten seconds would
+hold a session open for as long as the tab was left on screen, which is an
+idle-timeout control switched off by a feature that looks like polish.
+
+## HEALTH — one screen for "is this instance healthy" (issue #179, built 29 Oct 2026)
+
+Everything an operator needs existed and was scattered across five HTTP reads,
+and the console showed the FLEET and the QUEUE while **nothing showed the server
+itself**. `GET /api/admin/status` gains five facts; the console gains a Health
+tab. No migration, no new route, no new permission.
+
+| | |
+|---|---|
+| **HEALTH‑1** | The screen COMPOSES the Workers and Queue cards; it does not re-render their figures |
+| **HEALTH‑2** | `instance:read`, not `S.me.is_operator` — the permission #124 created for exactly this |
+| **HEALTH‑3** | Nothing polls. The refresh is a button, because a self-refreshing screen switches off the idle timeout |
+| **HEALTH‑4** | The status read gains the dialect, the schema's applied/pending, the blob store's NAME and the drain window |
+| **HEALTH‑5** | No probe result: `instance:read` must not perform a write, and a serving instance has already passed the boot probe |
+| **HEALTH‑6** | Uptime is DERIVED from the build's start time — one clock, not two |
+| **HEALTH‑7** | The budgets are the caller's OWN team's, and the card says so |
+| **HEALTH‑8** | The boot call moved to its own last-sorting file, because load order stopped being implicit |
+
+**HEALTH‑1 is the decision the slice turns on.** The issue asks for a fleet
+section and a queue section, and both already exist on the Admin tab. Drawing
+those numbers again here would be two renderings of one answer that can disagree
+about an edge nobody is looking at — `executor-can-run?`'s drift, LIVE‑IN's
+shape — so `healthView` calls `workersCard` and `queueCard` with the same two
+responses, and the test asserts BOTH halves: that it calls them, and that the
+file contains none of `unclaimable`, `held_by_paused`, `oldest_queued_seconds`
+or `leases_expired` itself.
+
+**HEALTH‑3 is a security answer wearing a convenience's clothes**, and it is
+QVIZ‑6 arriving one slice early. #38's idle clock counts from the last REQUEST,
+and the console polls nothing but a live workflow run — so a dashboard that
+refreshed itself every ten seconds would hold a session open for as long as the
+tab was left on screen. That is an idle timeout disabled by something that looks
+like polish. The screen says when it was read and offers a button.
+
+**HEALTH‑5 — the probe is the one field a dashboard obviously wants and must not
+have.** `blob-store-probe` writes a blob, reads it back and deletes it, so a
+field here is a PUT, a GET and a DELETE against somebody's bucket on every
+refresh — and the route is `instance:read`, which must not perform a write. The
+honest signal already exists and is stronger: **startup refuses to serve on a
+failed probe, so an instance that is ANSWERING has already proven its store
+once.** A field asserting that from this module would be a claim about
+main.rkt's behaviour made somewhere else, which is #119's shape, so the console
+says it in prose and no field can go stale. What this does NOT tell an operator
+is whether the store has gone away since boot; that is stated rather than
+implied.
+
+**HEALTH‑4's pending list names the ids rather than counting them**, because
+migration runs at boot — so a pending one means one FAILED, and the id is the
+only part of that an operator can act on. Unlike `schema-problem`, which must
+ignore a plugin's `x.` ids to decide whether to boot, this is a REPORT and a
+reader wants to see them, so they are counted in `applied` and excluded from
+nothing.
+
+**The server's own drain LATCH is deliberately not reported.** It lives for at
+most `TMACH_DRAIN_SECONDS` and the process exits immediately after, so a field
+for it would be blank in every reading anybody ever takes. What an operator
+about to restart actually wants is **how long a stop will take**, which is the
+knob; a HOST's drain is a different thing and has been on the Workers card since
+FLEET‑3.
+
+**HEALTH‑8 — the boot call moved, and the reason is a bug that had not happened
+yet.** `render()` was the last line of `13-kg.js`, which worked only because it
+is async and yields at its first `await`, giving the remaining `<script>` tags
+time to parse before it reached `renderTab()`'s dispatch table. That is a real
+dependency on a detail of the event loop, and it breaks the moment a view is
+added in a file that sorts AFTER the one that boots — the tab exists, the
+function does not, and the console dies at load with a `ReferenceError` that
+only a browser sees. #179 added the first such file. `99-boot.js` sorts after
+every numbered one, which is what `test/console-tests.rkt` requires of the load
+order, and the test pins that exactly one file calls `render()` at top level.
+
+**`all-migrations` IS A LIST, NOT A THUNK**, and `(all-migrations)` is "not a
+procedure" at request time rather than at compile time. What made it diagnosable
+in one read was #123: the 500 carries a request id and the message goes to
+stderr beside it, where before this year the body would have carried the whole
+exception and the log nothing.
+
+## ED — one editor, two surfaces (issue #180, built 29 Oct 2026)
+
+`static/console/15-editor.js`. Notes and Documents share it. No migration, no
+new route, no new permission — and **no new write path**: every endpoint this
+uses has existed as long as the route table.
+
+| | |
+|---|---|
+| **ED‑1** | ONE component, used by Notes AND Documents; the funnel's template editor stays out, with a reason |
+| **ED‑2** | The enabling half was not an editor: there was no way to EDIT at all |
+| **ED‑3** | No CDN and no vendored library — a stated Markdown subset, the one this platform's own documents are written in |
+| **ED‑4** | Safety is the ORDER: escape first, then rules over escaped text emitting a closed set of tags |
+| **ED‑5** | A link's scheme is allowlisted, and an entity-encoded one cannot survive the escape |
+| **ED‑6** | Line numbers turn soft wrap OFF, because a gutter that is subtly wrong is worse than none |
+| **ED‑7** | The view preferences are per-viewer and stored; the TEXT lives in `S` |
+| **ED‑8** | The textarea keeps the ids the fields it replaced had (`nb`, `dc`) |
+| **ED‑9** | Export is a Blob and an `a[download]`, and the CSP question is answered in the browser |
+| **ED‑10** | "Save to the repository" is one existing endpoint, because a text document IS a repository object |
+
+**ED‑1 is the decision the issue asks for up front**, and its own words are the
+argument: "three bare textareas becoming three different editors is the outcome
+to avoid." So Notes and Documents share one component. **The funnel's template
+editor is deliberately not folded in**: its content is HTML rather than
+Markdown and it already has a live preview of its own
+(`renderLandingShell(cfg,'preview')`), so including it would mean one component
+serving two languages and two previews — which is how a shared thing becomes
+three again with extra steps.
+
+**ED‑2 — THE CONSOLE COULD NOT EDIT A NOTE, AND HAD NEVER BEEN ABLE TO.** The
+body was an `<input>`, not even a textarea; Documents was a 4-row textarea; and
+both could be created and deleted and never changed. `PUT /api/notes/:id` and
+`PUT /api/documents/:id`, with a body-bearing `GET` beside each, have existed as
+long as `routes.rkt` — **#113's shape on this side of the wire**, a capability
+the server has always offered that no surface reached. An editor for a field
+somebody can only ever fill in once is worth very little, so the edit path lands
+with the editor rather than after it. The e2e gate had been editing a document
+over the API directly since the blob-write fix, which is how the gap stayed
+invisible: the write path was proven and the way to reach it was not.
+
+**ED‑4 — WHAT MAKES THE PREVIEW SAFE IS THE ORDER, NOT A SANITISER.** The
+source is HTML-escaped first; the block and inline rules then run over
+already-escaped text and emit a closed set of tags. Nothing from the source is
+ever passed through as markup, so there is no sanitiser to get wrong — a
+`<script>` in a note is `&lt;script&gt;` before any rule sees it, and the
+blockquote rule has to match `&gt;` rather than `>`, which is the tell that the
+rules really do run after the escape. The console's `script-src 'self'` is the
+backstop and explicitly not the defence: a preview that relied on it would be
+one policy change away from a stored XSS.
+
+**AND IT IS TESTED AT RUNTIME, BECAUSE A SOURCE ASSERTION CANNOT ESTABLISH
+THIS.** A Markdown renderer is effectively a sanitiser and "does it escape" is a
+question about what it COMPUTES. `test/e2e/demo-validate.mjs` §3c calls the real
+function on the real page with the inputs somebody would actually try — an
+`<img onerror>`, a `<script>`, `[click](javascript:…)`, the entity-encoded
+variant, a fenced block whose asterisks must stay literal — and asserts the
+output. That is the strongest form available here and it is where the claim
+lives; `test/console-tests.rkt` pins only the structure.
+
+**ED‑6 — A TIE, NOT A PREFERENCE.** A wrapped logical line occupies several
+visual rows, so a gutter of logical numbers stops aligning with the screen the
+moment one line wraps, and a gutter that is subtly wrong is worse than no
+gutter. With wrapping off the textarea is auto-sized to its line count instead,
+so it has **no internal vertical scroll to synchronise** and the two columns line
+up with no scroll handler at all — which is as well, because a `scroll` event
+does not bubble and the delegated dispatcher (#27) could not have carried one.
+
+**ED‑7 — the preferences are stored and the TEXT is not.** `preview`, `wrap`,
+`mono` and `nums` are per-viewer conveniences, so they go in `localStorage` with
+every read and write wrapped: the accessor throws in a private window and comes
+back empty with cleared site data, and a toolbar that would not render because a
+preference could not be read is a poor trade. The text lives in `S`, so a render
+pass does not lose what has been typed — `paintAuth()`'s rule, for the same
+reason — and `edRead` prefers the DOM and falls back to that, which covers both
+a value set programmatically and `preview: only`, where the textarea is
+`display:none` but still holds the text.
+
+**ED‑8 — the ids did not change, and that was a choice.** `page.fill('#nb', …)`
+and `#dc` appear in `demo-validate.mjs`, the screenshot tour and the funnel
+harness. Renaming a field to tidy it would have broken three harnesses with
+nothing on the other side.
+
+**ED‑10 — "save to the repository" needed no code.** A text document IS a
+repository object since migration `0022-fold-documents`: `content_type
+text/markdown`, the title in the version's filename. So the issue's "ideally
+save to the repository as a document, which is one `repo-put!` away" is in fact
+zero away — it is `POST /api/documents`, the endpoint the Documents tab already
+uses.
+
+**Leaving a tab abandons an edit in progress**, the way `go()` already drops a
+run poll: keeping it would leave a Save button on a card whose note is no longer
+on screen.
+
+**The screenshots are not refreshed here.** The Notes caption describes
+visibility and RBAC rather than the body field, so it is still accurate; the
+image is merely dated, and refreshing it needs a live model and regenerates both
+READMEs' feature-tour regions. Re-stamping a `captions.ja.json` hash for a
+caption whose text did not change would be churn with no reader.
+
+## PAL — a command palette, and the first keyboard route into the console (issue #182, built 29 Oct 2026)
+
+`static/console/16-palette.js`. Cmd/Ctrl+K opens a palette over the current
+view; `?` lists what is bound. No migration, no route, no permission.
+
+| | |
+|---|---|
+| **PAL‑1** | It hooks the ONE delegated listener, before the element lookup |
+| **PAL‑2** | The modifier is DETECTED and the label follows the detection |
+| **PAL‑3** | A bare `?` does nothing while something is being typed into; a held modifier works everywhere |
+| **PAL‑4** | `Esc` falls THROUGH when nothing of the palette's is open |
+| **PAL‑5** | The palette and the shell share ONE tab list |
+| **PAL‑6** | Records come from `GET /api/search`, so an unreadable one cannot be offered |
+| **PAL‑7** | The action map holds only functions that already exist, and is small on purpose |
+| **PAL‑8** | The overlays live in the static shell, not in a render pass |
+
+**PAL‑1 — the issue asks for this by name and the reason is #27's.** 01-base.js
+registers exactly one document listener per event type; a second one for a
+global shortcut is where the handler-leak and double-fire risks that dispatcher
+exists to remove would start over. `paletteKey` is called from inside it and
+**before** the `closest('[data-h-keydown]')` lookup, because a global shortcut
+is not about an element and an element-scoped dispatch cannot carry one. It
+answers whether it took the key. The test asserts the ORDER of the two, not
+merely that both are present.
+
+**PAL‑3 is the asymmetry, and it is deliberate.** `Cmd/Ctrl+K` works
+everywhere, including inside a text field, because a held modifier is
+unambiguous. A bare `?` fires only when focus is not in a field — otherwise it
+eats a question mark, which is the one way a help shortcut can leave a console
+worse than it was. This console ships in Japanese and already learned the
+neighbouring lesson from `isComposing` (#174), so the e2e gate types `a ? in a
+note` into the editor and asserts BOTH halves: the overlay stayed shut and the
+character really arrived.
+
+**PAL‑4 — `Esc` is already load-bearing here**: it leaves the editor's focus
+mode (ED‑6). Taking it unconditionally would break that, so the handler returns
+false when neither overlay is open and the key goes on to mean what it meant.
+
+**PAL‑5 — `visibleTabs()` was extracted for this, and the drift would have been
+the palette's.** `appShell` built the list inline; the palette's first job is
+"jump to a tab", so a second copy would eventually offer a tab a feature switch
+has turned off or a permission does not allow — and it is the palette that would
+be wrong, because the shell's copy is the one somebody looks at. LIVE‑IN's
+shape: derive it once. The test asserts the list is spelled exactly once in the
+whole console.
+
+**PAL‑6 — the authorization is somebody else's and that is the point.**
+`GET /api/search` already answers across notes, repository objects and
+knowledge-graph entities with the per-row `can?` filter, so the palette cannot
+offer a record its user may not read **by construction** rather than by a check
+written here. The search is sequence-counted (`renderTab()`'s rule): two
+searches can be in flight and the slower one would otherwise overwrite the
+newer list.
+
+**PAL‑7 — an action that merely looks plausible is a button that 404s.** Every
+entry in the map is a function that already exists in this console, and the map
+is deliberately a handful per tab: a palette that lists everything is a menu.
+
+**PAL‑8 — the overlays are in `static/index.html`, not in a render pass**,
+because a tab re-render must not take the palette down mid-interaction. The
+cost is the documented one: **the shell is cached at startup, so a live box
+needs a restart to pick this up** — the console's own `*.js` is read per request
+and does not.
+
+**A `.kbd-hint` in the header, because "a palette nobody knows about is a
+palette nobody uses"** is the issue's own note. It shows the detected modifier,
+so it is also the visible half of PAL‑2.

@@ -27,6 +27,14 @@
          ;; #137: whose clock applies, and what it reads right now
          (only-in "../../domain/time/tz-policy.rkt" set-user-timezone! timezone-problem timezone-report)
          (only-in "../../domain/time/zones.rkt" available-zones)
+         ;; #179: the facts an operator needs to answer "is this instance
+         ;; healthy" that nothing exposed anywhere — the dialect, whether the
+         ;; schema is fully migrated, which blob store is active, and how long a
+         ;; stop will take. Each already exists; none was readable over HTTP.
+         (only-in "../../domain/db/migrations.rkt" all-migrations)
+         (only-in db-kit/migrate applied-migrations pending-migrations migration-id)
+         (only-in "../../domain/repo/blobs.rkt" active-blob-store-name)
+         (only-in "../../domain/sched/scheduler.rkt" drain-seconds)
          "../kit.rkt")
 
 (define (ep-whoami req)
@@ -213,6 +221,52 @@
                             'secrets (if (secrets-enabled?) "sealed" "plaintext")
                             'secret_key_id (or (secret-key-id) 'null)
                             'multitenant (multitenant?)
+                            ;; #179. Five facts that existed only in the boot log
+                            ;; or in a Racket function nothing served, and that
+                            ;; an operator asked "is it slow?" needs first.
+                            ;;
+                            ;; `dialect` because half this file's own traps are
+                            ;; dialect-dependent and "which engine is this"
+                            ;; was not answerable without the DATABASE_URL.
+                            ;;
+                            ;; The schema is reported as counts PLUS the pending
+                            ;; ids: migration runs at boot, so a pending one
+                            ;; means one FAILED, and the id is the only part of
+                            ;; that an operator can act on. A plugin's id (`x.`)
+                            ;; is included in `applied` and excluded from
+                            ;; nothing — unlike `schema-problem`, which must
+                            ;; ignore them to decide whether to boot, this is a
+                            ;; report and a reader wants to see them.
+                            ;;
+                            ;; `blob_store` carries the NAME and deliberately no
+                            ;; probe result. `blob-store-probe` writes, reads and
+                            ;; deletes a blob, so running it per status read is a
+                            ;; PUT/GET/DELETE against somebody's bucket on every
+                            ;; dashboard refresh — and this route is
+                            ;; `instance:read`, which must not perform a write.
+                            ;; The honest signal already exists and is stronger:
+                            ;; startup refuses to serve on a failed probe, so an
+                            ;; instance that is ANSWERING has already proven its
+                            ;; store once. A field claiming that here would be a
+                            ;; claim about main.rkt made from another module, so
+                            ;; the console says it in prose instead.
+                            'dialect (format "~a" (db-dialect db-conn))
+                            'schema (let* ([known all-migrations]      ; a LIST, not a thunk
+                                           [pending (map migration-id
+                                                         (pending-migrations db-conn known))])
+                                      (hasheq 'known (length known)
+                                              'applied (length (applied-migrations db-conn))
+                                              'pending pending))
+                            'blob_store (hasheq 'name (format "~a" (active-blob-store-name)))
+                            ;; How long a stop takes, which is what an operator
+                            ;; about to restart wants. The server's own drain
+                            ;; LATCH is deliberately not reported: it lives for
+                            ;; at most this many seconds and the process exits
+                            ;; immediately after, so a field for it would be
+                            ;; blank in every reading anybody ever takes. A
+                            ;; HOST's drain is a different thing and is on the
+                            ;; Workers card already (FLEET-3).
+                            'drain_seconds (drain-seconds)
                             'users (query-value db-conn "SELECT COUNT(*) FROM users")
                             'teams (query-value db-conn "SELECT COUNT(*) FROM teams")
                             'orgs (query-value db-conn "SELECT COUNT(*) FROM orgs")))]))

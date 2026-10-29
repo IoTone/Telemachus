@@ -4953,6 +4953,222 @@ raco test test/fleet-tests.rkt   # drain order, the two answers, the filters, pa
 bash test/pull-smoke.sh          # section 7b, 7 assertions over HTTP
 ```
 
+## A command palette, and the first keyboard route in (PAL‑1…8, issue #182)
+
+Built 29 Oct 2026. `static/console/16-palette.js`. Cmd/Ctrl+K opens a palette
+over the current view; `?` lists what is bound. No migration, no route, no
+permission.
+
+```sh
+raco test test/console-tests.rkt   # 28 cases; five new, structure and ORDER
+bash test/e2e/validate.sh          # §3d — real key events, 11 assertions
+```
+
+- **IT HOOKS THE ONE DELEGATED LISTENER, BEFORE THE ELEMENT LOOKUP** (PAL‑1).
+  A second document listener is where #27's handler-leak and double-fire risks
+  would start over, and a global shortcut is not about an element, so the
+  element-scoped dispatch cannot carry it. The test asserts the ORDER of the
+  two calls in `01-base.js`, not merely that both appear.
+- **THE ASYMMETRY IS DELIBERATE** (PAL‑3): `Cmd/Ctrl+K` works everywhere
+  including inside a text field, because a held modifier is unambiguous; a bare
+  `?` fires only when focus is NOT in a field, or it eats a question mark —
+  the one way a help shortcut leaves a console worse than it was. The gate types
+  `a ? in a note` and asserts both halves: the overlay stayed shut and the
+  character arrived. (`isComposing`, #174, is the neighbouring lesson.)
+- **`Esc` FALLS THROUGH when nothing of the palette's is open** (PAL‑4), because
+  Esc already leaves the editor's focus mode (ED‑6). Taking it unconditionally
+  would break that.
+- **`visibleTabs()` WAS EXTRACTED FOR THIS, and the drift would have been the
+  palette's** (PAL‑5). `appShell` built the tab list inline; a second copy would
+  eventually offer a tab a feature switch had turned off or a permission did not
+  allow, and the wrong one would be the palette's, because the shell's is the
+  one somebody looks at. The test asserts the list is spelled exactly ONCE in
+  the whole console.
+- **The records' authorization is somebody else's** (PAL‑6): `GET /api/search`
+  already filters per row with `can?`, so the palette cannot offer a record its
+  user may not read by construction rather than by a check here. The search is
+  sequence-counted, `renderTab()`'s rule.
+- **Every action in the map is a function that already exists** (PAL‑7) — an
+  entry that merely looks plausible is a button that 404s — and the map is a
+  handful per tab, because a palette that lists everything is a menu.
+- **THE OVERLAYS LIVE IN THE STATIC SHELL** (PAL‑8), so a tab re-render cannot
+  take the palette down mid-interaction. The cost is the documented one: **the
+  shell is cached at startup, so a live box needs a RESTART** to pick this up,
+  where the console's own `*.js` is read per request and does not.
+
+## One editor, two surfaces (ED‑1…10, issue #180)
+
+Built 29 Oct 2026. `static/console/15-editor.js`; Notes and Documents share it.
+**No migration, no new route, no new permission and no new write path** — every
+endpoint it uses has existed as long as the route table.
+
+```sh
+raco test test/console-tests.rkt   # 23 cases; six new, structure only
+bash test/e2e/validate.sh          # §3c — the sanitiser, on the real page
+```
+
+- **ONE component, and the issue's own words are the argument** (ED‑1): "three
+  bare textareas becoming three different editors is the outcome to avoid." The
+  funnel's template editor stays OUT deliberately — its content is HTML, not
+  Markdown, and it already has a live preview of its own, so folding it in means
+  one component serving two languages and two previews.
+- **THE CONSOLE COULD NOT EDIT A NOTE, AND NEVER HAD BEEN ABLE TO** (ED‑2). The
+  body was an `<input>` — not even a textarea — and both Notes and Documents
+  could be created and deleted and never changed, while `PUT /api/notes/:id` and
+  `PUT /api/documents/:id` have existed as long as `routes.rkt`. **#113's shape
+  on the console's side.** The e2e gate had been editing a document over the API
+  directly since the blob-write fix, which is exactly how the gap stayed
+  invisible: the write path was proven and the way to reach it was not.
+- **WHAT MAKES THE PREVIEW SAFE IS THE ORDER, NOT A SANITISER** (ED‑4). Escape
+  first; the block and inline rules then run over escaped text and emit a closed
+  set of tags, so nothing from the source is ever passed through as markup. The
+  tell is that the blockquote rule matches `&gt;` rather than `>`. `script-src
+  'self'` is the backstop and explicitly NOT the defence — a preview relying on
+  it would be one policy change from a stored XSS.
+- **AND IT IS TESTED AT RUNTIME, because a source assertion cannot establish
+  it.** A Markdown renderer is effectively a sanitiser and "does it escape" is a
+  question about what it COMPUTES, so `demo-validate.mjs` §3c calls the real
+  function on the real page with an `<img onerror>`, a `<script>`,
+  `[click](javascript:…)`, its entity-encoded variant and a fenced block whose
+  asterisks must stay literal. `console-tests.rkt` pins only the structure.
+- **LINE NUMBERS TURN SOFT WRAP OFF — a correctness tie, not a preference**
+  (ED‑6). A wrapped logical line takes several visual rows, so a gutter of
+  logical numbers stops aligning the moment one wraps, and a subtly wrong gutter
+  is worse than none. With wrap off the textarea is auto-sized to its line
+  count, so there is **no internal scroll to synchronise** — as well, because a
+  `scroll` event does not bubble and the delegated dispatcher could not have
+  carried one.
+- **The four view preferences are stored; the TEXT is not** (ED‑7). `preview`,
+  `wrap`, `mono`, `nums` go in `localStorage` with every access wrapped (the
+  accessor throws in a private window); the text lives in `S` so a render pass
+  does not lose it — `paintAuth()`'s rule. `edRead` prefers the DOM and falls
+  back to `S`, which covers a programmatic set and `preview: only`, where the
+  textarea is `display:none` but still holds the text.
+- **The textarea KEEPS the id the field it replaced had** (ED‑8): `#nb` and
+  `#dc` are filled by `demo-validate.mjs`, the screenshot tour and the funnel
+  harness. Renaming to tidy would break three harnesses for nothing.
+- **"Save to the repository" needed no code** (ED‑10). A text document IS a
+  repository object since `0022-fold-documents`, so the issue's "one `repo-put!`
+  away" is zero away — it is `POST /api/documents`.
+- **Export is a Blob and an `a[download]`, and the CSP question is answered in
+  the browser** (ED‑9), not argued: `default-src 'self'` governs the page, the
+  gate fails on any console error, and it also asserts a download event really
+  fired. That is how every other CSP claim in this console was established.
+- **The screenshots are NOT refreshed by this slice.** The Notes caption
+  describes visibility and RBAC rather than the body field, so it is still
+  accurate and only the image is dated; refreshing needs a live model and
+  regenerates both READMEs' tour regions, and re-stamping a `captions.ja.json`
+  hash for text that did not change is churn with no reader.
+
+## Is this instance healthy? one screen (HEALTH‑1…8, issue #179)
+
+Built 29 Oct 2026. Five facts on `GET /api/admin/status` plus a **Health** tab.
+No migration, no new route, no new permission.
+
+```sh
+raco test test/console-tests.rkt   # 17 cases; the four new ones are source assertions
+bash test/server-smoke.sh          # the status block, 6 more assertions
+bash test/e2e/validate.sh          # §7b — the one check that it RENDERS
+```
+
+- **IT COMPOSES THE WORKERS AND QUEUE CARDS** (HEALTH‑1). The issue asks for a
+  fleet section and a queue section and both already existed on Admin; drawing
+  those figures again is two renderings of one answer — `executor-can-run?`'s
+  drift, LIVE‑IN's shape. `healthView` calls `workersCard`/`queueCard` with the
+  same two responses, and the test asserts both halves: that it calls them, and
+  that `14-health.js` contains none of `unclaimable`, `held_by_paused`,
+  `oldest_queued_seconds` or `leases_expired` itself.
+- **`instance:read`, NOT `S.me.is_operator`** (HEALTH‑2) — #124 made that
+  permission exist so a monitoring credential need not also be able to reset a
+  password, and a dashboard is the case that justified it. Gating on the
+  operator flag, the way Admin is gated, would have left the narrower permission
+  useless for the one screen it is for.
+- **NOTHING POLLS, and that is a security answer** (HEALTH‑3, QVIZ‑6 one slice
+  early). #38's idle clock counts from the last REQUEST and the console polls
+  nothing but a live workflow run, so a screen refreshing itself every ten
+  seconds would hold a session open for as long as the tab was left up — an idle
+  timeout disabled by something that looks like polish.
+- **NO PROBE RESULT, which is the field a dashboard obviously wants**
+  (HEALTH‑5). `blob-store-probe` writes, reads back and deletes a blob, so a
+  field here is a PUT/GET/DELETE against somebody's bucket per refresh — on a
+  route that is `instance:read` and must not write. The existing signal is
+  stronger: **startup refuses to serve on a failed probe, so an instance that is
+  ANSWERING has already proven its store once.** Asserting that from this module
+  would be a claim about main.rkt made elsewhere (#119's shape), so the console
+  says it in prose. What it cannot tell you is whether the store has gone away
+  SINCE boot, and that is stated rather than implied. The smoke `refute`s the
+  field, so it cannot quietly appear.
+- **The pending migrations are NAMED, not counted** (HEALTH‑4): migration runs
+  at boot, so a pending one means one FAILED and the id is the only actionable
+  part. A plugin's `x.` ids are included here — unlike `schema-problem`, which
+  must ignore them to decide whether to boot, this is a report.
+- **The server's own drain LATCH is not reported.** It lives at most
+  `TMACH_DRAIN_SECONDS` and the process exits straight after, so the field would
+  be blank in every reading anybody takes. The knob — how long a stop takes — is
+  what an operator about to restart wants; a HOST's drain is FLEET‑3's and is on
+  the Workers card.
+- **The budgets are the caller's OWN team's** (HEALTH‑7) and the card says so:
+  `/api/usage` is team-scoped and there is no instance-wide roll-up. The
+  instance-wide version of "what is being held" is the queue's own `waiting`,
+  two cards below.
+- **THE BOOT CALL MOVED TO `99-boot.js`, for a bug that had not happened yet**
+  (HEALTH‑8). `render()` was the last line of `13-kg.js` and worked only because
+  it is async and yields at its first `await`, letting the remaining `<script>`
+  tags parse before it reached `renderTab()`'s dispatch table. A view added in a
+  file that sorts AFTER the booting one is undefined at that moment — a
+  `ReferenceError` at load that only a browser sees. #179 added the first such
+  file. The test pins that exactly one file calls `render()` at top level and
+  that it sorts last.
+- **`all-migrations` IS A LIST, NOT A THUNK.** `(all-migrations)` is "not a
+  procedure" at request time, not at compile time. #123 is what made it one
+  read: the 500 carries a request id and the message is on stderr beside it.
+- **`sync-locale ja` REWROTE THE WHOLE CATALOG — 862 insertions, 750 deletions
+  — for 28 new strings.** `ja.json` is NOT in `en.json`'s order (this file said
+  they were key-for-key aligned; that is stale), so the tool's base-order write
+  renumbers everything. Append the new entries TEXTUALLY instead: 112 added
+  lines, nothing else touched. And `git checkout`ing the catalog to undo that
+  churn also reverts any hand edit made earlier in the same session — the
+  re-stamped `doc.route.*` hash had to be applied twice.
+
+## A picture of the queue (QVIZ‑1…9, issue #184) — DESIGNED, NOT BUILT
+
+`docs/design/ai-queue-visualization.md` plus the **QVIZ** block in
+`decisions.md`. #184 asks for a design with the retention question answered
+before any rendering code; this is that and nothing else — no migration, no
+route, no console code. **Read it before building any of it.**
+
+- **THE RETENTION QUESTION HAS A THIRD ANSWER, and the table already holds it.**
+  The issue offers client-side sampling (nothing on reload) or a counter table.
+  `jobs.created_epoch` (0041) gives arrivals and `jobs.started_epoch` (0038)
+  gives claims; completions need **one column**, because `finished_at` is TEXT
+  `CURRENT_TIMESTAMP` whose format differs by dialect — bucketing on it is wrong
+  on one engine and invisible on the other, the trap 0038/0039/0040/0041 each
+  name. `jobs.finished_epoch` is the fifth instance of that shape.
+- **WHICH MEANS THERE IS NO RETENTION DECISION TO MAKE.** How far back the
+  picture reaches is bounded by what already bounds the rows — #59's purge keeps
+  the row, #86's rules delete it on the team's own horizon — so an operator who
+  asked to keep seven days gets seven days of flow, with nothing to configure.
+  It also survives a reload and cannot disagree with the queue read, being the
+  same table.
+- **THE ATTEMPT PATH IS ALREADY RECORDED (QVIZ‑3), and that is FLEET‑1 paying
+  off.** "Attempts as a path, not a counter" reads like a new table until you
+  re-read why the reaper writes `job.lease.expired` naming the executor BEFORE
+  the UPDATE: the requeue clears `executor_id`, so afterwards nothing in `jobs`
+  says which machine dropped the work. What is missing is only a way to ask for
+  ONE job's trail — `audit-list` filters by team and does not project `meta`,
+  where the name lives.
+- **A SELF-REFRESHING DASHBOARD WOULD SWITCH OFF THE IDLE TIMEOUT** (QVIZ‑6).
+  #38's clock counts from the last REQUEST, and the console polls nothing but a
+  live workflow run, so a screen that refreshed itself would hold a session open
+  for as long as the tab was left up. The refresh is explicit and defaults to
+  off.
+- **Inline SVG, not a chart library** (QVIZ‑2): `script-src 'self'` blocks a CDN
+  and a vendored library is a third-party dependency for four small shapes, each
+  of which this codebase already draws by hand.
+- **It belongs on #179's Health screen and COMPOSES the Workers and Queue cards**
+  (QVIZ‑5) rather than re-rendering their figures — two renderings of one set of
+  numbers is LIVE‑IN's shape.
+
 ## A releasable claim (PULL‑12, issue #61)
 
 Built 15 Oct 2026. `POST /api/workers/jobs/:id/release` — the blameless

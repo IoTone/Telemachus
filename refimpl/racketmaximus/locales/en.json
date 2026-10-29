@@ -27,6 +27,10 @@
       "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
     },
+    "ui.edzenhint": {
+      "text": "full width, Esc to leave",
+      "hash": "f2f31483e8f093458460cd7615139a612587a25f"
+    },
     "ui.noresults": {
       "text": "Nothing matched.",
       "hash": "b9d865c85161cd9dd4ec75f613fadaa44b45b87e"
@@ -34,6 +38,10 @@
     "ui.quotaheldorg": {
       "text": "This team's company has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "c278db3a6c6604c5e8583793f3419c1b22b54bce"
+    },
+    "ui.hused": {
+      "text": "used / limit",
+      "hash": "4868c4c387e747977d243daf6fb61222bb114e37"
     },
     "doc.route.post.api.l10n.export": {
       "text": "Write a locale's APPROVED strings back to locales/<locale>.json. Refuses a locale with nothing approved.",
@@ -51,6 +59,14 @@
       "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
       "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
     },
+    "ui.hserver": {
+      "text": "Server",
+      "hash": "cb0cb170d106f8e8d5af1e05bbdbd3a96a7de197"
+    },
+    "doc.perm.team:write": {
+      "text": "Rename a team in the company.",
+      "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
+    },
     "ui.deleted": {
       "text": "Deleted",
       "hash": "441bda6cd85689e476ebe10440f27967faef61a6"
@@ -62,10 +78,6 @@
     "doc.tool.doc_set_type.object": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
-    },
-    "doc.perm.team:write": {
-      "text": "Rename a team in the company.",
-      "hash": "dccd46441f32f0d40ee865a38cc7b2dc6c94fd24"
     },
     "ui.idlelabel": {
       "text": "Idle timeout (minutes)",
@@ -96,8 +108,8 @@
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
     },
     "doc.route.get.api.admin.status": {
-      "text": "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.",
-      "hash": "8370c95c77a4500fe4a6b1be2fffbbeb65977e19"
+      "text": "Instance status: version and build, KDF, TLS, multi-tenancy and secrets-at-rest state, the database dialect, the schema's applied/pending migrations, the active blob store, the drain window, and counts of users, teams, orgs.",
+      "hash": "39581254eda84254dc50cec4824e59af0516bbd1"
     },
     "doc.route.get.api.doc-triggers": {
       "text": "The team's upload triggers, with the team's remaining AI budget.",
@@ -155,6 +167,10 @@
       "text": "Put a drained executor back in rotation (FLEET-3). It takes work again on its next claim.",
       "hash": "53dfc9b93bac84c0b2f5d566845e1448e59f617c"
     },
+    "ui.edwrap": {
+      "text": "Wrap",
+      "hash": "c3447e7954fa5698ae957a33210094d617b1dc00"
+    },
     "doc.tool.doc_classify.text": {
       "text": "The document's text (default: extracted from the document; a scan with no text layer can still match a content-type rule)",
       "hash": "c2df33ceb162743df308bbfbe7c46247c180df86"
@@ -183,6 +199,14 @@
       "text": "Draw the filled fields into the page content and remove them, so the result cannot be edited (needs qpdf)",
       "hash": "0b1ca7f41ae7c892069aa2d8e764cb40d953626c"
     },
+    "ui.hbudgetshint": {
+      "text": "this team’s own — the three that actually stall work",
+      "hash": "aed3bc7d4a8253482d5f5e2fbd475e6fa21ce165"
+    },
+    "doc.tool.doc_list_unclassified.run": {
+      "text": "The workflow run id, for provenance",
+      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
     "doc.tool.doc_classify.labels": {
       "text": "The document types to choose between — one of these, and nothing else, can be the answer",
       "hash": "ba138d01969a2cab2fd1959610f956798b00d109"
@@ -198,10 +222,6 @@
     "doc.route.post.api.jobs": {
       "text": "Enqueue a scheduler job of a registered kind.",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
-    },
-    "doc.tool.doc_list_unclassified.run": {
-      "text": "The workflow run id, for provenance",
-      "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
     "doc.workflow.process-upload": {
       "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
@@ -267,13 +287,17 @@
       "text": "Stop",
       "hash": "9e253470c876ee6d5c720eb777aeb82d4c26e28f"
     },
-    "doc.tool.feed_queue_put.due": {
-      "text": "When it is due, epoch seconds",
-      "hash": "f6e5789fe8525cd64d48ea011b1da10e64cf8cd0"
-    },
     "ui.addterm": {
       "text": "Add term",
       "hash": "0bbfc13172ab73449a9e940d2bfb5d1d50c75016"
+    },
+    "ui.edexport": {
+      "text": "Export .md",
+      "hash": "eecde43c20946ff456a3efcab6b5970dd6b2034c"
+    },
+    "doc.tool.feed_queue_put.due": {
+      "text": "When it is due, epoch seconds",
+      "hash": "f6e5789fe8525cd64d48ea011b1da10e64cf8cd0"
     },
     "doc.perm.tasks:read": {
       "text": "Read tasks.",
@@ -302,6 +326,10 @@
     "doc.tool.create_note.body": {
       "text": "Note body text",
       "hash": "22cb4f6d16ab9cc8a7366d340c2ca62ddd020421"
+    },
+    "ui.hblobhint": {
+      "text": "verified at boot — the instance refuses to serve if it cannot write and read back",
+      "hash": "29a84a02ef7893e5ad69f34a82045d6b36395139"
     },
     "doc.route.post.api.beta.assets": {
       "text": "Upload an onboarding asset (logo, hero image, font), base64 in JSON, capped at 2 MiB.",
@@ -342,6 +370,10 @@
     "doc.tool.doc_extract_fields.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "ui.palhenter": {
+      "text": "Send a prompt, or run the selected item",
+      "hash": "70c981cd2ef9bc21c9b4ecceeba982941356b4cf"
     },
     "http.already_initialized": {
       "text": "Already initialized.",
@@ -387,6 +419,10 @@
       "text": "Create",
       "hash": "6e157c5da4410b7e9de85f5c93026b9176e69064"
     },
+    "ui.palupload": {
+      "text": "Upload a document",
+      "hash": "f1836e232eec1043d61e58a2ca1f46b9134f2de0"
+    },
     "beta.not_ready": {
       "text": "instance not initialized",
       "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
@@ -406,6 +442,14 @@
     "ui.useglossary": {
       "text": "Use glossary",
       "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
+    },
+    "ui.palhesc": {
+      "text": "Close the palette, this list, or focus mode",
+      "hash": "74d6dda4e7d06a8d5d8bb5db980d2add8d8f620c"
+    },
+    "ui.haccountsline": {
+      "text": "{users} users · {teams} teams · {orgs} orgs",
+      "hash": "ca68c09e1d4791ca9d2e73b831f296d4949d177f"
     },
     "doc.route.delete.api.2fa": {
       "text": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",
@@ -442,6 +486,10 @@
     "doc.route.get.api.x.feeds.queue": {
       "text": "The team's feed work queue, ordered by priority then soonest due date. ?status= open|claimed|done|dropped|all (default: the actionable two), ?feed= a feed slug, ?skill= one skill, ?limit=/?offset=. Every row is re-authorized on the document it points at, so the count is what the caller may read rather than what is there.",
       "hash": "cfadd1e60a39c8c5785a921b25b0867d4b1086b6"
+    },
+    "ui.hoff": {
+      "text": "off",
+      "hash": "da7a68734367828e30b94927f4c2b43ed2c0f652"
     },
     "ui.l10nexport": {
       "text": "Export",
@@ -559,6 +607,10 @@
       "text": "Instance administration: branding, localization policy, quotas, orgs, metrics.",
       "hash": "336906f62b986937095973b250bdd09c8493001b"
     },
+    "ui.hschemapending": {
+      "text": "{n} pending",
+      "hash": "962e0692e0425c315ecab02a72f52db054c75279"
+    },
     "ui.reviewnone": {
       "text": "Nothing is waiting for review.",
       "hash": "81113cde3bd4da1b134ee55e4187faded2a1bccb"
@@ -578,6 +630,18 @@
     "doc.tool.doc_extract_fields.object": {
       "text": "The source document's object id — write the fields as a derived document beside it",
       "hash": "af8362ab557f0334dca5f227dac8d3c64c401ab8"
+    },
+    "ui.edexporthint": {
+      "text": "download the body as a Markdown file",
+      "hash": "27e1b67ff7c841978c599f5f86b9975ecb670d3f"
+    },
+    "ui.palhshift": {
+      "text": "Insert a newline instead of sending",
+      "hash": "be508a7b98a2ac90fc8a73e3cefa19295be68715"
+    },
+    "ui.ednums": {
+      "text": "Lines",
+      "hash": "c6fd3870c86e7422a0146e1e2a052437fb8e51e2"
     },
     "doc.route.post.api.schedules": {
       "text": "Create a job schedule: `kind` (a registered job kind) plus a cadence. `interval` wants `interval_seconds` (at least 60); `daily` and `weekly` want `at_minute` (the whole minute of the local day, 0 to 1439) and a `timezone`, which defaults to the caller's own; `weekly` also wants `days_of_week`, a comma-separated set of 0-6 with Sunday as 0. Optionally `payload`, `requirements`, `priority`, `name` and `paused`. The first firing is never immediate. The timezone is stored ON the schedule rather than resolved from its owner when it fires: a schedule is a standing instruction, and if its author travels and changes their profile, \"07:00 before the morning meeting\" must not silently move for everybody else. The schedule runs as the CALLER, whose authority every job it fires then spends — an unknown kind is refused here rather than enqueueing work nothing can run, for ever.",
@@ -687,6 +751,10 @@
       "text": "List the prospects the funnel captured, with signals and verdicts.",
       "hash": "3487d465d91b86daddecb132e05ee29f1145e7b5"
     },
+    "ui.healthhint": {
+      "text": "what an operator needs when told “it’s slow”",
+      "hash": "cdd70c6967459da008d24c57932098433d838743"
+    },
     "ui.viewrun": {
       "text": "View",
       "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
@@ -722,6 +790,10 @@
     "doc.route.post.api.translate.catalog": {
       "text": "Translate a whole locale catalog, placeholders preserved.",
       "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
+    "ui.hmt": {
+      "text": "Multi-tenancy",
+      "hash": "437ca7ee46f783347bd4c1eaa273bc99f6df4265"
     },
     "doc.tool.doc_fill_form.values": {
       "text": "Field name to value, e.g. {\"applicant\": \"Arun Patel\", \"urgent\": true}",
@@ -775,6 +847,10 @@
       "text": "Estimate arrival days for a shipment lane.",
       "hash": "f51b84f35d383babe2977d268114273192db0e6c"
     },
+    "ui.edwrite": {
+      "text": "Write",
+      "hash": "4a48932789d199bbed709777e2d743ca2bafdc6c"
+    },
     "ui.until": {
       "text": "until",
       "hash": "b310f4d4d89b8570184b9777ad7d90fc1df20457"
@@ -807,9 +883,21 @@
       "text": "S3 access keys",
       "hash": "1a942eb3c8b7da6400f4a21246bf79d4830abb37"
     },
+    "ui.hsecrets": {
+      "text": "Secrets at rest",
+      "hash": "9e23218f8a4fa9e2921fb5ae5e0c1820bf66fdcb"
+    },
     "doc.tool.doc_classify_eval.backends": {
       "text": "Which backends to measure, each on its own: \"rules\", \"llm\" (default: both)",
       "hash": "6199e0eb428963eaa0bc9531a296ca3f5af9b83e"
+    },
+    "ui.edpreview": {
+      "text": "Preview",
+      "hash": "f1fbb2b43dca281d0138f4fcc92543ad143ef0b1"
+    },
+    "ui.hbudgets": {
+      "text": "Budgets",
+      "hash": "c13c824248221c0703dcb7ec0fee2ca484f40f88"
     },
     "ui.enable": {
       "text": "Enable",
@@ -899,6 +987,10 @@
       "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
       "hash": "f0effca4e2c91938adb06fcb1492a0a59546932e"
     },
+    "ui.edexportfail": {
+      "text": "the download was refused",
+      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
+    },
     "doc.route.get.api.translate": {
       "text": "The team's translation history.",
       "hash": "328c612fc6be4758174e7ae79ba5afd7b9517217"
@@ -963,6 +1055,10 @@
       "text": "Got it",
       "hash": "5b8027fa0e819719a62305a6b15f3f1c10769f7f"
     },
+    "ui.edsplit": {
+      "text": "Split",
+      "hash": "fc8230b4119ad4b994db2324d71f4e0ae7ad932c"
+    },
     "ui.fires": {
       "text": "History",
       "hash": "90ccd6497400b5576aeca1bd94af74aae1e0a250"
@@ -975,13 +1071,25 @@
       "text": "a host that can run these has stood itself down — check its readiness endpoint",
       "hash": "2504e6e597cbd3e5237720f677760eb5dc83817d"
     },
+    "ui.hsealed": {
+      "text": "sealed",
+      "hash": "5d2b90a4c4a5c2194f672a4120ffff9f77e35d30"
+    },
     "doc.perm.files:delete": {
       "text": "Delete repository documents.",
       "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
     },
+    "ui.palhclose": {
+      "text": "Esc or ? to close",
+      "hash": "12c378b056c314b77c49ecd535e231aadd18086d"
+    },
     "doc.plugin.example-tools": {
       "text": "A sample third-party plugin: adds a word_count tool.",
       "hash": "08d4c34f73a5f64ccc20307d26f986326bc92808"
+    },
+    "ui.hblob": {
+      "text": "Blob store",
+      "hash": "e608b383cdca564c9fe730877021e38676288517"
     },
     "doc.route.get.api.l10n.coverage": {
       "text": "Per-locale coverage of the Localization Manager's catalog: total, approved, machine, missing, stale.",
@@ -991,13 +1099,17 @@
       "text": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.",
       "hash": "57debe14263c6fd7babde28e1412f4fbe9492a1f"
     },
-    "ui.instfeathint": {
-      "text": "Turn a feature off for the whole instance. No company and no team can turn it back on — they may only tighten further.",
-      "hash": "faeaa660b33d4852d96ea17ee93ce17afce1bf9d"
-    },
     "ui.norepoobjects": {
       "text": "No documents yet. Any format — pdf, svg, png, docx, xml, md.",
       "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
+    },
+    "ui.hplaintext": {
+      "text": "plaintext",
+      "hash": "d8bb04dddbecd3eb0eaa36481f878a4a60caeabc"
+    },
+    "ui.instfeathint": {
+      "text": "Turn a feature off for the whole instance. No company and no team can turn it back on — they may only tighten further.",
+      "hash": "faeaa660b33d4852d96ea17ee93ce17afce1bf9d"
     },
     "ui.del": {
       "text": "Delete",
@@ -1042,6 +1154,10 @@
     "beta.challenge_expired": {
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "ui.palhhelp": {
+      "text": "Show this list",
+      "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
     },
     "doc.route.get.api.reviews.verify": {
       "text": "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.",
@@ -1103,6 +1219,10 @@
       "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
       "hash": "273f8add79363523aa57b166f84d1a852c876324"
     },
+    "ui.hdb": {
+      "text": "Database",
+      "hash": "61074f1c958d6cdd32dad889b3d58a2d0704cbe3"
+    },
     "doc.perm.instance:read": {
       "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
       "hash": "8b3e4319de14d9acdc7262dc02ad685abd3332c6"
@@ -1122,6 +1242,10 @@
     "ui.kg_relations": {
       "text": "relations",
       "hash": "9649007e163d3f014a46e4a152bf6377c93bf3e5"
+    },
+    "ui.huptime": {
+      "text": "Uptime",
+      "hash": "6aafa80cab6f4d80ad7fac9ba74fde9d0f32a1e7"
     },
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
@@ -1155,6 +1279,10 @@
       "text": "Role",
       "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
     },
+    "ui.palruns": {
+      "text": "Workflow runs",
+      "hash": "92001e5489c7b888b3d48e5b5e31ac7b93cbd2df"
+    },
     "ui.cap_edit": {
       "text": "edit",
       "hash": "9ead47a82a0d25985f22f10651d1f93b3abba317"
@@ -1166,6 +1294,18 @@
     "doc.tool.feed_queue_put.status": {
       "text": "Defaults to open",
       "hash": "ae650e1d3f893611c541c424ab66de9fd71dcafd"
+    },
+    "ui.edcount": {
+      "text": "{words} words · {chars} chars · {lines} lines",
+      "hash": "90eed01e3bac38eda8bbdd6f9485de162e3e2ebd"
+    },
+    "doc.tool.doc_classify.redact": {
+      "text": "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored",
+      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
+    },
+    "ui.hnolimit": {
+      "text": "no limit set",
+      "hash": "f987bb365c6911157e9070a0816c83a6d1e56791"
     },
     "ui.revoked": {
       "text": "Revoked",
@@ -1194,6 +1334,10 @@
     "ui.qdrainorder": {
       "text": "in the order a free worker will take them",
       "hash": "636f3dcb0d102e0fcb13aa1df70f89f56132fb29"
+    },
+    "ui.hmigrations": {
+      "text": "migrations applied",
+      "hash": "b10740618f02c816bde26c2988af310662d38814"
     },
     "doc.route.post.api.x.integrator-demo.eta": {
       "text": "Estimated days for {lane}.",
@@ -1251,6 +1395,14 @@
       "text": "The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.",
       "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
     },
+    "ui.editdoc": {
+      "text": "Edit document",
+      "hash": "ef6604a13d9d9962a59cf78c91b15a2a3dd1f437"
+    },
+    "doc.route.get.api.notes.id": {
+      "text": "One note.",
+      "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
+    },
     "ui.kg_type": {
       "text": "Type",
       "hash": "3deb7456519697ecf4eefc455516c969a3681bae"
@@ -1278,14 +1430,6 @@
     "doc.route.put.api.l10n.messages.id": {
       "text": "Submit a translation for one message.",
       "hash": "62e7cea67142cba640a3f07fd52ff2e3981406c5"
-    },
-    "doc.tool.doc_classify.redact": {
-      "text": "Build the model request from REDACTED text: identifiers are replaced with stable tokens before the prompt is composed, and the answer is put back before anything is stored",
-      "hash": "b5df8a5d44edf2b632a49a17a9577d34fd1f81d7"
-    },
-    "doc.route.get.api.notes.id": {
-      "text": "One note.",
-      "hash": "6abde483f234c866cac4d76f42dcdbf4cd86bfd4"
     },
     "doc.tool.feed_queue_status": {
       "text": "Move a queued item to another status: open, claimed, done or dropped.",
@@ -1343,6 +1487,14 @@
       "text": "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
       "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
     },
+    "doc.tool.doc_text": {
+      "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
+      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
+    },
+    "ui.edit": {
+      "text": "Edit",
+      "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
     "doc.tool.kg_query.name": {
       "text": "An entity name (matched case-insensitively) or an entity id",
       "hash": "b1ce1930aefa3437d0b627497d2a49f116a75e64"
@@ -1350,6 +1502,10 @@
     "doc.perm.tokens:manage": {
       "text": "Issue and revoke API tokens for the team.",
       "hash": "57735f99f42f97b584f973ba150d37cf96b322e2"
+    },
+    "ui.edmono": {
+      "text": "Mono",
+      "hash": "c5c5533844c5249c3a9504a5197794dd80c644ca"
     },
     "doc.route.get.api.repo-obj.id.grants": {
       "text": "One entry per principal: capability, permissions, granted_by, expiry, expired.",
@@ -1427,6 +1583,10 @@
       "text": "See the team's roles and what they grant.",
       "hash": "8d9e3136ad48763f056ec3c85beefa5a27b53997"
     },
+    "ui.health": {
+      "text": "Health",
+      "hash": "3703cd216881d3303a10a898fe54439bf05685b6"
+    },
     "ui.visupdated": {
       "text": "Visibility updated",
       "hash": "ae342f1784a611203d02de5e98c1062cd6034d68"
@@ -1451,10 +1611,6 @@
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
     },
-    "doc.tool.doc_text": {
-      "text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
-      "hash": "f870a9f7a1b00c8c050fa0d0754e6a4b3ac6d091"
-    },
     "ui.upload": {
       "text": "Upload",
       "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
@@ -1474,6 +1630,14 @@
     "ui.reviewwhy": {
       "text": "Why — required to send work back or reject it",
       "hash": "6ba15aa63a8a7623c0a7698150e2af3cdff2e66b"
+    },
+    "ui.haccounts": {
+      "text": "Accounts",
+      "hash": "36bae31694f85bd7a5b0ad45e51ef622b95baadb"
+    },
+    "doc.route.get.": {
+      "text": "The console (or the beta funnel when TMACH_HOME=beta). The HTML title is rewritten from instance branding.",
+      "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
     },
     "ui.nofires": {
       "text": "This trigger has not fired yet.",
@@ -1611,6 +1775,10 @@
       "text": "List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue.",
       "hash": "80d72aa4588c5dc0269e9e1de25480ae0bd0a141"
     },
+    "ui.editnote": {
+      "text": "Edit note",
+      "hash": "9751b2f323222b50b69e90ddb30dcf5466ef9b5d"
+    },
     "ui.idlewarn": {
       "text": "Signing you out in {n}s for inactivity.",
       "hash": "c35c6e3f8bd6207d3adfce8fdccafa3994ac9aac"
@@ -1622,10 +1790,6 @@
     "ui.kg_documents": {
       "text": "documents extracted",
       "hash": "c3ed5753cea882d8ebba13447927ef2d101ab9cd"
-    },
-    "doc.route.get.": {
-      "text": "The console (or the beta funnel when TMACH_HOME=beta). The HTML title is rewritten from instance branding.",
-      "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
     },
     "doc.tool.doc_list_unclassified.prefix": {
       "text": "Only documents whose key starts with this (default: every document in the team)",
@@ -1791,6 +1955,10 @@
       "text": "You set this because you uploaded it. Sharing narrows a team document to just the people you name.",
       "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
     },
+    "ui.paltab": {
+      "text": "tab",
+      "hash": "e974602114f14fbf55401c109937e173b1b23220"
+    },
     "ui.agent": {
       "text": "Agent",
       "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
@@ -1907,6 +2075,10 @@
       "text": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
       "hash": "09db09e9244a119710bf5d37fa9712d3f411a02f"
     },
+    "ui.palrecord": {
+      "text": "{type}",
+      "hash": "12b4e8893bdfce5b8519f357d8d9da1a3ed7be80"
+    },
     "doc.route.post.api.tools.name": {
       "text": "Enable or disable a tool for the team.",
       "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
@@ -1942,6 +2114,10 @@
     "doc.perm.documents:delete": {
       "text": "Delete text documents.",
       "hash": "57f7cce6e25877b0f4c845a6ac47858739d4c03d"
+    },
+    "ui.palplaceholder": {
+      "text": "Jump to a tab, run an action, find a record…",
+      "hash": "bfdd24313e3e47ce12c263b37e8ea76be03365f6"
     },
     "ui.search": {
       "text": "Search",
@@ -2026,6 +2202,10 @@
     "doc.plugin.matrix": {
       "text": "Sends the platform's own events to a Matrix room on a homeserver the operator runs. Optional: with no homeserver configured it registers nothing.",
       "hash": "a7535988fb1c9705582bcde582eccf846a1be5a4"
+    },
+    "ui.palhint": {
+      "text": "Command palette",
+      "hash": "7b6b539e73d9d03f40764fe99b8ec0e594a69d8f"
     },
     "ui.copy": {
       "text": "Copy",
@@ -2151,9 +2331,21 @@
       "text": "Run the tool-using agent loop over the team's enabled tools; every tool call is RBAC-checked and metered.",
       "hash": "ba6777989b583f514ff66b05e086ce6523bef0bc"
     },
+    "ui.hdrainhint": {
+      "text": "how long a stop waits before handing running work back to the queue",
+      "hash": "8a79c4e6708a3ea8984c70528f66577a89c739c6"
+    },
+    "ui.addtrigger": {
+      "text": "Add trigger",
+      "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
+    },
     "ui.branding": {
       "text": "Branding",
       "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
+    },
+    "ui.palaction": {
+      "text": "action",
+      "hash": "34eb4c4ef005207e8b8f916b9f1fffacccd6945e"
     },
     "doc.route.get.api.org.session-policy": {
       "text": "The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied.",
@@ -2162,6 +2354,10 @@
     "ui.wknone": {
       "text": "No workers yet. A worker is a machine that asks for jobs instead of waiting to be called, which is how inference runs on a box of its own.",
       "hash": "53b0b75a64144d923a38f4048d4cf8c4baf42130"
+    },
+    "ui.hwindow": {
+      "text": "window",
+      "hash": "320ad267d8d969f285eda5c184f5455bd29c8c95"
     },
     "ui.capability": {
       "text": "Can",
@@ -2198,6 +2394,10 @@
     "ui.wkwindow": {
       "text": "last {window}",
       "hash": "e15733d6ff39cc2bc7a225b5564785a1e8c86178"
+    },
+    "ui.htls": {
+      "text": "TLS",
+      "hash": "d91e1888f2dc09f11a876e25966a6fbd32b9cd87"
     },
     "ui.logout": {
       "text": "Sign out",
@@ -2251,6 +2451,10 @@
       "text": "oldest wait",
       "hash": "cc4efe854cfcc0888cf273842d580e8d78d05956"
     },
+    "ui.palhtitle": {
+      "text": "Keyboard shortcuts",
+      "hash": "266695479a949eec44dea9db4e15fba00163f04e"
+    },
     "ui.draftqueued": {
       "text": "Queued {n} strings in {b} batch(es) — they land as “machine” for review",
       "hash": "7f2bcb13edb0fc717e74a87c3261d4f645569362"
@@ -2262,10 +2466,6 @@
     "doc.route.post.api.workers.token": {
       "text": "Trade the token this worker is holding for the next one (issue #60): {token, expires_at, overlap_seconds}. The warrant is the credential it already holds, as for PULL-9's read and PULL-13's write. The old token keeps working for the overlap, so a worker must PERSIST the new one before using it — one that cannot persist it must not rotate, or it will stop when the overlap ends. Rotating twice inside five minutes is a 429 with Retry-After.",
       "hash": "abc29f3c75523fdb9b265a0d3a5b2839bbbdd6d5"
-    },
-    "ui.addtrigger": {
-      "text": "Add trigger",
-      "hash": "4e63e68a14f8b8b8d29520653541fe93013835cd"
     },
     "doc.route.get.api.beta.experience": {
       "text": "The team's draft onboarding experience, including the judge prompt.",
@@ -2366,6 +2566,14 @@
     "doc.perm.workflows:read": {
       "text": "See workflow definitions, runs and triggers.",
       "hash": "15cda4a876baefb74affc91b9580435656a05ca3"
+    },
+    "ui.edempty": {
+      "text": "nothing to save",
+      "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
+    },
+    "doc.tool.doc_render.template": {
+      "text": "The template document's object id or key",
+      "hash": "af52889b1f6ef204aecd17b5f6775b46587791f8"
     },
     "doc.workflow.classify-review-extract": {
       "text": "Decide which kind of document this is; when the classifier is less sure than `min_confidence`, park the run and ask a person instead of guessing. Their decision is recorded on the document — approved as it stands, corrected to another type, or withdrawn when it is none of them — and the run then extracts fields against the schema for that type.",
@@ -2475,13 +2683,13 @@
       "text": "Password",
       "hash": "8be3c943b1609fffbfc51aad666d0a04adf83c9d"
     },
-    "doc.tool.doc_render.template": {
-      "text": "The template document's object id or key",
-      "hash": "af52889b1f6ef204aecd17b5f6775b46587791f8"
-    },
     "ui.wkpaused": {
       "text": "paused",
       "hash": "11b1b5ec9167678979a0e6e703210380431292a8"
+    },
+    "ui.palrefresh": {
+      "text": "Refresh this screen",
+      "hash": "e84ed1932b12f7820117929bab99fcceeac40f36"
     },
     "doc.perm.notes:write": {
       "text": "Create and edit notes.",
@@ -2495,9 +2703,21 @@
       "text": "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)",
       "hash": "11335323db31c901a531b7637537d3bbca98efa3"
     },
+    "ui.edwraphint": {
+      "text": "line numbers need soft wrap off — a wrapped line takes several rows and stops matching its number",
+      "hash": "5bfa43c9ba9cf0241031f419926816b227f8c7c1"
+    },
     "ui.trigger_prefix": {
       "text": "Key prefix",
       "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
+    },
+    "doc.route.delete.api.webhooks.id": {
+      "text": "Delete a subscription and its delivery history. The audit entries survive.",
+      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
+    },
+    "ui.edtorepo": {
+      "text": "Save to repository",
+      "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
     },
     "doc.route.delete.api.beta.asset.id": {
       "text": "Delete an onboarding asset.",
@@ -2562,6 +2782,10 @@
     "ui.lochint": {
       "text": "The language this instance answers in when a visitor has not chosen one — including on the sign-in screen, before anyone has an account.",
       "hash": "888ae32444f9106401926c83bd00ebcde5f99635"
+    },
+    "ui.hplaintexthint": {
+      "text": "a dump of this database is replayable",
+      "hash": "2376fd1c7b93504d4e75a92d0adb6e31fef9803d"
     },
     "ui.thradius": {
       "text": "Corner radius",
@@ -2638,6 +2862,10 @@
     "doc.route.post.api.org.teams.ref.quota": {
       "text": "Set ONE team's quota limit from the company plane (issue #113): {dimension, limit, window?} for a team of the caller's own company, named by id or slug. The team-tier POST /api/quota only ever sets the caller's OWN team, so without this an org admin administering several teams had to hold a token in each. A team outside the company answers 404 — it does not exist for this caller.",
       "hash": "4147b2236637c37de9c8866749d27afe22e2aebc"
+    },
+    "ui.edtorepohint": {
+      "text": "store it as a document the pipeline can act on",
+      "hash": "b02303f8f77dcdfce0e7cc36634a48161eddcb6a"
     },
     "doc.route.get.health": {
       "text": "Liveness: {ok, multitenant} and nothing else — version, KDF and TLS state are on GET /api/admin/status.",
@@ -2727,10 +2955,6 @@
       "text": "Literal names or phrases for the dictionary detector — not patterns",
       "hash": "12db93cf2841699f7c12d31b891267e07189338f"
     },
-    "doc.route.delete.api.webhooks.id": {
-      "text": "Delete a subscription and its delivery history. The audit entries survive.",
-      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
-    },
     "doc.route.put.api.notes.id": {
       "text": "Update a note.",
       "hash": "9da1644fbf93af774c049c9a79b4a9d6e310a00e"
@@ -2762,6 +2986,10 @@
     "doc.route.put.api.model-roles": {
       "text": "Set a team's model roles: {roles: {utility: <executor name> | @fleet | null}}. The executor must exist; `@fleet` (#173) sends the role's work to whichever pull worker is free instead of pinning it to one host; null returns to the instance default, then the local model.",
       "hash": "7a4ccddc61b39393a950680b329dc5a572eb16a3"
+    },
+    "ui.palfoot": {
+      "text": "↑↓ to move · Enter to run · Esc to close",
+      "hash": "37c078ff1df1e11f304b0fc305068c9919f1144c"
     },
     "doc.tool.kg_query.hops": {
       "text": "1 (default) or 2",
@@ -2803,6 +3031,10 @@
       "text": "The browser SDK a Tier-B onboarding bundle loads (window.Telemachus.beta).",
       "hash": "11f604b88c96ad7f4101c2867e7df5b9eb051380"
     },
+    "ui.hread": {
+      "text": "read at {time}",
+      "hash": "a80ba7d0eb2987d343d436aa9f80babeb3d2ae81"
+    },
     "doc.route.get.api.oop": {
       "text": "Connected sandboxed (out-of-process) plugins and the capabilities they may ask for.",
       "hash": "0e0b67a716848dba7d3d889f5b9896b861229066"
@@ -2810,6 +3042,10 @@
     "ui.people": {
       "text": "People",
       "hash": "b37554f695b15005fd23907b9488e0a8ad4bca5f"
+    },
+    "ui.palnone": {
+      "text": "nothing matches",
+      "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
     },
     "doc.perm.notes:manage": {
       "text": "Share notes one does not own.",
@@ -2899,6 +3135,10 @@
       "text": "The source document's object id — the form is written beside it (default: beside the template)",
       "hash": "1b66f9c975259453418803c8fd1c4b6afd18ffa0"
     },
+    "ui.untitled": {
+      "text": "Untitled",
+      "hash": "621521f9a8788695ec292cbec54d2792cfdf0a7d"
+    },
     "doc.route.post.api.workers.jobs.id.heartbeat": {
       "text": "Extend the lease on a job this worker holds: {claim_token}, the token the claim returned. A missing or stale token is a 409.",
       "hash": "7c5cab8cfb5e9fe78bdf2903b748b2144efbe4e1"
@@ -2910,6 +3150,10 @@
     "doc.route.put.api.org.retention": {
       "text": "Set the company's retention rules. Same vocabulary and same refusals as the team route; the effective value for a team is the shortest of instance, org and team.",
       "hash": "5ba096d4acfe3546f0865de072a8ba5b9dc2c1a2"
+    },
+    "ui.hdrain": {
+      "text": "Drain window",
+      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
     },
     "ui.nosharedwithme": {
       "text": "Nothing has been shared with you yet.",
@@ -2967,6 +3211,10 @@
       "text": "Set an org-level quota; teams nest beneath it.",
       "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
     },
+    "ui.palhpalette": {
+      "text": "Open the command palette",
+      "hash": "2b5a7d38f23f257ed27a4b5c21774239fe9b1a93"
+    },
     "ui.results": {
       "text": "Results",
       "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
@@ -3018,6 +3266,10 @@
     "ui.term": {
       "text": "Term",
       "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
+    "ui.palnewdoc": {
+      "text": "New document",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
     },
     "ui.trigger_attrs": {
       "text": "Attributes",
@@ -3139,6 +3391,10 @@
       "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
     },
+    "ui.palnewnote": {
+      "text": "New note",
+      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
+    },
     "ui.reviewverdict_approve": {
       "text": "Approved",
       "hash": "41b81eb8db1b97e812a8fc182e3a5b3ce0f3aacb"
@@ -3231,6 +3487,18 @@
       "text": "The form document's object id — a PDF carrying AcroForm fields",
       "hash": "46268aa7ef58f1bb41ea31f7c2cefa813291d0ee"
     },
+    "ui.edzen": {
+      "text": "Focus",
+      "hash": "fe7f55b8bf68fd47d248a271d541e7e183621010"
+    },
+    "ui.qsub": {
+      "text": "sub",
+      "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
+    },
+    "ui.hdrainnow": {
+      "text": "immediate",
+      "hash": "f1d16437085ae1e36539a5328125cec05a91bada"
+    },
     "ui.brandthemehint": {
       "text": "The palette this console wears — the same tokens the beta funnel uses. Changes preview live; Save applies them for everyone.",
       "hash": "3344a3b30f4aacc74d40a006dd147d4b1cd6f4d6"
@@ -3242,6 +3510,10 @@
     "doc.tool.feed_propose.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "ui.edleavezen": {
+      "text": "Done",
+      "hash": "e9b450d14bc2363d292c84f17cfad5cfbd58a458"
     },
     "doc.route.patch.api.schedules.id": {
       "text": "Retune a schedule: `cadence`, `interval_seconds`, `at_minute`, `days_of_week`, `timezone`, `paused`, `payload`, `priority`, `name`. The schedule is validated AS IT WOULD BE, so switching to `daily` in the same request that supplies `at_minute` is accepted and switching without one is refused — a patch cannot reach a state a create could not. Any change to WHEN recomputes the next firing, rather than firing once at the old time and only then obeying the edit. The PRINCIPAL cannot be patched: changing whose authority a timer spends is a new schedule, not an edit. Resuming a paused schedule moves its next firing forward instead of catching up on every tick it missed.",
@@ -3262,6 +3534,10 @@
     "doc.route.get.api.beta.config": {
       "text": "The published onboarding experience's public slice (fields, copy, theme) in one language.",
       "hash": "5637fed4dd1b1d860ba29c0ec77677fcb1b41e1f"
+    },
+    "ui.hschema": {
+      "text": "Schema",
+      "hash": "b5230ecdf4e78f0dd162281a0a78c6cdc853cbe8"
     },
     "ui.thmode": {
       "text": "Mode",
@@ -3306,6 +3582,10 @@
     "doc.route.post.api.translate": {
       "text": "Translate text into a target language, applying the team glossary.",
       "hash": "6e66e87c1cec75b5d7189cb342fb0b0e273abaa1"
+    },
+    "ui.edsaved": {
+      "text": "Saved to the repository",
+      "hash": "2d86aa9503b2392baca3c4d153ef475a270900b8"
     },
     "ui.rationale": {
       "text": "Reason",
@@ -3390,10 +3670,6 @@
     "ui.shared": {
       "text": "Shared",
       "hash": "50d0d8dd11a959484cb838e05c14b2e51b64c68d"
-    },
-    "ui.qsub": {
-      "text": "sub",
-      "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
     },
     "doc.tool.doc_redact.step": {
       "text": "The workflow step id, for provenance",

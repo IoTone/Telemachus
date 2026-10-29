@@ -162,7 +162,13 @@ async function render(){
   const wasAuth=!!document.getElementById('lu');
   app.innerHTML=appShell();
   if(wasAuth) fadeIn(app);                // sign-in → shell is a transition, not a cut
-  renderTab(); }
+  // AWAITED, and it was not. `renderTab()` paints a `…` placeholder and then
+  // awaits its view, so a fire-and-forget call here made `render()` resolve at
+  // exactly the moment the DOM held the placeholder and nothing else. Anything
+  // that awaited `render()` and then read the page was therefore reading the
+  // placeholder — which is the same hazard `goTab` was written for in the e2e
+  // gate, one layer down and on the product's side of it.
+  await renderTab(); }
 window.localizeView=localizeView; window.l10nSetLocale=l10nSetLocale; window.l10nFilter=l10nFilter;
 window.l10nPage=l10nPage; window.l10nSave=l10nSave; window.l10nReview=l10nReview;
 window.l10nImport=l10nImport; window.l10nDraft=l10nDraft; window.l10nExport=l10nExport;
@@ -176,4 +182,3 @@ window.bxSetLang=bxSetLang; window.doBetaSignup=doBetaSignup; window.teamSignIn=
 window.betaSub=betaSub; window.bxSet=bxSet; window.bxSaveDraft=bxSaveDraft; window.bxPublish=bxPublish;
 window.bxAddField=bxAddField; window.bxDelField=bxDelField; window.bxSetField=bxSetField;
 window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.bxSetLanding=bxSetLanding; window.S=S;
-render();

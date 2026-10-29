@@ -26,8 +26,17 @@ async function doI18nSave(){
 // Every write re-reads the server's normalized answer into S.brand and re-renders
 // the whole shell, so the header, the sign-in lockup and the preview can never
 // disagree with what was actually stored.
+// THE REPAINT IS AWAITED, and it was not. Every caller `await`s this function
+// and then touches the DOM — `doBrandSave` reads `#brt` again on a second save
+// — so each was racing a repaint it had started itself. Awaiting is what they
+// were all asking for; it needed `render()` to await `renderTab()` as well, or
+// this resolves while the placeholder is on screen and the race merely moves.
+//
+// It surfaced as a CI-only failure in #210 (demo-validate's second
+// `doBrandSave()` found `#brt` null and `val()` threw), and the window is one
+// server round trip wide, which is why it had never lost locally.
 async function applyBrand(b){ if(b) S.brand=Object.assign(S.brand,b,{logoUrl:b.logo?('/api/beta/asset/'+b.logo):''});
-  document.title=S.brand.title||'TMach'; applyTheme(S.brand.theme); render(); }
+  document.title=S.brand.title||'TMach'; applyTheme(S.brand.theme); await render(); }
 // ---- the theme editor (Admin > Branding) ----
 // The tokens are the funnel's, so an operator who has skinned a campaign already
 // knows this control. Editing previews LIVE (applyTheme against a draft) and only

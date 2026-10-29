@@ -78,7 +78,7 @@ async function doAddTerm(){
 let renderSeq = 0;
 async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
   el.innerHTML='<p class="muted">…</p>';
-  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
+  const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,health:healthView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html; }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
@@ -237,20 +237,46 @@ async function documentsView(){
   const off=S.docOffset||0;
   const r=await api('/api/documents?offset='+off);
   const docs=r.ok?r.json.documents:[]; const next=r.ok?r.json.next_offset:null;
-  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}</td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>doDelDoc((d.id)))}">${t('del')}</button></td></tr>`).join('');
-  return `<h2>${t('documents')}</h2>
-    <div class="card"><h3>${t('newdoc')}</h3>
+  // #180: `PUT /api/documents/:id` has existed as long as the route table and
+  // the console called it nowhere, exactly as for notes. Same editor, same
+  // edit path — the issue's "three bare textareas becoming three different
+  // editors" is avoided by there being one component, not three.
+  const editing = S.docEdit ? docs.filter(d=>d.id===S.docEdit)[0] : null;
+  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}</td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>docEdit((d.id),(d.content)))}">${t('edit')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDelDoc((d.id)))}">${t('del')}</button></td></tr>`).join('');
+  const card = editing
+    ? `<div class="card"><h3>${t('editdoc')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
+      <label>${t('title')}</label><input id="dt" value="${esc(editing.title||'')}">
+      <label>${t('content')}</label>${editorHTML('doc', {id:'dc'})}
+      <label>${t('visibility')}</label><select id="dv">${
+        ['team','private'].map(x=>`<option${x===editing.visibility?' selected':''}>${x}</option>`).join('')}</select>
+      <button class="btn" data-h-click="${H((el,ev)=>doSaveDoc())}">${t('save')}</button>
+      <button class="btn ghost" style="margin-left:8px" data-h-click="${H((el,ev)=>docEditCancel())}">${t('cancel')}</button>
+      <div class="row" style="margin-top:10px;gap:8px"><div style="flex:0 0 auto"><button class="btn sm ghost"
+        data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${t('edexport')}</button></div></div></div>`
+    : `<div class="card"><h3>${t('newdoc')}</h3>
       <label>${t('title')}</label><input id="dt">
-      <label>${t('content')}</label><textarea id="dc" rows="4"></textarea>
+      <label>${t('content')}</label>${editorHTML('doc', {id:'dc'})}
       <label>${t('visibility')}</label><select id="dv"><option>team</option><option>private</option></select>
-      <button class="btn" data-h-click="${H((el,ev)=>doCreateDoc())}">${t('create')}</button></div>
+      <button class="btn" data-h-click="${H((el,ev)=>doCreateDoc())}">${t('create')}</button>
+      <div class="row" style="margin-top:10px;gap:8px"><div style="flex:0 0 auto"><button class="btn sm ghost"
+        data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${t('edexport')}</button></div></div></div>`;
+  return `<h2>${t('documents')}</h2>
+    ${card}
     <div class="card" style="margin-top:14px"><table><thead><tr><th>${t('title')}</th><th>${t('visibility')}</th><th>${t('content')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <div class="row" style="margin-top:8px">${off>0?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs(0))}">« first</button>`:''}${(typeof next==='number')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs((next)))}">more »</button>`:''}</div></div>`;
 }
-async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',body:{title:val('dt'),content:val('dc'),visibility:val('dv')}});
-  if(r.ok){ S.docOffset=0; toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
+function docEdit(id, content){ S.docEdit=id; edReset('doc', content, 'dc'); renderTab(); }
+function docEditCancel(){ S.docEdit=null; edReset('doc', '', 'dc'); renderTab(); }
+async function doSaveDoc(){
+  const r=await api('/api/documents/'+S.docEdit,{method:'PUT',
+    body:{title:val('dt'), content:edRead('doc'), visibility:val('dv')}});
+  if(r.ok){ S.docEdit=null; edReset('doc','', 'dc'); toast(t('saved'),true); renderTab(); }
+  else toast((r.json&&r.json.error)||'error');
+}
+async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',body:{title:val('dt'),content:edRead('doc'),visibility:val('dv')}});
+  if(r.ok){ S.docOffset=0; edReset('doc','', 'dc'); toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
 async function doDelDoc(id){ const r=await api('/api/documents/'+id,{method:'DELETE'});
-  if(r.ok){ toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
+  if(r.ok){ if(S.docEdit===id){ S.docEdit=null; edReset('doc','', 'dc'); } toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }
 function doMoreDocs(off){ S.docOffset=off; renderTab(); }
 function jobStatusBadge(s){ return s==='done'?'<span class="badge ok">done</span>':`<span class="badge">${esc(s)}</span>`; }
 function jobResultText(j){

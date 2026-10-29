@@ -280,3 +280,212 @@
   ;; the tab filter and the fallback still read the map, so neither changed
   (check-true (string-contains? html "S.features[x]!==false") "the tab filter is unchanged")
   (check-true (string-contains? html "S.features[S.tab]===false") "…and so is the fallback"))
+
+;; ---- the health screen (issue #179) ----------------------------------------
+;; The console has no JS test runner, so these are SOURCE assertions, as the
+;; sign-in and feature cases above are. The claim is narrow and worth stating:
+;; they prove the screen is WIRED and that it reuses rather than duplicates —
+;; not that it renders correctly, which a browser is what sees.
+
+(test-case "the health screen is gated on instance:read, not on being an operator"
+  ;; #124 made `instance:read` exist so a monitoring credential need not also be
+  ;; able to reset a password, and a dashboard is the case that justified it.
+  ;; Gating this on `S.me.is_operator` — the way the Admin tab is gated — would
+  ;; have made the narrower permission useless for the one screen it is for.
+  (define sh (file->string (build-path console-dir "02-auth.js")))
+  (check-true (string-contains? sh "canPerm('instance:read')")
+              "the tab is spliced on the permission")
+  (check-true (regexp-match? #px"canPerm\\('instance:read'\\)[^\n]*'health'" sh)
+              "…and it is the health tab that it gates"))
+
+(test-case "the health screen COMPOSES the workers and queue cards"
+  ;; The issue asks for a fleet section and a queue section and both already
+  ;; exist on the Admin tab. Drawing those figures again here would be two
+  ;; renderings of one answer — `executor-can-run?`'s drift, LIVE-IN's shape —
+  ;; so this asserts the reuse AND the absence of a second rendering.
+  (define hv (fn-body "healthView"))
+  (check-true (and hv #t) "healthView exists")
+  (check-true (string-contains? hv "workersCard(") "the fleet card is reused")
+  (check-true (string-contains? hv "queueCard(") "…and so is the queue card")
+  (define health (file->string (build-path console-dir "14-health.js")))
+  (for ([fig (in-list '("unclaimable" "held_by_paused" "oldest_queued_seconds"
+                        "leases_expired"))])
+    (check-false (string-contains? health fig)
+                 (format "~a belongs to the queue/workers card, not to a second copy here" fig))))
+
+(test-case "the health screen does not poll"
+  ;; #38's idle clock counts from the last REQUEST, and the console polls nothing
+  ;; except a live workflow run — so a screen that refreshed itself would hold a
+  ;; session open for as long as the tab was left on screen, which is an idle
+  ;; timeout switched off by a convenience. The refresh is a button.
+  (define health (file->string (build-path console-dir "14-health.js")))
+  (check-false (string-contains? health "setInterval") "no timer")
+  (check-false (string-contains? health "setTimeout") "…and no deferred one either")
+  (check-true (string-contains? health "renderTab()") "the refresh is an explicit re-render"))
+
+(test-case "the boot call is in the file that sorts LAST"
+  ;; It used to be the last line of 13-kg.js, which worked only because render()
+  ;; is async and yields at its first await — long enough for the remaining
+  ;; <script> tags to parse before it reached renderTab()'s dispatch table. A
+  ;; view added in a file that sorts after the booting one would be undefined at
+  ;; that moment and the console would die at load with a ReferenceError. #179
+  ;; added the first such file, so the boot moved.
+  (check-equal? (last script-files) "99-boot.js"
+                "the boot file must sort after every numbered one")
+  (define boots
+    (for/list ([n (in-list script-files)]
+               #:when (regexp-match? #px"(?m:^render\\(\\);[ \t]*$)"
+                                     (file->string (build-path console-dir n))))
+      n))
+  (check-equal? boots '("99-boot.js")
+                "exactly one file calls render() at top level, and it is the last one"))
+
+;; ---- one editor, two surfaces (issue #180) ----------------------------------
+;; The Markdown renderer is the one thing here a SOURCE assertion cannot
+;; establish: it is effectively a sanitiser, and "does it escape" is a question
+;; about what it computes. So the hostile inputs are asserted in the browser,
+;; where the real function runs on the real page — test/e2e/demo-validate.mjs
+;; §3c. What is pinned here is the structure: that there is ONE editor, that the
+;; escape happens FIRST, and that the edit paths exist at all.
+
+(test-case "there is ONE editor component, and both surfaces use it"
+  ;; The issue asks this to be decided up front and names the outcome to avoid:
+  ;; "three bare textareas becoming three different editors".
+  (check-equal? 1 (length (regexp-match* #px"function editorHTML\\(" html))
+                "exactly one editor component")
+  (check-true (string-contains? html "editorHTML('note'") "Notes uses it")
+  (check-true (string-contains? html "editorHTML('doc'") "…and so does Documents"))
+
+(test-case "the editor keeps the ids the fields it replaced had"
+  ;; `page.fill('#nb', …)` and `#dc` are in demo-validate, the screenshot tour
+  ;; and the funnel harness. Renaming a field to tidy it would break three
+  ;; harnesses for nothing.
+  (check-true (string-contains? html "editorHTML('note', {id:'nb'") "the note body is still #nb")
+  (check-true (string-contains? html "editorHTML('doc', {id:'dc'") "…and the document body still #dc"))
+
+(test-case "the Markdown subset escapes BEFORE it renders"
+  ;; What makes the preview safe is the order, not a sanitiser: everything is
+  ;; escaped first and the rules then run over escaped text emitting a closed
+  ;; set of tags, so nothing from the source is ever passed through as markup.
+  (define body (fn-body "mdRender"))
+  (check-true (and body #t) "mdRender exists")
+  (check-true (string-contains? body "esc(String(src") "the first thing it does is escape")
+  ;; …and the blockquote rule matches the ESCAPED form, which is the tell that
+  ;; the rules really do run after the escape rather than before it.
+  (check-true (string-contains? body "&gt;") "the block rules match escaped markup")
+  ;; a link's scheme is allowlisted rather than filtered
+  (check-true (string-contains? html "function mdSafeUrl") "there is a scheme allowlist")
+  (check-true (string-contains? html "mdSafeUrl(url)") "…and the link rule consults it"))
+
+(test-case "a note and a document can be EDITED, which they could not before"
+  ;; `PUT /api/notes/:id` and `PUT /api/documents/:id` have existed as long as
+  ;; the route table; the console called neither, so it could create and delete
+  ;; and never change. #113's shape on this side of the wire.
+  (check-true (regexp-match? #px"/api/notes/'\\+S\\.noteEdit[^\n]*method:'PUT'" html)
+              "notes save through PUT")
+  (check-true (regexp-match? #px"/api/documents/'\\+S\\.docEdit[^\n]*method:'PUT'" html)
+              "…and documents too"))
+
+(test-case "line numbers turn soft wrap off, rather than lying about it"
+  ;; A wrapped logical line takes several visual rows, so a gutter of logical
+  ;; numbers stops aligning the moment one line wraps — and a gutter that is
+  ;; subtly wrong is worse than none. The tie is in one function.
+  (define body (fn-body "edWrap"))
+  (check-true (and body #t) "edWrap exists")
+  (check-true (string-contains? body "nums") "…and it is the line-number preference that decides")
+  (check-true (string-contains? body "false")
+              "with numbers on, wrapping is off"))
+
+(test-case "the editor's text lives in S, not in localStorage"
+  ;; The four VIEW preferences are per-viewer conveniences and are stored, each
+  ;; access wrapped because the accessor throws in a private window. The TEXT is
+  ;; not: it belongs in S so a render pass does not lose what has been typed,
+  ;; which is paintAuth()'s rule for the same reason.
+  (check-true (string-contains? html "localStorage.setItem('tmx_ed'") "the preferences are stored")
+  (define save (fn-body "edSavePrefs"))
+  (check-true (and save (string-contains? save "try")) "…inside a try/catch")
+  (define prefs (fn-body "edPrefs"))
+  (check-true (and prefs (string-contains? prefs "try")) "…and so is the read")
+  (check-false (regexp-match? #px"setItem\\('tmx_ed[^)]*value" html)
+               "the text itself is never written to localStorage"))
+
+;; ---- the command palette (issue #182) --------------------------------------
+
+(test-case "the palette hooks the ONE delegated listener, not a second one"
+  ;; 01-base.js registers one document listener per event type; a second one for
+  ;; a global shortcut is where the handler-leak and double-fire risks the
+  ;; dispatcher exists to remove would start over. The issue asks for this by
+  ;; name.
+  (check-equal? 1 (length (regexp-match* #px"document\\.addEventListener" html))
+                "exactly one document listener is registered anywhere")
+  (define base (file->string (build-path console-dir "01-base.js")))
+  (check-true (string-contains? base "paletteKey(ev)") "the palette hooks it")
+  ;; …and it runs BEFORE the element lookup, because a global shortcut is not
+  ;; about an element.
+  (define i (let ([m (regexp-match-positions #px"paletteKey\\(ev\\)" base)]) (and m (caar m))))
+  (define j (let ([m (regexp-match-positions #px"closest\\('\\[data-h-" base)]) (and m (caar m))))
+  (check-true (and i j (< i j)) "the global hook precedes the element dispatch"))
+
+(test-case "the modifier is DETECTED and the label follows the detection"
+  ;; A hardcoded Cmd is wrong on two platforms out of three, and a label that
+  ;; disagrees with the binding is worse than no label.
+  (check-true (string-contains? html "userAgentData") "platform detection")
+  (check-true (string-contains? html "navigator.platform") "…with a fallback")
+  (define lab (fn-body "palModLabel"))
+  (check-true (and lab #t) "the label is computed")
+  (check-true (string-contains? lab "PAL_MAC")
+              "…from the same detection the binding uses")
+  (define mod (fn-body "palMod"))
+  (check-true (and mod (string-contains? mod "metaKey") (string-contains? mod "ctrlKey"))
+              "and the binding tests the right key per platform"))
+
+(test-case "a bare ? does nothing while something is being typed into"
+  ;; The one way a help shortcut can make a console worse than it was: eating a
+  ;; question mark. Cmd/Ctrl+K is deliberately NOT subject to this, because a
+  ;; held modifier is unambiguous.
+  (define k (fn-body "paletteKey"))
+  (check-true (and k #t) "paletteKey exists")
+  (check-true (regexp-match? #px"ev\\.key === '\\?'[^\n]*palTyping\\(\\)" k)
+              "the ? branch consults palTyping()")
+  (define typing (fn-body "palTyping"))
+  (check-true (and typing #t) "palTyping exists")
+  (for ([tag (in-list '("input" "textarea" "select" "isContentEditable"))])
+    (check-true (string-contains? typing tag) (format "~a counts as typing" tag)))
+  ;; the K branch must NOT be gated on it
+  (check-false (regexp-match? #px"=== 'k'[^\n]*palTyping" k)
+               "a held modifier works everywhere, including in a field"))
+
+(test-case "the palette and the shell share ONE tab list"
+  ;; The palette's first job is "jump to a tab", so a second copy of the list
+  ;; would drift — and the one that drifts is the palette's, which would offer a
+  ;; tab a feature switch has turned off or a permission does not allow.
+  (check-equal? 1 (length (regexp-match* #px"'chat','agent','translate','search'" html))
+                "the tab list is spelled exactly once")
+  (check-true (string-contains? html "function visibleTabs()") "…in one function")
+  (check-true (string-contains? html "const tabs=visibleTabs()") "the shell asks it")
+  (check-true (string-contains? html "for (const tab of visibleTabs())") "…and so does the palette"))
+
+(test-case "Esc falls through when the palette is closed"
+  ;; Escape has meanings this console already relies on — leaving the editor's
+  ;; focus mode is one. Taking it unconditionally would break them.
+  (define k (fn-body "paletteKey"))
+  (check-true (regexp-match? #px"(?s:Escape.*?return false)" k)
+              "Esc is not swallowed when there is nothing open"))
+
+(test-case "a repaint is AWAITED all the way down to the tab"
+  ;; `renderTab()` paints a `…` placeholder and then awaits its view, so a
+  ;; fire-and-forget call made `render()` resolve at exactly the moment the DOM
+  ;; held the placeholder and nothing else — and `applyBrand` then resolved
+  ;; before its own repaint. Every caller of both awaits them and then touches
+  ;; the page, so each was racing a repaint it had started itself. It surfaced
+  ;; as a CI-only failure in #210: demo-validate's second `doBrandSave()` found
+  ;; `#brt` null. The window is one server round trip wide, which is why it had
+  ;; never lost locally. This is `goTab`'s hazard on the product's side.
+  (define r (fn-body "render"))
+  (check-true (and r #t) "render exists")
+  (check-true (string-contains? r "await renderTab()")
+              "render awaits the tab it paints")
+  (define ab (fn-body "applyBrand"))
+  (check-true (and ab #t) "applyBrand exists")
+  (check-true (string-contains? ab "await render()")
+              "…and applyBrand awaits the repaint it triggers"))

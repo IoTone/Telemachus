@@ -65,8 +65,8 @@
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
     },
     "doc.route.get.api.admin.status": {
-      "text": "インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。",
-      "hash": "8370c95c77a4500fe4a6b1be2fffbbeb65977e19"
+      "text": "インスタンスの状態：バージョンとビルド、KDF、TLS、マルチテナント、保存時暗号化の状態、データベースの方言、スキーマの適用済み／保留中のマイグレーション、有効なブロブストア、ドレインの待機時間、そしてユーザー・チーム・組織の件数。",
+      "hash": "39581254eda84254dc50cec4824e59af0516bbd1"
     },
     "doc.route.get.api.doc-triggers": {
       "text": "チームのアップロードトリガーと、チームの残り AI 予算。",
@@ -3399,6 +3399,282 @@
     "doc.route.get.api.org": {
       "text": "呼び出し元の会社",
       "hash": "64fe44cbb3af833179d4b608cf69ed65492b7216"
+    },
+    "ui.health": {
+      "text": "稼働状況",
+      "hash": "3703cd216881d3303a10a898fe54439bf05685b6"
+    },
+    "ui.healthhint": {
+      "text": "「遅い」と言われたときに最初に見るもの",
+      "hash": "cdd70c6967459da008d24c57932098433d838743"
+    },
+    "ui.hserver": {
+      "text": "サーバー",
+      "hash": "cb0cb170d106f8e8d5af1e05bbdbd3a96a7de197"
+    },
+    "ui.huptime": {
+      "text": "稼働時間",
+      "hash": "6aafa80cab6f4d80ad7fac9ba74fde9d0f32a1e7"
+    },
+    "ui.hdb": {
+      "text": "データベース",
+      "hash": "61074f1c958d6cdd32dad889b3d58a2d0704cbe3"
+    },
+    "ui.hschema": {
+      "text": "スキーマ",
+      "hash": "b5230ecdf4e78f0dd162281a0a78c6cdc853cbe8"
+    },
+    "ui.hschemapending": {
+      "text": "{n} 件が保留中",
+      "hash": "962e0692e0425c315ecab02a72f52db054c75279"
+    },
+    "ui.hmigrations": {
+      "text": "マイグレーション適用済み",
+      "hash": "b10740618f02c816bde26c2988af310662d38814"
+    },
+    "ui.hsecrets": {
+      "text": "保存時の暗号化",
+      "hash": "9e23218f8a4fa9e2921fb5ae5e0c1820bf66fdcb"
+    },
+    "ui.hsealed": {
+      "text": "暗号化済み",
+      "hash": "5d2b90a4c4a5c2194f672a4120ffff9f77e35d30"
+    },
+    "ui.hplaintext": {
+      "text": "平文",
+      "hash": "d8bb04dddbecd3eb0eaa36481f878a4a60caeabc"
+    },
+    "ui.hplaintexthint": {
+      "text": "このデータベースのダンプはそのまま読み取れます",
+      "hash": "2376fd1c7b93504d4e75a92d0adb6e31fef9803d"
+    },
+    "ui.htls": {
+      "text": "TLS",
+      "hash": "d91e1888f2dc09f11a876e25966a6fbd32b9cd87"
+    },
+    "ui.hoff": {
+      "text": "オフ",
+      "hash": "da7a68734367828e30b94927f4c2b43ed2c0f652"
+    },
+    "ui.hblob": {
+      "text": "ブロブストア",
+      "hash": "e608b383cdca564c9fe730877021e38676288517"
+    },
+    "ui.hblobhint": {
+      "text": "起動時に検証済み — 書き込みと読み戻しができなければインスタンスは起動しません",
+      "hash": "29a84a02ef7893e5ad69f34a82045d6b36395139"
+    },
+    "ui.hdrain": {
+      "text": "ドレイン待機時間",
+      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
+    },
+    "ui.hdrainhint": {
+      "text": "停止時に実行中の処理をキューへ返すまで待つ時間",
+      "hash": "8a79c4e6708a3ea8984c70528f66577a89c739c6"
+    },
+    "ui.hdrainnow": {
+      "text": "即時",
+      "hash": "f1d16437085ae1e36539a5328125cec05a91bada"
+    },
+    "ui.hmt": {
+      "text": "マルチテナント",
+      "hash": "437ca7ee46f783347bd4c1eaa273bc99f6df4265"
+    },
+    "ui.haccounts": {
+      "text": "アカウント",
+      "hash": "36bae31694f85bd7a5b0ad45e51ef622b95baadb"
+    },
+    "ui.haccountsline": {
+      "text": "ユーザー {users}・チーム {teams}・組織 {orgs}",
+      "hash": "ca68c09e1d4791ca9d2e73b831f296d4949d177f"
+    },
+    "ui.hbudgets": {
+      "text": "予算",
+      "hash": "c13c824248221c0703dcb7ec0fee2ca484f40f88"
+    },
+    "ui.hbudgetshint": {
+      "text": "このチーム自身のもの — 実際に処理を止める3つ",
+      "hash": "aed3bc7d4a8253482d5f5e2fbd475e6fa21ce165"
+    },
+    "ui.hused": {
+      "text": "使用量 / 上限",
+      "hash": "4868c4c387e747977d243daf6fb61222bb114e37"
+    },
+    "ui.hwindow": {
+      "text": "期間",
+      "hash": "320ad267d8d969f285eda5c184f5455bd29c8c95"
+    },
+    "ui.hnolimit": {
+      "text": "上限なし",
+      "hash": "f987bb365c6911157e9070a0816c83a6d1e56791"
+    },
+    "ui.hread": {
+      "text": "{time} に取得",
+      "hash": "a80ba7d0eb2987d343d436aa9f80babeb3d2ae81"
+    },
+    "ui.edit": {
+      "text": "編集",
+      "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
+    "ui.untitled": {
+      "text": "無題",
+      "hash": "621521f9a8788695ec292cbec54d2792cfdf0a7d"
+    },
+    "ui.editnote": {
+      "text": "ノートを編集",
+      "hash": "9751b2f323222b50b69e90ddb30dcf5466ef9b5d"
+    },
+    "ui.editdoc": {
+      "text": "ドキュメントを編集",
+      "hash": "ef6604a13d9d9962a59cf78c91b15a2a3dd1f437"
+    },
+    "ui.edwrite": {
+      "text": "編集",
+      "hash": "4a48932789d199bbed709777e2d743ca2bafdc6c"
+    },
+    "ui.edsplit": {
+      "text": "分割",
+      "hash": "fc8230b4119ad4b994db2324d71f4e0ae7ad932c"
+    },
+    "ui.edpreview": {
+      "text": "プレビュー",
+      "hash": "f1fbb2b43dca281d0138f4fcc92543ad143ef0b1"
+    },
+    "ui.ednums": {
+      "text": "行番号",
+      "hash": "c6fd3870c86e7422a0146e1e2a052437fb8e51e2"
+    },
+    "ui.edwrap": {
+      "text": "折り返し",
+      "hash": "c3447e7954fa5698ae957a33210094d617b1dc00"
+    },
+    "ui.edwraphint": {
+      "text": "行番号には折り返しをオフにする必要があります — 折り返した行は複数行を占め、番号と対応しなくなります",
+      "hash": "5bfa43c9ba9cf0241031f419926816b227f8c7c1"
+    },
+    "ui.edmono": {
+      "text": "等幅",
+      "hash": "c5c5533844c5249c3a9504a5197794dd80c644ca"
+    },
+    "ui.edzen": {
+      "text": "集中",
+      "hash": "fe7f55b8bf68fd47d248a271d541e7e183621010"
+    },
+    "ui.edleavezen": {
+      "text": "完了",
+      "hash": "e9b450d14bc2363d292c84f17cfad5cfbd58a458"
+    },
+    "ui.edzenhint": {
+      "text": "全幅表示。Esc で戻ります",
+      "hash": "f2f31483e8f093458460cd7615139a612587a25f"
+    },
+    "ui.edcount": {
+      "text": "{words} 語・{chars} 文字・{lines} 行",
+      "hash": "90eed01e3bac38eda8bbdd6f9485de162e3e2ebd"
+    },
+    "ui.edexport": {
+      "text": ".md で書き出す",
+      "hash": "eecde43c20946ff456a3efcab6b5970dd6b2034c"
+    },
+    "ui.edexporthint": {
+      "text": "本文を Markdown ファイルとしてダウンロードします",
+      "hash": "27e1b67ff7c841978c599f5f86b9975ecb670d3f"
+    },
+    "ui.edexportfail": {
+      "text": "ダウンロードが拒否されました",
+      "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
+    },
+    "ui.edtorepo": {
+      "text": "リポジトリに保存",
+      "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
+    },
+    "ui.edtorepohint": {
+      "text": "パイプラインが処理できるドキュメントとして保存します",
+      "hash": "b02303f8f77dcdfce0e7cc36634a48161eddcb6a"
+    },
+    "ui.edsaved": {
+      "text": "リポジトリに保存しました",
+      "hash": "2d86aa9503b2392baca3c4d153ef475a270900b8"
+    },
+    "ui.edempty": {
+      "text": "保存する内容がありません",
+      "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
+    },
+    "ui.paltab": {
+      "text": "タブ",
+      "hash": "e974602114f14fbf55401c109937e173b1b23220"
+    },
+    "ui.palaction": {
+      "text": "操作",
+      "hash": "34eb4c4ef005207e8b8f916b9f1fffacccd6945e"
+    },
+    "ui.palrecord": {
+      "text": "{type}",
+      "hash": "12b4e8893bdfce5b8519f357d8d9da1a3ed7be80"
+    },
+    "ui.palplaceholder": {
+      "text": "タブへ移動、操作の実行、レコードの検索…",
+      "hash": "bfdd24313e3e47ce12c263b37e8ea76be03365f6"
+    },
+    "ui.palnone": {
+      "text": "一致するものがありません",
+      "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
+    },
+    "ui.palfoot": {
+      "text": "↑↓ で移動・Enter で実行・Esc で閉じる",
+      "hash": "37c078ff1df1e11f304b0fc305068c9919f1144c"
+    },
+    "ui.palhint": {
+      "text": "コマンドパレット",
+      "hash": "7b6b539e73d9d03f40764fe99b8ec0e594a69d8f"
+    },
+    "ui.palnewnote": {
+      "text": "新しいノート",
+      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
+    },
+    "ui.palnewdoc": {
+      "text": "新しいドキュメント",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
+    },
+    "ui.palupload": {
+      "text": "ドキュメントをアップロード",
+      "hash": "f1836e232eec1043d61e58a2ca1f46b9134f2de0"
+    },
+    "ui.palruns": {
+      "text": "ワークフローの実行",
+      "hash": "92001e5489c7b888b3d48e5b5e31ac7b93cbd2df"
+    },
+    "ui.palrefresh": {
+      "text": "この画面を再読み込み",
+      "hash": "e84ed1932b12f7820117929bab99fcceeac40f36"
+    },
+    "ui.palhtitle": {
+      "text": "キーボードショートカット",
+      "hash": "266695479a949eec44dea9db4e15fba00163f04e"
+    },
+    "ui.palhpalette": {
+      "text": "コマンドパレットを開く",
+      "hash": "2b5a7d38f23f257ed27a4b5c21774239fe9b1a93"
+    },
+    "ui.palhhelp": {
+      "text": "この一覧を表示",
+      "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
+    },
+    "ui.palhesc": {
+      "text": "パレット・この一覧・集中モードを閉じる",
+      "hash": "74d6dda4e7d06a8d5d8bb5db980d2add8d8f620c"
+    },
+    "ui.palhenter": {
+      "text": "プロンプトを送信、または選択中の項目を実行",
+      "hash": "70c981cd2ef9bc21c9b4ecceeba982941356b4cf"
+    },
+    "ui.palhshift": {
+      "text": "送信せずに改行を挿入",
+      "hash": "be508a7b98a2ac90fc8a73e3cefa19295be68715"
+    },
+    "ui.palhclose": {
+      "text": "Esc または ? で閉じる",
+      "hash": "12c378b056c314b77c49ecd535e231aadd18086d"
     }
   }
 }
