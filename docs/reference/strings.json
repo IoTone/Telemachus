@@ -336,7 +336,7 @@
   "doc.tool.create_note.body": "Note body text",
   "doc.tool.create_note.title": "Short note title",
   "doc.tool.create_note.visibility": "Who can see it; defaults to team",
-  "doc.tool.doc_classify": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
+  "doc.tool.doc_classify": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
   "doc.tool.doc_classify.backends": "Backend order: \"rules\", \"llm\" (default: rules then llm)",
   "doc.tool.doc_classify.labels": "The document types to choose between — one of these, and nothing else, can be the answer",
   "doc.tool.doc_classify.object": "The repository object id",

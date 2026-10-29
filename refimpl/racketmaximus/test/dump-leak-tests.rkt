@@ -355,11 +355,11 @@
 (define (chat-the-needle! c p)
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
       (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
                              #:executor e #:transport tr #:model m #:endpoint u
                              #:messages msgs #:tokens tok #:status st
-                             #:error-kind ek #:http-status hs #:ms ms)))
+                             #:error-kind ek #:http-status hs #:operation op #:ms ms)))
   (set-box! pull-router (lambda (name msgs temp rf) (cons "ACK" 9)))
   (begin0
     (let-values ([(reply _t) (run-chat (string-append "Dear " NEEDLE ", your claim")
@@ -368,7 +368,7 @@
     (set-box! pull-router (lambda (name msgs temp rf) #f))
     (set-box! model-request-logger
       (lambda (#:executor e #:transport tr #:model m #:endpoint u #:messages msgs
-               #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))))
+               #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void)))))
 
 (test-case "ACCEPTANCE (#91 req 3): a model request is recorded and no column of it holds the prompt"
   (with-env "TMACH_SECRET_KEY" ""

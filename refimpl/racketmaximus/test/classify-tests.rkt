@@ -148,12 +148,17 @@
   (check-false (backends-problem '("llm")))
   (check-regexp-match #rx"at least one backend" (backends-problem '()))
   (check-regexp-match #rx"named twice" (backends-problem '("llm" "llm")))
-  ;; requirement 2c asks for an embedding nearest-label backend; this build has no
-  ;; embedding wire at all, so the refusal SAYS so rather than pretending the flag
-  ;; is a typo
+  ;; Requirement 2c's embedding backend IS built now (#163), so this no longer
+  ;; names it as unbuilt — the refusal is an ordinary unknown-flag refusal again.
+  ;; `embeddings` is still not a backend; `embed` is.
   (define p (backends-problem '("embeddings")))
   (check-regexp-match #rx"unknown backend 'embeddings'" p)
-  (check-regexp-match #rx"no embedding wire" p))
+  (check-regexp-match #rx"embed" p "the refusal lists what this build does have")
+  (check-false (backends-problem '("embed")))
+  ;; …but naming it is how you ask: it is NOT in the chain a caller gets by not
+  ;; asking, or every existing call on every existing instance would try to embed
+  ;; against an endpoint nobody configured.
+  (check-equal? CLASSIFY-BACKENDS-DEFAULT '("rules" "llm")))
 
 ;; ---- 3. the model backend's refusals ------------------------------------------------
 (define (replying . replies)

@@ -31,7 +31,8 @@
          model-name pull-router
          model-request-logger log-model-request! transport-error-kind
          egress-policy egress-refusal
-         model-exchange response-tokens)
+         model-exchange response-tokens
+         embed-exchange embed-configured? embed-model embedding-vectors embedding-tokens)
 
 ;; PULL-5: a named executor that is not a push backend may be a PULL executor. The
 ;; server installs a router (name messages temperature response-format) -> (cons
@@ -44,11 +45,18 @@
 ;; installs a writer that knows the connection and the principal, and until it
 ;; does, nothing is logged and nothing fails.
 ;;
-;; (executor transport model endpoint messages tokens status error-kind
-;;  http-status ms) -> void
+;; (executor transport operation model endpoint messages tokens status
+;;  error-kind http-status ms) -> void
+;;
+;; EVERY KEYWORD THE REAL WRITER TAKES MUST BE HERE, with the same default.
+;; This no-op is what runs in every unit test that does not install a writer, so
+;; a keyword added to the real one and forgotten here fails only in the tests
+;; that exercise the new path — which is exactly where it looks like a defect in
+;; the new path.
 (define model-request-logger
   (box (lambda (#:executor e #:transport t #:model m #:endpoint u #:messages msgs
-                #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+                #:tokens tok #:status st #:error-kind ek #:http-status hs
+                #:operation [op "chat"] #:ms ms)
          (void))))
 
 ;; A FAILURE HERE NEVER FAILS THE MODEL CALL — the trigger seam's rule. An
@@ -57,6 +65,7 @@
                             #:endpoint [endpoint #f] #:messages [msgs '()]
                             #:tokens [tokens #f] #:status status
                             #:error-kind [error-kind #f] #:http-status [http-status #f]
+                            #:operation [operation "chat"]
                             #:ms [ms #f])
   ;; `exn:fail?`, NOT a catch-all: a break must pass through. The model deadline
   ;; shuts its request's custodian down and the shutdown drain stops the server
@@ -67,7 +76,7 @@
     ((unbox model-request-logger)
      #:executor executor #:transport transport #:model model #:endpoint endpoint
      #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-     #:http-status http-status #:ms ms)))
+     #:http-status http-status #:operation operation #:ms ms)))
 
 ;; RED-26: the per-org executor policy (issue #91 requirement 4). A box for the
 ;; reason `pull-router` and `model-request-logger` above are boxes — the policy
@@ -160,6 +169,28 @@
     (and (eq? (hash-ref caps k 'unknown) #f)
          (format "the configured model (~a) declares it cannot do ~a — see TMACH_MODEL_CAPS"
                  (model-name) k))))
+
+;; ---- EMB-1: the embedding endpoint is its OWN, and that is forced ------------
+;; An embedding model is a DIFFERENT model from the chat model — `nomic-embed-text`
+;; or `bge-m3`, never `qwen2.5:7b` — so the model NAME cannot be shared with
+;; `TMACH_MODEL`, and once the name is separate the URL may as well be rather
+;; than derived by surgery on `/v1/chat/completions`. That derivation is the
+;; obvious shortcut and it is wrong twice: it assumes the embedding model lives
+;; on the same server as the chat model, and it would silently send the chat
+;; model's NAME to an endpoint that cannot use it.
+(define (embed-url)   (tmach-env "EMBED_URL"))
+(define (embed-model) (or (tmach-env "EMBED_MODEL") "local-embed"))
+(define (embed-key)   (tmach-env "EMBED_KEY"))
+
+;; EMB-3: CONFIGURATION IS THE CAPABILITY. #163 asked for an `embeddings` entry in
+;; LAY-9's capability document, on the premise that embeddings ride the chat
+;; endpoint — with an endpoint of their own there is nothing for a declaration to
+;; add, and a declared capability that can disagree with whether the endpoint is
+;; set would be a second answer to one question (`executor-can-run?`'s drift). An
+;; unset endpoint is refused BY NAME before anything leaves, which is the property
+;; the capability was wanted for. The day an embedding is ROUTED to a named
+;; executor, that executor's document is where `embeddings` belongs.
+(define (embed-configured?) (and (embed-url) #t))
 
 (define (model-configured?) (and (model-url) #t))
 (define (model-info)
@@ -299,6 +330,114 @@
            (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
   (log! "ok" #:http 200 #:tokens (response-tokens resp))
   (values resp url mdl))
+
+;; embed-exchange : the ONE place an EMBEDDING request leaves this process.
+;;
+;; EMB-2: THE POLICY IS SHARED AND THE BODY IS NOT. Everything between the
+;; caller and the socket — the egress refusal, the no-content-logging policy, the
+;; request log, the transport error classification — is the same question for an
+;; embedding as for a chat, and RED-16 is the lesson that made this a seam rather
+;; than a call site: `model-exchange`'s own header called itself "the ONE place a
+;; model request leaves this process" while `run-chat-stream` and the pull wire
+;; each had their own, and a log covering one of three was silent about exactly
+;; the paths an operator would check. An embedding sends DOCUMENT TEXT to a
+;; backend; it must not be the fourth.
+;;
+;; What is NOT shared is the body, the response shape and what a token means. A
+;; chat reports `total_tokens` over a prompt and a completion; an embedding has
+;; an input count and no output at all, which is the shape JUDGE-10 met with
+;; `output_tokens` always 0 and answered with a dimension of its own.
+;;
+;; EMB-4: A NAMED EXECUTOR IS REFUSED BY NAME. An executor's document declares
+;; ONE endpoint and it is its chat endpoint, so serving the call from the
+;; instance's embedding endpoint while the caller believes it went to the
+;; executor is the misroute-that-lies this module refuses everywhere else. Model
+;; ROLES point at executors, so this is reachable the moment somebody sets the
+;; utility role — it is a refusal, not an impossibility.
+;;
+;; -> (values (listof (vectorof real)) input-tokens url model)
+(define (embed-exchange texts #:executor [executor #f] #:who [who 'embed])
+  (when executor
+    (log-model-request! #:executor executor #:transport "push" #:operation "embed"
+                        #:messages (for/list ([t (in-list texts)])
+                                     (hasheq 'role "user" 'content t))
+                        #:status "refused" #:error-kind "capability")
+    (raise-user-error who
+      (string-append "an embedding cannot be routed to the named executor '~a': an executor "
+                     "declares one endpoint and it is its chat endpoint. Embeddings use the "
+                     "instance's TMACH_EMBED_URL.") executor))
+  (define url (embed-url))
+  (define mdl (embed-model))
+  (define msgs (for/list ([t (in-list texts)]) (hasheq 'role "user" 'content t)))
+  ;; the same order model-exchange uses: refuse before composing, because the
+  ;; point of either check is that the content does not leave.
+  (let ([bad (and (embed-configured?) (egress-refusal #f url))])
+    (when bad
+      (log-model-request! #:executor #f #:transport "push" #:operation "embed" #:model mdl
+                          #:endpoint url #:messages msgs #:status "refused" #:error-kind "policy")
+      (raise-user-error who "~a" bad)))
+  (unless (embed-configured?)
+    (raise-user-error who "no embedding model configured (set TMACH_EMBED_URL)"))
+  (when (null? texts) (error who "nothing to embed"))
+  (define body (hasheq 'model mdl 'input texts))
+  (define started (current-inexact-milliseconds))
+  (define (log! status #:kind [kind #f] #:http [http #f] #:tokens [tokens #f])
+    (log-model-request! #:executor #f #:transport "push" #:operation "embed" #:model mdl
+                        #:endpoint url #:messages msgs #:tokens tokens #:status status
+                        #:error-kind kind #:http-status http #:ms (ms-since started)))
+  (define-values (code resp)
+    (with-handlers ([exn:fail? (lambda (e) (log! "error" #:kind (transport-error-kind e)) (raise e))])
+      (http-post-json url body (headers* (embed-key)))))
+  (unless (= code 200)
+    (log! "error" #:kind "http" #:http code)
+    (error who "embedding endpoint returned HTTP ~a: ~a" code
+           (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
+  (define vecs (embedding-vectors resp (length texts) who))
+  (define toks (embedding-tokens resp))
+  (log! "ok" #:http 200 #:tokens toks)
+  (values vecs toks url mdl))
+
+;; The OpenAI embeddings response: {"data":[{"index":n,"embedding":[...]},...]}.
+;;
+;; THE INDEX IS HONOURED RATHER THAN THE ORDER. The field exists precisely
+;; because a server may answer out of order, and a nearest-label backend that
+;; paired the wrong vector with the wrong label would not fail — it would
+;; classify confidently and wrongly, for ever, with every figure in the
+;; evaluation harness agreeing that the model is simply poor.
+(define (embedding-vectors resp n who)
+  (define data (hash-ref resp 'data #f))
+  (unless (and (list? data) (= (length data) n))
+    (error who "the embedding endpoint returned ~a vector(s) for ~a input(s)"
+           (if (list? data) (length data) "no") n))
+  (define slots (make-vector n #f))
+  (for ([(d i) (in-indexed (in-list data))])
+    (define idx (let ([v (hash-ref d 'index i)]) (if (exact-nonnegative-integer? v) v i)))
+    (unless (< idx n) (error who "the embedding endpoint returned index ~a for ~a input(s)" idx n))
+    (define e (hash-ref d 'embedding #f))
+    (unless (and (list? e) (pair? e) (andmap real? e))
+      (error who "the embedding endpoint returned no usable vector for input ~a" idx))
+    (when (vector-ref slots idx)
+      (error who "the embedding endpoint returned index ~a twice" idx))
+    (vector-set! slots idx (for/vector ([x (in-list e)]) (exact->inexact x))))
+  (define out (vector->list slots))
+  (when (memf not out) (error who "the embedding endpoint left an input unanswered"))
+  ;; Every vector must have the SAME width, or cosine is meaningless and would
+  ;; raise deep inside the arithmetic rather than here, where the endpoint can be
+  ;; named.
+  (define d0 (vector-length (car out)))
+  (unless (andmap (lambda (v) (= (vector-length v) d0)) out)
+    (error who "the embedding endpoint returned vectors of differing widths"))
+  out)
+
+;; An embedding has an INPUT count and no output. Providers spell it
+;; `prompt_tokens`; `total_tokens` is the same number here and is accepted as a
+;; fallback. #f when the provider said nothing, which the meter reads as "charge
+;; nothing" rather than guessing — an estimate is what the agent used to bill
+;; before the model-access consolidation, and it was wrong by two orders.
+(define (embedding-tokens resp)
+  (define u (hash-ref resp 'usage (hasheq)))
+  (define v (or (hash-ref u 'prompt_tokens #f) (hash-ref u 'total_tokens #f)))
+  (and (exact-nonnegative-integer? v) v))
 
 ;; run-chat : content -> (values reply-text tokens-used).  #:executor routes to a
 ;; named federated backend; #f uses the local node.

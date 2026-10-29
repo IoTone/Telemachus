@@ -112,6 +112,26 @@ Two consequences worth knowing:
 | `TMACH_MODEL_<ROLE>` | — | Routes one model role to a named executor, e.g. `TMACH_MODEL_UTILITY`. Checked after the team's own setting. `utility` is the only role that ships: knowledge-graph extraction, field extraction, translation and localization drafts. |
 | `TMACH_EXECUTORS` | `<impl>/executors.json` | Config file of named push backends. Names in this file are owned by it: a database row that would shadow one is refused. |
 
+### Embeddings (issue #163)
+
+A **separate endpoint and a separate model**, because an embedding model is a
+different model — `nomic-embed-text` or `bge-m3`, never a chat model — so the
+name cannot be shared with `TMACH_MODEL`, and deriving the URL from
+`TMACH_MODEL_URL` would assume the two live on the same server.
+
+With `TMACH_EMBED_URL` unset, **nothing is lost and nothing breaks**: the only
+caller is `doc_classify`'s `embed` backend, which is skipped unless the request
+names it, and naming it without an endpoint is refused by name rather than
+falling through to something else. Embeddings spend their own quota dimension,
+`ai.embeddings.total` (an embedding has an input token count and no output, so
+it cannot share `ai.tokens.total`), and each call also counts one `ai.requests`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TMACH_EMBED_URL` | — | An OpenAI-compatible `/v1/embeddings` endpoint. Unset means the `embed` classification backend is refused by name. |
+| `TMACH_EMBED_MODEL` | `local-embed` | The embedding model name sent to that endpoint. **Changing it invalidates every cached label vector**, which is the correct behaviour — vectors from two checkpoints are not comparable — and costs one re-embed of each label per team. |
+| `TMACH_EMBED_KEY` | — | Bearer token for the embedding endpoint. |
+
 ## Jobs, scheduling and shutdown
 
 | Variable | Default | What it does |

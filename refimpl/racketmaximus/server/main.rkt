@@ -875,7 +875,7 @@
   (set-box! model-request-logger
     (lambda (#:executor executor #:transport transport #:model model #:endpoint endpoint
              #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-             #:http-status http-status #:ms ms)
+             #:http-status http-status #:operation operation #:ms ms)
       (define job (current-job))
       (define p (current-request-principal))
       (model-request-record! db-conn
@@ -884,7 +884,7 @@
         #:org  (and p (principal-org-id p))
         #:executor executor #:transport transport #:model model #:endpoint endpoint
         #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-        #:http-status http-status #:ms ms)
+        #:http-status http-status #:operation operation #:ms ms)
       (void)))
   ;; RED-26: the per-org executor policy (issue #91 requirement 4). The gate is
   ;; `egress-refusal` in executor.rkt, at the three places a request leaves the

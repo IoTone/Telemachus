@@ -239,11 +239,11 @@
   ;; the logger seam, as server/main.rkt installs it
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
       (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
                              #:executor e #:transport tr #:model m #:endpoint u*
                              #:messages msgs #:tokens tok #:status st
-                             #:error-kind ek #:http-status hs #:ms ms)))
+                             #:error-kind ek #:http-status hs #:operation op #:ms ms)))
   ;; a stub PULL executor: the content leaves by the job row, which is one of the
   ;; two paths `model-exchange` does not carry (RED-16)
   (set-box! pull-router (lambda (name msgs temp rf) (cons "ACK" 77)))
@@ -274,7 +274,7 @@
   (set-box! pull-router (lambda (name msgs temp rf) #f))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void)))
   (close-db! c))
 
 (test-case "a pull executor with no declaration is refused, and the refusal is the row"
@@ -284,11 +284,11 @@
   (define-values (t u p) (team-of c))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
       (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
                              #:executor e #:transport tr #:model m #:endpoint u*
                              #:messages msgs #:tokens tok #:status st
-                             #:error-kind ek #:http-status hs #:ms ms)))
+                             #:error-kind ek #:http-status hs #:operation op #:ms ms)))
   (define asked (box #f))
   (set-box! pull-router (lambda (name msgs temp rf) (set-box! asked #t) (cons "ACK" 1)))
   (setenv! "TMACH_REQUIRE_NO_CONTENT_LOGGING" "1")
@@ -305,7 +305,7 @@
   (set-box! pull-router (lambda (name msgs temp rf) #f))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void)))
   (close-db! c))
 
 (test-case "the SIMULATED echo is not logged, because nothing left the process"
@@ -315,18 +315,18 @@
   (define-values (t u p) (team-of c))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
       (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
                              #:executor e #:transport tr #:model m #:endpoint u*
                              #:messages msgs #:tokens tok #:status st
-                             #:error-kind ek #:http-status hs #:ms ms)))
+                             #:error-kind ek #:http-status hs #:operation op #:ms ms)))
   (setenv! "TMACH_MODEL_URL" "")
   (define-values (reply _tokens) (run-chat "hello"))
   (check-equal? reply "HELLO")
   (check-equal? (length (rows c)) 0)
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void)))
   (close-db! c))
 
 (test-case "every error kind the vocabulary declares is one something produces"
@@ -357,11 +357,11 @@
   (define-values (t u p) (team-of c))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
       (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
                              #:executor e #:transport tr #:model m #:endpoint u*
                              #:messages msgs #:tokens tok #:status st
-                             #:error-kind ek #:http-status hs #:ms ms)))
+                             #:error-kind ek #:http-status hs #:operation op #:ms ms)))
   ;; port 1 on loopback: nothing listens, and the refusal is immediate
   (setenv! "TMACH_MODEL_URL" "http://127.0.0.1:1/v1/chat/completions")
   (setenv! "TMACH_MODEL_RETRIES" "1")
@@ -379,7 +379,7 @@
   (setenv! "TMACH_MODEL_RETRIES" "")
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void)))
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void)))
   (close-db! c))
 
 (test-case "a logger that raises does not fail the model call"
@@ -387,7 +387,7 @@
   ;; problem and losing somebody's answer is theirs.
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
       (error 'logger "the log is on fire")))
   (set-box! pull-router (lambda (name msgs temp rf) (cons "ACK" 5)))
   (define-values (reply tokens) (run-chat "hello" #:executor "stub"))
@@ -395,7 +395,7 @@
   (set-box! pull-router (lambda (name msgs temp rf) #f))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void))))
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void))))
 
 (test-case "…but it swallows a FAILURE, not everything: a break must pass through"
   ;; The handler is `exn:fail?` rather than a catch-all, and that matters: the
@@ -405,7 +405,7 @@
   ;; catch-all catches and `exn:fail?` does not.
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
       (raise 'stop-everything)))
   (set-box! pull-router (lambda (name msgs temp rf) (cons "ACK" 5)))
   (check-equal? (with-handlers ([symbol? (lambda (v) v)])
@@ -414,4 +414,4 @@
   (set-box! pull-router (lambda (name msgs temp rf) #f))
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
-             #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms) (void))))
+             #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void))))

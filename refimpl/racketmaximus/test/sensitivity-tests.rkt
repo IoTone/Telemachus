@@ -297,7 +297,7 @@
                                (cons "pulled: ok" 7)))
        (set-box! model-request-logger
                  (lambda (#:executor e #:transport t #:model m #:endpoint u #:messages msgs
-                          #:tokens tok #:status st #:error-kind ek #:http-status hs #:ms ms)
+                          #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
                    (set-box! rows (cons (list e t st ek) (unbox rows)))))
        (set-box! egress-policy
                  (lambda (#:executor e #:endpoint u #:document d)

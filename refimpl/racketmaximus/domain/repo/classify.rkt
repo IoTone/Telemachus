@@ -21,13 +21,17 @@
 (require racket/string racket/list racket/format
          json
          "../tools/jsonschema.rkt"
-         (only-in "../ai/content.rkt" outer-json))
+         (only-in "../ai/content.rkt" outer-json)
+         ;; #163: the similarity itself. `embedstore.rkt` owns the label cache
+         ;; and this module owns what a similarity MEANS — the dependency runs
+         ;; one way and this module still reaches no database.
+         (only-in "../ai/embedstore.rkt" cosine))
 
-(provide CLASSIFY-CAP CLASSIFY-BACKENDS MAX-LABELS MAX-RULES MAX-PHRASES
+(provide CLASSIFY-CAP CLASSIFY-BACKENDS CLASSIFY-BACKENDS-DEFAULT MAX-LABELS MAX-RULES MAX-PHRASES
          CLASSIFY-FIELDS DECIDED-SOURCE MAX-RATIONALE
          labels-problem rules-problem backends-problem decided-problem
          label-names classify-rules classify-llm classify classify-decided
-         confidence->string
+         confidence->string classify-embed EMBED-MARGIN-SCALE
          ;; issue #87 req 6: the evaluation harness's pure half
          EVAL-FIELD EVAL-FIELDS expected-problem classify-attempt eval-report)
 
@@ -41,7 +45,19 @@
 ;; characters were read, so nobody has to infer it.
 (define CLASSIFY-CAP 8000)
 
-(define CLASSIFY-BACKENDS '("rules" "llm"))
+;; KNOWN and DEFAULT are two lists, and conflating them is a behaviour change
+;; wearing a one-word diff. `embed` is a backend this build HAS; it is not in the
+;; chain a caller gets by not asking, because an embedding needs an endpoint the
+;; ordinary instance has not configured — so defaulting to it would make every
+;; existing `doc_classify` call on every existing instance try to embed, and the
+;; well-behaved version of that is a refusal by name. Naming it is how you ask.
+;;
+;; `embed` sits between `rules` and `llm` in the ORDER, which is where it belongs
+;; the moment somebody names it: a rules answer is free and certain (CLS-1), and
+;; an embedding is one short request against a small model where `llm` is a full
+;; generation against a large one.
+(define CLASSIFY-BACKENDS '("rules" "embed" "llm"))
+(define CLASSIFY-BACKENDS-DEFAULT '("rules" "llm"))
 (define MAX-LABELS 50)
 (define MAX-RULES 100)
 (define MAX-PHRASES 20)
@@ -173,11 +189,8 @@
     [(null? backends) "at least one backend is needed"]
     [(for/or ([b (in-list backends)]) (and (not (member b CLASSIFY-BACKENDS)) b))
      => (lambda (b)
-          (format (string-append
-                   "unknown backend '~a' — this build classifies with ~a. An embedding "
-                   "nearest-label backend is not built: the platform has no embedding "
-                   "wire, store or meter, so it is its own slice rather than a flag here.")
-                  b (string-join CLASSIFY-BACKENDS " and ")))]
+          (format "unknown backend '~a' — this build classifies with ~a."
+                  b (string-join CLASSIFY-BACKENDS ", ")))]
     [(not (= (length backends) (length (remove-duplicates backends)))) "a backend is named twice"]
     [else #f]))
 
@@ -299,6 +312,73 @@
 ;; "nobody could tell" is not one. The message names the backends that were asked,
 ;; because the remedy is a rule or a model, and the operator is one field away
 ;; from either.
+;; ---- EMB-10: the nearest-label backend (issue #163) -------------------------------------
+;; Embed the document, embed each label once and cache it, and take the label
+;; whose vector is closest. It sits BETWEEN rules and llm in the default chain,
+;; which is the whole argument for having it: a rules answer is free and certain
+;; and goes first (CLS-1), and an embedding answer is one short request against a
+;; small model where the llm backend is a full generation against a large one.
+;;
+;; CONFIDENCE IS THE MARGIN, NOT THE SIMILARITY, and this is the decision in the
+;; backend. Cosine against a label is an absolute number with no calibration: on
+;; a typical sentence model every pair of ordinary English documents scores
+;; 0.6-0.9, so reporting the top similarity as `confidence` would report 0.82 for
+;; a document that matched nothing in particular and park nothing for review.
+;; What carries information is how much better the winner is than the runner-up.
+;; So the confidence is the GAP between the best and second-best similarity,
+;; scaled — a document equally close to two labels scores ~0, which is exactly
+;; the case CLS-13's review threshold exists to catch.
+;;
+;; With ONE label there is no runner-up and so no margin, and the honest answer
+;; is to decline rather than to report 1.0 for a comparison that was never made:
+;; a single-label set means every document is an invoice, which a rule says
+;; better and for nothing.
+(define EMBED-MARGIN-SCALE 10.0)
+
+;; THE SEAMS METER THEMSELVES, and that is forced rather than stylistic: an
+;; embedding spends `ai.embeddings.total` (EMB-6) and a chat spends
+;; `ai.tokens.total`, so there is no single number this function could hand back
+;; that its caller could bill. Returning the embedding's token count in the slot
+;; `classify` adds to the chat count would charge input tokens to the completion
+;; budget — two units in one column, which is the same mistake EMB-5 refused in
+;; the request log. So these closures take and answer values only.
+;;
+;;   embed-doc     : string -> (vectorof real)
+;;   label-vectors : labels -> (hash symbol -> (vectorof real))
+(define (classify-embed labels text #:embed-doc embed-doc #:label-vectors label-vecs)
+  (cond
+    [(< (length labels) 2) #f]
+    [(string=? (string-trim text) "") #f]
+    [else
+     (define lv (label-vecs labels))
+     (define dv (embed-doc text))
+     (define scored
+       (sort (for*/list ([l (in-list labels)]
+                         [name (in-value (hash-ref l 'name ""))]
+                         [v (in-value (hash-ref lv (string->symbol name) #f))]
+                         [c (in-value (and v (cosine dv v)))]
+                         #:when c)
+               (cons name c))
+             > #:key cdr))
+     (cond
+       ;; Fewer than two comparable labels is the same situation as fewer than
+       ;; two labels: no margin, so no answer. It is reachable when a label's
+       ;; vector could not be computed, and declining passes the document to the
+       ;; next backend rather than guessing between the ones that did work.
+       [(< (length scored) 2) #f]
+       [else
+        (define best (car scored))
+        (define second (cadr scored))
+        (define margin (- (cdr best) (cdr second)))
+        (define conf (max 0.0 (min 1.0 (* EMBED-MARGIN-SCALE margin))))
+        (hasheq 'label (car best)
+                'confidence conf
+                'source "embed"
+                'rationale
+                (format "closest to '~a' (~a) ahead of '~a' (~a)"
+                        (car best) (~r (cdr best) #:precision 3)
+                        (car second) (~r (cdr second) #:precision 3)))])]))
+
 ;; -> (values result tokens)
 ;; `#:llm-text` is what the MODEL is shown, where `#:text` is what the RULES are
 ;; matched against (issue #91 requirement 2). They are the same string unless the
@@ -308,9 +388,16 @@
 ;; defaults to `#:text`, so every existing caller is unchanged.
 (define (classify labels
                   #:text [text ""] #:content-type [ct ""] #:key [key ""]
-                  #:rules [rules '()] #:backends [backends CLASSIFY-BACKENDS]
+                  #:rules [rules '()] #:backends [backends CLASSIFY-BACKENDS-DEFAULT]
                   #:llm-text [llm-text #f]
-                  #:chat [chat #f])
+                  #:chat [chat #f]
+                  ;; #163. Two seams, not one: the DOCUMENT is embedded on every
+                  ;; call and the LABELS are embedded once and cached, which is a
+                  ;; different lifetime and a different store. Both default to #f
+                  ;; so the backend is simply skipped where nothing supplied
+                  ;; them — a test that does not care never has to.
+                  #:embed-doc [embed-doc #f]
+                  #:label-vectors [label-vecs #f])
   (let loop ([bs backends] [tokens 0])
     (cond
       [(null? bs)
@@ -320,6 +407,20 @@
       [(string=? (car bs) "rules")
        (define r (classify-rules rules #:text text #:content-type ct #:key key))
        (if r (values r tokens) (loop (cdr bs) tokens))]
+      [(string=? (car bs) "embed")
+       ;; The embedding backend is shown the REDACTED text, like the llm one and
+       ;; unlike the rules one (RED/#91 req 2): it leaves the process, so the
+       ;; argument that a local deterministic match should see the real text
+       ;; does not apply to it.
+       (cond
+         [(and embed-doc label-vecs)
+          (define r (classify-embed labels (or llm-text text)
+                                    #:embed-doc embed-doc #:label-vectors label-vecs))
+          (if r (values r tokens) (loop (cdr bs) tokens))]
+         [else
+          (error 'doc_classify
+                 (string-append "the embed backend needs an embedding seam — set TMACH_EMBED_URL "
+                                "and TMACH_EMBED_MODEL, or drop \"embed\" from `backends`"))])]
       [else
        (unless chat (error 'doc_classify "the llm backend needs a model seam"))
        (define-values (r t) (classify-llm labels (or llm-text text) #:chat chat))

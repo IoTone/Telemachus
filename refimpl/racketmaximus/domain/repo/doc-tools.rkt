@@ -51,6 +51,9 @@
          "../ai/executor.rkt"         ; run-chat, model-configured?
          (only-in "../ai/content.rkt" outer-json)
          "../ai/roles.rkt"            ; the team's utility executor (KG-7)
+         ;; #163: the label-vector cache. It takes a connection and no principal,
+         ;; so the metering is this module's — see `embed-seams`.
+         (only-in "../ai/embedstore.rkt" label-vectors)
          ;; #91 req 4: the label this document carries, bound for the one gate
          ;; the three transports share. SENSITIVITY-KEY is the attribute key.
          (only-in "../ai/egress.rkt" current-egress-document)
@@ -73,7 +76,7 @@
          "docxpdf.rkt"
          "extract.rkt")
 
-(provide current-doc-chat
+(provide current-doc-chat current-doc-embed
          ;; #91 req 4: exported FOR the test, which is what makes "the label
          ;; really is read off the document's own attributes" a check rather than
          ;; a claim (#110 r4's rule — an export with a test behind it is not an
@@ -94,6 +97,55 @@
   (run-chat prompt #:system sys #:temperature 0 #:executor ex))
 
 (define current-doc-chat (make-parameter default-chat))
+
+;; ---- the embedding seam (#163) ---------------------------------------------------
+;; Its own parameter beside `current-doc-chat`, for the reason `embed-exchange`
+;; is its own function: an embedding model is a different model on a different
+;; endpoint, so a test that scripts the chat seam says nothing about this one and
+;; must not accidentally satisfy it.
+;;
+;; (listof string) -> (values (listof vector) input-tokens)
+(define (default-embed texts)
+  (define-values (vs toks _u _m) (embed-exchange texts #:who 'doc-tools))
+  (values vs toks))
+
+(define current-doc-embed (make-parameter default-embed))
+
+;; EMB-6: AN EMBEDDING BILLS ITS OWN DIMENSION. `ai.tokens.total` counts a
+;; completion; an embedding has an input count and no output at all — JUDGE-10's
+;; shape, where `output_tokens` is always 0 and the answer was a dimension of its
+;; own rather than a number folded into somebody else's budget. Folding them
+;; would also make a nearest-label classification silently eat the budget the
+;; `llm` backend needs, which is the one it is there to avoid spending.
+;;
+;; `ai.requests` is charged too, exactly as the chat meter does: the dimension
+;; counts calls to a model and this is one.
+(define (meter-embed! conn p tokens)
+  (tenant-quota-record! conn p "ai.requests" 1)
+  (when (and (number? tokens) (> tokens 0))
+    (tenant-quota-record! conn p "ai.embeddings.total" tokens)))
+
+;; The two closures `classify` takes. They are built HERE because this is where
+;; the connection and the principal are — `classify.rkt` reaches no database and
+;; `embedstore.rkt` takes no principal, so metering can only happen at this seam.
+(define (embed-seams conn p team-id)
+  (define embed (current-doc-embed))
+  (values
+   ;; the document, embedded on every call: there is nothing to cache, since the
+   ;; text is this document's and is classified once
+   (lambda (text)
+     (define-values (vs toks) (embed (list text)))
+     (meter-embed! conn p toks)
+     (car vs))
+   ;; the labels, embedded once and cached per team (EMB-7/EMB-8)
+   (lambda (labels)
+     (define-values (h toks)
+       (label-vectors conn team-id labels (embed-model)
+                      #:embed (lambda (texts) (embed texts))))
+     ;; a fully cached label set spends nothing, so it bills nothing — the rules
+     ;; backend's rule, and the reason CLS-1's control asserts on `ai.requests`
+     (when (> toks 0) (meter-embed! conn p toks))
+     h)))
 
 ;; ---- the model, and what this document is (RED-27) -------------------------------
 ;; ONE BINDER, FOUR ASKERS. Every tool here that sends a document's text to a
@@ -330,7 +382,7 @@
 ;; attributes and the derived record — the three things a classification has to
 ;; touch that a string cannot.
 (define-tool doc_classify
-  #:description "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second (`backends` reorders them). The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json."
+  #:description "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json."
   (object string #:description "The repository object id")
   (labels array
           #:items-of ((name string #:description "The label, a slug: lower-case letters, digits, '-' or '_'")
@@ -424,7 +476,7 @@
   (define labels (hash-ref args 'labels #f))
   (define rules (let ([r (hash-ref args 'rules '())]) (if (or (eq? r 'null) (not r)) '() r)))
   (define backends (let ([b (hash-ref args 'backends #f)])
-                     (if (or (not b) (eq? b 'null) (null? b)) CLASSIFY-BACKENDS b)))
+                     (if (or (not b) (eq? b 'null) (null? b)) CLASSIFY-BACKENDS-DEFAULT b)))
   (cond [(labels-problem labels) => refuse])
   (cond [(backends-problem backends) => refuse])
   (cond [(rules-problem rules (label-names labels)) => refuse])
@@ -454,11 +506,16 @@
         (values capped (lambda (j) (values j '())) #f)))
   (define-values (result tokens unknown)
     (with-document-egress (conn p src red)
+      (define-values (embed-doc label-vecs)
+        (if (member "embed" backends)
+            (embed-seams conn p (hash-ref src 'team_id))
+            (values #f #f)))
       (define-values (r t)
         (classify labels #:text capped #:content-type (hash-ref src 'content_type) #:key key
                   #:rules rules #:backends backends
                   #:llm-text sent
-                  #:chat (current-doc-chat)))
+                  #:chat (current-doc-chat)
+                  #:embed-doc embed-doc #:label-vectors label-vecs))
       ;; only the RATIONALE can carry a token: the label is held to the set by an
       ;; `enum` (CLS-5), so a token there is refused before it reaches this
       (define-values (why us) (put-back (hash-ref r 'rationale "")))
@@ -686,7 +743,7 @@
   (define labels (hash-ref args 'labels #f))
   (define rules (let ([r (hash-ref args 'rules '())]) (if (or (eq? r 'null) (not r)) '() r)))
   (define backends (let ([b (hash-ref args 'backends #f)])
-                     (if (or (not b) (eq? b 'null) (null? b)) CLASSIFY-BACKENDS b)))
+                     (if (or (not b) (eq? b 'null) (null? b)) CLASSIFY-BACKENDS-DEFAULT b)))
   (cond [(labels-problem labels) => refuse])
   (cond [(backends-problem backends) => refuse])
   (cond [(rules-problem rules (label-names labels)) => refuse])

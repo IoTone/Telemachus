@@ -31,7 +31,7 @@
          (only-in "../db/nulls.rkt" nz)
          (only-in "../db/id.rkt" new-id))
 
-(provide ERROR-KINDS REQUEST-STATUSES
+(provide ERROR-KINDS REQUEST-STATUSES REQUEST-OPERATIONS
          model-request-record! model-requests-for model-request-digest)
 
 ;; ---- two CLOSED vocabularies, and this time something checks them -----------
@@ -57,6 +57,18 @@
 ;; columns because this platform's own refusals quote what they choked on by
 ;; design, and the diagnostic already has a sealed home on the job row.
 (define ERROR-KINDS '("http" "timeout" "unreachable" "capability" "policy" "transport"))
+
+;; EMB-5: WHAT was asked for, where `transport` says by which route it left. A
+;; third closed vocabulary, enforced here for the same reason the other two are:
+;; this writer's caller already swallows a failure (RED-17), so an invented
+;; operation costs a row and a named line on stderr and can never cost anybody
+;; their answer.
+;;
+;; `tokens_used` is NOT the same unit across these. A chat row counts prompt +
+;; completion as the provider reported it; an embed row counts INPUT tokens and
+;; there is no output. Reading the column without reading this one adds two
+;; different things together.
+(define REQUEST-OPERATIONS '("chat" "embed"))
 
 ;; ---- the row ----------------------------------------------------------------
 
@@ -105,7 +117,10 @@
                                #:status status
                                #:error-kind [error-kind #f]
                                #:http-status [http-status #f]
+                               #:operation [operation "chat"]
                                #:ms [ms #f])
+  (unless (member operation REQUEST-OPERATIONS)
+    (error 'model-request-record! "operation ~s is not one of ~a" operation REQUEST-OPERATIONS))
   (unless (member status REQUEST-STATUSES)
     (error 'model-request-record! "status ~s is not one of ~a" status REQUEST-STATUSES))
   (unless (or (not error-kind) (member error-kind ERROR-KINDS))
@@ -119,13 +134,14 @@
   (define id (new-id))
   (query-exec conn
     (string-append
-     "INSERT INTO model_requests (id, org_id, team_id, user_id, executor, transport, model, endpoint,"
+     "INSERT INTO model_requests (id, org_id, team_id, user_id, executor, transport, operation,"
+     " model, endpoint,"
      " hosted, content_logging, prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
      " tokens_used, status, error_kind, http_status, ms, created_epoch)"
-     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
     id
     (or org sql-null) (or team sql-null) (or user sql-null)
-    (or executor sql-null) transport (or model sql-null) (or host sql-null)
+    (or executor sql-null) transport operation (or model sql-null) (or host sql-null)
     (bool->int (endpoint-hosted? endpoint))
     cl
     hex alg (or kid sql-null)
@@ -151,6 +167,7 @@
     (if executor
         (query-rows conn (string-append
                           "SELECT id, executor, transport, model, endpoint, hosted, content_logging,"
+                          " COALESCE(operation, 'chat') AS operation,"
                           " prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
                           " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id"
                           " FROM model_requests WHERE team_id = ? AND executor = ?"
@@ -158,6 +175,7 @@
                     team executor (min 500 (max 1 limit)) (max 0 offset))
         (query-rows conn (string-append
                           "SELECT id, executor, transport, model, endpoint, hosted, content_logging,"
+                          " COALESCE(operation, 'chat') AS operation,"
                           " prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
                           " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id"
                           " FROM model_requests WHERE team_id = ?"
@@ -167,19 +185,23 @@
     (hasheq 'id (vector-ref r 0)
             'executor (nz (vector-ref r 1))
             'transport (vector-ref r 2)
+            ;; EMB-5: the column is NULL on every row written before 0063, and
+            ;; every one of those was a chat — read as such in the SQL rather
+            ;; than rendered as a null the caller has to interpret.
+            'operation (vector-ref r 7)
             'model (nz (vector-ref r 3))
             'endpoint (nz (vector-ref r 4))
             'hosted (not (zero? (vector-ref r 5)))
             'content_logging (vector-ref r 6)
-            'prompt_digest (vector-ref r 7)
-            'digest_alg (vector-ref r 8)
-            'digest_key_id (nz (vector-ref r 9))
-            'messages (vector-ref r 10)
-            'prompt_chars (vector-ref r 11)
-            'tokens_used (nz (vector-ref r 12))
-            'status (vector-ref r 13)
-            'error_kind (nz (vector-ref r 14))
-            'http_status (nz (vector-ref r 15))
-            'ms (nz (vector-ref r 16))
-            'at (vector-ref r 17)
-            'user_id (nz (vector-ref r 18)))))
+            'prompt_digest (vector-ref r 8)
+            'digest_alg (vector-ref r 9)
+            'digest_key_id (nz (vector-ref r 10))
+            'messages (vector-ref r 11)
+            'prompt_chars (vector-ref r 12)
+            'tokens_used (nz (vector-ref r 13))
+            'status (vector-ref r 14)
+            'error_kind (nz (vector-ref r 15))
+            'http_status (nz (vector-ref r 16))
+            'ms (nz (vector-ref r 17))
+            'at (vector-ref r 18)
+            'user_id (nz (vector-ref r 19)))))
