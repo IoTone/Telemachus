@@ -70,6 +70,18 @@
 (define (pick-executor b)
   (define e (hash-ref b 'executor #f))
   (and e (let ([n (format "~a" e)]) (and (not (member n '("" "local"))) n))))
+;; #175: `"local"` HAS TO MEAN SOMETHING NOW, and before the fleet default it did
+;; not: `pick-executor` folded it into #f, so "say nothing" and "say local" were
+;; one request and both ran here. With the default flipped there would otherwise
+;; be NO WAY to ask for this box — which the smoke found, by making its own
+;; "the simulated echo is not logged" assertion pass vacuously: the echo it was
+;; about had quietly become a fleet job. So an explicit `"local"` declines the
+;; default and pins to this node. `""` is not it: that is an absent field spelled
+;; badly, and reading it as a pin would make a client's empty string change where
+;; the call runs. It needs no permission, because declining to route is not
+;; routing to specific compute.
+(define (wants-local? b)
+  (equal? (let ([e (hash-ref b 'executor #f)]) (and e (format "~a" e))) "local"))
 (define (executor-model ex)
   (if (and ex (not (fleet-request? ex)))
       (let ([c (executor-config ex)])
@@ -410,8 +422,12 @@
     ;; `prompt` is a string or a list of content parts (issue #18)
     (define prompt (hash-ref b 'prompt ""))
     (define rf (let ([v (hash-ref b 'response_format #f)]) (and v (not (eq? v 'null)) v)))
-    (define ex (pick-executor b))
-    (when ex (require-perm db-conn p "instance:manage"))          ; routing to specific compute = operator
+    ;; #175: TWO NAMES, because the permission belongs to the CALLER naming a host
+    ;; and not to the platform choosing one. `ex-asked` is what the body said and
+    ;; is what `instance:manage` and `executor-known?` are about; `ex` is what the
+    ;; call actually uses, which may be the fleet by default.
+    (define ex-asked (pick-executor b))
+    (when ex-asked (require-perm db-conn p "instance:manage"))    ; routing to specific compute = operator
     (define prompt-text (let-values ([(t _p) (content->text prompt)]) t))
     ;; #91 requirement 2. RED-13: REDACTION TAKES A STRING PROMPT AND REFUSES
     ;; CONTENT PARTS, and that is a refusal rather than a gap — a parts prompt may
@@ -435,10 +451,20 @@
                            "claim more than it did")
             400)]
       [(and rf (response-format-problem rf)) => (lambda (bad) (err bad 400))]
-      [(and ex (not (executor-known? ex))) (err "unknown executor" 400)]
+      [(and ex-asked (not (executor-known? ex-asked))) (err "unknown executor" 400)]
       [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
       [(not (hash-ref tq 'allowed)) (quota-429 tq "ai.tokens.total")]
       [else
+       ;; #175: nobody named a host, so the platform picks one — the fleet when a
+       ;; live worker that is not standing down can take an `infer.chat`, else #f,
+       ;; which is the local model and is exactly what ran here before. It is
+       ;; resolved AFTER the quota gates so a refused request never asks the
+       ;; database about the fleet, and it is NOT resolved for the stream: the
+       ;; pull wire cannot stream (#173), so `ep-ai-chat-stream` is untouched and
+       ;; a streamed chat is still served locally.
+       (define fleet-by-default (and (not ex-asked) (not (wants-local? b))
+                                     (fleet-default-executor db-conn sid)))
+       (define ex (or ex-asked fleet-by-default))
        (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
        (with-slot GOV (string-append "team:" sid) (or climit 2)
          (lambda (inflight)
@@ -461,12 +487,22 @@
            ;; than re-derived here. The key is ABSENT on a real call, never
            ;; `simulated: false`: QUOTA-3's rule, a field that is there only when
            ;; it says something.
-           (define base (hasheq 'reply reply 'tokens_used tokens
-                                'parsed (response-format-parse rf reply)
-                                'model (executor-model ex)
-                                'executor (or ex "local")
-                                'concurrent inflight
-                                'remaining_tokens (hash-ref after 'remaining)))
+           ;; #175: a fleet call reports NO model, because the platform does not
+           ;; know which one answered and must not guess — a worker that was sent
+           ;; no model name answers with the first it declared. That is the rule
+           ;; `endpoint` already follows on a `pull` row in the request log
+           ;; (RED-16), and reporting the instance's own model name here would be
+           ;; the misroute-that-lies this module refuses everywhere else.
+           ;; `fleet_default` is present only when the PLATFORM chose, never
+           ;; `false` (QUOTA-3's rule), so a caller can tell its own routing from
+           ;; ours and an operator can see the flip taking effect.
+           (define base0 (hasheq 'reply reply 'tokens_used tokens
+                                 'parsed (response-format-parse rf reply)
+                                 'model (if (and ex (fleet-request? ex)) 'null (executor-model ex))
+                                 'executor (or ex "local")
+                                 'concurrent inflight
+                                 'remaining_tokens (hash-ref after 'remaining)))
+           (define base (if fleet-by-default (hash-set base0 'fleet_default #t) base0))
            (define with-red (if red (hash-set base 'redaction (redaction-info red unknown)) base))
            (json-response (if (chat-simulated? ex) (hash-set with-red 'simulated #t) with-red))))]))))
 

@@ -5865,6 +5865,100 @@ bash test/pull-smoke.sh                  # section 3e, 6 assertions over HTTP
   would break every test double. `GET /api/admin/queue` already names the
   executor per job, which is where an operator looks.
 
+## …and it is the DEFAULT now (FLEETD‑1…10, issue #175)
+
+The owner's answer to #175 was "yes, it should be default". What makes that
+safe is that it is a **fall-back, not a redirection**: with no live worker
+`fleet-default-executor` answers `#f`, which is the local model and is exactly
+where the call ran before, so there is no instance for which this is a
+regression. Decisions: the **FLEETD** block in `docs/design/decisions.md`.
+
+```sh
+raco test test/pull-tests.rkt   # 31 cases; the two new ones are controlled
+bash test/pull-smoke.sh         # section 3f, 10 assertions over HTTP
+```
+
+- **THE PLATFORM'S OWN CHOICE FALLS BACK; THE CALLER'S REQUEST IS HONOURED OR
+  REFUSED.** One line, and it settles both awkward cases. A caller who NAMES
+  `@fleet` against a fleet that is entirely **paused** gets a queue, because a
+  paused host may be ready in fifteen seconds — `fleet-can-run?`'s own argument
+  and #172's line between `unclaimable` and `held_by_paused`. The DEFAULT
+  declines there, because queueing would make an interactive chat wait out
+  `WAIT-SECONDS` where the local model answers in two. Same asymmetry for the
+  sensitivity policy: an explicit request it refuses is a named 403 (RED‑24), a
+  default it would refuse is simply not taken.
+- **THE STRICTER QUESTION IS A KEYWORD ON THE SAME WALK**, not a second
+  predicate. `fleet-can-run? #:ready-only? #t` — a second copy of the matching
+  loop is `executor-can-run?`'s drift, which is the whole reason that predicate
+  was extracted. Positive-controlled: neutralize the keyword and the
+  "not something the platform picks on somebody's behalf" assertion fails while
+  the named-request one still passes.
+- **THE TEST IS `paused`, NOT "is it ready", and the suite corrected me.**
+  `worker_state` is optional on the wire (PULL‑11): a claim carrying no
+  `#:state` leaves it **NULL**, which is where every third-party worker written
+  against the old wire sits. My first assertion said the claim reports `ready`;
+  it does not, and a default withheld from a host that has reported nothing
+  would be withheld from most of a mixed fleet.
+- **THE DEFAULT IS RESOLVED IN THE ENDPOINT, AND THAT IS NOT LAZINESS.**
+  `run-chat` has ten production callers. Putting it there would flip the
+  document tools, the knowledge graph, the beta judge and the localization
+  drafter at once — all of which already have model ROLES (KG‑7/LOC‑5) for
+  exactly this — and it would reach the paths where a pull executor is refused
+  BY NAME for carrying no tool calls, turning a working agent run into a
+  refusal. So `ep-ai-chat` carries **two names**: `ex-asked` is what the body
+  said, and is what `instance:manage` and `executor-known?` are about; `ex` is
+  what the call uses. Collapsing them makes the default operator-only or
+  pinning free.
+- **THE REPLY HAD TO LEARN TO SAY WHERE IT WENT.** It reported
+  `executor: "local"` whenever the body named nothing, which after the flip is a
+  call the fleet answered described as local. It now says `"@fleet"`,
+  `fleet_default: true` (only when the PLATFORM chose, never `false` —
+  QUOTA‑3's rule, and what lets an operator watch the flip take effect) and
+  **`model: null`**, because the platform sent no model name and a worker
+  answers with the first it declared. Reporting this box's own model there would
+  be the misroute-that-lies, and `null` is the rule `endpoint` already follows
+  on a `pull` row in the request log (RED‑16).
+- **`TMACH_FLEET_DEFAULT` IS INSTANCE-WIDE AND #173'S NOTE SAID PER-TEAM.**
+  Contradicted on purpose: what a team chooses between executors is a model
+  role and that exists; this answers whether the DEPLOYMENT's fleet serves
+  interactive chat, which is topology, like `TMACH_MULTITENANT`. A per-team
+  setting with no route to write it would be #113's shape. Unparseable falls
+  back to **on**, as every default-bearing knob here does.
+- **THE CONSOLE DOES NOT CHANGE YET, AND THAT IS THE LIMITATION TO READ FIRST.**
+  `run-chat-stream` refuses `@fleet` because the pull wire cannot stream, so the
+  default is deliberately not applied there — flipping it would either start
+  refusing every streamed chat or buffer a worker's whole answer and call it a
+  stream, which is RED‑14's objection inverted. **The console's chat streams**,
+  so the flip reaches API callers and not the product. Making it visible needs a
+  worker wire that can carry partial tokens — a new remote kind, which is the
+  same thing distributing the AGENT needs, and it is what remains of #175.
+- **`"executor": "local"` HAS TO MEAN SOMETHING NOW, AND THE SMOKE IS WHAT
+  FOUND IT.** `pick-executor` folded `"local"` into `#f`, so before the flip
+  "say nothing" and "say local" were one request and both ran on this box; after
+  it there was NO WAY to ask for this node. What that looked like was not a
+  failing assertion but a VACUOUS one: §3c's "the simulated echo is not logged"
+  passed because the echo it was about had silently become a fleet job nothing
+  was going to claim — which then wedged the team's `ai.concurrency` cap at 2 and
+  failed **thirty assertions across five later sections** with `the job is not
+  running`, three sections away from the cause. An explicit `"local"` declines
+  the default and needs no permission (declining to route is not routing to
+  specific compute); `""` deliberately does NOT pin, because that is an absent
+  field spelled badly. **A flip that changes what the ABSENCE of a field means
+  needs a spelling for the old behaviour, in the same commit.**
+- **AND THE WAY TO KNOW IT WAS MINE WAS TO RUN THE SMOKE ON `main`.** 41 failing
+  lines across six sections, none of them in the new block, read exactly like an
+  environmental flake. A worktree at `main` answered in one run: 176 ok, zero
+  failures, PASS. [[a flake is a report]] pointing the other way — do not dismiss
+  a cascade whose first failure is three sections from your diff, and do not
+  assume it either.
+- **THE REFERENCE WORKER REPORTS `paused` ON ITS WAY OUT**, from the plumber
+  flush (PULL‑11), so a smoke that runs `telemachus-worker --once` leaves a
+  standing-down fleet behind and the default correctly declines on the next
+  request. §3f says `ready` on `POST /api/workers/state` first, which is what a
+  running worker's claim loop does anyway — and then stands the fleet down again
+  to assert the fall-back over HTTP, which is the half that makes the flip safe
+  for every single-box instance.
+
 ## Four cards, four workers (the GPU fleet runbook)
 
 `docs/ops/gpu-fleet-runbook.md` plus four copyable files under

@@ -47,6 +47,7 @@
          WORKER-TOKEN-OVERLAP WORKER-ROTATE-MIN-AGE
          LEASE-SECONDS MAX-ATTEMPTS STALE-AFTER WORKER-STATES
          FLEET-EXECUTOR fleet-request? fleet-can-run?
+         fleet-default-executor fleet-default-enabled?
          MAX-RELEASES RELEASE-BACKOFF
          pull-dispatch!)
 
@@ -255,13 +256,73 @@
 ;; PRINCIPAL and filters by the caller's org. This question is asked from
 ;; `pull-dispatch!`, which has a team and no principal — and the org gate is
 ;; already inside `executor-can-run?`, where it belongs.
-(define (fleet-can-run? conn #:kind kind #:team team #:requirements [req (hasheq)])
+(define (fleet-can-run? conn #:kind kind #:team team #:requirements [req (hasheq)]
+                        #:ready-only? [ready-only? #f])
   (for/or ([r (in-list (query-rows conn (string-append ESELECT " WHERE mode = 'pull' AND status <> 'retired'")))])
     (define ex (row->executor r))
     (and (equal? (hash-ref ex 'status) "active")
+         ;; #175: one walk and one rule, with a keyword that says WHICH question
+         ;; is being asked. A second copy of the matching loop is
+         ;; `executor-can-run?`'s drift, which is the whole reason that predicate
+         ;; was extracted in the first place. `paused` is the test rather than
+         ;; "is it ready", because a worker that has never reported a state — a
+         ;; third-party one, or one not yet seen — has none, and withholding the
+         ;; default from it would withhold it from most of the fleet.
+         (or (not ready-only?)
+             (not (equal? (hash-ref ex 'worker_state #f) "paused")))
          (executor-can-run? conn ex
            #:kinds (caps-of ex 'kinds) #:models (caps-of ex 'models)
            #:kind kind #:team team #:requirements req))))
+
+;; ---- #175: the fleet as the DEFAULT for a chat nobody routed -------------------
+;;
+;; #173 made `@fleet` REACHABLE and deliberately did not flip the default, because
+;; an outright flip would change where every existing single-box instance runs its
+;; chat. This is the flip, and what makes it safe is that it is a FALL-BACK rather
+;; than a redirection: on an instance with no pull workers nothing matches, the
+;; answer is #f, and the call runs exactly where it ran before. So the behaviour
+;; only changes where a fleet exists — which is precisely where #175 wants it to.
+;;
+;; THE PLATFORM'S OWN CHOICE FALLS BACK; THE CALLER'S REQUEST IS HONOURED OR
+;; REFUSED. That one line settles both of this slice's awkward cases and it is why
+;; this is a separate predicate rather than `fleet-can-run?` with a new caller:
+;;
+;;   - A caller who NAMES `@fleet` and whose fleet is entirely PAUSED gets a
+;;     queue, because they asked for the fleet and a paused host may be ready in
+;;     fifteen seconds (fleet-can-run?'s own argument, #172's line). A DEFAULT
+;;     that queued there would make an interactive chat wait up to WAIT-SECONDS
+;;     where the local model would have answered in two — so the default asks the
+;;     stricter question, `#:ready-only? #t`, and declines.
+;;   - An explicit request the sensitivity policy refuses is a 403 that names the
+;;     policy (RED-24). A default the policy would refuse must simply not be
+;;     taken. It cannot arise on `POST /api/ai/chat` — a free prompt carries no
+;;     document, which RED-24 puts outside the policy entirely — so there is no
+;;     check here, deliberately, rather than a guard that cannot bite. The day
+;;     this default is extended to a tool that carries a document, that guard is
+;;     the thing to add, and it belongs here.
+;;
+;; The knob is INSTANCE-WIDE and #173's note said a per-team default was the
+;; shape, so this contradicts it on purpose. What a TEAM chooses between
+;; executors is a model ROLE and that already exists (roles.rkt, KG-7/LOC-5);
+;; what this answers is whether this DEPLOYMENT's fleet serves interactive chat,
+;; which is a property of its topology, like TMACH_MULTITENANT. And a per-team
+;; setting with no route to set it would be #113's shape — a stored value nothing
+;; can write — so the team tier arrives with the route, when somebody wants one.
+(define (fleet-default-enabled?)
+  (define v (tmach-env "FLEET_DEFAULT"))
+  ;; default ON, and an unparseable value falls back to the DEFAULT rather than
+  ;; to off — the rule every default-bearing knob in this tree follows.
+  (not (and v (member (string-downcase (string-trim v)) '("0" "no" "off" "false")) #t)))
+
+;; -> "@fleet" when an unrouted chat should go to the fleet, else #f for the
+;; local model. Asked with no model requirement: the caller named no executor, so
+;; it has named no model either, and a worker answers with the first model it
+;; declared (pull-dispatch!'s own rule).
+(define (fleet-default-executor conn team)
+  (and (fleet-default-enabled?)
+       (fleet-can-run? conn #:kind "infer.chat" #:team team #:ready-only? #t)
+       FLEET-EXECUTOR))
+
 
 ;; the declared list, as the claim recorded it (LAY-9's capability document)
 (define (caps-of ex key)
