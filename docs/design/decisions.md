@@ -3788,3 +3788,147 @@ and does not.
 **A `.kbd-hint` in the header, because "a palette nobody knows about is a
 palette nobody uses"** is the issue's own note. It shows the detected modifier,
 so it is also the visible half of PAL‑2.
+
+## CHUNK — the chunker, and the half of it that does not wait for hardware (issue #189, step 3, built 29 Oct 2026)
+
+Step 3 of `docs/design/vector-store.md`'s build plan, and the plan describes it
+as "the decision that governs retrieval quality and the one with no measurement
+behind it yet, because measuring recall needs a real embedding endpoint." That
+is true of **two numbers** — the chunk size and the overlap — and it is not true
+of the mechanism: where a boundary falls, what an offset MEANS, that the walk
+terminates, and that two runs agree are each decidable with a string and no
+model, and each is now pinned. So what remains behind the GPU rig is a
+**calibration**, not a build. `domain/ai/chunk.rkt`; `test/chunk-tests.rkt`,
+17 cases, **ten positive controls, all of which bite**. No migration, no route,
+no environment variable, no permission.
+
+| | |
+|---|---|
+| **CHUNK‑1** | The offsets are CHARACTER offsets into the text the extractor returned — `repo_text.content`'s own string, which is `repo_text.spans`' coordinate system |
+| **CHUNK‑2** | The unit is characters, not tokens, because there is no tokenizer here; the ratio behind the default is an ENGLISH assumption and it is measured |
+| **CHUNK‑3** | A boundary is preferred, never required, and the search window is bounded |
+| **CHUNK‑4** | The progress rule is the one place termination is guaranteed |
+| **CHUNK‑5** | A whitespace-only chunk is never emitted |
+| **CHUNK‑6** | Pure: the same text and parameters give identical offsets in any process |
+| **CHUNK‑7** | The chunk count is capped, and the truncation is reported both ways |
+| **CHUNK‑8** | There is no paragraph scan, and a positive control is what removed it |
+| **CHUNK‑9** | The two numbers are PROVISIONAL, labelled as such in the code, and what would change them is a measurement |
+
+**CHUNK‑1 — THE OFFSETS COST NOTHING AND BUY STEP 5.** The build plan asks that
+"a chunk's offsets line up with `repo_text.spans` so a hit can be shown where it
+was read". They line up by being the same thing: both index the string the
+extractor produced, so `spans-covering` (extract.rkt, LAY‑5) resolves a chunk's
+start to a page and a bbox with **no new code**, and step 5's "return the chunk's
+offsets so the caller can cite it" is a lookup. A chunker carrying its own
+notion of position — token indices, paragraph ordinals — would need a mapping
+back, and a mapping is a thing that can disagree. The test asserts it against
+the real `spans-covering` rather than restating the rule.
+
+**CHUNK‑2 — CHARACTERS, BECAUSE A TOKEN COUNT HERE WOULD BE A GUESS.** There is
+no tokenizer in this tree and the one that matters is `nomic-embed-text`'s own,
+so a token figure computed on this side is a number wearing a measurement's
+clothes. The default converts the 256-token figure `vector-store.md` sized
+#183's corpus with at the usual English ratio of about four characters to the
+token: **1,024 characters, with 154 of overlap** (its 15%).
+
+Measured against the real corpus rather than estimated: **62 English documents,
+997,972 characters, 157,709 words → 1,227 chunks**, where the design document's
+token-based estimate was 1,159. Within 6%, which is the confirmation that the
+conversion is sound for English. A document **at `EXTRACT-CAP`** gives **231
+chunks**, which is the "about 230" that document quotes — now a number somebody
+checked.
+
+**AND THE RATIO IS AN ENGLISH ASSUMPTION, WHICH IS A FINDING RATHER THAN A
+FOOTNOTE.** This platform ships a complete `ja` catalog, a Japanese edition of
+its own book and a Japanese generated reference, so Japanese documents are the
+normal case here and not a hypothetical. Measured on the book's own chapters:
+chapter 04 is **3,342 characters in English and 2,079 in Japanese** (62%), and
+chapter 02 **2,517 against 1,797** (71%) — fewer characters, as a reader would
+expect. But Japanese runs close to ONE token per character against English's
+four, so **a 1,024-character chunk of Japanese carries on the order of four
+times the tokens a 1,024-character chunk of English does**, and the 256 the
+default was calibrated on becomes something nearer a thousand. A chunk that
+overruns the embedding model's context is truncated BY THE MODEL, so the failure
+is a quietly worse vector and never an error. The recall measurement must
+therefore be made in BOTH languages, and if the answer is one number per
+language then `size` is already the knob. Nothing here guesses at a locale, and
+the alternative — a per-language default nobody has measured — would be the
+confident wrong answer this decision exists to avoid.
+
+**CHUNK‑3 — THE WINDOW IS WHAT MAKES A BACKWARD SEARCH SAFE.** The search runs
+backwards from the hard limit: a sentence end, then any whitespace, then the
+hard limit itself, mid-word. It may walk back at most a quarter of the size.
+Searching the whole chunk instead is the obvious version and is wrong on text
+with one early boundary and a long unbroken run after it — minified JSON, a
+base64 blob, an unspaced CJK line — where it splits two characters in and every
+chunk after is a sliver: a recall problem and a cost problem that looks like
+neither. **The fixture with NO boundary at all cannot see that**, which is what
+a control showed, so the case is a document whose only boundary is near the
+start. The CJK sentence enders (`。！？`) are in the set for the same reason the
+asymmetry above is: a whitespace search finds nothing inside a Japanese
+paragraph, and without them every Japanese document splits mid-word. Dropping
+them fails a case.
+
+**CHUNK‑4 — ONE RULE, AND A BUG IT CAUGHT.** The next start is
+`(max (add1 start) (- end overlap))`, and the first version lacked the arm that
+stops once a chunk has reached the end of the text — the overlap subtracts from
+the end, so the walk stepped BACK inside a finished document and re-emitted its
+tail until the cap stopped it. A hundred-character document answered with ten
+identical chunks and `truncated`, which reads as a cap set too low. The test
+found it. Three knobs interact here, so an argument that the arithmetic cannot
+stall is an argument about all three at once and the kind that stays true until
+somebody changes one; the rule is stated once instead. What it promises is
+PROGRESS and not coverage: `overlap` is only held below `size`, so a caller who
+sets the two within a character of each other advances one character per chunk
+and the cap ends the walk, saying so. A degenerate setting that reports itself
+beats one that hangs.
+
+**CHUNK‑5 — A BLANK CHUNK IS NEVER PRODUCED, WHICH IS CHEAPER THAN REFUSING
+ONE.** `vec-normalize` answers `#f` for a zero vector because a zero vector has
+no direction (VEC‑11), and `vector-store.md` already names "a chunker will
+eventually hand an embedder one whitespace-only chunk" as how that is reached.
+Not emitting it costs no request, no budget and no row, and it makes the output
+exactly "the chunks worth embedding" rather than a list something downstream has
+to filter. The ordinals stay DENSE over what was emitted — a gap in them would
+be a key with a hole in it for step 4.
+
+**CHUNK‑6 — PURITY IS WHAT MAKES STEP 4 CHEAP.** No clock, no randomness, no
+database, so a re-chunk of an unchanged version is a no-op that can be
+recognised as one and a stored chunk's offsets are still true about the text
+they were cut from. `canonical-json`'s stability argument (FEED‑18), one layer
+up.
+
+**CHUNK‑7 — THE CAP IS A SECOND, INDEPENDENT BOUND.** `EXTRACT-CAP` already
+holds one document to 200,000 characters, which at the defaults is the 231
+chunks above. `size` is a caller's argument, though, and a small one turns one
+document into thousands of model requests against a 200/day `ai.requests`
+default — so the count is capped at 400 as well, and `truncated` answers in both
+directions. A flag that is only ever true tells an operator nothing: CLS‑27's
+rule, where a short page and the last page are the same shape and must not be.
+
+**CHUNK‑8 — THERE IS NO PARAGRAPH SCAN, AND A CONTROL IS WHAT REMOVED IT.** The
+first version preferred a blank line over a sentence end, which reads well and
+was doing nothing: `#\newline` is already a sentence ender, so both scans walk
+backwards to a newline and on ordinary prose find the same one. Dropping it
+changed no test at all — #110 r1's shape, where a check that duplicates the next
+one is how a reader comes to believe the next one is missing. Where the two
+genuinely differ is the case that settles it: a window holding a blank line and,
+later, a single line break. The paragraph scan prefers the earlier, stronger
+break, which on a hard-wrapped document — every line ending in a newline —
+walks back through the whole window and gives away a quarter of every chunk.
+What ending mid-paragraph costs instead is the seam, and the overlap is what
+already covers a seam. So the trade is a measurable quarter of the context
+against a coherence argument with no number behind it, and that is not a trade
+this module pays. **If a measurement later shows paragraph-aligned chunks
+retrieve better, it comes back WITH the number.** The distinguishing case is now
+a test, so the question cannot go quiet again.
+
+**CHUNK‑9 — NOTHING CALLS IT YET, AND THE TWO NUMBERS SAY THEY ARE
+PROVISIONAL.** #110 r4's rule is that an export in `domain/` with no consumer is
+a claim, and its stated exception is an export with a test behind it; step 4 is
+the table and the write path in `plugins/doc-indexer`, which is where the
+consumer arrives. The defaults carry the word "provisional" at their definition
+together with what would change them, because a number that looks decided is
+indistinguishable from one that was measured — #119's shape — and these two are
+the ones the GPU rig's driver upgrade is still holding, beside #163's
+`EMBED-MARGIN-SCALE`.
