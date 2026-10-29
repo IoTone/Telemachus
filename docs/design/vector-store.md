@@ -230,10 +230,24 @@ a person can see.
    re-spelled; the stored form is a binary frame rather than base64, which is
    both the 51× and the 1.8×. The one thing it needed that the string path did
    not is a sniff that works on arbitrary bytes.
-3. **A chunker.** The decision that governs retrieval quality and the one with
-   no measurement behind it yet, because measuring recall needs a real embedding
-   endpoint. Boundaries, overlap, and what a chunk's offsets mean must line up
-   with `repo_text.spans` so a hit can be shown where it was read.
+3. ~~**A chunker.**~~ **BUILT, with its two numbers left to calibrate** —
+   `domain/ai/chunk.rkt`, `test/chunk-tests.rkt`, decisions CHUNK‑1…9. The
+   mechanism needed no model and is pinned: a chunk's offsets ARE
+   `repo_text.spans`' own coordinates, so `spans-covering` shows a hit where it
+   was read with no new code; the boundary search walks back through a bounded
+   window (a sliver is the failure an unbounded one produces); the walk's
+   termination is one rule in one place; a whitespace-only chunk is never
+   emitted; and the whole thing is pure, so a re-chunk of unchanged bytes is a
+   recognisable no-op. Measured rather than estimated: **1,227 chunks over the
+   62 English documents** here, where this plan's token-based estimate was
+   1,159, and **231 chunks for a document at `EXTRACT-CAP`**, which is the ~230
+   above. What remains is the **size and the overlap**, provisional at 1,024
+   characters and 154 — and the unit is characters because there is no
+   tokenizer here, which makes the default an ENGLISH assumption: the same book
+   chapter is 3,342 characters in English and 2,079 in Japanese, yet Japanese
+   runs near one token per character against English's four, so a chunk of
+   Japanese carries roughly four times the tokens the calibration intends.
+   **The recall measurement has to be made in both languages.**
 4. **The table and the write path**, as a step in the existing indexing
    workflow (`plugins/doc-indexer`) rather than a new seam: a chunk's vector is
    the same kind of thing as its extracted text, keyed on the version, replaced
@@ -243,11 +257,12 @@ a person can see.
 6. **A retrieval tool and `?semantic=` on search**, which is where #183 and #191
    pick it up.
 
-Steps 1–2 were prerequisites with their own tests and no behaviour change, and
-that is how they landed. **Step 3 is the next one, and it is the one that wants a
-live `nomic-embed-text`** before anybody commits to a number — the same
-calibration `EMBED-MARGIN-SCALE` (#163) is waiting on, and now the third thing
-on the GPU rig's driver upgrade.
+Steps 1–3 are built. **Step 4 is the next one and it needs no model**: the
+table, the sealed vector column and a write step in the existing indexing
+workflow. What waits for a live `nomic-embed-text` is step 3's CALIBRATION — the
+two numbers above — which is the same measurement `EMBED-MARGIN-SCALE` (#163)
+wants and is therefore a thing to do once, in both languages, when the GPU rig's
+driver upgrade lands. It is no longer a thing that blocks building.
 
 One thing step 4 must not forget, recorded here as well as in `decisions.md`
 because this is the document somebody reads before building it: **the vector
