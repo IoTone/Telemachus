@@ -95,7 +95,79 @@ if [ -n "$stale" ]; then
   rc=1
 fi
 
+# ---- an operator-facing document names the CURRENT spelling (#128) ----------
+# The rename made the code read both spellings and left the PROSE untouched, so
+# for a week the runbooks an operator follows named 94 variables the reference
+# page no longer listed. That is worse than a stale row: the page is gated and
+# the runbook was not, so the two disagreed and only the ungated one was
+# instructions. 96 names across six files.
+#
+# This half is about operator-facing prose ONLY. The design documents under
+# docs/design/ and the e-book keep whatever they were written with: a decision
+# recorded in August named the variable that existed in August, and rewriting it
+# would make the record say something that was not true when it was made. The
+# book is left for its own slice because editing an English chapter makes every
+# translated copy stale by the source-hash rule.
+#
+# WHAT IS REFUSED IS A NAME AN OPERATOR COULD COPY INTO A COMPOSE FILE, which is
+# the whole point — so `TELEMACHUS_BIND` fails and `TELEMACHUS_*` does not. A
+# glob and the placeholder `TELEMACHUS_<name>` are ways of TALKING about the
+# family, and the section that explains the fallback has to do that to be about
+# it; neither can be pasted anywhere and have an effect. The rule is therefore
+# "no settable legacy name in operator prose", not "never say the old prefix",
+# and it is a LINE test, so the rest of configuration.md is held to exactly the
+# same rule as every runbook.
+#
+# This gate found its own author: the first version of that compatibility
+# section used `TELEMACHUS_BIND` as its worked example and this failed on it.
+# The example is the placeholder now.
+# The READMEs and the screenshot catalogs are in scope too: the README is the
+# front door, and its feature-tour region is GENERATED from those manifests, so
+# a name fixed in README.md by hand is silently reverted by the next refresh.
+# The catalogs are therefore where the gate points, and the message says so.
+PROSE_DOCS="docs/ops/configuration.md docs/deploy-tailnet.md README.md README.ja.md docs/screenshots/manifest.json docs/screenshots/captions.ja.json docs/screenshots/beta/manifest.json docs/screenshots/beta/captions.ja.json $(ls docs/ops/*.md 2>/dev/null | grep -v '/configuration.md$' | tr '\n' ' ')"
+legacy_prose=""
+for f in $PROSE_DOCS; do
+  [ -f "$f" ] || continue
+  # `TELEMACHUS_` followed by a name or a `*` — the prefix alone in prose is not
+  # a variable anybody can set.
+  hits=$(grep -n 'TELEMACHUS_[A-Z]' "$f" || true)
+  if [ -n "$hits" ]; then
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      legacy_prose="$legacy_prose
+  $f:$line"
+    done <<EOF
+$hits
+EOF
+  fi
+done
+if [ -n "$legacy_prose" ]; then
+  echo "FAIL: an operator-facing document names a legacy TELEMACHUS_* variable:$legacy_prose"
+  echo "  (Operator prose names the CURRENT spelling. The one place the old prefix"
+  echo "   belongs is the compatibility section of $DOC, which spells it"
+  echo "   TELEMACHUS_<name>."
+  echo "   A hit in README.md or README.ja.md between the FEATURE-TOUR markers is"
+  echo "   GENERATED: fix the caption in test/e2e/*-tour.mjs AND the matching"
+  echo "   docs/screenshots/**/manifest.json, restamp the ja caption's hash, then"
+  echo "   README_ONLY=1 bash refimpl/racketmaximus/test/e2e/refresh-screenshots.sh"
+  echo "   — editing the README by hand there is reverted by the next refresh.)"
+  rc=1
+fi
+
+# …and the OTHER direction, or the rule above rots into a list of excuses: the
+# section that explains the fallback must still be there. Without this, deleting
+# it leaves a gate that happily enforces silence about a dual read every
+# operator with an existing deployment depends on.
+if ! grep -q 'TELEMACHUS_<name>' "$DOC"; then
+  echo "FAIL: $DOC no longer explains that the old TELEMACHUS_* names still work."
+  echo "  (The platform reads both spellings for ever. An operator with an existing"
+  echo "   compose file needs that said somewhere, and this page is the somewhere.)"
+  rc=1
+fi
+
 if [ $rc = 0 ]; then
   echo "config reference: OK ($(printf '%s\n' "$in_code" | grep -c . ) variable(s) documented)"
+  echo "operator prose: OK (no legacy variable names; the fallback is documented)"
 fi
 exit $rc

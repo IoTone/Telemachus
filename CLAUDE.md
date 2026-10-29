@@ -2939,6 +2939,61 @@ This is the part worth reading before writing another source-scanning gate:
   `"…(<old>_MAX_JOB_SECONDS=~a)"`. 64 lines across 30 files; the rule is now "no
   mention on a non-comment line".
 
+### Job 3: the documents an operator FOLLOWS (ENVN‑10/11, #128)
+
+Built 28 Oct 2026. 96 `TELEMACHUS_*` names across `docs/ops/*.md` and
+`docs/deploy-tailnet.md`, the two READMEs and the screenshot catalogs — plus a
+gate so it cannot rot back.
+
+```sh
+bash scripts/check-config-reference.sh    # both halves; four positive controls
+```
+
+- **THE ASYMMETRY WAS THE DEFECT, not the stale names.**
+  `docs/ops/configuration.md` is GATED and was fully `TMACH_*`; the six runbooks
+  beside it were not gated and named 96 old variables. So the page nobody could
+  break was the reference and the pages anybody could break were the
+  instructions. Job 2 renamed the code and left the prose, which is the half an
+  operator actually reads.
+- **VERIFIED AGAINST THE REFERENCE BEFORE THE SWAP, not after.** All 28 distinct
+  names were checked for an existing `TMACH_` row in `configuration.md` first,
+  so a blanket prefix swap could not invent a variable that does not exist. The
+  only non-match was the bare prefix in one sentence describing the gate — which
+  the swap also fixed, because the gate really does check `TMACH_*` now.
+- **The gate refuses a name an operator could COPY INTO A COMPOSE FILE**, which
+  is why `TELEMACHUS_*` and `TELEMACHUS_<name>` are allowed: a glob and a
+  placeholder cannot be pasted anywhere and have an effect, and the compatibility
+  section has to talk about the family to be about it. **It found its own
+  author** — my first draft of that section used `TELEMACHUS_BIND` as its
+  example and the gate failed on it.
+- **BOTH DIRECTIONS, or the allowance rots into a list of excuses.** The second
+  half asserts the compatibility section still EXISTS: deleting it would leave a
+  gate happily enforcing silence about a dual read every existing deployment
+  depends on. In `check-config-reference.sh` rather than a new script, so
+  `ci.yml` needed no change at all — the `telemachus-docs check --locale` rule.
+- **I DOCUMENTED A `NOTE:` I HAD NOT READ, AND THE CODE CORRECTED ME.** The new
+  section first said there is "no deadline and no deprecation warning". There IS
+  a one-time boot note (`legacy-env-warning` in `config.rkt`, printed by
+  `main.rkt`) listing every variable read under its old spelling — which is the
+  migration checklist for a deployment you did not write, and far more useful to
+  an operator than the sentence I nearly shipped.
+- **THE COMMITTED MANIFEST WAS STALE AGAINST ITS OWN GENERATOR.**
+  `beta-tour.mjs` already said `TMACH_HOME`; `docs/screenshots/beta/manifest.json`
+  still said `TELEMACHUS_HOME`, because the manifest is only rewritten by a real
+  browser tour and nobody had run one since. The two strings were asserted to
+  differ by the PREFIX ALONE before the manifest was touched by hand — editing a
+  generated file is only safe when its generator already says the new thing.
+  Then the ja caption's `hash` (sha1 of the ENGLISH title + "\n" + caption) was
+  restamped, or the Japanese README would have fallen back to English loudly.
+- **`README_ONLY=1` reported no stale captions**, which is the check that the
+  hash was right: a wrong one is not an error, it is a silent English fallback in
+  the Japanese README.
+- **Not renamed, deliberately**: `docs/design/*` keeps what it was written with
+  (a decision records the variable that existed when it was made, and the old
+  names still work), and the **e-book** is its own slice — three chapters in two
+  languages, a `build.sh ja --record` restamp and a rebuild of both editions,
+  which is a large binary diff that does not belong in a docs PR.
+
 ## The feed work queue, and a proposal that does not act (QUEUE‑1…9, #114 slices 5–6)
 
 Built 27 Oct 2026 — the last two slices of #114's own plan. `plugins/feeds/`:

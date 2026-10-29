@@ -25,7 +25,7 @@ console's **Repository** tab, a JSON API, and an **S3-compatible endpoint** that
               ▼                                   ▼
    ┌─────────────────────┐             ┌────────────────────┐
    │ S3 endpoint          │             │  JSON control plane │
-   │ TELEMACHUS_S3_PORT   │             │  PORT (8835)        │
+   │ TMACH_S3_PORT   │             │  PORT (8835)        │
    │ (second listener,    │             │  serve/servlet      │
    │  web-kit/http1)      │             └─────────┬──────────┘
    └──────────┬──────────┘                        │
@@ -75,12 +75,12 @@ server itself never shells out to it.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `TELEMACHUS_S3_PORT` | **unset = S3 off** | the S3 endpoint is surface area, and surface area is asked for. Set it (e.g. `8836`) to start the second listener |
-| `TELEMACHUS_S3_REGION` | `us-east-1` | the region name signatures are checked against. It only has to **match what clients configure** — it does not have to mean anything |
-| `TELEMACHUS_MAX_UPLOAD` | 32 MiB | single-request body ceiling on the JSON plane. The S3 plane streams and is not bound by it; `aws` switches to multipart above 8 MiB anyway |
-| `TELEMACHUS_BLOB_STORE` | `rs3` | which registered blob backend holds the bytes |
-| `TELEMACHUS_RS3_ROOT` | `$TELEMACHUS_DATA_DIR/blobs` | where `rs3` writes. **Back this up together with the database** — the DB holds metadata, this holds the documents |
-| `TELEMACHUS_BIND` | `127.0.0.1` | both listeners bind the same address. Same guidance as the workflow runbook: a tailnet IP for a trial, never bare `0.0.0.0` without a front door |
+| `TMACH_S3_PORT` | **unset = S3 off** | the S3 endpoint is surface area, and surface area is asked for. Set it (e.g. `8836`) to start the second listener |
+| `TMACH_S3_REGION` | `us-east-1` | the region name signatures are checked against. It only has to **match what clients configure** — it does not have to mean anything |
+| `TMACH_MAX_UPLOAD` | 32 MiB | single-request body ceiling on the JSON plane. The S3 plane streams and is not bound by it; `aws` switches to multipart above 8 MiB anyway |
+| `TMACH_BLOB_STORE` | `rs3` | which registered blob backend holds the bytes |
+| `TMACH_RS3_ROOT` | `$TMACH_DATA_DIR/blobs` | where `rs3` writes. **Back this up together with the database** — the DB holds metadata, this holds the documents |
+| `TMACH_BIND` | `127.0.0.1` | both listeners bind the same address. Same guidance as the workflow runbook: a tailnet IP for a trial, never bare `0.0.0.0` without a front door |
 
 > **The one that will burn you.** S3 credential **secrets are stored in the
 > database in the clear** — SigV4 verification requires the raw secret, so there is
@@ -95,7 +95,7 @@ server itself never shells out to it.
 ## 4. Standing it up
 
 ```sh
-export TELEMACHUS_S3_PORT=8836
+export TMACH_S3_PORT=8836
 racket server/main.rkt
 # …
 # telemachus server on http://127.0.0.1:8835  (… · max upload: 32 MiB)
@@ -126,7 +126,7 @@ Revoke: `DELETE /api/s3/credentials/<id>`, or the Revoke button. List:
 ## 5. Client cookbook
 
 Every client needs the same three things: the endpoint URL, **path-style
-addressing**, and the region matching `TELEMACHUS_S3_REGION`. The bucket is your
+addressing**, and the region matching `TMACH_S3_REGION`. The bucket is your
 **team slug** (shown in the console's S3 panel).
 
 ### aws CLI
@@ -338,18 +338,18 @@ Ordered by how often they will actually happen.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `NotImplemented` on every upload from aws-cli ≥ 2.23 | CRC64 **trailer** framing (`STREAMING-*` payloads) | `export AWS_REQUEST_CHECKSUM_CALCULATION=when_required` — plain bodies verify fine, checksum headers included |
-| `SignatureDoesNotMatch` | wrong secret, **revoked key**, or the client's region ≠ `TELEMACHUS_S3_REGION` | re-check all three; an unknown key reports identically on purpose |
+| `SignatureDoesNotMatch` | wrong secret, **revoked key**, or the client's region ≠ `TMACH_S3_REGION` | re-check all three; an unknown key reports identically on purpose |
 | `RequestTimeTooSkewed` | client clock more than 15 min off | fix the clock — the message says so, distinct from a bad signature |
 | "This presigned URL has expired. Ask for a new link." | exactly that | mint a new link; expiry is deliberate and separate from signature failure |
 | `NoSuchBucket` for a bucket that "exists" | the slug belongs to another team, or a typo | the bucket is *your* team's slug — check the console's S3 panel |
 | A downloaded large file is corrupt but the client said success | a proxy in front stripped/ignored `Range` — the server itself answers `206` correctly | test without the proxy; `aws s3 cp` fetches big objects as parallel ranged GETs, so Range handling is **correctness**, not tuning |
 | `400 InvalidRequest: storage quota exceeded…` | the gauge is at its limit | delete something or raise the limit (§8) |
-| Uploads over the JSON plane fail at exactly 32 MiB with a dropped connection | `TELEMACHUS_MAX_UPLOAD` — the servlet drops, it cannot 413 | raise the variable, or use the S3 plane, which streams |
+| Uploads over the JSON plane fail at exactly 32 MiB with a dropped connection | `TMACH_MAX_UPLOAD` — the servlet drops, it cannot 413 | raise the variable, or use the S3 plane, which streams |
 | PDFs never become content-searchable; runs error with "pdftotext is not installed" | off-Nix host without poppler | use the Nix package (pinned) or install `poppler-utils` |
 | Indexing run sits `running`, steps `queued`, forever | quota deferral (§9) | check `GET /api/usage`; raise or wait |
 | an upload into a triggered prefix did nothing, and the trigger's history says `workflows:run` | the S3 key was issued with the default `files:*` scopes, and a triggered run executes as the uploader with the key's scopes (DWF‑2) | issue the key with `"scopes":["files:read","files:write","files:delete","workflows:read","workflows:run"]` — `POST /api/s3/credentials`; the fire is recorded on the trigger (`GET /api/doc-triggers/<id>`), the upload itself landed |
 | `?acl` / `?policy` / lifecycle tooling errors with 501 | not implemented, by design | manage sharing in the console or `POST /api/repo-obj/<id>/share {principal_type: user\|team, principal_id, capability: view\|edit\|manage, expires_at?}` — S3 has no vocabulary for this instance's ACLs |
-| S3 port answers nothing at all | `TELEMACHUS_S3_PORT` unset — off is the default | set it and restart |
+| S3 port answers nothing at all | `TMACH_S3_PORT` unset — off is the default | set it and restart |
 
 ---
 
@@ -357,7 +357,7 @@ Ordered by how often they will actually happen.
 
 - **Two things hold state, and they travel together:** the database
   (`repo_objects`, `repo_versions`, `repo_credentials`, grants, quotas) and the
-  blob directory (`$TELEMACHUS_DATA_DIR/blobs/`). A database backup without the
+  blob directory (`$TMACH_DATA_DIR/blobs/`). A database backup without the
   blobs is a card catalog for a burned library. Blobs are content-addressed and
   immutable once written, so incremental backup tools handle the directory well.
 - `repo_text` (extracted search text) is derived — excluded from backups at no

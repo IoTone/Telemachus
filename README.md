@@ -111,7 +111,7 @@ one anti-abuse gate. See [docs/design/beta-onboarding-experience.md](docs/design
 
 ![The funnel is the default experience](docs/screenshots/beta/01-funnel-landing.png)
 
-With home routing set to beta (TELEMACHUS_HOME=beta), the root route serves the public beta landing — not a login screen. The form is rendered from a pluggable onboarding provider whose copy, fields, and judge prompt are customizable via the SDK.
+With home routing set to beta (TMACH_HOME=beta), the root route serves the public beta landing — not a login screen. The form is rendered from a pluggable onboarding provider whose copy, fields, and judge prompt are customizable via the SDK.
 
 #### Setup: create the operator
 
@@ -173,7 +173,7 @@ For teams that want total control, a plugin ships its own frontend bundle — it
 
 > **Not pictured: multi-tenancy.** Several companies on one instance (an org above
 > the team, a superadmin tier above the org admin) ships behind
-> `TELEMACHUS_MULTITENANT` and is currently **API-only** — there is no console UI
+> `TMACH_MULTITENANT` and is currently **API-only** — there is no console UI
 > for it yet, so it cannot appear in a screenshot tour. It is validated instead by
 > `refimpl/racketmaximus/test/multitenant-demo.sh`, which seeds two complete
 > companies and asserts cross-org isolation over HTTP. See

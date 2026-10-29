@@ -61,11 +61,11 @@ PostgreSQL, SQLite, OpenSSL, Node and `jq`. It replaces the entire ritual in
 Option B — no brew, no `PATH` surgery, no exported collection paths.
 
 The packaged server writes **nothing** to its own install prefix: state goes to
-`$TELEMACHUS_DATA_DIR`, defaulting to `${XDG_STATE_HOME:-$HOME/.local/state}/telemachus`.
+`$TMACH_DATA_DIR`, defaulting to `${XDG_STATE_HOME:-$HOME/.local/state}/telemachus`.
 
 ```sh
 nix profile install github:IoTone/Telemachus/dev
-TELEMACHUS_DATA_DIR=/var/lib/telemachus PORT=8835 telemachus-server
+TMACH_DATA_DIR=/var/lib/telemachus PORT=8835 telemachus-server
 ```
 
 From a checkout, `nix run .` and `nix build .` use the working tree instead — but
@@ -106,31 +106,31 @@ working default.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DATABASE_URL` | derived from `TELEMACHUS_DATA_DIR` | `postgres://user:pass@host:port/db` also supported |
-| `PORT` | `8835` | `TELEMACHUS_PORT` is a synonym |
-| `TELEMACHUS_MODEL_URL` | *unset* | **OpenAI-compatible chat-completions URL.** See the warning below. |
-| `TELEMACHUS_MODEL` | `local` | model name sent to that endpoint |
-| `TELEMACHUS_MODEL_KEY` | *unset* | bearer token, if the endpoint needs one |
-| `TELEMACHUS_DATA_DIR` | checkout: `./data` · Nix: `$XDG_STATE_HOME/telemachus` | **all** writable state — the database, TLS material, uploads. `DATABASE_URL` defaults to `sqlite:///$TELEMACHUS_DATA_DIR/telemachus.db`. |
-| `TELEMACHUS_PLUGINS` | `./plugins` | plugin directory; plugins load at startup |
-| `TELEMACHUS_MULTITENANT` | `0` | orgs above teams; workflows are team-scoped either way |
-| `TELEMACHUS_BIND` | **`127.0.0.1`** | loopback by default. Prefer a **specific private address** (a tailnet or VPC IP) over `0.0.0.0`, which also exposes the instance to the local network |
-| `TELEMACHUS_HOME` | `login` | `beta` serves the **beta funnel** at `/` — the console is then reached via the page's "Team sign-in" link, not `/` |
-| `TELEMACHUS_TLS` | off | with `TELEMACHUS_TLS_CERT` / `_KEY` |
+| `DATABASE_URL` | derived from `TMACH_DATA_DIR` | `postgres://user:pass@host:port/db` also supported |
+| `PORT` | `8835` | `TMACH_PORT` is a synonym |
+| `TMACH_MODEL_URL` | *unset* | **OpenAI-compatible chat-completions URL.** See the warning below. |
+| `TMACH_MODEL` | `local` | model name sent to that endpoint |
+| `TMACH_MODEL_KEY` | *unset* | bearer token, if the endpoint needs one |
+| `TMACH_DATA_DIR` | checkout: `./data` · Nix: `$XDG_STATE_HOME/telemachus` | **all** writable state — the database, TLS material, uploads. `DATABASE_URL` defaults to `sqlite:///$TMACH_DATA_DIR/telemachus.db`. |
+| `TMACH_PLUGINS` | `./plugins` | plugin directory; plugins load at startup |
+| `TMACH_MULTITENANT` | `0` | orgs above teams; workflows are team-scoped either way |
+| `TMACH_BIND` | **`127.0.0.1`** | loopback by default. Prefer a **specific private address** (a tailnet or VPC IP) over `0.0.0.0`, which also exposes the instance to the local network |
+| `TMACH_HOME` | `login` | `beta` serves the **beta funnel** at `/` — the console is then reached via the page's "Team sign-in" link, not `/` |
+| `TMACH_TLS` | off | with `TMACH_TLS_CERT` / `_KEY` |
 
-> **The one that will burn you.** With `TELEMACHUS_MODEL_URL` **unset**, the server
+> **The one that will burn you.** With `TMACH_MODEL_URL` **unset**, the server
 > does not error — it answers every model call with a *simulated uppercase echo*. A
 > workflow with translation steps will complete successfully and return garbage.
-> If your workflows call a model, treat a missing `TELEMACHUS_MODEL_URL` as a
+> If your workflows call a model, treat a missing `TMACH_MODEL_URL` as a
 > failed deployment. `test/translate-chat-demo.sh` refuses to start without it for
 > exactly this reason.
 
 > **Second one that will burn you.** The server binds **loopback** by default. In a
 > container or on a remote host it will come up healthy, log nothing unusual, and be
 > unreachable from outside. Bind it explicitly — and put a TLS terminator in front,
-> or set `TELEMACHUS_TLS`.
+> or set `TMACH_TLS`.
 >
-> Reach for the **narrowest** address that works. `TELEMACHUS_BIND=<tailnet-ip>`
+> Reach for the **narrowest** address that works. `TMACH_BIND=<tailnet-ip>`
 > exposes the instance to your tailnet and nothing else; `0.0.0.0` also publishes it
 > to every other machine on the local network, including the unauthenticated
 > `POST /api/bootstrap` route on a fresh database.
@@ -205,9 +205,9 @@ export PATH="$HOME/.linuxbrew/opt/minimal-racket/bin:$PATH"   # skip under `nix 
 export PLTCOLLECTS="$PWD/pkgs:"
 
 export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"       # absolute — see §8
-export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
-export TELEMACHUS_MODEL=qwen2.5:7b
-export TELEMACHUS_BIND=127.0.0.1        # or a tailnet/VPC IP to share it
+export TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+export TMACH_MODEL=qwen2.5:7b
+export TMACH_BIND=127.0.0.1        # or a tailnet/VPC IP to share it
 export PORT=8835
 
 raco make server/main.rkt                # precompile — startup is slow otherwise
@@ -251,7 +251,7 @@ a stale server, and you will chase the wrong one.
 
 Bind to the narrowest address that reaches your testers:
 
-| Audience | `TELEMACHUS_BIND` | Reachable at |
+| Audience | `TMACH_BIND` | Reachable at |
 |---|---|---|
 | Just this machine | `127.0.0.1` (default) | `http://127.0.0.1:8835/` |
 | Your tailnet | the node's tailnet IP, e.g. `100.x.y.z` | `http://100.x.y.z:8835/`, or the MagicDNS name if enabled |
@@ -260,7 +260,7 @@ Bind to the narrowest address that reaches your testers:
 A tailnet IP is the right default for a trial: no port forwarding, no certificate,
 and the instance is invisible to the local network. For HTTPS at a real hostname,
 `tailscale serve --bg 8835` fronts it with a Let's Encrypt certificate and lets you
-keep `TELEMACHUS_BIND=127.0.0.1`.
+keep `TMACH_BIND=127.0.0.1`.
 
 Whatever you choose, remember `POST /api/bootstrap` is **unauthenticated on a fresh
 database** — it creates the first operator. Bootstrap immediately after first start,
@@ -276,15 +276,15 @@ curl -s $B/health                                    # "ok":true
 curl -s $B/api/workflows/schema \
   | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["spec"],d["step_kinds"])'
 curl -s $B/ | grep -c workflowsView                  # ≥1 → the console is current
-curl -s -m 5 "$TELEMACHUS_MODEL_URL" -H 'Content-Type: application/json' \
-  -d "{\"model\":\"$TELEMACHUS_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}" \
+curl -s -m 5 "$TMACH_MODEL_URL" -H 'Content-Type: application/json' \
+  -d "{\"model\":\"$TMACH_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}" \
   | head -c 120                                      # the model actually answers
 ```
 
 - [ ] `/health` is `"ok":true`
 - [ ] `/api/workflows/schema` reports `1 ['tool:<name>', 'choice', 'map']` — the
       `spec` version and step kinds your documents rely on
-- [ ] `TELEMACHUS_MODEL_URL` is set **and the endpoint answers** — otherwise every
+- [ ] `TMACH_MODEL_URL` is set **and the endpoint answers** — otherwise every
       model step returns a simulated echo and the trial silently proves nothing
 - [ ] Startup log lists the plugins you expect, with their workflow counts
 - [ ] The console is current (`grep -c workflowsView` ≥ 1), and you hard-refreshed
@@ -355,8 +355,8 @@ Not workflow-specific, but it is what proves the org gate the engine relies on.
 ollama serve &
 ollama run qwen2.5:7b </dev/null
 
-export TELEMACHUS_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
-export TELEMACHUS_MODEL=qwen2.5:7b
+export TMACH_MODEL_URL=http://127.0.0.1:11434/v1/chat/completions
+export TMACH_MODEL=qwen2.5:7b
 bash test/translate-chat-demo.sh
 ```
 
@@ -367,7 +367,7 @@ tool off mid-demo and asserts the run stops at the failing fan-out and hands the
 reason back without running anything downstream.
 
 **Not in CI** (no model on the runner), and it exits **2** rather than run against
-the echo fallback if `TELEMACHUS_MODEL_URL` is unset.
+the echo fallback if `TMACH_MODEL_URL` is unset.
 
 Use `qwen2.5:7b`. Avoid `qwen3.5` "reasoning" models — their answer lands in a
 `reasoning` field the OpenAI-compatible path does not read, so steps come back
@@ -398,7 +398,7 @@ in a headless sandbox with no output.
 |---|---|
 | `0` | pass |
 | `1` | an assertion failed, **or** the port was busy (message on stderr) |
-| `2` | `translate-chat-demo.sh` only: `TELEMACHUS_MODEL_URL` not set |
+| `2` | `translate-chat-demo.sh` only: `TMACH_MODEL_URL` not set |
 
 All four scripts run on a `mktemp -d` database and clean up after themselves. They
 touch no deployed data.
@@ -483,12 +483,12 @@ Ordered by how often they will actually happen.
 |---|---|---|
 | **A shipped UI change is missing — no Workflows tab, an old tab set** | the server cached `static/index.html` at startup; the process predates your checkout | restart it (§5), then hard-refresh the browser. `curl -s $B/ \| grep -c workflowsView` tells you which of the two it was |
 | A wall of unrelated assertion failures | another server already on that port; the scripts' readiness probe was satisfied by *it* | the scripts now refuse to start — heed `port … is already in use` and set `PORT` |
-| Steps complete instantly, output is the input in CAPITALS | `TELEMACHUS_MODEL_URL` unset → simulated echo | set it; restart |
+| Steps complete instantly, output is the input in CAPITALS | `TMACH_MODEL_URL` unset → simulated echo | set it; restart |
 | `reference to a variable that is not exported` | stale `.zo` after a module's exports changed | `raco make` the tests too, or delete `compiled/` |
 | Module not found / wrong module loaded | `PLTCOLLECTS` unset — `pkgs/{cli-kit,db-kit,web-kit}` collide with any linked Odysseus copies | `export PLTCOLLECTS="$PWD/pkgs:"` |
 | A run sits at `"status":"running"` forever | its steps are `queued` and the team is over quota — deferral, not failure | check `GET /api/usage`; raise the limit or wait for the window |
 | `403 feature workflows is disabled`, and no tab | the team has the `workflows` feature off | Admin › Features → enable, or `POST /api/features/workflows {"enabled":true}` |
-| `/` shows a beta signup page, not the console | `TELEMACHUS_HOME=beta` | follow the page's "Team sign-in" link, or unset the variable and restart |
+| `/` shows a beta signup page, not the console | `TMACH_HOME=beta` | follow the page's "Team sign-in" link, or unset the variable and restart |
 | Tab is there, **Definitions** is empty | a plugin's workflows materialize into a team on first listing — an empty list means no plugin shipped one and none was published | check the startup log for `N workflow(s)`; otherwise `POST /api/workflows` |
 | A stopped server left the port bound | a previous process is still alive | `pgrep -a -x racket \| grep server/main`, then `kill <pid>` — **not** `pkill -f`, which matches its own command line |
 | `400 invalid workflow spec: … unknown field 'x'` | strict validation (WF‑10) | remove the field, or the document was written for a newer build |
@@ -498,7 +498,7 @@ Ordered by how often they will actually happen.
 | `max_steps exceeded` | a `next`/`then` cycle that never terminates | intended backstop; fix the workflow |
 | The test suite hangs with no output | you ran `raco test test/*.rkt` | use `test/*-tests.rkt` |
 | `error: Path 'x' … is not tracked by Git` | Nix only sees git-tracked files | `git add` the new file — an untracked source is invisible to the build |
-| `nix build` succeeds but the server writes into the store | you overrode `DATABASE_URL` with a *relative* sqlite path | use an absolute path, or leave it unset and let it follow `TELEMACHUS_DATA_DIR` |
+| `nix build` succeeds but the server writes into the store | you overrode `DATABASE_URL` with a *relative* sqlite path | use an absolute path, or leave it unset and let it follow `TMACH_DATA_DIR` |
 
 ### Reading a failed run
 
@@ -538,7 +538,7 @@ The existing job already covers tiers 1–3; the unit step is a **glob**, so
 
 Tier 4 is deliberately absent: a runner with no model would run the echo fallback
 and report success. To cover it, add a job with a model service and set
-`TELEMACHUS_MODEL_URL`; without one, leave it out rather than let it pass falsely.
+`TMACH_MODEL_URL`; without one, leave it out rather than let it pass falsely.
 
 ---
 

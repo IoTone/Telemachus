@@ -32,8 +32,8 @@ docker run -d --name telemachus \
   --cap-drop ALL --security-opt no-new-privileges \
   -v telemachus-data:/data \
   -e DATABASE_URL='postgres://user:pass@db.internal:5432/telemachus' \
-  -e TELEMACHUS_SECRET_KEY="$(openssl rand -hex 32)" \
-  -e TELEMACHUS_SECRET="$(openssl rand -hex 32)" \
+  -e TMACH_SECRET_KEY="$(openssl rand -hex 32)" \
+  -e TMACH_SECRET="$(openssl rand -hex 32)" \
   -p 8835:8835 \
   --stop-timeout 30 \
   telemachus:0.1.0
@@ -45,7 +45,7 @@ Then `curl localhost:8835/health`, and bootstrap the first operator:
 curl -XPOST localhost:8835/api/bootstrap -d '{"username":"ops","password":"a-real-password"}'
 ```
 
-`POST /api/bootstrap` is **loopback-only** unless `TELEMACHUS_BOOTSTRAP_SECRET`
+`POST /api/bootstrap` is **loopback-only** unless `TMACH_BOOTSTRAP_SECRET`
 is set — a fresh instance on a network otherwise belongs to whoever calls first.
 From outside the container that means either `docker exec`, a published port on
 loopback as above, or setting that secret.
@@ -87,14 +87,14 @@ On `SIGTERM` (what `docker stop`, `systemctl stop` and Kubernetes all send) the
 instance:
 
 1. stops claiming new jobs;
-2. waits up to `TELEMACHUS_DRAIN_SECONDS` (25) for in-flight jobs to finish;
+2. waits up to `TMACH_DRAIN_SECONDS` (25) for in-flight jobs to finish;
 3. hands back whatever did not finish — queued again, **no attempt spent**;
 4. exits 0.
 
 The log says what happened:
 
 ```
-shutdown signal — draining (TELEMACHUS_DRAIN_SECONDS=25)
+shutdown signal — draining (TMACH_DRAIN_SECONDS=25)
   drain: waiting up to 25s for 2 running job(s)
 drained: 2 job(s) finished, 0 handed back to the queue
 ```
@@ -126,7 +126,7 @@ curl -XPOST localhost:8835/api/bootstrap \
 
 The header is needed because **bootstrap is loopback-only** and from your shell
 the container is the bridge gateway, not loopback; `compose.yaml` sets the
-matching `TELEMACHUS_BOOTSTRAP_SECRET` so the documented first step works. It is
+matching `TMACH_BOOTSTRAP_SECRET` so the documented first step works. It is
 an evaluation value, and the file says so.
 
 It is for **evaluation**, and says so at each line that would be wrong in
@@ -134,7 +134,7 @@ production: the database password is in the file, no TLS terminates in front of
 the app, and nothing backs up the `data` volume.
 
 **On MinIO:** issue #89 asks for it and it is deliberately absent. TMach
-*serves* an S3 API (`TELEMACHUS_S3_PORT`) but cannot yet *store* blobs in a
+*serves* an S3 API (`TMACH_S3_PORT`) but cannot yet *store* blobs in a
 bucket — an S3-compatible blob-store backend is **issue #82**, unbuilt. A MinIO
 container today would be a service nothing talks to, which reads as a broken
 example rather than a staged one.
@@ -155,7 +155,7 @@ kubectl -n telemachus create secret generic telemachus \
 kubectl -n telemachus apply -f deploy/k8s/telemachus.yaml
 ```
 
-It sets `TELEMACHUS_STRICT_STARTUP=1`, which is the right default for an
+It sets `TMACH_STRICT_STARTUP=1`, which is the right default for an
 unattended deployment: with a secret key in place and TLS on the Ingress, every
 startup check passes, so a configuration mistake refuses to start instead of
 running degraded.
@@ -177,7 +177,7 @@ database.
 ## Object storage for document bytes
 
 Document bytes live on the data volume by default (the `rs3` store). With the
-`s3blobs` plugin and `TELEMACHUS_BLOB_STORE=s3` they live in a bucket instead,
+`s3blobs` plugin and `TMACH_BLOB_STORE=s3` they live in a bucket instead,
 which is what removes the `ReadWriteOnce` coupling that keeps the Kubernetes
 example at `replicas: 1`. Every variable is in
 [configuration.md](configuration.md#object-storage-blob-store-the-s3blobs-plugin-issue-82).
@@ -212,7 +212,7 @@ so none of those permissions are needed.
 `kms:GenerateDataKey` is required for SSE‑KMS even though TMach never calls
 KMS itself — S3 calls it on the caller's behalf, so the permission is checked
 against this identity. Drop the whole second statement with
-`TELEMACHUS_S3_BLOB_SSE=s3` (SSE‑S3 needs no KMS grant) or `=none`.
+`TMACH_S3_BLOB_SSE=s3` (SSE‑S3 needs no KMS grant) or `=none`.
 
 **Deny unencrypted writes in the bucket policy as well**, because the
 application-side check can only see what the bucket reports:
@@ -224,7 +224,7 @@ application-side check can only see what the bucket reports:
 ```
 
 With that in place a PUT that somehow omitted the header is refused by S3; with
-`TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION` on, one that *succeeds* without
+`TMACH_S3_BLOB_REQUIRE_ENCRYPTION` on, one that *succeeds* without
 reporting encryption is refused by Telemachus. The two catch different failures
 and both are worth having.
 
@@ -266,7 +266,7 @@ skips and says so.
 ## OCR is not in the image, and what to do about it
 
 The `ocr` plugin (issue #92) ships in the image like every other plugin, but
-**`tesseract` does not**, so setting `TELEMACHUS_OCR=1` on the stock image makes
+**`tesseract` does not**, so setting `TMACH_OCR=1` on the stock image makes
 the plugin fail to load and say why. That is deliberate and measured:
 
 | What | Closure |
@@ -295,11 +295,11 @@ packages.container-ocr = import ./nix/container.nix {
 };
 ```
 
-Then run it with `-e TELEMACHUS_OCR=1 -e TELEMACHUS_OCR_LANGUAGES=eng+spa`.
+Then run it with `-e TMACH_OCR=1 -e TMACH_OCR_LANGUAGES=eng+spa`.
 
 `pdftoppm`, which the OCR path uses to rasterise a scanned PDF's pages, is
 already in the image as part of poppler-utils, so the engine is the only piece
-missing. `TELEMACHUS_OCR_LANGUAGES` must name languages that were actually
+missing. `TMACH_OCR_LANGUAGES` must name languages that were actually
 compiled in — the plugin passes the value to tesseract as-is, and
 `tesseract --list-langs` is the authority on what a given image can read.
 
@@ -356,7 +356,7 @@ The instance refuses to serve when the blob store is not writable, when
 migrations are still pending, or when the database was migrated by a **newer**
 build than this one — see [configuration.md](configuration.md#startup-checks).
 Two further checks (no secret key; plaintext HTTP on a non-loopback bind) are
-warnings by default and refusals under `TELEMACHUS_STRICT_STARTUP=1`, because
+warnings by default and refusals under `TMACH_STRICT_STARTUP=1`, because
 both are positions a working instance can legitimately hold.
 
 ## Verifying a deployment

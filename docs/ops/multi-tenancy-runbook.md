@@ -11,7 +11,7 @@ file is the runbook.
 > `POST /api/orgs` provisions a complete company — org, first team, its owner and
 > that owner's token — and it is live on the very next request. The **only**
 > restart in this whole document is the one that first sets
-> `TELEMACHUS_MULTITENANT=1`, because that is a process environment variable.
+> `TMACH_MULTITENANT=1`, because that is a process environment variable.
 > Everything after it is API.
 
 ---
@@ -64,10 +64,10 @@ The examples use `curl` and `jq`; both are in the dev shell.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `TELEMACHUS_MULTITENANT` | `0` | `1`/`true`/`yes`/`on` turn it on. **Restart to change.** |
-| `DATABASE_URL` | derived from `TELEMACHUS_DATA_DIR` | SQLite or PostgreSQL; orgs work identically on both |
-| `PORT` | `8835` | `TELEMACHUS_PORT` is a synonym |
-| `TELEMACHUS_BIND` | `127.0.0.1` | loopback by default — see the workflow runbook's warning before exposing it |
+| `TMACH_MULTITENANT` | `0` | `1`/`true`/`yes`/`on` turn it on. **Restart to change.** |
+| `DATABASE_URL` | derived from `TMACH_DATA_DIR` | SQLite or PostgreSQL; orgs work identically on both |
+| `PORT` | `8835` | `TMACH_PORT` is a synonym |
+| `TMACH_BIND` | `127.0.0.1` | loopback by default — see the workflow runbook's warning before exposing it |
 
 Everything else is unchanged by multi-tenancy. Migration `0016-orgs` adds the
 `orgs` table, `users.org_id`, `users.org_role_key`, `teams.org_id`, and rebuilds
@@ -87,7 +87,7 @@ Everything else is unchanged by multi-tenancy. Migration `0016-orgs` adds the
 ## 4. Day 0 — turn it on and bootstrap the superadmin
 
 ```sh
-export TELEMACHUS_MULTITENANT=1
+export TMACH_MULTITENANT=1
 export DATABASE_URL="sqlite:///$PWD/data/telemachus.db"
 racket server/main.rkt &
 ```
@@ -343,7 +343,7 @@ Treat step 3 as a maintenance window with a restore path, not a runbook one-line
 
 ```sh
 raco test test/tenancy-tests.rkt          # the authz core: the org gate, no server
-TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh
+TMACH_MULTITENANT=1 bash test/multitenant-demo.sh
 # → multitenant-demo: PASS
 ```
 
@@ -358,7 +358,7 @@ It needs `PORT` and `PORT+1` free (default `8836`/`8837`) and honours a pre-set
 `DATABASE_URL`, so run it on PostgreSQL too before trusting a PostgreSQL deploy:
 
 ```sh
-DATABASE_URL="postgres://…" TELEMACHUS_MULTITENANT=1 bash test/multitenant-demo.sh
+DATABASE_URL="postgres://…" TMACH_MULTITENANT=1 bash test/multitenant-demo.sh
 ```
 
 `POST /api/admin/seed-tenants` seeds Acme + Globex with **published dev
@@ -371,7 +371,7 @@ never be called on a production instance.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `/api/orgs` → `404 multi-tenancy is not enabled` | flag off, or set but not restarted | `TELEMACHUS_MULTITENANT=1`, restart, confirm `/health` |
+| `/api/orgs` → `404 multi-tenancy is not enabled` | flag off, or set but not restarted | `TMACH_MULTITENANT=1`, restart, confirm `/health` |
 | `POST /api/orgs` → `409 … slug 'x' already exists` | the company is already provisioned | working as intended — `GET /api/orgs/x` and `PATCH` to converge |
 | `409 owner_username already exists on this instance` | usernames are instance-global (TEN‑2b) | use an email; two companies cannot both hold `alice` |
 | `400 unknown plan` | typo, or a plan this build does not sell | one of `trial`/`starter`/`pro`/`enterprise` |
@@ -402,7 +402,7 @@ Worth knowing before you promise it to a customer:
   belongs to one company, and the org gate in the pull claim means such an
   executor never sees another company's job. What a company still cannot do is
   bring its own *credential* or point its own traffic at its own endpoint:
-  `TELEMACHUS_MODEL_URL` is the default for everyone, a model ROLE is a team
+  `TMACH_MODEL_URL` is the default for everyone, a model ROLE is a team
   setting that `executor-known?` does not filter by org, and routing on
   `/api/ai/chat` and `/api/agent` is operator-only. Per-org provider credentials
   are the open half (see the BYOK decision in
