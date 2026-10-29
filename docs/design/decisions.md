@@ -3720,3 +3720,71 @@ visibility and RBAC rather than the body field, so it is still accurate; the
 image is merely dated, and refreshing it needs a live model and regenerates both
 READMEs' feature-tour regions. Re-stamping a `captions.ja.json` hash for a
 caption whose text did not change would be churn with no reader.
+
+## PAL — a command palette, and the first keyboard route into the console (issue #182, built 29 Oct 2026)
+
+`static/console/16-palette.js`. Cmd/Ctrl+K opens a palette over the current
+view; `?` lists what is bound. No migration, no route, no permission.
+
+| | |
+|---|---|
+| **PAL‑1** | It hooks the ONE delegated listener, before the element lookup |
+| **PAL‑2** | The modifier is DETECTED and the label follows the detection |
+| **PAL‑3** | A bare `?` does nothing while something is being typed into; a held modifier works everywhere |
+| **PAL‑4** | `Esc` falls THROUGH when nothing of the palette's is open |
+| **PAL‑5** | The palette and the shell share ONE tab list |
+| **PAL‑6** | Records come from `GET /api/search`, so an unreadable one cannot be offered |
+| **PAL‑7** | The action map holds only functions that already exist, and is small on purpose |
+| **PAL‑8** | The overlays live in the static shell, not in a render pass |
+
+**PAL‑1 — the issue asks for this by name and the reason is #27's.** 01-base.js
+registers exactly one document listener per event type; a second one for a
+global shortcut is where the handler-leak and double-fire risks that dispatcher
+exists to remove would start over. `paletteKey` is called from inside it and
+**before** the `closest('[data-h-keydown]')` lookup, because a global shortcut
+is not about an element and an element-scoped dispatch cannot carry one. It
+answers whether it took the key. The test asserts the ORDER of the two, not
+merely that both are present.
+
+**PAL‑3 is the asymmetry, and it is deliberate.** `Cmd/Ctrl+K` works
+everywhere, including inside a text field, because a held modifier is
+unambiguous. A bare `?` fires only when focus is not in a field — otherwise it
+eats a question mark, which is the one way a help shortcut can leave a console
+worse than it was. This console ships in Japanese and already learned the
+neighbouring lesson from `isComposing` (#174), so the e2e gate types `a ? in a
+note` into the editor and asserts BOTH halves: the overlay stayed shut and the
+character really arrived.
+
+**PAL‑4 — `Esc` is already load-bearing here**: it leaves the editor's focus
+mode (ED‑6). Taking it unconditionally would break that, so the handler returns
+false when neither overlay is open and the key goes on to mean what it meant.
+
+**PAL‑5 — `visibleTabs()` was extracted for this, and the drift would have been
+the palette's.** `appShell` built the list inline; the palette's first job is
+"jump to a tab", so a second copy would eventually offer a tab a feature switch
+has turned off or a permission does not allow — and it is the palette that would
+be wrong, because the shell's copy is the one somebody looks at. LIVE‑IN's
+shape: derive it once. The test asserts the list is spelled exactly once in the
+whole console.
+
+**PAL‑6 — the authorization is somebody else's and that is the point.**
+`GET /api/search` already answers across notes, repository objects and
+knowledge-graph entities with the per-row `can?` filter, so the palette cannot
+offer a record its user may not read **by construction** rather than by a check
+written here. The search is sequence-counted (`renderTab()`'s rule): two
+searches can be in flight and the slower one would otherwise overwrite the
+newer list.
+
+**PAL‑7 — an action that merely looks plausible is a button that 404s.** Every
+entry in the map is a function that already exists in this console, and the map
+is deliberately a handful per tab: a palette that lists everything is a menu.
+
+**PAL‑8 — the overlays are in `static/index.html`, not in a render pass**,
+because a tab re-render must not take the palette down mid-interaction. The
+cost is the documented one: **the shell is cached at startup, so a live box
+needs a restart to pick this up** — the console's own `*.js` is read per request
+and does not.
+
+**A `.kbd-hint` in the header, because "a palette nobody knows about is a
+palette nobody uses"** is the issue's own note. It shows the detected modifier,
+so it is also the visible half of PAL‑2.

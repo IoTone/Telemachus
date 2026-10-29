@@ -371,6 +371,10 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "ui.palhenter": {
+      "text": "Send a prompt, or run the selected item",
+      "hash": "70c981cd2ef9bc21c9b4ecceeba982941356b4cf"
+    },
     "http.already_initialized": {
       "text": "Already initialized.",
       "hash": "b1b9d67f088c19de14babf5880d3be211db0c875"
@@ -415,6 +419,10 @@
       "text": "Create",
       "hash": "6e157c5da4410b7e9de85f5c93026b9176e69064"
     },
+    "ui.palupload": {
+      "text": "Upload a document",
+      "hash": "f1836e232eec1043d61e58a2ca1f46b9134f2de0"
+    },
     "beta.not_ready": {
       "text": "instance not initialized",
       "hash": "3b7b61a29f95ddf4ab7b055a9fde54152b56e482"
@@ -434,6 +442,10 @@
     "ui.useglossary": {
       "text": "Use glossary",
       "hash": "3119358ade37fef14c5ca9b6d9c4a0928d3f7c3e"
+    },
+    "ui.palhesc": {
+      "text": "Close the palette, this list, or focus mode",
+      "hash": "74d6dda4e7d06a8d5d8bb5db980d2add8d8f620c"
     },
     "ui.haccountsline": {
       "text": "{users} users · {teams} teams · {orgs} orgs",
@@ -622,6 +634,10 @@
     "ui.edexporthint": {
       "text": "download the body as a Markdown file",
       "hash": "27e1b67ff7c841978c599f5f86b9975ecb670d3f"
+    },
+    "ui.palhshift": {
+      "text": "Insert a newline instead of sending",
+      "hash": "be508a7b98a2ac90fc8a73e3cefa19295be68715"
     },
     "ui.ednums": {
       "text": "Lines",
@@ -1063,6 +1079,10 @@
       "text": "Delete repository documents.",
       "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
     },
+    "ui.palhclose": {
+      "text": "Esc or ? to close",
+      "hash": "12c378b056c314b77c49ecd535e231aadd18086d"
+    },
     "doc.plugin.example-tools": {
       "text": "A sample third-party plugin: adds a word_count tool.",
       "hash": "08d4c34f73a5f64ccc20307d26f986326bc92808"
@@ -1134,6 +1154,10 @@
     "beta.challenge_expired": {
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
+    },
+    "ui.palhhelp": {
+      "text": "Show this list",
+      "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
     },
     "doc.route.get.api.reviews.verify": {
       "text": "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.",
@@ -1254,6 +1278,10 @@
     "ui.role": {
       "text": "Role",
       "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
+    },
+    "ui.palruns": {
+      "text": "Workflow runs",
+      "hash": "92001e5489c7b888b3d48e5b5e31ac7b93cbd2df"
     },
     "ui.cap_edit": {
       "text": "edit",
@@ -1927,6 +1955,10 @@
       "text": "You set this because you uploaded it. Sharing narrows a team document to just the people you name.",
       "hash": "d9da8f7413693271c88f9e04ab1bd51e6fb5a03c"
     },
+    "ui.paltab": {
+      "text": "tab",
+      "hash": "e974602114f14fbf55401c109937e173b1b23220"
+    },
     "ui.agent": {
       "text": "Agent",
       "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
@@ -2043,6 +2075,10 @@
       "text": "The company's own retention rules (#86 r3). An org may SHORTEN what the instance allows for its own data and may never extend it.",
       "hash": "09db09e9244a119710bf5d37fa9712d3f411a02f"
     },
+    "ui.palrecord": {
+      "text": "{type}",
+      "hash": "12b4e8893bdfce5b8519f357d8d9da1a3ed7be80"
+    },
     "doc.route.post.api.tools.name": {
       "text": "Enable or disable a tool for the team.",
       "hash": "f57e4d709b24199c67a4c616f7e2b3d6f6aa749a"
@@ -2078,6 +2114,10 @@
     "doc.perm.documents:delete": {
       "text": "Delete text documents.",
       "hash": "57f7cce6e25877b0f4c845a6ac47858739d4c03d"
+    },
+    "ui.palplaceholder": {
+      "text": "Jump to a tab, run an action, find a record…",
+      "hash": "bfdd24313e3e47ce12c263b37e8ea76be03365f6"
     },
     "ui.search": {
       "text": "Search",
@@ -2162,6 +2202,10 @@
     "doc.plugin.matrix": {
       "text": "Sends the platform's own events to a Matrix room on a homeserver the operator runs. Optional: with no homeserver configured it registers nothing.",
       "hash": "a7535988fb1c9705582bcde582eccf846a1be5a4"
+    },
+    "ui.palhint": {
+      "text": "Command palette",
+      "hash": "7b6b539e73d9d03f40764fe99b8ec0e594a69d8f"
     },
     "ui.copy": {
       "text": "Copy",
@@ -2299,6 +2343,10 @@
       "text": "Branding",
       "hash": "d17dc3843de8e54fc084f0b952690209018ca128"
     },
+    "ui.palaction": {
+      "text": "action",
+      "hash": "34eb4c4ef005207e8b8f916b9f1fffacccd6945e"
+    },
     "doc.route.get.api.org.session-policy": {
       "text": "The company's own session timeouts, the instance's, and the effective policy after the instance floor is applied.",
       "hash": "5c0202597a8e09cba5a7be8019aa70cc95b12960"
@@ -2402,6 +2450,10 @@
     "ui.wkoldest": {
       "text": "oldest wait",
       "hash": "cc4efe854cfcc0888cf273842d580e8d78d05956"
+    },
+    "ui.palhtitle": {
+      "text": "Keyboard shortcuts",
+      "hash": "266695479a949eec44dea9db4e15fba00163f04e"
     },
     "ui.draftqueued": {
       "text": "Queued {n} strings in {b} batch(es) — they land as “machine” for review",
@@ -2634,6 +2686,10 @@
     "ui.wkpaused": {
       "text": "paused",
       "hash": "11b1b5ec9167678979a0e6e703210380431292a8"
+    },
+    "ui.palrefresh": {
+      "text": "Refresh this screen",
+      "hash": "e84ed1932b12f7820117929bab99fcceeac40f36"
     },
     "doc.perm.notes:write": {
       "text": "Create and edit notes.",
@@ -2931,6 +2987,10 @@
       "text": "Set a team's model roles: {roles: {utility: <executor name> | @fleet | null}}. The executor must exist; `@fleet` (#173) sends the role's work to whichever pull worker is free instead of pinning it to one host; null returns to the instance default, then the local model.",
       "hash": "7a4ccddc61b39393a950680b329dc5a572eb16a3"
     },
+    "ui.palfoot": {
+      "text": "↑↓ to move · Enter to run · Esc to close",
+      "hash": "37c078ff1df1e11f304b0fc305068c9919f1144c"
+    },
     "doc.tool.kg_query.hops": {
       "text": "1 (default) or 2",
       "hash": "04e287dac6a68b3604cd14a60fcfe52795c65786"
@@ -2982,6 +3042,10 @@
     "ui.people": {
       "text": "People",
       "hash": "b37554f695b15005fd23907b9488e0a8ad4bca5f"
+    },
+    "ui.palnone": {
+      "text": "nothing matches",
+      "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
     },
     "doc.perm.notes:manage": {
       "text": "Share notes one does not own.",
@@ -3147,6 +3211,10 @@
       "text": "Set an org-level quota; teams nest beneath it.",
       "hash": "b56168537a1f06874aa58142c8c2c7a24d720c1c"
     },
+    "ui.palhpalette": {
+      "text": "Open the command palette",
+      "hash": "2b5a7d38f23f257ed27a4b5c21774239fe9b1a93"
+    },
     "ui.results": {
       "text": "Results",
       "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
@@ -3198,6 +3266,10 @@
     "ui.term": {
       "text": "Term",
       "hash": "770bce19da07e2e1106cc2efe505cb8d89227491"
+    },
+    "ui.palnewdoc": {
+      "text": "New document",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
     },
     "ui.trigger_attrs": {
       "text": "Attributes",
@@ -3318,6 +3390,10 @@
     "doc.perm.org:read-data": {
       "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
+    },
+    "ui.palnewnote": {
+      "text": "New note",
+      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
     },
     "ui.reviewverdict_approve": {
       "text": "Approved",

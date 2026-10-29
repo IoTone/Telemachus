@@ -291,6 +291,63 @@ try {
   }, edited);
   ok('the edit was stored through PUT', after === 'second body, edited in place', after);
 
+  // ── 3d. the command palette and the keyboard (issue #182) ───────────────────
+  // Real key events through the real delegated listener: a source assertion can
+  // say the hook is wired and only a browser can say the key arrives.
+  step('palette: the keyboard');
+  await page.evaluate(() => window.go('notes'));
+  await page.waitForTimeout(400);
+  const MOD = await page.evaluate(() => PAL_MAC ? 'Meta' : 'Control');
+  await page.keyboard.press(MOD + '+KeyK');
+  await page.waitForSelector('#palq', { timeout: 5000 });
+  ok('the palette opens on the platform modifier + K', true);
+  ok('…and it offers the tabs',
+    (await page.textContent('#pallist')).includes('Notes'));
+  // Arrows move the selection, Enter runs it. Typing a tab name and pressing
+  // Enter is the whole interaction the issue asks for.
+  await page.fill('#palq', 'Repository');
+  await page.waitForTimeout(300);
+  ok('typing filters the list',
+    (await page.textContent('#pallist')).includes('Repository'));
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(700);
+  ok('Enter activates the selected item', await page.evaluate(() => S.tab) === 'repository');
+  ok('…and the palette closed', await page.evaluate(() => !!document.getElementById('palette').hidden));
+
+  // Esc closes it, and does so without disturbing anything else.
+  await page.keyboard.press(MOD + '+KeyK');
+  await page.waitForSelector('#palq', { timeout: 5000 });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  ok('Esc closes the palette', await page.evaluate(() => !!document.getElementById('palette').hidden));
+
+  // The `?` overlay — and the rule that matters: it must do nothing while
+  // something is being typed into, or it eats a question mark.
+  await page.keyboard.press('Shift+Slash');
+  await page.waitForTimeout(300);
+  ok('? opens the shortcut list',
+    await page.evaluate(() => !document.getElementById('shortcuts').hidden));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(250);
+  ok('…and Esc closes it',
+    await page.evaluate(() => !!document.getElementById('shortcuts').hidden));
+
+  await goTab(page, 'notes', '#nb');
+  await page.click('#nb');
+  await page.keyboard.type('a ? in a note');
+  ok('a bare ? typed into a field does NOT open the overlay',
+    await page.evaluate(() => !!document.getElementById('shortcuts').hidden));
+  ok('…and the question mark really was typed',
+    (await page.inputValue('#nb')).includes('a ? in a note'),
+    await page.inputValue('#nb'));
+  // …while the MODIFIER works even from inside a field, which is the deliberate
+  // asymmetry: a held modifier is unambiguous.
+  await page.keyboard.press(MOD + '+KeyK');
+  await page.waitForSelector('#palq', { timeout: 5000 });
+  ok('the modifier opens the palette from inside a text field', true);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(250);
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));

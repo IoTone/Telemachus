@@ -4953,6 +4953,49 @@ raco test test/fleet-tests.rkt   # drain order, the two answers, the filters, pa
 bash test/pull-smoke.sh          # section 7b, 7 assertions over HTTP
 ```
 
+## A command palette, and the first keyboard route in (PAL‑1…8, issue #182)
+
+Built 29 Oct 2026. `static/console/16-palette.js`. Cmd/Ctrl+K opens a palette
+over the current view; `?` lists what is bound. No migration, no route, no
+permission.
+
+```sh
+raco test test/console-tests.rkt   # 28 cases; five new, structure and ORDER
+bash test/e2e/validate.sh          # §3d — real key events, 11 assertions
+```
+
+- **IT HOOKS THE ONE DELEGATED LISTENER, BEFORE THE ELEMENT LOOKUP** (PAL‑1).
+  A second document listener is where #27's handler-leak and double-fire risks
+  would start over, and a global shortcut is not about an element, so the
+  element-scoped dispatch cannot carry it. The test asserts the ORDER of the
+  two calls in `01-base.js`, not merely that both appear.
+- **THE ASYMMETRY IS DELIBERATE** (PAL‑3): `Cmd/Ctrl+K` works everywhere
+  including inside a text field, because a held modifier is unambiguous; a bare
+  `?` fires only when focus is NOT in a field, or it eats a question mark —
+  the one way a help shortcut leaves a console worse than it was. The gate types
+  `a ? in a note` and asserts both halves: the overlay stayed shut and the
+  character arrived. (`isComposing`, #174, is the neighbouring lesson.)
+- **`Esc` FALLS THROUGH when nothing of the palette's is open** (PAL‑4), because
+  Esc already leaves the editor's focus mode (ED‑6). Taking it unconditionally
+  would break that.
+- **`visibleTabs()` WAS EXTRACTED FOR THIS, and the drift would have been the
+  palette's** (PAL‑5). `appShell` built the tab list inline; a second copy would
+  eventually offer a tab a feature switch had turned off or a permission did not
+  allow, and the wrong one would be the palette's, because the shell's is the
+  one somebody looks at. The test asserts the list is spelled exactly ONCE in
+  the whole console.
+- **The records' authorization is somebody else's** (PAL‑6): `GET /api/search`
+  already filters per row with `can?`, so the palette cannot offer a record its
+  user may not read by construction rather than by a check here. The search is
+  sequence-counted, `renderTab()`'s rule.
+- **Every action in the map is a function that already exists** (PAL‑7) — an
+  entry that merely looks plausible is a button that 404s — and the map is a
+  handful per tab, because a palette that lists everything is a menu.
+- **THE OVERLAYS LIVE IN THE STATIC SHELL** (PAL‑8), so a tab re-render cannot
+  take the palette down mid-interaction. The cost is the documented one: **the
+  shell is cached at startup, so a live box needs a RESTART** to pick this up,
+  where the console's own `*.js` is read per request and does not.
+
 ## One editor, two surfaces (ED‑1…10, issue #180)
 
 Built 29 Oct 2026. `static/console/15-editor.js`; Notes and Documents share it.

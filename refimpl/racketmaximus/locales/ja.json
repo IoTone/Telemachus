@@ -3599,6 +3599,82 @@
     "ui.edempty": {
       "text": "保存する内容がありません",
       "hash": "a0e92e059b9b0c33b6d0d368dbe5bc292b7141e9"
+    },
+    "ui.paltab": {
+      "text": "タブ",
+      "hash": "e974602114f14fbf55401c109937e173b1b23220"
+    },
+    "ui.palaction": {
+      "text": "操作",
+      "hash": "34eb4c4ef005207e8b8f916b9f1fffacccd6945e"
+    },
+    "ui.palrecord": {
+      "text": "{type}",
+      "hash": "12b4e8893bdfce5b8519f357d8d9da1a3ed7be80"
+    },
+    "ui.palplaceholder": {
+      "text": "タブへ移動、操作の実行、レコードの検索…",
+      "hash": "bfdd24313e3e47ce12c263b37e8ea76be03365f6"
+    },
+    "ui.palnone": {
+      "text": "一致するものがありません",
+      "hash": "90226a1418b7b508766c0dcbd18eb7b87205b182"
+    },
+    "ui.palfoot": {
+      "text": "↑↓ で移動・Enter で実行・Esc で閉じる",
+      "hash": "37c078ff1df1e11f304b0fc305068c9919f1144c"
+    },
+    "ui.palhint": {
+      "text": "コマンドパレット",
+      "hash": "7b6b539e73d9d03f40764fe99b8ec0e594a69d8f"
+    },
+    "ui.palnewnote": {
+      "text": "新しいノート",
+      "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
+    },
+    "ui.palnewdoc": {
+      "text": "新しいドキュメント",
+      "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
+    },
+    "ui.palupload": {
+      "text": "ドキュメントをアップロード",
+      "hash": "f1836e232eec1043d61e58a2ca1f46b9134f2de0"
+    },
+    "ui.palruns": {
+      "text": "ワークフローの実行",
+      "hash": "92001e5489c7b888b3d48e5b5e31ac7b93cbd2df"
+    },
+    "ui.palrefresh": {
+      "text": "この画面を再読み込み",
+      "hash": "e84ed1932b12f7820117929bab99fcceeac40f36"
+    },
+    "ui.palhtitle": {
+      "text": "キーボードショートカット",
+      "hash": "266695479a949eec44dea9db4e15fba00163f04e"
+    },
+    "ui.palhpalette": {
+      "text": "コマンドパレットを開く",
+      "hash": "2b5a7d38f23f257ed27a4b5c21774239fe9b1a93"
+    },
+    "ui.palhhelp": {
+      "text": "この一覧を表示",
+      "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
+    },
+    "ui.palhesc": {
+      "text": "パレット・この一覧・集中モードを閉じる",
+      "hash": "74d6dda4e7d06a8d5d8bb5db980d2add8d8f620c"
+    },
+    "ui.palhenter": {
+      "text": "プロンプトを送信、または選択中の項目を実行",
+      "hash": "70c981cd2ef9bc21c9b4ecceeba982941356b4cf"
+    },
+    "ui.palhshift": {
+      "text": "送信せずに改行を挿入",
+      "hash": "be508a7b98a2ac90fc8a73e3cefa19295be68715"
+    },
+    "ui.palhclose": {
+      "text": "Esc または ? で閉じる",
+      "hash": "12c378b056c314b77c49ecd535e231aadd18086d"
     }
   }
 }

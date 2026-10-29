@@ -78,6 +78,36 @@ const LANGNAME = {en:'EN', ja:'日本語'};
 function langBtns(){ if(!S.i18n.enabled) return '';
   const av = S.i18n.available||['en']; if(av.length<2) return '';
   return av.map(l=>`<button class="${S.lang===l?'active':''}" data-h-click="${H((el,ev)=>setLang((l)))}">${LANGNAME[l]||l.toUpperCase()}</button>`).join(''); }
+// THE ONE TAB LIST, and #182 is why it is a function. `appShell` built it
+// inline; the command palette's first job is "jump to a tab", so a second copy
+// would be two lists that drift — and the one that drifts is the palette's,
+// which would offer a tab a feature switch has turned off or a permission does
+// not allow. LIVE-IN's shape: derive it once.
+function visibleTabs(){
+  if(!S.me) return [];
+  // #177: TWELVE names go through this filter and only FIVE can ever match —
+  // `known-features` is chat / agent / translate / search / workflows, which is
+  // exactly the set of features `server/routes.rkt` carries a `#:feature` for.
+  // For the other seven `S.features[x]` is undefined, so `!== false` always
+  // holds and the tab is always shown. The filter is kept over the whole list
+  // deliberately: it is how a tab starts hiding the day its feature becomes
+  // switchable, which needs a `#:feature` on its routes first — a decision about
+  // what an operator may turn off, not something a tab list should assume.
+  // `reviews`, `localize`, `beta`, `health` and `admin` are spliced in BELOW,
+  // after the filter, so they are outside it entirely and are gated by
+  // permission instead.
+  const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
+  if(canPerm('reviews:read')) tabs.splice(tabs.indexOf('workflows')+1, 0, 'reviews');
+  if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
+  // #179: `instance:read`, which `instance:manage` implies by name (#124), so
+  // an operator keeps it and a monitoring credential scoped to the read gets
+  // the screen without being able to reset a password. Spliced rather than
+  // pushed, so it sits beside Usage where an operator already looks for numbers.
+  if(canPerm('instance:read')) tabs.splice(tabs.indexOf('usage')+1, 0, 'health');
+  if(canManage()) tabs.push('beta');
+  if(S.me.is_operator) tabs.push('admin');
+  return tabs;
+}
 function appShell(){
   // #177: TWELVE names go through this filter and only FIVE can ever match —
   // `known-features` is chat / agent / translate / search / workflows, which is
@@ -89,20 +119,13 @@ function appShell(){
   // what an operator may turn off, not something a tab list should assume.
   // `reviews`, `localize`, `beta` and `admin` are spliced in BELOW, after the
   // filter, so they are outside it entirely and are gated by permission instead.
-  const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
-  if(canPerm('reviews:read')) tabs.splice(tabs.indexOf('workflows')+1, 0, 'reviews');
-  if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
-  // #179: `instance:read`, which `instance:manage` implies by name (#124), so
-  // an operator keeps it and a monitoring credential scoped to the read gets
-  // the screen without being able to reset a password. Spliced rather than
-  // pushed, so it sits beside Usage where an operator already looks for
-  // numbers rather than after the Admin tab.
-  if(canPerm('instance:read')) tabs.splice(tabs.indexOf('usage')+1, 0, 'health');
-  if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
+  const tabs=visibleTabs();
   return `<header class="top">
       <span class="brand">${brandLockup(22)}</span>
       <span class="sp"></span>
       <span class="langtog">${langBtns()}</span>
+      <button class="kbd-hint" title="${esc(t('palhint'))}"
+        data-h-click="${H(()=>palOpen())}">${esc(palModLabel()+'K')}</button>
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
       <button class="btn ghost sm" data-h-click="${H((el,ev)=>logout())}">${t('logout')}</button>
     </header>

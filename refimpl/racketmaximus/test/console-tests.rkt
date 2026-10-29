@@ -408,3 +408,66 @@
   (check-true (and prefs (string-contains? prefs "try")) "…and so is the read")
   (check-false (regexp-match? #px"setItem\\('tmx_ed[^)]*value" html)
                "the text itself is never written to localStorage"))
+
+;; ---- the command palette (issue #182) --------------------------------------
+
+(test-case "the palette hooks the ONE delegated listener, not a second one"
+  ;; 01-base.js registers one document listener per event type; a second one for
+  ;; a global shortcut is where the handler-leak and double-fire risks the
+  ;; dispatcher exists to remove would start over. The issue asks for this by
+  ;; name.
+  (check-equal? 1 (length (regexp-match* #px"document\\.addEventListener" html))
+                "exactly one document listener is registered anywhere")
+  (define base (file->string (build-path console-dir "01-base.js")))
+  (check-true (string-contains? base "paletteKey(ev)") "the palette hooks it")
+  ;; …and it runs BEFORE the element lookup, because a global shortcut is not
+  ;; about an element.
+  (define i (let ([m (regexp-match-positions #px"paletteKey\\(ev\\)" base)]) (and m (caar m))))
+  (define j (let ([m (regexp-match-positions #px"closest\\('\\[data-h-" base)]) (and m (caar m))))
+  (check-true (and i j (< i j)) "the global hook precedes the element dispatch"))
+
+(test-case "the modifier is DETECTED and the label follows the detection"
+  ;; A hardcoded Cmd is wrong on two platforms out of three, and a label that
+  ;; disagrees with the binding is worse than no label.
+  (check-true (string-contains? html "userAgentData") "platform detection")
+  (check-true (string-contains? html "navigator.platform") "…with a fallback")
+  (define lab (fn-body "palModLabel"))
+  (check-true (and lab #t) "the label is computed")
+  (check-true (string-contains? lab "PAL_MAC")
+              "…from the same detection the binding uses")
+  (define mod (fn-body "palMod"))
+  (check-true (and mod (string-contains? mod "metaKey") (string-contains? mod "ctrlKey"))
+              "and the binding tests the right key per platform"))
+
+(test-case "a bare ? does nothing while something is being typed into"
+  ;; The one way a help shortcut can make a console worse than it was: eating a
+  ;; question mark. Cmd/Ctrl+K is deliberately NOT subject to this, because a
+  ;; held modifier is unambiguous.
+  (define k (fn-body "paletteKey"))
+  (check-true (and k #t) "paletteKey exists")
+  (check-true (regexp-match? #px"ev\\.key === '\\?'[^\n]*palTyping\\(\\)" k)
+              "the ? branch consults palTyping()")
+  (define typing (fn-body "palTyping"))
+  (check-true (and typing #t) "palTyping exists")
+  (for ([tag (in-list '("input" "textarea" "select" "isContentEditable"))])
+    (check-true (string-contains? typing tag) (format "~a counts as typing" tag)))
+  ;; the K branch must NOT be gated on it
+  (check-false (regexp-match? #px"=== 'k'[^\n]*palTyping" k)
+               "a held modifier works everywhere, including in a field"))
+
+(test-case "the palette and the shell share ONE tab list"
+  ;; The palette's first job is "jump to a tab", so a second copy of the list
+  ;; would drift — and the one that drifts is the palette's, which would offer a
+  ;; tab a feature switch has turned off or a permission does not allow.
+  (check-equal? 1 (length (regexp-match* #px"'chat','agent','translate','search'" html))
+                "the tab list is spelled exactly once")
+  (check-true (string-contains? html "function visibleTabs()") "…in one function")
+  (check-true (string-contains? html "const tabs=visibleTabs()") "the shell asks it")
+  (check-true (string-contains? html "for (const tab of visibleTabs())") "…and so does the palette"))
+
+(test-case "Esc falls through when the palette is closed"
+  ;; Escape has meanings this console already relies on — leaving the editor's
+  ;; focus mode is one. Taking it unconditionally would break them.
+  (define k (fn-body "paletteKey"))
+  (check-true (regexp-match? #px"(?s:Escape.*?return false)" k)
+              "Esc is not swallowed when there is nothing open"))

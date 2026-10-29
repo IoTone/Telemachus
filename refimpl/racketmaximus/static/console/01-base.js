@@ -29,6 +29,13 @@ const HANDLERS = [];
 function H(fn){ HANDLERS.push(fn); return HANDLERS.length - 1; }
 for (const evname of ['click','input','change','keydown']) {
   document.addEventListener(evname, (ev) => {
+    // #182: the command palette and the `?` overlay are GLOBAL shortcuts, so
+    // they are not about an element and an element-scoped dispatch cannot
+    // carry them. They hook this listener rather than adding a second one —
+    // a second document listener is where the handler-leak and double-fire
+    // risks this dispatcher exists to remove would start over. It runs BEFORE
+    // the lookup and says whether it took the key.
+    if (evname === 'keydown' && typeof paletteKey === 'function' && paletteKey(ev)) return;
     const el = ev.target && ev.target.closest && ev.target.closest('[data-h-' + evname + ']');
     if (!el) return;
     const fn = HANDLERS[+el.getAttribute('data-h-' + evname)];
