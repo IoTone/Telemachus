@@ -35,7 +35,7 @@
          span-problem bbox-problem spans-covering
          pdftotext-available?
          register-extractor! unregister-extractor! registered-extractors extractors-of-plugin
-         repo-text-upsert! repo-text-for repo-spans-for)
+         repo-text-upsert! repo-text-for repo-text-version-for repo-spans-for)
 
 (define EXTRACT-CAP 200000)   ; characters, ~50 printed pages — plenty for search
 
@@ -339,6 +339,16 @@
 
 (define (repo-text-delete! conn object-id)
   (query-exec conn "DELETE FROM repo_text WHERE object_id = ?" object-id))
+
+
+;; WHICH version the stored text came from. `repo_text` is keyed on the object
+;; and carries the version as a column, so "the text" and "the version it is of"
+;; are two reads of one row — and the second is what anything keyed on the
+;; version (a chunk's vectors, #189 step 4) has to agree with. It lives here
+;; rather than at the caller because this module owns the table: one home for
+;; its SQL, which is why `repo-text-delete!` is here too.
+(define (repo-text-version-for conn object-id)
+  (query-maybe-value conn "SELECT version_id FROM repo_text WHERE object_id = ?" object-id))
 
 (define (repo-text-for conn object-id)
   (unseal-text object-id

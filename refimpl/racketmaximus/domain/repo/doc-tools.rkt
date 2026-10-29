@@ -77,6 +77,13 @@
          "extract.rkt")
 
 (provide current-doc-chat current-doc-embed
+         ;; #189 step 4: the chunk-vector write path is the SECOND asker of the
+         ;; embedding meter, so it leaves this module rather than being spelled
+         ;; again there. EMB-6's rule is one decision — an embedding bills
+         ;; `ai.embeddings.total` and `ai.requests`, never the completion budget
+         ;; — and two copies of it is `executor-can-run?`'s drift, where the
+         ;; second copy is the one nobody notices has stopped agreeing.
+         meter-embed!
          ;; #91 req 4: exported FOR the test, which is what makes "the label
          ;; really is read off the document's own attributes" a check rather than
          ;; a claim (#110 r4's rule — an export with a test behind it is not an

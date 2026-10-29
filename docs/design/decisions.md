@@ -3932,3 +3932,137 @@ together with what would change them, because a number that looks decided is
 indistinguishable from one that was measured — #119's shape — and these two are
 the ones the GPU rig's driver upgrade is still holding, beside #163's
 `EMBED-MARGIN-SCALE`.
+
+## VEC (continued) — the table, the first binary column, and the write path (issue #189, step 4, built 29 Oct 2026)
+
+Step 4 of `docs/design/vector-store.md`'s build plan: "the table and the write
+path, as a step in the existing indexing workflow rather than a new seam — a
+chunk's vector is the same kind of thing as its extracted text, keyed on the
+version, replaced wholesale by a new one." Migration `0064-chunk-vectors`,
+`domain/ai/chunkstore.rkt`, `domain/repo/embed-tools.rkt`, and a second workflow
+in `plugins/doc-indexer/`. **No route, no permission, no new environment
+variable** — `TMACH_EMBED_URL` and `TMACH_EMBED_MODEL` are #163's.
+
+**VEC‑18 — THE KEY IS THE VERSION, exactly as `repo_text`'s is.** A vector is of
+a chunk of the text of a particular set of bytes, so a new upload does not
+"update" it — it replaces the set wholesale, the rule `repo_text.spans` already
+lives by (LAY‑5). It is also what makes a superseded version's vectors
+unreachable rather than merely stale: step 5's scan will join
+`o.current_version_id`, so an old set can never score, and the lister sees "no
+vectors for the current version" and offers the document again.
+
+**VEC‑19 — `id` IS SYNTHETIC AND THE NATURAL KEY IS A UNIQUE INDEX**, which is
+not tidiness. A sealed column's AAD is `<table>.<column>:<row-id>` and
+`telemachus-secrets rewrap` walks a column by ONE id column, so a composite
+primary key here would have meant teaching the rotation CLI about composite keys
+in order to satisfy VEC‑3. A uuid costs 36 bytes and leaves both the AAD rule
+and the CLI as they are. `(object_id, version_id, idx)` is still enforced, as an
+index, because "one vector per chunk per version" is what the write path depends
+on — and it is what makes a mid-insert failure possible to test at all (below).
+
+**VEC‑20 — `model` IS A COLUMN AND `dims` IS NOT.** EMB‑8: vectors from two
+checkpoints are not comparable and mixing them does not raise, so the read
+filters on the model in SQL rather than discarding mismatches mid-scan, and
+changing `TMACH_EMBED_MODEL` makes every document eligible for a re-embed.
+`dims` is absent for the opposite reason: VEC‑15 reads the width off the BYTES,
+so a stored copy is LIVE‑IN's shape — a second fact able to disagree with the
+first.
+
+**VEC‑21 — REPLACED WHOLESALE, IN ONE TRANSACTION.** The unit of correctness is
+"the vectors of this version", never one row: a half-written set is a document
+whose chunks 0–4 are of today's bytes and 5–11 of last week's, and **nothing
+downstream could detect that** — the model matches, the widths match, and the
+offsets point into a string that has changed underneath them. A positive control
+is what established which mechanism does the work: every validation in
+`chunks-replace!` runs BEFORE the delete, so with the transaction removed the
+"a refused write does not destroy the previous set" case still passed. The
+transaction's own case had to be written — two chunks claiming one `idx`, which
+VEC‑19's unique index refuses on the second insert — and that case fails without
+it, naming the mixture.
+
+**VEC‑22 — A VECTOR WITH NO DIRECTION IS REFUSED AT THE WRITE**, not stored and
+skipped later. `vec-normalize` answers `#f` for a zero or NaN vector and the
+store's invariant is that every row is a UNIT vector, because that is what makes
+the read a bare dot product (VEC‑11). A stored zero would compare 0.0 against
+every query — the WORST match — which is a claim where "this chunk could not be
+embedded" is the truth. Providers really do answer a zero vector for empty
+input, which is `cosine`'s own reason for the same choice.
+
+**VEC‑23 — A BLANK-TEXT DOCUMENT IS FILTERED IN THE LISTER, AND IT CANNOT BE A
+SQL TEST.** `repo_extract_text` records an unreadable document as
+processed-with-nothing — an empty `repo_text` row, deliberately, so one corrupt
+file cannot wedge a team's indexing — and the chunker answers zero chunks for an
+empty string, so such a document can never acquire a vector row. Unfiltered it
+is listed by every run for ever, which is index-tools' own objection to filtering
+in the map, and here it also means **the drain never terminates**: an operator
+running the workflow until it finds nothing never finishes. The test has to be
+made in Racket on the unsealed text, because under `TMACH_ENCRYPT_CONTENT` the
+stored `content` is a sealed string and an empty text is NOT an empty column —
+`t.content <> ''` is true for it. A check that worked on the documented default
+and silently stopped working on a sealed instance is the dialect-divergence class
+this codebase already watches for, wearing a different hat. So the window is
+bounded in SQL (`EMBED-SCAN`) and the filter runs over it, CLS‑27's shape.
+
+**VEC‑24 — A SECOND WORKFLOW, NOT TWO MORE STEPS ON `index-documents`.** The
+build plan says "as a step in the existing indexing workflow rather than a new
+seam", and the *seam* is what that sentence is about: no daemon, no second
+execution path, the plugin's spec and the core's tools. What it is not is two
+steps appended to the published `index-documents` spec, because **a step that
+errors fails the RUN**: `repo_embed_chunks` refuses without `TMACH_EMBED_URL`,
+which is unset on every instance today, so text indexing would start failing
+everywhere the moment this landed. Positive-controlled by appending them — the
+run errors with `step 'efind' failed: no embedding model configured`. The
+precedent is `classify-backfill` (CLS‑24): a separate spec rather than a flag on
+a published one, for the same reason adding an INPUT to a published spec is a
+breaking change. It also lets an operator drain the text backlog and the vector
+backlog at different rates, which is what they will want, because one is free and
+one spends the AI budget.
+
+**VEC‑25 — NO EMBEDDING CALL IN THE STORE, AND NO AUTHORIZATION EITHER.** The
+vectors arrive as an argument. `embed-exchange` is egress-gated, request-logged
+and metered at the seam in `doc-tools.rkt` (`current-doc-embed` + `meter-embed!`,
+now exported for its second asker), and a second caller of it inside the store
+would be a second place those three could be forgotten — RED‑16's finding, where
+`model-exchange`'s own header called itself the one place content leaves while
+two other paths had their own. So the store is pure of the network and its test
+needs no endpoint. It is handed no principal either, exactly as `repo-text-upsert!`
+is: VEC‑17's rule, and the blob store's — a layer never handed a principal has no
+authorization to get wrong.
+
+**THE FIRST BINARY COLUMN IN THIS SCHEMA, and the round trip was measured before
+anything was written.** Zero `BLOB`/`BYTEA` columns existed. The type spelling is
+branched (`BLOB` on SQLite, `BYTEA` on PostgreSQL) and getting that wrong is a
+syntax error at migration time — loud, and therefore the harmless half. The half
+that would NOT have been loud is the round trip, so a probe stored all 256 byte
+values through `db-kit/portable` on both dialects and read them back identical
+before the migration existed; `test/chunkstore-tests.rkt` then pins it, and the
+whole file runs under `DATABASE_URL=postgres://…`. A vector that decodes to
+plausible-but-wrong numbers has no model name to catch it (VEC‑13's own argument
+for pinning little-endian) and retrieves the wrong chunk for ever.
+
+**ONE EMBEDDING REQUEST PER BATCH OF 32 CHUNKS, metered per batch.**
+`ai.requests` defaults to 200/day, so one request per chunk would let a single
+231-chunk document — a document at `EXTRACT-CAP` — spend a team's whole day; one
+request per document hands a provider a 231-item array. Metering per batch rather
+than once at the end is FEED‑9's rule: a run that fails on its third batch has
+spent the first two, and a meter that only fires on success makes a failing
+document free to retry for ever. The completion budget is untouched and a test
+pins that it is, because folding an embedding into `ai.tokens.total` would make a
+retrieval index silently eat the budget the chat path needs (EMB‑6).
+
+**AND THE TEXT INDEXER HAD BEEN HANDING A COLLEAGUE'S PRIVATE DOCUMENT TO A RUN
+THAT COULD NOT READ IT** — found while writing this slice's own lister, which had
+the same shape. `repo-list` has applied `can?` per row since slice 49;
+`repo_list_unindexed` (slice 54) selects by `team_id` alone, so a member running
+**Index Documents** on a team holding one private document was handed its id,
+and `repo_extract_text` then raised `forbidden: files:read`, which fails the step
+and the run. So the workflow was unusable for anyone but the owner on any team
+with a private document, and what an operator saw was a failed run naming a
+permission. `repo-readable?` in `repo.rkt` is the one predicate both listers now
+ask, collapsing a miss and a refusal as the knowledge graph does. **The first
+regression case for it did not bite**, because by the point it ran alice had
+already indexed the private document and the lister offers only what is
+unindexed — the "exactly-once hides every later mistake" shape, in a lister. It
+takes a private document created AFTER that run, which is the one state in which
+nothing else is deciding.
+

@@ -23,6 +23,7 @@
          "../domain/repo/extract.rkt"
          "../domain/repo/index-tools.rkt"        ; registers the tools
          "../domain/agent/tools.rkt"             ; the rest of the catalog
+         "../domain/agent/registry.rkt"          ; tool-by-name, for the lister cases
          "../domain/sched/scheduler.rkt"
          "../domain/flow/run.rkt"
          "../domain/apps/search.rkt"
@@ -227,6 +228,32 @@
   (define hit3 (findf (lambda (x) (equal? (hash-ref x 'type) "file"))
                       (search-all conn p "cancelled")))
   (check-true (and hit3 #t) "re-indexed after an overwrite")
+
+  ;; A COLLEAGUE'S OWN RUN, which nothing exercised until #189 step 4 and which
+  ;; was BROKEN: the lister selects by `team_id` alone, so alice's private
+  ;; document was offered to bob, and `repo_extract_text` then raises `forbidden:
+  ;; files:read` — failing the step and the run. A member running the indexer on a
+  ;; team holding one private document got a failed run and an un-indexed batch.
+  ;; `repo-readable?` is the per-row `can?` `repo-list` has applied all along.
+  ;; A FRESH private document, created AFTER alice's run. `hr/secret.md` cannot
+  ;; test this at all: the lister offers only what is UNINDEXED, so once alice has
+  ;; indexed it the window excludes it whatever the per-row rule says — the
+  ;; "exactly-once hides every later mistake" shape, in a lister. A positive
+  ;; control is what showed it: with `repo-readable?` removed, the first version
+  ;; of this case still passed.
+  (define fresh-secret
+    (up! "hr/secret2.md" #"the quokka severance plan" "text/markdown" #:vis "private"))
+  (define newer (up! "notes/newer.md" #"the pangolin review is open" "text/markdown"))
+  (define blisted ((tool-handler (tool-by-name "repo_list_unindexed")) conn pbob (hasheq)))
+  (check-false (for/or ([id (in-list blisted)]) (equal? id (hash-ref fresh-secret 'id)))
+               "a colleague's private document was offered to bob for indexing")
+  (check-true (for/or ([id (in-list blisted)]) (equal? id (hash-ref newer 'id)))
+              "bob must still be offered the team-visible documents")
+  (define brun (flow-run-start! conn pbob def))
+  (drain! conn)
+  (check-equal? (hash-ref (flow-run-get conn pbob (hash-ref brun 'id)) 'status) "done"
+                "a member's own indexing run must not fail over a colleague's private document")
+
 
   ;; deleting the object removes its text from search
   (define o (repo-get conn p "notes/minutes.md" #:by-key tid))

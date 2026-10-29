@@ -1946,9 +1946,65 @@
       ;; read an un-backfilled row as infinitely old.
       (exec* conn "ALTER TABLE model_requests ADD COLUMN operation TEXT"))))
 
+
+;; 0064 — THE FIRST BINARY COLUMN IN THIS SCHEMA (#189 step 4, VEC-18…24).
+;;
+;; One row per chunk of one VERSION of one document, holding that chunk's
+;; embedding as packed little-endian float32 (`domain/ai/vectors.rkt`), sealed as
+;; BYTES under the content switch. Zero `BLOB`/`BYTEA` columns existed before
+;; this one, which is why the spelling is branched rather than assumed: SQLite
+;; says `BLOB` and PostgreSQL says `BYTEA`, and a `BLOB` column declared on
+;; PostgreSQL is a syntax error at migration time — loud, and therefore the
+;; harmless half. The half that would NOT have been loud is the round trip, so it
+;; was measured before this was written: all 256 byte values survive
+;; `db-kit/portable` unchanged on both dialects.
+;;
+;; VEC-18 — THE KEY IS THE VERSION, exactly as `repo_text`'s is. A vector is of
+;; a chunk of the text of a particular set of bytes, so a new upload does not
+;; "update" it, it replaces the set wholesale — the rule `repo_text.spans`
+;; already lives by (LAY-5), and the reason a superseded version's vectors can
+;; never score in a search: step 5's scan joins `o.current_version_id`.
+;;
+;; VEC-19 — `id` IS SYNTHETIC AND THE NATURAL KEY IS A UNIQUE INDEX, which is
+;; not tidiness. The AAD of a sealed column is `<table>.<column>:<row-id>`
+;; (ENC's rule), and `telemachus-secrets rewrap` walks a column by ONE id
+;; column — so a composite primary key here would have meant teaching the
+;; rotation CLI about composite keys to satisfy VEC-3. A uuid costs 36 bytes and
+;; leaves both the AAD rule and the CLI as they are. The natural key is still
+;; enforced, as an index, because "one vector per chunk per version" is the
+;; property the write path depends on.
+;;
+;; VEC-20 — `model` IS A COLUMN BECAUSE A MODEL CHANGE INVALIDATES EVERYTHING
+;; (EMB-8). Vectors from two checkpoints are not comparable and mixing them does
+;; not raise — it answers confidently and wrongly — so the read filters on it in
+;; SQL rather than discarding mismatches mid-scan. `dims` is deliberately NOT a
+;; column: VEC-15 reads the width off the bytes, and a stored copy of a fact the
+;; bytes already carry is LIVE-IN's shape, able to disagree with them.
+(define m-0064-chunk-vectors
+  (migration "0064-chunk-vectors"
+    (lambda (conn)
+      (define blob (case (db-dialect conn) [(postgresql) "BYTEA"] [else "BLOB"]))
+      (exec* conn
+       (string-append
+        "CREATE TABLE repo_chunks ("
+        "  id TEXT PRIMARY KEY,"
+        "  object_id TEXT NOT NULL,"
+        "  version_id TEXT NOT NULL,"
+        "  idx INTEGER NOT NULL,"          ; the chunk's position in the document
+        "  start_off INTEGER NOT NULL,"    ; CHUNK-1: character offsets into
+        "  end_off INTEGER NOT NULL,"      ;   repo_text.content, = spans' coordinates
+        "  model TEXT NOT NULL,"
+        "  vector " blob " NOT NULL,"
+        "  created_epoch INTEGER NOT NULL)")
+       ;; VEC-19's natural key, enforced
+       "CREATE UNIQUE INDEX repo_chunks_chunk ON repo_chunks(object_id, version_id, idx)"
+       ;; the delete path and the write path both act per object
+       "CREATE INDEX repo_chunks_object ON repo_chunks(object_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
                              m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts
                              m-0059-feed-items m-0060-trigger-attrs m-0061-redactions
-                             m-0062-model-requests m-0063-model-request-operation))
+                             m-0062-model-requests m-0063-model-request-operation
+                             m-0064-chunk-vectors))

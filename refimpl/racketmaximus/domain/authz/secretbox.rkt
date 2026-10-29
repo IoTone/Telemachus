@@ -51,7 +51,7 @@
          secrets-enabled? secret-key-id secret-wrap secret-unwrap wrapped-secret?
          current-previous-secret-key parse-secret-key
          secret-digest
-         secret-wrap/bytes secret-unwrap/bytes wrapped-bytes?
+         secret-wrap/bytes secret-unwrap/bytes wrapped-bytes? wrapped-bytes-key-id
          KEY-BYTES NONCE-BYTES)
 
 (define KEY-BYTES 32)
@@ -318,6 +318,21 @@
 ;; plaintext bytes -> the bytes to store. Identity with no key, and identity for
 ;; anything that is not bytes, so it is as total as `secret-wrap` is and a guard
 ;; at the call site would be the redundancy `sealed.rkt` dropped.
+
+;; Which key sealed these bytes, or #f for a value that was never sealed. It is
+;; exported for ONE caller that cannot do without it: `telemachus-secrets
+;; rewrap` decides idempotence by asking "is this row already sealed by the
+;; CURRENT key", and on the string path it answers that with a text prefix test
+;; (`enc:v1:<kid>:`). A packed vector may contain any byte, so there is no prefix
+;; to test — the key id has to be read out of the frame. Without this the CLI
+;; would re-seal every binary row on every run, which is not merely wasteful: it
+;; rewrites the whole column each time and makes "rewrapped 0 secret(s)" — the
+;; line an operator reads to know a rotation is finished — impossible to reach.
+(define (wrapped-bytes-key-id bs)
+  (and (wrapped-bytes? bs)
+       (let ([m (bytes-length BYTES-MAGIC)])
+         (bytes->string/utf-8 (subbytes bs m (+ m KID-BYTES))))))
+
 (define (secret-wrap/bytes context plain)
   (define k (current-secret-key))
   (cond

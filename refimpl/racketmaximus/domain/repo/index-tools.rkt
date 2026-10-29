@@ -54,8 +54,18 @@
     (principal-team-id p) LIST-BATCH))
   ;; unsupported types are filtered HERE, not in the map — an image would otherwise
   ;; be "unindexed" forever and every run would fan out over it again
+  ;;
+  ;; …and so is READABILITY, which was missing until #189 step 4 and is the more
+  ;; serious of the two. The window selects by `team_id` alone, so a colleague's
+  ;; PRIVATE document was listed; `repo_extract_text` then raises `forbidden:
+  ;; files:read`, which fails the step and the run. A member running this workflow
+  ;; on a team holding one private document therefore got a failed run and an
+  ;; un-indexed batch — which reads as a broken indexer rather than as a
+  ;; permission. `repo-list` has applied `can?` per row all along; this lister
+  ;; never did.
   (for/list ([r (in-list rows)]
-             #:when (extractable? (vector-ref r 1)))
+             #:when (and (extractable? (vector-ref r 1))
+                         (repo-readable? conn p (vector-ref r 0))))
     (vector-ref r 0)))
 
 (define (extract-one conn p args)
