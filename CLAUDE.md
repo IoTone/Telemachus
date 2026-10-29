@@ -2493,6 +2493,72 @@ asserts the seams were never called, and the control bites now.
 **`(void (label-vectors …))` is an arity error, not a discard** — third
 appearance of that shape in these notes. `call-with-values`.
 
+## Where a document vector would live (VEC‑1…10, issue #189) — EVALUATED, NOT BUILT
+
+#189 asked for "a story and an evaluation", which is what exists:
+`docs/design/vector-store.md` plus the **VEC** block in `decisions.md`. No code,
+no migration, no route. Read it before building retrieval — #183 (in-product
+help) and #191 (graph‑RAG) are both waiting on it, and the build plan is at the
+end of that document.
+
+**The answer is a sealed `BLOB` column, one row per chunk, scanned in process.
+No extension, no new service, no ANN index — revisited at 50,000 chunks for one
+team.** Measured on this box: 1,000 chunks **8 ms**, 10,000 **74 ms**, 100,000
+**759 ms** (one row per chunk, 768 dims, `SELECT` + scan).
+
+Four measurements that decide things, and three of them went against what I
+expected:
+
+- **`sqlite-vec` CANNOT BE REACHED FROM THIS PLATFORM.** `db/sqlite3` exports
+  `sqlite3-connect` and `sqlite3-available?` and no extension-loading entry
+  point, and `select load_extension(…)` through `db` answers **"not
+  authorized"** — SQLite's reply when `sqlite3_enable_load_extension` was never
+  called. The identical SQLite 3.53.3 in the same closure loads `vec0` from the
+  CLI and answers `vec_version()`, so the limitation is **Racket's binding, not
+  SQLite**. Reaching it means our own FFI to libsqlite3 beside `db`'s, with a
+  second connection to the same file, outside `db-kit/portable` and outside the
+  pool, on the request path. Therefore SQLite is served by the full scan whatever
+  anyone decides about Postgres, and an index is a SECOND retrieval path rather
+  than a replacement for one.
+- **`secret-wrap` IS A STRING API, AND SEALING BINARY THROUGH IT COSTS 51× AND
+  1.8× THE STORAGE.** 29.3 MiB of packed float32: `aes-256-gcm-decrypt` on raw
+  bytes **44 ms** (≈665 MiB/s), `secret-unwrap` + `base64-decode` on the same
+  data as a string **2,240 ms**; stored 29.3 MiB against 52.1 MiB. It is base64
+  in, UTF‑8 out, UTF‑8 in, base64 out. Nothing had noticed because the largest
+  sealed value in the tree is 200 KB of extracted text, 18 ms through that same
+  path. **My first reading of this was "sealing makes the scan take 2.3
+  seconds", which was true and was about the wrong thing** — batching into pages
+  did not help, and that is what said so. Sealed at the BYTES level the whole
+  scan costs 4–14% more than unsealed, so the privacy-first default is not the
+  slow path.
+- **`cosine` in `embedstore.rkt` is 8× slower than a document scan can afford,
+  and that is not a defect.** Over boxed `vector`s: **1,272 ms** at 100,000
+  comparisons where an `flvector` dot product over pre-normalized vectors takes
+  **150 ms** — every component is a heap-allocated flonum and the loop recomputes
+  both norms on every comparison. Exactly right for EMB‑7's handful of labels;
+  the whole cost of a scan. A scan wants its own primitive, not a faster
+  `cosine`.
+- **THE CLOSURE OBJECTION WAS WRONG BY THREE ORDERS OF MAGNITUDE.** I had
+  declined the extensions partly on "the Nix closure grows": nixpkgs carries
+  pgvector 0.8.7 for PostgreSQL 15–18 at **685 KiB unpacked** and sqlite-vec
+  0.1.9 with a **343 KiB** closure. They are declined on VEC‑5 and VEC‑6, not on
+  size. pgvector itself works here unmodified — `CREATE EXTENSION vector` ok,
+  HNSW query **1.7 ms** at 100,000 against a **272 s** build and a 391 MB index.
+
+**The scale that decides it is measurable, so measure it before arguing.**
+#183's entire English documentation corpus is 61 files and 189,166 words —
+**1,159 chunks** at 256 tokens with 15% overlap, 579 at 512. `EXTRACT-CAP`
+(200,000 characters) bounds one document at ~230 chunks, and an ordinary 2–5
+page business document is ~9, so a team with ten thousand documents is ~90,000
+chunks. The thing actually waiting needs twelve hundred.
+
+**Two prerequisites have their own tests and no behaviour change**, and they are
+steps 1 and 2 of the plan for that reason: an `flvector` dot product over a
+normalized store, and a bytes-level seal under `sealed.rkt`'s existing AAD rule.
+Step 3, the chunker, is the one decision with no measurement behind it, because
+recall needs a live `nomic-embed-text` — the same calibration
+`EMBED-MARGIN-SCALE` is waiting on.
+
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
 Built 25 Oct 2026 — the last piece of #87 this build can hold. One tool

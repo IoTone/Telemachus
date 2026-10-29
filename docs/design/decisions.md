@@ -3355,3 +3355,45 @@ needs only label vectors.
 the label set embedded once and cached, cosine against each label, and the same
 `confidence` contract the other two answer with. The evaluation harness (#87
 req 6) measures it per backend and in the chain with **no change at all**.
+
+## VEC — where a document vector lives (issue #189, evaluated 28 Oct 2026)
+
+#189 asked for a story and an evaluation, not a build. The full write-up, with
+every measurement behind these rows, is **`docs/design/vector-store.md`**; this
+is the decision table. **Nothing here is built** — the build plan is at the end
+of that document, and the issue stays open on it.
+
+The question exists because EMB‑7 refused to answer it: `embedstore.rkt` holds
+label vectors and says in its own header that a vector per DOCUMENT is a
+different subsystem wearing the same words, so that the next asker would have to
+decide rather than inherit. This is that decision.
+
+| | Question | Decision | Why |
+|---|---|---|---|
+| **VEC‑1** | What a vector is OF | **A CHUNK, with character offsets into `repo_text.content`** · vs a document | A vector averaged over fifty pages is a vector of nothing, and #183's own requirement is that an answer CITES — which needs a passage, not a file. LAY‑5 already has the vocabulary for "this text came from here" (`start`/`end` into the text the same extraction returned), so a chunk's offsets are the existing shape rather than a second one. |
+| **VEC‑2** | Where they live | **A typed table, ONE ROW PER CHUNK** · vs pages of many vectors · vs a settings blob · vs LAY‑4 attributes | Measured: 32 vectors per row moves 10,000 vectors from 74/85 ms to 56/62 ms and the file from 39.2 to 29.3 MiB — 20% of the time, 25% of the disk, for a row that can no longer be deleted, superseded or cited on its own. The curve is flat past 32, so the ceiling on that trade is known and it is small. A settings blob is EMB‑7's shape and does not scale; LAY‑4 values are strings and there is no JSON SQL in either dialect (QUEUE‑1's finding). |
+| **VEC‑3** | Sealing | **Sealed under `TMACH_ENCRYPT_CONTENT`, as BYTES, and LISTED in `CONTENT-SECRETS`** · vs unsealed · vs sealed always | A document vector is a function of `repo_text.content`, which that switch seals — and embedding inversion recovers much of the source text, so an unsealed vector column beside a sealed `repo_text` would undo #83 on exactly the instance that asked for it (#119's shape). EMB‑9 predicted this answer in writing. **As bytes** because `secret-wrap` is a STRING API: through it the same 29.3 MiB costs **2,240 ms and 52.1 MiB** against **44 ms and 29.3 MiB** for `aes-256-gcm-decrypt` on raw bytes — 51× and 1.8×. **Listed** for the `job_schedules.payload` reason: a vector store outlives key rotations, and a sealed column `rewrap` does not walk is silently unrotatable. |
+| **VEC‑4** | An ANN index | **None, and a stated threshold** · vs pgvector + sqlite-vec | The caller that is waiting — #183's whole documentation corpus — is **1,159 chunks**, which the scan answers in **8 ms**. pgvector's HNSW really is 500× at 100,000 (1.7 ms vs 868 ms) and costs **272 s to build**, an index as large as the table, and maintenance on every write. Revisit at **50,000 chunks for one team**, where the scan crosses half a second — a number, not "if it gets slow", and the store reports its own per-team count so an operator can see it coming. |
+| **VEC‑5** | sqlite-vec | **UNREACHABLE from this platform, and that is measured** | `db/sqlite3` exports `sqlite3-connect` and `sqlite3-available?` and no extension-loading entry point; `select load_extension(…)` through `db` answers **"not authorized"**, which is SQLite's reply when `sqlite3_enable_load_extension` was never called. The identical SQLite 3.53.3 in the same closure loads `vec0` from the CLI and answers `vec_version()`. So the limit is Racket's binding, and reaching it means our own FFI to libsqlite3 beside `db`'s, with its own connection to the same file, outside `db-kit/portable` and outside the pool, on the request path. |
+| **VEC‑6** | Therefore pgvector | **Declined, because it cannot be the only path** | SQLite gets no index (VEC‑5) and a sealed instance gets none either, since the engine must read the vector to compare it. So an extension does not REPLACE the scan — it adds a second retrieval path above one that has to exist anyway, on the dialect whose deployments are largest. Availability was not the objection and my first framing of it was wrong by three orders of magnitude: nixpkgs has pgvector 0.8.7 for pg 15–18 at **685 KiB** and sqlite-vec 0.1.9 at a **343 KiB** closure. |
+| **VEC‑7** | An external store | **Declined** (Qdrant, Weaviate, Chroma, a managed pgvector) | A second network service that nothing else in the deployment needs, for a workload measured in milliseconds — the trade `container.md` already declines twice, for LibreOffice and for MinIO. And it puts document-derived vectors, which invert back towards the text, on a wire this platform does not control, in a product whose first adjective is self-hosted. |
+| **VEC‑8** | Staleness | **The model name travels WITH the vectors; a mismatch discards them whole** | EMB‑8 unchanged and for its reason: vectors from two checkpoints are not comparable and mixing them does not raise — it yields a cosine between unrelated coordinate systems, which is a number, and therefore a confident answer nobody can tell is nonsense. A new version of a document supersedes its chunks wholesale, as `repo_text` already does. |
+| **VEC‑9** | Authorization | **Team-scoped in SQL, then `can?` per row AFTER the scan** | `search.rkt`'s rule, and CLS‑27's consequence: a window bounded in SQL and a filter applied per row, so a hit confers nothing and the count is "what you may read". A nearest-neighbour query must not become the one read that skips the gate. |
+| **VEC‑10** | The stored width | **float32 at the model's native dimension** · vs int8 · vs Matryoshka truncation | Both are real levers and both are measured — at 10,000 vectors, 768‑dim float32 scans in 122 ms, int8 in 72 ms, 256‑dim float32 in 40 ms, 256‑dim int8 in 21 ms, with storage falling 4× and 12× — and neither is adopted, because the cost is RECALL and recall cannot be measured without a live embedding endpoint. Naming them with their savings is the useful half; picking one on arithmetic alone would be the EMBED‑MARGIN‑SCALE mistake, a constant nobody calibrated. |
+
+**Two things worth taking away from this even if none of it is built:**
+
+**`cosine` is 8× slower than a document scan can afford**, and that is not a
+defect — over boxed `vector`s it takes 1,272 ms at 100,000 comparisons where an
+`flvector` dot product takes 150 ms, because every component is a heap-allocated
+flonum and the loop recomputes both norms every time. For EMB‑7's handful of
+labels that is exactly right. For a scan it would be the whole cost, so the scan
+needs its own primitive rather than a faster `cosine`.
+
+**The sealing layer has never been asked to move anything large, and the string
+API is why it would look slow.** The biggest sealed value in the tree today is
+200 KB of extracted text, 18 ms through `secret-wrap`. At 29 MiB the same path is
+2.24 s — base64 in, UTF‑8 out, UTF‑8 in, base64 out — while the cipher itself
+runs at about 665 MiB/s. The first measurement of this slice said "sealing makes
+a 10,000-vector scan take 2.3 seconds" and it was true and it was about the
+wrong thing; batching it into pages did not help, which is what said so.
