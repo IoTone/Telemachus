@@ -79,7 +79,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/timezones` | bearer | — | — | — | このインスタンスがデータを持つすべての IANA タイムゾーン。ソース中のリストではなく、ディスク上の tz データベースから導出されるため、tzdata の更新にリリースは不要です。 |
 | PATCH | `/api/members/:id` | bearer | `members:manage` | role | — | メンバーのチームロールを変更する：{role}。最後のオーナーは降格できません — オーナーのいないチームは、それを修正する権限を誰にも付与できないためです。 |
 | DELETE | `/api/members/:id` | bearer | `members:manage` | role | — | メンバーをチームから外す：メンバーシップを無効化し、そのメンバーがこのチームに対して保持しているトークンをすべて失効させます。最後のオーナーは削除できません。 |
-| GET | `/api/admin/status` | bearer | `instance:read` | role | — | インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。 |
+| GET | `/api/admin/status` | bearer | `instance:read` | role | — | インスタンスの状態：バージョンとビルド、KDF、TLS、マルチテナント、保存時暗号化の状態、データベースの方言、スキーマの適用済み／保留中のマイグレーション、有効なブロブストア、ドレインの待機時間、そしてユーザー・チーム・組織の件数。 |
 | POST | `/api/orgs` | superadmin | `instance:manage` | role | — | 会社を作成：org、最初のチーム、所有者。明示的なスラッグは自然キーです（再実行で409エラー） |
 | GET | `/api/orgs` | superadmin | `instance:manage` | role | — | インスタンス上のすべての組織をリスト表示します。 |
 | POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | role | — | 会社（id またはスラッグ）を停止する；その中のすべてのチームが読み取り専用になります。 |

@@ -92,6 +92,12 @@ function appShell(){
   const tabs=['chat','agent','translate','search','notes','documents','repository','workflows','knowledge','jobs','team','usage'].filter(x=>S.features[x]!==false);
   if(canPerm('reviews:read')) tabs.splice(tabs.indexOf('workflows')+1, 0, 'reviews');
   if(canPerm('localization:read')) tabs.splice(tabs.indexOf('usage'), 0, 'localize');
+  // #179: `instance:read`, which `instance:manage` implies by name (#124), so
+  // an operator keeps it and a monitoring credential scoped to the read gets
+  // the screen without being able to reset a password. Spliced rather than
+  // pushed, so it sits beside Usage where an operator already looks for
+  // numbers rather than after the Admin tab.
+  if(canPerm('instance:read')) tabs.splice(tabs.indexOf('usage')+1, 0, 'health');
   if(canManage()) tabs.push('beta'); if(S.me.is_operator) tabs.push('admin');
   return `<header class="top">
       <span class="brand">${brandLockup(22)}</span>

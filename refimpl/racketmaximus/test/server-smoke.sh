@@ -189,6 +189,20 @@ refute "…nor the commit"                "$(curl -s $B/health)" 'commit'
 assert "the monitoring read has it too" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"commit_short":"'
 assert "admin operator"  "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"ok":true'
 assert "admin status carries the version now" "$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")" '"kdf":"'
+# issue #179: the facts a health screen needs that existed only in the boot log
+# or in a Racket function nothing served. The dialect is asserted by NAME rather
+# than by a literal, because this suite runs on both engines.
+ST="$(curl -s $B/api/admin/status -H "Authorization: Bearer $OP")"
+assert "status names the dialect"     "$ST" '"dialect":"'
+assert "status reports the schema"    "$ST" '"pending":['
+assert "…with nothing pending"        "$ST" '"pending":[]'
+assert "status names the blob store"  "$ST" '"blob_store":{"name":"'
+assert "status carries the drain window" "$ST" '"drain_seconds":'
+# The probe result is deliberately ABSENT: blob-store-probe writes, reads and
+# deletes a blob, so a field here would be a PUT/GET/DELETE against somebody's
+# bucket on every dashboard refresh — and this route is `instance:read`, which
+# must not perform a write. A serving instance has already passed the boot probe.
+refute "…and NOT a probe result"      "$ST" '"probe"'
 MB=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"bob","role":"member"}')
 assert "member token"    "$MB" '"token":"tk_'
 BOB=$(printf '%s' "$MB" | grep -oP '"token":\s*"\K[^"]+')

@@ -166,7 +166,7 @@
    (R "GET" "/api/timezones" 'timezones #:doc "Every IANA timezone this instance has data for, derived from the tz database on disk rather than a list in the source, so a tzdata upgrade needs no release.")
    (R "PATCH" "/api/members/:id" 'member-role #:perm "members:manage" #:doc "Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it.")
    (R "DELETE" "/api/members/:id" 'member-remove #:perm "members:manage" #:doc "Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed.")
-   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:read" #:doc "Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants.")
+   (R "GET" "/api/admin/status" 'admin-status #:perm "instance:read" #:doc "Instance status: version and build, KDF, TLS, multi-tenancy and secrets-at-rest state, the database dialect, the schema's applied/pending migrations, the active blob store, the drain window, and counts of users, teams, orgs.")
 
    ;; ---- multi-tenancy: superadmin plane, then org-admin plane ----------------------
    (R "POST" "/api/orgs" 'orgs-create #:auth 'superadmin #:perm "instance:manage" #:doc "Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run).")

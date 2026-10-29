@@ -3545,3 +3545,80 @@ polls nothing today except a live workflow run, and #38's idle clock counts from
 the last REQUEST — so a dashboard that refreshed itself every ten seconds would
 hold a session open for as long as the tab was left on screen, which is an
 idle-timeout control switched off by a feature that looks like polish.
+
+## HEALTH — one screen for "is this instance healthy" (issue #179, built 29 Oct 2026)
+
+Everything an operator needs existed and was scattered across five HTTP reads,
+and the console showed the FLEET and the QUEUE while **nothing showed the server
+itself**. `GET /api/admin/status` gains five facts; the console gains a Health
+tab. No migration, no new route, no new permission.
+
+| | |
+|---|---|
+| **HEALTH‑1** | The screen COMPOSES the Workers and Queue cards; it does not re-render their figures |
+| **HEALTH‑2** | `instance:read`, not `S.me.is_operator` — the permission #124 created for exactly this |
+| **HEALTH‑3** | Nothing polls. The refresh is a button, because a self-refreshing screen switches off the idle timeout |
+| **HEALTH‑4** | The status read gains the dialect, the schema's applied/pending, the blob store's NAME and the drain window |
+| **HEALTH‑5** | No probe result: `instance:read` must not perform a write, and a serving instance has already passed the boot probe |
+| **HEALTH‑6** | Uptime is DERIVED from the build's start time — one clock, not two |
+| **HEALTH‑7** | The budgets are the caller's OWN team's, and the card says so |
+| **HEALTH‑8** | The boot call moved to its own last-sorting file, because load order stopped being implicit |
+
+**HEALTH‑1 is the decision the slice turns on.** The issue asks for a fleet
+section and a queue section, and both already exist on the Admin tab. Drawing
+those numbers again here would be two renderings of one answer that can disagree
+about an edge nobody is looking at — `executor-can-run?`'s drift, LIVE‑IN's
+shape — so `healthView` calls `workersCard` and `queueCard` with the same two
+responses, and the test asserts BOTH halves: that it calls them, and that the
+file contains none of `unclaimable`, `held_by_paused`, `oldest_queued_seconds`
+or `leases_expired` itself.
+
+**HEALTH‑3 is a security answer wearing a convenience's clothes**, and it is
+QVIZ‑6 arriving one slice early. #38's idle clock counts from the last REQUEST,
+and the console polls nothing but a live workflow run — so a dashboard that
+refreshed itself every ten seconds would hold a session open for as long as the
+tab was left on screen. That is an idle timeout disabled by something that looks
+like polish. The screen says when it was read and offers a button.
+
+**HEALTH‑5 — the probe is the one field a dashboard obviously wants and must not
+have.** `blob-store-probe` writes a blob, reads it back and deletes it, so a
+field here is a PUT, a GET and a DELETE against somebody's bucket on every
+refresh — and the route is `instance:read`, which must not perform a write. The
+honest signal already exists and is stronger: **startup refuses to serve on a
+failed probe, so an instance that is ANSWERING has already proven its store
+once.** A field asserting that from this module would be a claim about
+main.rkt's behaviour made somewhere else, which is #119's shape, so the console
+says it in prose and no field can go stale. What this does NOT tell an operator
+is whether the store has gone away since boot; that is stated rather than
+implied.
+
+**HEALTH‑4's pending list names the ids rather than counting them**, because
+migration runs at boot — so a pending one means one FAILED, and the id is the
+only part of that an operator can act on. Unlike `schema-problem`, which must
+ignore a plugin's `x.` ids to decide whether to boot, this is a REPORT and a
+reader wants to see them, so they are counted in `applied` and excluded from
+nothing.
+
+**The server's own drain LATCH is deliberately not reported.** It lives for at
+most `TMACH_DRAIN_SECONDS` and the process exits immediately after, so a field
+for it would be blank in every reading anybody ever takes. What an operator
+about to restart actually wants is **how long a stop will take**, which is the
+knob; a HOST's drain is a different thing and has been on the Workers card since
+FLEET‑3.
+
+**HEALTH‑8 — the boot call moved, and the reason is a bug that had not happened
+yet.** `render()` was the last line of `13-kg.js`, which worked only because it
+is async and yields at its first `await`, giving the remaining `<script>` tags
+time to parse before it reached `renderTab()`'s dispatch table. That is a real
+dependency on a detail of the event loop, and it breaks the moment a view is
+added in a file that sorts AFTER the one that boots — the tab exists, the
+function does not, and the console dies at load with a `ReferenceError` that
+only a browser sees. #179 added the first such file. `99-boot.js` sorts after
+every numbered one, which is what `test/console-tests.rkt` requires of the load
+order, and the test pins that exactly one file calls `render()` at top level.
+
+**`all-migrations` IS A LIST, NOT A THUNK**, and `(all-migrations)` is "not a
+procedure" at request time rather than at compile time. What made it diagnosable
+in one read was #123: the 500 carries a request id and the message goes to
+stderr beside it, where before this year the body would have carried the whole
+exception and the log nothing.

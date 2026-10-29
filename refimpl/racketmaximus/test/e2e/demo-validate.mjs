@@ -369,6 +369,22 @@ try {
       pageErrors.slice(before).join(' | '));
   }
 
+  // ── 7b. the health screen (issue #179) ──────────────────────────────────────
+  // Source assertions in test/console-tests.rkt prove this screen is WIRED;
+  // only a browser can say it RENDERS. It is also the one check on the boot
+  // file moving to 99-boot.js — a view defined in a file that sorts after the
+  // booting one used to be undefined when renderTab() first ran, which is a
+  // ReferenceError at load and nothing but a browser sees it.
+  step('health screen');
+  ok('server card present on Health', await goTab(page, 'health', '#hserver'));
+  ok('…and the budgets card', !!(await page.$('#hbudgets')));
+  // It COMPOSES the workers and queue cards rather than drawing their figures
+  // again, so both must really be on the page.
+  ok('…and it composes the workers card', !!(await page.$('#wkcard')));
+  ok('…and the queue card', !!(await page.$('#qcard')));
+  ok('the server card names the dialect',
+    /sqlite|postgre/i.test(await page.textContent('#hserver')));
+
   // ── 8. Admin › Branding — the new tool, round-tripped through the UI ────────
   step('admin: branding');
   ok('branding card present in Admin', await goTab(page, 'admin', '#brt'));

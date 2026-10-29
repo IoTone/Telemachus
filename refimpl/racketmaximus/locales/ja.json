@@ -65,8 +65,8 @@
       "hash": "7668b41176bb63b1818277dfb877788ede88c739"
     },
     "doc.route.get.api.admin.status": {
-      "text": "インスタンスの状態：バージョン、KDF、TLS、マルチテナント、保存時暗号化の状態、そしてユーザー・チーム・組織・ノート・トークン・監査イベント・テナントの件数。",
-      "hash": "8370c95c77a4500fe4a6b1be2fffbbeb65977e19"
+      "text": "インスタンスの状態：バージョンとビルド、KDF、TLS、マルチテナント、保存時暗号化の状態、データベースの方言、スキーマの適用済み／保留中のマイグレーション、有効なブロブストア、ドレインの待機時間、そしてユーザー・チーム・組織の件数。",
+      "hash": "39581254eda84254dc50cec4824e59af0516bbd1"
     },
     "doc.route.get.api.doc-triggers": {
       "text": "チームのアップロードトリガーと、チームの残り AI 予算。",
@@ -3399,6 +3399,118 @@
     "doc.route.get.api.org": {
       "text": "呼び出し元の会社",
       "hash": "64fe44cbb3af833179d4b608cf69ed65492b7216"
+    },
+    "ui.health": {
+      "text": "稼働状況",
+      "hash": "3703cd216881d3303a10a898fe54439bf05685b6"
+    },
+    "ui.healthhint": {
+      "text": "「遅い」と言われたときに最初に見るもの",
+      "hash": "cdd70c6967459da008d24c57932098433d838743"
+    },
+    "ui.hserver": {
+      "text": "サーバー",
+      "hash": "cb0cb170d106f8e8d5af1e05bbdbd3a96a7de197"
+    },
+    "ui.huptime": {
+      "text": "稼働時間",
+      "hash": "6aafa80cab6f4d80ad7fac9ba74fde9d0f32a1e7"
+    },
+    "ui.hdb": {
+      "text": "データベース",
+      "hash": "61074f1c958d6cdd32dad889b3d58a2d0704cbe3"
+    },
+    "ui.hschema": {
+      "text": "スキーマ",
+      "hash": "b5230ecdf4e78f0dd162281a0a78c6cdc853cbe8"
+    },
+    "ui.hschemapending": {
+      "text": "{n} 件が保留中",
+      "hash": "962e0692e0425c315ecab02a72f52db054c75279"
+    },
+    "ui.hmigrations": {
+      "text": "マイグレーション適用済み",
+      "hash": "b10740618f02c816bde26c2988af310662d38814"
+    },
+    "ui.hsecrets": {
+      "text": "保存時の暗号化",
+      "hash": "9e23218f8a4fa9e2921fb5ae5e0c1820bf66fdcb"
+    },
+    "ui.hsealed": {
+      "text": "暗号化済み",
+      "hash": "5d2b90a4c4a5c2194f672a4120ffff9f77e35d30"
+    },
+    "ui.hplaintext": {
+      "text": "平文",
+      "hash": "d8bb04dddbecd3eb0eaa36481f878a4a60caeabc"
+    },
+    "ui.hplaintexthint": {
+      "text": "このデータベースのダンプはそのまま読み取れます",
+      "hash": "2376fd1c7b93504d4e75a92d0adb6e31fef9803d"
+    },
+    "ui.htls": {
+      "text": "TLS",
+      "hash": "d91e1888f2dc09f11a876e25966a6fbd32b9cd87"
+    },
+    "ui.hoff": {
+      "text": "オフ",
+      "hash": "da7a68734367828e30b94927f4c2b43ed2c0f652"
+    },
+    "ui.hblob": {
+      "text": "ブロブストア",
+      "hash": "e608b383cdca564c9fe730877021e38676288517"
+    },
+    "ui.hblobhint": {
+      "text": "起動時に検証済み — 書き込みと読み戻しができなければインスタンスは起動しません",
+      "hash": "29a84a02ef7893e5ad69f34a82045d6b36395139"
+    },
+    "ui.hdrain": {
+      "text": "ドレイン待機時間",
+      "hash": "6a47b6b48e47e9726a7b8ee8aebae4e2b396e6fa"
+    },
+    "ui.hdrainhint": {
+      "text": "停止時に実行中の処理をキューへ返すまで待つ時間",
+      "hash": "8a79c4e6708a3ea8984c70528f66577a89c739c6"
+    },
+    "ui.hdrainnow": {
+      "text": "即時",
+      "hash": "f1d16437085ae1e36539a5328125cec05a91bada"
+    },
+    "ui.hmt": {
+      "text": "マルチテナント",
+      "hash": "437ca7ee46f783347bd4c1eaa273bc99f6df4265"
+    },
+    "ui.haccounts": {
+      "text": "アカウント",
+      "hash": "36bae31694f85bd7a5b0ad45e51ef622b95baadb"
+    },
+    "ui.haccountsline": {
+      "text": "ユーザー {users}・チーム {teams}・組織 {orgs}",
+      "hash": "ca68c09e1d4791ca9d2e73b831f296d4949d177f"
+    },
+    "ui.hbudgets": {
+      "text": "予算",
+      "hash": "c13c824248221c0703dcb7ec0fee2ca484f40f88"
+    },
+    "ui.hbudgetshint": {
+      "text": "このチーム自身のもの — 実際に処理を止める3つ",
+      "hash": "aed3bc7d4a8253482d5f5e2fbd475e6fa21ce165"
+    },
+    "ui.hused": {
+      "text": "使用量 / 上限",
+      "hash": "4868c4c387e747977d243daf6fb61222bb114e37"
+    },
+    "ui.hwindow": {
+      "text": "期間",
+      "hash": "320ad267d8d969f285eda5c184f5455bd29c8c95"
+    },
+    "ui.hnolimit": {
+      "text": "上限なし",
+      "hash": "f987bb365c6911157e9070a0816c83a6d1e56791"
+    },
+    "ui.hread": {
+      "text": "{time} に取得",
+      "hash": "a80ba7d0eb2987d343d436aa9f80babeb3d2ae81"
     }
   }
 }

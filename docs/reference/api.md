@@ -79,7 +79,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/timezones` | bearer | — | — | — | Every IANA timezone this instance has data for, derived from the tz database on disk rather than a list in the source, so a tzdata upgrade needs no release. |
 | PATCH | `/api/members/:id` | bearer | `members:manage` | role | — | Change a member's team role: {role}. The last owner cannot be demoted — a team with no owner cannot grant anyone the permission to fix it. |
 | DELETE | `/api/members/:id` | bearer | `members:manage` | role | — | Remove a member from the team: the membership is deactivated and every token they hold FOR THIS TEAM is revoked. The last owner cannot be removed. |
-| GET | `/api/admin/status` | bearer | `instance:read` | role | — | Instance status: version, KDF, TLS, multi-tenancy and secrets-at-rest state, and counts of users, teams, orgs, notes, tokens, audit events, tenants. |
+| GET | `/api/admin/status` | bearer | `instance:read` | role | — | Instance status: version and build, KDF, TLS, multi-tenancy and secrets-at-rest state, the database dialect, the schema's applied/pending migrations, the active blob store, the drain window, and counts of users, teams, orgs. |
 | POST | `/api/orgs` | superadmin | `instance:manage` | role | — | Create a company: org, first team, owner. An explicit slug is a natural key (409 on re-run). |
 | GET | `/api/orgs` | superadmin | `instance:manage` | role | — | List every org on the instance. |
 | POST | `/api/orgs/:ref/suspend` | superadmin | `instance:manage` | role | — | Suspend a company (id or slug); every team in it becomes read-only. |

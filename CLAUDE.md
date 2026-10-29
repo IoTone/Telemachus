@@ -4953,6 +4953,76 @@ raco test test/fleet-tests.rkt   # drain order, the two answers, the filters, pa
 bash test/pull-smoke.sh          # section 7b, 7 assertions over HTTP
 ```
 
+## Is this instance healthy? one screen (HEALTH‑1…8, issue #179)
+
+Built 29 Oct 2026. Five facts on `GET /api/admin/status` plus a **Health** tab.
+No migration, no new route, no new permission.
+
+```sh
+raco test test/console-tests.rkt   # 17 cases; the four new ones are source assertions
+bash test/server-smoke.sh          # the status block, 6 more assertions
+bash test/e2e/validate.sh          # §7b — the one check that it RENDERS
+```
+
+- **IT COMPOSES THE WORKERS AND QUEUE CARDS** (HEALTH‑1). The issue asks for a
+  fleet section and a queue section and both already existed on Admin; drawing
+  those figures again is two renderings of one answer — `executor-can-run?`'s
+  drift, LIVE‑IN's shape. `healthView` calls `workersCard`/`queueCard` with the
+  same two responses, and the test asserts both halves: that it calls them, and
+  that `14-health.js` contains none of `unclaimable`, `held_by_paused`,
+  `oldest_queued_seconds` or `leases_expired` itself.
+- **`instance:read`, NOT `S.me.is_operator`** (HEALTH‑2) — #124 made that
+  permission exist so a monitoring credential need not also be able to reset a
+  password, and a dashboard is the case that justified it. Gating on the
+  operator flag, the way Admin is gated, would have left the narrower permission
+  useless for the one screen it is for.
+- **NOTHING POLLS, and that is a security answer** (HEALTH‑3, QVIZ‑6 one slice
+  early). #38's idle clock counts from the last REQUEST and the console polls
+  nothing but a live workflow run, so a screen refreshing itself every ten
+  seconds would hold a session open for as long as the tab was left up — an idle
+  timeout disabled by something that looks like polish.
+- **NO PROBE RESULT, which is the field a dashboard obviously wants**
+  (HEALTH‑5). `blob-store-probe` writes, reads back and deletes a blob, so a
+  field here is a PUT/GET/DELETE against somebody's bucket per refresh — on a
+  route that is `instance:read` and must not write. The existing signal is
+  stronger: **startup refuses to serve on a failed probe, so an instance that is
+  ANSWERING has already proven its store once.** Asserting that from this module
+  would be a claim about main.rkt made elsewhere (#119's shape), so the console
+  says it in prose. What it cannot tell you is whether the store has gone away
+  SINCE boot, and that is stated rather than implied. The smoke `refute`s the
+  field, so it cannot quietly appear.
+- **The pending migrations are NAMED, not counted** (HEALTH‑4): migration runs
+  at boot, so a pending one means one FAILED and the id is the only actionable
+  part. A plugin's `x.` ids are included here — unlike `schema-problem`, which
+  must ignore them to decide whether to boot, this is a report.
+- **The server's own drain LATCH is not reported.** It lives at most
+  `TMACH_DRAIN_SECONDS` and the process exits straight after, so the field would
+  be blank in every reading anybody takes. The knob — how long a stop takes — is
+  what an operator about to restart wants; a HOST's drain is FLEET‑3's and is on
+  the Workers card.
+- **The budgets are the caller's OWN team's** (HEALTH‑7) and the card says so:
+  `/api/usage` is team-scoped and there is no instance-wide roll-up. The
+  instance-wide version of "what is being held" is the queue's own `waiting`,
+  two cards below.
+- **THE BOOT CALL MOVED TO `99-boot.js`, for a bug that had not happened yet**
+  (HEALTH‑8). `render()` was the last line of `13-kg.js` and worked only because
+  it is async and yields at its first `await`, letting the remaining `<script>`
+  tags parse before it reached `renderTab()`'s dispatch table. A view added in a
+  file that sorts AFTER the booting one is undefined at that moment — a
+  `ReferenceError` at load that only a browser sees. #179 added the first such
+  file. The test pins that exactly one file calls `render()` at top level and
+  that it sorts last.
+- **`all-migrations` IS A LIST, NOT A THUNK.** `(all-migrations)` is "not a
+  procedure" at request time, not at compile time. #123 is what made it one
+  read: the 500 carries a request id and the message is on stderr beside it.
+- **`sync-locale ja` REWROTE THE WHOLE CATALOG — 862 insertions, 750 deletions
+  — for 28 new strings.** `ja.json` is NOT in `en.json`'s order (this file said
+  they were key-for-key aligned; that is stale), so the tool's base-order write
+  renumbers everything. Append the new entries TEXTUALLY instead: 112 added
+  lines, nothing else touched. And `git checkout`ing the catalog to undo that
+  churn also reverts any hand edit made earlier in the same session — the
+  re-stamped `doc.route.*` hash had to be applied twice.
+
 ## A picture of the queue (QVIZ‑1…9, issue #184) — DESIGNED, NOT BUILT
 
 `docs/design/ai-queue-visualization.md` plus the **QVIZ** block in

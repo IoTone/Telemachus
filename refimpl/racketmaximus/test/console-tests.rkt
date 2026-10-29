@@ -280,3 +280,62 @@
   ;; the tab filter and the fallback still read the map, so neither changed
   (check-true (string-contains? html "S.features[x]!==false") "the tab filter is unchanged")
   (check-true (string-contains? html "S.features[S.tab]===false") "…and so is the fallback"))
+
+;; ---- the health screen (issue #179) ----------------------------------------
+;; The console has no JS test runner, so these are SOURCE assertions, as the
+;; sign-in and feature cases above are. The claim is narrow and worth stating:
+;; they prove the screen is WIRED and that it reuses rather than duplicates —
+;; not that it renders correctly, which a browser is what sees.
+
+(test-case "the health screen is gated on instance:read, not on being an operator"
+  ;; #124 made `instance:read` exist so a monitoring credential need not also be
+  ;; able to reset a password, and a dashboard is the case that justified it.
+  ;; Gating this on `S.me.is_operator` — the way the Admin tab is gated — would
+  ;; have made the narrower permission useless for the one screen it is for.
+  (define sh (file->string (build-path console-dir "02-auth.js")))
+  (check-true (string-contains? sh "canPerm('instance:read')")
+              "the tab is spliced on the permission")
+  (check-true (regexp-match? #px"canPerm\\('instance:read'\\)[^\n]*'health'" sh)
+              "…and it is the health tab that it gates"))
+
+(test-case "the health screen COMPOSES the workers and queue cards"
+  ;; The issue asks for a fleet section and a queue section and both already
+  ;; exist on the Admin tab. Drawing those figures again here would be two
+  ;; renderings of one answer — `executor-can-run?`'s drift, LIVE-IN's shape —
+  ;; so this asserts the reuse AND the absence of a second rendering.
+  (define hv (fn-body "healthView"))
+  (check-true (and hv #t) "healthView exists")
+  (check-true (string-contains? hv "workersCard(") "the fleet card is reused")
+  (check-true (string-contains? hv "queueCard(") "…and so is the queue card")
+  (define health (file->string (build-path console-dir "14-health.js")))
+  (for ([fig (in-list '("unclaimable" "held_by_paused" "oldest_queued_seconds"
+                        "leases_expired"))])
+    (check-false (string-contains? health fig)
+                 (format "~a belongs to the queue/workers card, not to a second copy here" fig))))
+
+(test-case "the health screen does not poll"
+  ;; #38's idle clock counts from the last REQUEST, and the console polls nothing
+  ;; except a live workflow run — so a screen that refreshed itself would hold a
+  ;; session open for as long as the tab was left on screen, which is an idle
+  ;; timeout switched off by a convenience. The refresh is a button.
+  (define health (file->string (build-path console-dir "14-health.js")))
+  (check-false (string-contains? health "setInterval") "no timer")
+  (check-false (string-contains? health "setTimeout") "…and no deferred one either")
+  (check-true (string-contains? health "renderTab()") "the refresh is an explicit re-render"))
+
+(test-case "the boot call is in the file that sorts LAST"
+  ;; It used to be the last line of 13-kg.js, which worked only because render()
+  ;; is async and yields at its first await — long enough for the remaining
+  ;; <script> tags to parse before it reached renderTab()'s dispatch table. A
+  ;; view added in a file that sorts after the booting one would be undefined at
+  ;; that moment and the console would die at load with a ReferenceError. #179
+  ;; added the first such file, so the boot moved.
+  (check-equal? (last script-files) "99-boot.js"
+                "the boot file must sort after every numbered one")
+  (define boots
+    (for/list ([n (in-list script-files)]
+               #:when (regexp-match? #px"(?m:^render\\(\\);[ \t]*$)"
+                                     (file->string (build-path console-dir n))))
+      n))
+  (check-equal? boots '("99-boot.js")
+                "exactly one file calls render() at top level, and it is the last one"))

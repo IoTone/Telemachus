@@ -176,4 +176,3 @@ window.bxSetLang=bxSetLang; window.doBetaSignup=doBetaSignup; window.teamSignIn=
 window.betaSub=betaSub; window.bxSet=bxSet; window.bxSaveDraft=bxSaveDraft; window.bxPublish=bxPublish;
 window.bxAddField=bxAddField; window.bxDelField=bxDelField; window.bxSetField=bxSetField;
 window.bxAddDetail=bxAddDetail; window.bxDelDetail=bxDelDetail; window.bxUpload=bxUpload; window.bxClear=bxClear; window.bxSetLanding=bxSetLanding; window.S=S;
-render();
