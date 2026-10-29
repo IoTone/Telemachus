@@ -471,3 +471,21 @@
   (define k (fn-body "paletteKey"))
   (check-true (regexp-match? #px"(?s:Escape.*?return false)" k)
               "Esc is not swallowed when there is nothing open"))
+
+(test-case "a repaint is AWAITED all the way down to the tab"
+  ;; `renderTab()` paints a `…` placeholder and then awaits its view, so a
+  ;; fire-and-forget call made `render()` resolve at exactly the moment the DOM
+  ;; held the placeholder and nothing else — and `applyBrand` then resolved
+  ;; before its own repaint. Every caller of both awaits them and then touches
+  ;; the page, so each was racing a repaint it had started itself. It surfaced
+  ;; as a CI-only failure in #210: demo-validate's second `doBrandSave()` found
+  ;; `#brt` null. The window is one server round trip wide, which is why it had
+  ;; never lost locally. This is `goTab`'s hazard on the product's side.
+  (define r (fn-body "render"))
+  (check-true (and r #t) "render exists")
+  (check-true (string-contains? r "await renderTab()")
+              "render awaits the tab it paints")
+  (define ab (fn-body "applyBrand"))
+  (check-true (and ab #t) "applyBrand exists")
+  (check-true (string-contains? ab "await render()")
+              "…and applyBrand awaits the repaint it triggers"))
