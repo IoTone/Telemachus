@@ -3432,3 +3432,60 @@ every routed chat would have pinned to — is about the QUEUE, which has fanned
 out since #173. What this slice adds is that a person's chat reaches that queue
 without an operator pinning it, on the non-streaming endpoint. The streamed
 path, the agent and research are named above rather than quietly included.
+
+## VEC, continued — the arithmetic and the bytes seal (issue #189, steps 1–2, built 28 Oct 2026)
+
+VEC‑1…10 evaluated and decided; this is the first half of the build plan at the
+end of `docs/design/vector-store.md`. **Steps 1 and 2 only** — the two
+prerequisites the plan called out as having their own tests and no behaviour
+change. `domain/ai/vectors.rkt` is new; `secret-wrap/bytes` and
+`secret-unwrap/bytes` join `secretbox.rkt`; `define-sealed-column` gains a
+`#:bytes` form. **No migration, no route, no environment variable, no
+permission, and nothing in production calls either of them yet.**
+
+| | Question | Decision | Why |
+|---|---|---|---|
+| **VEC‑11** | Where the norms go | **The store is NORMALIZED at write, so the read is a bare dot product** · vs normalizing at read | For unit vectors the cosine IS the inner product, so normalizing once per chunk removes both square roots and both norm loops from every later comparison. `cosine` computes N+1 norms for one query against N stored vectors where one would do — that is half the 8×, and the other half is the boxing. It also moves the case that has no answer to the one place that can refuse it: a zero vector cannot be normalized, so the WRITE path declines the chunk and says why. |
+| **VEC‑12** | The primitive | **`flvector`, and it is a DOT PRODUCT that is only a similarity when both sides are unit** | Re-measured with the real module, aarch64‑darwin, 100,000 × 768: boxed `cosine` **1,314 ms**, `flvector` dot **168 ms**, and the whole scan — decode plus dot plus a bounded top‑k — **784 ms**, which lands on the prototype's 759 ms end-to-end row rather than its 564 ms bare-decode one. At 10,000 the scan is **76 ms**, at 1,000 **8 ms**. The honesty matters: on un-normalized input `vec-dot` answers the inner product, usefully for nothing, which is exactly why the invariant is enforced at the write and asserted (`vec-unit?`) rather than described. |
+| **VEC‑13** | Float width at rest | **float32 stored, flonum in the register, LITTLE-ENDIAN PINNED** | An embedding server answers float32, so float64 at rest would double the disk for digits the embedder never produced; Racket has no `f32vector` arithmetic worth the name, so the decode widens. The endianness is pinned rather than `(system-big-endian?)` because these bytes go into a file that is dumped, restored and replicated, and a dump decoded on the other byte order yields plausible numbers with no model name to catch it. **The test cannot catch an UNPINNED pin** — only an inverted one — because every machine anybody runs this on is little-endian, and the test says so where somebody might trust it. |
+| **VEC‑14** | `cosine`'s future | **Unchanged, and kept** · vs replaced by the fast path | They compute different things and say so: one is the general similarity of two arbitrary vectors, the other the inner product of two unit ones. A shared implementation would have to be the general one — the slow one — and EMB‑7's label store compares a query against at most `MAX-LABELS` vectors, where 1,272 ms per hundred thousand comparisons is 12 µs per classification. `executor-can-run?`'s drift argument is about two copies of ONE rule; it does not reach two functions with different contracts. A unit case pins that they agree where their domains overlap, which is what makes this a decision rather than a duplication. |
+| **VEC‑15** | A row of the wrong width | **`#f`, never a raise; skipped by the scan and COUNTED** | By the time a mismatch is seen at read it is a row that survived a model change (the store is keyed by model, EMB‑8/VEC‑8), so it is a survivor rather than a surprise — and it must not take somebody's query down. The count comes back beside the hits because a scan that silently returned fewer results would be a recall problem nobody could see, which is the shape `truncated` already answers for CLS‑27. The width is read off the BYTES, so a foreign row costs a remainder rather than a decode. |
+| **VEC‑16** | Top‑k | **One pass with an insertion bounded by k** · vs scoring N and sorting | At 100,000 chunks the arithmetic is 168 ms; allocating and sorting 100,000 scored pairs to take ten of them would add allocation of the same order for an answer the loop already has. |
+| **VEC‑17** | Where the authorization is NOT | **`vec-nearest` is handed rows and knows nothing about who asked** | VEC‑9 stands: the window is bounded in SQL and `can?` is applied per row AFTER the scan. The same reason the blob store is never handed a principal — a seam with no authorization cannot get it wrong. |
+| **ENC‑24** | Sealing bytes | **A second stored FORM, not a second key, cipher or AAD rule** | `secret-wrap` is a STRING API, and on 29.3 MiB of packed float32 that costs **2,240 ms and 52.1 MiB** against **44 ms and 29.3 MiB** for `aes-256-gcm-decrypt` on the raw bytes — 51× and 1.8×, and **none of it is the cipher**, which runs at about 665 MiB/s. It is base64 in, UTF‑8 out, UTF‑8 in, base64 out: four whole-buffer conversions, two of which inflate the stored value by a third. Everything the string path has ever sealed is text, so the cost was invisible until something asked it to move a vector. Same `current-secret-key`, same AES‑256‑GCM, same 12-byte nonce, same `aad-for`. |
+
+**THE SNIFF IS THE PREFIX *AND* THE SHAPE, and that is forced by what the
+plaintext is.** `wrapped-secret?` can test a text prefix safely — a TOTP seed
+does not begin `enc:v1:` — but a packed float32 vector may contain any byte at
+all, so "is this row sealed?" cannot be answered by a prefix. `wrapped-bytes?`
+requires eight magic bytes, then eight bytes that must be **lowercase hex** (the
+key id), then room for a nonce and a GCM tag. A plaintext blob passing all three
+by chance is about one in 2^75; the remedy if that ever matters is a column
+saying which rows are sealed, which is step 4's to decide, where the table is.
+
+**The `#:bytes` form carries the CONTENT gate, not `#:credential`'s
+unconditional one**, which is VEC‑3 arriving in code: a document vector is a
+function of `repo_text.content`, embedding inversion recovers much of the source
+text, and an unsealed vector column beside a sealed `repo_text` would undo #83
+on exactly the instance that asked for it. The form exists so that the AAD is the
+same `sealed-context` every other sealed column is bound by — the 51× was in the
+conversions and there was no reason for it to cost a second spelling of the
+compatibility surface. **Both directions are pinned**: a content column waits to
+be asked, where ENC‑23's credential seals on a key alone, and the unseal is
+unconditional in both.
+
+**WHAT IS DELIBERATELY NOT DONE YET**, because there is no column: the vector
+column is **not** in `CONTENT-SECRETS` in `cli/telemachus-secrets.rkt`. VEC‑3
+says it must be listed, and a sealed column `rewrap` does not walk is silently
+unrotatable — so that line belongs in the same commit as the `CREATE TABLE`,
+step 4, and is named here so it cannot be forgotten there.
+
+**NOTHING CALLS EITHER MODULE, AND THAT IS THE PLAN'S OWN ORDERING RATHER THAN
+AN OVERSIGHT.** #110 r4's rule is that an export in `domain/` with no consumer is
+a claim the next reader has to assume is load-bearing; the exception it states is
+an export with a test behind it, which both of these have — fourteen cases for
+the arithmetic, eight for the seal, twenty-two controls between them and all of
+them biting. Step 3 is the chunker, which is the one decision in this subsystem
+with no measurement behind it, because measuring recall needs a live
+`nomic-embed-text`; steps 4 and 5 are the table and the read. The arithmetic and
+the seal have no such dependency, which is why they land first.

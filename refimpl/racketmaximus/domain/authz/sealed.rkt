@@ -49,7 +49,8 @@
 
 (require (for-syntax racket/base)
          racket/string
-         (only-in "secretbox.rkt" secret-wrap secret-unwrap)
+         (only-in "secretbox.rkt" secret-wrap secret-unwrap
+                  secret-wrap/bytes secret-unwrap/bytes)
          (only-in "../../config.rkt" content-encryption-enabled?))
 
 (provide define-sealed-column sealed-context)
@@ -94,6 +95,22 @@
          (secret-wrap (sealed-context column (list key ...)) v))
        (define (unseal-id key ... v)
          (secret-unwrap (sealed-context column (list key ...)) v)))]
+    ;; BYTES, not text (issue #189 step 2, VEC-3). The gate is the content one —
+    ;; a document vector is a function of `repo_text.content`, which that switch
+    ;; seals, and embedding inversion recovers much of the source text, so an
+    ;; unsealed vector column beside a sealed `repo_text` would undo #83 on
+    ;; exactly the instance that asked for it. What this form exists for is that
+    ;; the AAD is the SAME `sealed-context` every other column is bound by: the
+    ;; 51× `secret-wrap/bytes` avoids is in the conversions, and there was no
+    ;; reason for it to cost a second spelling of the compatibility surface.
+    [(_ column (seal-id unseal-id) (key ...) #:bytes)
+     (begin
+       (define (seal-id key ... v)
+         (if (content-encryption-enabled?)
+             (secret-wrap/bytes (sealed-context column (list key ...)) v)
+             v))
+       (define (unseal-id key ... v)
+         (secret-unwrap/bytes (sealed-context column (list key ...)) v)))]
     [(_ column (seal-id unseal-id) (key ...) #:forgiving)
      (begin
        (define-sealed-column column (seal-id unseal-id/strict) (key ...))

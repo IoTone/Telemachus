@@ -22,7 +22,8 @@
 
 (require rackunit racket/string
          "../domain/authz/sealed.rkt"
-         (only-in "../domain/authz/secretbox.rkt" secret-wrap secret-unwrap wrapped-secret?))
+         (only-in "../domain/authz/secretbox.rkt" secret-wrap secret-unwrap wrapped-secret?
+                  secret-wrap/bytes wrapped-bytes?))
 
 (define (with-env name value thunk)
   (define saved (getenv name))
@@ -173,3 +174,58 @@
   ;; the AAD is the compatibility surface for these two as well
   (check-equal? (sealed-context "feeds.secret" '("F1")) "feeds.secret:F1")
   (check-equal? (sealed-context "webhooks.secret" '("W1")) "webhooks.secret:W1"))
+
+;; ---- #:bytes (issue #189 step 2, VEC-3) --------------------------------------
+;;
+;; A document vector is a function of `repo_text.content`, which
+;; `TMACH_ENCRYPT_CONTENT` seals — and embedding inversion recovers much of the
+;; source text, so an unsealed vector column beside a sealed `repo_text` would
+;; undo #83 on exactly the instance that asked for it. So this form carries the
+;; CONTENT gate, like the default one, and not `#:credential`'s unconditional seal.
+;;
+;; What the form exists for is the line above it: the AAD is the same
+;; `sealed-context` every other column is bound by. The case below is the one
+;; that proves it, because it opens a bytes-sealed value using a context string
+;; built BY HAND here rather than by the macro.
+
+(define-sealed-column "repo_vectors.v" (s-vec u-vec) (chunk-id) #:bytes)
+
+(test-case "a bytes column seals under the content switch and opens again"
+  (sealed
+   (lambda ()
+     (define plain (bytes 0 1 255 128 #x80 #x3f 254))
+     (define stored (s-vec "c1" plain))
+     (check-true (wrapped-bytes? stored))
+     (check-false (regexp-match? (regexp-quote plain) stored))
+     (check-equal? (u-vec "c1" plain) plain "an unsealed row still reads")
+     (check-equal? (u-vec "c1" stored) plain)
+     ;; the context is the row's: another chunk's must not open it
+     (check-exn exn:fail? (lambda () (u-vec "c2" stored))))))
+
+(test-case "the bytes AAD is the SAME context string the string form builds"
+  ;; built by hand, so this cannot pass by both sides being changed together —
+  ;; `sealed-column-tests`' case 2, for the second stored form
+  (sealed
+   (lambda ()
+     (define by-hand (secret-wrap/bytes "repo_vectors.v:c1" (bytes 7 7 7)))
+     (check-equal? (u-vec "c1" by-hand) (bytes 7 7 7))
+     (check-equal? (sealed-context "repo_vectors.v" (list "c1")) "repo_vectors.v:c1"))))
+
+(test-case "a key alone does NOT seal a bytes CONTENT column"
+  ;; the direction ENC-23 was filed about, pointing the other way: `#:credential`
+  ;; seals on a key alone, a content column waits to be asked. Without this case
+  ;; the gate could be dropped and nothing would fail.
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
+    (lambda ()
+      (with-env "TMACH_ENCRYPT_CONTENT" ""
+        (lambda ()
+          (define plain (bytes 1 2 3))
+          (check-equal? (s-vec "c1" plain) plain)
+          (check-false (wrapped-bytes? (s-vec "c1" plain)))))))
+  ;; …and the unseal is NEVER conditional on the switch: a row sealed while it
+  ;; was on must open after it is turned off
+  (define stored (sealed (lambda () (s-vec "c1" (bytes 4 5 6)))))
+  (with-env "TMACH_SECRET_KEY" (make-string 64 #\a)
+    (lambda ()
+      (with-env "TMACH_ENCRYPT_CONTENT" ""
+        (lambda () (check-equal? (u-vec "c1" stored) (bytes 4 5 6)))))))

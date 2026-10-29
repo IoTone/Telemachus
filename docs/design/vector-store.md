@@ -212,15 +212,24 @@ search does; no ANN index, revisited at 50,000 chunks per team.
 
 ## The build plan, in order
 
-Nothing below is built. Each step is independently useful and each one ends
-somewhere a person can see.
+**Steps 1 and 2 are BUILT** (28 Oct 2026, decisions VEC‑11…17 and ENC‑24);
+steps 3–6 are not. Each step is independently useful and each one ends somewhere
+a person can see.
 
-1. **An `flvector` dot product and a normalized store.** The arithmetic half,
-   measured above: `cosine` stays as it is for EMB‑7's labels, and the scan gets
-   its own primitive. One module, no schema.
-2. **A bytes-level seal.** `secret-wrap`'s string API is the 51× above. Either a
-   bytes variant beside it or `aes-256-gcm-*` used directly under
-   `sealed.rkt`'s AAD rule — with the AAD rule shared, not re-spelled.
+1. ~~**An `flvector` dot product and a normalized store.**~~ **BUILT** —
+   `domain/ai/vectors.rkt`, `test/vectors-tests.rkt`. The arithmetic half,
+   re-measured with the real module: boxed `cosine` 1,314 ms against an
+   `flvector` dot product of 168 ms at 100,000 × 768, and 784 ms for the whole
+   scan including the decode and a bounded top‑k. `cosine` stays as it is for
+   EMB‑7's labels (VEC‑14) and the scan has its own primitive. One module, no
+   schema, no caller yet.
+2. ~~**A bytes-level seal.**~~ **BUILT** — `secret-wrap/bytes` /
+   `secret-unwrap/bytes` in `secretbox.rkt` and a `#:bytes` form on
+   `define-sealed-column`. A bytes variant beside the string one, under the same
+   key, cipher, nonce and `aad-for`, so the AAD rule is shared rather than
+   re-spelled; the stored form is a binary frame rather than base64, which is
+   both the 51× and the 1.8×. The one thing it needed that the string path did
+   not is a sniff that works on arbitrary bytes.
 3. **A chunker.** The decision that governs retrieval quality and the one with
    no measurement behind it yet, because measuring recall needs a real embedding
    endpoint. Boundaries, overlap, and what a chunk's offsets mean must line up
@@ -234,6 +243,14 @@ somewhere a person can see.
 6. **A retrieval tool and `?semantic=` on search**, which is where #183 and #191
    pick it up.
 
-Steps 1–2 are prerequisites with their own tests and no behaviour change. Step 3
-is the one that wants a live `nomic-embed-text` before anybody commits to a
-number, which is the same calibration `EMBED-MARGIN-SCALE` (#163) is waiting on.
+Steps 1–2 were prerequisites with their own tests and no behaviour change, and
+that is how they landed. **Step 3 is the next one, and it is the one that wants a
+live `nomic-embed-text`** before anybody commits to a number — the same
+calibration `EMBED-MARGIN-SCALE` (#163) is waiting on, and now the third thing
+on the GPU rig's driver upgrade.
+
+One thing step 4 must not forget, recorded here as well as in `decisions.md`
+because this is the document somebody reads before building it: **the vector
+column has to be added to `CONTENT-SECRETS` in `cli/telemachus-secrets.rkt` in
+the same commit as its `CREATE TABLE`.** VEC‑3 says so, and a sealed column
+`rewrap` does not walk is silently unrotatable.

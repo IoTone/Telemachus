@@ -51,6 +51,7 @@
          secrets-enabled? secret-key-id secret-wrap secret-unwrap wrapped-secret?
          current-previous-secret-key parse-secret-key
          secret-digest
+         secret-wrap/bytes secret-unwrap/bytes wrapped-bytes?
          KEY-BYTES NONCE-BYTES)
 
 (define KEY-BYTES 32)
@@ -256,3 +257,102 @@
               (string-append "a stored secret did not authenticate for " context
                              " — the key is wrong, or the row has been tampered with")))
      (bytes->string/utf-8 pt)]))
+
+;; ---- the stored form, FOR BYTES (issue #189 build-plan step 2; VEC-3, ENC-24) -
+;;
+;; `secret-wrap` IS A STRING API, AND THAT IS THE 51×. Everything it has ever
+;; been asked to seal is text — a TOTP seed, an S3 secret, a job payload, a
+;; document's extracted text — so base64 on the way out and UTF-8 on the way in
+;; cost nothing anybody could measure. The biggest sealed value in the tree today
+;; is a 200 KB extraction, 18 ms.
+;;
+;; A document vector is not text, and #189 measured what that costs. 29.3 MiB of
+;; packed float32 through this module's string path:
+;;
+;;   `secret-unwrap` + `base64-decode`, as a string   2,240 ms   52.1 MiB stored
+;;   `aes-256-gcm-decrypt` on the raw bytes               44 ms   29.3 MiB stored
+;;
+;; 51× and 1.8×, and NONE OF IT IS THE CIPHER — AES-GCM here runs at about
+;; 665 MiB/s. It is base64 in, UTF-8 out, UTF-8 in, base64 out: four whole-buffer
+;; conversions, two of which also inflate the thing being stored by a third. The
+;; first reading of that measurement said "sealing makes a 10,000-vector scan
+;; take 2.3 seconds", which was true and was about the wrong thing — batching the
+;; scan into pages did not help, which is what said so.
+;;
+;; SO THIS IS A SECOND STORED FORM AND NOT A SECOND KEY, A SECOND CIPHER OR A
+;; SECOND AAD RULE. Same `current-secret-key`, same AES-256-GCM, same 12-byte
+;; nonce, same `aad-for` — so a column declared through `define-sealed-column`
+;; with `#:bytes` is bound to its row by exactly the context string every other
+;; sealed column is bound by (`sealed.rkt`'s compatibility surface, untouched).
+;; What differs is only that nothing is converted: the ciphertext IS the stored
+;; value.
+;;
+;; THE FRAME IS BINARY AND SELF-DESCRIBING, because the sniff has to work on
+;; arbitrary bytes. `wrapped-secret?` can test a text prefix safely — a plaintext
+;; TOTP seed does not begin "enc:v1:" — but a packed float32 vector may contain
+;; any byte at all, so the question "is this row sealed?" cannot be answered by a
+;; prefix alone. It is answered by the prefix AND the shape: 8 magic bytes, then
+;; 8 bytes that must be lowercase hex (the key id), then a nonce and a ciphertext
+;; long enough to carry a GCM tag. A plaintext blob that passes all three by
+;; chance is about one in 2^75, and the remedy if that ever matters is a column
+;; of its own saying which rows are sealed — which is step 4's to decide, where
+;; the table is.
+;;
+;; The unseal is unconditional, like every other one here (ENC's rule): a row
+;; sealed while `TMACH_ENCRYPT_CONTENT` was on must open after it is turned off,
+;; or turning it off would lose exactly the data it was turned on to protect.
+(define BYTES-MAGIC #"tmbenc01")
+(define KID-BYTES 8)                     ; `key-id` is 8 hex characters, fixed
+(define BYTES-HEADER (+ (bytes-length BYTES-MAGIC) KID-BYTES NONCE-BYTES))
+
+(define (hex-byte? b)
+  (or (and (>= b 48) (<= b 57)) (and (>= b 97) (<= b 102))))
+
+(define (wrapped-bytes? bs)
+  (and (bytes? bs)
+       (>= (bytes-length bs) (+ BYTES-HEADER TAG-BYTES))
+       (equal? (subbytes bs 0 (bytes-length BYTES-MAGIC)) BYTES-MAGIC)
+       (for/and ([b (in-bytes bs (bytes-length BYTES-MAGIC) (+ (bytes-length BYTES-MAGIC) KID-BYTES))])
+         (hex-byte? b))))
+
+;; plaintext bytes -> the bytes to store. Identity with no key, and identity for
+;; anything that is not bytes, so it is as total as `secret-wrap` is and a guard
+;; at the call site would be the redundancy `sealed.rkt` dropped.
+(define (secret-wrap/bytes context plain)
+  (define k (current-secret-key))
+  (cond
+    [(not k) plain]
+    [(not (bytes? plain)) plain]
+    [else
+     (define nonce (crypto-random-bytes NONCE-BYTES))
+     (define ct (aes-256-gcm-encrypt k nonce (aad-for context) plain))
+     (bytes-append BYTES-MAGIC (string->bytes/utf-8 (key-id k)) nonce ct)]))
+
+;; stored bytes -> plaintext bytes. A value that was never wrapped comes back
+;; unchanged; a wrapped value that will not open RAISES, and the message names
+;; neither the plaintext, the ciphertext nor the key (#83's rule — the real
+;; cause is a rotated key or a restored dump, and a message echoing what it could
+;; not read would put in the log exactly what the column was sealed to keep out
+;; of the database).
+(define (secret-unwrap/bytes context stored)
+  (cond
+    [(not (wrapped-bytes? stored)) stored]
+    [else
+     (define m (bytes-length BYTES-MAGIC))
+     (define kid (bytes->string/utf-8 (subbytes stored m (+ m KID-BYTES))))
+     (define nonce (subbytes stored (+ m KID-BYTES) BYTES-HEADER))
+     (define ct (subbytes stored BYTES-HEADER))
+     (define candidates
+       (for/list ([k (in-list (list (current-secret-key) (current-previous-secret-key)))]
+                  #:when (and k (equal? (key-id k) kid)))
+         k))
+     (when (null? candidates)
+       (error 'secretbox
+              (string-append "no configured key matches this sealed value (sealed by key " kid "). "
+                             "Set TMACH_SECRET_KEY to it, or TMACH_SECRET_KEY_OLD while rotating.")))
+     (define pt (for/or ([k (in-list candidates)]) (aes-256-gcm-decrypt k nonce (aad-for context) ct)))
+     (unless pt
+       (error 'secretbox
+              (string-append "a sealed value did not authenticate for " context
+                             " — the key is wrong, or the row has been tampered with")))
+     pt]))
