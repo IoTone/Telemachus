@@ -2559,7 +2559,8 @@ normalized store, and a bytes-level seal under `sealed.rkt`'s existing AAD rule.
 Step 3, the chunker, was called the one decision with no measurement behind it;
 that is true of its two NUMBERS and not of its mechanism, so it is **built** and
 only the calibration waits on a live `nomic-embed-text` — the same measurement
-`EMBED-MARGIN-SCALE` is waiting on. **Step 4 needs no model.**
+`EMBED-MARGIN-SCALE` is waiting on. **Steps 4 and 5 need no model** and are
+built; step 6 is the retrieval surface.
 
 ## The vector arithmetic, and a seal that moves bytes (VEC‑11…17, ENC‑24, #189 steps 1–2)
 
@@ -2857,6 +2858,97 @@ DATABASE_URL="postgres://…" raco test test/chunkstore-tests.rkt  # the BYTEA h
   and `content-encryption-tests`' `with-env` is the shape to copy.
 - **`sqlite:///:memory:` through `db-connector` creates a FILE called `:memory:`**
   in the working directory. Harmless and easy to commit by accident.
+
+## The nearest-chunk read (VEC‑26…32, #189 step 5)
+
+Built 29 Oct 2026 — step 5 of `docs/design/vector-store.md`'s build plan, and the
+last one before the retrieval surface. `domain/ai/chunksearch.rkt` is new.
+**No migration, no route, no permission, no environment variable and no model**:
+everything it needed had been on disk since step 4, which is the payoff for
+having landed the arithmetic and the seal first.
+
+```sh
+raco test test/chunksearch-tests.rkt                              # 14 cases, 14 controls
+DATABASE_URL="postgres://…" raco test test/chunksearch-tests.rkt  # the whole file, both dialects
+```
+
+- **NOTHING CALLS IT YET**, by the build plan's ordering — #110 r4's stated
+  exception, an export with a test behind it. Step 6 is the retrieval tool and
+  `?semantic=` on search, where #183 and #191 pick it up.
+- **IT IS A SEPARATE MODULE FROM `chunkstore.rkt` BECAUSE OF WHAT THAT ONE
+  PROMISES.** Its header says it is handed a connection and an object id and is
+  never handed a principal — VEC‑17's rule and the blob store's, that a layer
+  with no authorization cannot get it wrong. This read is the opposite kind of
+  thing: `can?` is the whole of its difficulty, so putting it beside the write
+  would make that promise false for the module as a whole.
+- **THE WINDOW CAP AND THIS DESIGN'S REVISIT THRESHOLD ARE THE SAME NUMBER, ON
+  PURPOSE** (VEC‑26). `vector-store.md` says to look again when one team's chunk
+  count passes 50,000 and the measured scan there is ~390 ms, so a team whose
+  window TRUNCATES has already crossed the line where the whole approach is meant
+  to be reconsidered. A cap chosen independently would be a second number saying
+  the same thing, and LIVE‑IN's shape says they would drift.
+- **THE JOIN AND THE MODEL FILTER ARE BOTH IN SQL** (VEC‑27). The join on
+  `o.current_version_id` is the ONLY thing standing between a query and a
+  superseded version's vectors, because a re-upload deliberately does not clear
+  the old rows; and `c.model` is filtered in SQL rather than in Racket, because a
+  dot product between two unrelated coordinate systems is a NUMBER — it answers
+  confidently and nobody can tell — and filtering afterwards would decode every
+  foreign row to throw it away. **The test asserts on `scanned`, not only on the
+  hits**, so a filter moved into Racket fails it.
+- **`can?` PER ROW AFTER THE SCAN, MEMOIZED BY OBJECT, OVER `k × 4` CANDIDATES —
+  AND THE HEADROOM IS THE ONE APPROXIMATION HERE** (VEC‑28). The memo is what
+  makes VEC‑9 affordable rather than clever: a document is many chunks, so the
+  number of `repo-readable?` calls is the number of distinct DOCUMENTS among the
+  candidates, and an ordinary business document is ~9 chunks. The headroom is the
+  part to state plainly, because the exact version is reachable and was measured
+  against. Taking exactly `k` and filtering afterwards has a real recall hole: if
+  the top ten chunks all belong to a colleague's PRIVATE document the query
+  answers nothing while readable chunk eleven was a good match — **the shape step
+  4 found one slice earlier from the other side**, where `repo_list_unindexed`
+  selected by `team_id` alone and handed a member what the next step could not
+  read. The exact fix is to authorize the whole window BEFORE the arithmetic, and
+  that is one query per document in the team: seconds at ten thousand documents,
+  on a query path. So the hole is pushed out four-fold rather than closed, and an
+  exhausted headroom SAYS SO.
+- **`truncated` REPORTS BOTH WAYS OF STOPPING** (VEC‑29) — CLS‑27's rule, and
+  here the two have different remedies: the window filled means "past the scale
+  this design says to revisit at", the headroom running out means "ask for fewer,
+  or you may not read what is nearest". `withheld` and `skipped` are separate
+  counts beside it, because a candidate `can?` removed and a row of a foreign
+  width (VEC‑15) have nothing in common.
+- **A HIT CARRIES WHERE TO READ AND NOT THE TEXT** (VEC‑32). The store holds
+  offsets and a vector and no text at all, so text means `repo_text` plus a
+  substring — the retrieval TOOL's job, where the model-facing result is
+  composed. What makes a hit CITABLE with no new code is CHUNK‑1: the offsets and
+  `repo_text.spans` index the same string, so `spans-covering` resolves a hit to
+  the page and bbox it was read from. The test asserts that through the real
+  function, which is what would fail if a future chunker grew coordinates of its
+  own.
+- **HOW FAR THE ORDER-BY CONTROL GOES, AND IT IS NOT ALL THE WAY** (VEC‑30). The
+  cut is `created_epoch DESC, object_id, idx` so a window that has to cut cuts
+  the stalest, and cuts a document's TAIL rather than a scatter — every chunk of
+  one `chunks-replace!` shares a `current-seconds`, so within a document the
+  tiebreak decides the whole cut. Removing `created_epoch DESC` fails the last
+  case on **both** dialects. Removing the whole `ORDER BY` fails **nothing** on
+  either — four runs on SQLite, three on PostgreSQL, because both planners happen
+  to return the newer document's rows first for that fixture — and substituting
+  `c.id` for `idx` fails nothing either, since `chk_<ms>_…` is near-monotonic
+  within one write and so is accidentally almost a prefix order. **That is
+  VEC‑13's unpinnable pin**: a reason to write the key down, not a reason it is
+  redundant. Recorded because the next reader will run that control.
+- **A DIRECTIONLESS QUERY IS REFUSED BY NAME** (VEC‑31), and `vec-normalize`'s
+  `#f` is what makes it one line rather than a second guard. Scoring a zero or
+  NaN vector would compare 0.0 against everything and report the whole corpus as
+  equally bad — a claim, where the honest answer is that the question had no
+  direction — and an embedder answers one for empty input, so the message says
+  the query TEXT is the thing to look at.
+- **A POSITIVE CONTROL IS WHAT ADDED THE FOURTEENTH CASE.** The first thirteen
+  all asked what a scan ANSWERS and not one asked which rows it looked at, so the
+  entire `ORDER BY` could be deleted with everything still green. The case that
+  closed it needs TWO documents and the older one's `created_epoch` aged by hand,
+  because two writes in the same second tie.
+- **`create-team!` ANSWERS THE ID, NOT A HASH** — `(hash-ref … 'id)` on it is
+  "expected: hash?" and cost the first run two cases.
 
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 

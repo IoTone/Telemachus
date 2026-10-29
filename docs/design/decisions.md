@@ -4066,3 +4066,101 @@ unindexed — the "exactly-once hides every later mistake" shape, in a lister. I
 takes a private document created AFTER that run, which is the one state in which
 nothing else is deciding.
 
+
+## VEC (continued) — the nearest-chunk read (issue #189, step 5, built 29 Oct 2026)
+
+Step 5 of `docs/design/vector-store.md`'s build plan, verbatim: "a nearest-chunk
+query, team-scoped in SQL, `can?` per row after the scan, returning the chunk's
+offsets so the caller can cite it." `domain/ai/chunksearch.rkt` and
+`test/chunksearch-tests.rkt`. **No migration, no route, no permission, no new
+environment variable, and no model** — every piece it needed had been on disk
+since step 4, which is why the one thing still behind the GPU rig (step 3's size
+and overlap calibration, in both languages) does not block it.
+
+**VEC‑26 — THE WINDOW CAP AND THE REVISIT THRESHOLD ARE THE SAME NUMBER, ON
+PURPOSE.** `vector-store.md`'s "When to revisit" says to look again when a single
+team's chunk count passes 50,000, and the measured scan at that scale is ~390 ms
+of arithmetic. So `NEAREST-SCAN` is 50,000 and a team whose window TRUNCATES is a
+team that has already crossed the line where this design says to reconsider the
+whole approach — which makes `truncated` the signal to revisit rather than a
+routine condition to be tuned around. A cap chosen independently would have been
+a second number saying the same thing, and LIVE‑IN's shape says the two would
+drift.
+
+**VEC‑27 — THE JOIN AND THE MODEL FILTER ARE BOTH IN SQL.** The window joins
+`o.current_version_id`, which is what makes a superseded version's vectors
+unreachable rather than merely stale (VEC‑18) — and that matters because a
+re-upload deliberately does NOT clear the old rows, so this join is the only
+thing standing between a query and vectors of bytes nobody can see any more. It
+filters `c.model` in SQL rather than in Racket (VEC‑20/EMB‑8): a dot product
+between two unrelated coordinate systems is a NUMBER, so mixing checkpoints
+answers confidently and nobody can tell, and filtering after the fact would
+decode every foreign row in order to throw it away. The test asserts on
+`scanned`, not only on the hits, so a filter moved into Racket fails it.
+
+**VEC‑28 — `can?` PER ROW AFTER THE SCAN, MEMOIZED BY OBJECT, OVER `k ×
+AUTHZ-HEADROOM` CANDIDATES — AND THIS IS THE ONE APPROXIMATION IN THE MODULE.**
+VEC‑9 is kept and the memo is what makes it affordable rather than clever: a
+document is many chunks, so the number of `repo-readable?` calls is the number of
+distinct DOCUMENTS among the candidates and not the number of candidates, and an
+ordinary business document is ~9 chunks. The headroom is the part worth stating
+plainly, because the exact version is reachable and was measured against. Taking
+exactly `k` from the scan and filtering afterwards has a real recall hole: if the
+top ten chunks all belong to a colleague's PRIVATE document the query answers
+nothing while readable chunk eleven was a good match — **which is the shape step
+4 found one slice earlier from the other side**, where `repo_list_unindexed`
+selected by `team_id` alone and handed a member what the next step could not read.
+The exact fix is to authorize every row in the window BEFORE the arithmetic, and
+that costs one `repo-readable?` per distinct document in the team: at ten thousand
+documents it is ten thousand queries on a query path, which is seconds. So the
+hole is pushed out four-fold rather than closed, and when the headroom is
+exhausted with fewer than `k` survivors the report says so.
+
+**VEC‑29 — `truncated` REPORTS BOTH WAYS OF STOPPING**, CLS‑27's rule that a flag
+which is only ever true one way tells an operator nothing — and here the two have
+different remedies. The window filled means "this team is past the scale this
+design says to revisit at"; the headroom running out means "ask for fewer, or you
+may not read what is nearest". `withheld` and `skipped` are separate counts
+beside it for the same reason: a candidate `can?` removed and a row of a foreign
+width (VEC‑15) have nothing in common.
+
+**VEC‑30 — THE CUT'S ORDER IS `created_epoch DESC`, SO A WINDOW THAT HAS TO CUT
+CUTS THE STALEST, AND THE TIEBREAK IS `object_id, idx` SO IT CUTS A DOCUMENT'S
+TAIL RATHER THAN A SCATTER.** Every chunk of one `chunks-replace!` is stamped
+with the same `current-seconds`, so within a document the tiebreak decides the
+entire cut. **How far the test goes is written down in the module and is not all
+the way**: removing `created_epoch DESC` fails the last case on BOTH dialects,
+removing the whole `ORDER BY` fails nothing on either (four runs on SQLite, three
+on PostgreSQL — both planners happen to return the newer document's rows first
+for that fixture), and substituting `c.id` for `idx` fails nothing either,
+because `chk_<ms>_…` is near-monotonic within one write and so is accidentally
+almost a prefix order. That is VEC‑13's unpinnable pin — the reason to write the
+key down rather than a reason the key is redundant — and it is stated because the
+next reader will run that control and should know it was run.
+
+**VEC‑31 — THE QUERY IS NORMALIZED HERE AND A DIRECTIONLESS ONE IS REFUSED BY
+NAME.** `vec-dot` is only a similarity when both sides are unit (VEC‑12); the
+stored side is unit by the write's own invariant (VEC‑22), so the query is the
+half left to establish. Scoring a zero or NaN vector would compare 0.0 against
+everything and report the whole corpus as equally bad — a claim, where the honest
+answer is that the question had no direction — and an embedder really does answer
+one for empty input, so the refusal says that the query TEXT is the thing to look
+at. `vec-normalize`'s `#f` is what makes this one line rather than a second guard.
+
+**VEC‑32 — A HIT CARRIES WHERE TO READ AND NOT THE TEXT.** The store holds
+offsets and a vector and no text at all, so text means reading `repo_text` and
+taking a substring — which is the retrieval TOOL's job (step 6), needs
+`repo-text-for`, and belongs where the model-facing result is composed. What a
+hit does carry is the chunk's own offsets, and CHUNK‑1 is what makes those
+citable with no new code: they and `repo_text.spans` index the SAME string, so
+`spans-covering` resolves a hit to the page and bbox it was read from. The test
+asserts that through the real function, which is the assertion that would fail if
+a future chunker grew a coordinate system of its own.
+
+**It is a SEPARATE MODULE from `chunkstore.rkt` because of what that one
+promises.** Its header says it is handed a connection and an object id and is
+never handed a principal — VEC‑17's rule and the blob store's, that a layer with
+no authorization cannot get it wrong. This read is the opposite kind of thing:
+`can?` is the whole of its difficulty, so putting it beside the write would make
+that promise false for the module as a whole. **Nothing calls it yet**, by the
+build plan's own ordering (#110 r4's exception: an export with a test behind it).
