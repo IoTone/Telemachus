@@ -266,24 +266,36 @@ a person can see.
    without `TMACH_EMBED_URL` — which is unset on every instance today.
    Still no model needed to BUILD or test it: the embedding seam is
    `current-doc-embed`, scripted by the suite.
-5. **The read**: a nearest-chunk query, team-scoped in SQL, `can?` per row after
-   the scan, returning the chunk's offsets so the caller can cite it.
+5. ~~**The read.**~~ **BUILT** — `domain/ai/chunksearch.rkt`,
+   `test/chunksearch-tests.rkt`, decisions VEC‑26…32. A nearest-chunk query,
+   team-scoped in SQL, `can?` per row after the scan, returning the chunk's
+   offsets so the caller can cite it. No migration, no route, no permission and
+   no model: everything it needed was on disk after step 4, which is the whole
+   point of having landed the arithmetic and the seal first. The window cap IS
+   this document's own revisit threshold (50,000), so a truncating team is one
+   that has already crossed the line where this design says to reconsider the
+   approach, and `truncated` reports both ways of stopping. **The one
+   approximation is the authorization headroom**: the scan keeps `k × 4`
+   candidates and `can?` is applied in score order over them, memoized by
+   document, because authorizing the whole window first — the exact answer —
+   costs one query per document in the team and is seconds at ten thousand. So
+   a private document ranking first withholds a hit and does not take the whole
+   answer with it, and an exhausted headroom says so.
 6. **A retrieval tool and `?semantic=` on search**, which is where #183 and #191
    pick it up.
 
-Steps 1–4 are built. **Step 5 is the next one and it needs no model either**:
-the nearest-chunk query, team-scoped in SQL, `can?` per row after the scan,
-returning the chunk's offsets so the caller can cite it. Everything it needs is
-now on disk — `vec-nearest` (step 1), the sealed column and `chunks-for`
-(step 4), and `spans-covering` for the citation (CHUNK‑1). What a query cannot be
-JUDGED on without a live `nomic-embed-text` is whether it retrieves the right
-chunk, which is step 3's CALIBRATION — the two numbers above — the same
-measurement `EMBED-MARGIN-SCALE` (#163) wants, and therefore a thing to do once,
-in both languages, when the GPU rig's driver upgrade lands. It does not block
-building any of steps 4–6.
+Steps 1–5 are built. **Step 6 is the next one** — a retrieval tool and
+`?semantic=` on search, where #183 and #191 pick it up — and it needs no model to
+BUILD either: `chunks-nearest` answers the hits and `repo-text-for` plus a
+substring is the text, so what is left is the tool, the result shape and the
+search surface. What a query cannot be JUDGED on without a live
+`nomic-embed-text` is whether it retrieves the right chunk, which is step 3's
+CALIBRATION — the two numbers above — the same measurement `EMBED-MARGIN-SCALE`
+(#163) wants, and therefore a thing to do once, in both languages, when the GPU
+rig's driver upgrade lands. It has not blocked any of steps 4–6.
 
-Two things step 5 should know, recorded here because this is the document
-somebody reads before building it:
+Two things step 5 needed to know, both of which it now acts on — kept here
+because they are the facts a reader of the read's SQL will want:
 
 - **The scan's window joins `o.current_version_id`**, which is what makes a
   superseded version's vectors unreachable rather than merely stale (VEC‑18),
