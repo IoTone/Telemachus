@@ -1,10 +1,10 @@
 # In-product help: a chat box grounded in our own documentation
 
-Issue #183. Status: **the corpus and the retrieval are BUILT** (slice 1); the
-answer — the prompt, the citations, the refusal and the console panel — is
-slice 2 and is specified at the end of this document.
+Issue #183. Status: **BUILT, both slices.** Slice 1 is the corpus, its ingest
+and the nearest-passage read; slice 2 is the answer — the two-layer refusal, the
+citations, `POST /api/help`, `ai.help.total` and the console overlay.
 
-Decisions **HELP‑1…14** are in `docs/design/decisions.md`.
+Decisions **HELP‑1…21** are in `docs/design/decisions.md`.
 
 ## What was already there, and what was missing
 
@@ -188,25 +188,63 @@ That is HELP‑12's exact filter doing exactly what it says, and it is also why
 cross-lingual retrieval stays unclaimed: the Japanese PROSE did not surface for an
 English question.
 
-## What slice 2 builds
+## The answer (slice 2, built)
 
-1. **`ai.help.total`**, a quota dimension with no default limit, in
-   `QUOTA-HOLD-DIMS`, charged per question.
-2. **`domain/help/answer.rkt`** — the composition: embed the question, retrieve
-   `HELP-K` passages, refuse below a score floor, and prompt for an answer that
-   cites by path. The model seam is a parameter (`current-help-chat`), as every
-   model-backed tool here has one, so the test needs no model.
-3. **`POST /api/help`** — authenticated, `chat:use` (asking costs a model
-   request, which is VEC‑35's rule), answering `{answer, citations, locale,
-   reason}` and degrading with a closed vocabulary rather than an exception
-   message: `unconfigured` / `empty` / `locale-empty` / `forbidden` /
-   `unavailable`.
-4. **A console panel**, available on every tab, with the strings in `en.json`
-   and `ja.json`.
-5. **The gate**: `server-smoke.sh` for the degradation on an instance with no
-   corpus, and the question path in `help-tests.rkt` with a scripted model.
+`domain/help/answer.rkt` is the composition; `POST /api/help` is the only route;
+`static/console/17-help.js` is the overlay. No migration.
 
-Nothing in slice 2 needs a migration.
+**"I don't know" is two layers, and neither is sufficient** (HELP‑15/‑16):
+
+1. **A score floor, before any model is called** — so the honest refusal costs
+   nothing. It is **0.35 and provisional**, and it is deliberately NOT a
+   relevance test, because the probe above proves a threshold cannot be one: the
+   Japanese question that missed its chapter entirely still had a top hit at
+   **0.651**, higher than the English question that found the right file at
+   0.576. What it answers is "is anything in this documentation near this
+   question at all". `#:floor` is an argument, because a calibration has to
+   sweep it.
+2. **Every cited path is resolved against the passages actually retrieved.** A
+   model told to cite sometimes invents a plausible file, and a reader who
+   follows a citation to a file that says something else is worse off than one
+   who got no answer. An invented path is dropped and reported; an answer that
+   cites nothing is `uncited` and still returned, because that is usually the
+   model declining, which is what it was asked to do.
+
+The answer is **prose with `[path]` markers plus resolved citations beside it**
+(HELP‑17). VEC‑38 made the opposite call for `repo_retrieve` and both are right
+for their reader: that one answers a model, this one answers a person. A
+`json_schema` here would be a liability — most local servers ignore
+`response_format`, so a model that cannot produce the object would make help fail
+outright, where one that cannot produce a bracket still gives a readable answer
+and says it cited nothing.
+
+**A question costs `ai.help.total` and `ai.requests`, and deliberately not
+`ai.tokens.total`** (HELP‑21) — #183's question 3, answered. What that does not
+bound is stated with it.
+
+**The failure vocabulary is closed and the status is 200** (HELP‑19):
+`unconfigured` / `empty` / `locale-empty` / `no-model` / `nothing-relevant` /
+`uncited`. With no chat model the PASSAGES come back instead of an error
+(HELP‑20) — `content_search: false`'s posture, report what did not run and keep
+what did.
+
+The console affordance is **hidden when help cannot answer**, off
+`S.me.help.reason` from whoami, which is already fetched on every render pass.
+`locale-empty` is not hidden: the corpus exists and the answer arrives in another
+language, which is worth offering and worth saying.
+
+### What verification covers
+
+| | |
+|---|---|
+| `raco test test/help-tests.rkt` | 24 cases, both dialects |
+| `raco test test/console-tests.rkt` | the overlay's structure, the dispatch order, the one-send guard |
+| `bash test/server-smoke.sh` | nine assertions on the DEGRADATION — the state every fresh install is in, which a configured box can never show |
+| `bash test/e2e/validate.sh` | §3e: no affordance, and the shortcut opens nothing, when nothing can answer |
+| positive controls | 13, all biting |
+
+`test/route-perm-gate-tests.rkt` is what found the handler's `require-perm`
+missing on the first run, which is the defect that gate exists for.
 
 ## What is deliberately not built, and will not be
 

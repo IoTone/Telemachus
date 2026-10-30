@@ -348,6 +348,26 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(250);
 
+  // ── 3e. in-product help is HIDDEN when it cannot work (issue #183) ──────────
+  // This instance has no embedder and no corpus, which is every fresh install.
+  // So the half worth asserting in a browser is the ABSENCE of the affordance —
+  // a panel that explains itself only after you press it is worse than no panel,
+  // and on a configured box this state cannot be reproduced at all.
+  step('help: nothing offered when nothing can answer');
+  ok('whoami says which half is missing',
+    await page.evaluate(() => window.S.me.help.reason === 'unconfigured'),
+    await page.evaluate(() => JSON.stringify(window.S.me.help)));
+  ok('…so no Docs button is in the header',
+    await page.evaluate(() => !document.querySelector('header .kbd-hint[title*="documentation"]')));
+  // …and the shortcut does nothing rather than opening an overlay that would
+  // have to apologise for itself.
+  await page.keyboard.press(MOD + '+Slash');
+  await page.waitForTimeout(200);
+  ok('…and the shortcut opens nothing',
+    await page.evaluate(() => !!document.getElementById('helpbox').hidden));
+  ok('…while the overlay the shell reserves for it is still there',
+    await page.evaluate(() => !!document.getElementById('helpbox')));
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));

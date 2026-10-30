@@ -35,6 +35,10 @@
          (only-in db-kit/migrate applied-migrations pending-migrations migration-id)
          (only-in "../../domain/repo/blobs.rkt" active-blob-store-name)
          (only-in "../../domain/sched/scheduler.rkt" drain-seconds)
+         ;; #183: can in-product help answer, and in which languages
+         (only-in "../../domain/help/helpsearch.rkt" help-available?)
+         (only-in "../../domain/help/helpstore.rkt" help-locales)
+         (only-in "../../domain/ai/executor.rkt" embed-configured?)
          "../kit.rkt")
 
 (define (ep-whoami req)
@@ -70,7 +74,19 @@
                              ;; "why is this showing me Tokyo" should not need
                              ;; three documents diffed by hand.
                              'timezone (timezone-report db-conn #:user (principal-user-id p)
-                                                        #:org (principal-org-id p))))))
+                                                        #:org (principal-org-id p))
+                             ;; #183: whether in-product help can answer at all,
+                             ;; and if not WHICH half is missing. It rides here
+                             ;; for the same reason `build` does — the console
+                             ;; already fetches whoami on every render pass, so a
+                             ;; panel that cannot work is hidden without a fourth
+                             ;; sequential request. `help-any?` is an existence
+                             ;; test, not a count: a COUNT(*) over the corpus for
+                             ;; a boolean would be a scan on every pass.
+                             'help (hasheq 'reason (or (help-available? db-conn (embed-configured?)
+                                                                        (request-locale req))
+                                                       'null)
+                                           'locales (help-locales db-conn))))))
 
 ;; The user's own language and their own TIMEZONE — the durable preferences a
 ;; workflow binds to as ${principal.locale} / ${principal.timezone}, as opposed

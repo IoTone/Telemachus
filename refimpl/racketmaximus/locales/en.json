@@ -11,6 +11,10 @@
       "text": "please use a work email address",
       "hash": "6a2387d389c10a652cc278ddea75310350bc3571"
     },
+    "ui.helpempty": {
+      "text": "No documentation has been ingested yet. An operator runs `telemachus-help ingest`.",
+      "hash": "e7573c23c0fdcc56f7b54f0efa171b4b29c5eb29"
+    },
     "doc.route.get.api.feeds": {
       "text": "The team's configured external feeds, plus the closed list of feed kinds this build can pull and the ways a credential may be presented. A secret is never in a read: a row answers `has_secret`, and `polling` says whether anything fetches this feed on a timer yet.",
       "hash": "aa9cb34887fe72807c8e4826d150a57a00c00ff5"
@@ -947,6 +951,10 @@
       "text": "Which detectors to run when redact is true: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary)",
       "hash": "11335323db31c901a531b7637537d3bbca98efa3"
     },
+    "ui.helpask": {
+      "text": "Docs",
+      "hash": "68a4194227be4ab74bc3d32363417c0fc1f30055"
+    },
     "ui.queue": {
       "text": "Queue",
       "hash": "d325fcd919384f395c02751e03d2cd0288b98cca"
@@ -958,6 +966,10 @@
     "ui.submitjob": {
       "text": "Submit a job",
       "hash": "510341190745d586870fc9862595a371c925fc0f"
+    },
+    "ui.palhdocs": {
+      "text": "Ask the documentation",
+      "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
     },
     "ui.send": {
       "text": "Send",
@@ -1131,6 +1143,14 @@
       "text": "This team has used its {dimension} allowance ({used} of {limit}). Queued jobs wait — they have not failed — and start again when the window resets.",
       "hash": "66b9019ebeec34d2bca09f92ab6d5030f9759227"
     },
+    "ui.hdb": {
+      "text": "Database",
+      "hash": "61074f1c958d6cdd32dad889b3d58a2d0704cbe3"
+    },
+    "ui.helpunconfigured": {
+      "text": "In-product help needs an embedding model: set TMACH_EMBED_URL.",
+      "hash": "80672e338abb429d2b846dfb108d9578420647de"
+    },
     "doc.route.post.api.password": {
       "text": "Change the caller's password. Every session the old password could have minted is revoked, including this one, so the caller signs in again; machine tokens (api, worker) are left alone.",
       "hash": "d0716f80b7d79a77dbf4f1517c2678710e41ebc9"
@@ -1230,10 +1250,6 @@
     "doc.workflow.feed-propose": {
       "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
       "hash": "273f8add79363523aa57b166f84d1a852c876324"
-    },
-    "ui.hdb": {
-      "text": "Database",
-      "hash": "61074f1c958d6cdd32dad889b3d58a2d0704cbe3"
     },
     "doc.perm.instance:read": {
       "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
@@ -1559,6 +1575,14 @@
       "text": "Delete every object under `?prefix=`, cascading to what each one derived (#86). DRY RUN BY DEFAULT: without `confirm=1` nothing is removed and the reply is the count, the bytes and the ids that WOULD go. An empty or missing prefix is refused rather than read as \"every object in the team\". `?cascade=0` deletes only the listed objects and leaves their derivatives. The objects are found through the caller's own listing, so visibility, grants and the org gate apply exactly as on `GET /api/repo?prefix=`, and each deletion re-runs the per-object permission check.",
       "hash": "4dcaaec82eb3e54c0b1fa994b0eab57280527471"
     },
+    "ui.helpnone": {
+      "text": "Nothing in the documentation is close to that question.",
+      "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
+    },
+    "ui.upload": {
+      "text": "Upload",
+      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
+    },
     "beta.thanks": {
       "text": "Thanks — your request is in review.",
       "hash": "4ae508f149a268403a940bb7f389c8c7927a9aa2"
@@ -1630,10 +1654,6 @@
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
-    },
-    "ui.upload": {
-      "text": "Upload",
-      "hash": "8bdf057f91e76ae328b2a21d35f682daa08a0ec0"
     },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
@@ -1839,13 +1859,17 @@
       "text": "Password changed — every session was signed out. Sign in again.",
       "hash": "b338cf8a2b9db116c903d7aa328d8b55d7a5f782"
     },
-    "doc.route.get.api.ai.model": {
-      "text": "Which model is configured (or that the simulated fallback is in use).",
-      "hash": "4b99317a92df10325e6b8654caa37d448f7fe8de"
+    "ui.helpuncited": {
+      "text": "The answer cited no passage, which usually means it is declining to answer.",
+      "hash": "f869c22eef29a6400b7755a6b927bc33551e1e0e"
     },
     "doc.route.get.api.repo-obj.id.content": {
       "text": "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.",
       "hash": "e3519b90c5108493988f2a53343a1245023dbe5c"
+    },
+    "doc.route.get.api.ai.model": {
+      "text": "Which model is configured (or that the simulated fallback is in use).",
+      "hash": "4b99317a92df10325e6b8654caa37d448f7fe8de"
     },
     "ui.featoffdone": {
       "text": "{f} is off for the whole instance",
@@ -1926,6 +1950,10 @@
     "ui.beta": {
       "text": "Beta",
       "hash": "f03b60f7e52b7ce49ed1e4f9fa511c452a2185bb"
+    },
+    "ui.helpph": {
+      "text": "What do you want to know about this platform?",
+      "hash": "5e4470110c19c7268a814d0b9efdfde5b3637a92"
     },
     "doc.plugin.integrator-demo": {
       "text": "The worked example for docs/integrators-guide.md: a tool, an authenticated route, a background job kind and a themed screen.",
@@ -2223,6 +2251,10 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "ui.helpclose": {
+      "text": "Esc to close",
+      "hash": "5329571c06e3b9ce63ef783a64d8903a391124ab"
+    },
     "doc.plugin.matrix": {
       "text": "Sends the platform's own events to a Matrix room on a homeserver the operator runs. Optional: with no homeserver configured it registers nothing.",
       "hash": "a7535988fb1c9705582bcde582eccf846a1be5a4"
@@ -2234,6 +2266,10 @@
     "ui.copy": {
       "text": "Copy",
       "hash": "af74f7c5362aaee985bf8cda3dd75fc80751ce51"
+    },
+    "ui.helptitle": {
+      "text": "Ask the documentation",
+      "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
     },
     "ui.wkstale": {
       "text": "stale",
@@ -2487,6 +2523,10 @@
       "text": "Create a trigger: workflow_slug, match_prefix, match_types, match_attrs, input, fire_on_derived. `match_attrs` is an object of object-metadata key to value, all of which must match (equality only, the `?attr=` vocabulary) — a trigger that names attributes also fires when a document's metadata CHANGES, which is how a type recorded by doc_classify starts a pipeline.",
       "hash": "1a0e38d7d0c226ef085be6847073d2d7bb03286d"
     },
+    "ui.helpasking": {
+      "text": "Asking…",
+      "hash": "b18ce81df55ca8aa4952c93e6f7c8a5d112980cc"
+    },
     "doc.route.post.api.workers.token": {
       "text": "Trade the token this worker is holding for the next one (issue #60): {token, expires_at, overlap_seconds}. The warrant is the credential it already holds, as for PULL-9's read and PULL-13's write. The old token keeps working for the overlap, so a worker must PERSIST the new one before using it — one that cannot persist it must not rotate, or it will stop when the overlap ends. Rotating twice inside five minutes is a 429 with Retry-After.",
       "hash": "abc29f3c75523fdb9b265a0d3a5b2839bbbdd6d5"
@@ -2606,6 +2646,10 @@
     "doc.route.options.api.beta.config": {
       "text": "CORS preflight for a sandboxed Tier-C template.",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "ui.helplocaleempty": {
+      "text": "The documentation has not been ingested in this language, so the answer comes from another.",
+      "hash": "34042f5ed012b18221267ec1cac6f089430ff68a"
     },
     "doc.route.get.api.schedules.id": {
       "text": "One job schedule. Another team's id is a 404, not a 403.",
@@ -2979,6 +3023,14 @@
       "text": "Literal names or phrases for the dictionary detector — not patterns",
       "hash": "12db93cf2841699f7c12d31b891267e07189338f"
     },
+    "doc.route.post.api.help": {
+      "text": "Ask a question of the instance's own documentation (#183). Answers from the help corpus with citations by file path, or a closed `reason` saying why it could not: `unconfigured` (no TMACH_EMBED_URL), `empty` (nothing ingested — run `telemachus-help ingest`), `locale-empty`, `no-model`, `nothing-relevant` (nothing in the documentation is near the question), `uncited` (the model answered and named no passage, which is usually it declining). Every citation is resolved against the passages actually retrieved, so a path the model invented is dropped and reported. The corpus is the instance's, not a team's, so there is no per-document permission; `chat:use` is here because asking costs one embedding and one completion, charged to `ai.help.total` and `ai.requests` and deliberately NOT to `ai.tokens.total`. `locale` in the body wins over the request's negotiated locale; the response says which locale answered.",
+      "hash": "82caf88b2e33ea099ac7e26eee778df7e60eda83"
+    },
+    "doc.route.get.api.x.integrator-demo.eta": {
+      "text": "Estimated days for ?lane=.",
+      "hash": "2268d831fda2d55ab8ed18cab5d35a763a072dda"
+    },
     "doc.route.get.api.webhooks.id": {
       "text": "One subscription. Another team's id is a 404, not a 403.",
       "hash": "f6934d6e7166ec99d4ff601abcb8f6846d8d674c"
@@ -2998,10 +3050,6 @@
     "doc.route.post.api.x.plugin.bundle-ticket": {
       "text": "Mint a short-lived ticket for this plugin's authenticated bundle, so its pages can be OPENED in a browser (issue #43); the first response sets it as a cookie scoped to that bundle path.",
       "hash": "bd43be9e9648a122dad992989775e4fad89ca0e8"
-    },
-    "doc.route.get.api.x.integrator-demo.eta": {
-      "text": "Estimated days for ?lane=.",
-      "hash": "2268d831fda2d55ab8ed18cab5d35a763a072dda"
     },
     "doc.route.get.api.l10n.messages": {
       "text": "The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged.",
@@ -3223,6 +3271,10 @@
       "text": "New document",
       "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
     },
+    "ui.helpsources": {
+      "text": "Sources",
+      "hash": "2eb56be3c2d93cdab0c52e677e3167dfddb30ac5"
+    },
     "doc.tool.translate_text": {
       "text": "Translate text into a target language.",
       "hash": "97e00a1333476512c5752e4a68c059fc5df84cc4"
@@ -3387,6 +3439,14 @@
       "text": "Backend order: \"rules\", \"llm\" (default: rules then llm)",
       "hash": "1d458a14a79a6fffb699cb1254497e34f04b2ba9"
     },
+    "ui.details": {
+      "text": "Details",
+      "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
+    },
+    "ui.helpnomodel": {
+      "text": "No model is configured, so these are the passages closest to the question rather than an answer.",
+      "hash": "382a1ac958f81acd9a2f15dbe4bff44dba0a077e"
+    },
     "doc.route.post.api.instance.quota": {
       "text": "Hosted mode: set a quota limit for the tenant's team.",
       "hash": "bf7f950d26b1d684525c5d31a52a0a5d4d6b8eff"
@@ -3406,6 +3466,10 @@
     "ui.searchph": {
       "text": "notes, documents, files, translations…",
       "hash": "bc6e4dbaec36a991517cc9f23c22f1f6fa25572d"
+    },
+    "ui.helpsend": {
+      "text": "Ask",
+      "hash": "3562777bc6a3edbbbfe49bb7c58769707930308b"
     },
     "ui.name": {
       "text": "Name",
@@ -3430,6 +3494,10 @@
     "ui.derivedfrom": {
       "text": "Derived from",
       "hash": "b8848cfcf4b7af9f75aeebfb6f46e3659fbcb215"
+    },
+    "ui.helphint": {
+      "text": "Ask the documentation",
+      "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
     },
     "ui.wkdrainedok": {
       "text": "Drained — it will take no new work",
@@ -3482,10 +3550,6 @@
     "ui.tagline": {
       "text": "Team AI platform — reference implementation",
       "hash": "376a8698238975b4eeda809c249ad17e73944eda"
-    },
-    "ui.details": {
-      "text": "Details",
-      "hash": "dc3decbb93847518f1a049dcf49d0d7c6560bcc6"
     },
     "ui.wktokenph": {
       "text": "the token above",

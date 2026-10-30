@@ -4387,3 +4387,80 @@ All twelve positive controls bite: the locale rule, the staleness hash,
 `--no-prune`, the title/heading composition, the heading scan, the empty-file
 record, the model filter in SQL, the directionless refusal, the locale fallback,
 the moved-text drop, `help-available?`'s reasons, and the stored form.
+
+## HELP (continued) — the answer, and what it refuses (issue #183, slice 2, built 29 Oct 2026)
+
+Slice 1 built the corpus and the nearest-passage read; this is the half #183 is
+actually asking for — "it must cite, and it must be able to say 'I don't know'.
+An answer invented about an operator's own platform is worse than silence."
+`domain/help/answer.rkt`, `POST /api/help` (`server/api/help.rkt`),
+`ai.help.total`, `help` on `GET /api/whoami`, and the console overlay
+`static/console/17-help.js`. **No migration.**
+
+| # | Decision | Taken | Why |
+|---|---|---|---|
+| **HELP‑15** | How "I don't know" is decided | **TWO LAYERS: a score floor before any model call, and citation resolution after it** · vs a prompt instruction alone, vs a relevance threshold | Neither layer is sufficient. The floor answers "is there anything in this documentation at all near this question", which is what makes a refusal cost nothing — and it CANNOT be a relevance test, which slice 1's probe proved: the Japanese question that missed its chapter entirely still had a top hit at **0.651**, higher than the English question that found the right file at 0.576. So the floor is deliberately low (0.35) and **provisional**, with what would move it written at its definition — a recall measurement over a question set with known answers, in both languages, which is #189 step 3's calibration and the same sitting. `#:floor` is an argument rather than a constant read at the call, because a calibration has to sweep it and no test of anything else should depend on today's value. |
+| **HELP‑16** | What makes a citation real | **Every cited path is resolved against the passages actually retrieved** · vs trusting the model, vs demanding a verbatim substring | A model told to cite sometimes invents a plausible file, and that is the one failure this feature cannot have: a reader who follows a citation to a file that says something else is worse off than one who got no answer. A path the retrieval never offered is DROPPED and reported in `invented_citations`. The KG extractor can demand a verbatim substring because it extracts SPANS; a prose answer has no such invariant, so this is as far as verification can honestly go — and the honesty is why `uncited` is reported rather than hidden. |
+| **HELP‑17** | The answer's form | **Prose with `[path]` markers, plus citations resolved alongside** · vs `response_format: json_schema` | VEC‑38 made the opposite call for `repo_retrieve` and both are right for their reader: that one answers a MODEL, so a machine-readable citation matters; this one answers a PERSON in a panel. And a schema here would be a liability — most local servers ignore `response_format`, so a model that cannot produce the object would make help fail outright, where a model that cannot produce a bracket still produces a readable answer with no citations and says so. The structured citations come back beside the prose, resolved from the retrieved hits rather than retyped by the model. |
+| **HELP‑18** | Where the prompt's language goes | **The system prompt is English; the ANSWER's language is named in it** · vs a localized system prompt | The system prompt is an instruction to a model, not copy anybody reads, so localizing it would put a translation on the critical path of every answer for no reader. The retrieval locale and the answer locale are the same one, and the response says which locale answered (HELP‑12). |
+| **HELP‑19** | How a failure is reported | **A closed vocabulary, 200, never an exception message** · vs a 4xx/5xx per cause | #123's line and VEC‑39's: `unconfigured` / `empty` / `locale-empty` / `no-model` / `nothing-relevant` / `uncited`. The request was well-formed and the server did its job, so the status is 200 and the body carries the reason a client branches on. `reason` is ABSENT (null) when the question was answered — QUOTA‑3's rule, so a caller tests for absence rather than for a sentinel. |
+| **HELP‑20** | With no chat model | **The PASSAGES come back, with `no-model`** · vs an error | `content_search: false`'s posture: report what did not run, keep what did. A reader handed three cited passages out of the documentation is better off than one handed an error, and on an instance with an embedder and no chat model that is the whole of what help can be. |
+| **HELP‑21** | What a question costs | **`ai.help.total` (its own dimension, no default limit) and `ai.requests`, and deliberately NOT `ai.tokens.total`** · vs the completion budget, vs free | #183's question 3 answered. The shipped `ai.tokens.total` default is 2,000/day, so a question or three exhausts it and "help that stops working at lunchtime is worse than no help" — the issue's own words. Its own dimension is EMB‑6's and JUDGE‑10's shape: a cost with no sensible home gets a dimension rather than being folded into somebody else's budget. `ai.requests` IS charged because the dimension counts calls to a model and this is two of them, and its 200/day default is a real bound that is not the one that would hurt. **What that does not bound is stated**: a team with no `ai.help.total` limit can spend provider tokens on help without it appearing in the completion budget an operator reads as spend, and the remedy is to set the limit the dimension exists for. In `QUOTA-HOLD-DIMS` and on `GET /api/usage`. |
+
+### The permission, and the gate that found it missing
+
+`chat:use`, declared on the route and enforced in the handler — and the handler's
+line was MISSING on the first run. **`test/route-perm-gate-tests.rkt` named it**
+(`POST /api/help declares "chat:use" — not enforced anywhere reachable from
+ep-help`), which is exactly the defect that gate was built for after
+`GET /api/retention` shipped declaring a permission and enforcing nothing. The
+route table is documentation; the handler is the enforcement.
+
+The permission is about the SPENDING, not the documents: HELP‑7 says the corpus
+needs none, because it is the manual for the software the caller is signed in to.
+The smoke pins that with a **viewer**, the one built-in role that separates
+`files:read` from `chat:use` — and the first version asserted against a MEMBER,
+who holds both, so it passed against a correct server and said nothing.
+
+### The console, and two things it inherited
+
+The overlay is shell-resident like the palette's two (#182), so a tab re-render
+cannot take it down mid-answer — and the documented cost is the same: **the shell
+is cached at startup, so a live box needs a restart.** It hooks the one delegated
+`keydown` listener AFTER `paletteKey`, and the order is asserted rather than
+commented: the palette owns `Esc` while ITS overlay is open and `helpKey` claims
+`Esc` only while its own is, so two handlers taking `Esc` unconditionally is how
+one starts closing the other's. Asking is ONE send on #174's shape — the flag is
+both the guard and the pending state, nothing awaits between the check and the
+set, and the `finally` is what stops one network error leaving the button dead.
+
+**The affordance is HIDDEN when help cannot answer**, off `S.me.help.reason`
+from whoami, which the console already fetches on every render pass. A panel that
+explains itself only after you press it is worse than no panel. `locale-empty` is
+deliberately NOT hidden: the corpus exists and the answer arrives in another
+language, which is worth offering and worth saying. `help-any?` is an EXISTENCE
+test rather than a count, because whoami asks it on every pass and a `COUNT(*)`
+over the corpus for a boolean is a scan.
+
+### Three things this slice paid for
+
+- **A SCRIPTED BAG-OF-WORDS EMBEDDER SCORES NOTHING LIKE A REAL ONE**, and five
+  cases failed on it first: a seven-word question against a thirty-token passage
+  scores about **0.28** over 256 buckets, where `nomic-embed-text` gives
+  0.55–0.80. So the floor is passed explicitly in every case but the one that is
+  ABOUT the floor. A suite that pinned a provisional constant by accident would
+  turn a calibration into a test failure.
+- **A PYTHON-SCRIPTED EDIT ENDED A BASH LITERAL WITH A DOUBLED QUOTE**, and bash
+  then swallowed the remaining 40 lines of the smoke silently — it printed five
+  passing assertions and then no verdict at all. `bash -n` catches it in
+  milliseconds and the absence of the `server-smoke: PASS` line is the tell;
+  "the last assertions did not run" reads nothing like a failure.
+- **A CLASS THAT MATCHES NO RULE FAILS NOTHING** (#178, paid again): `.sec` is
+  scoped to `.bx-ed` and `.small`/`.plain` do not exist at all. The overlay has
+  three classes of its own, grepped out of the stylesheet first.
+
+All thirteen positive controls bite: the `chat:use` enforcement, the citation
+resolution, the score floor, the `no-model` branch, the `uncited` report, the
+dimension, `help-cited-paths`, the prompt's only-the-passages rule, the help
+hook's position in the dispatch, `helpBlocked`'s two reasons, the header button's
+guard, the one-send guard and its `finally`.

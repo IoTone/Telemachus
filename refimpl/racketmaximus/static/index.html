@@ -157,6 +157,19 @@
   .kbd-hint{background:var(--panel2);border:1px solid var(--line);border-radius:6px;
     padding:2px 7px;font-size:12px;color:var(--muted);cursor:pointer}
   .kbd-hint:hover{color:var(--fg)}
+  /* #183: the ask-the-documentation overlay. Same shell-resident reasoning as
+     the palette above — it sits over whatever is on screen, so a tab re-render
+     must not take it down mid-answer. Its three classes are its own rather than
+     borrowed: `.sec` is scoped to `.bx-ed`, and a class that matches no rule
+     fails nothing and ships a bare user-agent element (#178). */
+  .help-sec{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    margin:14px 0 6px;font-weight:700}
+  .help-cites{list-style:none;margin:0;padding:0;font-size:13px}
+  .help-cites li{padding:3px 0;border-bottom:1px solid var(--line)}
+  .help-cites li:last-child{border-bottom:0}
+  .help-p{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:0 0 8px;
+    background:var(--panel2);font-size:13px}
+  #helpbox textarea{margin:0 0 8px}
   /* ---- Tier-A skinnable beta landing: fully theme-token driven, scoped to .bx ---- */
   .bx{min-height:100vh;background:var(--bx-bg,#0b1a2b);color:var(--bx-ink,#f2ede1);font-family:var(--bx-font,ui-sans-serif,system-ui,sans-serif)}
   .bx-wrap{max-width:940px;margin:0 auto;padding:0 20px}
@@ -216,6 +229,7 @@
 <div id="toast" class="toast"></div>
 <div id="palette" class="pal" hidden></div>
 <div id="shortcuts" class="pal" hidden></div>
+<div id="helpbox" class="pal" hidden></div>
 <div id="idlebar" class="idlebar" hidden><span id="idlemsg"></span><button class="btn sm" id="idlestay" type="button"></button></div>
 <script src="/console/01-base.js"></script>
 <script src="/console/02-auth.js"></script>
@@ -233,6 +247,7 @@
 <script src="/console/14-health.js"></script>
 <script src="/console/15-editor.js"></script>
 <script src="/console/16-palette.js"></script>
+<script src="/console/17-help.js"></script>
 <script src="/console/99-boot.js"></script>
 </body>
 </html>

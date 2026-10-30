@@ -489,3 +489,57 @@
   (check-true (and ab #t) "applyBrand exists")
   (check-true (string-contains? ab "await render()")
               "…and applyBrand awaits the repaint it triggers"))
+
+;; ---- in-product help: one overlay, one POST, hidden when it cannot work (#183)
+
+(test-case "the help overlay hooks the SAME delegated listener, after the palette's"
+  ;; #182 established that a global shortcut goes through the one document
+  ;; listener rather than adding a second. This is the second such shortcut, so
+  ;; what matters is the ORDER: the palette owns Esc while ITS overlay is open
+  ;; and `helpKey` claims Esc only while its own is, so two handlers both taking
+  ;; Esc unconditionally is how one starts closing the other's overlay.
+  (define base (file->string (build-path console-dir "01-base.js")))
+  (check-true (string-contains? base "helpKey(ev)") "the help overlay hooks it")
+  (define i (let ([m (regexp-match-positions #px"paletteKey\\(ev\\)" base)]) (and m (caar m))))
+  (define j (let ([m (regexp-match-positions #px"helpKey\\(ev\\)" base)]) (and m (caar m))))
+  (define el (let ([m (regexp-match-positions #px"closest\\('\\[data-h-" base)]) (and m (caar m))))
+  (check-true (and i j (< i j)) "the palette's hook runs first")
+  (check-true (and j el (< j el)) "…and both precede the element dispatch"))
+
+(test-case "the help affordance is HIDDEN when help cannot answer"
+  ;; A panel that explains itself only after you press it is worse than no panel,
+  ;; and the field it reads (`S.me.help.reason`) is already fetched on every
+  ;; render pass. `locale-empty` is deliberately NOT hidden: the corpus exists
+  ;; and the answer arrives in another language, which is worth offering.
+  (define b (fn-body "helpBlocked"))
+  (check-true (and b #t) "helpBlocked exists")
+  (check-true (string-contains? b "unconfigured") "no embedder hides it")
+  (check-true (string-contains? b "'empty'") "an empty corpus hides it")
+  (check-false (string-contains? b "locale-empty")
+               "…and a corpus in another language does NOT, because it can still answer")
+  (define shell (file->string (build-path console-dir "02-auth.js")))
+  (check-true (string-contains? shell "helpBlocked()")
+              "the header button is behind it")
+  ;; the overlay lives in the static shell, like the palette's two
+  (check-true (string-contains? html "id=\"helpbox\"")
+              "the overlay is shell-resident, so a tab re-render cannot take it down mid-answer"))
+
+(test-case "asking is ONE send, with the guard and the pending state as one flag"
+  ;; #174's shape, which cost a double-billed model call the first time: the flag
+  ;; IS the guard, nothing may await between the check and the set, and the
+  ;; `finally` is what stops one network error leaving the button dead.
+  (define f (fn-body "doHelpAsk"))
+  (check-true (and f #t) "doHelpAsk exists")
+  (check-true (string-contains? f "S.help.asking") "it has a flag")
+  (define chk (let ([m (regexp-match-positions #px"S\\.help\\.asking\\) return" f)]) (and m (caar m))))
+  (define set (let ([m (regexp-match-positions #px"S\\.help\\.asking = true" f)]) (and m (caar m))))
+  (define aw  (let ([m (regexp-match-positions #px"await" f)]) (and m (caar m))))
+  (check-true (and chk set (< chk set)) "the check precedes the set")
+  (check-true (and set aw (< set aw))
+              "and nothing awaits in between — two activations in one tick would both pass a guard that yields")
+  (check-true (string-contains? f "finally") "the flag is cleared in a finally")
+  ;; every label is a catalog key, which `doSearch` shipped English literals for
+  ;; a year without (#178)
+  (define body (file->string (build-path console-dir "17-help.js")))
+  (check-false (regexp-match? #px"toast\\('[A-Za-z]" body)
+               "no English literal in a user-facing string"))

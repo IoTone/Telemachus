@@ -2517,5 +2517,48 @@ assert "matrix: a subscription is removed" \
 assert "matrix: another team's id is a miss, not a refusal" \
   "$(curl -s -X DELETE "$B/api/x/matrix/rooms/00000000-0000-0000-0000-000000000000" -H "Authorization: Bearer $OP")" 'no such room'
 
+echo "== in-product help (#183) =="
+# This instance has NO embedder and NO corpus, which is the state every fresh
+# install is in — so what is pinned here is the DEGRADATION, which is the half a
+# configured box can never show. VEC-39's rule: a closed reason a client can
+# branch on, never an exception message.
+assert "help: an unconfigured instance says so, with a 200 and a reason" \
+  "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"question":"how do I rotate the key that seals stored secrets?"}')" '"reason":"unconfigured"'
+assert "help: …and answers nothing rather than inventing" \
+  "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"question":"how do I rotate the key that seals stored secrets?"}')" '"answer":null'
+refute "help: a refusal carries no citations" \
+  "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"question":"anything at all"}')" '"path"'
+assert "help: an empty question is a 400" \
+  "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"question":"   "}')" 'question required'
+assert "help: a missing question is a 400" \
+  "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' -d '{}')" \
+  'question required'
+# The permission is about the SPENDING, not the documents (HELP-7), so it needs a
+# principal that can READ and may not SPEND — which is `viewer`, the one built-in
+# role that separates `files:read` from `chat:use`. bob is a MEMBER and holds
+# both; asserting against him passed against a correct server and said nothing,
+# which is how this assertion first went green for the wrong reason. Minting the
+# viewer here is safe because this block is LAST in the file (the recorded remedy
+# for a fixture that changes global state) and a viewer changes no owner count.
+VH=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"vera","role":"viewer"}')
+VERA=$(printf '%s' "$VH" | grep -oP '"token":\s*"\K[^"]+')
+assert "help: a viewer may read the docs and may not spend on them" \
+  "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $VERA" -H 'Content-Type: application/json' \
+      -d '{"question":"anything"}')" 'Forbidden: chat:use'
+assert "help: and a stranger gets 401 before any mention of a permission" \
+  "$(curl -s -X POST "$B/api/help" -H 'Content-Type: application/json' -d '{"question":"anything"}')" \
+  'Authentication required'
+# The console hides the panel off this field rather than explaining itself after
+# somebody presses a button, so it has to be there.
+assert "help: whoami says which half is missing" \
+  "$(curl -s "$B/api/whoami" -H "Authorization: Bearer $OP")" '"reason":"unconfigured"'
+# HELP-21: its own dimension, visible to an operator who wants to bound it.
+assert "help: ai.help.total is a dimension the usage read reports" \
+  "$(curl -s "$B/api/usage" -H "Authorization: Bearer $OP")" '"dimension":"ai.help.total"'
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

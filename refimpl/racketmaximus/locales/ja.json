@@ -2256,6 +2256,10 @@
       "text": "チームの有効なツールに対してツールを使用するエージェントループを実行；すべてのツール呼び出しはRBACチェックとメーター処理が行われます。",
       "hash": "ba6777989b583f514ff66b05e086ce6523bef0bc"
     },
+    "doc.route.post.api.help": {
+      "text": "インスタンス自身のドキュメントに質問します (#183)。ヘルプコーパスからファイルパスによる引用付きで回答するか、回答できない理由を閉じた語彙の `reason` で返します: `unconfigured` (TMACH_EMBED_URL が未設定)、`empty` (何も取り込まれていない — `telemachus-help ingest` を実行)、`locale-empty`、`no-model`、`nothing-relevant` (ドキュメントに質問に近いものがない)、`uncited` (モデルが回答したがパッセージを一つも挙げなかった。通常はモデルが回答を辞退した場合)。すべての引用は実際に取得されたパッセージに対して照合されるため、モデルが捏造したパスは削除され報告されます。コーパスはチームのものではなくインスタンスのものなので、ドキュメントごとの権限はありません。質問には埋め込み一回と補完一回のコストがかかるため `chat:use` が必要で、`ai.help.total` と `ai.requests` に課金され、`ai.tokens.total` には意図的に課金されません。本文の `locale` はリクエストでネゴシエートされたロケールより優先されます。応答にはどのロケールが回答したかが含まれます。",
+      "hash": "82caf88b2e33ea099ac7e26eee778df7e60eda83"
+    },
     "ui.builddev": {
       "text": "未リリースビルド",
       "hash": "26c708905abec8bfa87bd642b1a3f9b04db8ffc7"
@@ -3703,6 +3707,66 @@
     "ui.palhshift": {
       "text": "送信せずに改行を挿入",
       "hash": "be508a7b98a2ac90fc8a73e3cefa19295be68715"
+    },
+    "ui.helpask": {
+      "text": "ドキュメント",
+      "hash": "68a4194227be4ab74bc3d32363417c0fc1f30055"
+    },
+    "ui.helphint": {
+      "text": "ドキュメントに質問する",
+      "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
+    },
+    "ui.helptitle": {
+      "text": "ドキュメントに質問する",
+      "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
+    },
+    "ui.helpph": {
+      "text": "このプラットフォームについて何を知りたいですか？",
+      "hash": "5e4470110c19c7268a814d0b9efdfde5b3637a92"
+    },
+    "ui.helpsend": {
+      "text": "質問する",
+      "hash": "3562777bc6a3edbbbfe49bb7c58769707930308b"
+    },
+    "ui.helpasking": {
+      "text": "問い合わせ中…",
+      "hash": "b18ce81df55ca8aa4952c93e6f7c8a5d112980cc"
+    },
+    "ui.helpsources": {
+      "text": "出典",
+      "hash": "2eb56be3c2d93cdab0c52e677e3167dfddb30ac5"
+    },
+    "ui.helpclose": {
+      "text": "Esc で閉じる",
+      "hash": "5329571c06e3b9ce63ef783a64d8903a391124ab"
+    },
+    "ui.helpnone": {
+      "text": "その質問に近いものはドキュメントにありません。",
+      "hash": "c7f3ca885c6d94efd37d9641e8de577f51b6aba6"
+    },
+    "ui.helpunconfigured": {
+      "text": "製品内ヘルプには埋め込みモデルが必要です。TMACH_EMBED_URL を設定してください。",
+      "hash": "80672e338abb429d2b846dfb108d9578420647de"
+    },
+    "ui.helpempty": {
+      "text": "ドキュメントがまだ取り込まれていません。運用者が `telemachus-help ingest` を実行します。",
+      "hash": "e7573c23c0fdcc56f7b54f0efa171b4b29c5eb29"
+    },
+    "ui.helplocaleempty": {
+      "text": "この言語のドキュメントは取り込まれていないため、別の言語から回答しています。",
+      "hash": "34042f5ed012b18221267ec1cac6f089430ff68a"
+    },
+    "ui.helpnomodel": {
+      "text": "モデルが設定されていないため、回答ではなく質問に最も近いパッセージを表示しています。",
+      "hash": "382a1ac958f81acd9a2f15dbe4bff44dba0a077e"
+    },
+    "ui.helpuncited": {
+      "text": "回答はパッセージを一つも挙げませんでした。通常はモデルが回答を辞退したことを意味します。",
+      "hash": "f869c22eef29a6400b7755a6b927bc33551e1e0e"
+    },
+    "ui.palhdocs": {
+      "text": "ドキュメントに質問する",
+      "hash": "e3c0b081bfbf19ae1873883658c8f5d91850a1a1"
     },
     "ui.palhclose": {
       "text": "Esc または ? で閉じる",

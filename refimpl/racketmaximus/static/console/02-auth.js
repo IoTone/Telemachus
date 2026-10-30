@@ -126,6 +126,8 @@ function appShell(){
       <span class="langtog">${langBtns()}</span>
       <button class="kbd-hint" title="${esc(t('palhint'))}"
         data-h-click="${H(()=>palOpen())}">${esc(palModLabel()+'K')}</button>
+      ${helpBlocked() ? '' : `<button class="kbd-hint" title="${esc(t('helphint'))}"
+        data-h-click="${H(()=>helpOpen())}">${esc(t('helpask'))}</button>`}
       <span class="chip">${esc(S.me.user_id.slice(0,8))}… ${S.me.is_operator?`<span class="badge op">${t('operator')}</span>`:''}</span>
       <button class="btn ghost sm" data-h-click="${H((el,ev)=>logout())}">${t('logout')}</button>
     </header>

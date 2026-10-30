@@ -56,6 +56,13 @@
                           ;; other model call. There is no default limit, so on
                           ;; an instance nobody configured this holds nothing.
                           "ai.embeddings.total"
+                          ;; #183 (HELP‑21). Same reason again: no default limit,
+                          ;; so on an instance nobody configured this holds
+                          ;; nothing — but where an operator HAS bounded help,
+                          ;; reaching the bound should hold the queue rather than
+                          ;; fail work, because the dimension is also spent by
+                          ;; anything that answers a question inside a job.
+                          "ai.help.total"
                           "feed.fetches"))
 
 ;; PURE, deliberately: the job listing calls this on every read (`team-hold` in

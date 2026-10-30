@@ -51,6 +51,11 @@ function palStaticItems(){
   const out = [];
   for (const tab of visibleTabs())
     out.push({ kind: 'tab', label: t(tab), hint: t('paltab'), run: () => go(tab) });
+  // #183: an action available on every tab, because the question "how does this
+  // work" is not about the tab you happen to be on.
+  if (typeof helpBlocked === 'function' && !helpBlocked())
+    out.push({ kind: 'action', label: t('helptitle'), hint: t('palaction'),
+               run: () => helpOpen() });
   for (const [key, fn] of (PAL_ACTIONS[S.tab] || []))
     out.push({ kind: 'action', label: t(key), hint: t('palaction'), run: fn });
   return out;
@@ -159,6 +164,7 @@ function palHelp(on){
   const rows = [
     [palModLabel() + 'K', t('palhpalette')],
     ['?',                 t('palhhelp')],
+    [palModLabel() + '/',  t('palhdocs')],
     ['Esc',               t('palhesc')],
     ['Enter',             t('palhenter')],
     ['Shift+Enter',       t('palhshift')]
