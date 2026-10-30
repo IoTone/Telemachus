@@ -365,3 +365,31 @@ knowing from here:
   derived from the item, carrying a standing note that nothing was carried out —
   because the person reading it in a month has no other way to know. The run then
   parks, and v1 has no acting tool for `approve` to name.
+
+## The six sources, and which are adapters (#193, 29 Oct 2026)
+
+All six the owner named are settled. Four are adapters built in #193; the
+decisions are **FEED‑23…36** in `docs/design/decisions.md`.
+
+| source | kind | cursor | identity |
+|---|---|---|---|
+| GitHub issues | `github.issues` | `updated_at`, forced ascending | `<owner>-<repo>-<number>` |
+| CERT/CVE advisories | `cve.nvd` | `lastModStartDate`, walked forward ≤120 days | the CVE id |
+| Uptime Kuma | `kuma.status` | none at the source; applied in `parse` | `<monitor>-<instant>` |
+| Discord | `discord.messages` | an epoch converted to a snowflake | the message snowflake |
+| Prometheus Alertmanager | `alerts.alertmanager` | **none** — it answers what is firing now | `<fingerprint>-<startsAt>` |
+| Matrix | — | — | **not a feed**: a protocol, shipped as #133 in the notifying direction |
+
+**OTel is not an adapter** (FEED‑33). OTLP is a push protocol — a collector opens
+a connection and POSTs at this instance — and a feed polls, so asking for an OTel
+adapter is the category error #114 already found with Matrix. The honest shapes
+for OTLP *arriving* are an ingest endpoint and a job kind, which is its own
+issue. `alerts.alertmanager` is what an operator running that stack actually has
+that is pollable, and it is the thing that fires when something is wrong.
+
+**The one thing an adapter still cannot do is POST** (FEED‑26). `prepare` answers
+a URL and headers, so `osv.dev`'s batch query — the natural fit for "advisories
+against my dependencies" — is out of reach. `fetch` already takes `#:method` and
+`#:body`, so the gap is the adapter contract rather than the transport; the day a
+POST source is wanted, `prepare` grows a method and a body and `poll.rkt` passes
+them through. Recorded so it is a decision rather than a rediscovery.

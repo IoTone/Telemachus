@@ -860,6 +860,24 @@ assert "feed: a member may not configure one" \
   "$(curl -s $B/api/feeds -H "Authorization: Bearer $BOB")" 'Forbidden: feeds:manage'
 assert "feed: the closed kind vocabulary is published" \
   "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" '"kinds":['
+# #193: the four #114 named and had no adapter for. `FEED-KINDS` is DERIVED from
+# the registry, so each of these appearing here is the whole proof that the
+# adapter installed at boot — and a kind that failed to register would be
+# refused by `feed-create!` below rather than silently never polled.
+for K in cve.nvd kuma.status discord.messages alerts.alertmanager; do
+  assert "feed: $K is configurable" \
+    "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" "\"$K\""
+done
+# …and a kind with an adapter is POLLABLE, where `http.json` is probe-only. The
+# pair is what makes `pollable` mean something: it answers for the KIND, not for
+# whether this feed has a cadence.
+FDK=$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+  -d '{"slug":"nvd","kind":"cve.nvd","url":"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=racket"}')
+assert "feed: an adapter-backed kind is created and reports pollable" "$FDK" '"pollable":true'
+assert "feed: …and polls nothing until it is given a cadence" "$FDK" '"polling":false'
+assert "feed: the probe-only kind says it is not pollable" \
+  "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"slug":"plainjson","kind":"http.json","url":"https://h/x.json"}')" '"pollable":false'
 assert "feed: a kind nothing pulls is refused, not stored" \
   "$(curl -s -X POST $B/api/feeds -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
       -d '{"slug":"jira","kind":"jira","url":"https://h/x"}')" 'unknown feed kind'
@@ -962,8 +980,14 @@ assert "feed: deleted" \
 # supplies, a poll over a real socket that walks TWO pages with the credential on
 # both, items that become searchable documents, and an unchanged item on the
 # second poll writing nothing.
+# PINNED AS A WHOLE LIST, DELIBERATELY, and #193 is what proved that worth doing:
+# adding four adapters failed this line, which is the gate working — the derived
+# set changing is a decision somebody makes on purpose, not something a suite
+# should agree with silently. (The same argument `vocabulary-tests.rkt` makes for
+# pinning a closed vocabulary rather than re-deriving it.)
 assert "feed: the pollable kinds are derived from the adapter registry" \
-  "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" '"pollable_kinds":["github.issues"]'
+  "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" \
+  '"pollable_kinds":["alerts.alertmanager","cve.nvd","discord.messages","github.issues","kuma.status"]'
 assert "feed: …and the kind with no adapter says so rather than looking broken" \
   "$(curl -s $B/api/feeds -H "Authorization: Bearer $OP")" '"probe_only_kinds":["http.json"]'
 assert "feed: a cadence on a kind nothing can pull is refused, not stored" \

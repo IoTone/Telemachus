@@ -52,6 +52,10 @@
          ;; feed's schedule fires
          (only-in "../domain/feeds/poll.rkt" poll-feed!)
          (only-in "../domain/feeds/adapter-github.rkt" install-github-adapter!)
+         (only-in "../domain/feeds/adapter-cve.rkt" install-cve-adapter!)
+         (only-in "../domain/feeds/adapter-kuma.rkt" install-kuma-adapter!)
+         (only-in "../domain/feeds/adapter-discord.rkt" install-discord-adapter!)
+         (only-in "../domain/feeds/adapter-alerts.rkt" install-alerts-adapter!)
          (only-in "../domain/feeds/feeds.rkt" POLL-KIND feed-by-id)
          ;; #66: the external anchor, emitted on the reaper seam
          (only-in "../domain/audit/anchor.rkt" anchor-emit!)
@@ -1018,6 +1022,14 @@
   ;; run. It is a platform adapter, so it registers with no `current-plugin` and
   ;; owns an unprefixed name; a plugin's would be `x.<id>.<name>`.
   (install-github-adapter!)
+  ;; #193: the four #114 named and had no adapter for. Each is a parser and a
+  ;; registry entry; none needed a core change. `alerts.alertmanager` stands in
+  ;; for "OTel server notifications", because OTLP is a PUSH protocol and is no
+  ;; more a pollable shape than Matrix was — FEED-33 has the argument.
+  (install-cve-adapter!)
+  (install-kuma-adapter!)
+  (install-discord-adapter!)
+  (install-alerts-adapter!)
   (register-job-kind! POLL-KIND
     (lambda (conn p payload)
       ;; The job carries the feed id and nothing else: the ROW is what says which

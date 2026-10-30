@@ -2111,6 +2111,91 @@ bash test/server-smoke.sh            # the slice-4 "feed:" block, 26 assertions
   error names a line 300 lines away; `raco`'s "indentation suggests a missing `)`"
   is the useful half.
 
+## The four remaining feed adapters (FEED‑23…36, issue #193)
+
+Built 29 Oct 2026, which **closes #193**. `domain/feeds/adapter-{cve,kuma,discord,alerts}.rkt`.
+**No migration, no route, no permission, no environment variable** — #193's own
+reading was right that each is a parser and a registry entry.
+
+```sh
+raco test test/feed-adapters-tests.rkt   # 20 cases, no database and no socket
+bash test/server-smoke.sh                # the four kinds are configurable and pollable
+```
+
+- **OTel IS NOT AN ADAPTER, AND THAT IS THE FINDING** (FEED‑33). OTLP is a PUSH
+  protocol — a collector opens a connection and POSTs at this instance — and a
+  feed POLLS. It is the same category error #114 found with Matrix ("a protocol
+  rather than a shape", which shipped as #133 in the notifying direction). What
+  an operator running that stack actually has that is pollable is the thing that
+  fires when something is wrong, so `alerts.alertmanager` reads Prometheus
+  Alertmanager's `/api/v2/alerts` instead. Recorded rather than quietly
+  substituted.
+- **OSV CANNOT BE THE CVE SOURCE, and the reason is the adapter contract**
+  (FEED‑26): its batch query is a **POST with a body**, and `prepare` answers a
+  URL and headers. `fetch` already takes `#:method`/`#:body`, so the gap is the
+  contract, not the transport — and widening one four adapters share for a source
+  nobody has asked for is the wrong trade. The day a POST source is wanted,
+  `prepare` grows a method and a body. `cve.nvd` reads NVD's CVE API 2.0.
+- **ONE ADVISORY IS ONE ITEM, NOT ONE PER AFFECTED PACKAGE** (FEED‑24, #193's own
+  open question). An advisory is what gets published, revised and withdrawn, so
+  it is what has an identity; one item per package would write N documents that
+  all change together on every revision and re-version all N. The packages ride
+  in `feed_packages`, capped with the count of what was dropped so the attribute
+  never lies by omission.
+- **NVD'S WINDOW IS 120 DAYS, SO THE POLL WALKS FORWARD** (FEED‑25) — start at
+  the cursor, end at the earlier of now and cursor+120d. Clamping the START would
+  silently skip a year of advisories for a stale feed; refusing would leave it
+  permanently broken. A year's backlog is three polls. A FIRST poll sends no
+  window: what "everything" means is the operator's URL.
+- **A KUMA ITEM IS A TRANSITION, NOT A HEARTBEAT** (FEED‑27). Kuma beats every 60
+  seconds per monitor, so one item per beat is **14,400 documents a day** for ten
+  monitors. The transition is computed from the list rather than read off Kuma's
+  `important` flag, because the status-page projection is not documented to carry
+  it and relying on it would make the adapter silently emit NOTHING on a version
+  that trims it. The identity carries the instant (FEED‑28), so a transition is
+  immutable and `feed_items` grows with outages rather than with time.
+- **AN UNDATED KUMA BEAT IS DROPPED IN ONE PLACE, AND A TEST FOUND WHERE.** It
+  cannot be ORDERED, and a transition is entirely about order — so giving it
+  epoch 0 to keep the sort total silently makes it the first beat of every list,
+  where the "first beat is never a transition" rule then discards it for the
+  wrong reason. My refusal at the item was therefore unreachable; the filter
+  belongs in `kuma-transitions`, which answers `(epoch . beat)` pairs so the
+  instant is computed once for the identity, the title and the cursor.
+- **A DISCORD SNOWFLAKE'S TOP 42 BITS ARE A MILLISECOND TIMESTAMP** (FEED‑30), so
+  the epoch cursor converts EXACTLY rather than approximately — `after` is
+  exclusive, so it goes back one second or a message in the same second as the
+  last one stored is never asked for. **And the sort is deliberately left alone**
+  (FEED‑31): GitHub needed `direction=asc` because its cursor filtered on a field
+  the default sort did not use; here the cursor IS the id and `note-landed!`
+  keeps the maximum, so a descending page advances it on its first element.
+- **AN ALERTMANAGER ID IS `<fingerprint>-<startsAt>`** (FEED‑35), Kuma's lesson
+  again: a fingerprint identifies the LABEL SET, so the same alert next month is
+  a different incident and keying on it alone would store one over the other and
+  report a document that changes whenever anything flaps. There is **no cursor at
+  all** (FEED‑34) — it answers what is firing now. And the adapter sets
+  `active=true&silenced=false&inhibited=false`, because the API's default
+  includes all three and a bare endpoint would pull in exactly the alerts its
+  operator has already acknowledged (FEED‑36).
+- **`query-set` IS SHARED NOW**, hoisted out of the GitHub adapter when the second
+  one wanted it. Four copies of "which query parameters are the platform's" is
+  drift in the hardest place to see it: a copy that APPENDED instead of replacing
+  would walk a window the operator chose and the cursor did not, which looks like
+  a source re-sending the same items.
+- **A CONTROL THAT DID NOT BITE FOUND AN ORDER-DEPENDENCE.** Substituting "the
+  first non-empty severity wins" for the rank comparison changed nothing, because
+  the scan ran in Racket's hash order over NVD's `metrics` and happened to reach
+  `cvssMetricV31` before `cvssMetricV2`. `canonical-json`'s trap in a second
+  place, and worse than cosmetic: the severity a trigger routes on could differ
+  between two processes reading the same advisory. The keys are sorted now.
+- **THE SHAPES ARE FROM PUBLISHED SCHEMAS AND ARE NOT VERIFIED AGAINST A LIVE
+  SOURCE** in this build — a fixture written from the same documentation as the
+  parser agrees with it by construction. What the 20 cases DO establish is every
+  rule each adapter decides for itself. Stated rather than implied, as the
+  LibreOffice branch and the SSE round trip are.
+- **The smoke's pinned `pollable_kinds` list failed, and that is the gate
+  working**: it pins the DERIVED set as a whole, so four new adapters had to be a
+  deliberate edit rather than something the suite agreed with silently.
+
 ## Which KIND of document is this? (CLS‑1…12, issue #87 slice 1)
 
 Built 23 Oct 2026. `domain/repo/classify.rkt` (the rules, the label set, the
