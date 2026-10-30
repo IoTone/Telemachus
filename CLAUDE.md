@@ -6033,6 +6033,77 @@ bash test/e2e/validate.sh          # §7b — the one check that it RENDERS
   churn also reverts any hand edit made earlier in the same session — the
   re-stamped `doc.route.*` hash had to be applied twice.
 
+## Research over a knowledge graph (RG‑1…14, issue #191) — DESIGNED, NOT BUILT
+
+`docs/design/research-graph-rag.md` plus the **RG** block in `decisions.md`.
+Bookmarked URLs, archived against link rot, distilled into the knowledge graph
+that already exists, drawn, and asked questions of. **No migration, no route, no
+code.** Read it before building any of it — and read **RG‑14** before starting
+slice 3, because that is a question for the owner and not a technical call.
+
+- **THE EXPENSIVE HALF IS ALREADY PAID FOR, and the RSCH block says so from the
+  other side.** It closed with *"RSCH‑3 is the expensive one, because an
+  SSRF-safe fetcher is the whole cost of the research surface and the rest of
+  that loop is assembly"* — and `domain/net/fetch.rkt` was built three weeks
+  later for #142 and #114, with `'untrusted` as the default policy (FEED‑4) and
+  the socket's real **peer** vetted before a byte is written, which is RSCH‑3's
+  property without RSCH‑3's own broken mechanism (EGR‑3: connecting to a
+  resolved literal breaks TLS verification and SNI). Add #189's retrieval stack,
+  #183's citation verifier, #135/#140's schedule and `repo-derive!`, and #191 is
+  **assembly plus one table, one renderer and one retrieval seam**.
+- **`research:use` IS GRANTED TO MEMBER AND NOTHING READS IT**, and
+  `test/route-perm-gate-tests.rkt` carries it in `UNREACHABLE-BY-DESIGN` reasoned
+  "no research surface is built". That list fails in BOTH directions, so **the
+  first slice that enforces it must delete the entry in the same commit**. #113's
+  shape with #113's own gate now pointed at it.
+- **PERMANENCE — the issue's actual motive — NEEDS NO NEW MECHANISM** (RG‑2). A
+  re-fetch is a **new version of the same key**: blobs are keyed by SHA‑256, the
+  old bytes remain, and "what did this say when I bookmarked it" is a version
+  read. Identical bytes dedup, so watching a stable page costs no storage. Two
+  traps already paid for: the same KEY (a new object per fetch is N documents
+  nobody can diff) and `#:derived?` on the put (DWF‑3's trigger that fired 50
+  times on its own output). **It archives what the FETCHER got, not what a
+  browser renders** — a single-page app archives as a loader shell, and a
+  headless browser has been declined three times now.
+- **A BOOKMARK IS `'untrusted` WITH NO ESCAPE HATCH, NOT EVEN FOR AN OPERATOR**
+  (RG‑3). FEED‑4's rule is that the policy attaches to WHO CHOSE THE URL: a feed
+  is operator-authored behind `feeds:manage`, the same trust as
+  `TMACH_MODEL_URL`, which is why #114 could ask for feeds inside the network. A
+  bookmark is **member**-authored, so it is the first URL an ordinary member
+  makes this server fetch, and being authenticated does not make
+  `http://169.254.169.254/` safe to request. An internal page that should be
+  archived is a FEED.
+- **GRAPH‑RAG IS A JOIN THIS SCHEMA ALREADY SUPPORTS** (RG‑6): `kg_mentions`
+  carries `(object_id, version_id)`, `repo_chunks` is keyed by object and
+  version, so the retrieval is a **window restriction on `chunksearch`** plus a
+  composer. The SEED is an argument because two questions want opposite
+  directions — "what do we know about Acme" is graph-first, "what have we read
+  about X" is vector-first then expand — and one seam keeps the budget, the
+  `can?` and the citation rule in one place (VEC‑33). **The expansion is the
+  whole claim and it is UNMEASURED**, exactly as chunk size was before #189 step
+  3, so the plan ends in a calibration and nothing claims an improvement until
+  there is a recall number. CHUNK‑10 is the precedent: sound hypothesis,
+  disconfirmed.
+- **THE DRAWING IS A DETERMINISTIC RADIAL LAYOUT, NOT A FORCE SIMULATION**
+  (RG‑9), and the three reasons are not taste: an animation loop on a console
+  that deliberately polls nothing (QVIZ‑6, #38's idle clock); non-determinism,
+  so no screenshot and no e2e assertion can pin a node — and this project's
+  gates are its evidence; and a library or ~200 lines of physics for a few dozen
+  nodes. It is a **neighbourhood** view, not a whole-graph map, which is
+  unreadable at five thousand entities under any layout. The drag-and-arrange
+  canvas is a plugin's (LAY‑12).
+- **THE CITATION RULE MOVES TO ONE HOME WITH TWO ASKERS** (RG‑10). `answer.rkt`
+  holds #183's two layers including the one only a real-model run found —
+  HELP‑22, where an answer that cites every passage it was shown has cited
+  nothing. A second copy is `executor-can-run?`'s drift where the failure is a
+  reader following a citation to a page that says something else.
+- **NO SECOND GRAPH STORE, and that one has a measurement** (RG‑13): #189
+  measured a full scan over `repo_chunks` at 8 ms for 1,000 chunks and 759 ms
+  for 100,000 and says to revisit at 50,000 for one team — a team's bookmarks
+  are an order of magnitude under it. Web SEARCH stays RSCH‑1's plugin tool;
+  **wiki-links are declined for now and that is a product question** (Obsidian's
+  graph is AUTHORED, this one is DERIVED).
+
 ## A picture of the queue (QVIZ‑1…13, issue #184) — DESIGNED, THEN BUILT
 
 Built 30 Oct 2026, which **closes #184**. Migration `0066-job-finished-age`;
