@@ -937,6 +937,8 @@
 ;; one of the job's three lives for it retired jobs that nothing was wrong with.
 ;;
 ;; -> 'ok | 'failed (the ceiling) | whatever holder-check answered
+;; A release writes no model-request row: the worker handed the job back without calling a
+;; model, so a row would report a call that did not happen (see requestlog.rkt).
 (define (worker-release! conn ex job-id #:token [token #f] #:reason [reason #f])
   (define v (holder-check conn ex job-id token))
   (cond

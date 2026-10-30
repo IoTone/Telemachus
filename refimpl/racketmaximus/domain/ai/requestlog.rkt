@@ -20,6 +20,30 @@
 ;; `server/main.rkt` fills (RED-17): `domain/ai/executor.rkt` knows nothing of
 ;; the database, the same reason `pull-router` is a box in that module.
 
+;; ---- which calls get a row, and which do not ---------------------------------
+;;
+;; A row means a model was asked something and this instance knows the outcome. So:
+;;
+;;   push / stream (executor.rkt)  one row, written from the waiting side
+;;   pull completion (pull.rkt)    one row, written at settle, from the JOB's start,
+;;                                 with the tokens the worker reported and its job_id
+;;   pull failure (pull.rkt)       one row, status error, error-kind transport
+;;
+;; and these write none, deliberately:
+;;
+;;   worker-release!   the worker never called the model. A row here would report a
+;;                     call that did not happen, and tokens_used would be a lie.
+;;   lease expiry      the worker is gone. Nothing knows whether the call ran, so a
+;;                     row would assert an outcome this instance cannot see. The job's
+;;                     own audit rows (job.lease.expired, job.attempts.exhausted) are
+;;                     the record, and jobs.attempt counts the retries.
+;;   cancel            the result is discarded before it is read. The job row carries
+;;                     the cancellation and its timings.
+;;
+;; A reviewer asking whether a document's text was sent anywhere is answered by the rows
+;; that exist plus the job rows that explain the gaps. A count of this table is not a
+;; count of model calls for that reason, and nothing here treats it as one.
+
 (require racket/string
          db-kit/portable
          (only-in "../authz/secretbox.rkt" secret-digest)
