@@ -37,7 +37,9 @@
          "pull.rkt"
          (only-in "../db/nulls.rkt" nz))
 
-(provide fleet-report queue-listing FLEET-WINDOW-HOURS QUEUE-PAGE-MAX)
+(provide fleet-report queue-listing FLEET-WINDOW-HOURS QUEUE-PAGE-MAX
+         ;; QVIZ (#184): the figures the Health screen draws from
+         queue-flow queue-breakdown job-trail QVIZ-MAX-BUCKETS QVIZ-BREAKDOWN-SCAN)
 
 ;; How far back the per-executor counts look. Not "lifetime": the audit log grows
 ;; without bound, and the operationally interesting number is what this box has
@@ -218,6 +220,10 @@
   (hasheq
    'window (hasheq 'hours hours 'since horizon)
    'executors entries
+   ;; What a full lease IS, so a client drawing a countdown as a FRACTION has a
+   ;; denominator rather than a hardcoded guess that stops matching the day the
+   ;; constant moves.
+   'lease_seconds LEASE-SECONDS
    'fleet (hasheq 'pull (length pulls)
                   'active (for/sum ([e (in-list pulls)]) (if (equal? (hash-ref e 'status) "active") 1 0))
                   'stale (for/sum ([e (in-list pulls)]) (if (equal? (hash-ref e 'status) "stale") 1 0))
@@ -391,3 +397,184 @@
 (define (caps-list e k)
   (let ([v (hash-ref (let ([c (hash-ref e 'capabilities (hasheq))]) (if (hash? c) c (hasheq))) k '())])
     (if (list? v) (filter string? v) '())))
+
+;; ---- QVIZ: the figures a picture is drawn from (issue #184) -------------------
+;;
+;; Three series and a four-way breakdown, and NOT A SINGLE COUNTER ANYWHERE.
+;; That is QVIZ-1 and it is the whole of the design decision: the issue offered
+;; client-side sampling (nothing on reload) or a retained counter table, and the
+;; rows already carry all three clocks — `created_epoch` (0041), `started_epoch`
+;; (0038) and, as of 0066, `finished_epoch`. So there is no retention question
+;; to answer: how far back the picture reaches is bounded by what already bounds
+;; those rows, which is #59's per-job purge (it keeps the row) and #86's
+;; retention rules (the team's own horizon). An operator who asked to keep seven
+;; days gets seven days of flow, with nothing to configure.
+;;
+;; It also cannot disagree with the queue read, being the same table — LIVE-IN's
+;; shape, avoided rather than managed.
+
+;; A NULL clock is SKIPPED, never bucketed. Every one of the three columns is
+;; unbackfilled by its own migration — DEL-9's rule, where an unknown age means
+;; never stale and never infinitely old — so a pre-migration job has no minute
+;; and must contribute to none.
+;;
+;; `IS NOT NULL` IS THE ONE HOME FOR THAT, and a second guard in Racket was
+;; written here first and removed: it could not fail while the clause stood,
+;; which is #110 r1's shape — a guard duplicating the next one is how a reader
+;; comes to believe the next one is missing. Drop the clause and `quotient` is
+;; handed an SQL NULL, which raises rather than silently mis-bucketing.
+(define (minute-series conn column since until)
+  (define buckets (make-hash))
+  (for ([v (in-list (query-list conn
+                      (string-append "SELECT " column " FROM jobs WHERE " column " IS NOT NULL "
+                                     "AND " column " >= ? AND " column " < ?")
+                      since until))])
+    (hash-update! buckets (quotient v 60) add1 0))
+  buckets)
+
+;; QVIZ-7 — THE GRID IS EVERY MINUTE IN THE WINDOW, INCLUDING THE EMPTY ONES.
+;; A sparkline over "the buckets that had jobs" compresses idle time, so a queue
+;; that stopped an hour ago draws exactly like one that is working steadily —
+;; which is the one distinction priority 2 of the issue exists to make. The zeros
+;; are the signal, so they are sent.
+(define QVIZ-MAX-BUCKETS 1440)
+
+(define (queue-flow conn #:hours [hours FLEET-WINDOW-HOURS])
+  (define h (max 1 (min 720 hours)))
+  (define until (* 60 (add1 (quotient (now) 60))))     ; end of the current minute
+  (define want (* h 60))
+  ;; A 720-hour window is 43,200 minutes, which is a response nobody can draw and
+  ;; a sparkline 43,200 rectangles wide. Past the cap the bucket WIDENS rather
+  ;; than the window shrinking — the operator asked for thirty days and gets
+  ;; thirty days, at half-hour resolution. `bucket_seconds` says which, because a
+  ;; figure whose unit moved silently is #178's lesson.
+  (define step (max 1 (ceiling (/ want QVIZ-MAX-BUCKETS))))
+  (define n (ceiling (/ want step)))
+  (define since (- until (* 60 step n)))
+  (define series
+    (for/list ([spec (in-list (list (cons "arrivals" "created_epoch")
+                                    (cons "claims" "started_epoch")
+                                    (cons "completions" "finished_epoch")))])
+      (define b (minute-series conn (cdr spec) since until))
+      (cons (car spec)
+            (for/list ([i (in-range n)])
+              (define base (+ (quotient since 60) (* i step)))
+              (for/sum ([k (in-range step)]) (hash-ref b (+ base k) 0))))))
+  (hasheq 'window (hasheq 'hours h 'since since 'until until)
+          'bucket_seconds (* 60 step)
+          'buckets n
+          ;; the three series share one grid, so a reader may line them up
+          ;; element by element without being told they are comparable
+          'arrivals (cdr (assoc "arrivals" series))
+          'claims (cdr (assoc "claims" series))
+          'completions (cdr (assoc "completions" series))))
+
+;; QVIZ — THE FOUR STATES PARTITION THE QUEUED SET, which is priority 1 and is
+;; the one thing a depth count cannot say. They are counted in ONE scan, so they
+;; are samples of one instant; computing any of them in the console by
+;; subtraction across separately-scoped figures is how a bar stops adding up.
+;;
+;; A job can satisfy more than one, so there is a PRECEDENCE and it is ordered by
+;; who can clear it:
+;;
+;;   1. `unclaimable`  — nothing can run it; only an operator clears it.
+;;   2. `held_by_paused` — a matching host said it is not taking work; it may
+;;      clear itself in fifteen seconds, or it may be a card that has gone.
+;;   3. `waiting`      — a cap or a budget; clears on its own (QUOTA-3).
+;;   4. `queued`       — nothing is wrong, it is working through.
+;;
+;; Reversed, a job that nothing can run and whose team is also over budget would
+;; be reported as a budget problem, and the operator would raise a limit that
+;; changes nothing. The precedence is asserted rather than left to read order.
+(define QVIZ-BREAKDOWN-SCAN 500)
+
+(define (queue-breakdown conn executors)
+  (define rk (remote-kinds))
+  (define live (filter live-pull? executors))
+  (define ready (filter (lambda (e) (not (equal? (hash-ref e 'worker_state #f) "paused"))) live))
+  (define held (hold-cache conn))
+  (define rows (query-rows conn
+                 (string-append
+                  "SELECT id, kind, team_id, requirements, parent_job_id FROM jobs "
+                  "WHERE status = 'queued' ORDER BY COALESCE(created_epoch, 0) ASC LIMIT "
+                  (number->string QVIZ-BREAKDOWN-SCAN))))
+  (define (runnable-by? execs r)
+    (for/or ([e (in-list execs)])
+      (executor-can-run? conn e
+        #:kinds (caps-list e 'kinds) #:models (caps-list e 'models)
+        #:kind (vector-ref r 1) #:team (vector-ref r 2)
+        #:requirements (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                         (let ([j (string->jsexpr (vector-ref r 3))])
+                           (if (hash? j) j (hasheq)))))))
+  (define counts (make-hash))
+  (for ([r (in-list rows)])
+    (define remote? (and (member (vector-ref r 1) rk) #t))
+    (define bucket
+      (cond
+        [(and remote? (not (runnable-by? live r))) 'unclaimable]
+        [(and remote? (not (runnable-by? ready r))) 'held_by_paused]
+        [(held (vector-ref r 2) (not (sql-null? (vector-ref r 4)))) 'waiting]
+        [else 'queued]))
+    (hash-update! counts bucket add1 0))
+  (hasheq 'scanned (length rows)
+          'truncated (= (length rows) QVIZ-BREAKDOWN-SCAN)
+          'unclaimable (hash-ref counts 'unclaimable 0)
+          'held_by_paused (hash-ref counts 'held_by_paused 0)
+          'waiting (hash-ref counts 'waiting 0)
+          'queued (hash-ref counts 'queued 0)))
+
+;; QVIZ-3 — ONE JOB'S PATH, read back out of a trail FLEET-1 already writes.
+;;
+;; "Attempts and releases as a path, not a counter" needs no table: the reaper
+;; writes `job.lease.expired` per attempt NAMING THE EXECUTOR and does it BEFORE
+;; the UPDATE, precisely because the requeue sets `executor_id = NULL` and
+;; afterwards nothing in `jobs` says which machine dropped the work. A release
+;; (#61) writes `job.released` the same way, for the same reason.
+;;
+;; What did not exist is a way to ASK for one job's trail: `audit-list` filters
+;; by team and does not project `meta`, which is where the name lives. This is
+;; that read and nothing else — ids, names, reasons and times. No payload, no
+;; result, no error message: QVIZ-4, and `jobs.error` is sealed precisely because
+;; it can quote the input.
+(define TRAIL-ACTIONS '("job.lease.expired" "job.released" "job.attempts.exhausted"))
+
+(define (job-trail conn id)
+  (define row (query-maybe-row conn
+                (string-append "SELECT j.kind, j.status, j.team_id, j.attempt, j.releases, "
+                               "       j.created_epoch, j.started_epoch, j.finished_epoch, x.name "
+                               "FROM jobs j LEFT JOIN executors x ON x.id = j.executor_id "
+                               "WHERE j.id = ?") id))
+  (and row
+       (let ()
+         (define events
+           (for/list ([r (in-list (apply query-rows conn
+                           (string-append "SELECT action, result, at_us, meta FROM audit_log "
+                                          "WHERE resource_type = 'job' AND resource_id = ? AND action IN ("
+                                          (string-join (make-list (length TRAIL-ACTIONS) "?") ",")
+                                          ") ORDER BY at_us ASC")
+                           id TRAIL-ACTIONS))])
+             (define meta (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+                            (let ([m (vector-ref r 3)])
+                              (if (sql-null? m) (hasheq)
+                                  (let ([h (string->jsexpr m)]) (if (hash? h) h (hasheq)))))))
+             (define (str k) (let ([v (hash-ref meta k #f)]) (if (string? v) v 'null)))
+             (hasheq 'action (vector-ref r 0)
+                     'result (nz (vector-ref r 1))
+                     'at (quotient (vector-ref r 2) 1000000)
+                     ;; `#f` for an attempt the POOL held: an in-process claim
+                     ;; leaves `executor_id` NULL, so the trail honestly says
+                     ;; "in process" rather than guessing at a machine.
+                     'executor (str 'executor)
+                     'reason (str 'reason))))
+         (hasheq 'job_id id
+                 'kind (vector-ref row 0)
+                 'status (vector-ref row 1)
+                 'team_id (nz (vector-ref row 2))
+                 'attempt (vector-ref row 3)
+                 'max_attempts MAX-ATTEMPTS
+                 'releases (let ([v (vector-ref row 4)]) (if (sql-null? v) 0 v))
+                 'created_epoch (nz (vector-ref row 5))
+                 'started_epoch (nz (vector-ref row 6))
+                 'finished_epoch (nz (vector-ref row 7))
+                 'holder (nz (vector-ref row 8))
+                 'events events))))

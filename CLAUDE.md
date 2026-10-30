@@ -6033,7 +6033,79 @@ bash test/e2e/validate.sh          # §7b — the one check that it RENDERS
   churn also reverts any hand edit made earlier in the same session — the
   re-stamped `doc.route.*` hash had to be applied twice.
 
-## A picture of the queue (QVIZ‑1…9, issue #184) — DESIGNED, NOT BUILT
+## A picture of the queue (QVIZ‑1…13, issue #184) — DESIGNED, THEN BUILT
+
+Built 30 Oct 2026, which **closes #184**. Migration `0066-job-finished-age`;
+`queue-flow` / `queue-breakdown` / `job-trail` in `domain/exec/fleet.rkt`;
+`GET /api/admin/queue/flow` and `GET /api/admin/jobs/:id/trail`, both
+`instance:read`; `static/console/18-queueviz.js` on #179's Health tab.
+**No new permission, no new environment variable, no counter table.**
+
+```sh
+raco test test/queue-viz-tests.rkt                              # 7 cases, four controls, all biting
+DATABASE_URL="postgres://…" raco test test/queue-viz-tests.rkt  # the whole file, both dialects
+bash test/pull-smoke.sh                                         # §7c, 23 assertions over HTTP
+bash test/e2e/validate.sh                                       # §7c — four SVGs under `script-src 'self'`
+```
+
+- **THE DESIGN SAID TWO TERMINAL WRITES AND THERE ARE ELEVEN** (QVIZ‑10):
+  `finish!`, `cancel-job!`, `settle-canceling!`, the reaper's exhaustion arm,
+  four in `pull.rkt` and the two wait-timeout arms in `run-chat` and `judge`. So
+  `finished-set` in `scheduler.rkt` is the clause and every site that stops a job
+  uses it — #110 r1's shape, where a rule written eleven times gains a twelfth
+  copy that forgets. **The control is what proves it matters**: stamped in
+  `finish!` alone the series looks like it works and is silently missing every
+  job a worker completed. **The epoch is INTERPOLATED, not bound**, because each
+  of those eleven sites has its own fixed argument list and "a conditional SQL
+  clause with a fixed argument list" is a bug recorded four times in this file.
+  The value is an exact integer from our own clock, never a caller's input.
+- **THERE IS NO RETENTION DECISION TO MAKE, and that was the design's whole
+  claim** (QVIZ‑1): all three series come off `created_epoch` (0041),
+  `started_epoch` (0038) and `finished_epoch` (0066), so how far back the picture
+  reaches is bounded by what already bounds the rows — #59's purge keeps the row,
+  #86's rules delete it on the team's own horizon. It survives a reload and a
+  restart, and it cannot disagree with the queue read because it is the same
+  table.
+- **THE PRECEDENCE IS ORDERED BY WHO CAN CLEAR IT** (QVIZ‑11): `unclaimable`
+  (only an operator), `held_by_paused` (fifteen seconds, or a card that has
+  gone), `waiting` (clears itself, QUOTA‑3), `queued`. Reversed, a job nothing
+  can run whose team is also over budget reads as a budget problem and the
+  operator raises a limit that changes nothing. **The control did not bite until
+  a case produced the state where two apply at once** — the fixture never had
+  one, so the ordering was untested while looking tested. One scan, so the bar is
+  one instant.
+- **A LONG WINDOW WIDENS THE BUCKET** (QVIZ‑12): 720 hours is 43,200 minutes.
+  Shrinking the window would answer a question nobody asked, so the bucket goes
+  to half an hour and `bucket_seconds` says so — #178's rule.
+- **THE LEGEND IS DRAWN WHEN THE QUEUE IS EMPTY AND THE BAR IS NOT** (QVIZ‑13).
+  Four zeros beside their colours say what the picture would show; a zero-width
+  `<svg>` says nothing and `n/0` is NaN. The e2e gate asserts the two separately,
+  because its own queue is usually empty by the time it reaches that screen.
+- **A CONTROL THAT COULD NOT BITE SHOWED A GUARD WAS REDUNDANT.** The series
+  skipped a NULL clock twice, in SQL and in Racket, and `COALESCE(col, 0)`
+  changed nothing — epoch 0 is outside every window this read can be asked for.
+  The Racket guard is gone; what bites is removing the SQL clause, which hands
+  `quotient` an SQL NULL and raises, loudly.
+- **A `refute` ON A BARE KEY NAME REFUTED A FIELD THAT BELONGS THERE.** The
+  smoke's "the trail carries no result" failed against a correct server: each
+  EVENT carries a `result` and it is the AUDIT entry's verdict (`requeued` /
+  `exhausted`), not the job's. A grep for a key cannot tell two meanings of one
+  name apart — `differ()`'s shape from the other side — so it asserts on values.
+- **A ONE-DIRECTIONAL CATALOG TEST CANNOT CATCH A LITERAL TYPED IN PLACE.**
+  "Every `t('…')` key is in `ui-strings.json`" passes when a label becomes an
+  English string, because the key leaves the scan — which is exactly what
+  `doSearch` shipped for a year. Both directions now: every `ui.qv*` the catalog
+  ships must also be ASKED for, so an orphan says somebody hard-coded it.
+  #110 r6's `src`-tags rule, applied to strings.
+- **`extract --help` IS NOT HELP AND IT WIPED `locales/en.json`**, exactly as
+  this file says two sections up. `git checkout locales/en.json`, then run it
+  with the surface list CI uses.
+- **The trail opens IN PLACE, under the row** (`insertBefore`), because
+  `queueCard` is rendered on Admin as well as on Health — a trail that rendered
+  into a Health-only region would be a button that does nothing on the other tab
+  and nothing would fail.
+
+### The design, which shipped on its own first
 
 `docs/design/ai-queue-visualization.md` plus the **QVIZ** block in
 `decisions.md`. #184 asks for a design with the retention question answered

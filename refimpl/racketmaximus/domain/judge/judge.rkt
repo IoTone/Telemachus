@@ -220,7 +220,8 @@
        (error 'judge "~a: ~a" JUDGE-KIND
               (let ([e (vector-ref r 2)]) (if (sql-null? e) st e)))]
       [(> waited wait-seconds)
-       (query-exec conn "UPDATE jobs SET status = 'canceled', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','running')" id)
+       (query-exec conn (string-append "UPDATE jobs SET status = 'canceled', " (finished-set)
+                                        " WHERE id = ? AND status IN ('queued','running')") id)
        (error 'judge "no worker answered the judgment within ~a s — is a judge worker claiming ~a?"
               wait-seconds JUDGE-KIND)]
       [else (sleep 0.25) (loop (+ waited 0.25))])))

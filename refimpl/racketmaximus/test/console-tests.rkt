@@ -543,3 +543,93 @@
   (define body (file->string (build-path console-dir "17-help.js")))
   (check-false (regexp-match? #px"toast\\('[A-Za-z]" body)
                "no English literal in a user-facing string"))
+
+;; ---- QVIZ: the queue's pictures (issue #184) ---------------------------------
+
+(define qviz (file->string (build-path console-dir "18-queueviz.js")))
+(define health (file->string (build-path console-dir "14-health.js")))
+
+(test-case "the pictures are hand-drawn SVG, not a chart library"
+  ;; QVIZ-2. `script-src 'self'` with no `'unsafe-inline'` since #110 r6 blocks a
+  ;; CDN, and a vendored library is a third-party dependency for four shapes each
+  ;; of which is a `<rect>`. The point of pinning it here is that the FAILURE
+  ;; MODE of reaching for one is invisible in review and silent in CI: the
+  ;; console-tests' own `src` assertion covers files, not a `<script>` the shell
+  ;; might gain, and this says the drawing is ours.
+  (check-true (and (regexp-match? #rx"<svg" qviz) #t) "the bar and the sparklines are SVG")
+  (for ([lib (in-list '("chart.js" "Chart(" "d3." "plotly" "echarts" "import("))])
+    (check-false (and (regexp-match? (regexp (regexp-quote lib)) qviz) #t)
+                 (format "no ~a — the policy blocks it and the theme tokens make it unnecessary" lib)))
+  ;; and the colours come from the theme rather than a second palette, so a
+  ;; customer's branding reaches the picture for free (the integrator's rule)
+  (check-true (and (regexp-match? #rx"var\\(--" qviz) #t) "it paints with the theme tokens"))
+
+(test-case "nothing polls unless an operator asks, and the default is off"
+  ;; QVIZ-6, and it is a security answer rather than a preference: the idle clock
+  ;; counts from the last REQUEST (#38), so a screen that refreshed itself would
+  ;; hold a session open for as long as the tab was left up — an idle timeout
+  ;; disabled by something that looks like polish.
+  (check-true (and (regexp-match? #rx"S\\.qvEvery\\|\\|0" qviz) #t)
+              "the stored interval defaults to 0, which is off")
+  (check-true (and (regexp-match? #rx"setInterval" qviz) #t) "the opt-in exists")
+  ;; …and it stops itself when the operator leaves the tab, rather than leaving a
+  ;; request loop running behind another screen
+  (check-true (and (regexp-match? #rx"S\\.tab==='health'" qviz) #t))
+  (check-true (and (regexp-match? #rx"clearInterval" qviz) #t))
+  ;; the OTHER console modules still poll nothing but a live run
+  (check-false (and (regexp-match? #rx"setInterval" health) #t)
+               "the health screen itself must not acquire a timer of its own"))
+
+(test-case "the Health screen composes, and the pictures join its ONE round"
+  ;; The card is drawn ABOVE the two whose numbers it is summarising, and from
+  ;; the SAME responses — two renderings of one set of figures is LIVE-IN's shape
+  ;; and is what #179 was careful about in the first place.
+  (check-true (and (regexp-match? #rx"queueVizCard\\(vr, fr\\)" health) #t))
+  (check-true (and (regexp-match? #rx"/api/admin/queue/flow'\\+fleetQuery\\(\\)" health) #t)
+              "the picture and the figures below it are over the same window")
+  ;; a sixth SEQUENTIAL call is what made the Admin tab slow enough to notice
+  (check-equal? (length (regexp-match* #rx"await Promise.all" health)) 1)
+  (check-false (and (regexp-match? #rx"await api\\('/api/admin/queue/flow" health) #t)
+               "it joins the round rather than awaiting on its own")
+  ;; and the viz module must not be the file that boots the console (HEALTH-8:
+  ;; a top-level render() in a file that sorts late is a ReferenceError only a
+  ;; browser sees)
+  (check-false (and (regexp-match? #px"(?m:^render\\(\\))" qviz) #t)))
+
+(test-case "the trail opens in place, so it works on both screens that list jobs"
+  ;; `queueCard` is rendered on Admin as well as on Health, so a trail that
+  ;; rendered into a region only the Health screen has would be a button that
+  ;; does nothing on the other tab — and nothing would fail.
+  (define fleet (file->string (build-path console-dir "05-fleet.js")))
+  (check-true (and (regexp-match? #rx"jobTrail\\(j\\.id, el\\)" fleet) #t) "the affordance is on the row")
+  (check-true (and (regexp-match? #rx"insertBefore" qviz) #t) "and it opens under that row")
+  (check-false (and (regexp-match? #rx"getElementById\\('qvtrail" qviz) #t)
+               "not into a region one of the two screens lacks")
+  ;; a second click closes it rather than stacking a second copy
+  (check-true (and (regexp-match? #rx"qvtrailrow" qviz) #t))
+  (check-true (and (regexp-match? #rx"\\.remove\\(\\)" qviz) #t)))
+
+(test-case "every string the pictures show is in the catalogs"
+  ;; `doSearch` shipped two English literals for a year in a console that is
+  ;; otherwise entirely in the catalogs, so a Japanese operator was told "no
+  ;; results" in English. This file is new, and the labels on a chart are exactly
+  ;; the kind of text that gets typed in place.
+  ;; `qvpath` lives on the queue ROW, which `05-fleet.js` draws — the affordance
+  ;; has to be where the jobs are listed, on both screens that list them.
+  (define qsrc (string-append qviz "\n" (file->string (build-path console-dir "05-fleet.js"))))
+  (define keys (remove-duplicates (map cadr (regexp-match* #px"\\bt\\('(qv[a-z0-9_]+)'\\)" qsrc #:match-select values))))
+  (check-true (> (length keys) 20) "it really is reading its labels from the catalog")
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list keys)])
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." (regexp-quote k) "\"")) en) #t)
+                (format "ui.~a is missing from static/ui-strings.json" k)))
+  ;; BOTH DIRECTIONS, which is what makes this catch a literal typed in place.
+  ;; One direction cannot: replacing `t('qvflow')` with `'Flow'` simply removes
+  ;; the key from the scan, and the case passes — the #110 r6 `src`-tags lesson,
+  ;; where a file added but never loaded and a tag naming a missing file both
+  ;; had to fail. So every `ui.qv*` the catalog ships must be USED here, and an
+  ;; orphan says somebody hard-coded the string it was for.
+  (define shipped
+    (map cadr (regexp-match* #px"\"ui[.](qv[a-z0-9_]+)\"" en #:match-select values)))
+  (check-equal? (remove* keys shipped) '()
+                "a ui.qv* string nothing asks for means a label was typed in place"))

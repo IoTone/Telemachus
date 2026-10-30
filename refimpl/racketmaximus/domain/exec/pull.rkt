@@ -820,12 +820,12 @@
      (cond
        [problem
         (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
-                                        "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                                        (finished-set) " WHERE id = ?")
                     (seal-error job-id (string-append "worker returned a bad result: " problem)) job-id)
         'ok]
        [else
         (query-exec conn (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
-                                        "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                                        (finished-set) " WHERE id = ?")
                     (seal-result job-id (jsexpr->string result)) job-id)
         (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
         ((scheduler-record!) conn team result)
@@ -838,7 +838,7 @@
     [(not (eq? v 'ok)) v]
     [else
      (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
-                                     "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                                     (finished-set) " WHERE id = ?")
                  ;; the worker's own message, which may quote what it was handed
                  (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message)) job-id)
      'ok]))
@@ -880,7 +880,7 @@
         (query-exec conn
           (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, "
                          "lease_until = NULL, claim_token = NULL, releases = ?, "
-                         "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                         (finished-set) " WHERE id = ?")
           (seal-error job-id
             (format "no executor would run it: released ~a times (last by ~a: ~a)"
                     MAX-RELEASES (hash-ref ex 'name) why))
@@ -1118,7 +1118,7 @@
                                                  'holders (map (lambda (h) (or h 'null)) (lease-holders conn id)))))
           (query-exec conn
             (string-append "UPDATE jobs SET status = 'error', error = ?, executor_id = NULL, lease_until = NULL, "
-                           "claim_token = NULL, finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                           "claim_token = NULL, " (finished-set) " WHERE id = ?")
             (seal-error id (exhausted-message conn id)) id))))
   (+ (length expired) (length stopping)))
 
@@ -1226,7 +1226,8 @@
        (error 'run-chat "executor ~a: ~a" (if fleet? "the fleet" name)
               (let ([e (vector-ref r 2)]) (if (sql-null? e) st (unseal-error id e))))]
       [(> waited WAIT-SECONDS)
-       (query-exec conn "UPDATE jobs SET status = 'canceled', finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued','running')" id)
+       (query-exec conn (string-append "UPDATE jobs SET status = 'canceled', " (finished-set)
+                                        " WHERE id = ? AND status IN ('queued','running')") id)
        (error 'run-chat "executor ~a: no worker completed the request within ~a s"
               (if fleet? "the fleet" name) WAIT-SECONDS)]
       [else (sleep 0.25) (loop (+ waited 0.25))])))

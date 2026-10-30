@@ -230,7 +230,9 @@ function queueCard(qr, fr){
       <td>${esc(j.team||'–')}${j.org?` <span class="muted">${esc(j.org)}</span>`:''}</td>
       <td class="mono muted">${j.executor?esc(j.executor):'–'} ${lease}</td>
       <td class="mono muted">${j.attempt}/${j.max_attempts}</td>
-      <td class="muted" style="max-width:26em">${j.error?esc(j.error):''}</td></tr>`;
+      <td class="muted" style="max-width:26em">${j.error?esc(j.error):''}</td>
+      <td><button class="btn sm ghost" title="${esc(t('qvpathhint'))}"
+        data-h-click="${H((el)=>jobTrail(j.id, el))}">${t('qvpath')}</button></td></tr>`;
   };
   const from=(Q.offset||0)+1, to=(Q.offset||0)+rows.length;
   const pager = Q.total>rows.length ? `<p class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',Q.total)}
@@ -245,7 +247,7 @@ function queueCard(qr, fr){
       ${sel('kind',qKinds(fr),t('qkind'))}
     </div>
     ${rows.length?`<table><thead><tr><th>${t('qkind')}</th><th>${t('status')}</th><th>${t('qage')}</th>
-      <th>${t('team')}</th><th>${t('workers')}</th><th>${t('qattempt')}</th><th></th></tr></thead>
+      <th>${t('team')}</th><th>${t('workers')}</th><th>${t('qattempt')}</th><th></th><th></th></tr></thead>
       <tbody>${rows.map(row).join('')}</tbody></table>`
      :`<p class="muted">${t('qempty')}</p>`}
     ${pager}</div>`;

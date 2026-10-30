@@ -55,7 +55,7 @@
 (provide register-job-kind! enqueue-job! get-job list-jobs cancel-job!
          seal-payload seal-result unseal-payload unseal-result seal-error unseal-error
          purge-job-content! PURGEABLE-STATUSES
-         job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-IN
+         job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-IN finished-set
          process-one! start-scheduler! set-cap-for! set-hold-reason! set-on-hold! set-record!!
          remote-kind? remote-kinds remote-kind-validator
          scheduler-cap-for scheduler-hold-reason scheduler-on-hold scheduler-record!
@@ -104,6 +104,24 @@
 
 (define (vr r i) (vector-ref r i))
 (define (now) (current-seconds))
+
+;; ONE SPELLING OF "THIS JOB HAS FINISHED" (QVIZ-1, issue #184).
+;;
+;; The design estimated two terminal writes. There are ELEVEN — `finish!`,
+;; `cancel-job!`, `settle-canceling!`, the reaper's exhaustion arm, four in
+;; `pull.rkt` (complete, fail, the release ceiling) and the two wait-timeout
+;; arms in `run-chat` and `judge` — so adding a second column to each by hand is
+;; #110 r1's shape, where a rule written N times gains an N+1th copy that
+;; forgets. `finished-set` is the clause, and every site that stops a job uses
+;; it.
+;;
+;; The epoch is INTERPOLATED rather than bound, and that is deliberate: each of
+;; those eleven call sites has its own fixed argument list, and "a conditional
+;; SQL clause with a fixed argument list" is a bug this tree has recorded four
+;; separate times. The value is an exact integer from the platform's own clock,
+;; never a caller's input, so there is nothing for it to come apart from.
+(define (finished-set) (format "finished_at=CURRENT_TIMESTAMP, finished_epoch=~a" (now)))
+
 
 ;; ---- kind registry ----------------------------------------------------------
 ;; A kind is in-process (a handler) or REMOTE (slice 66): no handler here, never
@@ -286,7 +304,7 @@
   (cond
     [(not st) #f]                                  ; unknown
     [(equal? st "queued")
-     (query-exec conn "UPDATE jobs SET status='canceled', finished_at=CURRENT_TIMESTAMP WHERE id = ?" id) #t]
+     (query-exec conn (string-append "UPDATE jobs SET status='canceled', " (finished-set) " WHERE id = ?") id) #t]
     [(equal? st "canceling") 'canceling]           ; already stopping; say so rather than lying
     [(equal? st "running")
      ;; guarded on still being `running`: between the read and here the handler
@@ -370,7 +388,7 @@
   ;; #f alongside a query that does not name it is "wrong number of parameters"
   (define r (apply query conn
     (string-append "UPDATE jobs SET status='canceled', lease_until=NULL, claim_token=NULL, "
-                   "finished_at=CURRENT_TIMESTAMP WHERE id = ? AND status='canceling'"
+                   (finished-set) " WHERE id = ? AND status='canceling'"
                    (if token " AND claim_token = ?" "") " RETURNING id")
     id (if token (list token) '())))
   (and (rows-result? r) (pair? (rows-result-rows r))))
@@ -474,7 +492,7 @@
   ;; which only a caller that passed none could reach.)
   (define r (apply query conn
     (string-append "UPDATE jobs SET status=?, result=?, error=?, lease_until=NULL, claim_token=NULL, "
-                   "finished_at=CURRENT_TIMESTAMP WHERE id = ? AND status='running'"
+                   (finished-set) " WHERE id = ? AND status='running'"
                    (if token " AND claim_token = ?" "") " RETURNING id")
     status (if result (seal-result id result) sql-null) (if err (seal-error id err) sql-null) id
     (if token (list token) '())))

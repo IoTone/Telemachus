@@ -3823,6 +3823,167 @@
     "ui.palhclose": {
       "text": "Esc または ? で閉じる",
       "hash": "12c378b056c314b77c49ecd535e231aadd18086d"
+    },
+    "ui.qvtitle": {
+      "text": "キューを流れる処理",
+      "hash": "9e3a7e1e43c8de65e192d4b4916fda1a041a728b"
+    },
+    "ui.qvwindow": {
+      "text": "直近 {h} 時間",
+      "hash": "cd66cdaf1149abea4ee263ebcc7a3cbdfe87c70a"
+    },
+    "ui.qvgrain": {
+      "text": "· {n} 分単位",
+      "hash": "133c07ac8036c8f3b01782e2d911de72800710e8"
+    },
+    "ui.qvauto": {
+      "text": "更新",
+      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
+    },
+    "ui.qvautooff": {
+      "text": "オフ",
+      "hash": "e3de5ab0ca4c69dbf00e86d2558843e8d806bb49"
+    },
+    "ui.qvautohint": {
+      "text": "既定はオフです。自動更新する画面はセッションを開いたままにします。",
+      "hash": "d6ca31f8dbbc6df6301f8f8a3aa8d0e7ca354cf7"
+    },
+    "ui.qvstuck": {
+      "text": "キューが待っているもの",
+      "hash": "c6bb8b2a9c16ffd3218bf3de371ab6a814b2d880"
+    },
+    "ui.qvstuckhint": {
+      "text": "この 4 つの合計が待機中のジョブ数です。対処法はそれぞれ異なります",
+      "hash": "8265e71543d6a540d3933a6acf590be421be6574"
+    },
+    "ui.qvempty": {
+      "text": "待機中のジョブはありません。",
+      "hash": "adaf025873f9d915e8f3feb9345801b9246e7829"
+    },
+    "ui.qvunclaimable": {
+      "text": "実行できるワーカーがない",
+      "hash": "860e9fa8632a414e84d3d0057cfd8b615d4380df"
+    },
+    "ui.qvpaused": {
+      "text": "一時停止中のワーカーが対象",
+      "hash": "7aab3e1ffd64a96acc62ef87cf7c98864f16df8a"
+    },
+    "ui.qvwaiting": {
+      "text": "上限または予算による保留",
+      "hash": "638bd8819cc268d1575e670b8f58662e09aff3dc"
+    },
+    "ui.qvqueued": {
+      "text": "待機中（順次処理）",
+      "hash": "d8306cebe70dceeb9a8bc55245a28320f25e9a9c"
+    },
+    "ui.qvtrunc": {
+      "text": "抽出: 古い方から {n} 件",
+      "hash": "2053377e7a863ef6782341d2a4d8cd30cd23b8aa"
+    },
+    "ui.qvtrunchint": {
+      "text": "キューが 1 回の走査より深いため、このバーは全体ではなく古い方の行です。",
+      "hash": "11539ff76aba1d53e10a353ce3e0affbb01e0c7a"
+    },
+    "ui.qvflow": {
+      "text": "流量",
+      "hash": "86eff8eb789b097ddca83f2c9c4617ed23605105"
+    },
+    "ui.qvarrivals": {
+      "text": "投入",
+      "hash": "25ac4e592e552220c894ca6056f09a79c3430049"
+    },
+    "ui.qvarrivalshint": {
+      "text": "各区間に登録されたジョブ数。",
+      "hash": "49b02129b76462b842adc450e544f875e06e9242"
+    },
+    "ui.qvclaims": {
+      "text": "取得",
+      "hash": "06e8db2dfd69dc1703edf9418fb7533fa5d026de"
+    },
+    "ui.qvclaimshint": {
+      "text": "各区間にワーカーまたはプールが取得したジョブ数。",
+      "hash": "ab9ef458be09b9e847e5670050153bfdf5cae763"
+    },
+    "ui.qvcompletions": {
+      "text": "完了",
+      "hash": "1edd778907f333f7f36339636d25a8e14334aadb"
+    },
+    "ui.qvcompletionshint": {
+      "text": "各区間に終了したジョブ数（結果は問いません）。",
+      "hash": "903e836f36524408adbe4a6fa765d560621c9765"
+    },
+    "ui.qvpeak": {
+      "text": "最大 {n}",
+      "hash": "b972d59e5c1288904d1ae40abd739b751356b698"
+    },
+    "ui.qvleases": {
+      "text": "リース",
+      "hash": "45c6034dee3192e14bc2c94fe6ebc276c007d29c"
+    },
+    "ui.qvleaseshint": {
+      "text": "リースが更新されないことが、フェイルオーバーの 90 秒前の兆候です",
+      "hash": "7b5419581c8cbebb0c7937c9a61c348251af58b3"
+    },
+    "ui.qvnoleases": {
+      "text": "ジョブを保持しているワーカーはありません。",
+      "hash": "85b9c8be18342f96b3342e3ea65abeb10f551394"
+    },
+    "ui.qvexpired": {
+      "text": "期限切れ",
+      "hash": "45a6f9adb1df3a78aafc71391c7d3bfa7680229b"
+    },
+    "ui.qvpath": {
+      "text": "経路",
+      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
+    },
+    "ui.qvpathhint": {
+      "text": "このジョブを保持した機器と、手放した機器。",
+      "hash": "2cfed12faf7e499208cbcd3a15f3b5146748a43c"
+    },
+    "ui.qvnopath": {
+      "text": "初回の試行です。手放した機器はありません。",
+      "hash": "66e470222ffd11e7ab131e1576695d9c529300af"
+    },
+    "ui.qvinproc": {
+      "text": "プロセス内",
+      "hash": "99fc8f91a50120270b90e2468c6536e073b4bea9"
+    },
+    "ui.qvholding": {
+      "text": "保持中",
+      "hash": "329bb6c3b55346c25bd3f35339f2942b972a5966"
+    },
+    "ui.qvfinished": {
+      "text": "完了",
+      "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
+    },
+    "ui.qvreleased": {
+      "text": "返却: {why}",
+      "hash": "a5786ca335f4c28a1daefca6138aea4aa15629db"
+    },
+    "ui.qvexpiredat": {
+      "text": "リース期限切れ",
+      "hash": "7a41da89efdfe838a33aa4c3a632c95bf1400e44"
+    },
+    "ui.qvexhausted": {
+      "text": "試行回数超過",
+      "hash": "975e56e29b5d70d3c6481de30d97994aa4d29ff2"
+    },
+    "ui.qvattempts": {
+      "text": "試行 {a}/{m}",
+      "hash": "2d2545448499701571d5eaf6a398d66f9520cbaf"
+    },
+    "ui.qvreleases": {
+      "text": "{n} 件返却",
+      "hash": "d668f66d84267fcc859213b166e7d229b5177b25"
+    }
+,
+    "doc.route.get.api.admin.queue.flow": {
+      "text": "AIキューを流れる処理を、図として描くための数値（QVIZ, #184）: `?hours=`（既定24、最大720）の期間を固定した分刻みのグリッドで区切った投入・取得・完了の件数と、`breakdown`（待機中ジョブを分割する4つの状態を1回の走査で数えたもの。バーの合計が一致します）。すべての数値はジョブ行そのものから導出されるため、カウンタ用テーブルも保持期間の設定も不要で、遡れる範囲は既存の保持ルールが残している分です。空の分も0として返します。停止したキューが繁忙なキューと同じ形に描かれてはならないためです。1,440区間を超える場合は期間を縮めるのではなく区間幅を広げます。どちらかは `bucket_seconds` が示します。",
+      "hash": "e0ca6b11956a5bef6d4bd91f577d7423b4f57aa1"
+    },
+    "doc.route.get.api.admin.jobs.id.trail": {
+      "text": "1件のジョブがフリートを渡り歩いた経路を古い順に返します: 各試行をどの機器が保持し、どれがいつ、なぜ手放したか。リーパーと返却がすでに書いている監査エントリから読み戻します。いずれも行が再キューされる前に書かれます。再キューは `executor_id` を消すため、その後はどのホストが処理を落としたかを示すものが残らないからです。3台が1回ずつと1台が3回は別の話であり、試行カウンタでは区別できません。ペイロード・結果・エラーメッセージは含みません。",
+      "hash": "15fed68dc3e2bb60d8679c4e0ecf77e7aa4b9dbf"
     }
   }
 }

@@ -557,6 +557,52 @@ try {
   ok('the server card names the dialect',
     /sqlite|postgre/i.test(await page.textContent('#hserver')));
 
+  // ── 7c. the queue's pictures (QVIZ, issue #184) ─────────────────────────────
+  // console-tests.rkt proves the card is wired and that the drawing is ours
+  // rather than a chart library's. Only a browser can say that four hand-written
+  // SVGs actually render under `script-src 'self'` — and the gate fails on any
+  // console error, which is how every other CSP claim in this console was
+  // established rather than argued.
+  ok('the queue visualization renders on Health', !!(await page.$('#qvcard')));
+  const qvSparks = await page.locator('#qvcard svg.qvspark').count();
+  ok('…three flow sparklines, one per series', qvSparks >= 3);
+  // The grid is every minute in the window, not "the minutes that had rows":
+  // a queue that has STOPPED must not draw like one that is busy (QVIZ-7). The
+  // suite has run jobs by now, so at least one bar is drawn.
+  const qvBars = await page.locator('#qvcard svg.qvspark rect').count();
+  ok('…with at least one bar drawn from real rows', qvBars > 0);
+  // The LEGEND is unconditional and the BAR is not: an empty queue draws four
+  // zeros beside their colours rather than a zero-width rectangle, which keeps
+  // the card's shape stable and says what the picture would show. This gate's
+  // queue is usually empty by the time it gets here, which is exactly why the
+  // two are asserted separately.
+  ok('the four states are named with their counts',
+    (await page.locator('#qvcard .qvkey').count()) === 4);
+  const qvQueued = (await page.locator('#qvcard .qvkey b').allTextContents())
+    .reduce((a, x) => a + (parseInt(x, 10) || 0), 0);
+  ok('…and the stacked bar is drawn exactly when something is queued',
+    (qvQueued > 0) === !!(await page.$('#qvcard svg.qvbar')));
+  // QVIZ-6: the refresh is explicit and OFF by default, because the idle clock
+  // counts from the last request (#38).
+  const qvSel = page.locator('#qvcard select').first();
+  ok('auto-refresh is offered and is off', (await qvSel.inputValue()) === '0');
+
+  // QVIZ-3: one job's path opens IN PLACE under the row, so the affordance works
+  // on the Admin tab as well as here without either screen owning a region.
+  const qvTrailBtn = page.locator('#qcard tbody tr button').first();
+  if (await qvTrailBtn.count()) {
+    await qvTrailBtn.click();
+    await page.locator('#qcard tr.qvtrailrow').first().waitFor({ timeout: 5000 });
+    ok('a job trail opens under its own row', !!(await page.$('#qcard tr.qvtrailrow')));
+    const pathText = await page.textContent('#qcard tr.qvtrailrow');
+    ok('…and says which attempt it is on', /\d+\/\d+/.test(pathText));
+    await qvTrailBtn.click();
+    ok('…and a second click closes it rather than stacking a copy',
+      (await page.locator('#qcard tr.qvtrailrow').count()) === 0);
+  } else {
+    ok('a job trail opens under its own row (skipped: the queue is empty)', true);
+  }
+
   // ── 8. Admin › Branding — the new tool, round-tripped through the UI ────────
   step('admin: branding');
   ok('branding card present in Admin', await goTab(page, 'admin', '#brt'));
