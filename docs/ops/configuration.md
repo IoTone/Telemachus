@@ -130,8 +130,36 @@ it cannot share `ai.tokens.total`), and each call also counts one `ai.requests`.
 | Variable | Default | What it does |
 |---|---|---|
 | `TMACH_EMBED_URL` | — | An OpenAI-compatible `/v1/embeddings` endpoint. Unset means the `embed` classification backend is refused by name. |
-| `TMACH_EMBED_MODEL` | `local-embed` | The embedding model name sent to that endpoint. **Changing it invalidates every cached label vector**, which is the correct behaviour — vectors from two checkpoints are not comparable — and costs one re-embed of each label per team. |
+| `TMACH_EMBED_MODEL` | `local-embed` | The embedding model name sent to that endpoint. **Changing it invalidates every cached label vector AND every stored document vector**, which is the correct behaviour — vectors from two checkpoints are not comparable — and costs a re-embed. See the recommendation below. |
 | `TMACH_EMBED_KEY` | — | Bearer token for the embedding endpoint. |
+
+### Which embedding model, if you retrieve in more than one language
+
+**Use `bge-m3` rather than `nomic-embed-text` unless every document you will ever
+retrieve is in English.** Measured on this project's own documentation, 28
+questions asked in English and Japanese, same chunking and same corpus with only
+the model changed:
+
+| | `nomic-embed-text` | `bge-m3` |
+|---|---|---|
+| English recall@3 | 82% | **93%** |
+| Japanese recall@3 | 41% | **81%** |
+
+Japanese recall **doubles**; English gains about one question in 28. The costs
+are real: the same ingest took **49 seconds against 19**, and bge-m3's vectors
+are **1,024 dimensions against 768**, so the stored corpus is a third larger
+(4,096 bytes a row rather than 3,072).
+
+Chunk size and overlap were measured in the same run over an eightfold range and
+**do not matter much** — English recall@3 moved 82–93% across the whole grid,
+which is within the noise of 28 questions. The method, the full grid and what the
+figures cannot tell you are in `docs/design/vector-store.md`; the harness is
+`refimpl/racketmaximus/test/calibrate-retrieval.rkt` and it is re-runnable
+against any endpoint.
+
+**Decide before you ingest.** Changing the model afterwards means re-embedding
+every document, because vectors from two checkpoints are not comparable and
+mixing them does not fail — it retrieves the wrong passage.
 
 ## Transcription (voice notes)
 

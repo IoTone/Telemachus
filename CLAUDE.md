@@ -2482,6 +2482,74 @@ bash test/doc-pipeline-smoke.sh              # the "== 5d." block, 18 assertions
   backend (**req 2c** — no embedding wire, store or meter exists, so it is its own
   issue). The **evaluation harness (req 6)** is the section below.
 
+## The calibration: the chunk size is not the lever, the MODEL is (CHUNK‑10, #189 step 3)
+
+Measured 30 Oct 2026, which **closes #189**. The harness is
+`test/calibrate-retrieval.rkt` (not a suite, not named `*-tests.rkt` — it needs a
+live embedder and takes minutes) and the question set is
+`test/calibration-questions.json`: **28 questions, each asked in BOTH
+languages**, scored at FILE level against a SET of acceptable files.
+
+```sh
+TMACH_EMBED_URL=… TMACH_EMBED_MODEL=bge-m3 racket test/calibrate-retrieval.rkt
+TMACH_EMBED_URL=… TMACH_EMBED_MODEL=…     racket test/calibrate-retrieval.rkt --sizes 1024 --overlaps 0.15
+```
+
+- **THE TWO CONSTANTS DO NOT MOVE, AND THAT IS THE RESULT.** Over 384→2,048
+  characters at 0/15/30% overlap — eighteen cells against the real
+  `nomic-embed-text` and this project's own documentation — English recall@3 moved
+  **82–93%** and Japanese **37–59%**. One question is 3.6 points, so almost the
+  whole spread is noise and **no cell is preferred**. The word *provisional* is
+  gone from `chunk.rkt`: they are measured now, and the measurement says the
+  parameter is not the lever. What separates the cells is COST (160 embedding
+  requests at 384, 102 at 2,048).
+- **CHUNK‑2's HYPOTHESIS IS NOT SUPPORTED, and that is worth knowing because the
+  reasoning was sound.** It argued a 1,024-char Japanese chunk carries ~4× the
+  tokens the English-derived default intends, so Japanese would want a smaller
+  size. At **384** — about the English-equivalent of 1,536 — Japanese recall@3 is
+  **59%** against English's **86%** in the same cell. Shrinking the chunk does not
+  close the gap, so the gap was never the chunk's.
+- **SWAPPING THE MODEL DOUBLES JAPANESE RECALL.** One cell, same questions, same
+  corpus, only `TMACH_EMBED_MODEL` changed: `bge-m3` takes English recall@3 from
+  82% → **93%** and Japanese from 41% → **81%**. The costs are real and are why
+  it is a recommendation in `docs/ops/configuration.md` rather than a default
+  change: the same ingest is **49s against 19s**, and 1,024 dimensions against
+  768 makes the corpus a third larger. **Decide before ingesting** — changing it
+  afterwards re-embeds everything (EMB‑8).
+- **WHAT THE RUN DID NOT SETTLE, said plainly.** `HELP-SCORE-FLOOR` was set from
+  nomic's score distribution and this run recorded recall rather than scores, so
+  it is unchanged and still model-dependent. **#163's `EMBED-MARGIN-SCALE` is NOT
+  closed by it** — that is the margin between LABEL similarities in
+  `doc_classify`'s `embed` backend, expected to be the same sitting and it is not
+  the same measurement.
+- **The figures are for comparing cells, not for quoting.** 28 questions, written
+  by the person who wrote most of the documentation, with the Japanese forms
+  translated from the English ones — which is what makes the two languages
+  comparable and also means they may not use the words the machine-assisted `ja`
+  book chose.
+- **Building the measurement was worth more than one of its numbers**: the dry run
+  found HELP‑15 below, and `--sizes`/`--overlaps` exists because a model
+  comparison wants one cell per model rather than eighteen, which would confound
+  the model with the chunking.
+
+## A chunk the embedder cannot place (HELP‑15, found by #189's calibration)
+
+- **AN INGEST WALKS NINETY-TWO FILES IN ONE COMMAND, SO ONE ODD CHUNK USED TO
+  STOP ALL OF THEM.** `help-replace-doc!` refuses a vector with no direction
+  (VEC‑22, correctly), and `repo_embed_chunks` is the shape where that is fine:
+  one document is one STEP, so failing the step IS the retry. A CLI has no step.
+  `helpindex.rkt` filters before the store now — the store stays strict — and
+  names what was lost **per file**, because "three chunks were dropped" is not
+  something an operator can act on and which file is. The ordinals stay dense
+  (CHUNK‑5).
+- **FOUND BY A DRY RUN OF THE CALIBRATION HARNESS, AND THE FIX WAS UNTESTED BY
+  IT.** A Japanese chunk containing no ASCII embedded to zeros under the scripted
+  embedder and killed the sweep after the English half of that cell had been
+  computed and thrown away. At a different chunk size the offending boundary does
+  not recur, so the re-run went green with the new code and nothing had exercised
+  the branch — it has its own case, with an embedder that refuses one chunk by
+  content.
+
 ## Streamed capture: an upload assembled from chunks (STG‑1…6, issue #192 slice 2)
 
 Built 30 Oct 2026, which **closes #192**. `domain/repo/staging.rkt` (extracted

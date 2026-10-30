@@ -113,11 +113,29 @@
 (provide CHUNK-SIZE-DEFAULT CHUNK-OVERLAP-DEFAULT CHUNK-MAX-DEFAULT
          chunk-text chunk-blank?)
 
-;; PROVISIONAL, and the word is load-bearing: these two numbers are the ones the
-;; build plan says wait for a live `nomic-embed-text`. 256 tokens at ~4 English
-;; characters to the token, with the 15% overlap `vector-store.md` measured
-;; #183's corpus at. What would change them is a recall measurement, in both
-;; languages (CHUNK‑2) — not a preference.
+;; MEASURED, 30 Oct 2026, and the measurement said these two numbers are not the
+;; lever (CHUNK‑10). The note here used to say PROVISIONAL and "what would change
+;; them is a recall measurement, in both languages"; that run is
+;; `test/calibrate-retrieval.rkt` and its figures are in
+;; `docs/design/vector-store.md`.
+;;
+;; Over an eightfold range — 384 to 2,048 characters, each at 0%, 15% and 30%
+;; overlap, against the real `nomic-embed-text` and the project's own
+;; documentation — English recall@3 moved between **82% and 93%** and Japanese
+;; between **37% and 59%**. With 28 questions one question is 3.6 points, so
+;; almost the whole spread is inside the noise. There is no cell the data
+;; prefers.
+;;
+;; AND CHUNK‑2's HYPOTHESIS IS NOT SUPPORTED. It argued that a 1,024-character
+;; chunk of Japanese carries roughly four times the tokens the English-derived
+;; default intends, so Japanese would want a smaller size. At 384 characters —
+;; about the English-equivalent of 1,536 — Japanese recall@3 is 59% against
+;; English's 86% in the same cell. Shrinking the chunk does not close the gap,
+;; because the gap is not the chunk's: swapping the embedding model for a
+;; multilingual one DOUBLES Japanese recall at this very size (41% → 81%).
+;;
+;; So 1,024 with 154 of overlap stands, on evidence rather than on an estimate,
+;; and the thing worth changing is `TMACH_EMBED_MODEL`.
 (define CHUNK-SIZE-DEFAULT 1024)
 (define CHUNK-OVERLAP-DEFAULT 154)      ; 15% of the size, rounded
 
