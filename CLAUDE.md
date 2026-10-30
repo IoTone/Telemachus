@@ -3075,6 +3075,93 @@ the require to the CLI as well as to main.rkt.
   precedent), and a hand-written spec uses the WIRE grammar
   `${steps.<id>.output.*}`, not the macro's sugar.
 
+## In-product help: the corpus and its read (HELP‑1…14, issue #183 slice 1)
+
+Built 29 Oct 2026, the first thing to pick up #189's retrieval. Migration
+`0065-help-corpus`; `domain/help/{helpstore,helpindex,helpsearch}.rkt`;
+`cli/telemachus-help.rkt`. **No route, no permission, no console code, no new
+environment variable.** Design: `docs/design/in-product-help.md`, which also
+specifies slice 2 (the prompt, the refusal, `POST /api/help`, the panel).
+
+```sh
+raco test test/help-tests.rkt                              # 15 cases, 12 controls, all biting
+DATABASE_URL="postgres://…" raco test test/help-tests.rkt  # the whole file, both dialects
+TMACH_EMBED_URL=… racket cli/telemachus-help.rkt ingest    # from a CHECKOUT (see HELP‑2)
+racket cli/telemachus-help.rkt status                      # and what it holds, and whether it is stale
+```
+
+- **THE CORPUS IS THE INSTANCE'S, NOT A TEAM'S** (HELP‑3). `repo_objects.team_id`
+  is NOT NULL, so putting the shipped manual there would ingest it **once per
+  team**, charge each team's `storage.bytes`, list it in each team's documents and
+  search and offer it to its knowledge-graph extraction. A plugin was the other
+  candidate and cannot be one: a plugin may not add a permission (MTX‑9), own a
+  sealed column (FEED‑5), add a quota dimension or add a console tab, and slice 2
+  needs three of the four.
+- **AND IT IS INGESTED, NOT READ OFF DISK, BECAUSE `docs/` IS NOT IN THE
+  PACKAGE** (HELP‑2). `nix/telemachus.nix` sets `src = ../refimpl/racketmaximus`,
+  so the documentation is in neither the store nor the container image: a
+  boot-time read of `docs/` works in every developer's checkout and finds an
+  empty directory on every packaged install, which is #119's shape exactly.
+  `telemachus-help` is on the packaged wrapper list so an operator needs no build
+  toolchain to fill the corpus from a checkout of the release they are running.
+- **AN OPERATOR CLI, AND THE INGEST IS CHARGED TO NOBODY** (HELP‑1) — every
+  model-backed workflow here runs as a principal and bills a team, the corpus
+  belongs to no team, and there is no instance-tier quota subject. **THE REQUEST
+  LOG IS A BOX A CLI DOES NOT FILL**, and that is the trap worth carrying
+  forward: `model-request-logger` is filled by `server/main.rkt`, so the first
+  working ingest wrote 111 requests to a model endpoint and logged **none** —
+  invisible, because `log-model-request!` swallows its own failures (RED‑17) and
+  an empty box is not even a failure. The CLI installs a logger; the rows carry no
+  team, so they are in `model_requests` and not on `GET /api/model-requests`.
+  Any future CLI that makes a model request has the same hole.
+- **`help_chunks.vector` IS NOT SEALED, AND THAT IS THE ONE DIVERGENCE FROM
+  `repo_chunks`** (HELP‑5). VEC‑3 seals that column because embedding inversion
+  recovers much of a chunk's source text and the source is a team's document;
+  here the source is the product's **published** documentation, so sealing would
+  protect nothing and would add a column `rewrap` must walk — how a sealed value
+  becomes silently unrotatable. Pinned by a case that runs with a key configured
+  AND `TMACH_ENCRYPT_CONTENT` on, which is exactly when a content column seals:
+  without it, the absence of a seal is indistinguishable from a forgotten one.
+- **THERE IS NO `can?`, AND VEC‑28's APPROXIMATION GOES WITH IT** (HELP‑7). A
+  paragraph of `docs/ops/container.md` is the manual for the software the asker is
+  signed in to, so `k` candidates are scored and `k` are answered — no headroom,
+  no memo, no recall hole. Spending is slice 2's question and is `chat:use` on the
+  route (VEC‑35), which is about the model request and not about the documents.
+- **WHAT IS EMBEDDED IS MORE THAN WHAT IS QUOTED** (HELP‑6): the vector is of
+  `title / heading / text` and the offsets index the raw chunk, so **a passage can
+  be retrieved for a word that appears only in its heading**. Stated because a
+  reader comparing the quote with the question would otherwise not see why it
+  matched. The first chunk of a document has no heading above it — nothing
+  precedes offset 0 — which is the second reason the title is in the composition.
+- **THE LOCALE IS AN EXACT SQL FILTER WITH A NAMED FALLBACK** (HELP‑12), and
+  cross-lingual retrieval is NOT claimed: whether `nomic-embed-text` puts a
+  Japanese question near its English answer is unmeasured. The report says which
+  locale answered, because a silent English fallback in a Japanese page is worse
+  than an obviously untranslated one. The locale of a document comes from a closed
+  set — the catalogs this build ships, via `available-locales`, now exported for
+  this second asker — matched as a directory segment or a `.ja.md` suffix
+  (HELP‑10); a two-letter GRAMMAR would tag any short directory as a language, and
+  a mis-tagged document is invisible rather than wrong.
+- **AN UNCHANGED FILE COSTS NO MODEL REQUEST** (HELP‑9), the sha1 rule
+  `locales/ja.json` already lives by. `--force` exists because changing the chunk
+  SIZE does not change the model name and so cannot be detected; a MODEL change
+  can be, and `status` warns about it and tells you to `clear` first, because
+  vectors from two checkpoints are not comparable and mixing them does not fail
+  (EMB‑8).
+- **Measured, with the real ingest over the real tree**: 89 documents and
+  **1,568 chunks** (1,400 English over 63 files, 168 Japanese over 26), **111**
+  embedding requests for the lot and **zero** for a re-ingest.
+  `vector-store.md` estimated 1,159 English chunks; the boundary search (CHUNK‑3)
+  ends a chunk early, so there are slightly more and slightly shorter ones — the
+  estimate was within 20%.
+- **The scripted embedder's tokenizer decided whether the Japanese cases could
+  exist at all.** `[[:alnum:]]` is ASCII-only here, so a bag of words built by
+  splitting on its complement left every Japanese fixture with no words and a
+  ZERO vector — correctly refused by the store (VEC‑22), so twelve of fifteen
+  cases failed naming the Japanese README. The fixture was wrong and the refusal
+  was right.
+- `check-true` on `member` again, the fourth appearance: `(and … #t)`.
+
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
 Built 25 Oct 2026 — the last piece of #87 this build can hold. One tool
