@@ -58,8 +58,8 @@
   (define v (getenv name))
   (if (and v (not (string=? (string-trim v) ""))) (string-trim v) default))
 
-(define (env-bool name default)
-  (define v (env name))
+(define (env-bool suffix default)             ; the SUFFIX, read through the dual-read accessor
+  (define v (tmach-env suffix))
   (cond [(not v) default]
         [(member (string-downcase v) '("1" "yes" "true" "on")) #t]
         [(member (string-downcase v) '("0" "no" "false" "off")) #f]
@@ -92,11 +92,11 @@
    ;; Defaults to ON whenever encryption was asked for. An operator who sets
    ;; sse=none has said they want plaintext, and asserting a header they
    ;; deliberately turned off would refuse every write.
-   (env-bool "TMACH_S3_BLOB_REQUIRE_ENCRYPTION" (not (string=? sse "none")))
+   (env-bool "S3_BLOB_REQUIRE_ENCRYPTION" (not (string=? sse "none")))
    ;; Path-style by DEFAULT, unlike the AWS SDKs: MinIO and Ceph RGW are the
    ;; deployments this exists for and neither gets virtual-host DNS for free,
    ;; while AWS still accepts path-style.
-   (env-bool "TMACH_S3_BLOB_PATH_STYLE" #t)
+   (env-bool "S3_BLOB_PATH_STYLE" #t)
    (env-int (tmach-env "S3_BLOB_RETRIES") 3)
    (env-int (tmach-env "S3_BLOB_TIMEOUT") 120)))
 
