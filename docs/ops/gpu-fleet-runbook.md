@@ -162,6 +162,12 @@ its kinds and models on **every claim** and the platform records what it
 declared. The authority is `TMACH_WORKER_MODELS` on the rig, not what was typed
 at create time.
 
+One consequence worth knowing, because it reads like the opposite rule: an empty
+declaration leaves the STORED one alone rather than clearing it. So a model typed
+into `capabilities` at create time outlives a worker that declares no models, and
+that host is then filtered to an alias it may not serve. Leave `capabilities` out,
+or make `TMACH_WORKER_MODELS` say what the rig really serves.
+
 **The worker token is in that 201 response and nowhere else, ever.** There is no
 second chance to read it; the way back from losing one is
 `POST /api/executors/<id>/rotate-token`. Write each straight to a mode-600 file

@@ -453,7 +453,7 @@ by the worker, not by the instance.
 | `TMACH_WORKER_TOKEN` | — | Required. The worker token shown once when the executor was created (scope `jobs:execute`). |
 | `TMACH_WORKER_MODEL_URL` | — | An OpenAI-compatible endpoint; set it to run `infer.chat`. |
 | `TMACH_WORKER_MODEL_KEY` | — | Bearer token for that endpoint. |
-| `TMACH_WORKER_MODELS` | any | Comma-separated model names this host offers, for claim matching. Naming none means "any". |
+| `TMACH_WORKER_MODELS` | — | Comma-separated model names this host offers, for claim matching. The rule runs one way: a job that NAMES a model is offered only to a host whose list contains it, so an empty list cannot claim a model-named job at all. A job that names nothing matches every host, whatever this says. Empty therefore means "I take work nobody routed", not "I can serve anything". |
 | `TMACH_WORKER_LAYA_URL` | — | A loopback `laya_serve.py --port` (run it with `--batch-size 1`); set it to run `judge.typed`. The chat endpoint is then optional, so a Mac can be a judge host and nothing else. |
 | `TMACH_WORKER_READY_URL` | — | A URL the worker GETs before **each** claim; 2xx means this host can take work. While it refuses, the worker reports `paused` once and claims nothing. What readiness *means* is the operator's: VRAM, memory, load, a maintenance flag. Unset disables the gate entirely. |
 | `TMACH_WORKER_READY_INTERVAL` | `15` | Seconds between re-checks while standing down. An unparseable or non-positive value falls back to the default, never to `0`. |
