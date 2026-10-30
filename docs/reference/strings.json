@@ -139,7 +139,7 @@
   "doc.route.get.api.mcp": "Connected MCP servers.",
   "doc.route.get.api.members": "The team's members and roles.",
   "doc.route.get.api.metrics": "Operational metrics.",
-  "doc.route.get.api.model-requests": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count and outcome. Never the prompt text. Filter with ?executor=, page with ?limit= and ?offset=.",
+  "doc.route.get.api.model-requests": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count, whether it was a chat or an embedding call, the job it served and the outcome. Never the prompt text. A call served by a pull worker leaves two rows that join on job_id: the route that enqueued the job writes one from the waiting side, so its milliseconds span the queue wait, and the worker's completion writes the other from the job's own start with the tokens the worker reported. job_id is null on a push or stream call, and on a row written before the column existed. Filter with ?executor=, page with ?limit= and ?offset=.",
   "doc.route.get.api.model-roles": "Which executor the team's bulk work goes to, per role (utility: knowledge-graph and field extraction, translation drafts), and the instance default.",
   "doc.route.get.api.notes": "List the notes the caller can read; ?scope=org spans every team in the company (an org_reader sees team-visible notes, never private ones).",
   "doc.route.get.api.notes.id": "One note.",
