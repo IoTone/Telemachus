@@ -32,7 +32,7 @@
          (only-in "helpsearch.rkt" help-passages help-available? HELP-K HELP-MAX))
 
 (provide help-answer current-help-chat current-help-embed-one
-         HELP-SCORE-FLOOR HELP-ANSWER-REASONS HELP-SYSTEM
+         HELP-SCORE-FLOOR HELP-ANSWER-REASONS HELP-SYSTEM HELP-INVENTORY-MIN
          help-cited-paths)
 
 ;; ---- the two seams -----------------------------------------------------------
@@ -86,7 +86,33 @@
 ;; `no-model` is the chat half of the same question; `nothing-relevant` is the
 ;; floor; `uncited` is an answer the model gave that named no passage.
 (define HELP-ANSWER-REASONS '("unconfigured" "empty" "locale-empty" "no-model"
-                              "nothing-relevant" "uncited"))
+                              "nothing-relevant" "uncited" "unfocused"))
+
+;; HELP‑22 — AN ANSWER THAT CITES EVERY PASSAGE IT WAS SHOWN HAS CITED NOTHING,
+;; AND THIS RULE EXISTS BECAUSE A REAL MODEL DID IT.
+;;
+;; Measured on the lab box against the real corpus and `qwen2.5:7b`: asked "what
+;; is the airspeed velocity of an unladen swallow?", the retrieval's top score
+;; was **0.488** — above the floor, because the floor is deliberately not a
+;; relevance test (HELP‑15) — and the model then did exactly what it was told,
+;; answering "the passages provided do not contain any information about…". But
+;; it went on to name all five passages it had been shown, in brackets, by way of
+;; explaining what they were about instead. So HELP‑16's resolution kept five
+;; perfectly valid citations and the response presented a REFUSAL as a
+;; five-source answer, which is the one field this feature exists to get right.
+;;
+;; A citation distinguishes; naming every input distinguishes nothing. So an
+;; answer that cites all of the passages it was given is an INVENTORY, reported
+;; as `unfocused` with the citations dropped — the passages are returned anyway,
+;; so nothing is lost, and what goes is the claim that they are sources.
+;;
+;; The floor is NOT the fix, and that is worth stating because it is the obvious
+;; one: the useful container-healthcheck answer scored **0.587** against this
+;; question's 0.488, so a floor that refused the swallow would be within 0.1 of
+;; refusing a question somebody really asks. Three passages is the minimum for
+;; the rule to mean anything — with one or two, citing all of them is what a
+;; good answer looks like.
+(define HELP-INVENTORY-MIN 3)
 
 ;; ---- the prompt --------------------------------------------------------------
 ;;
@@ -207,8 +233,13 @@
         ;; the failure this feature cannot be allowed to have.
         (define offered (for/list ([x (in-list ps)]) (hash-ref x 'path)))
         (define named (help-cited-paths reply))
-        (define kept (filter (lambda (c) (and (member c offered) #t)) named))
+        (define resolved (filter (lambda (c) (and (member c offered) #t)) named))
         (define invented (filter (lambda (c) (not (member c offered))) named))
+        ;; HELP‑22: citing all of them is an inventory, not a citation.
+        (define inventory?
+          (and (>= (length offered) HELP-INVENTORY-MIN)
+               (= (length (remove-duplicates resolved)) (length (remove-duplicates offered)))))
+        (define kept (if inventory? '() resolved))
         (hasheq 'answer reply
                 'citations (for/list ([c (in-list kept)])
                              (define hit (for/first ([x (in-list ps)]
@@ -231,7 +262,9 @@
                 ;; to do, and a caller that wants to render it differently needs
                 ;; to be able to tell. QUOTA‑3's rule — the key is absent when
                 ;; there is nothing to say.
-                'reason (if (null? kept) "uncited" #f))])]))
+                'reason (cond [inventory? "unfocused"]
+                              [(null? kept) "uncited"]
+                              [else #f]))])]))
 
 ;; KG‑7/LOC‑5: bulk work goes to the team's `utility` executor when one is set,
 ;; which is how a GPU box takes the answering without this module knowing it

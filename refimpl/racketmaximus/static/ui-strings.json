@@ -442,5 +442,6 @@
   "ui.helplocaleempty": "The documentation has not been ingested in this language, so the answer comes from another.",
   "ui.helpnomodel": "No model is configured, so these are the passages closest to the question rather than an answer.",
   "ui.helpuncited": "The answer cited no passage, which usually means it is declining to answer.",
-  "ui.palhdocs": "Ask the documentation"
+  "ui.palhdocs": "Ask the documentation",
+  "ui.helpunfocused": "The answer named every passage it was shown, which distinguishes nothing — treat it as a refusal."
 }

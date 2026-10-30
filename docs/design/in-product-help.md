@@ -210,6 +210,15 @@ English question.
    cites nothing is `uncited` and still returned, because that is usually the
    model declining, which is what it was asked to do.
 
+**And an answer that cites EVERY passage it was shown has cited nothing**
+(HELP‑22), which the only real-model run found: asked something the
+documentation does not cover, the top score was 0.488 — above the floor, by
+design — and `qwen2.5:7b` refused correctly and then named all five passages by
+way of explaining what they were about. Five valid citations turned a refusal into
+a five-source answer. That is `unfocused` now, citations dropped and passages
+kept. Raising the floor is not the fix: the useful container answer scored 0.587
+against that question's 0.488.
+
 The answer is **prose with `[path]` markers plus resolved citations beside it**
 (HELP‑17). VEC‑38 made the opposite call for `repo_retrieve` and both are right
 for their reader: that one answers a model, this one answers a person. A

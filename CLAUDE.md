@@ -3219,6 +3219,24 @@ bash test/e2e/validate.sh                              # §3e — no affordance 
   dimension counts calls to a model and this is two of them. What it does not
   bound is stated: with no `ai.help.total` limit a team can spend provider tokens
   on help without it appearing in the budget an operator reads as spend.
+- **AN ANSWER THAT CITES EVERY PASSAGE IT WAS SHOWN HAS CITED NOTHING** (HELP‑22),
+  and the only real-model run is what found it. Asked something the documentation
+  does not cover, the retrieval's top score was **0.488** — above the floor, by
+  design — and `qwen2.5:7b` refused correctly AND THEN named all five passages by
+  way of explaining what they were about, so five valid citations turned a refusal
+  into a five-source answer. It is `unfocused` now, with the citations dropped and
+  the passages kept. **Raising the floor is not the fix**: the genuinely useful
+  container-healthcheck answer scored 0.587 against that question's 0.488.
+  `HELP-INVENTORY-MIN` is 3 because citing one of one is what a good answer looks
+  like — and the test could not fire the rule at all until it got a tree of its
+  own, because the shared fixture has two English documents and the locale filter
+  meant `k = 3` could never offer three. It passed reporting `#f`.
+- **What the same run established, which is why that is a fix and not a retreat**:
+  the key-rotation question produced a correct five-step answer out of the secrets
+  runbook (0.693), "jobs stay queued and nothing is running" answered "a team out
+  of AI budget" (0.768), the container question was accurate (0.587), and the
+  Japanese job-queue question answered **in Japanese** out of the Japanese chapter
+  (0.805). Warm latency 0.9–3.8 s; 18 s on the first call with the model cold.
 - **THE ROUTE-PERMISSION GATE FOUND THE HANDLER'S `require-perm` MISSING ON THE
   FIRST RUN** — `POST /api/help declares "chat:use" — not enforced anywhere
   reachable from ep-help`. Exactly the defect that gate exists for. The

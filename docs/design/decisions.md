@@ -4407,6 +4407,41 @@ An answer invented about an operator's own platform is worse than silence."
 | **HELP‑20** | With no chat model | **The PASSAGES come back, with `no-model`** · vs an error | `content_search: false`'s posture: report what did not run, keep what did. A reader handed three cited passages out of the documentation is better off than one handed an error, and on an instance with an embedder and no chat model that is the whole of what help can be. |
 | **HELP‑21** | What a question costs | **`ai.help.total` (its own dimension, no default limit) and `ai.requests`, and deliberately NOT `ai.tokens.total`** · vs the completion budget, vs free | #183's question 3 answered. The shipped `ai.tokens.total` default is 2,000/day, so a question or three exhausts it and "help that stops working at lunchtime is worse than no help" — the issue's own words. Its own dimension is EMB‑6's and JUDGE‑10's shape: a cost with no sensible home gets a dimension rather than being folded into somebody else's budget. `ai.requests` IS charged because the dimension counts calls to a model and this is two of them, and its 200/day default is a real bound that is not the one that would hurt. **What that does not bound is stated**: a team with no `ai.help.total` limit can spend provider tokens on help without it appearing in the completion budget an operator reads as spend, and the remedy is to set the limit the dimension exists for. In `QUOTA-HOLD-DIMS` and on `GET /api/usage`. |
 
+### HELP‑22 — an answer that cites every passage it was shown has cited nothing
+
+**Found by the only real-model run there has been**, which is the argument for
+having made one. On the lab box, against the real 1,427-chunk English corpus and
+`qwen2.5:7b`: asked "what is the airspeed velocity of an unladen swallow?", the
+retrieval's top score was **0.488** — above the floor, because the floor is
+deliberately not a relevance test (HELP‑15) — and the model then did exactly what
+it was told, answering "the passages provided do not contain any information
+about…". And then it named **all five** passages it had been shown, in brackets,
+by way of explaining what they were about instead. HELP‑16's resolution kept five
+perfectly valid citations, so the response presented a REFUSAL as a five-source
+answer — in the one field this feature exists to get right.
+
+A citation distinguishes; naming every input distinguishes nothing. So an answer
+that cites all of the passages it was given is an **inventory**, reported as
+`unfocused` with the citations dropped. The passages are returned anyway, so
+nothing is lost; what goes is the claim that they are sources.
+
+**Raising the floor is NOT the fix, and that is worth stating because it is the
+obvious one**: the genuinely useful container-healthcheck answer scored **0.587**
+against this question's **0.488**, so a floor that refused the swallow would sit
+within a tenth of refusing a question somebody really asks. `HELP-INVENTORY-MIN`
+is 3, because with one or two passages citing all of them is exactly what a good
+answer looks like — and the first version of the test could not fire the rule at
+all, because the shared fixture has only two English documents and the locale
+filter meant `k = 3` could never offer three. It reported `#f` and passed for the
+wrong reason until it got a tree of its own.
+
+The other four probes in that run are the reason this is a fix and not a retreat:
+the key-rotation question produced a correct five-step answer out of the secrets
+runbook at 0.693, the queued-jobs question answered "a team out of AI budget" at
+0.768, the container question was accurate at 0.587, and the Japanese
+job-queue question answered in Japanese out of the Japanese chapter at 0.805.
+Warm latency was **0.9–3.8 s**; the first call, with the model cold, took 18 s.
+
 ### The permission, and the gate that found it missing
 
 `chat:use`, declared on the route and enforced in the handler — and the handler's
