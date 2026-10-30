@@ -3024,8 +3024,8 @@
       "hash": "12db93cf2841699f7c12d31b891267e07189338f"
     },
     "doc.route.post.api.help": {
-      "text": "Ask a question of the instance's own documentation (#183). Answers from the help corpus with citations by file path, or a closed `reason` saying why it could not: `unconfigured` (no TMACH_EMBED_URL), `empty` (nothing ingested — run `telemachus-help ingest`), `locale-empty`, `no-model`, `nothing-relevant` (nothing in the documentation is near the question), `uncited` (the model answered and named no passage, which is usually it declining). Every citation is resolved against the passages actually retrieved, so a path the model invented is dropped and reported. The corpus is the instance's, not a team's, so there is no per-document permission; `chat:use` is here because asking costs one embedding and one completion, charged to `ai.help.total` and `ai.requests` and deliberately NOT to `ai.tokens.total`. `locale` in the body wins over the request's negotiated locale; the response says which locale answered.",
-      "hash": "82caf88b2e33ea099ac7e26eee778df7e60eda83"
+      "text": "Ask a question of the instance's own documentation (#183). Answers from the help corpus with citations by file path, or a closed `reason` saying why it could not: `unconfigured` (no TMACH_EMBED_URL), `empty` (nothing ingested — run `telemachus-help ingest`), `locale-empty`, `no-model`, `nothing-relevant` (nothing in the documentation is near the question), `uncited` (the model answered and named no passage, which is usually it declining), `unfocused` (it named EVERY passage it was shown, which distinguishes nothing — measured against a real model, which did exactly that while refusing). Every citation is resolved against the passages actually retrieved, so a path the model invented is dropped and reported. The corpus is the instance's, not a team's, so there is no per-document permission; `chat:use` is here because asking costs one embedding and one completion, charged to `ai.help.total` and `ai.requests` and deliberately NOT to `ai.tokens.total`. `locale` in the body wins over the request's negotiated locale; the response says which locale answered.",
+      "hash": "f4ff06bae43d5d7783c5eb33a694577add99f7ef"
     },
     "doc.route.get.api.x.integrator-demo.eta": {
       "text": "Estimated days for ?lane=.",
@@ -3482,6 +3482,10 @@
     "doc.perm.org:read-data": {
       "text": "Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role.",
       "hash": "deb567f10efb23e25d3986d58356549bc9a77f9d"
+    },
+    "ui.helpunfocused": {
+      "text": "The answer named every passage it was shown, which distinguishes nothing — treat it as a refusal.",
+      "hash": "df4aa7ee154db599d9cdba06e082c82a5478a2df"
     },
     "ui.palnewnote": {
       "text": "New note",

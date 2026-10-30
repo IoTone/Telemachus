@@ -424,6 +424,16 @@
 
 (define (embed-one text) (values (bag text) (string-length text)))
 
+;; The paths the model was actually shown, read back out of the prompt — so a
+;; scripted reply can cite exactly what a real one was looking at, which is what
+;; makes case 25's fixture the shape a real model produced rather than one
+;; invented to fit the rule.
+(define (help-prompt-paths prompt)
+  (remove-duplicates
+   (for/list ([m (in-list (regexp-match* #px"(?m:^[0-9]+\\. \\[([^\\]]+)\\])"
+                                        prompt #:match-select cadr))])
+     m)))
+
 (define (seed-corpus!)
   (define conn (fresh))
   (define-values (uid tid) (bootstrap! conn #:username "alice"))
@@ -583,4 +593,58 @@
     (define-values (conn p tid root) (seed-corpus!))
     (check-exn #px"question is required" (lambda () (ask conn p "   ")))
     (check-exn #px"question is required" (lambda () (ask conn p "")))
+    (close-db! conn))))
+
+(test-case "25. HELP‑22: an answer that cites EVERY passage it was shown is an inventory"
+  ;; Found by the only real-model run there has been: asked something the
+  ;; documentation does not cover, qwen2.5:7b refused correctly AND then named
+  ;; all five passages by way of explaining what they were about instead — so
+  ;; five valid citations turned a refusal into a five-source answer.
+  (with-help-env (lambda ()
+    ;; Its own tree, because the shared fixture has only TWO English documents and
+    ;; the locale filter means k=3 can never offer three of them — which is how
+    ;; this case first passed for the wrong reason, reporting #f because the rule
+    ;; had nothing to fire on.
+    (define conn (fresh))
+    (define-values (uid tid) (bootstrap! conn #:username "alice"))
+    (define root (make-temporary-file "telemachus-help-~a" 'directory))
+    (for ([n '("a" "b" "c")])
+      (call-with-output-file (build-path root (string-append n ".md")) #:exists 'truncate
+        (lambda (o) (display (format "# Page ~a\n\nrotating a key rewrapping sealed columns image shell healthcheck ~a\n" n n) o))))
+    (ingest! conn root)
+    (define p (user-principal conn uid tid))
+    ;; k = 3 over three English documents, and the reply names every one it was shown
+    (define rep (ask conn p "rotating a key rewrapping sealed columns image shell healthcheck"
+                     #:k 3
+                     #:reply (lambda (prompt)
+                               (string-join
+                                (for/list ([path (in-list (help-prompt-paths prompt))])
+                                  (format "[~a]" path))
+                                " and "))))
+    (check-equal? (hash-ref rep 'reason) "unfocused")
+    (check-equal? (hash-ref rep 'citations) '()
+                  "what goes is the CLAIM that they are sources; the passages are returned anyway")
+    (check-true (> (length (hash-ref rep 'passages)) 0))
+    ;; …while citing SOME of them is an ordinary answer
+    (define one (ask conn p "rotating a key rewrapping sealed columns image shell healthcheck"
+                     #:k 3
+                     #:reply (lambda (prompt)
+                               (format "only this one [~a]" (car (help-prompt-paths prompt))))))
+    (check-false (hash-ref one 'reason))
+    (check-equal? (length (hash-ref one 'citations)) 1)
+    (close-db! conn))))
+
+(test-case "26. …and with fewer than three passages, citing all of them is a good answer"
+  ;; The minimum is what stops the rule firing on the shape a correct answer has:
+  ;; with one or two passages, naming both is exactly what citing looks like.
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (check-equal? HELP-INVENTORY-MIN 3)
+    (define rep (ask conn p "rotating a key and rewrapping sealed columns"
+                     #:k 2
+                     #:reply (lambda (prompt)
+                               (string-join (for/list ([path (in-list (help-prompt-paths prompt))])
+                                              (format "[~a]" path)) " and "))))
+    (check-false (hash-ref rep 'reason) "two of two is a citation, not an inventory")
+    (check-equal? (length (hash-ref rep 'citations)) 2)
     (close-db! conn))))

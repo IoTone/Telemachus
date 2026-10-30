@@ -70,7 +70,8 @@ const HELP_REASON_KEY = {
   'locale-empty':     'helplocaleempty',
   'no-model':         'helpnomodel',
   'nothing-relevant': 'helpnone',
-  'uncited':          'helpuncited'
+  'uncited':          'helpuncited',
+  'unfocused':        'helpunfocused'
 };
 
 function helpBody(rep){
