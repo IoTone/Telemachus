@@ -117,6 +117,10 @@
 (require "api/accounts.rkt"
          "api/admin.rkt"
          "api/ai.rkt"
+         ;; #183: in-product help. Its own module because it is one route over a
+         ;; corpus that belongs to no team — the AI area is the team's own model
+         ;; calls, and this is the instance's documentation answering a question.
+         (only-in "api/help.rkt" ep-help)
          "api/beta.rkt"
          "api/branding.rkt"
          "api/content.rkt"
@@ -273,6 +277,7 @@
    'documents-get ep-documents-get 'documents-update ep-documents-update 'documents-delete ep-documents-delete
    'notes-share ep-notes-share 'notes-get ep-notes-get 'notes-update ep-notes-update 'notes-delete ep-notes-delete
    'ai-echo ep-ai-echo 'ai-chat ep-ai-chat 'ai-chat-stream ep-ai-chat-stream 'agent ep-agent
+   'help ep-help
    'translate-catalog ep-translate-catalog 'translate ep-translate 'translate-list ep-translate-list
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors 'admin-workers ep-admin-workers

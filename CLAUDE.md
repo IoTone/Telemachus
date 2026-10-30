@@ -3175,6 +3175,78 @@ racket cli/telemachus-help.rkt status                      # and what it holds, 
   was right.
 - `check-true` on `member` again, the fourth appearance: `(and … #t)`.
 
+## In-product help: the answer (HELP‑15…21, issue #183 slice 2)
+
+Built 29 Oct 2026, which **closes #183**. `domain/help/answer.rkt`,
+`POST /api/help` (`server/api/help.rkt`), the `ai.help.total` dimension, `help`
+on `GET /api/whoami`, and `static/console/17-help.js`. **No migration.**
+
+```sh
+raco test test/help-tests.rkt test/console-tests.rkt   # 24 + 32 cases, 13 controls
+bash test/server-smoke.sh                              # nine assertions on the DEGRADATION
+bash test/e2e/validate.sh                              # §3e — no affordance when nothing can answer
+```
+
+- **"I DON'T KNOW" IS TWO LAYERS AND NEITHER IS SUFFICIENT** (HELP‑15/‑16): a
+  score floor before any model call, and every cited path resolved against the
+  passages actually retrieved afterwards. **The floor cannot be a relevance
+  test, and the measurement is why**: the Japanese question that missed its
+  chapter entirely still had a top hit at **0.651**, higher than the English
+  question that found the right file at **0.576**. So it is 0.35, PROVISIONAL,
+  and it answers only "is anything in this documentation near this question at
+  all". `#:floor` is an argument because a calibration has to sweep it — and
+  because the scripted bag-of-words embedder scores ~0.28 where
+  `nomic-embed-text` gives 0.55–0.80, so a suite that pinned the constant by
+  accident would turn a calibration into a test failure. Five cases failed that
+  way first.
+- **A PATH THE MODEL INVENTED IS DROPPED AND REPORTED.** That is the one failure
+  this feature cannot have: a reader who follows a citation to a file that says
+  something else is worse off than one who got no answer. An answer that cites
+  NOTHING is `uncited` and still returned, because that is usually the model
+  declining, which is what it was asked to do. The KG extractor can demand a
+  verbatim substring because it extracts spans; prose has no such invariant, so
+  this is as far as verification honestly goes.
+- **PROSE WITH `[path]` MARKERS, NOT A SCHEMA** (HELP‑17), and VEC‑38 made the
+  opposite call for `repo_retrieve` — both right for their reader: that one
+  answers a MODEL, this one answers a PERSON. A `json_schema` here would be a
+  liability, because most local servers ignore `response_format`, so a model that
+  cannot produce the object would make help fail outright where one that cannot
+  produce a bracket still gives a readable answer and says it cited nothing.
+- **`ai.help.total`, AND DELIBERATELY NOT `ai.tokens.total`** (HELP‑21). The
+  shipped completion budget is 2,000/day, so a question or three exhausts it and
+  #183's own words are that help which stops at lunchtime is worse than no help.
+  Its own dimension is EMB‑6's shape; `ai.requests` IS charged, because the
+  dimension counts calls to a model and this is two of them. What it does not
+  bound is stated: with no `ai.help.total` limit a team can spend provider tokens
+  on help without it appearing in the budget an operator reads as spend.
+- **THE ROUTE-PERMISSION GATE FOUND THE HANDLER'S `require-perm` MISSING ON THE
+  FIRST RUN** — `POST /api/help declares "chat:use" — not enforced anywhere
+  reachable from ep-help`. Exactly the defect that gate exists for. The
+  permission is about the SPENDING, not the documents (HELP‑7), and the smoke
+  pins it with a **viewer**: the first version asserted against a MEMBER, who
+  holds `chat:use`, so it passed against a correct server and said nothing.
+- **The failure vocabulary is closed and the status is 200** (HELP‑19):
+  `unconfigured` / `empty` / `locale-empty` / `no-model` / `nothing-relevant` /
+  `uncited`, `reason` absent when answered. With no chat model the PASSAGES come
+  back instead of an error (HELP‑20) — `content_search: false`'s posture.
+- **The overlay is shell-resident, so A LIVE BOX NEEDS A RESTART**, like #182's
+  two. It hooks the one delegated `keydown` listener **after** `paletteKey`, and
+  the order is asserted rather than commented: the palette owns `Esc` while ITS
+  overlay is open and `helpKey` claims it only while its own is. Asking is ONE
+  send on #174's shape — the flag is the guard and the pending state, nothing
+  awaits between the check and the set, and the `finally` is what stops one
+  network error leaving the button dead.
+- **The affordance is HIDDEN when help cannot answer**, off `S.me.help.reason`;
+  `locale-empty` is NOT hidden, because the corpus exists and the answer arrives
+  in another language. `help-any?` is an EXISTENCE test, not a count: whoami asks
+  it on every render pass.
+- **A python-scripted edit ended a bash literal with a DOUBLED QUOTE** and bash
+  swallowed the remaining 40 lines of the smoke in silence — five passing
+  assertions and then no verdict line at all. `bash -n` catches it in
+  milliseconds, and the missing `server-smoke: PASS` is the tell.
+- **A class that matches no rule fails nothing** (#178 again): `.sec` is scoped
+  to `.bx-ed` and `.small`/`.plain` do not exist. Grep the stylesheet first.
+
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
 Built 25 Oct 2026 — the last piece of #87 this build can hold. One tool

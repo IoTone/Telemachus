@@ -16,7 +16,7 @@
 
 (require db-kit/portable racket/flonum
          (only-in "../ai/vectors.rkt" vec-normalize vec-nearest)
-         (only-in "helpstore.rkt" help-text-for help-locales help-chunk-count))
+         (only-in "helpstore.rkt" help-text-for help-locales help-any?))
 
 (provide help-nearest help-passages help-available?
          HELP-SCAN HELP-K HELP-MAX HELP-SNIPPET)
@@ -53,8 +53,8 @@
 (define (help-available? conn embed-configured? [locale #f])
   (cond
     [(not embed-configured?) "unconfigured"]
-    [(zero? (help-chunk-count conn)) "empty"]
-    [(and locale (zero? (help-chunk-count conn locale))) "locale-empty"]
+    [(not (help-any? conn)) "empty"]
+    [(and locale (not (help-any? conn locale))) "locale-empty"]
     [else #f]))
 
 ;; ---- the scan ----------------------------------------------------------------

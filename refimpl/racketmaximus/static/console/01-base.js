@@ -36,6 +36,11 @@ for (const evname of ['click','input','change','keydown']) {
     // risks this dispatcher exists to remove would start over. It runs BEFORE
     // the lookup and says whether it took the key.
     if (evname === 'keydown' && typeof paletteKey === 'function' && paletteKey(ev)) return;
+    // #183: the help overlay is a global shortcut too, through the same door.
+    // AFTER the palette's, because the palette owns Esc when ITS overlay is
+    // open and `helpKey` claims Esc only when its own is — two handlers both
+    // taking Esc unconditionally is how one of them starts closing the other's.
+    if (evname === 'keydown' && typeof helpKey === 'function' && helpKey(ev)) return;
     const el = ev.target && ev.target.closest && ev.target.closest('[data-h-' + evname + ']');
     if (!el) return;
     const fn = HANDLERS[+el.getAttribute('data-h-' + evname)];

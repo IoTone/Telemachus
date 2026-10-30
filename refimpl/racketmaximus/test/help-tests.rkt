@@ -21,7 +21,10 @@
          "../domain/ai/chunk.rkt"
          "../domain/help/helpstore.rkt"
          "../domain/help/helpindex.rkt"
-         "../domain/help/helpsearch.rkt")
+         "../domain/help/helpsearch.rkt"
+         "../domain/help/answer.rkt"
+         "../domain/authz/authz.rkt"
+         (only-in "../domain/quota/quota.rkt" quota-used))
 
 (define (fresh)
   (define conn (fresh-db #:migrate? #f))
@@ -401,3 +404,183 @@
   (check-true (and (ormap (lambda (r) (member (vector-ref r 1) '("First" "Second"))) rows) #t)
               "a later chunk is stored under the heading it sits beneath")
   (close-db! conn))
+
+;; =============================================================================
+;; slice 2: the answer. The CHAT seam is scripted too, so none of this needs a
+;; model either — and it is a SECOND parameter from the embedding one, which is
+;; what makes "the floor refuses before any model is called" a thing a case can
+;; assert rather than hope.
+
+(define chat-calls (box '()))
+(define (reset-chat!) (set-box! chat-calls '()))
+(define (chat-count) (length (unbox chat-calls)))
+
+;; `reply` is a thunk or a string; the prompt it was given is recorded so a case
+;; can assert what the model was actually shown.
+(define (scripted-chat reply)
+  (lambda (prompt #:system [sys #f] #:executor [ex #f])
+    (set-box! chat-calls (cons (hasheq 'prompt prompt 'system sys) (unbox chat-calls)))
+    (values (if (procedure? reply) (reply prompt) reply) 42)))
+
+(define (embed-one text) (values (bag text) (string-length text)))
+
+(define (seed-corpus!)
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define root (make-tree))
+  (ingest! conn root)
+  (values conn (user-principal conn uid tid) tid root))
+
+;; The environment `help-answer` reads: an embedder configured (so
+;; `help-available?` does not refuse first) and a model configured (so the chat
+;; branch is reached). Both are spelled as NAMES, never as literals inside a
+;; `getenv` (ENVN‑2).
+(define EMBED-URL-VAR "TMACH_EMBED_URL")
+(define EMBED-MODEL-VAR "TMACH_EMBED_MODEL")
+(define MODEL-URL-VAR "TMACH_MODEL_URL")
+
+(define (with-help-env thunk #:model-url [murl "http://127.0.0.1:1/v1/chat/completions"])
+  (with-env* (list (cons EMBED-URL-VAR "http://127.0.0.1:1/v1/embeddings")
+                   (cons EMBED-MODEL-VAR MODEL)
+                   (cons MODEL-URL-VAR murl))
+             thunk))
+
+;; THE FLOOR IS PASSED EXPLICITLY, AND THE REASON IS WORTH KNOWING. The scripted
+;; embedder is a bag of words over 256 buckets, so a seven-word question against
+;; a thirty-token passage scores around **0.28** — well under
+;; `HELP-SCORE-FLOOR`, which is set from what a REAL embedder produces (0.55–0.8
+;; measured against `nomic-embed-text`). With the default every case below would
+;; answer `nothing-relevant`, which is how five of them failed first. So the
+;; floor is 0 except in the case that is ABOUT the floor, and nothing else here
+;; depends on a provisional number.
+(define (ask conn p q #:reply [reply "see [X]"] #:k [k 3] #:locale [locale "en"]
+             #:floor [floor 0.0])
+  (parameterize ([current-help-embed-one embed-one]
+                 [current-help-chat (scripted-chat reply)])
+    (help-answer conn p q #:locale locale #:fallback-locale "en" #:k k #:floor floor)))
+
+(test-case "16. an answer cites, and every citation is resolved from the passages retrieved"
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (define base (let-values ([(_b n _d) (split-path root)]) (path->string n)))
+    (define secrets (string-append base "/ops/secrets.md"))
+    (reset-chat!)
+    (define rep (ask conn p "rotating a key and rewrapping sealed columns"
+                     #:reply (format "Rotation rewraps every sealed column [~a]." secrets)))
+    (check-false (hash-ref rep 'reason) "answered")
+    (check-equal? (length (hash-ref rep 'citations)) 1)
+    (define c (car (hash-ref rep 'citations)))
+    (check-equal? (hash-ref c 'path) secrets)
+    (check-equal? (hash-ref c 'title) "Secrets at rest"
+                  "the citation carries the title and offsets from the HIT, never retyped by the model")
+    (check-true (exact-nonnegative-integer? (hash-ref c 'start)))
+    (check-equal? (chat-count) 1)
+    ;; the model was shown the passages, with their paths, and told which language
+    (define shown (hash-ref (car (unbox chat-calls)) 'prompt))
+    (check-true (string-contains? shown secrets))
+    (check-true (string-contains? shown "Answer in: en"))
+    (check-true (string-contains? (hash-ref (car (unbox chat-calls)) 'system) "ONLY the numbered passages"))
+    (close-db! conn))))
+
+(test-case "17. HELP‑16: a path the model invented is DROPPED and reported"
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (define base (let-values ([(_b n _d) (split-path root)]) (path->string n)))
+    (define secrets (string-append base "/ops/secrets.md"))
+    (define rep (ask conn p "rotating a key and rewrapping sealed columns"
+                     #:reply (format "Yes [~a], and also [docs/ops/does-not-exist.md]." secrets)))
+    (check-equal? (for/list ([c (hash-ref rep 'citations)]) (hash-ref c 'path)) (list secrets))
+    (check-equal? (hash-ref rep 'invented_citations) '("docs/ops/does-not-exist.md")
+                  "a model that names a plausible file it was never shown is the one failure this cannot have")
+    (check-false (hash-ref rep 'reason))
+    (close-db! conn))))
+
+(test-case "18. an answer that cites nothing is `uncited` and is still returned"
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (define rep (ask conn p "rotating a key and rewrapping sealed columns"
+                     #:reply "The documentation does not cover that."))
+    (check-equal? (hash-ref rep 'reason) "uncited"
+                  "usually the model declining, which is what it was asked to do")
+    (check-equal? (hash-ref rep 'citations) '())
+    (check-equal? (hash-ref rep 'answer) "The documentation does not cover that."
+                  "returned, so a caller can render a refusal differently rather than lose it")
+    (close-db! conn))))
+
+(test-case "19. HELP‑15: the floor refuses BEFORE any model is called"
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (reset-chat!)
+    ;; a question with no word in common with any fixture: the bag-of-words
+    ;; embedder puts it in buckets nothing occupies, so the top score is 0
+    (define rep (ask conn p "zzzqqq wwwvvv yyyxxx" #:floor HELP-SCORE-FLOOR))
+    (check-equal? (hash-ref rep 'reason) "nothing-relevant")
+    (check-equal? (hash-ref rep 'answer) 'null)
+    (check-equal? (chat-count) 0
+                  "the honest refusal costs no tokens, which is the whole reason the floor is first")
+    (check-true (< (hash-ref rep 'score) HELP-SCORE-FLOOR))
+    ;; …and a question that DOES match is refused by a floor set above its score,
+    ;; which is the half a zero-scoring question cannot establish
+    (reset-chat!)
+    (define near (ask conn p "rotating a key and rewrapping sealed columns" #:floor 0.99))
+    (check-equal? (hash-ref near 'reason) "nothing-relevant")
+    (check-true (> (hash-ref near 'score) 0.0) "it really did retrieve something")
+    (check-equal? (chat-count) 0)
+    (close-db! conn))))
+
+(test-case "20. with no model the PASSAGES still come back, with `no-model`"
+  (with-help-env #:model-url ""
+    (lambda ()
+      (define-values (conn p tid root) (seed-corpus!))
+      (reset-chat!)
+      (define rep (ask conn p "rotating a key and rewrapping sealed columns"))
+      (check-equal? (hash-ref rep 'reason) "no-model")
+      (check-equal? (chat-count) 0)
+      (check-true (> (length (hash-ref rep 'passages)) 0)
+                  "`content_search: false`'s posture — report what did not run, keep what did")
+      (close-db! conn))))
+
+(test-case "21. the three ways the corpus itself can be unavailable"
+  (define-values (conn p tid root) (seed-corpus!))
+  ;; no embedder at all
+  (with-env* (list (cons EMBED-URL-VAR "") (cons EMBED-MODEL-VAR ""))
+    (lambda ()
+      (check-equal? (hash-ref (ask conn p "anything") 'reason) "unconfigured")))
+  (with-help-env (lambda ()
+    (check-equal? (hash-ref (ask conn p "anything" #:locale "fr") 'reason) "locale-empty")
+    (help-clear! conn)
+    (check-equal? (hash-ref (ask conn p "anything") 'reason) "empty")))
+  (close-db! conn))
+
+(test-case "22. HELP‑21: it charges ai.help.total and ai.requests, and NOT ai.tokens.total"
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (ask conn p "rotating a key and rewrapping sealed columns")
+    (check-true (> (quota-used conn "team" tid "ai.help.total" "total") 0)
+                "its own dimension, so an operator can bound help specifically")
+    (check-equal? (quota-used conn "team" tid "ai.tokens.total" "total") 0
+                  "#183's own point: folding help into the 2,000/day completion budget is what makes it stop at lunchtime")
+    (check-true (>= (quota-used conn "team" tid "ai.requests" "total") 2)
+                "the dimension counts calls to a model and this is two of them")
+    ;; a refusal below the floor still spent the EMBEDDING, so it still bills it —
+    ;; metering only successes makes a failing path free (FEED‑9's rule)
+    (define before (quota-used conn "team" tid "ai.help.total" "total"))
+    (ask conn p "zzzqqq wwwvvv yyyxxx")
+    (check-true (> (quota-used conn "team" tid "ai.help.total" "total") before))
+    (close-db! conn))))
+
+(test-case "23. help-cited-paths reads what a model really writes"
+  (check-equal? (help-cited-paths "see [docs/a.md]") '("docs/a.md"))
+  (check-equal? (help-cited-paths "[docs/a.md] and [docs/b.md], then [docs/a.md] again")
+                '("docs/a.md" "docs/b.md") "de-duplicated, in the order cited")
+  (check-equal? (help-cited-paths "spaced [ docs/a.md ]") '("docs/a.md") "trimmed")
+  (check-equal? (help-cited-paths "nothing here") '())
+  (check-equal? (help-cited-paths "a [markdown](link) is not a citation") '("markdown")
+                "stated rather than cured: a bracketed word is indistinguishable from a path here, which is why an invented one is DROPPED by resolution rather than trusted"))
+
+(test-case "24. an empty question is refused by name"
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (check-exn #px"question is required" (lambda () (ask conn p "   ")))
+    (check-exn #px"question is required" (lambda () (ask conn p "")))
+    (close-db! conn))))

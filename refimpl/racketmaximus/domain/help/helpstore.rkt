@@ -33,6 +33,7 @@
          (only-in "../ai/vectors.rkt" vec-pack vec-normalize))
 
 (provide help-replace-doc! help-forget! help-clear!
+         help-any?
          help-doc-by-path help-doc-paths help-doc-hash
          help-stats help-locales help-chunk-count
          help-text-for help-doc-row)
@@ -165,6 +166,19 @@
   (for/list ([r (in-list (query-rows conn
                   "SELECT DISTINCT locale FROM help_docs ORDER BY locale ASC"))])
     (vector-ref r 0)))
+
+;; "is there anything to answer with", as an EXISTENCE test rather than a count.
+;; It matters because `GET /api/whoami` asks it on every console render pass, and
+;; a `COUNT(*)` over the corpus is a full scan of 1,600 rows for a boolean. The
+;; counts are for `status` and the report, where the number is the point.
+(define (help-any? conn [locale #f])
+  (and (if locale
+           (query-maybe-value conn
+             (string-append "SELECT 1 FROM help_chunks c JOIN help_docs d ON d.id = c.doc_id "
+                            "WHERE d.locale = ? LIMIT 1")
+             locale)
+           (query-maybe-value conn "SELECT 1 FROM help_chunks LIMIT 1"))
+       #t))
 
 (define (help-chunk-count conn [locale #f])
   (or (if locale

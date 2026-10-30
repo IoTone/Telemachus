@@ -427,5 +427,20 @@
   "ui.palhesc": "Close the palette, this list, or focus mode",
   "ui.palhenter": "Send a prompt, or run the selected item",
   "ui.palhshift": "Insert a newline instead of sending",
-  "ui.palhclose": "Esc or ? to close"
+  "ui.palhclose": "Esc or ? to close",
+  "ui.helpask": "Docs",
+  "ui.helphint": "Ask the documentation",
+  "ui.helptitle": "Ask the documentation",
+  "ui.helpph": "What do you want to know about this platform?",
+  "ui.helpsend": "Ask",
+  "ui.helpasking": "Asking…",
+  "ui.helpsources": "Sources",
+  "ui.helpclose": "Esc to close",
+  "ui.helpnone": "Nothing in the documentation is close to that question.",
+  "ui.helpunconfigured": "In-product help needs an embedding model: set TMACH_EMBED_URL.",
+  "ui.helpempty": "No documentation has been ingested yet. An operator runs `telemachus-help ingest`.",
+  "ui.helplocaleempty": "The documentation has not been ingested in this language, so the answer comes from another.",
+  "ui.helpnomodel": "No model is configured, so these are the passages closest to the question rather than an answer.",
+  "ui.helpuncited": "The answer cited no passage, which usually means it is declining to answer.",
+  "ui.palhdocs": "Ask the documentation"
 }
