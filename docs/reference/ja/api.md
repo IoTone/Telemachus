@@ -161,7 +161,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/tokens` | bearer | `settings:manage` | role | — | API トークンを発行する。任意でスコープと ttl（秒。既定は90日；長寿命のマシントークンには "never"）を指定；生のトークンは一度だけ表示されます。 |
 | GET | `/api/tokens` | bearer | `settings:manage` | role | — | チームのAPIトークン |
 | DELETE | `/api/tokens/:id` | bearer | `settings:manage` | role | — | API トークンを失効させる。 |
-| GET | `/api/search` | bearer | — | — | `search` | ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります。 |
+| GET | `/api/search` | bearer | — | — | `search` | ノート、リポジトリオブジェクト（キー、ファイル名、抽出テキスト）、知識グラフのエンティティを検索する；各行は can? でフィルタ；?scope=org は org_reader 向けに会社内のチームにわたります；?semantic=1 は意味の近い文章（パッセージ）も返します。これには埋め込みリクエストの費用がかかり、chat:use が必要です。 |
 | GET | `/api/webhooks` | bearer | `webhooks:manage` | role | — | チームの送信 Webhook 購読の一覧。あわせて購読がフィルタに使えるイベント名の閉じたリストと、デッドレターになるまでの配信試行回数を返します。シークレットが一覧に含まれることはありません。 |
 | POST | `/api/webhooks` | bearer | `webhooks:manage` | role | — | イベントを購読する: `url`（http(s)）と `events` — `"*"` または `GET /api/webhooks` が示す名前のカンマ区切り部分集合。未知のイベント名は保存されずに拒否されます。何も発火しない購読が黙って存在する方が、拒否されるより悪いからです。署名シークレットは応答に含まれ、一度だけ表示されます。置き換えるにはローテーションしてください。 |
 | GET | `/api/webhooks/:id` | bearer | `webhooks:manage` | role | — | 購読 1 件。他チームの ID は 403 ではなく 404 になります。 |

@@ -49,6 +49,14 @@ JSON
   MOCK=$!
   export TMACH_MODEL_URL="http://127.0.0.1:$MOCK_PORT/v1/chat/completions"
   export TMACH_MODEL=mock
+  # #189 step 6: the SAME mock serves /v1/embeddings (a request carrying `input`
+  # and no `messages`), answering a deterministic bag-of-words vector. That is
+  # what lets section 5m drive the whole retrieval chain through the REAL
+  # `embed-exchange` wire rather than a scripted seam — which is the gap #187
+  # found on the streaming path, where nothing exercised it end to end anywhere
+  # and the one defect that existed only there survived for a year.
+  export TMACH_EMBED_URL="http://127.0.0.1:$MOCK_PORT/v1/embeddings"
+  export TMACH_EMBED_MODEL=mock-embed
 fi
 
 fail=0
@@ -1502,6 +1510,7 @@ done
 assert "the block removed its own documents" "$(G '/api/repo?prefix=feeds/gh/')" '"objects":[]'
 echo
 
+
 echo "== 6. a TRIGGER: an upload into inbox/auto/ runs the pipeline by itself (DWF-1…3) ==="
 if [ $LIVE = 0 ]; then cat > "$MOCK_REPLY_FILE" <<'JSON'
 {"extract structured data": "{\"vendor\":\"Acme Corp\",\"date\":\"2026-09-01\",\"total\":1250.5,\"items\":[{\"description\":\"Widgets\",\"amount\":1000},{\"description\":\"Shipping\",\"amount\":250.5}]}",
@@ -1666,6 +1675,126 @@ JSON
   assert "the agent tool answers with citations" "$(G "/api/tools")" '"name":"kg_query"'
   assert "a second extraction finds nothing new" "$(P /api/kg/extract | grep -c running)" "1"
 fi
+
+
+# IT IS THE LAST SECTION, AND IT WAS 5m FIRST. That move is the file's own
+# recorded lesson — a smoke fixture that changes GLOBAL state breaks a distant
+# block — and this one broke the knowledge-graph block 250 lines below it: this
+# section DRAINS `index-documents`, so many more documents carry extracted text
+# than before, and the KG extraction's own batch then spreads over a different
+# set. What failed was "carol sees Acme too", in a block with nothing to do with
+# retrieval. Draining is the right thing for this section to do and perturbing
+# everything after it is not, so it goes last.
+echo "== 8. retrieval: a question answered from the team's own documents (#189 step 6) ="
+# THE ONLY PLACE THE EMBEDDING WIRE IS DRIVEN END TO END. Every unit test of
+# #189 scripts `current-doc-embed`, which is the right trade for a suite that
+# must not need `nomic-embed-text` — and it means `embed-exchange`'s own HTTP
+# path, the request log's `operation: "embed"` row and the whole chain from a
+# question to a cited passage are exercised HERE and nowhere else. #187's
+# lesson: a path nothing drives end to end is where a defect lives undisturbed.
+#
+# The mock's vector is a bag of words, so "closest in meaning" degenerates to
+# "shares the most words" — crude, deterministic, and enough to assert that a
+# question about cephalopods retrieves the octopus document and not the bridge
+# one. It is NOT a recall measurement; that is step 3's calibration and wants a
+# live embedder, in English and Japanese.
+if [ $LIVE = 0 ]; then
+  printf 'Octopuses are cephalopods with eight arms and remarkable problem solving.\n' > "$TMACH_DATA_DIR/octo.txt"
+  printf 'Suspension bridges carry their deck on cables hung between tall towers.\n' > "$TMACH_DATA_DIR/bridge.txt"
+  OCTO=$(curl -s -X PUT "$B/api/repo/kb/octopuses.txt" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' --data-binary @"$TMACH_DATA_DIR/octo.txt")
+  OCTOID=$(printf '%s' "$OCTO" | jq_ 'd["id"]')
+  curl -s -X PUT "$B/api/repo/kb/bridges.txt" -H "Authorization: Bearer $TOK" -H 'Content-Type: text/plain' --data-binary @"$TMACH_DATA_DIR/bridge.txt" >/dev/null
+  assert "the knowledge-base documents uploaded" "$OCTO" '"key":"kb/octopuses.txt"'
+  assert "the retrieval tool is registered"      "$(G /api/tools)" '"name":"repo_retrieve"'
+  assert "the Embed Documents workflow arrived"  "$(G /api/workflows)" '"slug":"embed-documents"'
+
+  # ?semantic=1 BEFORE anything is embedded: the half runs and matches nothing,
+  # which must NOT be reported as unavailable (that is the difference between
+  # "I looked and found none" and "I did not look").
+  EARLY=$(G "/api/search?q=cephalopods&semantic=1")
+  assert "semantic ran before any embedding" "$EARLY" '"semantic":true'
+  refute "...and claimed no reason for it"   "$EARLY" '"semantic_reason"'
+  refute "...and returned no passage yet"    "$EARLY" '"type":"passage"'
+
+  # index, then embed — two workflows, because a step that errors fails the run
+  # and `repo_embed_chunks` refuses with no endpoint on every instance today
+  # (VEC-24). The order is load-bearing: the vectors are of the EXTRACTED text.
+  #
+  # BOTH WORKFLOWS ARE DRAINED, and finding that out cost a red run worth
+  # recording: by this point the suite holds well over twenty-five documents —
+  # every section above has left derived `.classification.json`, `.extracted.json`
+  # and `.form.md` objects behind — and both listers are bounded (`LIST-BATCH` 40,
+  # `EMBED-BATCH` 25) and ordered `updated_at ASC`, i.e. OLDEST FIRST. So the two
+  # documents uploaded a moment ago are at the BACK of the queue and a single run
+  # of each does not reach them. What that looked like was not an obvious cap but
+  # a retrieval returning plausible, badly-ranked passages from other sections'
+  # fixtures: the right answer was simply not in the index. Re-running until it
+  # finds nothing is what the workflow is FOR (VEC-23: the drain has to
+  # terminate), so draining is also the assertion.
+  for i in 1 2 3 4 5 6; do
+    RIX=$(P /api/workflows/index-documents/run '{"input":{}}')
+    wait_run "$(printf '%s' "$RIX" | grep -oP '"id":"\K[^"]+' | head -1)"
+    [ "$RUNST" = done ] || break
+    printf '%s' "$RUNJSON" | grep -q '"result":\[\]' && break
+  done
+  assert "index-documents drained" "$RUNST" "done"
+  for i in 1 2 3 4 5 6; do
+    REMB=$(P /api/workflows/embed-documents/run '{"input":{}}')
+    wait_run "$(printf '%s' "$REMB" | grep -oP '"id":"\K[^"]+' | head -1)"
+    EST="$RUNST"
+    [ "$EST" = done ] || { EST="$EST — $(printf '%s' "$RUNJSON" | grep -oP '"error":"\K[^"]*' | head -1)"; break; }
+    # the LAST run of a drain is by definition the one that found nothing, so
+    # what it reports is "no documents" — keep the last run that did the work
+    printf '%s' "$RUNJSON" | grep -q '"result":\[\]' && break
+    EMBJSON="$RUNJSON"
+  done
+  assert "embed-documents drained"   "$EST" "done"
+  assert "...and said what it stored" "$EMBJSON" "chunk vector"
+  # VEC-23: the drain TERMINATES. A document whose extracted text is blank can
+  # never acquire a vector row, so without the lister's blank filter it would be
+  # offered by every run for ever and this loop would never see an empty find.
+  assert "...and the last run found nothing left" "$RUNJSON" '"result":[]'
+
+  # the whole point: a question in words the document does not contain verbatim
+  SEM=$(G "/api/search?q=cephalopods%20with%20arms&semantic=1")
+  assert "a passage came back"            "$SEM" '"type":"passage"'
+  assert "...from the octopus document"   "$SEM" '"title":"kb/octopuses.txt"'
+  assert "...carrying the object it cites" "$SEM" "\"object_id\":\"$OCTOID\""
+  assert "...and the offsets to cite it"  "$SEM" '"start":0'
+  assert "semantic is reported as having run" "$SEM" '"semantic":true'
+  # the passage is FIRST, ahead of the keyword rows: a reader scanning the list
+  # should meet the answer before the path matches
+  assert "the passage leads the results" "$(printf '%s' "$SEM" | grep -oP '"type":"\K[^"]+' | head -1)" "passage"
+
+  # a plain search is unchanged and says nothing about a half it was not asked for
+  PLAIN=$(G "/api/search?q=cephalopods")
+  refute "a plain search carries no semantic field" "$PLAIN" '"semantic"'
+  assert "...and still matches the content"         "$PLAIN" '"kb/octopuses.txt"'
+
+  # the TOOL itself, through a published one-step spec — there is no route that
+  # invokes a tool directly, by design, so a workflow is how the agent-facing
+  # half is reached over HTTP (`pdf-form`'s precedent). It answers STRUCTURE
+  # (VEC-38), so the citation stays machine-readable through the step's output.
+  RWF='{"spec":1,"slug":"retrieve-probe","input":{"question":"string"},"steps":[
+    {"id":"ask","uses":"tool:repo_retrieve","with":{"question":"${input.question}","limit":2},"end":true}]}'
+  assert "the retrieval spec published" "$(P /api/workflows "$RWF")" '"slug":"retrieve-probe"'
+  RR=$(P /api/workflows/retrieve-probe/run '{"input":{"question":"cephalopods with arms"}}')
+  wait_run "$(printf '%s' "$RR" | grep -oP '"id":"\K[^"]+' | head -1)"
+  RST="$RUNST"
+  [ "$RST" = done ] || RST="$RST — $(printf '%s' "$RUNJSON" | grep -oP '"error":"\K[^"]*' | head -1)"
+  assert "the retrieval run finished" "$RST" "done"
+  assert "the tool answered passages"  "$RUNJSON" 'passages'
+  assert "...naming the document"      "$RUNJSON" 'kb/octopuses.txt'
+  assert "...and the model it compared under" "$RUNJSON" 'mock-embed'
+
+  # bob is a member with chat:use, so he may ask; the documents are team-visible
+  assert "a colleague may retrieve too" "$(curl -s "$B/api/search?q=cephalopods%20with%20arms&semantic=1" -H "Authorization: Bearer $BOB")" '"type":"passage"'
+
+  # and the request log recorded an EMBED operation, which is the proof the real
+  # wire was used rather than a seam somebody scripted
+  assert "an embedding request was logged" "$(G "/api/model-requests")" '"operation":"embed"'
+fi
+
 
 echo
 if [ $fail = 0 ]; then echo "doc-pipeline-smoke: PASS"; else echo "doc-pipeline-smoke: FAIL"; tail -30 "$TMACH_DATA_DIR/server.log"; exit 1; fi

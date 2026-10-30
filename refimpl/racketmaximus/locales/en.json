@@ -755,6 +755,14 @@
       "text": "List the prospects the funnel captured, with signals and verdicts.",
       "hash": "3487d465d91b86daddecb132e05ee29f1145e7b5"
     },
+    "doc.tool.repo_retrieve.limit": {
+      "text": "How many passages to return (default 8, at most 20)",
+      "hash": "c68398b05eb3eed67e372e9629d5562e8b261e38"
+    },
+    "doc.route.post.api.translate.catalog": {
+      "text": "Translate a whole locale catalog, placeholders preserved.",
+      "hash": "7080352270302db86101fdcff7b1226d37276738"
+    },
     "ui.healthhint": {
       "text": "what an operator needs when told “it’s slow”",
       "hash": "cdd70c6967459da008d24c57932098433d838743"
@@ -790,10 +798,6 @@
     "doc.perm.localization:manage": {
       "text": "Import and export catalogs, queue AI drafts, discard machine drafts.",
       "hash": "b52a77e55ac80e83559f56f228f3b8afe522ff18"
-    },
-    "doc.route.post.api.translate.catalog": {
-      "text": "Translate a whole locale catalog, placeholders preserved.",
-      "hash": "7080352270302db86101fdcff7b1226d37276738"
     },
     "ui.hmt": {
       "text": "Multi-tenancy",
@@ -1367,13 +1371,17 @@
       "text": "Serve one onboarding asset. Public: the funnel and the branding logo load it without a token.",
       "hash": "fac8d41e29fc24770c6447eb425859743bafbc89"
     },
-    "doc.route.post.api.orgs.ref.suspend": {
-      "text": "Suspend a company (id or slug); every team in it becomes read-only.",
-      "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
+    "doc.tool.repo_retrieve.question": {
+      "text": "The question to find passages for, in any language",
+      "hash": "1765646802e909299f8f2dfae1e0ee12ea3d2d68"
     },
     "doc.route.post.api.workers.jobs.id.complete": {
       "text": "Post a result: {result, claim_token}. Accepted only from the current lease holder AND the attempt the token names (a lapsed attempt cannot land on the one that replaced it); validated by the kind.",
       "hash": "219718d4db6a99151cf728aab0ae218332b69122"
+    },
+    "doc.route.post.api.orgs.ref.suspend": {
+      "text": "Suspend a company (id or slug); every team in it becomes read-only.",
+      "hash": "7213af47375bd25765fc825e6fb9468c27785bc8"
     },
     "doc.tool.doc_set_type.review": {
       "text": "The review id, for provenance",
@@ -1636,8 +1644,8 @@
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
     "doc.route.get.api.search": {
-      "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader.",
-      "hash": "71fb3983ca5f652a5cc509c421380a3d09085c80"
+      "text": "Search notes, repository objects (key, filename, extracted text) and knowledge-graph entities; every row filtered by can?; ?scope=org spans the company's teams for an org_reader; ?semantic=1 also returns passages found by meaning, which costs an embedding request and needs chat:use.",
+      "hash": "3b60beb9851aaaccad53acf1c7cfcaf19b420161"
     },
     "ui.reviewwhy": {
       "text": "Why — required to send work back or reject it",
@@ -2139,6 +2147,14 @@
       "text": "Emit an anchor receipt now: seal the audit chain, read both chains' heads (the review chain per team, the audit chain per org) and sign the measurement with TMACH_ANCHOR_KEY. 400 when no anchor key is configured. Two concurrent emissions are refused by the sequence's unique index rather than retried — a forked series could not be told from a forgery.",
       "hash": "dc5ac13298a900047e4782224f363413ae5a5f14"
     },
+    "doc.route.patch.api.org.members.id": {
+      "text": "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.",
+      "hash": "c12db2a62d70522a8cae022cf536347c52499014"
+    },
+    "doc.tool.repo_retrieve": {
+      "text": "Find the passages of the team's repository documents closest in MEANING to a question, for answering from them. Returns a passage's text with its document key and the character offsets it was read at, so an answer can cite where it came from. Needs TMACH_EMBED_URL and documents that the Embed Documents workflow has already processed; it finds nothing on a team with no embeddings, rather than falling back to keyword search.",
+      "hash": "07960621cf609d4036764f6877c648560bf090ba"
+    },
     "doc.route.delete.api.documents.id": {
       "text": "Delete a text document.",
       "hash": "f500abea97efc00a4a244e22ffe02227348e511b"
@@ -2154,10 +2170,6 @@
     "ui.kg_none": {
       "text": "No entities match. Index documents first, then extract.",
       "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
-    },
-    "doc.route.patch.api.org.members.id": {
-      "text": "Set or clear a person's org role — the way an existing user becomes an org_reader (TEN-2h). Never your own.",
-      "hash": "c12db2a62d70522a8cae022cf536347c52499014"
     },
     "ui.automations": {
       "text": "Automations",

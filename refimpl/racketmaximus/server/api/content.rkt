@@ -16,7 +16,7 @@
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../../domain/notes/notes.rkt" notes-create notes-delete notes-get notes-list notes-share notes-update)
          (only-in "../../domain/documents/documents.rkt" documents-create documents-delete documents-get documents-list documents-update)
-         (only-in "../../domain/apps/search.rkt" search-all)
+         (only-in "../../domain/apps/search.rkt" search-all search-passages)
          (only-in "../../domain/kg/kg.rkt" STARTER-TYPES kg-entity kg-find kg-stats)
          (only-in "../../domain/flow/run.rkt" flow-def-by-slug flow-run-start!)
          (only-in "../../domain/i18n/i18n.rkt" t)
@@ -94,10 +94,33 @@
     ;; — the caller must be able to tell the two apart. Reported on every reply,
     ;; not only when off, so a client can branch on it without guessing.
     (define content? (not (content-encryption-enabled?)))
+    ;; `?semantic=1` adds passages found by MEANING (#189 step 6). OFF by default
+    ;; and that is not timidity: embedding the question is a model request, so
+    ;; asking spends the team's `ai.requests` and `ai.embeddings.total`, where
+    ;; every other kind of search here costs a `LIKE`. An opt-in flag is also what
+    ;; keeps the console's existing search exactly as cheap as it was.
+    ;;
+    ;; `semantic` is reported on every reply that asked, and `semantic_reason`
+    ;; only when it was asked and did not run — never when it ran and matched
+    ;; nothing. **The semantic half is the first content search that survives
+    ;; `TMACH_ENCRYPT_CONTENT`**: it compares vectors and reads the text back
+    ;; through `repo-text-for`, which unseals, so on a sealed instance
+    ;; `content_search` is false and this can still be true.
+    (define semantic? (member (string-downcase (query-param req 'semantic)) '("1" "true" "yes")))
     (if (< (string-length q) 2)
          (json-response (hasheq 'query q 'results '() 'content_search content?))
-         (json-response (hasheq 'query q 'content_search content?
-                               'results (search-all db-conn p q #:scope (scope-of req))))))))
+         (let-values ([(passages reason)
+                       (if semantic?
+                           (search-passages db-conn p q)
+                           (values '() #f))])
+           (json-response
+            (let ([base (hasheq 'query q 'content_search content?
+                                'results (append passages
+                                                 (search-all db-conn p q #:scope (scope-of req))))])
+              (cond
+                [(not semantic?) base]
+                [reason (hash-set (hash-set base 'semantic #f) 'semantic_reason reason)]
+                [else (hash-set base 'semantic #t)]))))))))
 
 ;; ---- knowledge graph (slice 61) --------------------------------------------------
 ;; Every read applies the mention rule inside domain/kg: an entity the caller can
