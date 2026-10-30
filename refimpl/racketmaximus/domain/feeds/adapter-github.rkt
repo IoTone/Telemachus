@@ -39,21 +39,6 @@
 
 (define PER-PAGE "100")
 
-;; Replace a query parameter rather than appending one: the operator's URL may
-;; carry `?state=all&labels=bug`, which must survive, while a `since` they typed
-;; by hand must NOT — the cursor is this instance's position and two of them
-;; would walk different windows.
-(define (query-set u . kvs)
-  (define parsed (string->url u))
-  (define drop (for/list ([kv (in-list kvs)] #:when #t) (car kv)))
-  (define kept (for/list ([q (in-list (url-query parsed))]
-                          #:unless (memq (car q) drop))
-                 q))
-  (url->string (make-url (url-scheme parsed) (url-user parsed) (url-host parsed)
-                         (url-port parsed) (url-path-absolute? parsed) (url-path parsed)
-                         (append kept (for/list ([kv (in-list kvs)] #:when (cdr kv)) kv))
-                         (url-fragment parsed))))
-
 (define HEADERS
   (list (cons "accept" "application/vnd.github+json")
         (cons "x-github-api-version" "2022-11-28")

@@ -4499,3 +4499,65 @@ resolution, the score floor, the `no-model` branch, the `uncited` report, the
 dimension, `help-cited-paths`, the prompt's only-the-passages rule, the help
 hook's position in the dispatch, `helpBlocked`'s two reasons, the header button's
 guard, the one-send guard and its `finally`.
+
+## FEED (continued) — the four remaining adapters (issue #193, built 29 Oct 2026)
+
+#114 named six sources. One had an adapter (`github.issues`, FEED‑14…22) and one
+was a protocol rather than a shape (Matrix, which shipped as #133 in the
+notifying direction). These are the four that were left, and #193's reading was
+right: each is a parser and a registry entry. `domain/feeds/adapter-cve.rkt`,
+`adapter-kuma.rkt`, `adapter-discord.rkt`, `adapter-alerts.rkt`. **No migration,
+no route, no permission and no environment variable.** One shared helper moved.
+
+| # | Decision | Taken | Why |
+|---|---|---|---|
+| **FEED‑23** | CVE: the `external-id` | **The CVE id, and nothing else** | Globally unique by construction, stable across revisions, and the string a person types into a search box. Unlike GitHub's issue number there is nothing to compose it with and nothing it can collide against — FEED‑16's hazard simply does not arise. |
+| **FEED‑24** | CVE: one advisory, or one per affected dependency | **One advisory is one item** · vs one per package | #193's own open question. An advisory is the thing that gets published, revised and withdrawn, so it is the thing with an identity. One item per affected package would write N documents that all change together on every revision, and the dedup hash would re-version all N and charge the team's storage each time. The packages ride in the payload and in `feed_packages`, which is what a trigger filters on. |
+| **FEED‑25** | CVE: the cursor | **Walk FORWARD at most 120 days per poll** · vs clamp the start, vs refuse | NVD refuses a modification range wider than 120 days and requires both dates together. A feed whose cursor is a year old therefore cannot be caught up in one request: clamping the start would silently skip a year of advisories, and refusing would leave the feed permanently broken. Walking forward with the cursor only advancing over what landed (FEED‑19) makes a year's backlog three polls rather than a gap. A FIRST poll sends no window at all, because what "everything" means is the operator's URL — choosing a start date here would be the adapter deciding how much history a team gets. |
+| **FEED‑26** | CVE: the source | **NVD CVE API 2.0** · vs OSV | OSV is the better fit for "against my dependencies" and **cannot be used**: its batch query is a POST with a body, and `feed-adapter`'s `prepare` answers a URL and headers. `fetch` already takes `#:method` and `#:body`, so the gap is the ADAPTER contract rather than the transport — and widening a contract four adapters share for a source nobody has asked for yet is the wrong trade. Recorded so the next reader does not re-derive it: the day a POST source is wanted, `prepare` grows a method and a body and `poll.rkt` passes them through. |
+| **FEED‑27** | Kuma: what an item IS | **A status TRANSITION, computed from the list** · vs one item per heartbeat, vs Kuma's `important` flag | #193 says "an alert is an event rather than a document that evolves", and the first reading of that is unaffordable: Kuma beats every 60 seconds per monitor, so a ten-monitor status page is 14,400 documents a day. What anybody wants is "when did it go down and when did it come back". The flag is NOT used because the status-page projection is not documented to carry it — relying on it would make the adapter silently emit nothing on a version that trims it, which is the worst failure available here. `status` and `time` are certainly present and a transition is derivable from them. |
+| **FEED‑28** | Kuma: the `external-id` | **`<monitor>-<instant>`** | #193's own observation: two "down" events an hour apart are two items, not one. The consequence is worth stating — a pulled transition is immutable, so it is created once and never updated, and `feed_items` grows with the number of OUTAGES rather than with time. |
+| **FEED‑29** | Kuma: the cursor | **Applied in `parse`, because the endpoint has no window** | The heartbeat endpoint answers the most recent N beats per monitor and nothing narrows it. So the cursor goes nowhere near the request. What that costs is real and bounded: a feed polled less often than Kuma's retention window loses the transitions that fell off the list, which makes an hourly cadence comfortable and a daily one not. `poll_seconds` is where an operator sets that and `polling` reports it. |
+| **FEED‑30** | Discord: the cursor | **An epoch converted to a snowflake, exactly** | The first source whose window is not a time at all: `after` takes a message id, and a snowflake's top 42 bits ARE a millisecond timestamp with a fixed epoch. So this is a conversion rather than an approximation — the same shape as `github.issues` turning an epoch into ISO‑8601, which is the whole reason `prepare` takes the cursor instead of `poll.rkt` formatting one for every source. It goes back one second, because `after` is exclusive and a message in the same second as the last one stored would otherwise never be asked for. |
+| **FEED‑31** | Discord: the sort | **Left alone** · vs `github.issues`' forced ascending order | Worth writing down because it looks like an omission. GitHub needed `sort=updated&direction=asc` because its cursor filtered on a field the default sort did not use, so the first page of a busy repository was the newest issues and the cursor would jump past everything older. Here the cursor IS the id, every message carries one, and `note-landed!` keeps the maximum — so a descending page advances the cursor correctly on its first element. |
+| **FEED‑32** | Discord: system messages | **Kept and MARKED** (`feed_kind`) · vs filtered | `github.issues`' rule for pull requests: the operator's channel is theirs to decide about, and a trigger can tell a join from a message without parsing the payload. |
+| **FEED‑33** | OTel | **NOT AN ADAPTER, and `alerts.alertmanager` instead** | OTLP is a PUSH protocol: a collector or an SDK opens a connection and POSTs at this instance. A feed POLLS. So "an OTel adapter" is the same category error #114 already found with Matrix — "a protocol rather than a shape" — and the honest shapes for OTLP arriving are an ingest endpoint and a job kind, which is its own issue. What an operator running that stack actually has that is pollable is the thing that fires when something is wrong: Prometheus Alertmanager, `GET /api/v2/alerts`. The substitution is recorded rather than quietly made. |
+| **FEED‑34** | Alertmanager: the cursor | **There is none** | It answers "what is firing now" — no modification window, no `since`, no pagination. Every poll sees the whole current set, bounded by how much is broken rather than by how long the feed has existed. The cursor is stored and ignored, so an operator reading the feed can still see the poll is working. |
+| **FEED‑35** | Alertmanager: the `external-id` | **`<fingerprint>-<startsAt>`** | Kuma's lesson a second time. A fingerprint identifies the LABEL SET, so the same alert firing next month carries the same fingerprint and is a different incident; keying on it alone would store the second occurrence over the first and the hash would then report a document that changes every time anything flaps. With the instant, each firing is its own immutable item — and an alert whose annotations change WHILE firing is one document that updates, which is correct. `updatedAt` is what moves it. |
+| **FEED‑36** | Alertmanager: what is asked for | **`active=true&silenced=false&inhibited=false`, set by the adapter** | The API's DEFAULT includes all three, so a feed configured with the bare endpoint would pull in exactly the alerts its operator has already acknowledged or suppressed by a rule they wrote. `query-set` replaces, so an operator cannot have them back by editing the URL; that is deliberate, and the remedy is a second feed on a kind that does not filter. |
+
+### One core change, and it is a helper rather than a contract
+
+`query-set` is hoisted from `adapter-github.rkt` into `adapters.rkt`. Four copies
+of "which query parameters are the platform's and which are the operator's" is
+`executor-can-run?`'s drift in the place it would be hardest to see: a copy that
+APPENDED instead of replacing would walk a window the operator chose and the
+cursor did not, which looks like a source that keeps re-sending the same items.
+
+### A control that did not bite found an order-dependence
+
+Fifteen of sixteen bit on the first run. The sixteenth — substituting "the first
+non-empty severity wins" for the rank comparison in `cve.nvd` — changed nothing,
+because the scan ran in Racket's own hash order over NVD's `metrics` object and
+happened to reach `cvssMetricV31` before `cvssMetricV2`. That is
+`canonical-json`'s trap in a second place, and worse than cosmetic here: the
+severity a trigger routes on could differ between two processes reading the same
+advisory. The keys are sorted now, the walk is deterministic, and the control
+bites.
+
+### What the tests can and cannot establish
+
+Every case is a byte string in and a list of `feed-item` out — no database and no
+socket, which is FEED‑14's contract paying off. **The response shapes are from
+each source's published schema and are NOT verified against a live source in this
+build**, stated rather than implied, as the LibreOffice conversion branch and the
+SSE round trip are: a fixture written from the same documentation as the parser
+agrees with the parser by construction. What they DO establish is every rule each
+adapter decides for itself — the composed identity, the cursor conversion, the
+refusals and the field set — which is where #193 said the decisions were.
+
+**And the smoke's pinned `pollable_kinds` list failed**, which is the gate
+working: that assertion pins the DERIVED set as a whole, so adding four adapters
+had to be a deliberate edit rather than something a suite agreed with silently.
+Same argument `vocabulary-tests.rkt` makes for pinning a closed vocabulary rather
+than re-deriving it.

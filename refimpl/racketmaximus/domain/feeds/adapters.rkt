@@ -27,7 +27,7 @@
          register-feed-adapter! unregister-feed-adapter!
          feed-adapter-for feed-adapter-kinds registered-feed-adapters feed-adapters-of-plugin
          canonical-json iso8601->epoch epoch->iso8601
-         FEED-ITEM-FIELDS safe-id-part link-rel)
+         FEED-ITEM-FIELDS safe-id-part link-rel query-set)
 
 ;; `prepare` : (feed-row cursor-or-#f) -> (values url extra-headers)
 ;;   the FIRST request of a poll. The cursor is this instance's own string (see
@@ -163,6 +163,28 @@
   (define collapsed (regexp-replace* #px"-{2,}" cleaned "-"))
   (define trimmed (regexp-replace* #px"^[-.]+|[-.]+$" collapsed ""))
   (if (string=? trimmed "") "x" (substring trimmed 0 (min 64 (string-length trimmed)))))
+
+;; REPLACE a query parameter rather than appending one. The operator's URL may
+;; carry `?state=all&labels=bug`, which must survive — while a `since` they typed
+;; by hand must NOT, because the cursor is this instance's position and two of
+;; them would walk different windows.
+;;
+;; Hoisted here when the second adapter wanted it (#193). It was private to
+;; `adapter-github.rkt`, and four copies of "which parameters are the
+;; platform's" is `executor-can-run?`'s drift in the place it would be hardest
+;; to see: a copy that appended instead of replacing would walk a window the
+;; operator chose and the cursor did not, which looks like a source that keeps
+;; re-sending the same items.
+(define (query-set u . kvs)
+  (define parsed (string->url u))
+  (define drop (for/list ([kv (in-list kvs)]) (car kv)))
+  (define kept (for/list ([q (in-list (url-query parsed))]
+                          #:unless (memq (car q) drop))
+                 q))
+  (url->string (make-url (url-scheme parsed) (url-user parsed) (url-host parsed)
+                         (url-port parsed) (url-path-absolute? parsed) (url-path parsed)
+                         (append kept (for/list ([kv (in-list kvs)] #:when (cdr kv)) kv))
+                         (url-fragment parsed))))
 
 ;; `Link: <https://…?page=2>; rel="next", <…>; rel="last"` — RFC 8288, and how
 ;; every one of the named JSON sources paginates. Returns the URL for a rel, or
