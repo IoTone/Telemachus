@@ -881,13 +881,19 @@
       #:job-id job-id
       #:ms (and started (* 1000 (max 0 (- (current-seconds) started)))))))
 
+;; A job that ends without this instance seeing a model call: released, lapsed or canceled.
+;; The row is written rather than left out, so a reader can tell "no call happened" from
+;; "nobody recorded it". Failure to record never fails the settle (RED-17).
+(define (record-unserved! conn ex job-id kind)
+  (record-worker-call! conn (or ex (hasheq 'name #f)) job-id #f "unserved" #:error-kind kind))
+
 (define (worker-complete! conn ex job-id result #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
     ;; the worker has stopped — that is what this call proves — so the slot is
     ;; genuinely free now and the row can settle. The result is discarded: it
     ;; answers a question the caller withdrew.
-    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
+    [(eq? v 'canceled) (when (settle-canceling! conn job-id token) (record-unserved! conn ex job-id "canceled")) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (define kind (query-value conn "SELECT kind FROM jobs WHERE id = ?" job-id))
@@ -914,7 +920,7 @@
 (define (worker-fail! conn ex job-id message #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
-    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
+    [(eq? v 'canceled) (when (settle-canceling! conn job-id token) (record-unserved! conn ex job-id "canceled")) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
@@ -937,12 +943,12 @@
 ;; one of the job's three lives for it retired jobs that nothing was wrong with.
 ;;
 ;; -> 'ok | 'failed (the ceiling) | whatever holder-check answered
-;; A release writes no model-request row: the worker handed the job back without calling a
-;; model, so a row would report a call that did not happen (see requestlog.rkt).
+;; A release writes an `unserved` model-request row: the worker never asked a model, and the
+;; row says so with error_kind "released" rather than leaving a reader to infer it.
 (define (worker-release! conn ex job-id #:token [token #f] #:reason [reason #f])
   (define v (holder-check conn ex job-id token))
   (cond
-    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
+    [(eq? v 'canceled) (when (settle-canceling! conn job-id token) (record-unserved! conn ex job-id "canceled")) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (define why (if (member reason RELEASE-REASONS) reason "other"))
@@ -968,6 +974,7 @@
             (format "no executor would run it: released ~a times (last by ~a: ~a)"
                     MAX-RELEASES (hash-ref ex 'name) why))
           n job-id)
+        (record-unserved! conn ex job-id "released")
         'failed]
        [else
         (query-exec conn
@@ -975,6 +982,7 @@
                          "claim_token = NULL, started_at = NULL, started_epoch = NULL, "
                          "releases = ?, released_by = ?, release_after = ? WHERE id = ?")
           n (hash-ref ex 'id) (+ (now) RELEASE-BACKOFF) job-id)
+        (record-unserved! conn ex job-id "released")
         'ok])]))
 
 ;; ---- PULL-9: a worker reads the documents ITS OWN job names ------------------
@@ -1163,7 +1171,8 @@
   ;; the slot of a handler that hung — see with-lease in the scheduler.
   (define stopping (query-list conn
     "SELECT id FROM jobs WHERE status = 'canceling' AND lease_until IS NOT NULL AND lease_until < ?" (now)))
-  (for ([id (in-list stopping)]) (settle-canceling! conn id))
+  (for ([id (in-list stopping)])
+    (when (settle-canceling! conn id) (record-unserved! conn #f id "canceled")))
   (for ([r (in-list expired)])
     (define id (vector-ref r 0)) (define attempt (vector-ref r 1))
     ;; straight through, not through `nz`: that answers the SYMBOL 'null for a
@@ -1188,6 +1197,7 @@
                                            'executor_id (or ex-id 'null)
                                            'executor (or ex-name 'null)
                                            'lease_seconds LEASE-SECONDS)))
+    (record-unserved! conn (hasheq 'name ex-name) id "expired")
     (if (not last?)
         (query-exec conn (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
                                         "claim_token = NULL, attempt = ? WHERE id = ?")

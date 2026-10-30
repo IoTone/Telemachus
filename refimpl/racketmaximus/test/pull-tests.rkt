@@ -1109,3 +1109,59 @@
   (check-true (vector? failed) "the failed call has a row")
   (check-equal? (vector-ref failed 3) "error")
   (disconnect c))
+
+;; OBSV: a job that ends without a call is still on the record, and says so.
+;;
+;; The absence of a row cannot distinguish "no model was asked" from "nobody wrote it down".
+;; These are the paths where a job ends without a result, and each leaves a row with status
+;; `unserved` and the reason in error_kind.
+(define (unserved-row c job)
+  (for/first ([r (in-list (query-rows c "SELECT job_id, status, error_kind, tokens_used, executor FROM model_requests"))]
+              #:when (equal? (vector-ref r 0) job)) r))
+
+(define (unserved-setup)
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "rig-b" #:model "qwen2.5:7b"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                          #:payload (hasheq 'messages (list (hasheq 'role "user" 'content "x"))
+                                            'model "qwen2.5:7b")))
+  (define claim (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+  ;; one job per test: a claim takes the OLDEST queued job, so a leftover from an earlier
+  ;; step in the same database would be claimed instead of this one
+  (check-equal? (hash-ref claim 'id) j)
+  (values c tid ex j (hash-ref claim 'claim_token)))
+
+(test-case "a released job leaves an unserved row"
+  (define-values (c tid ex j token) (unserved-setup))
+  (check-equal? (worker-release! c ex j #:reason "no-model" #:token token) 'ok)
+  (define r (unserved-row c j))
+  (check-true (vector? r) "a release is on the record")
+  (check-equal? (vector-ref r 1) "unserved")
+  (check-equal? (vector-ref r 2) "released")
+  (check-equal? (vector-ref r 3) sql-null "no call, so no token count")
+  (check-equal? (vector-ref r 4) "rig-b" "the row names the host that let it go")
+  (disconnect c))
+
+(test-case "an expired lease leaves an unserved row"
+  (define-values (c tid ex j token) (unserved-setup))
+  (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j)
+  (check-equal? (reap-leases! c) 1)
+  (define r (unserved-row c j))
+  (check-true (vector? r) "an expiry is on the record")
+  (check-equal? (vector-ref r 1) "unserved")
+  (check-equal? (vector-ref r 2) "expired")
+  (check-equal? (vector-ref r 3) sql-null "nothing saw a result, so there is no token count")
+  (disconnect c))
+
+(test-case "a canceled job leaves an unserved row"
+  (define-values (c tid ex j token) (unserved-setup))
+  (check-true (and (cancel-job! c j tid) #t))
+  (check-equal? (worker-complete! c ex j (hasheq 'reply "too late" 'tokens_used 7) #:token token) 'canceled)
+  (define r (unserved-row c j))
+  (check-true (vector? r) "a cancellation is on the record")
+  (check-equal? (vector-ref r 1) "unserved")
+  (check-equal? (vector-ref r 2) "canceled")
+  (check-equal? (vector-ref r 3) sql-null "a discarded result is not a token count")
+  (disconnect c))

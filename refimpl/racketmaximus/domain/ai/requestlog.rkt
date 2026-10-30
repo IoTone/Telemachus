@@ -29,20 +29,23 @@
 ;;                                 with the tokens the worker reported and its job_id
 ;;   pull failure (pull.rkt)       one row, status error, error-kind transport
 ;;
-;; and these write none, deliberately:
+;; and these write one row with status `unserved`, which is the vocabulary's way of
+;; saying "no call was observed, and here is why", with the reason in error_kind:
 ;;
-;;   worker-release!   the worker never called the model. A row here would report a
-;;                     call that did not happen, and tokens_used would be a lie.
-;;   lease expiry      the worker is gone. Nothing knows whether the call ran, so a
-;;                     row would assert an outcome this instance cannot see. The job's
-;;                     own audit rows (job.lease.expired, job.attempts.exhausted) are
-;;                     the record, and jobs.attempt counts the retries.
-;;   cancel            the result is discarded before it is read. The job row carries
-;;                     the cancellation and its timings.
+;;   worker-release!   kind "released": the worker handed the job back without asking
+;;                     a model anything.
+;;   lease expiry      kind "expired": the worker stopped answering, so nothing here
+;;                     saw a result. The row does not claim the call did not run, only
+;;                     that this instance observed none, which is the limit of what it
+;;                     can know. The job's own audit rows (job.lease.expired,
+;;                     job.attempts.exhausted) carry the attempt count and the holder.
+;;   cancel            kind "canceled": the result was discarded before it was read.
 ;;
-;; A reviewer asking whether a document's text was sent anywhere is answered by the rows
-;; that exist plus the job rows that explain the gaps. A count of this table is not a
-;; count of model calls for that reason, and nothing here treats it as one.
+;; A row with status ok or error means a model was asked and this instance knows the
+;; outcome. A row with status unserved means exactly the opposite, and the two cannot be
+;; confused by a reader or by a count. That is why the absence is written rather than
+;; inferred: an empty result set cannot say whether nothing happened or nothing was
+;; recorded.
 
 (require racket/string
          db-kit/portable
@@ -75,7 +78,7 @@
 ;;   ok      — the backend answered
 ;;   error   — it was asked and did not answer usefully
 ;;   refused — this platform would not ask (RED-19/RED-20)
-(define REQUEST-STATUSES '("ok" "error" "refused"))
+(define REQUEST-STATUSES '("ok" "error" "refused" "unserved"))
 
 ;; Short labels, never an exception message (RED-19). #83 r4 sealed four `error`
 ;; columns because this platform's own refusals quote what they choked on by
@@ -86,7 +89,13 @@
 ;; answer was refused rather than returned. It earns a kind of its own precisely
 ;; because an operator reading this log to find out why answers went strange
 ;; would otherwise see an unbroken run of `ok`.
-(define ERROR-KINDS '("http" "timeout" "unreachable" "capability" "policy" "transport" "truncated"))
+;;
+;; `released`, `expired` and `canceled` (#236, added on main) are the other three
+;; that are not transport failures: the platform took the work back before a
+;; backend could answer. The vocabulary is one list because it is read as one
+;; list, and a kind added on either line has to be added here.
+(define ERROR-KINDS '("http" "timeout" "unreachable" "capability" "policy" "transport" "truncated"
+                      "released" "expired" "canceled"))
 
 ;; EMB-5: WHAT was asked for, where `transport` says by which route it left. A
 ;; third closed vocabulary, enforced here for the same reason the other two are:

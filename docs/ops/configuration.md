@@ -261,10 +261,12 @@ keyed digest of the prompt, a message and character count, the token count and
 the outcome — including the requests that failed and the ones this instance
 **refused** to make. There is no prompt column and no reply column.
 
-A row means a model was asked something and this instance knows the outcome. Calls that never
-reached a model leave none: a released job (the worker never made the call), a lease that expired
-(the worker is gone and the outcome is unknown) and a cancellation all record themselves as job
-audit events instead. So a count of this table is not a count of model calls, by design.
+A row with status `ok` or `error` means a model was asked and this instance knows the outcome. A
+row with status `unserved` means the opposite and says why in `error_kind`: `released` (the worker
+handed the job back without asking a model), `expired` (the worker stopped answering, so no result
+was seen) or `canceled` (the result was discarded before it was read). `tokens_used` is null on all
+three, because there is no call to count. Count model calls as rows where status is `ok` or `error`,
+never as rows.
 
 A pull call leaves two rows, and they join on `job_id`. The route that enqueued
 the job writes one from the waiting side, so its `ms` covers the queue wait as
