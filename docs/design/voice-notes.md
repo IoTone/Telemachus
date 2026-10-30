@@ -1,10 +1,10 @@
 # Voice notes
 
-Issue #192. Status: **slice 1 is BUILT** — the transcription wire, the two tools,
-the workflow and the quota dimension. Slice 2 is the **streamed capture API**, and
-it is specified at the end of this document.
+Issue #192. Status: **BUILT, both slices.** Slice 1 is the transcription wire,
+the two tools, the workflow and the quota dimension; slice 2 is the streamed
+capture API.
 
-Decisions **VOICE‑1…14** are in `docs/design/decisions.md`.
+Decisions **VOICE‑1…14** and **STG‑1…6** are in `docs/design/decisions.md`.
 
 ## The four requirements, and how much of each was already there
 
@@ -132,33 +132,80 @@ appending it would make indexing start failing everywhere.
   added through `extraPath`, and the operator points at whichever server they
   run.
 
-## Slice 2: the streamed capture API
+## Streamed capture (slice 2, built)
 
-#192's requirement 3, and the only one needing real design.
+#192's requirement 3. **The protocol already existed and was reachable only
+through SigV4.** `repo_uploads`/`repo_upload_parts` have taken numbered parts
+since slice 52: each is staged as its own content-addressed blob, the object is
+assembled at Complete through `input-port-append` into the same `repo-put!` a
+single-shot PUT uses, the bytes are charged against `storage.bytes` on arrival
+and refunded in one place (S3‑8), and an abandoned upload is reaped on the newest
+part's clock (S3‑7).
 
-**The machinery already exists and is the S3 listener's multipart upload.**
-`repo_uploads` and `repo_upload_parts` take parts out of order, each as its own
-blob, assembled at Complete via `input-port-append` → `repo-put!`; parts are
-charged against `storage.bytes` on arrival and refunded in `drop-upload!`
-(S3‑8), and an abandoned upload is reaped on the newest part's clock (S3‑7).
-That is a streamed capture protocol with the quota and the reaping already
-right.
+So slice 2 is **three routes and no new storage** (STG‑1):
 
-What it is not is reachable from a browser: the S3 listener is off by default and
-needs SigV4, which a `MediaRecorder` cannot compose. So slice 2 is **three routes
-on the JSON plane over those same two tables**:
+| | |
+|---|---|
+| `POST /api/uploads` | begin — `key`, optional `content_type` and `visibility`; answers an `upload_id` and the two ceilings |
+| `GET /api/uploads/:id` | the **resume read**: the parts that landed, which are the ones a client need not send again |
+| `PUT /api/uploads/:id/parts/:n` | one chunk, raw body; a retry of the same `n` **replaces** |
+| `POST /api/uploads/:id/complete` | assemble ascending into a repository object |
+| `DELETE /api/uploads/:id` | give up, and get the staged bytes back |
 
-1. `POST /api/voice-notes` → initiate, answering an upload id.
-2. `PUT /api/voice-notes/<id>/part?n=` → one chunk, raw body, `files:write`.
-3. `POST /api/voice-notes/<id>/complete` → assemble into a repository object,
-   then the ordinary trigger seam fires and `transcribe-documents` picks it up.
+The table operations moved to `domain/repo/staging.rkt` when they got a second
+asker, and `domain/s3/server.rkt` delegates — the move `release-blob!` already
+made in that same file, for the reason it records there: "two implementations of
+one rule, each missing a different half, which is why there is one now and it
+lives with the tables it reads." **The S3 suites and `s3-smoke.sh` passing
+unchanged, with the real `aws` CLI, is what says the extraction was
+behaviour-preserving** — the characterisation argument #110 r7 makes.
 
-Three routes and no new storage, because the refund, the reap and the assembly
-are `drop-upload!`'s and `repo-put!`'s. What slice 2 has to decide is whether a
-part has a minimum size (S3 requires 5 MiB for all but the last part; a
-60-second voice chunk is nearer 100 KB, so this plane must NOT inherit that),
-and what a browser does when a chunk fails — which is a retry of that part, and
-is the reason the parts are numbered rather than appended.
+### The four decisions
 
-A websocket was considered and is not worth it: there is no websocket support in
-the tree, and a chunked PUT is resumable where a socket is not.
+**It is not voice-specific, and the route names say so** (STG‑3). The chunking has
+nothing to do with audio: it is "a thing being recorded or produced while it is
+uploaded", equally a long export, a camera roll or a database dump. Naming it
+`/api/voice-notes` would have been a second upload API the first time anybody
+wanted one for something else.
+
+**A part has no minimum size** (STG‑2). S3 demands 5 MiB for all but the last
+part; a 60-second chunk of 16 kbps opus is about 120 KB, so inheriting that floor
+would make the obvious client impossible. What bounds it instead is the COUNT —
+`max-upload-bytes` caps one part and nothing capped their number, and ten
+thousand 1-byte parts is a cheap way to make Complete chain ten thousand ports.
+10,000 is AWS's own part limit, which makes it a number a client author has
+already read. A **replacement** is exempt from the ceiling, or a client that
+reaches it can no longer recover a chunk.
+
+**The part number is in the path, not inferred** (STG‑5). An append-only
+`POST .../parts` is simpler and wrong for the one failure this exists to survive:
+a chunk whose request fails must be sent again, and with an implied position a
+retry either duplicates it or is indistinguishable from the next chunk.
+
+**The client does not name the order** (STG‑6), where the S3 surface makes it.
+There it must: parts arrive concurrently from `aws s3 cp`'s parallel workers and
+only the client knows which byte range each was. A streamed capture has ONE
+writer producing chunks in time order, so ascending IS the order and accepting a
+list would be offering a way to assemble a recording wrong.
+
+### And the key is validated at Begin
+
+STG‑4, and a control is what put it in the module rather than in the route.
+`repo-put!` validates the key too and would refuse at Complete — after the client
+had uploaded the whole recording. **The S3 listener's Initiate did not validate
+either**, so `aws` could begin a multipart upload to a key that could never be
+completed; both surfaces refuse at Begin now.
+
+### What it does for a voice note
+
+`staging-complete!` writes through `repo-put!` rather than around it, so the
+finished object is versioned, quota-checked, audited **and passes the put hook** —
+which is what makes a completed recording fire a trigger exactly as a single-shot
+PUT would, and therefore reach `transcribe-documents`. That is asserted rather
+than assumed.
+
+### Not built
+
+A websocket. There is no websocket support in the tree, and a chunked PUT is
+resumable where a socket is not — `GET /api/uploads/:id` is the resume read that
+makes it so.

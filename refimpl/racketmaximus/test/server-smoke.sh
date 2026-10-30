@@ -2541,6 +2541,76 @@ assert "matrix: a subscription is removed" \
 assert "matrix: another team's id is a miss, not a refusal" \
   "$(curl -s -X DELETE "$B/api/x/matrix/rooms/00000000-0000-0000-0000-000000000000" -H "Authorization: Bearer $OP")" 'no such room'
 
+echo "== streamed capture (#192 slice 2) =="
+# The protocol the S3 listener has used since slice 52, reachable without SigV4.
+# Driven as a browser would: begin, three chunks, one of them retried, complete.
+UPB=$(curl -s -X POST "$B/api/uploads" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"key":"voice/meeting.mp3","content_type":"audio/mpeg"}')
+assert "upload: begun, with an id"              "$UPB" '"upload_id":"'
+assert "upload: …and the ceilings a client needs" "$UPB" '"max_parts":10000'
+assert "upload: …and the per-part byte ceiling"  "$UPB" '"max_part_bytes":'
+UPID=$(printf '%s' "$UPB" | grep -oP '"upload_id":"\K[^"]+')
+# an invalid key is refused BEFORE the recording is sent, not after (STG-4)
+assert "upload: an invalid key is refused at BEGIN" \
+  "$(curl -s -X POST "$B/api/uploads" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"key":"../escape"}')" 'invalid key'
+
+assert "upload: part 1" \
+  "$(curl -s -X PUT "$B/api/uploads/$UPID/parts/1" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/octet-stream' --data-binary 'FIRST-')" '"part":1'
+assert "upload: part 2" \
+  "$(curl -s -X PUT "$B/api/uploads/$UPID/parts/2" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/octet-stream' --data-binary 'WRONG')" '"size":5'
+# the resume read: what has landed, which is what a client does NOT re-send
+assert "upload: the resume read lists what landed" \
+  "$(curl -s "$B/api/uploads/$UPID" -H "Authorization: Bearer $OP")" '"bytes":11'
+# a retried chunk REPLACES, which is the whole reason parts are numbered (STG-5)
+assert "upload: a retried part replaces" \
+  "$(curl -s -X PUT "$B/api/uploads/$UPID/parts/2" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/octet-stream' --data-binary 'SECOND-')" '"part":2'
+assert "upload: part 3" \
+  "$(curl -s -X PUT "$B/api/uploads/$UPID/parts/3" -H "Authorization: Bearer $OP" \
+      -H 'Content-Type: application/octet-stream' --data-binary 'THIRD')" '"part":3'
+UPC=$(curl -s -X POST "$B/api/uploads/$UPID/complete" -H "Authorization: Bearer $OP")
+assert "upload: completed into a repository object" "$UPC" '"key":"voice/meeting.mp3"'
+assert "upload: …with the content type it was begun with" "$UPC" '"content_type":"audio/mpeg"'
+UPOID=$(printf '%s' "$UPC" | grep -oP '"id":"\K[^"]+')
+# assembled in ASCENDING order, with the RETRIED part's bytes (STG-6)
+assert "upload: the bytes are the parts, in order, with the retry winning" \
+  "$(curl -s "$B/api/repo-obj/$UPOID/content" -H "Authorization: Bearer $OP")" 'FIRST-SECOND-THIRD'
+refute "upload: …and the replaced chunk is not in it" \
+  "$(curl -s "$B/api/repo-obj/$UPOID/content" -H "Authorization: Bearer $OP")" 'WRONG'
+# the upload is GONE, not a tombstone
+assert "upload: the upload is finished and no longer addressable" \
+  "$(curl -s "$B/api/uploads/$UPID" -H "Authorization: Bearer $OP")" 'no such upload'
+# abort refunds, and is the polite version of letting the reaper have it
+UPB2=$(curl -s -X POST "$B/api/uploads" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+       -d '{"key":"voice/abandoned.mp3","content_type":"audio/mpeg"}')
+UPID2=$(printf '%s' "$UPB2" | grep -oP '"upload_id":"\K[^"]+')
+curl -s -o /dev/null -X PUT "$B/api/uploads/$UPID2/parts/1" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/octet-stream' --data-binary 'discarded'
+assert "upload: aborted" \
+  "$(curl -s -X DELETE "$B/api/uploads/$UPID2" -H "Authorization: Bearer $OP")" '"aborted":"'
+refute "upload: …and it wrote no object" \
+  "$(curl -s "$B/api/repo?prefix=voice/abandoned" -H "Authorization: Bearer $OP")" 'voice/abandoned.mp3'
+# another team's upload id is a miss, not a refusal — the row is team-scoped
+assert "upload: an unknown id is a 404" \
+  "$(curl -s "$B/api/uploads/00000000-0000-0000-0000-000000000000" -H "Authorization: Bearer $OP")" \
+  'no such upload'
+# A VIEWER may read and may not stage: the same check `repo-put!` makes on its
+# FIRST LINE, which is why the route is role-scoped and the permission gate
+# exempts it by name. Minted here because this block and the help one below both
+# need it, and both are at the END of the file — the recorded remedy for a
+# fixture that changes global state. A viewer changes no owner count.
+VH=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"vera","role":"viewer"}')
+VERA=$(printf '%s' "$VH" | grep -oP '"token":\s*"\K[^"]+')
+assert "upload: a viewer may not begin one" \
+  "$(curl -s -X POST "$B/api/uploads" -H "Authorization: Bearer $VERA" -H 'Content-Type: application/json' \
+      -d '{"key":"voice/no.mp3"}')" 'Forbidden: files:write'
+assert "upload: and a stranger gets 401" \
+  "$(curl -s -X POST "$B/api/uploads" -H 'Content-Type: application/json' -d '{"key":"a"}')" \
+  'Authentication required'
+
 echo "== in-product help (#183) =="
 # This instance has NO embedder and NO corpus, which is the state every fresh
 # install is in — so what is pinned here is the DEGRADATION, which is the half a
@@ -2561,15 +2631,11 @@ assert "help: an empty question is a 400" \
 assert "help: a missing question is a 400" \
   "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' -d '{}')" \
   'question required'
-# The permission is about the SPENDING, not the documents (HELP-7), so it needs a
-# principal that can READ and may not SPEND — which is `viewer`, the one built-in
-# role that separates `files:read` from `chat:use`. bob is a MEMBER and holds
-# both; asserting against him passed against a correct server and said nothing,
-# which is how this assertion first went green for the wrong reason. Minting the
-# viewer here is safe because this block is LAST in the file (the recorded remedy
-# for a fixture that changes global state) and a viewer changes no owner count.
-VH=$(curl -s -X POST $B/api/members -H "Authorization: Bearer $OP" -d '{"username":"vera","role":"viewer"}')
-VERA=$(printf '%s' "$VH" | grep -oP '"token":\s*"\K[^"]+')
+# `vera` is the VIEWER minted by the streamed-capture block above — the one
+# built-in role that separates `files:read` from `chat:use`, which is what both
+# of these blocks need. bob is a MEMBER and holds both; asserting against him
+# passed against a correct server and said nothing, which is how this assertion
+# first went green for the wrong reason.
 assert "help: a viewer may read the docs and may not spend on them" \
   "$(curl -s -X POST "$B/api/help" -H "Authorization: Bearer $VERA" -H 'Content-Type: application/json' \
       -d '{"question":"anything"}')" 'Forbidden: chat:use'

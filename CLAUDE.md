@@ -2482,6 +2482,77 @@ bash test/doc-pipeline-smoke.sh              # the "== 5d." block, 18 assertions
   backend (**req 2c** — no embedding wire, store or meter exists, so it is its own
   issue). The **evaluation harness (req 6)** is the section below.
 
+## Streamed capture: an upload assembled from chunks (STG‑1…6, issue #192 slice 2)
+
+Built 30 Oct 2026, which **closes #192**. `domain/repo/staging.rkt` (extracted
+from the S3 listener), `server/api/staged.rkt`, five routes. **No migration.**
+
+```sh
+raco test test/staging-tests.rkt test/upload-reap-tests.rkt   # 19 cases, 14 controls
+bash test/s3-smoke.sh        # THE proof the extraction preserved behaviour (real aws CLI)
+bash test/server-smoke.sh    # the "streamed capture" block, 19 assertions
+```
+
+- **THE PROTOCOL ALREADY EXISTED AND WAS REACHABLE ONLY THROUGH SigV4.**
+  `repo_uploads`/`repo_upload_parts` have taken numbered parts since slice 52,
+  each its own content-addressed blob, assembled at Complete through
+  `input-port-append` into the same `repo-put!` a single-shot PUT uses, charged
+  on arrival and refunded in one place (S3‑8), reaped on the newest part's clock
+  (S3‑7). So #192 requirement 3 is **three routes and no new storage** (STG‑1).
+- **THE TABLE OPERATIONS MOVED AND THE LISTENER DELEGATES** — the move
+  `release-blob!` already made in that same file, for the reason it records
+  there. **`s3-smoke.sh` passing unchanged with the real `aws` CLI is what says
+  the extraction was behaviour-preserving**, which is #110 r7's
+  characterisation argument: the tests existed before the change.
+- **AND THE REAPER MOVED WITH THE TABLES.** `reap-uploads!` lived in a listener
+  that is **off by default**; the sweep always rode the pool's reaper seam
+  instead (S3‑7's own decision), and now that a second surface stages uploads
+  with that listener possibly never instantiated, the sweep lives where the rows
+  do. `server/main.rkt` and the test name the new module directly rather than a
+  re-export — #110 r3's `SOURCES` lesson.
+- **`/api/uploads`, NOT `/api/voice-notes`** (STG‑3). The chunking has nothing to
+  do with audio: it is "a thing being recorded or produced while it is uploaded",
+  equally a long export or a database dump. Naming it for voice notes would be a
+  second upload API the first time anybody wanted one for something else.
+- **NO MINIMUM PART SIZE, AND S3's 5 MiB FLOOR IS NOT INHERITED** (STG‑2) — a
+  60-second chunk of 16 kbps opus is ~120 KB, so a floor would make the obvious
+  client impossible. What needed bounding is the **count**: `max-upload-bytes`
+  caps one part and nothing capped their number, and ten thousand 1-byte parts is
+  a cheap way to make Complete chain ten thousand ports. 10,000 is AWS's own
+  limit, so it is a number a client author has read. A REPLACEMENT is exempt, or
+  a client at the ceiling can no longer recover a chunk.
+- **THE PART NUMBER IS IN THE PATH** (STG‑5). An append-only `POST .../parts` is
+  simpler and wrong for the one failure this exists to survive: with an implied
+  position a retry either duplicates the chunk or is indistinguishable from the
+  next one. `GET /api/uploads/:id` is the resume read that makes numbering
+  usable.
+- **THE CLIENT DOES NOT NAME THE ORDER** (STG‑6), where S3 must let it: there
+  parts arrive concurrently from parallel workers and only the client knows which
+  byte range each was. A streamed capture has ONE writer in time order.
+- **THE PERMISSION GATE FLAGGED ALL FIVE ROUTES, AND THE ANSWER WAS NOT TO
+  RELABEL THEM.** It refuses a `files:*` route with an `:id` at ROLE scope
+  because a grant would stop admitting — and that id is an UPLOAD id, which no
+  grant reaches. The only check is the role, **which is the same check
+  `repo-put!` makes on its FIRST LINE**, so a staged write and a single-shot PUT
+  admit exactly the same callers (asserted against both functions). Exempt BY
+  NAME, the shape that file already uses for the prefix delete.
+- **STG‑4's key check moved into the module because a control did not bite**, and
+  that also fixed the S3 listener: its Initiate did not validate either, so `aws`
+  could begin a multipart upload to a key that could never be completed.
+- **Two of the three no-bite controls were TEST gaps**, which is the useful half.
+  A refused part's released blob is invisible to the quota figure — the charge
+  happens after the admission check, so removing the release leaves the number
+  right and the bytes leaked, and #122's sweep would never collect them because a
+  part is not in `repo_blob_staging`. The case checks the store by digest now.
+- **The one control that CANNOT bite is the default ascending sort**: removing it
+  fails nothing, with three parts and again with twelve scrambled ones, because
+  Racket's `hash-keys` on small integer keys comes back ascending for a hash that
+  size. VEC‑13's unpinnable pin, third appearance. The EXPLICIT order is pinned
+  and does bite.
+- **A completed upload fires the put hook**, because `staging-complete!` writes
+  THROUGH `repo-put!` rather than around it — which is what makes a finished
+  recording reach `transcribe-documents`' trigger. Asserted, not assumed.
+
 ## Voice notes: the third model seam (VOICE‑1…14, issue #192 slice 1)
 
 Built 30 Oct 2026. `transcribe-exchange` in `domain/ai/executor.rkt`,

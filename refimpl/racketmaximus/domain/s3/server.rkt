@@ -29,6 +29,13 @@
          "../authz/authz.rkt"
          "../repo/repo.rkt"
          "../repo/blobs.rkt"
+         ;; #192 slice 2: the staging tables and their rules live with the tables
+         ;; now, because a second surface stages uploads. The move `release-blob!`
+         ;; already made in this file, for the reason it records.
+         (only-in "../repo/staging.rkt"
+                  staging-begin! staging-row staging-put-part! staging-parts
+                  staging-complete! staging-drop!
+                  reap-uploads! upload-reap-seconds)
          (only-in "../audit/reads.rkt" read-context with-read-context)
          (only-in "../quota/quota.rkt" quota-check quota-record!)
          sha2-kit
@@ -36,7 +43,7 @@
          "creds.rkt"
          (only-in "../../config.rkt" max-upload-bytes))
 
-(provide make-s3-handler s3-region reap-uploads! upload-reap-seconds
+(provide make-s3-handler s3-region
          ;; #110 r7: exported FOR test/s3-get-tests.rkt. GetObject is the deepest
          ;; function in the tree and had no unit test at all — the only coverage
          ;; was one ranged GET in s3-smoke.sh, which needs the real `aws` CLI and
@@ -499,35 +506,24 @@
 ;; document lands here. Parts arrive concurrently and out of order, so each is stored
 ;; as its own content-addressed blob and the object is assembled at Complete.
 (define (op-create-multipart conn p bucket key req)
-  (require-perm conn p "files:write")
   (define vis (acl->visibility req))
   (cond
     [(eq? vis 'refused)
      (s3-error "InvalidArgument" 400 #:message "Public ACLs are not supported.")]
     [else
-     (define uid (new-id))
-     (query-exec conn
-       (string-append "INSERT INTO repo_uploads (id, org_id, team_id, user_id, key, content_type, visibility, created_epoch) "
-                      "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-       uid (or (team-org conn (principal-team-id p)) (principal-org-id p))
-       (principal-team-id p) (principal-user-id p) key
-       (or (req-header req "content-type") "application/octet-stream")
-       (or vis sql-null) (current-seconds))
+     ;; `staging-begin!` validates the key now (STG‑4), so Initiate refuses a key
+     ;; that could never be completed — it used to accept one and fail at
+     ;; Complete, after the client had sent every part.
+     (with-handlers ([exn:fail:user?
+                      (lambda (e) (s3-error "InvalidArgument" 400 #:message (exn-message e)))])
+     (define uid (staging-begin! conn p key (req-header req "content-type")
+                                 #:visibility vis))
      (xml-res 200 (el "InitiateMultipartUploadResult"
                       (el "Bucket" (xml-escape bucket))
                       (el "Key" (xml-escape key))
-                      (el "UploadId" uid)))]))
+                      (el "UploadId" uid))))]))
 
-(define (upload-row conn p upload-id)
-  (define r (query-maybe-row conn
-    (string-append "SELECT id, org_id, team_id, user_id, key, content_type, visibility "
-                   "FROM repo_uploads WHERE id = ? AND team_id = ?")
-    upload-id (principal-team-id p)))
-  (and r (hasheq 'id (vector-ref r 0) 'org_id (vector-ref r 1) 'team_id (vector-ref r 2)
-                 'user_id (vector-ref r 3) 'key (vector-ref r 4)
-                 'content_type (vector-ref r 5)
-                 'visibility (let ([v (vector-ref r 6)]) (and (not (sql-null? v)) v)))))
-
+(define (upload-row conn p upload-id) (staging-row conn p upload-id))
 
 ;; A part is a blob in its own right, staged exactly like a whole object. A retried
 ;; part with identical bytes therefore costs nothing, and the UNIQUE(upload_id,
@@ -539,52 +535,20 @@
     [(not up) (s3-error "NoSuchUpload" 404 #:message "The specified upload does not exist.")]
     [(not part-number) (s3-error "InvalidArgument" 400 #:message "partNumber is required.")]
     [else
-     (define-values (digest size) (blob-stage! (hash-ref up 'org_id) (http-req-body req)
-                                                #:max-bytes (max-upload-bytes)))
-     ;; A retried part REPLACES, so what the team is newly holding is the delta.
-     (define prior-size
-       (let ([v (query-maybe-value conn
-                  "SELECT size FROM repo_upload_parts WHERE upload_id = ? AND part_number = ?"
-                  upload-id part-number)])
-         (if (and v (not (sql-null? v))) v 0)))
-     (define delta (- size prior-size))
-     ;; Staged parts are CHARGED against storage.bytes as they arrive, and
-     ;; refunded when the upload goes away (issue #54). The alternative —
-     ;; charging only at Complete — leaves the quota walkable by a client that
-     ;; simply never completes: `max-upload-bytes` caps ONE part, nothing caps
-     ;; their number, so an unbounded amount of disk could be staged under a
-     ;; satisfied quota. The cost of charging is that `repo-usage` exceeds the
-     ;; sum of the listing while an upload is in flight, which is true — the
-     ;; bytes are there — and visible, which a bypass is not.
-     (define adm (quota-check conn "team" (hash-ref up 'team_id) STORAGE-DIMENSION delta))
-     (cond
-       [(not (hash-ref adm 'allowed))
-        (release-blob! conn (hash-ref up 'org_id) digest)
-        (s3-error "EntityTooLarge" 400
-                  #:message (format "storage quota exceeded: ~a of ~a bytes used"
-                                    (hash-ref adm 'used) (hash-ref adm 'limit)))]
-       [else
-        (query-exec conn
-          (string-append "INSERT INTO repo_upload_parts (id, upload_id, part_number, digest, size, created_epoch) "
-                         "VALUES (?, ?, ?, ?, ?, ?) "
-                         "ON CONFLICT(upload_id, part_number) DO UPDATE SET "
-                         "digest = excluded.digest, size = excluded.size, "
-                         "created_epoch = excluded.created_epoch")
-          (new-id) upload-id part-number digest size (current-seconds))
-        (charge-storage! conn up delta)
-        (http-res* 200 (list (cons #"ETag" (string->bytes/utf-8 (etag-of digest)))) #"")])]))
-
-;; both tiers, as repo-put! bills them
-(define (charge-storage! conn up amount)
-  (unless (zero? amount)
-    (quota-record! conn "team" (hash-ref up 'team_id) STORAGE-DIMENSION amount)
-    (let ([org (team-org conn (hash-ref up 'team_id))])
-      (when org (quota-record! conn "org" org STORAGE-DIMENSION amount)))))
+     ;; The staging rule, the quota charge and the retry-replaces upsert are
+     ;; `staging-put-part!`'s. What stays here is how S3 spells a refusal: the
+     ;; quota one is `EntityTooLarge`, which is the code `aws` surfaces usefully.
+     (with-handlers ([exn:fail:user?
+                      (lambda (e) (s3-error "EntityTooLarge" 400 #:message (exn-message e)))])
+       (define-values (digest size)
+         (staging-put-part! conn up part-number (http-req-body req) #:who 's3))
+       (http-res* 200 (list (cons #"ETag" (string->bytes/utf-8 (etag-of digest)))) #""))]))
 
 ;; Complete assembles the parts IN THE ORDER THE CLIENT NAMES, not the order they
-;; arrived — they arrive concurrently and out of order. `input-port-append` chains the
-;; part blobs into one stream, so the finished object is written by the same
-;; `repo-put!` an ordinary upload uses: same versioning, same quota, same audit entry.
+;; arrived — they arrive concurrently and out of order. That order is the only
+;; S3-specific thing left here: `staging-complete!` takes the list, and the JSON
+;; surface passes #f because a streamed capture has one writer and ascending IS
+;; the order.
 (define (op-complete-multipart conn p req upload-id)
   (define up (upload-row conn p upload-id))
   (cond
@@ -594,120 +558,39 @@
      (define wanted (map string->number
                          (regexp-match* #px"<PartNumber>\\s*([0-9]+)\\s*</PartNumber>"
                                         body #:match-select cadr)))
-     (define have
-       (for/hash ([r (in-list (query-rows conn
-              "SELECT part_number, digest FROM repo_upload_parts WHERE upload_id = ?" upload-id))])
-         (values (vector-ref r 0) (vector-ref r 1))))
-     (define order (if (null? wanted) (sort (hash-keys have) <) wanted))
-     (define missing (filter (lambda (n) (not (hash-ref have n #f))) order))
-     (cond
-       [(null? order) (s3-error "InvalidRequest" 400 #:message "No parts were uploaded.")]
-       [(pair? missing)
-        (s3-error "InvalidPart" 400
-                  #:message (format "Part ~a was never uploaded." (car missing)))]
-       [else
-        (define org (hash-ref up 'org_id))
-        (define ports (for/list ([n (in-list order)]) (blob-get org (hash-ref have n))))
-        (cond
-          [(memf not ports)
-           (for ([q (in-list ports)]) (when q (close-input-port q)))
-           (s3-error "InvalidPart" 400 #:message "A part's data is missing from the store.")]
-          [else
-           (define joined (apply input-port-append #t ports))
-           (define o (repo-put! conn p #:key (hash-ref up 'key) #:port joined
-                                #:content-type (hash-ref up 'content_type)
-                                #:filename (car (reverse (string-split (hash-ref up 'key) "/")))
-                                #:visibility (hash-ref up 'visibility)))
-           (drop-upload! conn up)
-           (xml-res 200 (el "CompleteMultipartUploadResult"
-                            (el "Location" (xml-escape (hash-ref up 'key)))
-                            (el "Bucket" (xml-escape (team-slug conn (hash-ref up 'team_id))))
-                            (el "Key" (xml-escape (hash-ref up 'key)))
-                            (el "ETag" (xml-escape (etag-of (hash-ref o 'digest))))))])])]))
+     (with-handlers ([exn:fail:user?
+                      (lambda (e)
+                        ;; "no parts were uploaded" is InvalidRequest; everything
+                        ;; else this can raise is about a part.
+                        (if (regexp-match? #rx"no parts" (exn-message e))
+                            (s3-error "InvalidRequest" 400 #:message (exn-message e))
+                            (s3-error "InvalidPart" 400 #:message (exn-message e))))])
+       (define o (staging-complete! conn p up (if (null? wanted) #f wanted) #:who 's3))
+       (xml-res 200 (el "CompleteMultipartUploadResult"
+                        (el "Location" (xml-escape (hash-ref up 'key)))
+                        (el "Bucket" (xml-escape (team-slug conn (hash-ref up 'team_id))))
+                        (el "Key" (xml-escape (hash-ref up 'key)))
+                        (el "ETag" (xml-escape (etag-of (hash-ref o 'digest)))))))]))
 
 (define (op-abort-multipart conn p upload-id)
   (define up (upload-row conn p upload-id))
   (cond
     [(not up) (s3-error "NoSuchUpload" 404 #:message "The specified upload does not exist.")]
-    [else (drop-upload! conn up) (http-res* 204 (list) #"")]))
+    [else (staging-drop! conn up) (http-res* 204 (list) #"")]))
 
-;; Parts are blobs, so dropping an upload must not delete bytes something else still
-;; points at — another in-flight upload with an identical part, or a finished object.
-;; Same org-scoped refcount as repo-delete!, for the same reason (DOC-6).
-(define (drop-upload! conn up)
-  (define org (hash-ref up 'org_id))
-  (define parts (query-rows conn "SELECT digest, size FROM repo_upload_parts WHERE upload_id = ?"
-                            (hash-ref up 'id)))
-  (define staged (for/sum ([r (in-list parts)]) (vector-ref r 1)))
-  (query-exec conn "DELETE FROM repo_upload_parts WHERE upload_id = ?" (hash-ref up 'id))
-  (query-exec conn "DELETE FROM repo_uploads WHERE id = ?" (hash-ref up 'id))
-  ;; refund what the parts were charged. This is the ONE place an upload stops
-  ;; existing — Complete, Abort and the reaper all come through here — so the
-  ;; charge in op-upload-part cannot be left dangling by a path that forgot.
-  ;; At Complete the refund lands AFTER repo-put! has charged the assembled
-  ;; object, so the steady state is exactly what a single-shot PUT leaves.
-  (charge-storage! conn up (- staged))
-  (for ([r (in-list parts)]) (release-blob! conn org (vector-ref r 0))))
-
-;; Delete a blob only if nothing in the ORG points at it any more: another
-;; in-flight upload's part, or a finished object's version.
+;; `drop-upload!`, `release-blob!`, `reap-uploads!` and the reap horizon all moved
+;; to `domain/repo/staging.rkt` (#192 slice 2) — WITH THE TABLES, which is the
+;; argument `release-blob!` itself made in this file when it stopped having its
+;; own copy. The reap is the one worth noticing: the sweep always rode the pool's
+;; reaper seam rather than this listener, because S3-7 decided "an instance that
+;; staged parts and then turned it off would hold those bytes for ever" — and now
+;; that the JSON plane stages uploads with this listener never started at all,
+;; the sweep lives where the rows do rather than in a module that may never be
+;; instantiated.
 ;;
-;; This DELEGATES now (issue #86 r6). It had its own copy of the rule, and the
-;; copy's part check was not org-scoped — `WHERE digest = ?` with no `org_id` —
-;; so one tenant's in-flight upload pinned another tenant's identical bytes for
-;; ever. Meanwhile `repo-delete!`'s copy never consulted parts at all and could
-;; delete the bytes a live upload was staging. Two implementations of one rule,
-;; each missing a different half, which is why there is one now and it lives
-;; with the tables it reads.
-(define (release-blob! conn org d)
-  (release-blob-if-unreferenced! conn org d))
-
-;; ---- reaping an abandoned upload (issue #54) ------------------------------------
-;; A client that disconnects mid-multipart leaves rows and blobs behind. Nothing
-;; collected them, so the bytes were invisible to the team and never reclaimed.
-;;
-;; The horizon is generous on purpose: a 2 GB upload over a bad link legitimately
-;; takes hours, and the clock is the NEWEST PART's arrival rather than the create
-;; time, so an upload that is still making progress is never reaped out from
-;; under the client sending it. Seven days matches the lifecycle rule AWS's own
-;; guidance suggests for incomplete multipart uploads.
-(define UPLOAD-REAP-DEFAULT (* 7 24 3600))
-(define (upload-reap-seconds)
-  (define v (tmach-env "UPLOAD_REAP_HOURS"))
-  (define t (and v (string-trim v)))
-  (cond
-    [(and t (string-ci=? t "never")) #f]
-    [else
-     (define n (and t (string->number t)))
-     ;; an unparseable or non-positive value falls back to the default, never to
-     ;; 0 — which would reap an upload the moment its first part landed
-     (if (and (real? n) (> n 0)) (inexact->exact (floor (* n 3600))) UPLOAD-REAP-DEFAULT)]))
-
-;; → the number of uploads dropped. Safe to call repeatedly; nothing in flight.
-(define (reap-uploads! conn)
-  (define horizon (upload-reap-seconds))
-  (cond
-    [(not horizon) 0]
-    [else
-     (define cutoff (- (current-seconds) horizon))
-     (define ids (query-list conn
-       (string-append
-        "SELECT u.id FROM repo_uploads u WHERE "
-        ;; the newest part's arrival, falling back to the create time for an
-        ;; upload that never sent one
-        "COALESCE((SELECT MAX(p.created_epoch) FROM repo_upload_parts p WHERE p.upload_id = u.id), "
-        "         u.created_epoch) < ?")
-       cutoff))
-     (for ([id (in-list ids)])
-       (define r (query-maybe-row conn
-         "SELECT id, org_id, team_id FROM repo_uploads WHERE id = ?" id))
-       (when r
-         (drop-upload! conn (hasheq 'id (vector-ref r 0) 'org_id (vector-ref r 1)
-                                    'team_id (vector-ref r 2)))
-         (audit! conn #:action "repo.upload.reaped" #:actor-type "system"
-                 #:team-id (vector-ref r 2)
-                 #:resource-type "upload" #:resource-id id)))
-     (length ids)]))
+;; `server/main.rkt` and `test/upload-reap-tests.rkt` name that module directly
+;; rather than reaching them through a re-export here, so this file no longer
+;; claims to own them.
 
 ;; ---- routing ---------------------------------------------------------------------
 ;; Sub-resources we do not implement are matched FIRST and answered NotImplemented, so

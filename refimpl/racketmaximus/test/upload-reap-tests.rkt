@@ -21,6 +21,12 @@
          "../domain/quota/quota.rkt"
          "../domain/repo/blobs.rkt"
          "../domain/repo/repo.rkt"
+         ;; #192 slice 2: the staging tables and their reaper moved to
+         ;; `domain/repo/staging.rkt`, WITH the tables. Named here rather than
+         ;; reached through `domain/s3/server.rkt`'s re-export — #110 r3's
+         ;; lesson, where a test that keeps naming the old module goes on passing
+         ;; while reading something that no longer holds the code.
+         (only-in "../domain/repo/staging.rkt" reap-uploads! upload-reap-seconds)
          "../domain/s3/server.rkt")
 
 (define BLOB-ROOT (make-temporary-file "telemachus-reap-~a" 'directory))
