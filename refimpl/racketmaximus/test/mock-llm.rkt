@@ -108,6 +108,61 @@
                       'choices (list (hasheq 'index 0 'delta (hasheq) 'finish_reason "stop"))))
    "data: [DONE]\n\n"))
 
+;; ---- EMBEDDINGS mode (#189 step 6) ---------------------------------------------
+;;
+;; A request carrying `input` and no `messages` is an embeddings request, so the
+;; same process serves both and a harness needs one port. The vector is a
+;; DETERMINISTIC BAG OF WORDS: each word is hashed into one of
+;; `MOCK-EMBED-DIMS` buckets and counted.
+;;
+;; THAT CHOICE IS THE WHOLE POINT, not a convenience. A hash of the whole string
+;; would be deterministic and useless — every text would land in a random
+;; direction, so "the nearest passage" would be arbitrary and a smoke could only
+;; assert that SOME passage came back. A bag of words puts texts that SHARE words
+;; near each other, which is a crude stand-in for sharing meaning and is enough
+;; for an end-to-end gate to assert that a question about octopuses retrieves the
+;; passage about octopuses rather than the one beside it. It is NOT a stand-in
+;; for a real embedder's recall — that is step 3's calibration and wants a live
+;; `nomic-embed-text`, in English and Japanese.
+;;
+;; THE WIDTH IS A FIXTURE PARAMETER THAT DECIDES WHETHER THE GATE CAN
+;; DISTINGUISH ANYTHING, and it was 32 first, which was too narrow to be useful.
+;; Words collide into buckets, so a LONG text covers most of them and scores
+;; respectably against any query at all — measured: at 32 dimensions a 440-byte
+;; JSON classification record scored 0.276 against "cephalopods with arms" where
+;; the sentence actually containing both words scored 0.144, so the gate ranked a
+;; machine-generated record above the answer. 256 makes a collision between two
+;; specific words unlikely, and is nearer the 768 a real checkpoint answers.
+(define MOCK-EMBED-DIMS 256)
+
+(define (word-bucket w)
+  (modulo (for/fold ([h 7]) ([c (in-string (string-downcase w))])
+            (modulo (+ (* h 31) (char->integer c)) 1000003))
+          MOCK-EMBED-DIMS))
+
+(define (mock-embedding text)
+  (define v (make-vector MOCK-EMBED-DIMS 0.0))
+  (for ([w (in-list (regexp-split #px"[^[:alnum:]]+" text))]
+        #:when (> (string-length w) 0))
+    (define b (word-bucket w))
+    (vector-set! v b (+ 1.0 (vector-ref v b))))
+  ;; a text with no word at all would be a zero vector, which the platform
+  ;; deliberately refuses (VEC-22/VEC-31) — answer one, so that refusal is
+  ;; reachable from a harness rather than only from a unit test
+  (vector->list v))
+
+(define (embeddings-response parsed)
+  (define input (hash-ref parsed 'input '()))
+  (define texts (cond [(string? input) (list input)]
+                      [(list? input) (filter string? input)]
+                      [else '()]))
+  (hasheq 'object "list"
+          'model (let ([m (hash-ref parsed 'model "mock-embed")]) (if (string? m) m "mock-embed"))
+          'data (for/list ([(t i) (in-indexed texts)])
+                  (hasheq 'object "embedding" 'index i 'embedding (mock-embedding t)))
+          'usage (hasheq 'prompt_tokens (for/sum ([t (in-list texts)]) (string-length t))
+                         'total_tokens (for/sum ([t (in-list texts)]) (string-length t)))))
+
 (define (read-headers in)
   (let loop ([hs '()])
     (define l (read-line in 'return-linefeed))
@@ -133,10 +188,15 @@
     (define has-tool? (for/or ([m (in-list msgs)] #:when (hash? m))
                         (equal? (hash-ref m 'role #f) "tool")))
     (define offers-tools? (let ([t (hash-ref parsed 'tools '())]) (and (list? t) (pair? t))))
-    (define answer (cond [(and reply-file (not offers-tools?)) (chat-response parsed)]
+    ;; the embeddings branch comes FIRST: such a request has no `messages` at all,
+    ;; so every test below it would read it as a first-round chat turn and answer
+    ;; with a tool call, which is a 200 the platform cannot parse
+    (define embeddings? (and (hash-ref parsed 'input #f) (null? msgs)))
+    (define answer (cond [embeddings? (embeddings-response parsed)]
+                         [(and reply-file (not offers-tools?)) (chat-response parsed)]
                          [has-tool? (final-response)]
                          [else (tool-call-response)]))
-    (define wants-stream? (and (eq? (hash-ref parsed 'stream #f) #t) (not forced-status)))
+    (define wants-stream? (and (eq? (hash-ref parsed 'stream #f) #t) (not forced-status) (not embeddings?)))
     (define payload
       (if wants-stream?
           (string->bytes/utf-8

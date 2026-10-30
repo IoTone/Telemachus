@@ -28,6 +28,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `repo_extract_text` | `files:write` | built-in | 1つのリポジトリドキュメントのテキストを検索インデックスに抽出します。 |
 | `repo_list_unembedded` | `files:read` | built-in | 現在のバージョンのチャンク埋め込みベクトルがまだない、または別のモデルで作成されたベクトルを持つリポジトリドキュメントをリストします。オブジェクトIDを返し、バッチ分まで；続行するにはワークフローを再実行してください。 |
 | `repo_list_unindexed` | `files:read` | built-in | 検索用に抽出されていないリポジトリドキュメントをリストします（または、上書き後に古くなっています）。オブジェクトIDを返し、バッチ分まで；インデキシングワークフローを再実行して続行します。 |
+| `repo_retrieve` | `files:read` | built-in | 質問に意味がもっとも近い、チームのリポジトリドキュメント内の文章（パッセージ）を探します。それらにもとづいて回答するためのツールです。各パッセージのテキストに加えて、ドキュメントのキーと読み取られた文字オフセットを返すので、回答が出典を示せます。TMACH_EMBED_URL と、「ドキュメントの埋め込み」ワークフローで処理済みのドキュメントが必要です。埋め込みがないチームでは何も見つからず、キーワード検索に切り替わることはありません。 |
 | `shipment_eta` | `chat:use` | integrator-demo | 輸送レーンの到着日数を推定します。 |
 | `translate_text` | `chat:use` | translate-chat | 目標言語にテキストを翻訳します。 |
 | `update_note` | `notes:write` | built-in | ID でノートのタイトルまたは本文を更新する。 |
@@ -331,6 +332,17 @@ Permission: `files:read` · source: built-in
 
 No parameters.
 
+
+## `repo_retrieve`
+
+質問に意味がもっとも近い、チームのリポジトリドキュメント内の文章（パッセージ）を探します。それらにもとづいて回答するためのツールです。各パッセージのテキストに加えて、ドキュメントのキーと読み取られた文字オフセットを返すので、回答が出典を示せます。TMACH_EMBED_URL と、「ドキュメントの埋め込み」ワークフローで処理済みのドキュメントが必要です。埋め込みがないチームでは何も見つからず、キーワード検索に切り替わることはありません。
+
+Permission: `files:read` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `limit` | number | no | 返すパッセージの件数（既定は 8、最大は 20） |
+| `question` | string | yes | パッセージを探す対象の質問。言語は問いません |
 
 ## `shipment_eta`
 

@@ -292,6 +292,20 @@ assert "search note"     "$(curl -s "$B/api/search?q=Secret" -H "Authorization: 
 assert "doc created"     "$(curl -s -X POST $B/api/documents -H "Authorization: Bearer $OP" -d '{"title":"Spec","content":"the master plan","visibility":"team"}')" '"title":"Spec"'
 assert "doc list page"   "$(curl -s $B/api/documents -H "Authorization: Bearer $OP")" '"next_offset"'
 assert_content "doc search"      "$(curl -s "$B/api/search?q=master" -H "Authorization: Bearer $OP")" '"type":"document"'
+# #189 step 6: `?semantic=1` DEGRADES on an instance with no embedding endpoint,
+# which this one is — `content_search: false`'s rule, applied to the other half.
+# The keyword results must still be there, or a client asking for both would be
+# worse off than one asking for neither; and the reason is a closed label rather
+# than an exception message (#123's line about what a reply may carry).
+SEMOFF=$(curl -s "$B/api/search?q=master&semantic=1" -H "Authorization: Bearer $OP")
+assert "semantic degrades"        "$SEMOFF" '"semantic":false'
+assert "...naming why"            "$SEMOFF" '"semantic_reason":"unconfigured"'
+assert_content "...and the keyword half still answers" "$SEMOFF" '"type":"document"'
+refute "...with no passage row"   "$SEMOFF" '"type":"passage"'
+# a search that did not ASK says nothing about a half it was not asked for —
+# QUOTA-3's rule, that a field nothing stands behind is one a reader distrusts
+refute "a plain search carries no semantic field" \
+  "$(curl -s "$B/api/search?q=master" -H "Authorization: Bearer $OP")" '"semantic"'
 # async jobs: submit a chat job (fallback model), poll the worker pool to completion
 JOB=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" -d '{"kind":"chat","payload":{"prompt":"hello jobs"}}')
 assert "job queued"      "$JOB" '"status":"queued"'

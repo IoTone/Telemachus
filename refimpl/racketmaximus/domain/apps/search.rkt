@@ -20,10 +20,14 @@
          racket/string
          "../authz/authz.rkt"
          "../kg/kg.rkt"
+         ;; #189 step 6: the semantic half. One asker of `passages-for`, the
+         ;; retrieval tool being the other — and the question is embedded there,
+         ;; so nothing in this module makes a model request of its own.
+         (only-in "../repo/passages.rkt" passages-for semantic-available?)
          ;; issue #83: with the extracted text sealed, a LIKE over it cannot match
          (only-in "../../config.rkt" content-encryption-enabled?))
 
-(provide search-all)
+(provide search-all search-passages SEMANTIC-REASONS SEMANTIC-SNIPPET)
 
 (define (like q) (string-append "%" q "%"))
 
@@ -139,3 +143,64 @@
                                (format "~a mention(s), ~a relation(s)" (hash-ref e 'mention_count) (hash-ref e 'relation_count))
                                d))))))
   (append note-hits repo-hits entity-hits tr-hits))
+
+;; ---- searching by MEANING (#189 step 6, VEC‑39/‑40) ---------------------------
+;;
+;; VEC‑39 — IT DEGRADES AND SAYS SO, WHICH IS `content_search: false`'s RULE IN
+;; THE MODULE THAT RULE LIVES IN. The caller asked for a SEARCH; answering the
+;; keyword half and reporting that the other one did not run is strictly better
+;; than refusing the lot, and it is what this file already does when #83 seals the
+;; extracted text out of reach of a `LIKE`. The retrieval TOOL takes the opposite
+;; call for the opposite reason (it was asked for exactly this, so it refuses by
+;; name) — `passages-for` exports the predicate and makes neither decision.
+;;
+;; The three ways it can be unavailable are a CLOSED vocabulary, not an exception
+;; message. `embed-exchange` classifies a transport failure and FEED‑6-redacts a
+;; URL, but the message is still somebody else's gateway talking, and #123's line
+;; is that a reply may carry what the CALLER supplied and not what we choked on.
+;; A short label is also the only form a client can branch on.
+;;
+;;   unconfigured  no TMACH_EMBED_URL on this instance
+;;   forbidden     the caller may not spend the team's AI budget (chat:use)
+;;   unavailable   it was asked and the attempt failed — a provider, a quota, a
+;;                 question that embedded to nothing
+;;
+;; Answers (values rows reason-or-#f): a reason is present exactly when the rows
+;; are empty BECAUSE the half did not run, never when it ran and matched nothing —
+;; QUOTA‑3's rule, that a field nothing stands behind is one a reader learns to
+;; distrust.
+(define SEMANTIC-REASONS '("unconfigured" "forbidden" "unavailable"))
+
+;; VEC‑40 — A SEMANTIC SNIPPET IS THE PASSAGE'S HEAD, NOT A WINDOW ON A MATCH,
+;; and that difference is the whole point of the feature rather than a shortcut.
+;; `snippet` above centres on the query substring because there IS one; a passage
+;; was chosen for its meaning and may not contain a single word of the question,
+;; so there is nothing to centre on and pretending otherwise would put the
+;; ellipses in a place that implies a match. The full passage is reachable from
+;; the offsets the row carries.
+(define SEMANTIC-SNIPPET 240)
+
+(define (search-passages conn p q #:limit [lim 5])
+  (cond
+    [(not (semantic-available? conn p))
+     (values '() (if (can? conn p "chat:use") "unconfigured" "forbidden"))]
+    [else
+     (with-handlers ([exn:fail? (lambda (_) (values '() "unavailable"))])
+       (define rep (passages-for conn p q #:limit lim))
+       (values
+        (for/list ([h (in-list (hash-ref rep 'passages))])
+          (define text (hash-ref h 'text))
+          (hasheq 'type "passage"
+                  'id (hash-ref h 'chunk_id)
+                  'title (hash-ref h 'key)
+                  'snippet (if (> (string-length text) SEMANTIC-SNIPPET)
+                               (string-append (substring text 0 SEMANTIC-SNIPPET) "…")
+                               text)
+                  ;; what makes the row citable, and the reason a passage carries
+                  ;; more than the other kinds do: `spans-covering` turns these
+                  ;; into a page and a bbox (CHUNK‑1)
+                  'object_id (hash-ref h 'object_id)
+                  'start (hash-ref h 'start)
+                  'end (hash-ref h 'end)
+                  'score (hash-ref h 'score)))
+        #f))]))

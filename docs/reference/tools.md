@@ -28,6 +28,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `repo_extract_text` | `files:write` | built-in | Extract the text of one repository document into the search index. |
 | `repo_list_unembedded` | `files:read` | built-in | List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue. |
 | `repo_list_unindexed` | `files:read` | built-in | List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue. |
+| `repo_retrieve` | `files:read` | built-in | Find the passages of the team's repository documents closest in MEANING to a question, for answering from them. Returns a passage's text with its document key and the character offsets it was read at, so an answer can cite where it came from. Needs TMACH_EMBED_URL and documents that the Embed Documents workflow has already processed; it finds nothing on a team with no embeddings, rather than falling back to keyword search. |
 | `shipment_eta` | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
 | `translate_text` | `chat:use` | translate-chat | Translate text into a target language. |
 | `update_note` | `notes:write` | built-in | Update a note's title and/or body by id. |
@@ -331,6 +332,17 @@ Permission: `files:read` · source: built-in
 
 No parameters.
 
+
+## `repo_retrieve`
+
+Find the passages of the team's repository documents closest in MEANING to a question, for answering from them. Returns a passage's text with its document key and the character offsets it was read at, so an answer can cite where it came from. Needs TMACH_EMBED_URL and documents that the Embed Documents workflow has already processed; it finds nothing on a team with no embeddings, rather than falling back to keyword search.
+
+Permission: `files:read` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `limit` | number | no | How many passages to return (default 8, at most 20) |
+| `question` | string | yes | The question to find passages for, in any language |
 
 ## `shipment_eta`
 

@@ -281,18 +281,39 @@ a person can see.
    costs one query per document in the team and is seconds at ten thousand. So
    a private document ranking first withholds a hit and does not take the whole
    answer with it, and an exhausted headroom says so.
-6. **A retrieval tool and `?semantic=` on search**, which is where #183 and #191
-   pick it up.
+6. ~~**A retrieval tool and `?semantic=` on search.**~~ **BUILT** —
+   `domain/repo/passages.rkt`, `domain/repo/retrieve-tools.rkt`,
+   `search-passages` in `domain/apps/search.rkt`, and `?semantic=` on
+   `GET /api/search`; decisions VEC‑33…40. No migration and no new permission.
+   **The tool refuses where the search degrades** and both are right (VEC‑34):
+   a tool asked for exactly this names the unset variable, a search asked for a
+   search answers the keyword half and reports that the other one did not run —
+   `content_search: false`'s own rule. Asking is gated on `chat:use`, because
+   embedding the question is the only search in this tree that spends the team's
+   AI allowance. **And it is the first content search that survives
+   `TMACH_ENCRYPT_CONTENT`**: it compares vectors and unseals the text through
+   `repo-text-for`, so on a sealed instance it is the only way left to search
+   inside a document. #183 and #191 pick it up from here.
 
-Steps 1–5 are built. **Step 6 is the next one** — a retrieval tool and
-`?semantic=` on search, where #183 and #191 pick it up — and it needs no model to
-BUILD either: `chunks-nearest` answers the hits and `repo-text-for` plus a
-substring is the text, so what is left is the tool, the result shape and the
-search surface. What a query cannot be JUDGED on without a live
-`nomic-embed-text` is whether it retrieves the right chunk, which is step 3's
-CALIBRATION — the two numbers above — the same measurement `EMBED-MARGIN-SCALE`
-(#163) wants, and therefore a thing to do once, in both languages, when the GPU
-rig's driver upgrade lands. It has not blocked any of steps 4–6.
+**THE WHOLE BUILD PLAN IS BUILT**, steps 1 through 6, and none of it needed a
+model: the arithmetic and the seal, the chunker, the table and the write path,
+the scan, and the retrieval surface. What remains is the ONE thing that was
+always going to wait for hardware — step 3's **size and overlap calibration**,
+provisional at 1,024 characters and 154, which is a recall measurement and
+therefore needs a live `nomic-embed-text`. It is the same measurement
+`EMBED-MARGIN-SCALE` (#163) wants, so it is one sitting when the GPU rig's driver
+upgrade lands, **and it has to be made in both English and Japanese** for the
+reason step 3 records: the same book chapter is 3,342 characters in English and
+2,079 in Japanese, yet Japanese runs near one token per character against
+English's four, so a 1,024-character chunk of Japanese carries roughly four times
+the tokens the default intends — and a chunk that overruns the model's context is
+truncated BY THE MODEL, so the failure is a quietly worse vector and never an
+error.
+
+The end-to-end gate is **`doc-pipeline-smoke.sh` §8**, which drives a question
+through the real `embed-exchange` wire against `test/mock-llm.rkt`'s embeddings
+mode. It is the only place that path is exercised end to end anywhere, which is
+#187's lesson applied before it had a chance to cost anything.
 
 Two things step 5 needed to know, both of which it now acts on — kept here
 because they are the facts a reader of the read's SQL will want:

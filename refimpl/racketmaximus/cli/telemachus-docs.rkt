@@ -35,6 +35,16 @@
          (only-in "../domain/repo/index-tools.rkt")       ; …and the indexing tools
          (only-in "../domain/repo/doc-tools.rkt")         ; …and the pipeline tools
          (only-in "../domain/kg/kg-tools.rkt")            ; …and the knowledge-graph tools
+         ;; …and the retrieval tool (#189 step 6). It needs a line of its own where
+         ;; `index-tools` and `embed-tools` would have been covered anyway: the CLI
+         ;; loads the plugins, and `doc-indexer` requires both of those for its two
+         ;; workflows, so their tools reach the reference either way. NOTHING owns a
+         ;; workflow over `repo_retrieve`, so without this line it is registered only
+         ;; by `server/main.rkt` — the tool would be live on every instance and absent
+         ;; from the generated reference, with the drift gate green because the
+         ;; committed page was rendered in that same state. #110 r3's side-effect-
+         ;; require trap, met from the generator's side.
+         (only-in "../domain/repo/retrieve-tools.rkt")
          "../domain/flow/run.rkt"
          "../domain/flow/spec.rkt"
          "../domain/authz/permissions.rkt"

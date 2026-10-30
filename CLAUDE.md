@@ -2559,8 +2559,9 @@ normalized store, and a bytes-level seal under `sealed.rkt`'s existing AAD rule.
 Step 3, the chunker, was called the one decision with no measurement behind it;
 that is true of its two NUMBERS and not of its mechanism, so it is **built** and
 only the calibration waits on a live `nomic-embed-text` — the same measurement
-`EMBED-MARGIN-SCALE` is waiting on. **Steps 4 and 5 need no model** and are
-built; step 6 is the retrieval surface.
+`EMBED-MARGIN-SCALE` is waiting on. **THE WHOLE BUILD PLAN IS BUILT**, steps 1
+through 6 — see the two sections below — and none of it needed a model. What is
+left is that calibration, in both languages.
 
 ## The vector arithmetic, and a seal that moves bytes (VEC‑11…17, ENC‑24, #189 steps 1–2)
 
@@ -2949,6 +2950,130 @@ DATABASE_URL="postgres://…" raco test test/chunksearch-tests.rkt  # the whole 
   because two writes in the same second tie.
 - **`create-team!` ANSWERS THE ID, NOT A HASH** — `(hash-ref … 'id)` on it is
   "expected: hash?" and cost the first run two cases.
+
+## Retrieval: the tool, and `?semantic=` on search (VEC‑33…40, #189 step 6)
+
+Built 29 Oct 2026 — the last step of `docs/design/vector-store.md`'s build plan,
+**so the whole of #189's plan is built**. `domain/repo/passages.rkt` (the shared
+read), `domain/repo/retrieve-tools.rkt` (the tool `repo_retrieve`),
+`search-passages` in `domain/apps/search.rkt`, and `?semantic=` on
+`GET /api/search`. **No migration and no new permission.**
+
+```sh
+raco test test/retrieve-tests.rkt                              # 13 cases, 10 controls, all biting
+DATABASE_URL="postgres://…" raco test test/retrieve-tests.rkt  # the whole file, both dialects
+bash test/doc-pipeline-smoke.sh                                # §8 — the only end-to-end embedding path
+bash test/server-smoke.sh                                      # the degradation, on an instance with no embedder
+```
+
+- **TWO ASKERS, ONE ANSWER** (VEC‑33). The step names a tool AND a search
+  parameter, so `passages-for` is the one place the question is embedded, the
+  budget is spent and the scan is asked — two copies would be
+  `executor-can-run?`'s drift in the worst place available, since one of them is
+  a model request against somebody's allowance. Three modules on purpose:
+  `chunksearch.rkt` is the scan and the `can?`, `passages.rkt` turns chunks into
+  TEXT, and the tool and the search half are each only a surface.
+- **THE TOOL REFUSES WHERE THE SEARCH DEGRADES, and both are right for the reason
+  each is right where it already appears** (VEC‑34). A tool asked for exactly this
+  names the unset variable and stops (`require-embedder!`'s argument: failing at
+  step one beats failing twenty-five times for one variable). A search asked for a
+  SEARCH answers the keyword half and reports that the other did not run —
+  `content_search: false`'s rule, in the very module that rule lives in — because
+  the alternative leaves a caller asking for both worse off than one asking for
+  neither. `semantic-available?` is exported so the two postures cannot drift into
+  one, and it makes neither decision itself.
+- **ASKING COSTS A MODEL REQUEST, SO IT IS GATED ON `chat:use`** (VEC‑35). This is
+  the only kind of search here that spends the team's AI allowance, because the
+  question must be embedded by the same checkpoint the stored vectors are of.
+  `search.rkt` already gates translations on that permission one `cond` arm away.
+  The registry still declares the tool under **`files:read`** — that is the
+  resource permission, and declaring the stricter one there would hide the tool
+  from the role that holds both. Metering goes through `current-doc-embed` +
+  `meter-embed!`, never `embed-exchange` directly (RED‑16).
+- **A PASSAGE WHOSE TEXT HAS MOVED UNDER IT IS DROPPED, NOT CLAMPED** (VEC‑37).
+  The offsets are into the string the extractor returned for a PARTICULAR version
+  (CHUNK‑1) and `repo-text-for` is keyed by object alone; the scan's join makes
+  them agree in every state a workflow can produce, so a mismatch means something
+  raced. Both wrong answers are worse than nothing — a clamped substring quotes
+  characters the vector was never made from, and an unclamped one RAISES and takes
+  a whole search down over one document.
+- **THE TOOL ANSWERS STRUCTURE, NOT PROSE WITH CITATIONS** (VEC‑38), and `kg_query`
+  is the precedent it is weighed against: that one answers in text with `[key]`
+  citations because an entity's answer IS a sentence. A passage's is not. The whole
+  point of carrying offsets is that a citation be MACHINE-READABLE, and flattening
+  them into prose leaves a model retyping a key it was handed — the one step in a
+  citation that can silently be wrong.
+- **THE THREE WAYS THE SEMANTIC HALF CAN BE UNAVAILABLE ARE A CLOSED VOCABULARY**
+  (VEC‑39): `unconfigured` / `forbidden` / `unavailable`, never an exception
+  message — #123's line, and the only form a client can branch on.
+  `semantic_reason` appears exactly when the half was ASKED and did not run, never
+  when it ran and matched nothing (QUOTA‑3), and a search that did not ask carries
+  no `semantic` field at all.
+- **A SEMANTIC SNIPPET IS THE PASSAGE'S HEAD, NOT A WINDOW ON A MATCH** (VEC‑40).
+  A passage was chosen for its meaning and may not contain one word of the
+  question, so there is nothing to centre on and pretending otherwise puts the
+  ellipses where they imply a match.
+- **AND IT IS THE FIRST CONTENT SEARCH THAT SURVIVES `TMACH_ENCRYPT_CONTENT`.**
+  #83 seals `repo_text.content`, so the keyword half's `LIKE` is dropped and
+  `content_search` reports false — the standing cost of the privacy-first switch.
+  The semantic half compares VECTORS and unseals the text through
+  `repo-text-for`, so on a sealed instance it is the only way left to search
+  inside a document. One case asserts both halves in one fixture.
+
+**`test/mock-llm.rkt` SERVES `/v1/embeddings` NOW, and §8 of
+`doc-pipeline-smoke.sh` is the ONLY place the embedding wire is driven end to end
+anywhere.** Every unit test of #189 scripts `current-doc-embed` — the right trade
+for a suite that must not need `nomic-embed-text` — which left `embed-exchange`'s
+own HTTP path and the whole chain from a question to a cited passage exercised
+nowhere. That is #187's lesson, where the one defect that existed only on the
+streaming path survived a year for exactly that reason. A request carrying `input`
+and no `messages` is an embeddings request; the vector is a deterministic **bag of
+words**, so texts that share words land near each other and a gate can assert that
+a question about cephalopods retrieves the octopus document rather than the bridge
+one. It is NOT a recall measurement.
+
+**Four things the gate cost a red run each, and all four are about fixtures:**
+
+- **THE MOCK'S WIDTH DECIDES WHETHER THE GATE CAN DISTINGUISH ANYTHING.** 32
+  dimensions first: words collide into buckets, so a long text covers most of them
+  and scores respectably against any query. Measured — a 440-byte JSON
+  classification record scored **0.276** against "cephalopods with arms" where the
+  sentence actually containing both words scored **0.144**, so the gate ranked a
+  machine-generated record above the answer. It is 256 now.
+- **BOTH WORKFLOWS HAVE TO BE DRAINED, and what it looked like was a ranking
+  problem.** By that section the suite holds well over twenty-five documents (every
+  earlier section leaves derived `.classification.json` and `.form.md` objects
+  behind) and both listers are bounded — `LIST-BATCH` 40, `EMBED-BATCH` 25 — and
+  ordered `updated_at` **ASC**, oldest first. So two documents uploaded a moment
+  earlier sit at the BACK of the queue and one run of each never reaches them. The
+  retrieval then returned plausible, badly-ranked passages from other sections'
+  fixtures, because the right answer was simply not in the index.
+- **AND DRAINING BROKE A BLOCK 250 LINES AWAY.** With many more documents carrying
+  extracted text, the knowledge-graph extraction's batch spread over a different
+  set and "carol sees Acme too" failed — nothing to do with retrieval. This file's
+  own lesson, and the same remedy: **the section is last** (§8, not §5m).
+- **THE LAST RUN OF A DRAIN REPORTS "no documents", so capturing "the run that did
+  the work" means keeping the last NON-empty one.** Asserting on the final run's
+  output asserts on the empty one.
+
+**A CORE TOOL WITH NO PLUGIN BEHIND IT IS ABSENT FROM THE GENERATED REFERENCE.**
+`cli/telemachus-docs.rkt` lists its tool modules by hand, and step 4's two tools
+reach `tools.md` anyway because `doc-indexer` requires `embed-tools` for its
+workflows. Nothing owns a workflow over `repo_retrieve`, so it was registered only
+by `server/main.rkt` — **live on every instance and missing from the docs, with
+the drift gate GREEN because the committed page had been rendered in that same
+state.** #110 r3's side-effect-require trap, met from the generator's side. Add
+the require to the CLI as well as to main.rkt.
+
+- **`quota-used` is POSITIONAL** (`conn subject-type subject-id dimension window`),
+  not keyword — the keyword spelling is "procedure does not accept keyword
+  arguments" at the call.
+- **`check-true` on `member` fails while printing the list that proves it right** —
+  third appearance; `(and … #t)`.
+- **There is no route that invokes a tool directly**, by design, so reaching the
+  agent-facing half over HTTP means publishing a one-step spec (`pdf-form`'s
+  precedent), and a hand-written spec uses the WIRE grammar
+  `${steps.<id>.output.*}`, not the macro's sugar.
 
 ## How good is it? the evaluation harness (CLS‑29…33, issue #87 req 6)
 
