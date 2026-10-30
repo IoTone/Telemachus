@@ -2001,10 +2001,67 @@
        ;; the delete path and the write path both act per object
        "CREATE INDEX repo_chunks_object ON repo_chunks(object_id)"))))
 
+(define m-0065-help-corpus
+  (migration "0065-help-corpus"
+    (lambda (conn)
+      ;; HELP‑3 — THE CORPUS IS THE INSTANCE'S, NOT A TEAM'S, so there is no
+      ;; `team_id` here and no `can?` on the read. These are the product's own
+      ;; shipped documents: the same bytes on every install, already published on
+      ;; GitHub and on the project's own Pages site. Putting them in
+      ;; `repo_objects` instead would have charged somebody's storage quota for
+      ;; the platform's manual, listed them in that team's documents and search,
+      ;; offered them to its knowledge-graph extraction — and, since
+      ;; `repo_objects.team_id` is NOT NULL, done all of that once per team.
+      ;;
+      ;; HELP‑4 — THE IDENTITY IS THE PATH AND THE STALENESS TEST IS A HASH OF
+      ;; THE FILE. A repository document is versioned because somebody uploads a
+      ;; new one; a documentation file simply differs from the one that was
+      ;; ingested last time, which is the rule `locales/ja.json` and the
+      ;; screenshot caption catalogs already live by (`source-hash`). So
+      ;; re-ingesting an unchanged tree costs nothing and no model request.
+      (define blob (case (db-dialect conn) [(postgresql) "BYTEA"] [else "BLOB"]))
+      (exec* conn
+       (string-append
+        "CREATE TABLE help_docs ("
+        "  id TEXT PRIMARY KEY,"
+        "  path TEXT NOT NULL,"            ; the source path, as given to the ingest
+        "  locale TEXT NOT NULL,"
+        "  title TEXT NOT NULL,"
+        "  content TEXT NOT NULL,"
+        "  source_hash TEXT NOT NULL,"     ; sha1 of the file's text — HELP‑4
+        "  chunk_count INTEGER NOT NULL,"
+        "  bytes INTEGER NOT NULL,"
+        "  updated_epoch INTEGER NOT NULL)")
+       "CREATE UNIQUE INDEX help_docs_path ON help_docs(path)"
+       "CREATE INDEX help_docs_locale ON help_docs(locale)"
+       ;; HELP‑5 — `vector` IS NOT SEALED, AND THAT IS THE ONE PLACE THIS SCHEMA
+       ;; DELIBERATELY DIVERGES FROM `repo_chunks`. VEC‑3 seals that column
+       ;; because embedding inversion recovers much of a chunk's source text and
+       ;; the source is a team's own document, so an unsealed vector beside a
+       ;; sealed `repo_text` would undo #83 on the instance that asked for it.
+       ;; Here the source text is the product's published documentation: an
+       ;; inversion that recovered it perfectly would recover a web page. Sealing
+       ;; it would protect nothing, and would add a column
+       ;; `telemachus-secrets rewrap` must walk — which is how a sealed value
+       ;; becomes silently unrotatable.
+       (string-append
+        "CREATE TABLE help_chunks ("
+        "  id TEXT PRIMARY KEY,"
+        "  doc_id TEXT NOT NULL,"
+        "  idx INTEGER NOT NULL,"
+        "  start_off INTEGER NOT NULL,"    ; CHUNK‑1's coordinates, into help_docs.content
+        "  end_off INTEGER NOT NULL,"
+        "  heading TEXT NOT NULL,"         ; HELP‑6: the Markdown heading above the chunk
+        "  model TEXT NOT NULL,"
+        "  vector " blob " NOT NULL,"
+        "  created_epoch INTEGER NOT NULL)")
+       "CREATE UNIQUE INDEX help_chunks_chunk ON help_chunks(doc_id, idx)"
+       "CREATE INDEX help_chunks_doc ON help_chunks(doc_id)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
                              m-0040-executor-state m-0041-job-queued-age m-0042-executor-admin-state m-0043-job-release m-0044-job-purge m-0045-legal-hold m-0046-audit-reads m-0047-audit-chain m-0048-idempotency m-0049-login-throttle m-0050-blob-staging m-0051-job-schedules m-0052-user-timezone m-0053-schedule-cadence m-0054-webhooks m-0055-worker-token-rotation m-0056-feeds m-0057-annotations m-0058-anchor-receipts
                              m-0059-feed-items m-0060-trigger-attrs m-0061-redactions
                              m-0062-model-requests m-0063-model-request-operation
-                             m-0064-chunk-vectors))
+                             m-0064-chunk-vectors m-0065-help-corpus))

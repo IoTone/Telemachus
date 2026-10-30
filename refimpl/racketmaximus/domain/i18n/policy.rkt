@@ -33,7 +33,13 @@
          "../settings/settings.rkt")
 
 (provide i18n-policy i18n-policy-set!
-         resolve-locale)
+         resolve-locale
+         ;; EXPORTED FOR A SECOND ASKER, with a test behind it (#110 r4's stated
+         ;; exception): the help corpus recognises a locale in a documentation
+         ;; path only if this build ships a catalog for it (HELP‑10), which is
+         ;; the same `available` rule — derived from the files on disk, never
+         ;; stored — rather than a second list that would drift from this one.
+         available-locales)
 
 (define KEY "i18n")
 

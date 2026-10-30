@@ -86,12 +86,20 @@ stdenv.mkDerivation (finalAttrs: {
     # claim a job and POST to a local model. `nix profile install
     # github:IoTone/Telemachus` is now the whole of it.
     #
-    # All four share ONE wrapper rule deliberately. The worker reaches none of
+    # telemachus-help ingests the in-product help corpus (#183). It is packaged
+    # for the reason HELP-2 records: `src` here is `refimpl/racketmaximus`, so
+    # `docs/` is in neither the store nor the image, and the operator of a
+    # packaged instance ingests from a checkout of the release they are running.
+    # Without the wrapper that operator would need the build toolchain to run a
+    # command whose whole job is to read Markdown and POST to an embedder —
+    # which is the argument that put `telemachus-worker` here.
+    #
+    # All five share ONE wrapper rule deliberately. The worker reaches none of
     # pandoc, tectonic, weasyprint, pdfcpu or qpdf, so a narrower PATH for it
     # would be more accurate and would also be a second rule to keep in step
     # with the first — and every one of those is already in the closure because
     # the server needs it, so the narrower wrapper would save nothing at all.
-    for entry in server:server/main.rkt localize:cli/telemachus-localize.rkt secrets:cli/telemachus-secrets.rkt worker:cli/telemachus-worker.rkt; do
+    for entry in server:server/main.rkt localize:cli/telemachus-localize.rkt secrets:cli/telemachus-secrets.rkt worker:cli/telemachus-worker.rkt help:cli/telemachus-help.rkt; do
       name=''${entry%%:*}; path=''${entry#*:}
       makeWrapper ${racket}/bin/racket $out/bin/telemachus-$name \
         --add-flags "$out/share/telemachus/$path" \

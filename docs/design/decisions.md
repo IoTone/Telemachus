@@ -4289,3 +4289,73 @@ the semantic one finds the passage in plaintext.
   only by `server/main.rkt` — live on every instance and missing from the docs,
   with the drift gate GREEN because the committed page was rendered in that same
   state. #110 r3's side-effect-require trap, met from the generator's side.
+
+## HELP — the in-product help corpus and its read (issue #183, slice 1, built 29 Oct 2026)
+
+#183 asks for in-product help as a chat box grounded in this repository's own
+documentation, and names four decisions to make before building. This slice makes
+them and builds the half they decide: the corpus, its ingest and the
+nearest-passage read. The ANSWER — the prompt, the refusal, the route and the
+console panel — is slice 2, specified at the end of
+`docs/design/in-product-help.md`. **No route, no permission, no console code and
+no new environment variable**: migration `0065-help-corpus`,
+`domain/help/{helpstore,helpindex,helpsearch}.rkt` and
+`cli/telemachus-help.rkt`.
+
+| # | Decision | Taken | Why |
+|---|---|---|---|
+| **HELP‑1** | Who runs the ingest | **An operator CLI** · vs a workflow, a trigger, a boot step | Every model-backed workflow here runs as a principal and bills a team; the corpus belongs to no team, and this platform has **no instance-tier quota subject** — `quotas.md` and #113's note both say so. So an ingest is out of band, beside `telemachus-secrets rewrap` and `telemachus-anchor emit`. What it costs is stated: the requests are charged to nobody. They ARE logged, and that took finding — `model-request-logger` is a box `server/main.rkt` fills, so the first working ingest wrote 111 requests to a model endpoint and logged NONE, which `log-model-request!`'s own swallow (RED‑17) made silent. The CLI installs a logger; the fix was the logger, not the sentence that claimed it. |
+| **HELP‑2** | Where the documents come from | **A tree the operator names, ingested into the database** · vs read off disk at request time or at boot | A MEASUREMENT decided it. `nix/telemachus.nix` sets `src = ../refimpl/racketmaximus`, so `docs/` is in neither the store nor the image: a boot-time read works in every checkout and finds nothing on every packaged install — #119's shape exactly, a feature reporting healthy and doing nothing. Adding `docs/` to the derivation puts the committed book PDF and nineteen chapters of art into an image whose size `container.md` guards twice. The corpus therefore lives in the DATABASE, which travels with the instance, and `telemachus-help` is packaged so an operator needs no build toolchain to fill it. |
+| **HELP‑3** | Whose rows they are | **The instance's, in `help_docs`/`help_chunks`** · vs a team's repository documents | `repo_objects.team_id` is NOT NULL, so the shipped manual would be ingested **once per team**, charged to each team's `storage.bytes`, listed in each team's documents and search, and offered to its knowledge-graph extraction. A plugin was the other candidate and cannot be: a plugin may not add a permission to the catalog (MTX‑9), own a sealed column (FEED‑5), add a quota dimension or add a console tab, and slice 2 needs three of the four. |
+| **HELP‑4** | What makes a document stale | **sha1 of the file's text, per path** · vs a version chain, an mtime | A repository document is versioned because somebody uploaded a new one; a documentation file simply differs from what was ingested last time. That is the rule `locales/ja.json` and the screenshot caption catalogs already live by, and `source-hash` is already the one place it is spelled. An mtime moves on a fresh `git clone` and would re-embed the whole corpus for nothing. |
+| **HELP‑5** | Is the vector sealed | **No** · vs `#:bytes` as `repo_chunks.vector` is | The one deliberate divergence from #189's schema, so it is pinned by a test rather than left to read as a forgotten seal. VEC‑3 seals that column because embedding inversion recovers much of a chunk's source text and the source is a team's own document. Here the source is the product's **published** documentation: an inversion that recovered it perfectly would recover a web page. Sealing would protect nothing and would add a column `telemachus-secrets rewrap` must walk — which is how a sealed value becomes silently unrotatable. The case runs with a key configured AND `TMACH_ENCRYPT_CONTENT` on, which is exactly when a content column seals. |
+| **HELP‑6** | What is embedded | **`title / heading / text`, while the offsets quote the raw chunk** · vs the bare chunk | A chunk in the middle of a runbook reads "set it to 1 and restart"; the words that make it findable are hundreds of characters above it, in no chunk that contains the answer. The cost is real and is stated where somebody would otherwise meet it by surprise: **a chunk's vector is of more than the chunk cites**, so a passage can be retrieved for a word that appears only in its heading. The first chunk of a document has no heading above it — nothing precedes offset 0 — which is the second reason the title is in the composition. |
+| **HELP‑7** | Authorization per row | **None, and that is the shape of the feature** · vs `can?`, as `chunks-nearest` must | A paragraph of `docs/ops/container.md` is the manual for the software the asker is signed in to. So there is no per-row filter to get wrong, and — the part worth noticing — **VEC‑28's authorization headroom disappears with it**, and with it the one approximation #189's read had to make. `k` candidates are scored and `k` are answered. What remains is slice 2's: asking costs a model request, so the ROUTE is gated on `chat:use` (VEC‑35's rule), which is about spending and not about the documents. |
+| **HELP‑8** | The write's unit | **One path, one transaction, replaced wholesale** · vs per-chunk upserts | VEC‑21 unchanged: a half-written set is a document whose chunks 0–4 index today's text and 5–11 last release's, and nothing downstream can detect it — the model matches, the widths match, and the offsets point into a string that changed underneath them. |
+| **HELP‑9** | Re-ingesting | **An unchanged file costs no model request** · vs always re-embed | 1,568 chunks is 111 embedding requests; editing one runbook should be one. Measured: a second ingest of `docs/ops` makes **zero** requests and does not call the embedder at all. `--force` exists because changing the chunk SIZE does not change the model name and so cannot be detected, unlike a model change (EMB‑8), which `status` warns about and which needs `clear` first. |
+| **HELP‑10** | Finding a locale in a path | **A closed set, matched as a directory segment or a `.xx.md` suffix** · vs a two-letter grammar | Both spellings are real here (`docs/book/ja/…`, `docs/reference/ja/…`, `README.ja.md`). The set is the catalogs this build actually ships — `available-locales`, exported for this second asker — which is the `available` rule: an instance must not build a help corpus in a language it cannot render one string of. A grammar would read any two-character directory as a language, and a mis-tagged document is INVISIBLE: never retrieved for the locale that should have found it. |
+| **HELP‑11** | The window cap | **20,000, which is sixteen times the corpus** · vs VEC‑26's 50,000 | A different kind of number from VEC‑26's, which is deliberately equal to the scale at which `vector-store.md` says to reconsider the design, because a team's document count is unbounded. This corpus is the project's own documentation — measured at 1,568 chunks — so a truncating window would mean the documentation had outgrown the assumption. `truncated` is reported for that reason. |
+| **HELP‑12** | The locale of an answer | **An exact SQL filter, a fallback, and the report says which locale answered** · vs one pooled corpus | The console ships in Japanese; a Japanese operator asking a Japanese question should be answered out of the Japanese pages. What is NOT claimed is cross-lingual retrieval: whether `nomic-embed-text` puts a Japanese question near its English answer is unmeasured, and relying on it quietly would be the confident wrong answer CHUNK‑2 warns about. A silent fallback is worse than an obviously untranslated page — the screenshot captions' own rule — so the fallback is named in the result. |
+| **HELP‑13** | A passage whose text moved | **Dropped and counted** · vs clamped, vs raising | VEC‑37, unchanged: a clamped substring quotes characters the vector was never made from, which is wrong in the one way a citation must not be; raising takes a whole answer down over one file. `help-replace-doc!` writes text and chunks in one transaction, so a mismatch means something raced an ingest. |
+| **HELP‑14** | What a citation carries | **path, title, heading, character range — and the text** · vs an id, vs prose | CHUNK‑1 is why this is free: the chunker indexes the string it was given and the store keeps that same string, so a hit resolves to a substring with no mapping in between. The path is relative to the tree the operator named, because an absolute one names a directory on a machine the reader has no access to. |
+
+### What the slice measured
+
+| | documents | chunks | requests at 32/batch |
+|---|---|---|---|
+| `docs/` + both READMEs, English | 63 | **1,400** | |
+| the same, Japanese | 26 | **168** | |
+| total | **89** | **1,568** | **111** |
+| `docs/ops` alone, end to end through `embed-exchange` | 7 | 173 | 8 |
+
+`vector-store.md` estimated **1,159** English chunks at 256 tokens with 15%
+overlap; the real chunker gives **1,400** for 63 files, because the boundary
+search (CHUNK‑3) ends a chunk at the last sentence break inside its window and so
+produces slightly shorter chunks and a few more of them. The estimate was within
+20%, and 1,568 chunks is about 12 ms of arithmetic by interpolation from #189
+step 1's measured 8 ms at 1,000 and 76 ms at 10,000.
+
+### Three things this slice paid for
+
+- **THE REQUEST LOG IS A BOX A CLI DOES NOT FILL, AND THE SWALLOW HIDES IT.**
+  The module header said an ingest's requests were logged; they were not, and
+  nothing failed — `log-model-request!` catches its own failures so an unwritable
+  log never costs anybody their answer (RED‑17), and an EMPTY box is not even a
+  failure. Found by reading `model_requests` after the first working ingest and
+  seeing nothing at all. Any future CLI that makes a model request has the same
+  hole.
+- **THE SCRIPTED EMBEDDER'S TOKENIZER DECIDED WHETHER THE JAPANESE CASES COULD
+  EXIST.** `[[:alnum:]]` is ASCII-only here, so a bag of words built by splitting
+  on its complement reduced every Japanese fixture to **no words and a zero
+  vector** — which `help-replace-doc!` correctly refuses (VEC‑22), so twelve of
+  fifteen cases failed naming the Japanese README. The fixture was the problem and
+  the refusal was right. A per-character bag is the stand-in for a language with
+  no spaces.
+- **`check-true` ON `member` AGAIN**, the fourth appearance in these suites: it
+  demands exactly `#t` and `member` answers a tail, so the case fails while
+  printing the list that proves it right. `(and … #t)`.
+
+All twelve positive controls bite: the locale rule, the staleness hash,
+`--no-prune`, the title/heading composition, the heading scan, the empty-file
+record, the model filter in SQL, the directionless refusal, the locale fallback,
+the moved-text drop, `help-available?`'s reasons, and the stored form.
