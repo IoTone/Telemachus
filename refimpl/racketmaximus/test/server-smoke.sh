@@ -2553,7 +2553,7 @@ UPID=$(printf '%s' "$UPB" | grep -oP '"upload_id":"\K[^"]+')
 # an invalid key is refused BEFORE the recording is sent, not after (STG-4)
 assert "upload: an invalid key is refused at BEGIN" \
   "$(curl -s -X POST "$B/api/uploads" -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
-      -d '{"key":"../escape"}')" 'valid key is required'
+      -d '{"key":"../escape"}')" 'invalid key'
 
 assert "upload: part 1" \
   "$(curl -s -X PUT "$B/api/uploads/$UPID/parts/1" -H "Authorization: Bearer $OP" \
