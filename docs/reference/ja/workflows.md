@@ -15,6 +15,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | `index-knowledge` | knowledge-graph | 1 | 2 | インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `process-upload` | doc-pipeline | 1 | 6 | テキストを抽出し、JSON スキーマに照らして構造化フィールドを取り出し（適合しなければ拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳する。すべての出力は元文書の隣にあるリポジトリ文書で、由来が記録されます。 |
 | `redact-document` | doc-pipeline | 1 | 1 | 文書テキスト中の識別子を安定したトークンに置き換え、その結果を元文書の隣に <key>.redacted.txt として書き出す。モデルへの要求が何から組み立てられるのかを、そのまま読んで確認できます。検出器は名前で選び — email、date、id_number、dictionary、phone — トークンから値へ戻す対応表は、どのエンドポイントも返さない封緘済みの行に保存します。 |
+| `transcribe-documents` | doc-indexer | 1 | 2 | チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。 |
 | `translate-chat` | translate-chat | 1 | 3 | 1回チャットし、返答をスペイン語・オランダ語・アイスランド語に展開してから、それぞれを戻す。 |
 
 ## `classify-and-extract` — 文書を分類してフィールドを抽出する
@@ -252,6 +253,21 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `redact` | `tool:doc_redact` | `{"detectors":"${input.detectors}","object":"${input.object_id}","run":"${run.id}","step":"redact","terms":"${input.terms}"}` | end |
+
+## `transcribe-documents` — ボイスノートの文字起こし
+
+チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。
+
+Plugin: `doc-indexer` · version 1 · max steps 30 · starts at `find`
+
+Takes no input.
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `find` | `tool:voice_list_untranscribed` | `{}` | next in order |
+| `speak` | `map` | over `${steps.find.output.result}` → `tool:doc_transcribe` with `{"object":"${item}"}` | end |
 
 ## `translate-chat` — 翻訳チャットワークフロー
 

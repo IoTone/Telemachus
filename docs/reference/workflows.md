@@ -15,6 +15,7 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | `index-knowledge` | knowledge-graph | 1 | 2 | Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run. |
 | `process-upload` | doc-pipeline | 1 | 6 | Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance. |
 | `redact-document` | doc-pipeline | 1 | 1 | Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns. |
+| `transcribe-documents` | doc-indexer | 1 | 2 | Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read. |
 | `translate-chat` | translate-chat | 1 | 3 | Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back. |
 
 ## `classify-and-extract` — Classify a document, then extract its fields
@@ -252,6 +253,21 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `redact` | `tool:doc_redact` | `{"detectors":"${input.detectors}","object":"${input.object_id}","run":"${run.id}","step":"redact","terms":"${input.terms}"}` | end |
+
+## `transcribe-documents` — Transcribe Voice Notes
+
+Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read.
+
+Plugin: `doc-indexer` · version 1 · max steps 30 · starts at `find`
+
+Takes no input.
+
+Steps:
+
+| Step | Uses | Binding | Next |
+|---|---|---|---|
+| `find` | `tool:voice_list_untranscribed` | `{}` | next in order |
+| `speak` | `map` | over `${steps.find.output.result}` → `tool:doc_transcribe` with `{"object":"${item}"}` | end |
 
 ## `translate-chat` — Translate Chat Workflow
 

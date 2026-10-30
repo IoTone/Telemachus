@@ -402,6 +402,9 @@
   "doc.tool.doc_text": "Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run.",
   "doc.tool.doc_text.object": "The repository object id",
   "doc.tool.doc_text.version": "A specific version id (default: the current version)",
+  "doc.tool.doc_transcribe": "Transcribe a repository audio document — a voice note — into the search index. Needs TMACH_TRANSCRIBE_URL. The transcript becomes the document's text, so search, the knowledge graph, ?semantic=1 and the field extractor all read it afterwards with nothing further to run. Refuses a document that is not audio by name rather than sending it.",
+  "doc.tool.doc_transcribe.language": "The spoken language as a two-letter code, if it is known; omitted means let the model detect it",
+  "doc.tool.doc_transcribe.object": "The repository object id",
   "doc.tool.doc_translate": "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt).",
   "doc.tool.doc_translate.locale": "Target language code, e.g. ja, nl, es-419",
   "doc.tool.doc_translate.object": "The document's object id",
@@ -451,6 +454,8 @@
   "doc.tool.update_note.body": "New body (optional)",
   "doc.tool.update_note.id": "The note id",
   "doc.tool.update_note.title": "New title (optional)",
+  "doc.tool.voice_list_untranscribed": "List the team's audio documents that have no transcript yet — the input to a transcription pass. Returns object ids, capped at a batch; run the workflow again to continue. A recording that has already been transcribed is skipped, which is what makes a re-run free.",
+  "doc.tool.voice_list_untranscribed.prefix": "Only documents whose key starts with this (default: every one in the team)",
   "doc.tool.word_count": "Count the number of words in a piece of text.",
   "doc.tool.word_count.text": "The text to count words in",
   "doc.workflow.classify-and-extract": "Decide which kind of document this is (deterministic rules first, then the model), record the type on the document, and extract fields against the schema for THAT type. A type with no schema is classified and left alone.",
@@ -475,6 +480,8 @@
   "doc.workflow.process-upload.name": "Process an uploaded document",
   "doc.workflow.redact-document": "Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns.",
   "doc.workflow.redact-document.name": "Redact a document",
+  "doc.workflow.transcribe-documents": "Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read.",
+  "doc.workflow.transcribe-documents.name": "Transcribe Voice Notes",
   "doc.workflow.translate-chat": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
   "doc.workflow.translate-chat.name": "Translate Chat Workflow"
 }

@@ -4561,3 +4561,83 @@ working: that assertion pins the DERIVED set as a whole, so adding four adapters
 had to be a deliberate edit rather than something a suite agreed with silently.
 Same argument `vocabulary-tests.rkt` makes for pinning a closed vocabulary rather
 than re-deriving it.
+
+## VOICE — voice notes: the wire, the tools, the pipeline (issue #192, slice 1, built 30 Oct 2026)
+
+#192 asks for four things: a built-in tool for voice notes, a way to upload
+offline ones, an API for streamed capture, and a pipeline that transcribes and
+then lets you converse with the result. **Two of them were already mostly
+built**, which is the finding and is why this slice is small. The streamed
+capture API is slice 2 and is specified at the end of
+`docs/design/voice-notes.md`.
+
+`transcribe-exchange` in `domain/ai/executor.rkt`, `domain/repo/voice.rkt`,
+`domain/repo/voice-tools.rkt`, `ai.transcriptions.total`, and the
+**Transcribe Voice Notes** workflow in `plugins/doc-indexer/`. **No migration and
+no new route.**
+
+| # | Decision | Taken | Why |
+|---|---|---|---|
+| **VOICE‑1** | The endpoint and the model | **Their own pair, `TMACH_TRANSCRIBE_URL` / `_MODEL`** · vs derived from `TMACH_MODEL_URL` | EMB‑1's argument a third time and no weaker for it: a transcription model is `whisper-large-v3` or `parakeet`, never a chat model and never an embedding one, so the name cannot be shared with either — and once the name is separate the URL may as well be. Deriving the path assumes one server and would send the chat model's name to an endpoint that cannot use it. |
+| **VOICE‑2** | The body | **`multipart/form-data`, through `http-post-data`** · vs a JSON spelling, vs a second transport | `/v1/audio/transcriptions` takes a file part and there is no JSON spelling of it in the OpenAI shape; inventing one would mean picking the providers that accept base64 and excluding the rest. `http-post-json` is now a thin wrapper over `http-post-data`, so the encoding is the only thing that differs — a second copy of the open/deadline/dynamic-wind/retry shape would reintroduce the descriptor leak `llm.rkt`'s header was written about, for the request kind carrying the LARGEST body. The boundary is checked against the payload, not merely randomised: a collision truncates the part, and what that produces is not an error but a shorter transcript. |
+| **VOICE‑3** | What the request log records | **The filename and the byte count; never the audio, never the transcript** | `log-model-request!` digests its `messages` (RED‑18), and audio is not a message — a digest of 40 MB of it is an HMAC nobody can reproduce or compare, which is the opposite of what a digest is for. The filename and size are enough for an operator auditing egress to see what left and how much of it, and cannot reconstruct a word. The transcript stays out because it is content and the row is the record that a request was made. |
+| **VOICE‑4** | An empty answer | **`""` is an answer; a missing `text` key is an error** | Silence really does transcribe to empty and a recording of a quiet room is a legitimate voice note. A response with no `text` at all is a proxy, a gateway or a different API — treating it as silence would store an empty transcript for a recording that was never read. `content->text`'s rule: an empty answer must never be manufactured. |
+| **VOICE‑5** | Which types | **A closed list, not `audio/*`** · and `video/*` excluded | A prefix match claims every format anybody invents, and the endpoint picks its decoder from the filename EXTENSION — so a type with no extension in the table would be posted as `.bin` and refused by the far end with a message about the format rather than about the type. `video/*` is a different decision: a screen recording carries pictures this platform would be discarding silently, and "which audio stream?" has no answer a closed list can give. |
+| **VOICE‑6** | The posted filename | **Derived from the content type, never from the key** | Two reasons and the second is the one that matters: a key is somebody else's string and it becomes part of a multipart header, where a newline would ADD a header — the injection `fetch` refuses for its own headers. And a key need not carry an extension at all, while every OpenAI-compatible server picks its decoder from one. So it is `voice-note.<ext>` and the document's identity stays in the row. |
+| **VOICE‑8** | Uploading an offline note | **Already true; no code** | `PUT /api/repo/<key>` with an `audio/*` content type. The repository takes any format in and `web-kit/http1` moves it. What requirement 2 needed was for the thing to be worth uploading. |
+| **VOICE‑9** | Where the transcript goes | **`repo_text`** · vs a derived `<key>.transcript.txt` | `doc_redact` writes a derived document because RED‑8's point was that a person must audit what would have been sent. A transcript is not a copy of anything — it is the text OF the recording, which is what `repo_text` is for. And it is what makes requirement 4's "converse with data" need NOTHING: keyword search, the knowledge graph, `?semantic=1` and `doc_extract_fields` all already read that column. A derived document would double the storage and give search two hits for one recording. |
+| **VOICE‑10** | A tool, or an extractor | **A tool** · vs `register-extractor!` on the audio types | LAY‑7's registry is the obvious home and would make a recording searchable through the indexing workflow with nothing changed. But an extractor's contract is `(port content-type) -> (values text reason)` — no connection, no principal — and a transcription is a model request against somebody's budget. `chunkstore.rkt` takes its vectors as an argument for exactly this reason: metering can only happen where the principal is. |
+| **VOICE‑11** | What it costs | **`ai.transcriptions.total`, counting RECORDINGS, no default limit** · vs tokens, vs seconds of audio | A transcription returns no tokens at all, so `ai.tokens.total` could not measure it even if it should. Seconds of audio is worse than it sounds: the duration is known only if the endpoint reports it, so the dimension would read 0 for every server answering plain `json`. Recordings is the unit an operator can reason about. In `QUOTA-HOLD-DIMS`; `ai.requests` charged beside it. |
+| **VOICE‑12** | A lister of its own | **Yes** · vs reusing `repo_list_unindexed` | That one filters on `extractable?`, which audio is not — so a voice note is invisible to it, and correctly: the indexing workflow would otherwise fan out over recordings it cannot read and fail a step on each. This window is the same question narrowed to `AUDIO-TYPES`, with `can?` per row for the reason #189 step 4 found the hard way. |
+| **VOICE‑13** | A document that is not audio | **Refused before the wire, by name** | A PDF posted to a transcription endpoint comes back as whatever that server says about a file it cannot decode, which names its internals rather than the caller's mistake (`doc_fill_form`'s reason for refusing by content type first) — and it would have spent the request. |
+| **VOICE‑14** | A silent recording | **Recorded, not raised** | Raising would fail the step, and the next run would list the same object and fail again: one silent recording wedging the team's transcription for ever. `repo_extract_text`'s own `else` branch. The row keyed to this version is what stops it being offered again; a re-upload makes it eligible. |
+
+### A third workflow, and the order is the opposite of the other two
+
+`transcribe-documents` is separate for VEC‑24's reason once more — a step that
+errors fails the RUN, and `doc_transcribe` refuses without an endpoint that is
+unset on every instance today, so appending it to either existing workflow would
+make indexing start failing everywhere. And it runs **first** for a voice note,
+where embed runs second for a text document: a recording has no text until this
+has run, so Index Documents has nothing to extract and Embed Documents has
+nothing to chunk. The workflow description says so and the smoke asserts the
+recording is not findable before.
+
+### Two things this slice paid for
+
+- **`pregexp` HAS NO `\r` OR `\n` ESCAPE, AND THE FAILURE WAS AT MODULE
+  INSTANTIATION.** `test/mock-llm.rkt`'s multipart reader was written with
+  `"\\r?\\n"`, which raises `illegal alphabetic escape` when the pattern is
+  compiled — at module level, so **the mock server never started**. What that
+  looked like was `connection refused` on the model port and 30 failing
+  assertions across four sections of `doc-pipeline-smoke.sh` that have nothing to
+  do with voice notes, including a knowledge-graph block reporting
+  `unextracted: 34`. `raco make` stayed green throughout, which is this project's
+  own recorded shape for a plugin that compiles and will not load. Real CR and LF
+  characters, built with `string-append`.
+- **AND THE PLUGIN BYTECODE WAS STALE, which is the same lesson from the other
+  side.** Changing `executor.rkt`'s exports left `plugins/feeds/compiled/*.zo`
+  linking a `run-chat` that no longer existed, so the feeds plugin failed to load
+  and nine assertions failed naming feeds. `raco make server/main.rkt` does not
+  reach a `dynamic-require`d plugin: `find . -name compiled -type d -prune -exec
+  rm -rf {} +` after touching anything a plugin requires.
+
+### Two controls that cannot bite, and both are stated rather than papered over
+
+Eleven of thirteen bite. The two that do not:
+
+- **The boundary collision check.** The boundary is 64 random bits, so a fixture
+  cannot contain one — neutralising the check changes no assertion, and
+  falsifying it would need the generator seeded. VEC‑13's unpinnable pin: a
+  reason to write the check down, not a reason it is redundant, and it costs one
+  scan of bytes already in memory.
+- **The fields-before-file ORDER.** That the fields are written, that the file
+  part has its own headers and that the body closes are each controlled and each
+  bite; the ORDER itself is asserted and is not independently falsifiable by a
+  string patch. The order exists so a provider that streams the parse can refuse
+  an unknown model without reading a 40 MB body.
+
+And the request log's `REQUEST-OPERATIONS` is pinned as a whole list, so adding
+`"transcribe"` failed `embed-tests.rkt` — the gate working, a third kind of
+model request being a deliberate edit rather than a string that arrives and is
+never explained.

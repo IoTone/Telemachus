@@ -133,6 +133,36 @@ it cannot share `ai.tokens.total`), and each call also counts one `ai.requests`.
 | `TMACH_EMBED_MODEL` | `local-embed` | The embedding model name sent to that endpoint. **Changing it invalidates every cached label vector**, which is the correct behaviour — vectors from two checkpoints are not comparable — and costs one re-embed of each label per team. |
 | `TMACH_EMBED_KEY` | — | Bearer token for the embedding endpoint. |
 
+## Transcription (voice notes)
+
+A third endpoint and a third model name, for the same reason the embedding pair
+are their own: a transcription model is `whisper-large-v3` or `parakeet`, never a
+chat model and never an embedding one — so the name cannot be shared, and
+deriving the URL from `TMACH_MODEL_URL` would assume all three live on one
+server.
+
+With `TMACH_TRANSCRIBE_URL` unset, **nothing is lost and nothing breaks**: the
+only callers are the `doc_transcribe` tool and the **Transcribe Voice Notes**
+workflow, and both refuse by name rather than falling through to something else.
+Audio uploads still work — the repository takes any format in — they simply have
+no transcript, which means no search, no knowledge graph and no semantic
+retrieval over what was said.
+
+Any OpenAI-compatible `/v1/audio/transcriptions` endpoint will do; whisper.cpp
+ships `whisper-server`, which speaks it. The platform posts
+`multipart/form-data` with `response_format=verbose_json`, and reads `text`
+always plus `duration` and `language` when the server sends them.
+
+Transcription spends its own quota dimension, `ai.transcriptions.total`, counting
+RECORDINGS — a transcription returns no tokens at all, so `ai.tokens.total`
+could not measure it. Each call also counts one `ai.requests`.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TMACH_TRANSCRIBE_URL` | — | An OpenAI-compatible `/v1/audio/transcriptions` endpoint. Unset means `doc_transcribe` and the Transcribe Voice Notes workflow are refused by name. |
+| `TMACH_TRANSCRIBE_MODEL` | `whisper-1` | The model name sent to that endpoint, and recorded on each recording as `voice_model`. |
+| `TMACH_TRANSCRIBE_KEY` | — | Bearer token for the transcription endpoint. |
+
 ## Jobs, scheduling and shutdown
 
 | Variable | Default | What it does |

@@ -57,6 +57,15 @@ JSON
   # and the one defect that existed only there survived for a year.
   export TMACH_EMBED_URL="http://127.0.0.1:$MOCK_PORT/v1/embeddings"
   export TMACH_EMBED_MODEL=mock-embed
+  # #192: and the same mock serves /v1/audio/transcriptions — detected on the
+  # CONTENT TYPE (multipart/form-data), because the mock discards the request
+  # line. The "transcript" is the file part decoded as text, so a fixture can put
+  # a known sentence in the "audio" and section 9 can assert which recording came
+  # back. Same reason as the embeddings branch: without it the multipart body and
+  # the response reader are exercised by unit tests only, which is the gap #187
+  # found on the streaming path.
+  export TMACH_TRANSCRIBE_URL="http://127.0.0.1:$MOCK_PORT/v1/audio/transcriptions"
+  export TMACH_TRANSCRIBE_MODEL=mock-whisper
 fi
 
 fail=0
@@ -1795,6 +1804,71 @@ if [ $LIVE = 0 ]; then
   assert "an embedding request was logged" "$(G "/api/model-requests")" '"operation":"embed"'
 fi
 
+
+# ---- 9. voice notes: upload a recording, transcribe it, then find it (#192) ------
+#
+# LAST IN THE FILE, after §8, for the reason §8 is: a new document changes what
+# every bounded lister above reaches, and this section adds one AND runs a
+# workflow that writes text. The file's own recorded lesson — a fixture that
+# changes GLOBAL state breaks a distant block — with the same remedy.
+#
+# This is the only place #192's wire is driven end to end: the multipart body
+# really is composed, posted and parsed. The "audio" is a sentence in UTF-8,
+# which is what makes the transcript assertable.
+if [ $LIVE = 0 ]; then
+  echo
+  echo "== 9. voice notes (#192) =="
+  printf 'the kiln reached cone six overnight and the glaze crawled on two pots\n' > "$TMACH_DATA_DIR/note.mp3"
+  VN=$(curl -s -X PUT "$B/api/repo/voice/standup.mp3" -H "Authorization: Bearer $TOK" \
+        -H 'Content-Type: audio/mpeg' --data-binary @"$TMACH_DATA_DIR/note.mp3")
+  VNID=$(printf '%s' "$VN" | jq_ 'd["id"]')
+  assert "the voice note uploaded as audio" "$VN" '"content_type":"audio/mpeg"'
+  assert "...and requirement 2 needed no new route" "$VN" '"key":"voice/standup.mp3"'
+  assert "the transcription tools are registered" "$(G /api/tools)" '"name":"doc_transcribe"'
+  assert "the Transcribe Voice Notes workflow arrived" "$(G /api/workflows)" '"slug":"transcribe-documents"'
+
+  # A recording has NO text until this has run, so Index Documents has nothing to
+  # extract from it — which is why transcription is its own workflow and runs
+  # first for a voice note (the opposite order from index-then-embed).
+  BEFORE=$(G "/api/search?q=glaze%20crawled")
+  refute "the recording is not findable before transcription" "$BEFORE" 'voice/standup.mp3'
+
+  # Drained, for §8's reason: by this point the team holds well over twenty
+  # documents and the lister is bounded and ordered oldest-first. Audio is the
+  # only type it offers, so the window is small — but draining is also the
+  # assertion that the pass TERMINATES (VEC-23).
+  for i in 1 2 3; do
+    RVN=$(P /api/workflows/transcribe-documents/run '{"input":{}}')
+    wait_run "$(printf '%s' "$RVN" | grep -oP '"id":"\K[^"]+' | head -1)"
+    [ "$RUNST" = done ] || break
+    printf '%s' "$RUNJSON" | grep -q '"result":\[\]' && break
+    LASTVN="$RUNJSON"
+  done
+  assert "transcribe-documents drained" "$RUNST" "done"
+  # the LAST NON-EMPTY run is the one that did the work: the final run of a drain
+  # reports "no documents", so asserting on $RUNJSON asserts on the empty one
+  assert "...and it transcribed the recording" "$LASTVN" 'voice/standup.mp3'
+
+  # The transcript IS the document's text (VOICE-9), so every reader that was
+  # already there finds it with nothing further to run.
+  FOUND=$(G "/api/search?q=glaze%20crawled")
+  assert "the recording is findable by what was SAID" "$FOUND" 'voice/standup.mp3'
+  # the SNIPPET is the transcript, which is what proves the text really is the
+  # document's own rather than a key match on the filename
+  assert "...and the match is in the transcript itself" "$FOUND" 'cone six'
+
+  # the duration and the language the endpoint reported reached LAY-4 attributes
+  VNO=$(G "/api/repo-obj/$VNID")
+  assert "the spoken language was recorded"  "$VNO" '"voice_language":"en"'
+  assert "...and the duration"               "$VNO" '"voice_duration":"4"'
+  assert "...and which model answered"       "$VNO" '"voice_model":"mock-whisper"'
+
+  assert "ai.transcriptions.total is metered and reported" \
+    "$(G /api/usage)" '"dimension":"ai.transcriptions.total"'
+  # and the request log recorded a TRANSCRIBE operation, which is the proof the
+  # real multipart wire was used rather than a scripted seam
+  assert "a transcription request was logged" "$(G "/api/model-requests")" '"operation":"transcribe"'
+fi
 
 echo
 if [ $fail = 0 ]; then echo "doc-pipeline-smoke: PASS"; else echo "doc-pipeline-smoke: FAIL"; tail -30 "$TMACH_DATA_DIR/server.log"; exit 1; fi

@@ -443,6 +443,10 @@
       "text": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
       "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
     },
+    "doc.tool.doc_transcribe.language": {
+      "text": "The spoken language as a two-letter code, if it is known; omitted means let the model detect it",
+      "hash": "8f6eb5f1b9f3ad82701f6545c1f4eae48d8094ec"
+    },
     "doc.route.get.api.repo-obj.id.spans": {
       "text": "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.",
       "hash": "0ebd28a5c2094a860bb918d4279034df707e56a5"
@@ -475,13 +479,17 @@
       "text": "Team — everyone on this team",
       "hash": "bbc4eb84393543fda17d8cab5677e797ace0d487"
     },
-    "doc.tool.doc_redact.terms": {
-      "text": "Literal names or phrases the dictionary detector should replace — not patterns",
-      "hash": "8a0dc997dfe2e3dbdf8cde64c32811f94d52f7e2"
-    },
     "doc.route.get.api.orgs": {
       "text": "List every org on the instance.",
       "hash": "d64a348a2f5fb560e61a69808000eddd7aefe1c5"
+    },
+    "doc.workflow.transcribe-documents.name": {
+      "text": "Transcribe Voice Notes",
+      "hash": "c739b6d7faa0015935d211d79c633046c78f3a6e"
+    },
+    "doc.tool.doc_redact.terms": {
+      "text": "Literal names or phrases the dictionary detector should replace — not patterns",
+      "hash": "8a0dc997dfe2e3dbdf8cde64c32811f94d52f7e2"
     },
     "doc.tool.doc_render.run": {
       "text": "The workflow run id, for provenance",
@@ -1411,6 +1419,14 @@
       "text": "Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt).",
       "hash": "77333d768a6432e71994ec915f2aa7f7715177bf"
     },
+    "doc.tool.voice_list_untranscribed.prefix": {
+      "text": "Only documents whose key starts with this (default: every one in the team)",
+      "hash": "cf940300faafec88c5660d6bc9523d11ca2ba4cf"
+    },
+    "ui.brandinghint": {
+      "text": "The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.",
+      "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
+    },
     "ui.reviewdecided": {
       "text": "Decided",
       "hash": "55615a565dc2dd34ddd31b359d72e7792bfe19ca"
@@ -1422,10 +1438,6 @@
     "ui.size": {
       "text": "Size",
       "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
-    },
-    "ui.brandinghint": {
-      "text": "The name, tagline and logo this instance wears — on the sign-in screen, in the header, and in the browser tab.",
-      "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
     },
     "ui.editdoc": {
       "text": "Edit document",
@@ -1670,6 +1682,10 @@
     "ui.reviewwhy": {
       "text": "Why — required to send work back or reject it",
       "hash": "6ba15aa63a8a7623c0a7698150e2af3cdff2e66b"
+    },
+    "doc.tool.doc_transcribe.object": {
+      "text": "The repository object id",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
     },
     "ui.haccounts": {
       "text": "Accounts",
@@ -1990,6 +2006,10 @@
     "ui.l10nstatus": {
       "text": "Status",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
+    },
+    "doc.workflow.transcribe-documents": {
+      "text": "Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read.",
+      "hash": "85238c78d2068f3a2b17cd1d77dc53fd9e66c8d6"
     },
     "doc.tool.doc_classify.object": {
       "text": "The repository object id",
@@ -2779,13 +2799,17 @@
       "text": "Key prefix",
       "hash": "bd612611d70de311a74efc2fb60fd72bd02e7463"
     },
-    "doc.route.delete.api.webhooks.id": {
-      "text": "Delete a subscription and its delivery history. The audit entries survive.",
-      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
+    "doc.tool.voice_list_untranscribed": {
+      "text": "List the team's audio documents that have no transcript yet — the input to a transcription pass. Returns object ids, capped at a batch; run the workflow again to continue. A recording that has already been transcribed is skipped, which is what makes a re-run free.",
+      "hash": "e0820f1ec6d92262fcb7ed8efb8ee4073f50987d"
     },
     "ui.edtorepo": {
       "text": "Save to repository",
       "hash": "9d0e8997855a6a8c3235ddfe2eedf66ded7cb315"
+    },
+    "doc.route.delete.api.webhooks.id": {
+      "text": "Delete a subscription and its delivery history. The audit entries survive.",
+      "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
     },
     "doc.route.delete.api.beta.asset.id": {
       "text": "Delete an onboarding asset.",
@@ -2843,6 +2867,14 @@
       "text": "Revoke an S3 access key; presigned links signed with it die with it.",
       "hash": "0d193ba9fd8c47b32b53a58ec0fef45870676b77"
     },
+    "doc.tool.doc_transcribe": {
+      "text": "Transcribe a repository audio document — a voice note — into the search index. Needs TMACH_TRANSCRIBE_URL. The transcript becomes the document's text, so search, the knowledge graph, ?semantic=1 and the field extractor all read it afterwards with nothing further to run. Refuses a document that is not audio by name rather than sending it.",
+      "hash": "74f5b10acb24b08fcc2b5275abb4229f5a6bb011"
+    },
+    "ui.thradius": {
+      "text": "Corner radius",
+      "hash": "c7a86e072be0a7a476c9e29aa6514eb2d3fde8ab"
+    },
     "doc.route.post.api.org.teams": {
       "text": "Create a team in the caller's company.",
       "hash": "a7415a3f6a8a4781b80fa476af75d41f60cc2dde"
@@ -2854,10 +2886,6 @@
     "ui.hplaintexthint": {
       "text": "a dump of this database is replayable",
       "hash": "2376fd1c7b93504d4e75a92d0adb6e31fef9803d"
-    },
-    "ui.thradius": {
-      "text": "Corner radius",
-      "hash": "c7a86e072be0a7a476c9e29aa6514eb2d3fde8ab"
     },
     "doc.route.post.api.kg.extract": {
       "text": "Queue the index-knowledge workflow over the team's unextracted documents.",

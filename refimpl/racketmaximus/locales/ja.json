@@ -1932,6 +1932,34 @@
       "text": "状態",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
     },
+    "doc.tool.doc_transcribe": {
+      "text": "リポジトリの音声ドキュメント（ボイスノート）を文字起こしして検索インデックスに入れます。TMACH_TRANSCRIBE_URL が必要です。文字起こしはそのドキュメントのテキストになるため、以後は検索、知識グラフ、?semantic=1、フィールド抽出のすべてが追加の実行なしにそれを読みます。音声でないドキュメントは送信せず、名前を挙げて拒否します。",
+      "hash": "74f5b10acb24b08fcc2b5275abb4229f5a6bb011"
+    },
+    "doc.tool.doc_transcribe.language": {
+      "text": "話されている言語の二文字コード（判明している場合）。省略するとモデルに検出させます",
+      "hash": "8f6eb5f1b9f3ad82701f6545c1f4eae48d8094ec"
+    },
+    "doc.tool.doc_transcribe.object": {
+      "text": "リポジトリオブジェクトID",
+      "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
+    },
+    "doc.tool.voice_list_untranscribed": {
+      "text": "チームの音声ドキュメントのうち、まだ文字起こしのないものを一覧します — 文字起こし処理の入力です。オブジェクトIDをバッチ上限まで返します。続きはワークフローを再実行してください。すでに文字起こし済みの録音は飛ばされるため、再実行は無料です。",
+      "hash": "e0820f1ec6d92262fcb7ed8efb8ee4073f50987d"
+    },
+    "doc.tool.voice_list_untranscribed.prefix": {
+      "text": "キーがこれで始まるドキュメントのみ（既定: チーム内のすべて）",
+      "hash": "cf940300faafec88c5660d6bc9523d11ca2ba4cf"
+    },
+    "doc.workflow.transcribe-documents": {
+      "text": "チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。",
+      "hash": "85238c78d2068f3a2b17cd1d77dc53fd9e66c8d6"
+    },
+    "doc.workflow.transcribe-documents.name": {
+      "text": "ボイスノートの文字起こし",
+      "hash": "c739b6d7faa0015935d211d79c633046c78f3a6e"
+    },
     "doc.tool.doc_classify.object": {
       "text": "リポジトリオブジェクトID",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"

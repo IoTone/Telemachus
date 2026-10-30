@@ -20,7 +20,7 @@
          "../ai/content.rkt"        ; content->text (issue #18)
          "../tools/convert.rkt")    ; function-call->tool-block
 
-(provide chat-response->assistant-msg http-post-json
+(provide chat-response->assistant-msg http-post-json http-post-data
          stream-deltas->assistant-msg openai-llm-stream
          sanitize-wire-messages    ; exported for tests (wire scrub)
          read-sse-deltas http-post-stream   ; exported for tests (the idle timeout)
@@ -146,7 +146,18 @@
 
 ;; POST JSON, return (values status-code jsexpr) — non-streaming, with a deadline
 ;; and a bounded retry. A retry costs tokens, so the default is one.
+;;
+;; A THIN WRAPPER OVER `http-post-data` SINCE #192, which is what keeps the
+;; connection discipline above in ONE place. Transcription posts
+;; `multipart/form-data` rather than JSON, and a second copy of the
+;; open/deadline/dynamic-wind/retry shape would be the descriptor leak this
+;; file's own header was written about, waiting to be reintroduced for the one
+;; request kind that carries the largest body.
 (define (http-post-json url body-jsexpr headers
+                        #:timeout [secs (model-timeout)] #:retries [tries (model-retries)])
+  (http-post-data url (jsexpr->bytes body-jsexpr) headers #:timeout secs #:retries tries))
+
+(define (http-post-data url data headers
                         #:timeout [secs (model-timeout)] #:retries [tries (model-retries)])
   (define-values (host port ssl? path) (url-parts url))
   (define (once)
@@ -165,7 +176,7 @@
             (lambda ()
               (define-values (status _hdrs in)
                 (http-conn-sendrecv! hc path #:method #"POST"
-                                     #:headers headers #:data (jsexpr->bytes body-jsexpr)))
+                                     #:headers headers #:data data))
               (define code (status-code status))
               (define body (port->string in))
               (close-input-port in)

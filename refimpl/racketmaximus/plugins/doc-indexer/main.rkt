@@ -16,7 +16,8 @@
 
 (require "../../domain/flow/dsl.rkt"
          "../../domain/repo/index-tools.rkt"    ; registers the two text tools on load
-         "../../domain/repo/embed-tools.rkt")   ; …and the two chunk-vector ones (#189 step 4)
+         "../../domain/repo/embed-tools.rkt"    ; …and the two chunk-vector ones (#189 step 4)
+         "../../domain/repo/voice-tools.rkt")   ; …and the two voice-note ones (#192)
 
 (provide workflows)
 
@@ -52,4 +53,27 @@
                    #:retry 1)
         #:end))
 
-(define workflows (list index-documents embed-documents))
+
+;; #192, and a THIRD workflow for VEC-24's reason once more: `doc_transcribe`
+;; refuses without `TMACH_TRANSCRIBE_URL`, which is unset on every instance
+;; today, so appending it to either of the two above would make indexing start
+;; failing everywhere the moment this landed. Separate also because the rates
+;; differ by more here than they do between text and vectors — transcribing an
+;; hour of audio is minutes of somebody's GPU, where extracting a PDF is
+;; milliseconds.
+;;
+;; It runs BEFORE the other two for a voice note, which is the opposite of the
+;; order those two have between themselves: a recording has no text until this
+;; has run, so Index Documents has nothing to extract and Embed Documents has
+;; nothing to chunk. Transcribe, then embed.
+(define-workflow transcribe-documents
+  #:name "Transcribe Voice Notes"
+  #:description "Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read."
+  #:max-steps 30                       ; find + map parent + a full batch of 20, with room
+  (step find (tool voice_list_untranscribed))
+  (step speak (map #:over (out find result)
+                   (tool doc_transcribe #:object (item))
+                   #:retry 1)
+        #:end))
+
+(define workflows (list index-documents embed-documents transcribe-documents))
