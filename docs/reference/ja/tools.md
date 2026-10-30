@@ -15,6 +15,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `doc_render` | `files:write` | built-in | フォームテンプレート（リポジトリ内の Markdown、HTML、DOCX 文書）にデータを埋め込む：{{field}}、{{a.b}}、{{#each items}}…{{/each}}（内側で {{this}} / {{@index}}）。DOCX では {{#each items}} だけの表の行が項目ごとの行ブロックを開きます。結果は元文書の隣に <key>.form.<ext> として、format が "pdf" のときは <key>.form.pdf として書き出します（Markdown または HTML テンプレートを pandoc と tectonic で変換）。 |
 | `doc_set_type` | `files:write` | built-in | レビュー後に、人が判断した文書の種類を記録する。ラベルは分類が提示したラベル集合に照らして検証されるため、どのトリガーも一致し得ない種類は保存されずに拒否されます。空のラベルは種類を取り下げます — doc_type に「unknown」は存在しないため、却下の正直な記録はこれです。doc_type / doc_type_confidence / doc_type_source を source「review」、確信度 1.00 で書き込み、文書の隣の <key>.classification.json を新しいバージョンとして保存するので、バックエンドの当初の推測もその履歴に残ります。 |
 | `doc_text` | `files:read` | built-in | リポジトリ文書のテキストを返す（PDF、DOCX、HTML、Markdown、プレーンテキスト）。文書パイプラインの最初のステップで、検索インデックスの実行に依存しません。 |
+| `doc_transcribe` | `files:write` | built-in | リポジトリの音声ドキュメント（ボイスノート）を文字起こしして検索インデックスに入れます。TMACH_TRANSCRIBE_URL が必要です。文字起こしはそのドキュメントのテキストになるため、以後は検索、知識グラフ、?semantic=1、フィールド抽出のすべてが追加の実行なしにそれを読みます。音声でないドキュメントは送信せず、名前を挙げて拒否します。 |
 | `doc_translate` | `files:write` | built-in | リポジトリ文書をチーム用語集を適用して翻訳し、結果をその隣に書き出す（ロケールは拡張子の前：report.md -> report.ja.md；PDF のテキストは report.ja.txt になります）。 |
 | `feed_propose` | `chat:use` | feeds | 取得済みのフィード項目を読み、それについて何をすべきかの「提案」を、その項目の隣のドキュメントとして書き出します。提案するだけで、人が判断するまで提案に対して何も実行されません。そのための仕組みが feed-propose ワークフローのレビュー手順です。 |
 | `feed_queue_put` | `files:read` | feeds | 取得済みのフィード項目をチームの作業キューに載せる、または更新します：優先度（0〜100）、任意の期限（エポック秒）、状態、スキルの一覧。キューはドキュメントに対する「インデックス」なので、これはトリアージが決めた内容を記録するものであり、決めるものではありません。 |
@@ -32,6 +33,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `shipment_eta` | `chat:use` | integrator-demo | 輸送レーンの到着日数を推定します。 |
 | `translate_text` | `chat:use` | translate-chat | 目標言語にテキストを翻訳します。 |
 | `update_note` | `notes:write` | built-in | ID でノートのタイトルまたは本文を更新する。 |
+| `voice_list_untranscribed` | `files:read` | built-in | チームの音声ドキュメントのうち、まだ文字起こしのないものを一覧します — 文字起こし処理の入力です。オブジェクトIDをバッチ上限まで返します。続きはワークフローを再実行してください。すでに文字起こし済みの録音は飛ばされるため、再実行は無料です。 |
 | `word_count` | `chat:use` | example-tools | テキストの単語数を数える。 |
 
 ## `chat_message`
@@ -192,6 +194,17 @@ Permission: `files:read` · source: built-in
 |---|---|---|---|
 | `object` | string | yes | リポジトリオブジェクトID |
 | `version` | string | no | 特定のバージョンID（デフォルト：現在のバージョン） |
+
+## `doc_transcribe`
+
+リポジトリの音声ドキュメント（ボイスノート）を文字起こしして検索インデックスに入れます。TMACH_TRANSCRIBE_URL が必要です。文字起こしはそのドキュメントのテキストになるため、以後は検索、知識グラフ、?semantic=1、フィールド抽出のすべてが追加の実行なしにそれを読みます。音声でないドキュメントは送信せず、名前を挙げて拒否します。
+
+Permission: `files:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `language` | string | no | 話されている言語の二文字コード（判明している場合）。省略するとモデルに検出させます |
+| `object` | string | yes | リポジトリオブジェクトID |
 
 ## `doc_translate`
 
@@ -377,6 +390,16 @@ Permission: `notes:write` · source: built-in
 | `body` | string | no | 新しい本文（任意） |
 | `id` | string | yes | ノートの ID |
 | `title` | string | no | 新しいタイトル（任意） |
+
+## `voice_list_untranscribed`
+
+チームの音声ドキュメントのうち、まだ文字起こしのないものを一覧します — 文字起こし処理の入力です。オブジェクトIDをバッチ上限まで返します。続きはワークフローを再実行してください。すでに文字起こし済みの録音は飛ばされるため、再実行は無料です。
+
+Permission: `files:read` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prefix` | string | no | キーがこれで始まるドキュメントのみ（既定: チーム内のすべて） |
 
 ## `word_count`
 

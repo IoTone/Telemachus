@@ -45,6 +45,11 @@
          ;; committed page was rendered in that same state. #110 r3's side-effect-
          ;; require trap, met from the generator's side.
          (only-in "../domain/repo/retrieve-tools.rkt")
+         ;; #192's two, for the same reason. `transcribe-documents` lives in
+         ;; `doc-indexer`, which does require this module — but relying on that is
+         ;; relying on a plugin being loaded, and the CLI skips symlinked plugins
+         ;; deliberately.
+         (only-in "../domain/repo/voice-tools.rkt")
          "../domain/flow/run.rkt"
          "../domain/flow/spec.rkt"
          "../domain/authz/permissions.rkt"

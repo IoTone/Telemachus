@@ -272,7 +272,11 @@
     (check-exn #rx"TMACH_EMBED_URL" (lambda () (embed-exchange '("x"))))))
 
 (test-case "the request log can say WHICH operation, and the vocabulary is closed"
-  (check-equal? REQUEST-OPERATIONS '("chat" "embed"))
+  ;; PINNED AS A WHOLE LIST, and #192 is what proved that worth doing: adding
+  ;; "transcribe" failed this line, so a third kind of model request had to be a
+  ;; deliberate edit rather than a string that arrives and is never explained.
+  ;; `vocabulary-tests.rkt`'s argument for pinning rather than re-deriving.
+  (check-equal? REQUEST-OPERATIONS '("chat" "embed" "transcribe"))
   (check-true (> EMBED-MARGIN-SCALE 1.0) "the margin is scaled, or every answer is near zero"))
 
 ;; ---- the logger box is a CONTRACT, and breaking it is SILENT ----------------

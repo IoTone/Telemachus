@@ -2482,6 +2482,88 @@ bash test/doc-pipeline-smoke.sh              # the "== 5d." block, 18 assertions
   backend (**req 2c** — no embedding wire, store or meter exists, so it is its own
   issue). The **evaluation harness (req 6)** is the section below.
 
+## Voice notes: the third model seam (VOICE‑1…14, issue #192 slice 1)
+
+Built 30 Oct 2026. `transcribe-exchange` in `domain/ai/executor.rkt`,
+`domain/repo/{voice,voice-tools}.rkt`, `ai.transcriptions.total`, and the
+**Transcribe Voice Notes** workflow. **No migration and no new route.** Design:
+`docs/design/voice-notes.md`, which also specifies slice 2 (the streamed capture
+API).
+
+```sh
+export TMACH_TRANSCRIBE_URL=http://127.0.0.1:8080/v1/audio/transcriptions
+export TMACH_TRANSCRIBE_MODEL=whisper-large-v3
+raco test test/voice-tests.rkt      # 13 cases, no endpoint
+bash test/doc-pipeline-smoke.sh     # §9 — the ONLY end-to-end multipart path
+```
+
+- **TWO OF #192's FOUR REQUIREMENTS WERE ALREADY BUILT**, which is the finding
+  and why the slice is small. Uploading an offline voice note is
+  `PUT /api/repo/<key>` with an `audio/*` type — the repository takes any format
+  in and `web-kit/http1` moves it (VOICE‑8). And "a pipeline to converse with
+  data" needed NOTHING: once the transcript is in `repo_text` it is read by
+  keyword search, the knowledge graph, `?semantic=1`/`repo_retrieve` AND
+  `doc_extract_fields` — four existing readers, not a new pipeline. That is the
+  whole argument for VOICE‑9, the transcript going in `repo_text` rather than
+  into a derived `<key>.transcript.txt`: a derived document would double the
+  storage, give search two hits for one recording, and none of those four would
+  read it without being told to.
+- **IT IS A TOOL, NOT AN EXTRACTOR, AND THE REASON IS METERING** (VOICE‑10).
+  LAY‑7's registry is the obvious home — register `audio/mpeg` and a recording
+  becomes searchable through the indexing workflow nobody has to change — but an
+  extractor's contract is `(port content-type) -> (values text reason)`, with no
+  connection and no principal, and a transcription is a model request against
+  somebody's budget. `chunkstore.rkt` takes its vectors as an argument for
+  exactly this reason.
+- **ITS OWN ENDPOINT AND MODEL NAME** (VOICE‑1), EMB‑1 a third time: a
+  transcription model is `whisper-large-v3`, never a chat model and never an
+  embedding one. **The body is `multipart/form-data`** (VOICE‑2), the one thing
+  this seam does not share with the other two — so `http-post-json` is now a thin
+  wrapper over `http-post-data` and only the encoding differs. A second copy of
+  the open/deadline/dynamic-wind/retry shape would reintroduce the descriptor
+  leak `llm.rkt`'s header was written about, for the request kind carrying the
+  LARGEST body.
+- **WHAT IS LOGGED IS THE FILENAME AND THE BYTE COUNT** (VOICE‑3). `messages` are
+  digested (RED‑18) and audio is not a message: a digest of 40 MB of it is an
+  HMAC nobody can reproduce or compare, which is the opposite of what a digest is
+  for. The transcript stays out too — it is content, and the row is the record
+  that a request was made.
+- **`ai.transcriptions.total`, COUNTING RECORDINGS** (VOICE‑11). A transcription
+  returns **no tokens at all**, so `ai.tokens.total` could not measure it; and
+  seconds of audio is worse, because the duration is known only when the endpoint
+  reports it, so that dimension would read 0 for every server answering plain
+  `json`. No default limit, in `QUOTA-HOLD-DIMS`.
+- **TRANSCRIBE FIRST, THEN INDEX, THEN EMBED** — the opposite of the order the
+  other two have between themselves, because a recording has NO text until this
+  has run. A third workflow for VEC‑24's reason: a step that errors fails the
+  run, and `doc_transcribe` refuses without an endpoint that is unset on every
+  instance today.
+- **`pregexp` HAS NO `\r` OR `\n` ESCAPE, AND IT FAILS AT MODULE
+  INSTANTIATION.** `test/mock-llm.rkt`'s multipart reader written with
+  `"\\r?\\n"` raises `illegal alphabetic escape` when the pattern compiles — at
+  module level, so **the mock server never started**, and what that looked like
+  was `connection refused` plus 30 failing assertions across four sections of
+  `doc-pipeline-smoke.sh` with nothing to do with voice notes (a knowledge-graph
+  block reporting `unextracted: 34` among them). `raco make` stayed green: the
+  project's own recorded shape for a module that compiles and will not load. Use
+  real CR/LF characters.
+- **AND THE PLUGIN BYTECODE WAS STALE, the same lesson from the other side.**
+  Changing `executor.rkt`'s exports left `plugins/feeds/compiled/*.zo` linking a
+  `run-chat` that no longer existed, so feeds failed to load and nine assertions
+  failed naming it. `raco make server/main.rkt` never reaches a
+  `dynamic-require`d plugin.
+- **Two controls cannot bite and are stated rather than papered over**: the
+  boundary collision check (64 random bits, so no fixture can contain one —
+  VEC‑13's unpinnable pin) and the fields-before-file ORDER (the fields' presence,
+  the file's own headers and the closing delimiter are each controlled and each
+  bite; the order is not independently falsifiable by a string patch).
+- **No spans, deliberately.** A transcript has positions — every segment carries
+  a time — and LAY‑5's span is a page and a bbox, which a renderer DRAWS. A time
+  range is not a region, and putting one in `bbox` would make
+  `?at=` answer with coordinates something would try to draw on a page that does
+  not exist. "Jump to where this was said" is LAY‑5 gaining an optional time
+  range, which is its own decision.
+
 ## An embedding wire, a label store, a meter (EMB‑1…11, issue #163)
 
 Built 28 Oct 2026 — #87 requirement 2c, split out because this build had no

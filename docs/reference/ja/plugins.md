@@ -7,7 +7,7 @@ A plugin is a directory under `plugins/` with a `plugin.json` manifest (`id`, `n
 | Plugin | Version | Tools | Workflows | Routes | Job kinds | Formats | Description |
 |---|---|---|---|---|---|---|---|
 | Founders beta onboarding (`beta-onboarding`) | 0.1.0 | — | — | — | — | — | SDK の init! フックで登録された、カスタマイズ済みのベータ申込フロー（founders プログラム）。 |
-| Document Indexer (`doc-indexer`) | 0.1.0 | — | `embed-documents`, `index-documents` | — | — | — | リポジトリの文書からテキストを抽出して検索インデックスに入れるワークフロー：未インデックスのものを見つけ、分散して、それぞれ抽出します。いつでも再実行でき、変更のあったものにしか触れません。 |
+| Document Indexer (`doc-indexer`) | 0.1.0 | — | `embed-documents`, `index-documents`, `transcribe-documents` | — | — | — | リポジトリの文書からテキストを抽出して検索インデックスに入れるワークフロー：未インデックスのものを見つけ、分散して、それぞれ抽出します。いつでも再実行でき、変更のあったものにしか触れません。 |
 | Document Pipeline (`doc-pipeline`) | 0.1.0 | — | `classify-and-extract`, `classify-backfill`, `classify-eval`, `classify-review-extract`, `process-upload`, `redact-document` | — | — | — | アップロードされた文書を処理：テキストを抽出し、JSONスキーマに従って構造化フィールドを取得（適合しない場合は拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳します。すべての出力はソースと共にレポジトリ文書で、元情報が示されます。 |
 | Example Tools (`example-tools`) | 0.1.0 | `word_count` | — | `GET /word-count`, `POST /word-count` | `x.example-tools.word-count` | `application/rtf` | サードパーティ製プラグインのサンプル：word_count ツールを追加します。 |
 | Feed work queue (`feeds`) | 0.1.0 | `feed_propose`, `feed_queue_put`, `feed_queue_status` | `feed-propose`, `feed-triage` | `GET /queue`, `POST /items/:id/status` | — | — | イシュー #114 のスライス 5 と 6：フィードが取得したドキュメントに対する、優先度付きで型のあるインデックスと、その 1 件について何をすべきかを「提案する」エージェント。提案と実行のあいだにはレビュー手順が入ります。 |

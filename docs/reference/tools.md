@@ -15,6 +15,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `doc_render` | `files:write` | built-in | Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is "pdf" (a Markdown or HTML template, converted with pandoc and tectonic). |
 | `doc_set_type` | `files:write` | built-in | Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of "unknown". Writes doc_type / doc_type_confidence / doc_type_source with source "review" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history. |
 | `doc_text` | `files:read` | built-in | Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run. |
+| `doc_transcribe` | `files:write` | built-in | Transcribe a repository audio document — a voice note — into the search index. Needs TMACH_TRANSCRIBE_URL. The transcript becomes the document's text, so search, the knowledge graph, ?semantic=1 and the field extractor all read it afterwards with nothing further to run. Refuses a document that is not audio by name rather than sending it. |
 | `doc_translate` | `files:write` | built-in | Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt). |
 | `feed_propose` | `chat:use` | feeds | Read a pulled feed item and write a PROPOSAL about what to do with it, as a document beside the item. It proposes only — nothing acts on the proposal until a person decides, which is what the review step in the feed-propose workflow is for. |
 | `feed_queue_put` | `files:read` | feeds | Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it. |
@@ -32,6 +33,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `shipment_eta` | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
 | `translate_text` | `chat:use` | translate-chat | Translate text into a target language. |
 | `update_note` | `notes:write` | built-in | Update a note's title and/or body by id. |
+| `voice_list_untranscribed` | `files:read` | built-in | List the team's audio documents that have no transcript yet — the input to a transcription pass. Returns object ids, capped at a batch; run the workflow again to continue. A recording that has already been transcribed is skipped, which is what makes a re-run free. |
 | `word_count` | `chat:use` | example-tools | Count the number of words in a piece of text. |
 
 ## `chat_message`
@@ -192,6 +194,17 @@ Permission: `files:read` · source: built-in
 |---|---|---|---|
 | `object` | string | yes | The repository object id |
 | `version` | string | no | A specific version id (default: the current version) |
+
+## `doc_transcribe`
+
+Transcribe a repository audio document — a voice note — into the search index. Needs TMACH_TRANSCRIBE_URL. The transcript becomes the document's text, so search, the knowledge graph, ?semantic=1 and the field extractor all read it afterwards with nothing further to run. Refuses a document that is not audio by name rather than sending it.
+
+Permission: `files:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `language` | string | no | The spoken language as a two-letter code, if it is known; omitted means let the model detect it |
+| `object` | string | yes | The repository object id |
 
 ## `doc_translate`
 
@@ -377,6 +390,16 @@ Permission: `notes:write` · source: built-in
 | `body` | string | no | New body (optional) |
 | `id` | string | yes | The note id |
 | `title` | string | no | New title (optional) |
+
+## `voice_list_untranscribed`
+
+List the team's audio documents that have no transcript yet — the input to a transcription pass. Returns object ids, capped at a batch; run the workflow again to continue. A recording that has already been transcribed is skipped, which is what makes a re-run free.
+
+Permission: `files:read` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `prefix` | string | no | Only documents whose key starts with this (default: every one in the team) |
 
 ## `word_count`
 

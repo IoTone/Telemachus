@@ -18,7 +18,7 @@
 ;; the per-team concurrency cap exactly like the simulated job did.
 
 (require racket/string
-         "../agent/llm.rkt"             ; http-post-json, sanitize-wire-messages
+         "../agent/llm.rkt"             ; http-post-json / http-post-data, sanitize-wire-messages
                                         ; + exn:fail:model-retryable's reason, which
                                         ; is what makes the log's error kind honest
          "content.rkt"                  ; content->text, response formats (issue #18)
@@ -32,7 +32,13 @@
          model-request-logger log-model-request! transport-error-kind
          egress-policy egress-refusal
          model-exchange response-tokens
-         embed-exchange embed-configured? embed-model embedding-vectors embedding-tokens)
+         embed-exchange embed-configured? embed-model embedding-vectors embedding-tokens
+         ;; #192: the THIRD seam. Audio in, text out, over the OpenAI-compatible
+         ;; `/v1/audio/transcriptions` shape — its own endpoint and its own model
+         ;; name, for EMB-1's reason twice over (a transcription model is neither
+         ;; a chat model nor an embedding one).
+         transcribe-exchange transcribe-configured? transcribe-model
+         transcription-text multipart-body)
 
 ;; PULL-5: a named executor that is not a push backend may be a PULL executor. The
 ;; server installs a router (name messages temperature response-format) -> (cons
@@ -191,6 +197,20 @@
 ;; the capability was wanted for. The day an embedding is ROUTED to a named
 ;; executor, that executor's document is where `embeddings` belongs.
 (define (embed-configured?) (and (embed-url) #t))
+
+;; ---- transcription (#192, VOICE-1…4) ------------------------------------------
+;;
+;; VOICE-1 — ITS OWN ENDPOINT AND ITS OWN MODEL NAME, which is EMB-1's argument
+;; arriving a third time and is no weaker for the repetition: a transcription
+;; model is `whisper-large-v3` or `parakeet`, never `qwen2.5:7b` and never
+;; `nomic-embed-text`, so the name cannot be shared with either — and once the
+;; name is separate the URL may as well be. Deriving
+;; `/v1/audio/transcriptions` from `TMACH_MODEL_URL` assumes one server and
+;; would send the chat model's name to an endpoint that cannot use it.
+(define (transcribe-url)   (tmach-env "TRANSCRIBE_URL"))
+(define (transcribe-model) (or (tmach-env "TRANSCRIBE_MODEL") "whisper-1"))
+(define (transcribe-key)   (tmach-env "TRANSCRIBE_KEY"))
+(define (transcribe-configured?) (and (transcribe-url) #t))
 
 (define (model-configured?) (and (model-url) #t))
 (define (model-info)
@@ -396,6 +416,147 @@
   (define toks (embedding-tokens resp))
   (log! "ok" #:http 200 #:tokens toks)
   (values vecs toks url mdl))
+
+
+;; ---- the transcription wire --------------------------------------------------
+;;
+;; VOICE-2 — THE BODY IS `multipart/form-data`, WHICH IS THE ONE THING THIS SEAM
+;; DOES NOT SHARE WITH THE OTHER TWO. `/v1/audio/transcriptions` takes a FILE
+;; part; there is no JSON spelling of it in the OpenAI shape, and inventing one
+;; would mean picking a provider that accepts base64 and excluding the rest.
+;; `http-post-data` is `http-post-json` with the encoding lifted out, so this
+;; posts through exactly the connection discipline the other two do — the
+;; descriptor leak `llm.rkt`'s header was written about would otherwise be
+;; reintroduced for the request kind carrying the LARGEST body.
+;;
+;; THE BOUNDARY IS CHECKED AGAINST THE PAYLOAD, not merely randomised. Audio is
+;; arbitrary bytes, so a boundary that happens to occur inside them truncates the
+;; part — and what that produces is not an error but a SHORTER transcript, which
+;; nothing downstream can detect. One in 2^128 is not the argument; the argument
+;; is that checking costs one scan of bytes already in memory.
+;;
+;; AND NO TEST CAN FALSIFY IT, which `voice-tests.rkt` case 12 says where somebody
+;; might otherwise trust it to catch a regression: the boundary is 64 random bits,
+;; so a fixture cannot contain one, and neutralising this check changes no
+;; assertion. VEC-13's unpinnable pin — the reason to write the check down rather
+;; than a reason it is redundant. Falsifying it would need the generator seeded,
+;; which is a seam worth more than the property is.
+(define BOUNDARY-TRIES 8)
+
+(define (fresh-boundary payload)
+  (let loop ([n BOUNDARY-TRIES])
+    (define b (format "----TelemachusBoundary~a~a"
+                      (number->string (random 4294967087) 16)
+                      (number->string (random 4294967087) 16)))
+    (cond
+      [(not (regexp-match? (regexp (regexp-quote b)) payload)) b]
+      [(> n 0) (loop (sub1 n))]
+      ;; Eight independent 64-bit boundaries all occurring in one payload is not
+      ;; chance; it is somebody constructing the input. Refused rather than sent.
+      [else (error 'transcribe-exchange
+                   "could not compose a multipart boundary absent from the audio")])))
+
+;; `fields` is an ordered list of (name . value) string pairs; `file` is
+;; (name filename content-type bytes). Ordered deliberately: a provider that
+;; streams the parse wants `model` before the file, because it can then reject an
+;; unknown model without reading a 40 MB body.
+(define (multipart-body fields file)
+  (define payload (list-ref file 3))
+  (define b (fresh-boundary payload))
+  (define out (open-output-bytes))
+  (define (crlf) (write-bytes #"\r\n" out))
+  (for ([f (in-list fields)])
+    (write-string (format "--~a" b) out) (crlf)
+    (write-string (format "Content-Disposition: form-data; name=\"~a\"" (car f)) out) (crlf)
+    (crlf)
+    (write-string (cdr f) out) (crlf))
+  (write-string (format "--~a" b) out) (crlf)
+  (write-string (format "Content-Disposition: form-data; name=\"~a\"; filename=\"~a\""
+                        (car file) (cadr file)) out) (crlf)
+  (write-string (format "Content-Type: ~a" (caddr file)) out) (crlf)
+  (crlf)
+  (write-bytes payload out) (crlf)
+  (write-string (format "--~a--" b) out) (crlf)
+  (values (get-output-bytes out)
+          (format "multipart/form-data; boundary=~a" b)))
+
+;; audio bytes -> (values text duration-or-#f language-or-#f url model)
+;;
+;; VOICE-3 — WHAT IS LOGGED IS THAT A TRANSCRIPTION HAPPENED, AND NOT THE AUDIO.
+;; `log-model-request!` takes `messages` and digests them (RED-18); audio is not
+;; a message and a digest of 40 MB of it would be an HMAC nobody can ever
+;; reproduce or compare. So the logged "message" is the FILENAME and the byte
+;; count — enough for an operator auditing egress to see what left and how much
+;; of it, and nothing that could reconstruct a word of the recording. The
+;; transcript is never logged either: it is the content, and the row is the
+;; record that a request was made.
+(define (transcribe-exchange payload
+                             #:filename [filename "audio"]
+                             #:content-type [ct "application/octet-stream"]
+                             #:language [language #f]
+                             #:prompt [prompt #f]
+                             #:who [who 'transcribe-exchange])
+  (define url (transcribe-url))
+  (define mdl (transcribe-model))
+  (define msgs (list (hasheq 'role "user"
+                             'content (format "~a (~a bytes)" filename (bytes-length payload)))))
+  ;; refuse before composing, which is the point of either check: the content
+  ;; must not leave. The order is `model-exchange`'s and `embed-exchange`'s.
+  (let ([bad (and (transcribe-configured?) (egress-refusal #f url))])
+    (when bad
+      (log-model-request! #:executor #f #:transport "push" #:operation "transcribe" #:model mdl
+                          #:endpoint url #:messages msgs #:status "refused" #:error-kind "policy")
+      (raise-user-error who "~a" bad)))
+  (unless (transcribe-configured?)
+    (raise-user-error who "no transcription model configured (set TMACH_TRANSCRIBE_URL)"))
+  (when (zero? (bytes-length payload)) (error who "nothing to transcribe"))
+  (define-values (body body-ct)
+    (multipart-body (append (list (cons "model" mdl)
+                                  ;; `verbose_json` is asked for because it
+                                  ;; carries the DURATION and the detected
+                                  ;; language; a server that only speaks `json`
+                                  ;; answers `{"text": …}` and the reader takes
+                                  ;; that, so asking costs nothing.
+                                  (cons "response_format" "verbose_json"))
+                            (if language (list (cons "language" language)) '())
+                            (if prompt (list (cons "prompt" prompt)) '()))
+                    (list "file" filename ct payload)))
+  (define started (current-inexact-milliseconds))
+  (define (log! status #:kind [kind #f] #:http [http #f])
+    (log-model-request! #:executor #f #:transport "push" #:operation "transcribe" #:model mdl
+                        #:endpoint url #:messages msgs #:status status
+                        #:error-kind kind #:http-status http #:ms (ms-since started)))
+  (define hs (append (list (string-append "Content-Type: " body-ct))
+                     (let ([k (transcribe-key)])
+                       (if k (list (string-append "Authorization: Bearer " k)) '()))))
+  (define-values (code resp)
+    (with-handlers ([exn:fail? (lambda (e) (log! "error" #:kind (transport-error-kind e)) (raise e))])
+      (http-post-data url body hs)))
+  (unless (= code 200)
+    (log! "error" #:kind "http" #:http code)
+    (error who "transcription endpoint returned HTTP ~a: ~a" code
+           (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
+  (define text (transcription-text resp who))
+  (log! "ok" #:http 200)
+  (values text
+          (let ([d (hash-ref resp 'duration #f)]) (and (real? d) (exact->inexact d)))
+          (let ([l (hash-ref resp 'language #f)]) (and (string? l) l))
+          url mdl))
+
+;; VOICE-4 — AN EMPTY TRANSCRIPT IS AN ANSWER, A MISSING `text` IS NOT. Silence
+;; really does transcribe to "" and a recording of a quiet room is a legitimate
+;; voice note, so "" is returned and the caller records a read-with-nothing. A
+;; response with no `text` KEY at all is a different thing — a proxy, a gateway,
+;; or a server answering some other shape — and is a named error, because
+;; treating it as silence would store an empty transcript for a recording that
+;; was never read. `content->text`'s rule: an empty answer must never be
+;; manufactured.
+(define (transcription-text resp [who 'transcribe-exchange])
+  (define t (hash-ref resp 'text #f))
+  (unless (string? t)
+    (error who (string-append "the transcription endpoint returned no `text` — a response with "
+                              "no transcript at all is a proxy or a different API, not silence")))
+  t)
 
 ;; The OpenAI embeddings response: {"data":[{"index":n,"embedding":[...]},...]}.
 ;;

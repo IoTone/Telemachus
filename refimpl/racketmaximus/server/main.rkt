@@ -104,6 +104,12 @@
          (only-in "../domain/repo/index-tools.rkt")      ; slice 54
          (only-in "../domain/repo/embed-tools.rkt")      ; #189 step 4
          (only-in "../domain/repo/retrieve-tools.rkt")   ; #189 step 6
+         ;; #192: `doc_transcribe` and `voice_list_untranscribed`, registered on
+         ;; instantiation. A SIDE-EFFECT require — #110 r3's trap — so it is here
+         ;; AND in cli/telemachus-docs.rkt, or the tools are live on every
+         ;; instance and absent from the generated reference with the drift gate
+         ;; green, which is exactly what #189 step 6 did.
+         (only-in "../domain/repo/voice-tools.rkt")
          (only-in "../domain/repo/doc-tools.rkt")        ; slice 57
          (only-in "../domain/kg/kg-tools.rkt")           ; slice 61
          ;; issue #89: the checks an instance runs before it serves. Their own

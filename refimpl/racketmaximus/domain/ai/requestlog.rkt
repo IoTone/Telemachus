@@ -68,7 +68,10 @@
 ;; completion as the provider reported it; an embed row counts INPUT tokens and
 ;; there is no output. Reading the column without reading this one adds two
 ;; different things together.
-(define REQUEST-OPERATIONS '("chat" "embed"))
+;; #192 adds "transcribe" — audio in, text out. A CLOSED and VALIDATED
+;; vocabulary, so a third kind of model request is a deliberate edit here rather
+;; than a string that arrives and is never explained.
+(define REQUEST-OPERATIONS '("chat" "embed" "transcribe"))
 
 ;; ---- the row ----------------------------------------------------------------
 

@@ -63,6 +63,13 @@
                           ;; fail work, because the dimension is also spent by
                           ;; anything that answers a question inside a job.
                           "ai.help.total"
+                          ;; #192 (VOICE-11). Same reason a third time: no default
+                          ;; limit, so an instance nobody configured holds
+                          ;; nothing — and where an operator HAS bounded
+                          ;; transcription, reaching the bound holds the queue
+                          ;; rather than failing a transcription pass halfway
+                          ;; through a batch of recordings.
+                          "ai.transcriptions.total"
                           "feed.fetches"))
 
 ;; PURE, deliberately: the job listing calls this on every read (`team-hold` in

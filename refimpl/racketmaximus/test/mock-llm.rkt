@@ -173,6 +173,67 @@
          => (lambda (h) (or (string->number (string-trim (cadr (regexp-split #rx":" h)))) 0))]
         [else 0]))
 
+;; ---- TRANSCRIPTION mode (#192) -------------------------------------------------
+;;
+;; A `multipart/form-data` body is a transcription request — the OpenAI
+;; `/v1/audio/transcriptions` shape, the only one of the three that is not JSON.
+;; Detected on the CONTENT TYPE rather than the path, because this mock reads the
+;; request line and discards it.
+;;
+;; THE TRANSCRIPT IS THE "AUDIO" DECODED AS TEXT, which is what makes the gate
+;; able to assert anything at all: a fixture puts a known sentence in the file
+;; part, and the transcript is that sentence. A hash or a fixed string would be
+;; deterministic and useless — the best a case could say is that SOMETHING came
+;; back. It is not a claim about transcription; whether a real model hears the
+;; words is a measurement, on a box with a model.
+(define (multipart? headers)
+  (for/or ([h (in-list headers)])
+    (regexp-match? #rx"(?i:^content-type:.*multipart/form-data)" h)))
+
+(define CRLF (string-append (string #\return) "?" (string #\newline)))
+
+(define (multipart-field body name)
+  (define pat (string-append "name=\"" name "\"" CRLF CRLF "(.*?)" CRLF "--"))
+  (define m (regexp-match (pregexp pat) body))
+  (and m (cadr m)))
+
+(define FILE-PART-RX
+  ;; Everything between the blank line after the file part own headers and the
+  ;; boundary that follows it.
+  ;;
+  ;; CRLF IS A REAL CARRIAGE RETURN AND A REAL NEWLINE, not "\\r" and "\\n":
+  ;; Racket regexps have no alphabetic escape for either, and `pregexp` raises
+  ;; "illegal alphabetic escape" AT MODULE INSTANTIATION. Which killed this mock
+  ;; the first time, so every model-backed assertion in doc-pipeline-smoke failed
+  ;; with "connection refused" — while `raco make` stayed perfectly green, the
+  ;; shape this project already records for a plugin that compiles and will not
+  ;; load.
+  (pregexp (string-append "(?s:filename=\"[^\"]*\"" CRLF
+                          "[Cc]ontent-[Tt]ype:[^" (string #\return) (string #\newline) "]*" CRLF
+                          CRLF "(.*?)" CRLF "--)")))
+
+(define FILENAME-RX
+  (pregexp (string-append "filename=\"([^\"]*)\"")))
+
+(define (multipart-file-part body)
+  (define m (regexp-match FILE-PART-RX body))
+  (and m (cadr m)))
+
+(define (transcription-response body)
+  (define text (or (multipart-file-part body) ""))
+  (define fname (let ([m (regexp-match FILENAME-RX body)]) (if m (cadr m) "")))
+  (hasheq (quote text) (string-trim text)
+          ;; the model the platform SENT, echoed back, so a case can assert
+          ;; TMACH_TRANSCRIBE_MODEL reached the wire rather than a default
+          (quote model) (or (multipart-field body "model") "")
+          (quote response_format) (or (multipart-field body "response_format") "")
+          ;; `verbose_json` is what the platform asks for, so the mock answers it —
+          ;; including the two fields only that format carries, which is how a case
+          ;; can assert the duration and the language reach the attributes.
+          (quote duration) 3.5
+          (quote language) "en"
+          (quote filename) fname))
+
 (define (handle in out)
   (with-handlers ([exn:fail? (lambda (_) (void))])
     (read-line in 'return-linefeed)                     ; request line (ignored)
@@ -192,11 +253,17 @@
     ;; so every test below it would read it as a first-round chat turn and answer
     ;; with a tool call, which is a 200 the platform cannot parse
     (define embeddings? (and (hash-ref parsed 'input #f) (null? msgs)))
-    (define answer (cond [embeddings? (embeddings-response parsed)]
+    ;; …and the TRANSCRIPTION branch comes before both, because its body is not
+    ;; JSON at all: `parsed` is an empty hash, so every test below would read it
+    ;; as a first-round chat turn and answer with a tool call.
+    (define transcribe? (multipart? headers))
+    (define answer (cond [transcribe? (transcription-response
+                                       (bytes->string/utf-8 body-bytes #\?))]
+                         [embeddings? (embeddings-response parsed)]
                          [(and reply-file (not offers-tools?)) (chat-response parsed)]
                          [has-tool? (final-response)]
                          [else (tool-call-response)]))
-    (define wants-stream? (and (eq? (hash-ref parsed 'stream #f) #t) (not forced-status) (not embeddings?)))
+    (define wants-stream? (and (eq? (hash-ref parsed 'stream #f) #t) (not forced-status) (not embeddings?) (not transcribe?)))
     (define payload
       (if wants-stream?
           (string->bytes/utf-8
