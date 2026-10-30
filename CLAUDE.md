@@ -3148,12 +3148,25 @@ racket cli/telemachus-help.rkt status                      # and what it holds, 
   can be, and `status` warns about it and tells you to `clear` first, because
   vectors from two checkpoints are not comparable and mixing them does not fail
   (EMB‑8).
-- **Measured, with the real ingest over the real tree**: 89 documents and
-  **1,568 chunks** (1,400 English over 63 files, 168 Japanese over 26), **111**
-  embedding requests for the lot and **zero** for a re-ingest.
-  `vector-store.md` estimated 1,159 English chunks; the boundary search (CHUNK‑3)
-  ends a chunk early, so there are slightly more and slightly shorter ones — the
-  estimate was within 20%.
+- **MEASURED AGAINST THE REAL EMBEDDER** on the lab box (`nomic-embed-text`):
+  92 documents and **1,605 chunks** (1,427 English over 65 files, 178 Japanese
+  over 27), **114** embedding requests and **29.7 s** for the whole corpus from
+  empty, **zero** for a re-ingest. A row is 3,072 bytes (768 float32), ~4.9 MB
+  for the corpus. `vector-store.md` estimated 1,159 English chunks; CHUNK‑3's
+  boundary search ends a chunk early, so there are slightly more and slightly
+  shorter ones — within 20%. **The scan is ~55 ms for 1,427 chunks**, end to end,
+  which is slower per chunk than #189 step 1's pure arithmetic: at this size the
+  ROW READ dominates, so an index is not the thing to reach for first.
+- **AND THE FIRST REAL PROBE HANDED #189's CALIBRATION ITS FIRST DATUM.**
+  「認可はどのように決まるのですか？」retrieved `docs/book/ja/14-secrets.md` while
+  `docs/book/ja/04-authz.md` — the chapter actually titled 認可のモデル — did not
+  appear at all. That is CHUNK‑2's prediction arriving as evidence: a
+  1,024-character chunk of Japanese carries roughly four times the tokens the
+  English-derived default intends, so a Japanese chunk is a much larger span of
+  meaning and a short question matches it less sharply. English prose questions
+  were answered well (0.61–0.73); a question naming a SYMPTOM found the right
+  file and the wrong section (0.576), which is where slice 2's score floor will
+  have to sit.
 - **The scripted embedder's tokenizer decided whether the Japanese cases could
   exist at all.** `[[:alnum:]]` is ASCII-only here, so a bag of words built by
   splitting on its complement left every Japanese fixture with no words and a

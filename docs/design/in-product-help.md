@@ -118,30 +118,75 @@ Whether `nomic-embed-text` puts a Japanese question near its English answer is
 unmeasured, and a design that quietly relied on it would be the confident wrong
 answer CHUNK‑2 warns about.
 
-## Measured
+## Measured, against the real embedder
 
-Through the real ingest over the real tree (scripted embedder, so these are
-counts and not a recall figure):
+On the test lab box (`nomic-embed-text` through ollama on loopback), ingesting
+`docs/` plus both READMEs:
 
 | | documents | chunks |
 |---|---|---|
-| `docs/` + both READMEs, English | 63 | **1,400** |
-| the same, Japanese | 26 | **168** |
-| total | **89** | **1,568** |
+| English | 65 | **1,427** |
+| Japanese | 27 | **178** |
+| total | **92** | **1,605** |
 
-At `HELP-EMBED-BATCH` of 32 that is **111 embedding requests** for a whole
-corpus, and **zero** for a re-ingest that finds nothing changed (HELP‑9). The
-whole `docs/ops` subtree — seven runbooks — is 173 chunks and 8 requests,
-measured end to end through `embed-exchange` against `test/mock-llm.rkt`'s
-embeddings mode.
+**114 embedding requests, 29.7 seconds wall**, for the whole corpus from empty —
+and **zero requests** for a re-ingest that finds nothing changed (HELP‑9). A
+vector row is 3,072 bytes (768 float32), so the corpus is about 4.9 MB of
+vectors. The ingested set matches the tree exactly, checked by diffing
+`help_docs.path` against `find docs -name '*.md'` plus the two READMEs.
 
-`vector-store.md` estimated 1,159 chunks for the English corpus at 256 tokens
-with 15% overlap. The real chunker gives 1,400 for 63 files: the boundary search
-(CHUNK‑3) ends a chunk at the last sentence break inside its window, so chunks
-are a little shorter than the nominal size and there are a few more of them. The
-estimate was within 20% and the scan cost is unaffected — 1,568 chunks is about 12 ms
-of arithmetic, interpolated from #189 step 1's measured 8 ms at 1,000 and
-76 ms at 10,000.
+`vector-store.md` estimated **1,159** English chunks at 256 tokens with 15%
+overlap; the real chunker gives **1,427** for 65 files, because the boundary
+search (CHUNK‑3) ends a chunk at the last sentence break inside its window and so
+produces slightly shorter chunks and a few more of them. The estimate was within
+20%.
+
+**The scan is ~55 ms for 1,427 chunks and ~6 ms for 178**, end to end: the SQL
+read plus the decode plus the dot products. That is slower per chunk than #189
+step 1's pure-arithmetic benchmark (76 ms for 10,000), which says the **row read
+dominates at this size, not the arithmetic** — so `HELP-SCAN`'s 20,000 is a bound
+on the read, and an index would not be the thing to reach for first.
+
+### What the first real retrieval probe showed
+
+Three English questions and three Japanese ones, `k = 3`, against the corpus
+above. This is not a recall measurement — six questions is an anecdote — but two
+of the six are informative enough to write down.
+
+**English retrieval is good where the documentation is prose.** "How do I rotate
+the key that encrypts stored secrets?" answered with three passages of
+`docs/ops/secrets-at-rest-runbook.md` at 0.66–0.73, the top one under the heading
+about rotating it. "What stops a worker from taking new jobs?" answered with
+`docs/book/en/13-queue.md` at 0.61–0.62.
+
+**It is weaker where the question names a symptom.** "Why does my container
+healthcheck always report unhealthy?" found the right FILE
+(`docs/ops/container.md`, 0.576) and the wrong SECTION — "The four flags that are
+not optional" rather than the paragraph that says a healthcheck must use the exec
+form because the image has no shell. Its second hit was `decisions.md` on BLOB‑7's
+"boot health check", which is a different sense of the same word. Scores in the
+0.55 band are where a floor (slice 2) will have to sit.
+
+**Japanese against Japanese works, and scored the highest of the six.** "ジョブの
+待ち行列はどのように動きますか？" answered with `docs/book/ja/13-queue.md` at
+**0.805**.
+
+**And one Japanese question missed, which is the first real datum for #189's
+calibration.** "認可はどのように決まるのですか？" retrieved
+`docs/book/ja/14-secrets.md` — while `docs/book/ja/04-authz.md`, the chapter
+titled 認可のモデル, did not appear at all. CHUNK‑2 predicted exactly this shape: a
+1,024-character chunk of Japanese carries roughly four times the tokens the
+English-derived default intends, so a Japanese chunk is a much larger span of
+meaning and a short question matches it less sharply. **This is the measurement
+#189 step 3 is waiting for, and it now has a corpus with known right answers to
+be made against.**
+
+**An English question asked with `#:locale "ja"` is answered out of the Japanese
+directories — in English.** `docs/reference/ja/permissions.md` scored 0.613,
+because the generated reference is English where a string is not yet translated.
+That is HELP‑12's exact filter doing exactly what it says, and it is also why
+cross-lingual retrieval stays unclaimed: the Japanese PROSE did not surface for an
+English question.
 
 ## What slice 2 builds
 
