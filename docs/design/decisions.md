@@ -4641,3 +4641,75 @@ And the request log's `REQUEST-OPERATIONS` is pinned as a whole list, so adding
 `"transcribe"` failed `embed-tests.rkt` — the gate working, a third kind of
 model request being a deliberate edit rather than a string that arrives and is
 never explained.
+
+## STG — streamed capture: an upload assembled from chunks (issue #192, slice 2, built 30 Oct 2026)
+
+#192's requirement 3, and **the protocol already existed**. The S3 listener has
+staged multipart uploads since slice 52 and reaped abandoned ones since #54:
+numbered parts, each its own content-addressed blob, assembled at Complete
+through `input-port-append` into the same `repo-put!` a single-shot PUT uses,
+charged against `storage.bytes` on arrival and refunded in one place (S3‑8). What
+#192 wants — chunk by chunk, with a failed chunk retried rather than the whole
+recording re-sent — is that, and it was reachable only through SigV4.
+
+`domain/repo/staging.rkt` (extracted), `server/api/staged.rkt`, five routes.
+**No migration.**
+
+| # | Decision | Taken | Why |
+|---|---|---|---|
+| **STG‑1** | Where the protocol lives | **Extracted to `domain/repo/staging.rkt`; the S3 listener delegates** · vs a second implementation on the JSON plane | The move `release-blob!` already made in that same file when it got a second asker, and its own comment is the argument: "two implementations of one rule, each missing a different half, which is why there is one now and it lives with the tables it reads." Three routes and NO new storage, because the refund, the reap, the retry-replaces rule and the assembly are all shared. **The S3 suites and `s3-smoke.sh` passing unchanged with the real `aws` CLI is what says the extraction was behaviour-preserving** — #110 r7's characterisation argument, where the tests existed before the change. |
+| **STG‑2** | A minimum part size | **None, and S3's 5 MiB floor is NOT inherited** · but the part COUNT is bounded at 10,000 | That floor is AWS's, enforced by AWS, and the listener never checked it either. A 60-second chunk of 16 kbps opus is about 120 KB, so a floor would make the obvious client impossible. What needed bounding is the count: `max-upload-bytes` caps one part and nothing capped their number, which is the hole S3‑8's charge-on-arrival closed for BYTES — ten thousand 1-byte parts is a cheap way to make Complete chain ten thousand ports. 10,000 is AWS's own part limit, so it is a number a client author has already read. A REPLACEMENT is exempt, or a client that reaches the ceiling can no longer recover a chunk. |
+| **STG‑3** | The route names | **`/api/uploads`, not `/api/voice-notes`** | The chunking has nothing to do with audio: it is "a thing being recorded or produced while it is uploaded", equally a long export, a camera roll or a database dump. Naming it for voice notes would have been a second upload API the first time anybody wanted one for something else — the shape #114 avoided by making feed adapters a registry rather than a `cond`. What IS voice-specific is the content type the caller sends and the trigger that fires afterwards. |
+| **STG‑4** | When the key is validated | **At Begin, in the MODULE** · vs at Complete, vs in the route | `repo-put!` validates it too and would refuse at the END — after the client had uploaded the whole recording, which for a long voice note is minutes of somebody's time and a storage charge that then has to be refunded. The same argument `doc_fill_form` makes for refusing by content type before reaching the engine. **A control is what moved it from the route into the module**: it reported no bite, because no unit case began an upload with a bad key — and putting it in the module also fixed the S3 listener, whose Initiate did not validate either, so `aws` could begin a multipart upload to a key that could never be completed. |
+| **STG‑5** | How a part is addressed | **The number is in the path** · vs an append-only `POST .../parts` | Append-only is simpler and wrong for the one failure this exists to survive: a chunk whose request fails must be sent again, and with an implied position a retry either duplicates it or is indistinguishable from the next chunk. Numbered, a retry REPLACES — `UNIQUE(upload_id, part_number)` and the upsert — so a flaky connection costs one chunk rather than the recording. `GET /api/uploads/:id` is the resume read that makes that usable: the parts it lists are the ones a client need not send again. |
+| **STG‑6** | Who decides the order | **The platform, ascending** · vs the client's list, as S3 takes | There it must be the client's: parts arrive concurrently from `aws s3 cp`'s parallel workers and only the client knows which byte range each one was. A streamed capture has ONE writer producing chunks in time order, so ascending IS the order, and accepting a list would be offering a way to assemble a recording wrong. `staging-complete!` takes the order as an argument and the JSON surface passes `#f`. |
+
+### The reaper moved with the tables, and that matters
+
+`reap-uploads!` lived in `domain/s3/server.rkt` — **a listener that is off by
+default.** The sweep always rode the pool's reaper seam rather than the listener,
+which was S3‑7's own decision ("an instance that staged parts and then turned it
+off would hold those bytes for ever"); now that a second surface stages uploads
+with the listener possibly never instantiated at all, the sweep lives where the
+rows do. `server/main.rkt` and `test/upload-reap-tests.rkt` name the new module
+directly rather than reaching it through a re-export, which is #110 r3's
+`SOURCES` lesson: a test that keeps naming the old module goes on passing while
+reading something that no longer holds the code.
+
+### The permission gate flagged these routes, and the answer was not to relabel them
+
+`route-perm-gate-tests.rkt` refuses a `files:*` route whose path carries an `:id`
+and is ROLE-scoped, because a grant would stop admitting. All five of these
+tripped it, and the heuristic is a false positive here: that id is an UPLOAD id,
+and a grant is on a repository object or a note — nothing grants anything on a
+staged upload. The row is scoped to the caller's own team and the only check is
+the role, **which is the same check `repo-put!` makes on its FIRST LINE** before
+any resource weighing, so a staged write and a single-shot
+`PUT /api/repo/<key>` admit exactly the same callers (asserted, in
+`staging-tests.rkt` case 10, against both functions).
+
+So `/api/uploads` is exempt BY NAME — the shape that file already uses for the
+prefix delete rather than a pattern that would excuse a class. Were grants ever to
+reach an upload, that line is what would have to be revisited, which is the point
+of naming it.
+
+### A control that cannot bite, and one that found a test gap
+
+Thirteen of fourteen bite. The one that does not is the **default ascending
+sort**: removing it fails nothing, tried with three parts and again with twelve
+scrambled ones, because Racket's `hash-keys` on small integer keys happens to come
+back ascending for a hash that size. VEC‑13's unpinnable pin, the third
+appearance of that shape in these suites — a reason to write the sort down rather
+than a reason it is redundant, since the hash's order is not a documented
+property. What IS pinned is that an **explicit** order is honoured, which is the
+S3 surface's case and the only one where the order is somebody's choice.
+
+And two of the three that reported no bite on the first run were test gaps rather
+than code problems, which is the useful half:
+
+- **The released blob on a refused part.** The quota figure cannot see it: the
+  charge happens AFTER the admission check, so removing the release leaves the
+  number right and the bytes leaked — and nothing would ever collect them, because
+  #122's sweep reads `repo_blob_staging` and a part is not recorded there. The case
+  checks the store by digest now.
+- **The key check**, which is STG‑4 above.

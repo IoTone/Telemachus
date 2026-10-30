@@ -223,11 +223,24 @@
   (check-true (> (length resource-scoped) 25) (format "resource-scoped: ~a" (length resource-scoped)))
   ;; every `files:*` / `notes:*` route that names an object must be resource-scoped
   ;; — this is the direction that would be a REGRESSION if it flipped
+  ;;
+  ;; `/api/uploads/:id` IS EXEMPT BY NAME, which is the shape the case above
+  ;; already uses for the prefix delete rather than a pattern that would excuse a
+  ;; class. The heuristic here is "a path with an id names a resource a GRANT can
+  ;; reach", and that id is an UPLOAD id: a grant is on a repository object or a
+  ;; note, and nothing grants anything on a staged upload. The row is scoped to
+  ;; the caller's own team and the only check is the role — which is the same
+  ;; check `repo-put!` makes on its FIRST LINE before any resource weighing, so a
+  ;; staged write and a single-shot `PUT /api/repo/<key>` admit exactly the same
+  ;; callers. Were grants ever to reach an upload, this line is what would have
+  ;; to be revisited, which is the point of naming it rather than widening the
+  ;; pattern.
   (define dangerous
     (for/list ([r (in-list ROUTES)]
                #:when (and (rt-perm r)
                            (regexp-match? #rx"^(files|notes):" (rt-perm r))
                            (regexp-match? #rx":id|:slug|[*]key" (rt-path r))
+                           (not (regexp-match? #rx"^/api/uploads" (rt-path r)))
                            (eq? (rt-scope r) 'role)))
       (format "~a ~a declares ~a at ROLE scope — a grant would stop admitting"
               (rt-method r) (rt-path r) (rt-perm r))))

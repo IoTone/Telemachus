@@ -46,7 +46,12 @@
          ;; #85: the event sink and the delivery sweep
          (only-in "../domain/hooks/webhooks.rkt" deliver-due! enqueue-event!)
          (only-in "../domain/events/events.rkt" add-event-sink!)
-         (only-in "../domain/s3/server.rkt" make-s3-handler reap-uploads! s3-region)
+         (only-in "../domain/s3/server.rkt" make-s3-handler s3-region)
+         ;; #192 slice 2: the staged-upload reaper lives with the tables now, not
+         ;; in the listener — which is OFF BY DEFAULT, and the JSON plane stages
+         ;; uploads whether or not it is started. S3-7 already had the sweep on
+         ;; the pool's reaper seam for that reason; this finishes the thought.
+         (only-in "../domain/repo/staging.rkt" reap-uploads!)
          (only-in "../domain/audit/chain.rkt" audit-chain-seal!)
          ;; #114 slice 4: the feed poller, its first adapter, and the job kind a
          ;; feed's schedule fires
@@ -131,6 +136,9 @@
          ;; corpus that belongs to no team — the AI area is the team's own model
          ;; calls, and this is the instance's documentation answering a question.
          (only-in "api/help.rkt" ep-help)
+         ;; #192 slice 2: streamed capture over the staging tables.
+         (only-in "api/staged.rkt" ep-staged-begin ep-staged-get ep-staged-part
+                  ep-staged-complete ep-staged-abort)
          "api/beta.rkt"
          "api/branding.rkt"
          "api/content.rkt"
@@ -288,6 +296,8 @@
    'notes-share ep-notes-share 'notes-get ep-notes-get 'notes-update ep-notes-update 'notes-delete ep-notes-delete
    'ai-echo ep-ai-echo 'ai-chat ep-ai-chat 'ai-chat-stream ep-ai-chat-stream 'agent ep-agent
    'help ep-help
+   'staged-begin ep-staged-begin 'staged-get ep-staged-get 'staged-part ep-staged-part
+   'staged-complete ep-staged-complete 'staged-abort ep-staged-abort
    'translate-catalog ep-translate-catalog 'translate ep-translate 'translate-list ep-translate-list
    'glossary-add ep-glossary-add 'glossary-list ep-glossary-list
    'ai-model ep-ai-model 'executors ep-executors 'admin-workers ep-admin-workers

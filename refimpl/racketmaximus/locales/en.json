@@ -439,6 +439,10 @@
       "text": "See a team in the company.",
       "hash": "4199f8d5f9e5b33c92fab79383d9b06b39566bf1"
     },
+    "doc.route.delete.api.uploads.id": {
+      "text": "Give up on an upload and refund its staged bytes. An upload nobody finishes is reaped on its newest part's clock (TMACH_UPLOAD_REAP_HOURS), so this is the polite version rather than the only one.",
+      "hash": "152efb8ef22e0aa1b6c77382cf92c554c063e15d"
+    },
     "doc.workflow.translate-chat": {
       "text": "Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back.",
       "hash": "f8370eb5f5d177a7cb329157d4c789cd3390c967"
@@ -1215,6 +1219,10 @@
       "text": "no worker",
       "hash": "27386d4385bbc993141aca01b7448f6b259e700a"
     },
+    "doc.route.post.api.uploads": {
+      "text": "Begin an upload that will arrive in parts — for anything being recorded or produced WHILE it is uploaded, which is what makes a long voice note possible without one 40 MB body. Takes `key`, optional `content_type` and `visibility`. The key is validated here rather than at completion, so a client is refused before sending the recording rather than after. Answers an `upload_id`, the part ceiling and the per-part byte ceiling.",
+      "hash": "c2e586a68919eb3c85cd23f77eb6bebdd9bc31da"
+    },
     "ui.reviewverdict_reject": {
       "text": "Rejected",
       "hash": "27eeb7a291bfc566447d9cd928e98caf90f70ee6"
@@ -1282,6 +1290,10 @@
     "ui.huptime": {
       "text": "Uptime",
       "hash": "6aafa80cab6f4d80ad7fac9ba74fde9d0f32a1e7"
+    },
+    "doc.route.put.api.uploads.id.parts.n": {
+      "text": "One chunk, as the raw request body, at part number `n` (1 or above). A retry of the same number REPLACES it, which is the point of numbering them: a chunk whose request failed costs that chunk rather than the whole recording. Each part is staged as its own content-addressed blob and charged against storage.bytes on arrival, so an upload that is never completed is visible in usage rather than free; aborting or reaping refunds it. `TMACH_MAX_UPLOAD` caps one part.",
+      "hash": "e66e4b56e88d682ad88695df5d79c0366bedbab8"
     },
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
@@ -2271,6 +2283,14 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "doc.route.get.api.uploads.id": {
+      "text": "What has landed so far: the part numbers and their sizes. This is the resume read — the parts it lists are the ones a client does NOT have to send again.",
+      "hash": "7754deb77e323d98bff852a00e6e6755612d16c7"
+    },
+    "ui.featallowdone": {
+      "text": "{f} is allowed again — a company or a team may still turn it off",
+      "hash": "e71f9bd918b407ed8af8399d818310ba2d367634"
+    },
     "ui.helpclose": {
       "text": "Esc to close",
       "hash": "5329571c06e3b9ce63ef783a64d8903a391124ab"
@@ -2306,10 +2326,6 @@
     "doc.tool.doc_render.engine": {
       "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with `src=\"repo:<object id>\"`; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.",
       "hash": "6fa73480e15fbd0e370e16f1e6f34b65cc8a3e34"
-    },
-    "ui.featallowdone": {
-      "text": "{f} is allowed again — a company or a team may still turn it off",
-      "hash": "e71f9bd918b407ed8af8399d818310ba2d367634"
     },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
@@ -2926,6 +2942,10 @@
     "doc.tool.doc_render.step": {
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
+    },
+    "doc.route.post.api.uploads.id.complete": {
+      "text": "Assemble the parts in ASCENDING order into a repository object and finish the upload. The client does not name the order — a streamed capture has one writer and ascending IS the order, where the S3 surface must take a list because its parts arrive concurrently. Written through the ordinary `repo-put!`, so the object is versioned, quota-checked, audited and evaluated by triggers.",
+      "hash": "98b01cc00f9ac1c65c8f7471bc72401d53b37add"
     },
     "doc.perm.settings:manage": {
       "text": "Team settings: tokens, feature flags, tool activation, the glossary, seeding, the audit trail.",
