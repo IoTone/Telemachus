@@ -1947,6 +1947,7 @@
       (exec* conn "ALTER TABLE model_requests ADD COLUMN operation TEXT"))))
 
 
+
 ;; 0064 — THE FIRST BINARY COLUMN IN THIS SCHEMA (#189 step 4, VEC-18…24).
 ;;
 ;; One row per chunk of one VERSION of one document, holding that chunk's
@@ -2078,6 +2079,21 @@
       ;; rule, where an unknown age means never stale and never infinitely old.
       (exec* conn "ALTER TABLE jobs ADD COLUMN finished_epoch BIGINT"))))
 
+(define m-0067-model-request-job
+  (migration "0067-model-request-job"
+    (lambda (conn)
+      ;; OBSV: the log answered "what left this process" and not "what it was for". A row
+      ;; for a pull call is written by the route that enqueued the job, so the route's own
+      ;; `ms` covers the queue wait as well as the call, it cannot know the tokens the model
+      ;; produced, and nothing joined the row to the job it served. `job_id` is that join.
+      ;;
+      ;; NULLABLE, no backfill: rows written before this are honest rows with no job to
+      ;; name, and a backfill would have to guess — the same reason 0063 left `operation`
+      ;; null rather than claiming an unclassified row was a chat.
+      (exec* conn "ALTER TABLE model_requests ADD COLUMN job_id TEXT")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_model_requests_job ON model_requests (job_id)"))))
+
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2085,4 +2101,4 @@
                              m-0059-feed-items m-0060-trigger-attrs m-0061-redactions
                              m-0062-model-requests m-0063-model-request-operation
                              m-0064-chunk-vectors m-0065-help-corpus
-                             m-0066-job-finished-age))
+                             m-0066-job-finished-age m-0067-model-request-job))

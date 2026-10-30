@@ -162,6 +162,28 @@
                 '("error" "ok" "refused"))
   (close-db! c))
 
+(test-case "a pull call names the job that served it"
+  ;; OBSV: the route-side row for a pull call has no job to name, so the settle
+  ;; writes the half that does. Reading it back is what makes the join usable
+  ;; from the API rather than only by hand in SQL.
+  (define c (fresh))
+  (define-values (t u p) (team-of c))
+  (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
+                         #:executor "rig-a" #:transport "pull" #:model "qwen2.5:7b"
+                         #:messages (list (hasheq 'role "user" 'content "hi")) #:tokens 42
+                         #:status "ok" #:job-id "job-123")
+  (define got (model-requests-for c p))
+  (check-equal? (length got) 1)
+  (check-equal? (hash-ref (car got) 'job_id) "job-123")
+  (check-equal? (hash-ref (car got) 'tokens_used) 42)
+  (check-equal? (hash-ref (car got) 'transport) "pull")
+  ;; a row with no job reads as null rather than as a fake id
+  (model-request-record! c #:team (principal-team-id p) #:user (principal-user-id p)
+                         #:transport "push" #:status "ok" #:messages '())
+  (define push-row (for/first ([r (in-list (model-requests-for c p))] #:when (equal? (hash-ref r 'transport) "push")) r))
+  (check-equal? (hash-ref push-row 'job_id) 'null)
+  (close-db! c))
+
 (test-case "the closed vocabularies are ENFORCED, not merely declared"
   ;; #113's shape, closed at the writer rather than by a source scan: this
   ;; function's caller already swallows a failure, so a raise here cannot cost

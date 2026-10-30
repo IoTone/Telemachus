@@ -1067,3 +1067,45 @@
     (check-false (resolve-token c a-raw))
     (check-false (resolve-token c b-raw) "…and the current one too")
     (disconnect c))))
+
+;; OBSV: a worker's model call is on the record, joined to the job it served.
+;;
+;; The route that enqueued the job writes a row too (executor.rkt), but that one
+;; is written from the waiting side: its `ms` includes the queue wait, it cannot
+;; see the tokens the model produced, and it has no job to name. This test covers
+;; the row the settle writes, which is the half that answers "how long did the
+;; model run" and "which job was it".
+(test-case "a worker's call is recorded against its job, ok and failed"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "rig-a" #:model "qwen2.5:7b"))
+  (define (rows) (query-rows c "SELECT job_id, executor, model, status, tokens_used, ms, transport, operation FROM model_requests"))
+  (define job (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                            #:payload (hasheq 'messages (list (hasheq 'role "user" 'content "read this"))
+                                              'model "qwen2.5:7b")))
+  (define claim (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+  (check-equal? (hash-ref claim 'id) job)
+  (check-equal? (worker-complete! c ex job (hasheq 'reply "ok" 'tokens_used 42)
+                                  #:token (hash-ref claim 'claim_token)) 'ok)
+  (define r (rows))
+  (check-equal? (length r) 1 "one completion, one row")
+  (define row (car r))
+  (check-equal? (vector-ref row 0) job "the row names the job it served")
+  (check-equal? (vector-ref row 1) "rig-a")
+  (check-equal? (vector-ref row 2) "qwen2.5:7b" "the alias the payload asked for")
+  (check-equal? (vector-ref row 3) "ok")
+  (check-equal? (vector-ref row 4) 42 "the tokens the worker reported, not the route's estimate")
+  (check-true (integer? (vector-ref row 5)) "a duration, from the job's own start")
+  (check-equal? (vector-ref row 6) "pull")
+  (check-equal? (vector-ref row 7) "chat")
+  ;; a worker that reports a failure is on the record too: an invisible failed
+  ;; call is the one nobody can explain afterwards
+  (define job2 (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                             #:payload (hasheq 'messages '() 'model "qwen2.5:7b")))
+  (define claim2 (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+  (check-equal? (worker-fail! c ex job2 "model server returned 500" #:token (hash-ref claim2 'claim_token)) 'ok)
+  (define failed (for/first ([x (in-list (rows))] #:when (equal? (vector-ref x 0) job2)) x))
+  (check-true (vector? failed) "the failed call has a row")
+  (check-equal? (vector-ref failed 3) "error")
+  (disconnect c))

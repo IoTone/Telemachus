@@ -118,6 +118,7 @@
 (define (model-request-record! conn
                                #:team team #:user [user #f] #:org [org #f]
                                #:executor [executor #f]
+                               #:job-id [job-id #f]
                                #:transport transport
                                #:model [model #f]
                                #:endpoint [endpoint #f]
@@ -146,8 +147,8 @@
      "INSERT INTO model_requests (id, org_id, team_id, user_id, executor, transport, operation,"
      " model, endpoint,"
      " hosted, content_logging, prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
-     " tokens_used, status, error_kind, http_status, ms, created_epoch)"
-     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+     " tokens_used, status, error_kind, http_status, ms, created_epoch, job_id)"
+     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
     id
     (or org sql-null) (or team sql-null) (or user sql-null)
     (or executor sql-null) transport operation (or model sql-null) (or host sql-null)
@@ -159,7 +160,8 @@
     status (or error-kind sql-null)
     (if (number? http-status) http-status sql-null)
     (if (number? ms) (inexact->exact (round ms)) sql-null)
-    (current-seconds))
+    (current-seconds)
+    (or job-id sql-null))
   id)
 
 ;; ---- reading it (RED-22) ----------------------------------------------------
@@ -178,7 +180,7 @@
                           "SELECT id, executor, transport, model, endpoint, hosted, content_logging,"
                           " COALESCE(operation, 'chat') AS operation,"
                           " prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
-                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id"
+                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id, job_id"
                           " FROM model_requests WHERE team_id = ? AND executor = ?"
                           " ORDER BY created_epoch DESC, id DESC LIMIT ? OFFSET ?")
                     team executor (min 500 (max 1 limit)) (max 0 offset))
@@ -186,7 +188,7 @@
                           "SELECT id, executor, transport, model, endpoint, hosted, content_logging,"
                           " COALESCE(operation, 'chat') AS operation,"
                           " prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
-                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id"
+                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id, job_id"
                           " FROM model_requests WHERE team_id = ?"
                           " ORDER BY created_epoch DESC, id DESC LIMIT ? OFFSET ?")
                     team (min 500 (max 1 limit)) (max 0 offset))))
@@ -213,4 +215,7 @@
             'http_status (nz (vector-ref r 16))
             'ms (nz (vector-ref r 17))
             'at (vector-ref r 18)
-            'user_id (nz (vector-ref r 19)))))
+            'user_id (nz (vector-ref r 19))
+            ;; OBSV: the job a pull call served, so a row joins to its executor, its
+            ;; attempts and its start and finish instead of standing alone.
+            'job_id (nz (vector-ref r 20)))))

@@ -261,6 +261,13 @@ keyed digest of the prompt, a message and character count, the token count and
 the outcome — including the requests that failed and the ones this instance
 **refused** to make. There is no prompt column and no reply column.
 
+A pull call leaves two rows, and they join on `job_id`. The route that enqueued
+the job writes one from the waiting side, so its `ms` covers the queue wait as
+well as the call and it cannot know the tokens the model produced. The worker's
+completion writes the other, with the job's own start and finish, the tokens the
+worker reported, and the alias the payload asked for. `job_id` is null on rows
+written before migration 0064 and on every push and stream call.
+
 The digest is an **HMAC under `TMACH_SECRET_KEY`**, not a bare SHA‑256,
 because a bare hash of a short prompt is reversible from a word list — a leaked
 log plus a list of names would otherwise be a confirmation oracle over exactly

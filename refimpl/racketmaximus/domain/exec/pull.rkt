@@ -26,6 +26,7 @@
          racket/string racket/list
          json
          "../db/id.rkt"
+         (only-in "../ai/requestlog.rkt" model-request-record!)
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
          (only-in "../ai/content.rkt" content->text)
@@ -844,6 +845,42 @@
 
 ;; a result is accepted only from the current holder; it is validated by the
 ;; kind's #:validate (a bad shape is the WORKER's mistake and fails the job)
+
+;; ---- what a worker's call cost, recorded where the job is settled ----------
+;;
+;; The route that enqueued a pull job already logs a row, but it is written from
+;; the waiting side: its `ms` spans the queue wait as well as the call, it cannot
+;; know the tokens the model produced, and it has no job to name. This row is the
+;; other half — the job's own start and finish and the worker's reported token
+;; count, joined to the job by `job_id`. Two rows, one call, and the pair answers
+;; "how long did the model run" and "what did the team wait".
+;;
+;; A failure here NEVER fails the settle: losing a log line is an operational
+;; problem, losing a worker's completed job is somebody's answer (RED-17).
+(define (record-worker-call! conn ex job-id result status #:error-kind [error-kind #f])
+  (with-handlers ([exn:fail?
+                   (lambda (e)
+                     (eprintf "model request not recorded for job ~a: ~a\n" job-id (exn-message e)))])
+    (define r (query-row conn "SELECT team_id, user_id, kind, payload, started_epoch FROM jobs WHERE id = ?" job-id))
+    (define payload
+      (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+        (string->jsexpr (unseal-payload job-id (vector-ref r 3)))))
+    (define started (let ([v (vector-ref r 4)]) (and (number? v) v)))
+    (define model (let ([m (hash-ref payload 'model #f)]) (and (string? m) m)))
+    (model-request-record! conn
+      #:team (vector-ref r 0)
+      #:user (vector-ref r 1)
+      #:executor (hash-ref ex 'name #f)
+      #:transport "pull"
+      #:operation (if (regexp-match "embed" (format "~a" (vector-ref r 2))) "embed" "chat")
+      #:model model
+      #:messages (hash-ref payload 'messages '())
+      #:tokens (and (hash? result) (hash-ref result 'tokens_used #f))
+      #:status status
+      #:error-kind error-kind
+      #:job-id job-id
+      #:ms (and started (* 1000 (max 0 (- (current-seconds) started)))))))
+
 (define (worker-complete! conn ex job-id result #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
@@ -860,6 +897,10 @@
         (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
                                         (finished-set) " WHERE id = ?")
                     (seal-error job-id (string-append "worker returned a bad result: " problem)) job-id)
+        ;; the call happened and produced nothing usable, so it is logged as an
+        ;; error rather than left out: an invisible failed call is the one an
+        ;; operator cannot explain later
+        (record-worker-call! conn ex job-id result "error" #:error-kind "transport")
         'ok]
        [else
         (query-exec conn (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
@@ -867,6 +908,7 @@
                     (seal-result job-id (jsexpr->string result)) job-id)
         (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
         ((scheduler-record!) conn team result)
+        (record-worker-call! conn ex job-id result "ok")
         'ok])]))
 
 (define (worker-fail! conn ex job-id message #:token [token #f])
@@ -879,6 +921,7 @@
                                      (finished-set) " WHERE id = ?")
                  ;; the worker's own message, which may quote what it was handed
                  (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message)) job-id)
+     (record-worker-call! conn ex job-id #f "error" #:error-kind "transport")
      'ok]))
 
 ;; Hand a job back without spending an attempt (issue #61).
