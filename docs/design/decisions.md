@@ -3490,7 +3490,7 @@ with no measurement behind it, because measuring recall needs a live
 `nomic-embed-text`; steps 4 and 5 are the table and the read. The arithmetic and
 the seal have no such dependency, which is why they land first.
 
-## QVIZ — a picture of the AI queue (issue #184) — DESIGNED, NOT BUILT
+## QVIZ — a picture of the AI queue (issue #184) — DESIGNED, AND BUILT 30 Oct 2026
 
 #184 asks for "a short design in `docs/design/`, with the retention question
 answered, before any rendering code", which is what this is:
@@ -3545,6 +3545,82 @@ polls nothing today except a live workflow run, and #38's idle clock counts from
 the last REQUEST — so a dashboard that refreshed itself every ten seconds would
 hold a session open for as long as the tab was left on screen, which is an
 idle-timeout control switched off by a feature that looks like polish.
+
+### What the build found, 30 Oct 2026
+
+Migration `0066-job-finished-age`; `queue-flow` / `queue-breakdown` /
+`job-trail` in `domain/exec/fleet.rkt`; `GET /api/admin/queue/flow` and
+`GET /api/admin/jobs/:id/trail`, both `instance:read`;
+`static/console/18-queueviz.js` on the Health tab. **Nothing was added that the
+rows did not already answer** — no counter table, no sampling, so QVIZ‑1 held
+all the way through.
+
+| | |
+|---|---|
+| **QVIZ‑10** | `finished_epoch` is stamped by ELEVEN terminal writes, not the two the design estimated, so they share ONE clause — and the epoch is interpolated, not bound |
+| **QVIZ‑11** | The four queued states are counted in ONE scan, with a PRECEDENCE ordered by who can clear each one |
+| **QVIZ‑12** | Past 1,440 buckets the bucket WIDENS; the window the operator asked for is the window they get |
+| **QVIZ‑13** | The legend is drawn when the queue is empty and the bar is not |
+
+- **QVIZ‑10 — THE DESIGN SAID TWO TERMINAL WRITES AND THERE ARE ELEVEN.**
+  `finish!`, `cancel-job!`, `settle-canceling!`, the reaper's exhaustion arm,
+  four in `pull.rkt` (complete, fail, the release ceiling) and the two
+  wait-timeout arms in `run-chat` and `judge`. Adding a second column to each by
+  hand is #110 r1's shape exactly — a rule written eleven times gains a twelfth
+  copy that forgets — so `finished-set` in `scheduler.rkt` is the clause and
+  every site that stops a job uses it. The control is what proves the difference
+  matters: stamped in `finish!` alone, the series looks like it works and is
+  silently missing every job a worker completed.
+  **The epoch is INTERPOLATED into the SQL rather than bound**, because each of
+  those eleven sites has its own fixed argument list and "a conditional SQL
+  clause with a fixed argument list" is a bug this tree has recorded four
+  separate times. The value is an exact integer from the platform's own clock
+  and never a caller's input, so there is nothing for it to come apart from.
+- **QVIZ‑11 — THE PRECEDENCE IS ORDERED BY WHO CAN CLEAR IT**, not by read
+  order: `unclaimable` (only an operator), then `held_by_paused` (the host may
+  be back in fifteen seconds, or its card may be gone), then `waiting` (clears
+  on its own, QUOTA‑3), then plain `queued`. Reversed, a job nothing can run
+  whose team is ALSO over budget is reported as a budget problem and the
+  operator raises a limit that changes nothing. **The first version of the test
+  could not see that at all**, because the state where two apply at once never
+  arose in the fixture — the control did not bite until a case retired the only
+  matching host while the cap was still zero. One scan, not three reads, so the
+  bar is one instant and adds up rather than being computed in the console by
+  subtraction across differently-scoped figures.
+- **QVIZ‑12 — 720 hours is 43,200 minutes**, which is a response nobody can
+  draw and a sparkline 43,200 rectangles wide. Shrinking the window would answer
+  a question the operator did not ask, so the BUCKET widens to half an hour and
+  `bucket_seconds` says so — #178's rule, where a figure whose unit moved
+  silently is worse than one that was never offered.
+- **QVIZ‑13 — the legend is unconditional, the bar is not.** Four zeros beside
+  their colours say what the picture would show and keep the card's shape
+  stable; a zero-width `<svg>` says nothing and `n/0` is how a drawing becomes
+  NaN. The e2e gate asserts the two separately for that reason, and its own
+  queue is usually empty by the time it reaches that screen.
+- **A CONTROL THAT COULD NOT BITE SHOWED A GUARD WAS REDUNDANT.** The series
+  skipped a NULL clock twice — `IS NOT NULL` in SQL and a `sql-null?` test in
+  Racket — and substituting `COALESCE(col, 0)` for the clause changed nothing,
+  because epoch 0 is outside every window this read can be asked for (`hours` is
+  clamped to 720). The Racket guard is gone: a guard that duplicates the next
+  one is how a reader comes to believe the next one is missing (#110 r1). What
+  bites is removing the clause altogether, which hands `quotient` an SQL NULL
+  and raises — loudly, which is the right failure.
+- **A `refute` ON A BARE KEY NAME REFUTED A FIELD THAT BELONGS THERE.** The
+  smoke's "the trail carries no result" assertion failed against a correct
+  server: each EVENT carries a `result`, and it is the audit entry's own verdict
+  (`requeued` / `exhausted`), not the job's result. `differ()`'s shape, met from
+  the other side — a grep for a key cannot tell two meanings of one name apart,
+  so the assertion is on the VALUES now.
+- **A ONE-DIRECTIONAL CATALOG TEST CANNOT CATCH A LITERAL TYPED IN PLACE.**
+  "Every `t('…')` key the module uses is in `ui-strings.json`" passes when a
+  label is replaced with an English string, because the key simply leaves the
+  scan — `doSearch`'s year-long English literals are what that failure looks
+  like in production. Both directions: every `ui.qv*` the catalog ships must
+  also be ASKED for, so an orphan says somebody hard-coded the string it was
+  for. #110 r6's `src`-tags rule, applied to strings.
+- **`extract --help` IS NOT HELP AND IT WIPED `locales/en.json`**, exactly as
+  these notes say it does. Restored from git; the surface list CI passes is the
+  one to use.
 
 ## HEALTH — one screen for "is this instance healthy" (issue #179, built 29 Oct 2026)
 

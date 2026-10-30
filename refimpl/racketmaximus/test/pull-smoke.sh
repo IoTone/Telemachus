@@ -398,6 +398,64 @@ assert "a worker token cannot read the queue" \
   "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/admin/queue" -H "Authorization: Bearer $WT")" '403'
 
 echo
+echo "== 7c. QVIZ (#184): the figures a picture of the queue is drawn from =="
+# No counter table and no sampling: all three series come off the job rows'
+# own epoch columns, which is why there is no retention setting to get wrong.
+assert "three series over a fixed minute grid"  "$(G /api/admin/queue/flow)" '"arrivals"'
+assert "…claims too"                            "$(G /api/admin/queue/flow)" '"claims"'
+assert "…and completions, which needed the new column" \
+  "$(G /api/admin/queue/flow)" '"completions"'
+assert "…on one shared grid, so they line up"   "$(G /api/admin/queue/flow)" '"buckets"'
+assert "…whose unit is reported rather than assumed (#178)" \
+  "$(G /api/admin/queue/flow)" '"bucket_seconds":60'
+# QVIZ-7: an idle minute is a ZERO and is SENT. Over "the buckets that had rows"
+# a queue that stopped an hour ago draws exactly like one working steadily, which
+# is the single distinction the picture exists to make.
+assert "an idle minute is a zero, not a missing bucket" \
+  "$(G /api/admin/queue/flow | python3 -c 'import sys,json;d=json.load(sys.stdin);print(len(d["arrivals"])==d["buckets"] and 0 in d["arrivals"])')" 'True'
+# A completion was not derivable at all before migration 0066, and this smoke has
+# finished dozens of jobs by now — so a zero here would mean the column is being
+# stamped by `finish!` alone and not by the eleven writes that share the clause.
+assert "the jobs this smoke finished are IN the completions series" \
+  "$(G /api/admin/queue/flow | python3 -c 'import sys,json;print(sum(json.load(sys.stdin)["completions"])>0)')" 'True'
+# The window is a control with the same vocabulary the Workers card teaches, and
+# past 1,440 buckets the BUCKET widens rather than the window shrinking: the
+# operator asked for thirty days and gets thirty days.
+assert "a long window widens the bucket"        "$(G '/api/admin/queue/flow?hours=720')" '"bucket_seconds":1800'
+assert "…and is clamped, not refused"           "$(G '/api/admin/queue/flow?hours=99999')" '"hours":720'
+# Priority 1: the four states partition the queued set, counted in ONE scan so
+# the bar adds up rather than being three reads of three instants.
+assert "the four queued states are one breakdown" "$(G /api/admin/queue/flow)" '"breakdown"'
+assert "…and it reports its own scan limit"     "$(G /api/admin/queue/flow)" '"truncated"'
+assert "the breakdown adds up to what it scanned" \
+  "$(G /api/admin/queue/flow | python3 -c 'import sys,json;b=json.load(sys.stdin)["breakdown"];print(b["unclaimable"]+b["held_by_paused"]+b["waiting"]+b["queued"]==b["scanned"])')" 'True'
+# QVIZ-4: this read crosses every team on the instance.
+refute "no payload travels with the picture"    "$(G /api/admin/queue/flow)" '"payload"'
+assert "a worker token cannot read it"          "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/admin/queue/flow" -H "Authorization: Bearer $WT")" '403'
+
+# QVIZ-3: one job's path, read back out of the trail FLEET-1 already writes.
+TJID=$(G /api/admin/queue | python3 -c 'import sys,json;j=json.load(sys.stdin)["jobs"];print(j[0]["id"] if j else "")')
+assert "a job's trail names its kind and its attempts" "$(G /api/admin/jobs/$TJID/trail)" '"max_attempts"'
+assert "…and its events, oldest first"          "$(G /api/admin/jobs/$TJID/trail)" '"events"'
+# The whole point of reading the trail rather than the row: the requeue clears
+# `executor_id`, so after one expiry the row no longer knows which host had it.
+assert "…and the holder, which the row keeps while it is held" \
+  "$(G /api/admin/jobs/$TJID/trail)" '"holder"'
+refute "the trail carries no error message"     "$(G /api/admin/jobs/$TJID/trail)" '"error"'
+refute "…and no payload"                        "$(G /api/admin/jobs/$TJID/trail)" '"payload"'
+# NOT a refute on `"result"`: each EVENT carries one, and it is the audit
+# entry's own verdict (`requeued` / `exhausted`), not the job's result. A grep
+# for the bare key would have refuted a field that belongs here — the shape
+# `differ()` exists for, met from the other side.
+assert "…and an event's `result` is the audit verdict, not the job's" \
+  "$(G /api/admin/jobs/$TJID/trail | python3 -c 'import sys,json;d=json.load(sys.stdin);print(all(e["result"] in ("requeued","exhausted",None,"null") for e in d["events"]))')" 'True'
+assert "a job that does not exist is a 404"     "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/admin/jobs/no-such-job/trail" -H "Authorization: Bearer $TOK")" '404'
+assert "a worker token cannot read a trail"     "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/admin/jobs/$TJID/trail" -H "Authorization: Bearer $WT")" '403'
+# The lease bar's denominator comes from the server, so a client drawing a
+# countdown as a fraction is not carrying a hardcoded guess at the constant.
+assert "the fleet read says what a full lease IS" "$(G /api/admin/workers)" '"lease_seconds"'
+
+echo
 echo "== 8. FLEET-3: the operator takes a host out of rotation, reversibly =="
 # The only lever before this was a RETIRE, which revokes the worker token: a
 # ten-minute drain meant re-provisioning the host afterwards.

@@ -106,12 +106,16 @@ async function healthView(){
   // One round. None of the five depends on another, and this screen is the
   // console's widest read — five sequential calls is what made the Admin tab
   // slow enough to notice (the sign-in slice measured 300ms a call).
-  const [sr, ur, xr, fr, qr] = await Promise.all([
+  const [sr, ur, xr, fr, qr, vr] = await Promise.all([
     api('/api/admin/status'),
     api('/api/usage'),
     api('/api/executors'),
     api('/api/admin/workers'+fleetQuery()),
-    api('/api/admin/queue'+queueQuery())]);
+    api('/api/admin/queue'+queueQuery()),
+    // #184: the pictures. It joins the round rather than becoming a sixth
+    // sequential call, and it shares `fleetQuery()`'s window so the drawings
+    // and the figures below them are over the same hours.
+    api('/api/admin/queue/flow'+fleetQuery())]);
   const read = hTime(Date.now());
   return `<h2>${t('health')}</h2>
     <p class="muted" style="margin:-.4em 0 1em">
@@ -120,6 +124,7 @@ async function healthView(){
         data-h-click="${H(()=>renderTab())}">${t('refresh')}</button></p>
     ${healthServer(sr)}
     ${healthBudgets(ur)}
+    ${queueVizCard(vr, fr)}
     ${workersCard(xr, fr)}
     ${queueCard(qr, fr)}`;
 }

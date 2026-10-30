@@ -32,6 +32,27 @@
   .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
   .row{display:flex;gap:14px;flex-wrap:wrap} .row>*{flex:1;min-width:0}
   .muted{color:var(--muted)} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  /* QVIZ (#184): four hand-drawn pictures. Inline SVG rather than a chart
+     library — `script-src 'self'` blocks a CDN and a vendored one is a
+     third-party dependency for four shapes — so these inherit the theme tokens
+     like everything else on the page. */
+  .qvbar{width:100%;height:22px;display:block;border-radius:4px;overflow:hidden;background:var(--panel2)}
+  .qvlegend{margin:.5em 0 0;font-size:12px;color:var(--muted)}
+  .qvkey{display:inline-block;margin-right:14px}
+  .qvkey i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  .qvkey b{color:var(--fg);margin-left:4px}
+  .qvspark{width:100%;height:28px;display:block;background:var(--panel2);border-radius:3px}
+  .qvlease{height:14px}
+  .qvtbl{width:100%} .qvtbl th{width:9em;text-align:left;font-weight:normal;color:var(--muted)}
+  .qvtot{width:5.5em;text-align:right;white-space:nowrap;font-size:12px}
+  .qvtrailrow td{background:var(--panel2)}
+  .qvpath{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;padding:4px 0}
+  .qvarrow{color:var(--muted)}
+  .qvpill{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--panel);
+          border:1px solid var(--line);white-space:nowrap}
+  .qvpill.ok{border-color:#3a4a24;color:var(--ok)} .qvpill.warn{border-color:#4a3a20;color:var(--warn)}
+  .qvpill.bad{border-color:#5e332c;color:var(--bad)}
+  .qvpill i{font-style:normal;color:var(--muted);margin-left:6px}
   .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
   .badge.ok{color:var(--ok);border-color:#3a4a24} .badge.op{color:var(--warn);border-color:#4a3a20}
   .badge.bad{color:var(--bad);border-color:#5e332c} .badge.run{color:var(--accent);border-color:#2c4a6b}
@@ -248,6 +269,7 @@
 <script src="/console/15-editor.js"></script>
 <script src="/console/16-palette.js"></script>
 <script src="/console/17-help.js"></script>
+<script src="/console/18-queueviz.js"></script>
 <script src="/console/99-boot.js"></script>
 </body>
 </html>

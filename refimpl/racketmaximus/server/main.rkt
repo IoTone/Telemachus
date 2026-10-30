@@ -304,7 +304,7 @@
    'executor-create ep-executor-create 'executor-retire ep-executor-retire 'org-executor-create ep-org-executor-create
    'executor-drain ep-executor-drain 'executor-resume ep-executor-resume
    'executor-rotate-token ep-executor-rotate-token
-   'worker-token-get ep-worker-token-get 'worker-token-rotate ep-worker-token-rotate 'admin-queue ep-admin-queue
+   'worker-token-get ep-worker-token-get 'worker-token-rotate ep-worker-token-rotate 'admin-queue ep-admin-queue 'admin-queue-flow ep-admin-queue-flow 'admin-job-trail ep-admin-job-trail
    'repo-fields-get ep-repo-fields-get 'repo-fields-put ep-repo-fields-put
    'repo-attributes ep-repo-attributes 'repo-spans ep-repo-spans
    'member-role ep-member-role 'member-remove ep-member-remove

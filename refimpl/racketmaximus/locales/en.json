@@ -219,6 +219,10 @@
       "text": "Replace the identifiers in a document's text with stable tokens — <PERSON_1>, <DATE_2>, <ID_3> — so a model request can be built from what is left. Detectors are named, not written by the caller: email, date, id_number, dictionary (terms you supply) and phone. Writes the redacted text beside the source as <key>.redacted.txt and keeps the map from token back to value in a sealed row that no endpoint returns. Reports counts per detector, so under-redaction is visible.",
       "hash": "98a1e3c430ab182a5f9c1637999bc1ac4fadb90c"
     },
+    "doc.route.get.api.admin.jobs.id.trail": {
+      "text": "One job's path through the fleet, oldest first: which machine held each attempt, which let it go and why, and when. Read back from the audit entries the reaper and a release already write — each one written BEFORE the row is re-queued, because the requeue clears `executor_id` and afterwards nothing says which host dropped the work. Three hosts once each and one host three times are different stories and the attempt counter cannot tell them apart. It carries no payload, no result and no error message.",
+      "hash": "15fed68dc3e2bb60d8679c4e0ecf77e7aa4b9dbf"
+    },
     "doc.plugin.ocr": {
       "text": "Reads text out of photographs and scanned PDFs with Tesseract, with per-word page and region provenance.",
       "hash": "4dd6c30cfb3a60fd83ac3f1696330bd4bc6c45d4"
@@ -311,6 +315,10 @@
       "text": "Read tasks.",
       "hash": "736bd92b8e286f7a17a50b38358b9c0151b86a51"
     },
+    "ui.qvattempts": {
+      "text": "attempt {a}/{m}",
+      "hash": "2d2545448499701571d5eaf6a398d66f9520cbaf"
+    },
     "ui.thsurface": {
       "text": "Panel",
       "hash": "2f4bd749ecf708ff53a15e9e7904176bd92ad347"
@@ -322,6 +330,10 @@
     "doc.workflow.classify-backfill": {
       "text": "Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends [\"rules\"] to backfill without spending model budget.",
       "hash": "45ac9b42c4865ef03fd28fb45c61cf33e915ff4f"
+    },
+    "ui.qvempty": {
+      "text": "Nothing is queued.",
+      "hash": "adaf025873f9d915e8f3feb9345801b9246e7829"
     },
     "ui.wkresumedok": {
       "text": "Back in rotation",
@@ -451,6 +463,14 @@
       "text": "The spoken language as a two-letter code, if it is known; omitted means let the model detect it",
       "hash": "8f6eb5f1b9f3ad82701f6545c1f4eae48d8094ec"
     },
+    "ui.haccountsline": {
+      "text": "{users} users · {teams} teams · {orgs} orgs",
+      "hash": "ca68c09e1d4791ca9d2e73b831f296d4949d177f"
+    },
+    "ui.qvexhausted": {
+      "text": "attempts exhausted",
+      "hash": "975e56e29b5d70d3c6481de30d97994aa4d29ff2"
+    },
     "doc.route.get.api.repo-obj.id.spans": {
       "text": "Where the extracted text came from: page and region per run (LAY-5). ?at=<character offset> returns only the spans covering that offset, which is how a reviewer jumps from an extracted value to the place it was read.",
       "hash": "0ebd28a5c2094a860bb918d4279034df707e56a5"
@@ -462,10 +482,6 @@
     "ui.palhesc": {
       "text": "Close the palette, this list, or focus mode",
       "hash": "74d6dda4e7d06a8d5d8bb5db980d2add8d8f620c"
-    },
-    "ui.haccountsline": {
-      "text": "{users} users · {teams} teams · {orgs} orgs",
-      "hash": "ca68c09e1d4791ca9d2e73b831f296d4949d177f"
     },
     "doc.route.delete.api.2fa": {
       "text": "Turn the caller's own TOTP off, so the old seed and its recovery codes stop working and they must enrol again.",
@@ -494,6 +510,10 @@
     "doc.tool.doc_redact.terms": {
       "text": "Literal names or phrases the dictionary detector should replace — not patterns",
       "hash": "8a0dc997dfe2e3dbdf8cde64c32811f94d52f7e2"
+    },
+    "ui.qvpeak": {
+      "text": "peak {n}",
+      "hash": "b972d59e5c1288904d1ae40abd739b751356b698"
     },
     "doc.tool.doc_render.run": {
       "text": "The workflow run id, for provenance",
@@ -835,6 +855,14 @@
       "text": "Path",
       "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
     },
+    "ui.qvleaseshint": {
+      "text": "a lease quietly not being refreshed is what a failover looks like, 90 seconds early",
+      "hash": "7b5419581c8cbebb0c7937c9a61c348251af58b3"
+    },
+    "ui.qvexpired": {
+      "text": "expired",
+      "hash": "45a6f9adb1df3a78aafc71391c7d3bfa7680229b"
+    },
     "doc.perm.jobs:execute": {
       "text": "Claim, heartbeat, complete and fail jobs offered to a pull executor. Held only by a worker token, bound to one executor; reaches no team data and starts no run.",
       "hash": "f5c72d603508d57a3cd01ecf4e75f59d0a9e155b"
@@ -850,6 +878,10 @@
     "ui.featturnoff": {
       "text": "Turn off",
       "hash": "8807c2b3fd0fb52c4791bd1199d1bbc43da10e41"
+    },
+    "ui.qvwaiting": {
+      "text": "Held by a cap or a budget",
+      "hash": "638bd8819cc268d1575e670b8f58662e09aff3dc"
     },
     "ui.apitokens": {
       "text": "API tokens",
@@ -878,6 +910,14 @@
     "ui.edwrite": {
       "text": "Write",
       "hash": "4a48932789d199bbed709777e2d743ca2bafdc6c"
+    },
+    "ui.qvholding": {
+      "text": "holding",
+      "hash": "329bb6c3b55346c25bd3f35339f2942b972a5966"
+    },
+    "doc.tool.doc_classify": {
+      "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
+      "hash": "f0effca4e2c91938adb06fcb1492a0a59546932e"
     },
     "ui.until": {
       "text": "until",
@@ -1019,10 +1059,6 @@
       "text": "The caller's EFFECTIVE retention policy, with `sources` naming which layer set each value — instance, org or team. The layers TIGHTEN: a shorter horizon wins and `null` (keep for ever) loses to any number, so a team cannot keep data longer than its org allows. Nothing is deleted unless a rule is configured; an unconfigured instance has no rules and sweeps nothing.",
       "hash": "c9231f778313d4e931e44e514ab8f69f3968987a"
     },
-    "doc.tool.doc_classify": {
-      "text": "Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json.",
-      "hash": "f0effca4e2c91938adb06fcb1492a0a59546932e"
-    },
     "ui.edexportfail": {
       "text": "the download was refused",
       "hash": "1299e5e779f9a58ca579efe9b22d080b2d14e925"
@@ -1042,6 +1078,10 @@
     "ui.featlocked": {
       "text": "a layer above does not allow it",
       "hash": "39ab2edd8a83117aacf9242f9272be4ce052083e"
+    },
+    "ui.qvautooff": {
+      "text": "Off",
+      "hash": "e3de5ab0ca4c69dbf00e86d2558843e8d806bb49"
     },
     "doc.tool.translate_text.target": {
       "text": "Target language code, e.g. es, nl, is",
@@ -1091,6 +1131,10 @@
       "text": "Got it",
       "hash": "5b8027fa0e819719a62305a6b15f3f1c10769f7f"
     },
+    "ui.qvclaimshint": {
+      "text": "Jobs a worker or the pool picked up in each bucket.",
+      "hash": "ab9ef458be09b9e847e5670050153bfdf5cae763"
+    },
     "ui.edsplit": {
       "text": "Split",
       "hash": "fc8230b4119ad4b994db2324d71f4e0ae7ad932c"
@@ -1114,6 +1158,10 @@
     "doc.perm.files:delete": {
       "text": "Delete repository documents.",
       "hash": "22c27699a83b97492e326f893ae9aa65ae8e532c"
+    },
+    "ui.qvfinished": {
+      "text": "finished",
+      "hash": "f957097d7a22775f6bea41b46cae4d14274dac9f"
     },
     "ui.palhclose": {
       "text": "Esc or ? to close",
@@ -1187,6 +1235,14 @@
       "text": "The workflow step id, for provenance",
       "hash": "d3b1eadc974f1109be18acfddf15e95ec18e1b43"
     },
+    "ui.qvtrunchint": {
+      "text": "The queue is deeper than one scan, so this bar is the oldest rows rather than all of them.",
+      "hash": "11539ff76aba1d53e10a353ce3e0affbb01e0c7a"
+    },
+    "ui.palhhelp": {
+      "text": "Show this list",
+      "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
+    },
     "ui.uploaded": {
       "text": "Uploaded",
       "hash": "80c494898ac90610a67c95502d2a56b4af4963f1"
@@ -1199,10 +1255,6 @@
       "text": "invalid or expired challenge — reload the page",
       "hash": "700624cabf7adc03efd22f9333fb0b5c3ceda0cf"
     },
-    "ui.palhhelp": {
-      "text": "Show this list",
-      "hash": "213103f1cbe3ed858dba77dec93600b93b4a6e74"
-    },
     "doc.route.get.api.reviews.verify": {
       "text": "Walk the team's decision chain and recompute it, naming the first decision whose stored hash does not match its contents. Detects a record altered in place or removed; does NOT detect a rewrite by someone who can write the table, which would need an external anchor.",
       "hash": "7e89fc4333a119c5feb8a67edc48ac81f10fa2b5"
@@ -1210,6 +1262,10 @@
     "doc.route.post.api.org.executors": {
       "text": "Create an executor bound to the caller's company (TEN-2e): offered only to its teams.",
       "hash": "218f372f207fb10f594e39772c8cd33624edf803"
+    },
+    "ui.qvpath": {
+      "text": "Path",
+      "hash": "519e39132bb98418cc0483cc446ccf5f3c8dcffe"
     },
     "doc.route.get.api.admin.anchor.receipts": {
       "text": "Anchor receipts, newest first, or oldest-first from `?since_seq=`. Each carries the exact signed payload bytes, its signature, the public key that signed it, its sequence and its predecessor's hash. `limit` caps at 1000.",
@@ -1515,6 +1571,10 @@
       "text": "Share with",
       "hash": "134bfa9822f411e84749498f9747ec887fd5d0fd"
     },
+    "ui.qvautohint": {
+      "text": "Off by default: a screen that refreshes itself holds your session open.",
+      "hash": "d6ca31f8dbbc6df6301f8f8a3aa8d0e7ca354cf7"
+    },
     "doc.route.get.api.sessions": {
       "text": "The caller's own browser sessions — prefix, when each was created and last used, when it expires, and which one this request is holding. Never a token.",
       "hash": "0875a01957e3e772a8b5b7b2352fc1e530e010af"
@@ -1586,6 +1646,10 @@
     "doc.tool.feed_queue_status.status": {
       "text": "The new status",
       "hash": "22dad84c7f9e73b5959e03bd54fd9e4bdd67f15c"
+    },
+    "ui.qvclaims": {
+      "text": "Claims",
+      "hash": "06e8db2dfd69dc1703edf9418fb7533fa5d026de"
     },
     "ui.abslabel": {
       "text": "Maximum session (hours)",
@@ -1714,6 +1778,10 @@
     "ui.l10ndraft": {
       "text": "AI draft",
       "hash": "7f61d5cd716c33f7b3b618779bd0190eb02d187c"
+    },
+    "ui.qvnopath": {
+      "text": "First attempt — nothing has let it go.",
+      "hash": "66e470222ffd11e7ab131e1576695d9c529300af"
     },
     "doc.perm.jobs:purge": {
       "text": "Clear the payload and result of SOMEBODY ELSE'S settled job, destroying the input it was given and the output it produced. You may always purge your own. The row, its status, its timings and the audit trail survive — the audit log is the record of what happened, so a purged job stays accountable while its content does not.",
@@ -1887,6 +1955,10 @@
       "text": "Password changed — every session was signed out. Sign in again.",
       "hash": "b338cf8a2b9db116c903d7aa328d8b55d7a5f782"
     },
+    "ui.qvtrunc": {
+      "text": "sampled: oldest {n}",
+      "hash": "2053377e7a863ef6782341d2a4d8cd30cd23b8aa"
+    },
     "ui.helpuncited": {
       "text": "The answer cited no passage, which usually means it is declining to answer.",
       "hash": "f869c22eef29a6400b7755a6b927bc33551e1e0e"
@@ -1894,6 +1966,10 @@
     "doc.route.get.api.repo-obj.id.content": {
       "text": "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.",
       "hash": "e3519b90c5108493988f2a53343a1245023dbe5c"
+    },
+    "ui.qvpaused": {
+      "text": "Held by a paused worker",
+      "hash": "7aab3e1ffd64a96acc62ef87cf7c98864f16df8a"
     },
     "doc.route.get.api.ai.model": {
       "text": "Which model is configured (or that the simulated fallback is in use).",
@@ -1926,6 +2002,10 @@
     "doc.route.delete.api.notes.id": {
       "text": "Delete a note.",
       "hash": "edadf3ea6746bb44145806818cfca51cc6e85140"
+    },
+    "ui.qvauto": {
+      "text": "Refresh",
+      "hash": "56e3badc4e6c5cc95e0ea5a9a878b9bd09f319d4"
     },
     "ui.l10nsearch": {
       "text": "Search key or text",
@@ -2019,6 +2099,10 @@
       "text": "Status",
       "hash": "bae7d5be70820ed56467bd9a63744e23b47bd711"
     },
+    "ui.qvqueued": {
+      "text": "Queued, working through",
+      "hash": "d8306cebe70dceeb9a8bc55245a28320f25e9a9c"
+    },
     "doc.workflow.transcribe-documents": {
       "text": "Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read.",
       "hash": "85238c78d2068f3a2b17cd1d77dc53fd9e66c8d6"
@@ -2054,6 +2138,10 @@
     "doc.tool.doc_classify.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "ui.qvreleased": {
+      "text": "handed back: {why}",
+      "hash": "a5786ca335f4c28a1daefca6138aea4aa15629db"
     },
     "doc.plugin.translate-chat": {
       "text": "A demo workflow plugin: chat once, fan the reply out to Spanish/Dutch/Icelandic, then bring each back to the user's own language.",
@@ -2187,6 +2275,10 @@
       "text": "Text on brand",
       "hash": "f6248b16f2f73b99ad6b63c1dde8532e45e6e548"
     },
+    "ui.qvcompletions": {
+      "text": "Completions",
+      "hash": "1edd778907f333f7f36339636d25a8e14334aadb"
+    },
     "doc.tool.feed_propose.object": {
       "text": "The item's repository object id",
       "hash": "8f595886ef395ccb54a13b8a15d9e6117b5a7f22"
@@ -2319,6 +2411,10 @@
       "text": "Activate account",
       "hash": "b9186563deea94527f03558a5ec059806d363c49"
     },
+    "ui.qvreleases": {
+      "text": "{n} handed back",
+      "hash": "d668f66d84267fcc859213b166e7d229b5177b25"
+    },
     "ui.wkactive": {
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
@@ -2410,6 +2506,10 @@
     "doc.perm.quota:read": {
       "text": "See quotas.",
       "hash": "fb2e9e15c807d3a4e1c48139107fc7b18f522f21"
+    },
+    "ui.qvleases": {
+      "text": "Leases",
+      "hash": "45c6034dee3192e14bc2c94fe6ebc276c007d29c"
     },
     "ui.quotaraiseop": {
       "text": "You can raise it below.",
@@ -2563,6 +2663,10 @@
       "text": "Asking…",
       "hash": "b18ce81df55ca8aa4952c93e6f7c8a5d112980cc"
     },
+    "ui.qvnoleases": {
+      "text": "No worker is holding a job.",
+      "hash": "85b9c8be18342f96b3342e3ea65abeb10f551394"
+    },
     "doc.route.post.api.workers.token": {
       "text": "Trade the token this worker is holding for the next one (issue #60): {token, expires_at, overlap_seconds}. The warrant is the credential it already holds, as for PULL-9's read and PULL-13's write. The old token keeps working for the overlap, so a worker must PERSIST the new one before using it — one that cannot persist it must not rotate, or it will stop when the overlap ends. Rotating twice inside five minutes is a 429 with Retry-After.",
       "hash": "abc29f3c75523fdb9b265a0d3a5b2839bbbdd6d5"
@@ -2643,6 +2747,10 @@
       "text": "Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns.",
       "hash": "49c3b31b6e701e0b72e0e02d247f51293847bb3a"
     },
+    "ui.qvflow": {
+      "text": "Flow",
+      "hash": "86eff8eb789b097ddca83f2c9c4617ed23605105"
+    },
     "ui.title": {
       "text": "Title",
       "hash": "768e0c1c69573fb588f61f1308a015c11468e05f"
@@ -2654,6 +2762,10 @@
     "doc.route.post.api.workers.jobs.id.document": {
       "text": "Read a document THIS job names: {object, claim_token, version?, as?}. Three conditions, no new authorization code — the caller holds this attempt, the object id appears in the job's own payload, and the read happens as the job's user so visibility, grants and the org gate all apply. `as: \"bytes\"` (base64, capped at TMACH_MAX_UPLOAD) or `as: \"text\"`, where a scan answers {text: null, reason: \"needs-ocr\"}.",
       "hash": "91b96f7bd40f890633de373ba45dffd1433509c2"
+    },
+    "ui.qvarrivalshint": {
+      "text": "Jobs enqueued in each bucket.",
+      "hash": "49b02129b76462b842adc450e544f875e06e9242"
     },
     "doc.route.get.beta.template": {
       "text": "The Tier-C sandboxed HTML template, localized by the experience overlay.",
@@ -2779,6 +2891,10 @@
       "text": "Create a text document (a repository object with content_type text/markdown).",
       "hash": "d8633651c22e353d235c4425d3599afa38db6fc0"
     },
+    "ui.qvcompletionshint": {
+      "text": "Jobs that finished in each bucket, whatever their outcome.",
+      "hash": "903e836f36524408adbe4a6fa765d560621c9765"
+    },
     "doc.route.get.api.mcp": {
       "text": "Connected MCP servers.",
       "hash": "ee2175d19262c5c0d8e0ded042d864a035929822"
@@ -2826,6 +2942,10 @@
     "doc.route.delete.api.webhooks.id": {
       "text": "Delete a subscription and its delivery history. The audit entries survive.",
       "hash": "302eed6affa64f4a0a163385b802340f419c8aef"
+    },
+    "ui.qvinproc": {
+      "text": "in process",
+      "hash": "99fc8f91a50120270b90e2468c6536e073b4bea9"
     },
     "doc.route.delete.api.beta.asset.id": {
       "text": "Delete an onboarding asset.",
@@ -3023,6 +3143,10 @@
       "text": "Move one queued item to another status: {\"status\": \"claimed\"}. Guarded on the row's own team as well as the document, because an object id is instance-global.",
       "hash": "dfff589d91c44dc9eb5fd8a4604ecda788095c2e"
     },
+    "ui.qvgrain": {
+      "text": "· {n}-minute buckets",
+      "hash": "133c07ac8036c8f3b01782e2d911de72800710e8"
+    },
     "ui.brandtheme": {
       "text": "Theme",
       "hash": "a797e30923ac1be590300ce6b08e63b4e6dc6688"
@@ -3163,6 +3287,10 @@
       "text": "Connected sandboxed (out-of-process) plugins and the capabilities they may ask for.",
       "hash": "0e0b67a716848dba7d3d889f5b9896b861229066"
     },
+    "ui.qvexpiredat": {
+      "text": "lease expired",
+      "hash": "7a41da89efdfe838a33aa4c3a632c95bf1400e44"
+    },
     "ui.people": {
       "text": "People",
       "hash": "b37554f695b15005fd23907b9488e0a8ad4bca5f"
@@ -3186,6 +3314,10 @@
     "ui.l10nsource": {
       "text": "English",
       "hash": "649df08a448ee3fa90f3746baaf6b0907df42c91"
+    },
+    "ui.qvstuckhint": {
+      "text": "these four add up to the queued jobs, and each has a different remedy",
+      "hash": "8265e71543d6a540d3933a6acf590be421be6574"
     },
     "ui.l10ntarget": {
       "text": "Translating into",
@@ -3343,6 +3475,10 @@
       "text": "Open the command palette",
       "hash": "2b5a7d38f23f257ed27a4b5c21774239fe9b1a93"
     },
+    "doc.route.get.api.admin.queue.flow": {
+      "text": "Work moving through the AI queue, as figures a picture is drawn from (QVIZ, #184): arrivals, claims and completions bucketed over a fixed minute grid across `?hours=` (default 24, clamped to 720), plus `breakdown` — the four states that partition the queued set, counted in one scan so the bar adds up. Every figure is derived from the job rows themselves, so there is no counter table and no retention setting: how far back it reaches is what your own retention rules already keep. Empty minutes are sent as zeros, because a queue that has STOPPED must not draw like one that is busy. Over 1,440 buckets the bucket widens rather than the window shrinking; `bucket_seconds` says which.",
+      "hash": "e0ca6b11956a5bef6d4bd91f577d7423b4f57aa1"
+    },
     "ui.results": {
       "text": "Results",
       "hash": "612e12d29278b5519294bc25cdaddffec6d0f1c6"
@@ -3362,6 +3498,10 @@
     "ui.notes": {
       "text": "Notes",
       "hash": "70440046a3dc2e079f23ee1c57dfa76669b732aa"
+    },
+    "ui.qvwindow": {
+      "text": "last {h}h",
+      "hash": "cd66cdaf1149abea4ee263ebcc7a3cbdfe87c70a"
     },
     "doc.route.post.api.l10n.discard": {
       "text": "Remove a locale's machine drafts (never a human's work).",
@@ -3411,6 +3551,14 @@
       "text": "Reject",
       "hash": "2b03b59293b6fc7101306f5d9ae1e96327bb419a"
     },
+    "ui.qvunclaimable": {
+      "text": "No worker can run it",
+      "hash": "860e9fa8632a414e84d3d0057cfd8b615d4380df"
+    },
+    "ui.qvarrivals": {
+      "text": "Arrivals",
+      "hash": "25ac4e592e552220c894ca6056f09a79c3430049"
+    },
     "doc.perm.webhooks:manage": {
       "text": "Configure outbound webhooks.",
       "hash": "f7a912b8c89c0b6372674a49efa5acf2cad7c981"
@@ -3418,6 +3566,10 @@
     "doc.tool.doc_list_unclassified": {
       "text": "List repository documents under a key prefix that have no document type yet — the input to a classification backfill. Returns object ids, capped at a batch; run the backfill again to continue. A document that already carries doc_type is skipped, which is what makes a re-run free, and the outputs other runs derived are never listed.",
       "hash": "178a2c724f49716fb128ea791cb02daa444e9f80"
+    },
+    "ui.qvtitle": {
+      "text": "Work moving through the queue",
+      "hash": "9e3a7e1e43c8de65e192d4b4916fda1a041a728b"
     },
     "doc.route.post.api.webhooks": {
       "text": "Subscribe to events: `url` (http(s)) and `events` — `\"*\"` or a comma-separated subset of the names `GET /api/webhooks` lists. An unknown event name is refused rather than stored, because a subscription that silently never fires is worse than one that was rejected. The signing secret is in the reply and is SHOWN ONCE; rotate to replace it.",
@@ -3494,6 +3646,10 @@
     "ui.helpnomodel": {
       "text": "No model is configured, so these are the passages closest to the question rather than an answer.",
       "hash": "382a1ac958f81acd9a2f15dbe4bff44dba0a077e"
+    },
+    "ui.qvstuck": {
+      "text": "What the queue is waiting for",
+      "hash": "c6bb8b2a9c16ffd3218bf3de371ab6a814b2d880"
     },
     "doc.route.post.api.instance.quota": {
       "text": "Hosted mode: set a quota limit for the tenant's team.",
@@ -3770,6 +3926,10 @@
     "ui.chpw": {
       "text": "Change your password",
       "hash": "88dee350141b934bd32db882794a951a7a40d898"
+    },
+    "ui.qvpathhint": {
+      "text": "Which machines held this job, and which let it go.",
+      "hash": "2cfed12faf7e499208cbcd3a15f3b5146748a43c"
     },
     "ui.heldbyquota": {
       "text": "held: {dimension} budget",

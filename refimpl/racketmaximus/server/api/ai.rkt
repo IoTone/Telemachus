@@ -14,7 +14,8 @@
          ep-worker-state ep-worker-complete ep-worker-document
          ep-worker-derive ep-worker-fail ep-worker-release ep-ai-chat
          ep-ai-model ep-ai-chat-stream ep-agent
-         ep-executor-rotate-token ep-worker-token-get ep-worker-token-rotate)
+         ep-executor-rotate-token ep-worker-token-get ep-worker-token-rotate
+         ep-admin-queue-flow ep-admin-job-trail)
 
 (require db-kit/portable
          ;; #91 req 2: the four askers' shared redact/rehydrate plumbing
@@ -29,7 +30,8 @@
          (only-in "../../domain/ai/content.rkt" content->text content-problem response-format-parse response-format-problem response-format-verify)
          (only-in "../../domain/exec/federation.rkt" executor-config executor-exists? list-executors)
          "../../domain/exec/pull.rkt"
-         (only-in "../../domain/exec/fleet.rkt" FLEET-WINDOW-HOURS fleet-report queue-listing)
+         (only-in "../../domain/exec/fleet.rkt" FLEET-WINDOW-HOURS fleet-report queue-listing
+                  queue-flow queue-breakdown job-trail)
          (only-in "../../domain/ai/roles.rkt" model-roles-get model-roles-set!)
          (only-in "../../domain/agent/run.rkt" agent-configured? run-agent-flow)
          (only-in "../../domain/i18n/i18n.rkt" t)
@@ -189,6 +191,39 @@
                                   #:kind (f 'kind) #:status (f 'status)
                                   #:executor (f 'executor) #:team (f 'team)
                                   #:limit (num 'limit 50) #:offset (num 'offset 0))))))
+
+;; QVIZ (#184): the figures the Health screen's pictures are drawn from, and
+;; they are DERIVED FROM `jobs` — no counter table, no sampling, so there is no
+;; retention question to answer and the series survive a reload and a restart.
+;;
+;; The breakdown rides on the same response as the series deliberately: the four
+;; states partition the queued set and a picture that drew them from two reads
+;; would be drawing two instants. One call, one moment, one bar that adds up.
+;;
+;; `hours` is clamped, never refused, and is the same control the Workers card
+;; already teaches (#178): a figure over a window whose name is in a tooltip
+;; says nothing about itself.
+(define (ep-admin-queue-flow req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (define h (let* ([raw (query-param req 'hours)]
+                     [n (and (string? raw) (string->number raw))])
+                (if (and (real? n) (> n 0)) (min 720 (inexact->exact (round n))) FLEET-WINDOW-HOURS)))
+    (json-response (hash-set (queue-flow db-conn #:hours h)
+                             'breakdown (queue-breakdown db-conn (executor-list db-conn p)))))))
+
+;; QVIZ-3: one job's path through the fleet. A 404 for a job that does not
+;; exist, and nothing narrower — this is an instance-wide operator read and the
+;; job's id was already in the listing that led here.
+;;
+;; It answers ids, names, reasons and times. No payload, no result and NOT the
+;; error message: QVIZ-4, and `jobs.error` is sealed precisely because this
+;; platform's own tools quote what they choked on.
+(define (ep-admin-job-trail req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (define t (job-trail db-conn id))
+    (if t (json-response t) (err "not found" 404)))))
 
 ;; FLEET-3: the reversible lever. Until this the only way to take a flaky box out
 ;; of rotation was DELETE /api/executors/<id>, which revokes the worker token —

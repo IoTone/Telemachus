@@ -1,11 +1,13 @@
 # A picture of work moving through the AI queue
 
-**Issue #184. This document is the deliverable; no rendering code ships with
-it.** The issue asks for a design "with the retention question answered, before
-any rendering code", and the retention question turns out to have a better
-answer than either of the two the issue offers.
+**Issue #184. The design shipped first, on its own, as the issue asked; the
+build landed 30 Oct 2026.** The issue asks for a design "with the retention
+question answered, before any rendering code", and the retention question turns
+out to have a better answer than either of the two the issue offers.
 
-Decisions **QVIZ‑1…9** are recorded in `docs/design/decisions.md`.
+Decisions **QVIZ‑1…13** are recorded in `docs/design/decisions.md` — ‑10…‑13 are
+what the build found, and QVIZ‑10 is the one worth reading before touching any
+of it.
 
 ## The question the picture exists to answer
 
@@ -159,16 +161,29 @@ change meaning when the window moves. Same vocabulary as that card
   is team-tier (owner-ok or `jobs:cancel`), and an operator stopping another
   company's job is its own decision (FLEET‑4).
 
-## The build slice, when it is wanted
+## The build slice, as it landed (30 Oct 2026)
 
-1. **`jobs.finished_epoch`** (a migration), stamped at the two terminal writes,
-   no backfill.
-2. **Three derived series** on a read behind `instance:read`, bucketed per
-   minute over `?hours=`, from `created_epoch` / `started_epoch` /
-   `finished_epoch`.
-3. **One job's holder trail**, from the audit rows FLEET‑1 already writes.
-4. **The four drawings**, on the Health tab, above the cards they summarise.
+1. **`jobs.finished_epoch`** — migration `0066-job-finished-age`, no backfill.
+   Stamped at **eleven** terminal writes, not the two this document estimated,
+   through one shared `finished-set` clause in `scheduler.rkt`. See QVIZ‑10.
+2. **Three derived series + the four-way breakdown** —
+   `GET /api/admin/queue/flow`, `instance:read`, bucketed over a fixed grid
+   across `?hours=`. The breakdown rides the same response so the bar is one
+   instant.
+3. **One job's holder trail** — `GET /api/admin/jobs/:id/trail`, from the audit
+   rows FLEET‑1 already writes.
+4. **The four drawings** — `static/console/18-queueviz.js`, on the Health tab,
+   above the cards they summarise.
 
-Steps 1 and 2 are independently useful: the series are the half an OpenMetrics
-exporter would want, and they are verifiable on both dialects without drawing
-anything.
+```sh
+raco test test/queue-viz-tests.rkt                              # 7 cases, 4 controls
+DATABASE_URL="postgres://…" raco test test/queue-viz-tests.rkt  # the whole file, both dialects
+bash test/pull-smoke.sh                                         # §7c, 23 assertions over HTTP
+bash test/e2e/validate.sh                                       # §7c — four SVGs under `script-src 'self'`
+```
+
+Steps 1 and 2 remain independently useful: the series are the half an
+OpenMetrics exporter would want, and they are verifiable on both dialects
+without drawing anything. **An OpenMetrics rendering is still not built**
+(QVIZ‑9) and is now a smaller job than it was, because these derivations are
+exactly what one would render.
