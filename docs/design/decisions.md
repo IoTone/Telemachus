@@ -4319,21 +4319,49 @@ no new environment variable**: migration `0065-help-corpus`,
 | **HELP‑13** | A passage whose text moved | **Dropped and counted** · vs clamped, vs raising | VEC‑37, unchanged: a clamped substring quotes characters the vector was never made from, which is wrong in the one way a citation must not be; raising takes a whole answer down over one file. `help-replace-doc!` writes text and chunks in one transaction, so a mismatch means something raced an ingest. |
 | **HELP‑14** | What a citation carries | **path, title, heading, character range — and the text** · vs an id, vs prose | CHUNK‑1 is why this is free: the chunker indexes the string it was given and the store keeps that same string, so a hit resolves to a substring with no mapping in between. The path is relative to the tree the operator named, because an absolute one names a directory on a machine the reader has no access to. |
 
-### What the slice measured
+### What the slice measured, against the real embedder
 
-| | documents | chunks | requests at 32/batch |
-|---|---|---|---|
-| `docs/` + both READMEs, English | 63 | **1,400** | |
-| the same, Japanese | 26 | **168** | |
-| total | **89** | **1,568** | **111** |
-| `docs/ops` alone, end to end through `embed-exchange` | 7 | 173 | 8 |
+On the test lab box, `nomic-embed-text` through ollama on loopback, ingesting
+`docs/` plus both READMEs from empty:
 
-`vector-store.md` estimated **1,159** English chunks at 256 tokens with 15%
-overlap; the real chunker gives **1,400** for 63 files, because the boundary
-search (CHUNK‑3) ends a chunk at the last sentence break inside its window and so
-produces slightly shorter chunks and a few more of them. The estimate was within
-20%, and 1,568 chunks is about 12 ms of arithmetic by interpolation from #189
-step 1's measured 8 ms at 1,000 and 76 ms at 10,000.
+| | documents | chunks |
+|---|---|---|
+| English | 65 | **1,427** |
+| Japanese | 27 | **178** |
+| total | **92** | **1,605** |
+
+**114 embedding requests, 29.7 s wall**; **zero** requests for a re-ingest that
+finds nothing changed. A vector row is 3,072 bytes (768 float32), so the corpus
+is ~4.9 MB of vectors. The ingested set matches the tree exactly, checked by
+diffing `help_docs.path` against the tree rather than by trusting the count.
+
+`vector-store.md` estimated **1,159** English chunks; the real chunker gives
+**1,427** for 65 files, because CHUNK‑3's boundary search ends a chunk at the last
+sentence break inside its window — slightly shorter chunks, a few more of them.
+Within 20%.
+
+**The scan is ~55 ms for 1,427 chunks and ~6 ms for 178**, end to end. That is
+slower per chunk than #189 step 1's pure-arithmetic 76 ms at 10,000, which says
+the **row read dominates at this size** — so `HELP-SCAN` bounds a read, and an
+index is not the thing to reach for first.
+
+**Two of six real probes are worth recording.** "Why does my container
+healthcheck always report unhealthy?" found the right FILE and the wrong SECTION
+(0.576), with `decisions.md`'s BLOB‑7 "boot health check" second — a different
+sense of the same word. And **"認可はどのように決まるのですか？" retrieved
+`docs/book/ja/14-secrets.md` while `docs/book/ja/04-authz.md`, the chapter
+titled 認可のモデル, did not appear at all** — which is CHUNK‑2's predicted shape
+arriving as evidence: a 1,024-character chunk of Japanese carries roughly four
+times the tokens the English-derived default intends, so a Japanese chunk is a
+much larger span of meaning and a short question matches it less sharply. **This
+is the first real datum for #189 step 3's calibration, and the corpus is now a
+set of questions with known right answers to make it against.**
+
+Japanese against Japanese otherwise worked and scored the highest of the six
+(0.805 for the job-queue chapter). An English question asked under
+`#:locale "ja"` is answered out of the Japanese directories **in English**,
+because the generated reference is English where untranslated — HELP‑12's filter
+doing what it says, and the reason cross-lingual stays unclaimed.
 
 ### Three things this slice paid for
 
