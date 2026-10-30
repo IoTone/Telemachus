@@ -50,3 +50,7 @@ build/
 # the TeX log. KEEP=1 leaves them for reading a LaTeX error, which names a line in
 # the GENERATED file. The PDF and HTML beside the source ARE committed.
 docs/book/.book.*
+
+# A calibration run writes this; the numbers that matter live in
+# docs/design/vector-store.md, so the raw log is not a committed artifact.
+refimpl/racketmaximus/test/calibration-result.json

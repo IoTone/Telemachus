@@ -40,6 +40,8 @@
 (require racket/list racket/string racket/file racket/path
          (only-in "../i18n/catalog.rkt" source-hash)
          (only-in "../ai/chunk.rkt" chunk-text CHUNK-SIZE-DEFAULT CHUNK-OVERLAP-DEFAULT)
+         (only-in "../ai/vectors.rkt" vec-normalize)
+         (only-in racket/flonum flvector? make-flvector flvector-set!)
          (only-in "../ai/executor.rkt" embed-exchange embed-model embed-configured?)
          (only-in "helpstore.rkt" help-replace-doc! help-forget! help-doc-hash help-doc-paths))
 
@@ -190,7 +192,8 @@
   (define base (and rel (simplify-path (path->complete-path rel) #f)))
   (define files (remove-duplicates (append-map help-markdown-files roots)))
   (define seen (make-hash))
-  (let loop ([fs files] [ingested '()] [unchanged '()] [empty '()] [chunks 0] [requests 0])
+  (let loop ([fs files] [ingested '()] [unchanged '()] [empty '()] [chunks 0] [requests 0]
+             [dropped '()])
     (cond
       [(null? fs)
        ;; A path in the corpus that this tree no longer has. Pruning is the
@@ -211,6 +214,10 @@
                'pruned pruned
                'chunks chunks
                'requests requests
+               ;; (path . (indices …)) per file that lost a chunk. Named rather
+               ;; than counted: "three chunks were dropped" is not something an
+               ;; operator can act on, and which FILE is.
+               'dropped (reverse dropped)
                'model model)]
       [else
        (define f (car fs))
@@ -220,7 +227,7 @@
        (define hash (source-hash text))
        (cond
          [(and (not force?) (equal? hash (help-doc-hash conn rel-path)))
-          (loop (cdr fs) ingested (cons rel-path unchanged) empty chunks requests)]
+          (loop (cdr fs) ingested (cons rel-path unchanged) empty chunks requests dropped)]
          [else
           (define locale (help-locale-of f locales #:default dflt))
           (define title (help-title-of text (path->string (file-name-from-path f))))
@@ -231,7 +238,7 @@
             ;; operator repeats until it reports no work must be able to finish.
             [(null? cs)
              (help-replace-doc! conn rel-path locale title text hash model '() '())
-             (loop (cdr fs) ingested unchanged (cons rel-path empty) chunks requests)]
+             (loop (cdr fs) ingested unchanged (cons rel-path empty) chunks requests dropped)]
             [else
              (define withheading
                (for/list ([c (in-list cs)])
@@ -240,10 +247,38 @@
                (embed-batches embed
                               (for/list ([c (in-list withheading)])
                                 (help-chunk-embed-text title (hash-ref c 'heading) (hash-ref c 'text)))))
-             (help-replace-doc! conn rel-path locale title text hash model withheading vectors)
-             (on-progress rel-path (length withheading))
-             (loop (cdr fs) (cons rel-path ingested) unchanged empty
-                   (+ chunks (length withheading)) (+ requests reqs))])])])))
+             ;; HELP‑15 — A CHUNK THE EMBEDDER CANNOT PLACE IS DROPPED AND
+             ;; COUNTED, NOT ALLOWED TO FAIL THE INGEST, and a calibration dry
+             ;; run is what found this. `help-replace-doc!` refuses a vector with
+             ;; no direction, correctly — VEC‑22's invariant is that every stored
+             ;; row is a UNIT vector, because that is what makes the read a bare
+             ;; dot product. But this walks NINETY-TWO files in one command, so
+             ;; one odd chunk in one file stopped the whole corpus and the
+             ;; operator had no per-file retry to fall back on. (`repo_embed_chunks`
+             ;; is the other shape: one document per step, where failing the step
+             ;; IS the retry.) So the filtering happens here, the store stays
+             ;; strict, and what was dropped is named — the indexer's own rule
+             ;; that one bad file must not wedge the work for ever, applied a
+             ;; level down.
+             (define-values (keep-chunks keep-vectors lost)
+               (for/fold ([cs '()] [vs '()] [lost '()]
+                          #:result (values (reverse cs) (reverse vs) (reverse lost)))
+                         ([c (in-list withheading)] [v (in-list vectors)])
+                 (if (vec-normalize (->flvec v))
+                     (values (cons c cs) (cons v vs) lost)
+                     (values cs vs (cons (hash-ref c 'index) lost)))))
+             ;; The ordinals stay DENSE over what was stored, because a gap would
+             ;; be a key with a hole in it — CHUNK‑5's rule for a blank chunk.
+             (define renumbered
+               (for/list ([c (in-list keep-chunks)] [i (in-naturals)])
+                 (hash-set c 'index i)))
+             (help-replace-doc! conn rel-path locale title text hash model
+                                renumbered keep-vectors)
+             (on-progress rel-path (length renumbered))
+             (loop (cdr fs)
+                   (cons rel-path ingested) unchanged empty
+                   (+ chunks (length renumbered)) (+ requests reqs)
+                   (if (null? lost) dropped (cons (cons rel-path lost) dropped)))])])])))
 
 ;; One request per `HELP-EMBED-BATCH` texts, paired back by the response's own
 ;; order within the batch — `embedding-vectors` has already read the `index`
@@ -276,3 +311,16 @@
      (define b (path->string base))
      (define b/ (if (string-suffix? b "/") b (string-append b "/")))
      (if (string-prefix? s b/) (substring s (string-length b/)) s)]))
+
+;; `vec-normalize` wants an `flvector`; the embedder answers a Racket `vector` of
+;; reals. `flvector` has no `list->flvector`, which cost a compile in #189 step 4.
+(define (->flvec v)
+  (cond
+    [(flvector? v) v]
+    [(vector? v)
+     (define n (vector-length v))
+     (define out (make-flvector n))
+     (for ([i (in-range n)]) (flvector-set! out i (real->double-flonum (vector-ref v i))))
+     out]
+    [(list? v) (->flvec (list->vector v))]
+    [else #f]))

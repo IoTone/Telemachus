@@ -4642,6 +4642,35 @@ And the request log's `REQUEST-OPERATIONS` is pinned as a whole list, so adding
 model request being a deliberate edit rather than a string that arrives and is
 never explained.
 
+## HELP‑15 — a chunk the embedder cannot place (issue #183, found by #189's calibration)
+
+`help-replace-doc!` refuses a vector with no direction, and that is right:
+VEC‑22's invariant is that every stored row is a UNIT vector, because that is
+what makes the read a bare dot product.
+
+But an ingest walks the whole corpus in ONE command, so one odd chunk in one file
+stopped all ninety-two with no per-file retry to fall back on.
+`repo_embed_chunks` is the other shape and the contrast is the argument: there
+one document is one STEP, so failing the step IS the retry, and the next run
+picks it up. A CLI has no step.
+
+**Found by a dry run of the calibration harness**, which is the second time
+building the measurement has been worth more than the measurement: a Japanese
+chunk that happened to contain no ASCII at all embedded to zeros under the
+scripted embedder and killed the sweep — after the English half of that cell had
+already been computed and thrown away.
+
+So `helpindex.rkt` filters before calling the store, the store stays strict, and
+what was lost is **named per file** rather than counted: "three chunks were
+dropped" is not something an operator can act on, and which file is. The
+ordinals stay dense over what was stored, because a gap would be a key with a
+hole in it (CHUNK‑5's rule for a blank chunk).
+
+The branch has its own case with a scripted embedder that refuses one chunk by
+content, because the dry run that found the gap did NOT exercise the fix — at a
+different chunk size the offending boundary does not recur, so the sweep went
+green with the new code and nothing had tested it.
+
 ## STG — streamed capture: an upload assembled from chunks (issue #192, slice 2, built 30 Oct 2026)
 
 #192's requirement 3, and **the protocol already existed**. The S3 listener has
@@ -4713,3 +4742,55 @@ than code problems, which is the useful half:
   #122's sweep reads `repo_blob_staging` and a part is not recorded there. The case
   checks the store by digest now.
 - **The key check**, which is STG‑4 above.
+
+## CHUNK‑10 — the calibration, and what it says is the lever (issue #189 step 3, measured 30 Oct 2026)
+
+The one thing #189 was left open for. `CHUNK-SIZE-DEFAULT` (1,024) and
+`CHUNK-OVERLAP-DEFAULT` (154) said **provisional** at their definition, with
+"what would change them is a recall measurement, in both languages (CHUNK‑2)".
+That run is `test/calibrate-retrieval.rkt`; the figures and the method are in
+`docs/design/vector-store.md`.
+
+| | Taken | Why |
+|---|---|---|
+| **The two constants** | **UNCHANGED at 1,024 / 154, and no longer called provisional** | Over 384→2,048 characters at 0%, 15% and 30% overlap — eighteen cells against the real `nomic-embed-text` and the project's own documentation — English recall@3 moved between **82% and 93%** and Japanese between **37% and 59%**. With 28 questions one question is 3.6 points, so almost the whole spread is inside the noise and **there is no cell the data prefers**. A negative result, and the honest one: the parameter is not the lever. What separates the cells is COST — 160 embedding requests at 384 against 102 at 2,048. |
+| **CHUNK‑2's hypothesis** | **NOT SUPPORTED** | It argued that Japanese runs near one token per character against English's four, so a 1,024-character Japanese chunk carries ~4× the tokens the default intends and Japanese would want a smaller size. At **384** characters — about the English-equivalent of 1,536 — Japanese recall@3 is **59%** against English's **86%** in the same cell. Shrinking the chunk does not close the gap, so the gap is not the chunk's. The reasoning was sound and the conclusion was wrong, which is the difference a measurement makes. |
+| **What IS the lever** | **The embedding model** | One cell, same questions, same corpus, only `TMACH_EMBED_MODEL` changed: `bge-m3` against `nomic-embed-text` takes English recall@3 from **82% to 93%** and Japanese from **41% to 81%**. Japanese **doubles**. Recommended in `docs/ops/configuration.md` with the costs beside it — the same ingest takes 49s against 19s, and 1,024 dimensions against 768 makes the stored corpus a third larger. NOT changed in code: `TMACH_EMBED_MODEL` has no real default and which checkpoint an operator runs is theirs, and changing it re-embeds everything (EMB‑8), so the recommendation belongs where they read it BEFORE ingesting. |
+
+### How it is scored, and what the figures cannot tell you
+
+**File level, not section.** A question's answer is unambiguously in a file;
+which section is arguable, and the earlier probe showed the section is the harder
+problem. Scoring sections would have measured my adjudication of a hundred
+headings as much as the retrieval.
+
+**A SET of acceptable files per question**, because several things are documented
+in a book chapter AND a runbook on purpose — insisting on one would score a
+correct retrieval as a miss and then invite "improving" the chunker to fix a
+problem that was in the question set.
+
+**28 questions is not a benchmark.** One question is 3.6 points; differences under
+about 11 points are not distinguishable. The questions were written by the same
+person who wrote most of the documentation, so they share its vocabulary more
+than a stranger's would — and the Japanese forms are translations of the English
+ones, which is what makes the two languages comparable and also means they may
+not use the words the machine-assisted `ja` book chose. Figures for comparing
+cells, not figures to quote.
+
+### What the run did NOT settle, said plainly
+
+- **`HELP-SCORE-FLOOR`** (0.35) was set from `nomic-embed-text`'s score
+  distribution; bge-m3's differs, and this run recorded recall rather than
+  scores. Unchanged, still model-dependent, and re-deriving it is a `--scores`
+  mode on the same harness.
+- **#163's `EMBED-MARGIN-SCALE`** is about the margin between LABEL similarities
+  in `doc_classify`'s `embed` backend. It was expected to be the same sitting and
+  **it is not the same measurement**; still open.
+- **Section-level recall**, for the reason above.
+
+### Building the measurement was worth more than one of its numbers
+
+The dry run found **HELP‑15** — a chunk the embedder cannot place used to fail an
+operator's entire ingest — and the `--sizes`/`--overlaps` narrowing exists
+because a MODEL comparison wants one cell per model rather than eighteen, which
+would confound the model with the chunking. Neither was in the plan.

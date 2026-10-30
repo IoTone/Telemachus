@@ -297,18 +297,27 @@ a person can see.
 
 **THE WHOLE BUILD PLAN IS BUILT**, steps 1 through 6, and none of it needed a
 model: the arithmetic and the seal, the chunker, the table and the write path,
-the scan, and the retrieval surface. What remains is the ONE thing that was
-always going to wait for hardware — step 3's **size and overlap calibration**,
-provisional at 1,024 characters and 154, which is a recall measurement and
-therefore needs a live `nomic-embed-text`. It is the same measurement
-`EMBED-MARGIN-SCALE` (#163) wants, so it is one sitting when the GPU rig's driver
-upgrade lands, **and it has to be made in both English and Japanese** for the
-reason step 3 records: the same book chapter is 3,342 characters in English and
-2,079 in Japanese, yet Japanese runs near one token per character against
-English's four, so a 1,024-character chunk of Japanese carries roughly four times
-the tokens the default intends — and a chunk that overruns the model's context is
-truncated BY THE MODEL, so the failure is a quietly worse vector and never an
-error.
+the scan, and the retrieval surface. **And step 3's size-and-overlap calibration
+has now been made** — in both English and Japanese, against a live embedder — so
+nothing on #189 is outstanding. The run is at the end of this document; its
+answer is that the two numbers stand and the embedding MODEL is the lever, which
+is not what this section expected when it was written.
+
+What it expected was CHUNK‑2's argument: the same book chapter is 3,342
+characters in English and 2,079 in Japanese, yet Japanese runs near one token per
+character against English's four, so a 1,024-character chunk of Japanese carries
+roughly four times the tokens the default intends — and a chunk that overruns the
+model's context is truncated BY THE MODEL, so the failure is a quietly worse
+vector and never an error. **The reasoning was sound and the conclusion was
+wrong**: shrinking the chunk does not close the Japanese gap, and swapping
+`nomic-embed-text` for a multilingual checkpoint doubles Japanese recall at the
+default size. The paragraph is kept rather than deleted because the hypothesis is
+why the measurement was worth making.
+
+It was also expected to be one sitting with `EMBED-MARGIN-SCALE` (#163). It is
+not: that is the margin between LABEL similarities in `doc_classify`'s `embed`
+backend, which is a different measurement over a different input, and it is still
+open.
 
 The end-to-end gate is **`doc-pipeline-smoke.sh` §8**, which drives a question
 through the real `embed-exchange` wire against `test/mock-llm.rkt`'s embeddings
@@ -329,3 +338,117 @@ because they are the facts a reader of the read's SQL will want:
   `chunks-count`. That is storage, not correctness, and it is stated rather than
   tidied because the alternative — clearing them at upload — would throw away a
   usable index the moment somebody fixed a typo in a document.
+
+## The calibration (#189 step 3, measured 30 Oct 2026)
+
+The one thing left on #189. `CHUNK-SIZE-DEFAULT` and `CHUNK-OVERLAP-DEFAULT` said
+**provisional** at their definition, with "what would change them is a recall
+measurement, in both languages (CHUNK‑2)". This is that measurement, and **it
+says the two numbers are not the lever**.
+
+The harness is `refimpl/racketmaximus/test/calibrate-retrieval.rkt` — not a suite
+and deliberately not named `*-tests.rkt`, because it needs a live embedder and
+takes minutes. The question set is `test/calibration-questions.json`: **28
+questions, each asked in BOTH languages**, with the file or files that answer it
+in each corpus.
+
+### How it is scored, and what that cannot tell you
+
+**File level, not section.** A question's answer is unambiguously in a file;
+which section is often arguable, and the earlier probe already showed the section
+is the harder problem ("why does my container healthcheck report unhealthy" found
+the right file and the wrong heading). Scoring sections would have measured my
+adjudication of a hundred headings as much as the retrieval.
+
+**A SET of acceptable files**, because several things are documented in a book
+chapter *and* a runbook on purpose. Insisting on one would score a correct
+retrieval as a miss and then invite "improving" the chunker to fix a problem that
+was in the question set.
+
+**28 questions means one question is 3.6 points.** Differences under about 11
+points — three questions — are not distinguishable. And the questions were
+written by the same person who wrote most of the documentation, so they share its
+vocabulary more than a stranger's would; the Japanese forms are translations of
+the English ones, which is what makes the two languages comparable and also means
+they may not use the words the machine-assisted `ja` book chose. These are
+figures for comparing cells, not figures to quote.
+
+### The sweep: 6 sizes × 3 overlaps, `nomic-embed-text`
+
+Recall@3, as percentages, over the project's own documentation (1,400 English
+chunks / 178 Japanese at the default):
+
+| size | 0% overlap | 15% | 30% |
+|---|---|---|---|
+| 384 | 86 / 59 | 86 / 44 | 86 / 52 |
+| 512 | 82 / 52 | 82 / 56 | 82 / 48 |
+| 768 | 86 / 56 | 82 / 48 | 86 / 37 |
+| **1024** | 89 / 44 | **82 / 41** | 79 / 56 |
+| 1536 | 89 / 59 | 93 / 52 | 86 / 44 |
+| 2048 | 89 / 44 | 89 / 52 | 82 / 56 |
+
+*(English / Japanese. The bold cell is today's default.)*
+
+**English is flat.** Over an eightfold range of chunk size, recall@3 moves between
+82% and 93% — three questions' worth, inside the noise. recall@1 spans 61–82% and
+recall@5 79–96%, with no monotone trend in either. There is no cell the data
+prefers, and the ingest cost varies by 2.5× across the range (160 embedding
+requests at 384, 102 at 2,048), which is the only thing that separates them.
+
+**Japanese is roughly half of English in every single cell**, and that is the
+result worth having.
+
+### CHUNK‑2's hypothesis is not supported
+
+CHUNK‑2 reasoned that Japanese runs near one token per character against
+English's four, so a 1,024-character Japanese chunk carries about four times the
+tokens the default intends — and therefore that Japanese would want a smaller
+size. It does not. At **384** characters, about the English-equivalent of 1,536,
+Japanese recall@3 is **59%** against English's **86%** in the same cell.
+Shrinking the chunk does not close the gap.
+
+### What does close it is the model
+
+One cell, 1024/154, same questions and same corpus; only `TMACH_EMBED_MODEL`
+changed:
+
+| | `nomic-embed-text` | `bge-m3` | |
+|---|---|---|---|
+| English recall@1 | 61% | **75%** | +14pp |
+| English recall@3 | 82% | **93%** | +11pp |
+| English recall@5 | 93% | **96%** | +3pp |
+| Japanese recall@1 | 26% | **70%** | +44pp |
+| Japanese recall@3 | 41% | **81%** | +40pp |
+| Japanese recall@5 | 59% | **81%** | +22pp |
+
+**Japanese recall@3 doubles.** English improves too, by about one question at
+each k. The costs are real and are the reason this is a recommendation rather
+than a default: the same ingest takes **49s against 19s** (bge-m3 is the larger
+model), and its vectors are **1,024 dimensions against 768**, so the stored
+corpus is a third larger — 4,096 bytes a row rather than 3,072.
+
+### What changed, and what did not
+
+- **The two chunk constants STAY at 1,024 and 154**, and the word *provisional*
+  is gone from their definition. They are measured now, and the measurement's
+  answer is that the parameter does not matter much. A negative result, and the
+  honest one.
+- **`bge-m3` is recommended over `nomic-embed-text` for any instance that
+  retrieves in a language other than English**, in `docs/ops/configuration.md`
+  with these numbers beside it. Not changed in code: `TMACH_EMBED_MODEL` has no
+  real default (`local-embed` is a placeholder), and which checkpoint an operator
+  runs is theirs.
+- **Changing the model re-embeds everything** (EMB‑8), which is why that
+  recommendation belongs where an operator reads it before ingesting rather than
+  as a silent default change.
+
+### What this run did NOT settle
+
+- **`HELP-SCORE-FLOOR`** (0.35) was set from `nomic-embed-text`'s score
+  distribution. bge-m3's will differ, and this run recorded recall rather than
+  scores, so the floor is unchanged and remains model-dependent. Re-deriving it
+  is a `--scores` mode on the same harness.
+- **#163's `EMBED-MARGIN-SCALE`** is about the margin between LABEL similarities
+  in `doc_classify`'s `embed` backend, not about retrieval. It was expected to be
+  the same sitting and it is not the same measurement; it is still open.
+- **Section-level recall**, for the reason given above.

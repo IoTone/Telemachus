@@ -337,6 +337,59 @@
       (check-true (vec-unit? v) "and still a unit vector, which is what makes the read a dot product")
       (close-db! conn))))
 
+(test-case "12b. HELP‑15: a chunk the embedder cannot place is DROPPED, not fatal"
+  ;; `help-replace-doc!` refuses a vector with no direction, correctly — VEC‑22's
+  ;; invariant is that every stored row is a UNIT vector. But an ingest walks the
+  ;; whole corpus in one command, so one odd chunk in one file used to stop all
+  ;; of it with no per-file retry to fall back on. Found by a calibration dry run,
+  ;; where a Japanese chunk with no ASCII in it embedded to zeros and killed the
+  ;; sweep after the English half had already been measured.
+  ;; No `with-help-env` here: that helper is defined further down, with the
+  ;; slice-2 cases, and a helper used above its definition is a module-init error
+  ;; — the shape CLAUDE.md records twice. It is not needed either, because
+  ;; `help-ingest!` only demands a configured endpoint when the seam is the
+  ;; default one, and this scripts it.
+  (let ()
+    (define conn (fresh))
+    (define root (make-temporary-file "telemachus-help-~a" 'directory))
+    ;; long enough to be several chunks, with a distinctive middle
+    (call-with-output-file (build-path root "long.md") #:exists 'truncate
+      (lambda (o)
+        (display (string-append "# Long\n\n" (make-string 1200 #\a)
+                                "\n\nPOISON the middle chunk\n\n"
+                                (make-string 1200 #\b) "\n") o)))
+    ;; an embedder that cannot place the chunk carrying POISON
+    (define (picky texts)
+      (set-box! calls (cons (length texts) (unbox calls)))
+      (values (for/list ([t (in-list texts)])
+                (if (string-contains? t "POISON") (make-vector DIMS 0.0) (bag t)))
+              (for/sum ([t (in-list texts)]) (string-length t))))
+    (define rep (parameterize ([current-help-embed picky])
+                  (help-ingest! conn (list root) #:locales '("en") #:model MODEL
+                                #:relative-to (let-values ([(b _n _d) (split-path root)])
+                                                (path->string b)))))
+    ;; the document IS ingested, with its other chunks
+    (check-equal? (length (hash-ref rep 'ingested)) 1)
+    (check-true (> (hash-ref rep 'chunks) 0))
+    ;; …and what was lost is NAMED, per file, rather than counted
+    (define d (hash-ref rep 'dropped))
+    (check-equal? (length d) 1)
+    (check-true (string-contains? (car (car d)) "long.md"))
+    (check-true (pair? (cdr (car d))) "the chunk indices that were dropped")
+    ;; the ordinals stay DENSE over what was stored — a gap would be a key with a
+    ;; hole in it (CHUNK‑5's rule for a blank chunk)
+    (define doc (help-doc-by-path conn (car (car d))))
+    (define idxs (for/list ([r (in-list (query-rows conn
+                              "SELECT idx FROM help_chunks WHERE doc_id = ? ORDER BY idx ASC"
+                              (hash-ref doc 'id)))])
+                   (vector-ref r 0)))
+    (check-equal? idxs (for/list ([i (in-range (length idxs))]) i))
+    (check-equal? (hash-ref doc 'chunks) (length idxs))
+    ;; and the corpus is usable: the surviving chunks answer
+    (define found (help-nearest conn (bag "aaaa") MODEL #:k 3 #:locale "en"))
+    (check-true (> (length (hash-ref found 'hits)) 0))
+    (close-db! conn)))
+
 (test-case "13. a file with no chunkable text is recorded as nothing, so an ingest terminates"
   (define conn (fresh))
   (define root (make-temporary-file "telemachus-help-~a" 'directory))
