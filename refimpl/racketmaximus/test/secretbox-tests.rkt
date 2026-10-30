@@ -99,6 +99,39 @@
   ;; that has it configured — the format carries which key sealed it
   (check-equal? (secret-unwrap "users.totp_secret:u1" "JBSWY3DPEHPK3PXP") "JBSWY3DPEHPK3PXP"))
 
+;; #128 job 2's compatibility window has to reach THIS variable too, and until
+;; 2026-10-29 it did not: secretbox read the literal TMACH_SECRET_KEY with its own
+;; getenv helper, so a deployment that set only TELEMACHUS_SECRET_KEY started,
+;; reported "secrets":"plaintext" and sealed nothing, silently. The gate in
+;; test/env-names-tests.rkt could not see it either, because it matches a call to
+;; getenv/env by name and that was a call to key-for. Both are fixed, so this case
+;; is the proof: it sets the OLD spelling and nothing else.
+(test-case "only the OLD variable name set still seals, which is the compatibility window"
+  ;; The names are composed rather than spelled, because this file is inside the
+  ;; scan in test/env-names-tests.rkt: a literal OLD_ name here would fail the gate
+  ;; that exists to keep the composition in config.rkt. Setting it is exactly what
+  ;; the case has to do, so it builds the name it sets.
+  (define new-var (string-append "TMACH" "_SECRET_KEY"))
+  (define old-var (string-append "TELEMACHUS" "_SECRET_KEY"))
+  (define saved-new (getenv new-var))
+  (define saved-old (getenv old-var))
+  (dynamic-wind
+    (lambda ()
+      (putenv new-var "")
+      (putenv old-var KEY-HEX))
+    (lambda ()
+      (check-true (secrets-enabled?) "an existing deployment's key still counts as configured")
+      (define stored (secret-wrap "users.totp_secret:u1" "JBSWY3DPEHPK3PXP"))
+      (check-true (wrapped-secret? stored) "the value is SEALED, not passed through")
+      (check-equal? (secret-unwrap "users.totp_secret:u1" stored) "JBSWY3DPEHPK3PXP")
+      (define id-under-old (secret-key-id))
+      ;; the new spelling still wins when both are set
+      (putenv new-var KEY-HEX-2)
+      (check-not-equal? (secret-key-id) id-under-old))
+    (lambda ()
+      (putenv new-var (or saved-new ""))
+      (putenv old-var (or saved-old "")))))
+
 (test-case "a wrapped secret round-trips, is bound to its row, and is loud when it cannot open"
   (with-key KEY-HEX
     (lambda ()

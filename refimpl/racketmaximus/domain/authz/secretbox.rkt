@@ -11,8 +11,8 @@
 ;; a backup file, a replica, a `pg_dump` pasted into a ticket, a snapshot of the
 ;; database volume — enough to replay every one of them.
 ;;
-;; The key lives in the environment (`TELEMACHUS_SECRET_KEY`), never in the
-;; database. So this raises the bar for a DUMP and does nothing for a HOST: an
+;; The key lives in the environment (`TMACH_SECRET_KEY`, with the old
+;; `TELEMACHUS_SECRET_KEY` still read — see key-for), never in the database. So this raises the bar for a DUMP and does nothing for a HOST: an
 ;; attacker who owns the process reads the key from its environment. That is a
 ;; narrow claim, and it is deliberately the whole claim — the threat in the issue
 ;; is a dump, and a dump is the thing that travels. Nothing here should be read as
@@ -45,7 +45,8 @@
          racket/string racket/random net/base64
          (only-in file/sha1 bytes->hex-string)
          (only-in "crypto.rkt" pbkdf2-hmac-sha1)
-         (only-in sha2-kit sha256 hmac-sha256))
+         (only-in sha2-kit sha256 hmac-sha256)
+         (only-in "../../config.rkt" tmach-env))
 
 (provide aes-256-gcm-encrypt aes-256-gcm-decrypt
          secrets-enabled? secret-key-id secret-wrap secret-unwrap wrapped-secret?
@@ -157,19 +158,26 @@
                       (string->number (substring h i (+ i 2)) 16))))]
     [else (pbkdf2-hmac-sha1 (string->bytes/utf-8 s) KDF-SALT KDF-ITERS KEY-BYTES)]))
 
-(define (env k) (let ([v (getenv k)]) (and v (not (string=? v "")) v)))
 ;; Stretching a passphrase costs ~200k HMACs, so the parsed key is memoized — it is
 ;; read on every sign-in and every signed S3 request. Keyed by the RAW value, not
 ;; by the variable name: a cache that only remembered "this variable was read" would
 ;; pin whatever was set the first time, which is wrong in a test that sets a key,
 ;; and wrong in a process that is handed a rotated environment.
 (define *keys* (make-hash))
-(define (key-for var)
-  (define raw (env var))
-  (hash-ref! *keys* (cons var raw) (lambda () (parse-secret-key raw))))
-(define (current-secret-key) (key-for "TMACH_SECRET_KEY"))
+;; The SUFFIX is the argument, so this goes through tmach-env like every other
+;; operator variable and gets the dual read for free. It used to read the literal
+;; `TMACH_SECRET_KEY` with a local getenv helper, which is the one shape #128 job 2
+;; exists to forbid: a deployment that set only the old `TELEMACHUS_SECRET_KEY`
+;; still started, but reported `"secrets":"plaintext"` and sealed nothing, silently.
+;; The gate in test/env-names-tests.rkt could not see it either, because it matches
+;; a call to getenv/env by name and this was a call to key-for. Both are fixed
+;; together: the read goes through tmach-env, and the gate now names key-for.
+(define (key-for suffix)
+  (define raw (tmach-env suffix))
+  (hash-ref! *keys* (cons suffix raw) (lambda () (parse-secret-key raw))))
+(define (current-secret-key) (key-for "SECRET_KEY"))
 ;; the previous key, during a rotation: read with either, write with the current
-(define (current-previous-secret-key) (key-for "TMACH_SECRET_KEY_OLD"))
+(define (current-previous-secret-key) (key-for "SECRET_KEY_OLD"))
 
 (define (secrets-enabled?) (and (current-secret-key) #t))
 

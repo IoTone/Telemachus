@@ -152,7 +152,14 @@
 ;; explaining the fallback is legitimate — which is why `code-lines` strips
 ;; them rather than this pattern trying to.
 (define OLD-LITERAL #px"TELEMACHUS_[A-Z0-9_]+")
-(define BAD-READ #px"\\((?:getenv|env\\*|env|env-num|env-int|pos-env) \\\"(?:TELEMACHUS|TMACH)_")
+;; `key-for` is in the alternation because it is the one CALL SHAPE that got past
+;; this gate. secretbox.rkt read the literal TMACH_SECRET_KEY through a local helper
+;; named key-for, so the old-name-only deployment this rename exists to keep working
+;; started, reported "secrets":"plaintext" and sealed nothing. A helper that takes a
+;; variable name has to be named here the day it is written, or "no module reads an
+;; operator variable by its literal name" is only true of the helpers somebody
+;; remembered.
+(define BAD-READ #px"\\((?:getenv|env\\*|env|env-num|env-int|pos-env|key-for) \\\"(?:TELEMACHUS|TMACH)_")
 
 (test-case "no module spells an operator variable's full OLD name (R1)"
   (define offenders
