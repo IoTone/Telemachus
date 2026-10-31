@@ -27,7 +27,14 @@
 ;; base-dir.
 (define (sqlite-path url #:base-dir [base-dir (current-directory)])
   (unless (string-prefix? url "sqlite:")
-    (error 'sqlite-path "only sqlite URLs are supported, got: ~a" url))
+    ;; REDACTED, and `redact-db-url`'s own header two screens below is the rule
+    ;; this was breaking: "never print or error on the raw string". The one URL
+    ;; that reaches this refusal is a NON-sqlite one, i.e. exactly the postgres
+    ;; case that carries `user:PASS@host` — so of the three places a DATABASE_URL
+    ;; is formatted into a message, the one that could only ever be handed a
+    ;; credential was the one that did not mask it. ENC-23's shape (a rule stated
+    ;; in a header and bypassed by one path) and FEED-6's (#186, SEC-6).
+    (error 'sqlite-path "only sqlite URLs are supported, got: ~a" (redact-db-url url)))
   (define raw (regexp-replace #rx"^sqlite:///" url ""))   ; "./data/app.db" | "/abs" | "C:\\abs"
   ;; absolute-path? is platform-aware: matches POSIX "/x" AND Windows "C:\x"/"C:/x".
   ;; (A leading-"/" test mis-classifies Windows drive paths as relative, joining

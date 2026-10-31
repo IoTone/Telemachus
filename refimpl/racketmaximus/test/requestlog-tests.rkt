@@ -415,3 +415,37 @@
   (set-box! model-request-logger
     (lambda (#:executor e #:transport tr #:model m #:endpoint u* #:messages msgs
              #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms) (void))))
+
+;; ---- what a provider's own refusal may say, and how much of it (#186, SEC-8) -
+;;
+;; The model, embedding and transcription seams each formatted
+;; `(hash-ref resp 'error)` WHOLE into their refusal — three copies of one rule in
+;; one module — and that message lands in a sealed `jobs.error` AND, since #123
+;; routed every unhandled message to stderr, in the container log.
+;;
+;; The detail STAYS, unlike bind.rkt's operands: there the value was content the
+;; caller already held and the type was the information, whereas `invalid_api_key`
+;; or `context length exceeded` is the single most useful thing an operator has
+;; for a backend that will not answer. What was never bounded is its LENGTH —
+;; FEED-6 records that many gateways echo the request back inside that field,
+;; credential and all.
+
+(test-case "a provider's detail survives, because it is the operator's diagnostic"
+  (check-equal? (provider-detail (hasheq 'error "invalid_api_key")) "invalid_api_key")
+  (check-equal? (provider-detail (hasheq)) "no detail"
+                "and its absence is said rather than left blank"))
+
+(test-case "…but it is CAPPED, so a gateway that echoes the prompt cannot fill the log"
+  (define echoed (make-string (* 20 PROVIDER-DETAIL-MAX) #\x))
+  (define out (provider-detail (hasheq 'error echoed)))
+  (check-true (<= (string-length out) (+ PROVIDER-DETAIL-MAX 20))
+              "the whole echo does not reach either copy")
+  (check-true (and (regexp-match? #rx"truncated" out) #t)
+              "and it SAYS it was cut, or a reader trusts a sentence that stops"))
+
+(test-case "the cap is a bound, not a rewrite — a short detail is byte-identical"
+  ;; the control: a version that truncated unconditionally, or appended its note
+  ;; always, would pass the case above while mangling every ordinary diagnostic.
+  (define short "model `qwen2.5:7b` not found")
+  (check-equal? (provider-detail (hasheq 'error short)) short)
+  (check-false (regexp-match? #rx"truncated" (provider-detail (hasheq 'error short)))))

@@ -465,3 +465,41 @@
   (check-equal? (hash-ref s 'unknown_fields) "rejected")
   (check-true (and (member "choice" (hash-ref s 'step_kinds)) #t))
   (check-regexp-match #rx"not conformant" (hash-ref s 'conformance)))
+
+;; ---- what an incomparable-operand refusal may say (#186, SEC-7) -------------
+;;
+;; `compare` quoted BOTH operands in full, and `resolve-value` has just resolved
+;; them out of the run's bindings — so each one is a step's OUTPUT, which for the
+;; document pipeline is extracted document content: the class #83 r4 sealed four
+;; `error` columns over. The message reaches `workflow_steps.error` AND, since
+;; #123 routed every unhandled message to stderr, the container log, which r4
+;; names as the copy most likely to be read by a person.
+
+(test-case "a `gt` on mismatched types names the TYPES and quotes neither value"
+  (define secret "Arun Patel, 078-05-1120, account 4111111111111111")
+  (define ctx (make-context #:input (hasheq 'threshold 3)
+                            #:outputs (hasheq 'extract (hasheq 'total secret))
+                            #:run-id "r" #:team-id "t" #:user-id "u"))
+  (define msg
+    (with-handlers ([exn:fail? exn-message])
+      (eval-predicate (hasheq 'gt (list "${steps.extract.output.total}" "${input.threshold}")) ctx)))
+  (check-true (string? msg) "the comparison is still refused")
+  (check-false (regexp-match? #rx"Arun Patel" msg) "no extracted content in the refusal")
+  (check-false (regexp-match? #rx"078-05-1120" msg))
+  (check-false (regexp-match? #rx"4111111111111111" msg))
+  ;; …and a truncation would have been the tempting middle answer: it still
+  ;; quotes content, and misleadingly. Nothing of the value at all.
+  (check-false (regexp-match? #rx"Arun" msg) "not even a prefix of it")
+  ;; what IS said is the whole of what the author did not know
+  (check-true (and (regexp-match? #rx"string" msg) #t) "the string side is named")
+  (check-true (and (regexp-match? #rx"integer|number" msg) #t) "and the numeric one")
+  (check-true (and (regexp-match? #rx"incomparable" msg) #t)))
+
+(test-case "…and a comparison that CAN be made is unaffected, which is the control"
+  ;; without this, a version that refused every comparison — or one that answered
+  ;; a bare #f instead of raising — would pass every refutation above.
+  (define ctx (make-context #:input (hasheq 'n 3)
+                            #:outputs (hasheq 'first (hasheq 'rating 5))
+                            #:run-id "r" #:team-id "t" #:user-id "u"))
+  (check-true (eval-predicate (hasheq 'gt (list "${steps.first.output.rating}" "${input.n}")) ctx))
+  (check-false (eval-predicate (hasheq 'lt (list "${steps.first.output.rating}" "${input.n}")) ctx)))

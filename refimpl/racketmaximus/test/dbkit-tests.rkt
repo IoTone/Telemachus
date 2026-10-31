@@ -47,3 +47,29 @@
                 "sqlite:///./data/app.db")
   (check-equal? (redact-db-url "not a url at all, just : and @ chars")  ; malformed input: no crash, no match
                 "not a url at all, just : and @ chars"))
+
+;; ---- what a refusal may say about a DATABASE_URL (#186, SEC-6) --------------
+;;
+;; `redact-db-url`'s own header says "never print or error on the raw string" and
+;; THREE places did: this function, and the `with-db` message in
+;; `telemachus-anchor` and `telemachus-help`. The one here is the sharpest,
+;; because the only URL that can reach this refusal is a NON-sqlite one — i.e.
+;; exactly the postgres case that carries `user:PASS@host`. A rule stated in a
+;; header and bypassed by one path is ENC-23's shape.
+
+(test-case "sqlite-path's refusal redacts the credential it was necessarily handed"
+  (define msg
+    (with-handlers ([exn:fail? exn-message])
+      (sqlite-path "postgres://alice:s3cr3t@db.internal:6543/telemachus")))
+  (check-true (string? msg) "a non-sqlite URL is refused")
+  (check-false (regexp-match? #rx"s3cr3t" msg)
+               "the password must not reach the log, the terminal or a sealed column")
+  ;; and the rest survives, or the operator cannot see WHICH url was wrong —
+  ;; which is the whole reason this is a redaction and not a removal
+  (check-true (and (regexp-match? #rx"db.internal" msg) #t) "the host is still named")
+  (check-true (and (regexp-match? #rx"telemachus" msg) #t) "and the database"))
+
+(test-case "…and a sqlite URL is still resolved, so the guard did not become the answer"
+  ;; the control for the case above: a version that refused everything, or one
+  ;; that redacted by dropping the string, would pass the refutations alone.
+  (check-true (path? (sqlite-path "sqlite:///./data/app.db" #:base-dir (current-directory)))))

@@ -27,7 +27,12 @@
          ;; been declared to do with it. PURE — no database reaches this module.
          "egress.rkt")
 
-(provide model-configured? model-info chat-simulated? run-chat run-chat-stream parse-chat-response estimate-tokens
+(provide ;; provider-detail and its cap are exported FOR test/requestlog-tests.rkt
+         ;; (#186, SEC-8): the three seams that call it each need a live socket,
+         ;; so the rule itself is only reachable directly. An export with a test
+         ;; behind it is not an over-wide export (#110 r4).
+         provider-detail PROVIDER-DETAIL-MAX
+         model-configured? model-info chat-simulated? run-chat run-chat-stream parse-chat-response estimate-tokens
          model-name pull-router
          model-request-logger log-model-request! transport-error-kind
          egress-policy egress-refusal
@@ -129,6 +134,32 @@
 ;;
 ;;   a stalled stream IS a timeout from the operator's side: the remedy is the
 ;;   same, and a fifth label for it would be a distinction with no reader.
+;; PROVIDER-SUPPLIED-DETAIL, BOUNDED — and it was spelled three times (#186,
+;; SEC-8). Each of the three seams below formatted `(hash-ref resp 'error)` whole
+;; into its refusal, which then lands in a sealed `jobs.error` AND, since #123
+;; routed every unhandled message to stderr, in the container log.
+;;
+;; The detail STAYS, deliberately, where bind.rkt's operands did not: there the
+;; value was content the caller already held and the TYPE was the information,
+;; whereas here the provider's own `error.message` ("invalid_api_key", "model not
+;; found", "context length exceeded") is the single most useful thing an operator
+;; has for a backend that will not answer, and dropping it would make a
+;; misconfiguration opaque. What was never bounded is its LENGTH: an OpenAI-shaped
+;; gateway that echoes the request back inside that field — and FEED-6 records
+;; that many of them do, credential and all — would put a whole prompt in both
+;; copies. A cap bounds the exposure without removing the diagnostic, which is
+;; the trade a type name cannot make for a field whose text IS the answer.
+(define PROVIDER-DETAIL-MAX 400)
+(define (provider-detail resp)
+  (define e (hash-ref resp 'error #f))
+  (cond
+    [(not e) "no detail"]
+    [else
+     (define s (format "~a" e))
+     (if (> (string-length s) PROVIDER-DETAIL-MAX)
+         (string-append (substring s 0 PROVIDER-DETAIL-MAX) "… (truncated)")
+         s)]))
+
 (define (transport-error-kind e)
   (define r (and (exn:fail:model-retryable? e) (exn:fail:model-retryable-reason e)))
   (case r
@@ -346,8 +377,7 @@
       (http-post-json url body (headers* key))))
   (unless (= code 200)
     (log! "error" #:kind "http" #:http code)
-    (error who "model endpoint returned HTTP ~a: ~a" code
-           (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
+    (error who "model endpoint returned HTTP ~a: ~a" code (provider-detail resp)))
   (log! "ok" #:http 200 #:tokens (response-tokens resp))
   (values resp url mdl))
 
@@ -410,8 +440,7 @@
       (http-post-json url body (headers* (embed-key)))))
   (unless (= code 200)
     (log! "error" #:kind "http" #:http code)
-    (error who "embedding endpoint returned HTTP ~a: ~a" code
-           (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
+    (error who "embedding endpoint returned HTTP ~a: ~a" code (provider-detail resp)))
   (define vecs (embedding-vectors resp (length texts) who))
   (define toks (embedding-tokens resp))
   (log! "ok" #:http 200 #:tokens toks)
@@ -534,8 +563,7 @@
       (http-post-data url body hs)))
   (unless (= code 200)
     (log! "error" #:kind "http" #:http code)
-    (error who "transcription endpoint returned HTTP ~a: ~a" code
-           (let ([e (hash-ref resp 'error #f)]) (if e (format "~a" e) "no detail"))))
+    (error who "transcription endpoint returned HTTP ~a: ~a" code (provider-detail resp)))
   (define text (transcription-text resp who))
   (log! "ok" #:http 200)
   (values text

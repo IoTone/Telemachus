@@ -23,7 +23,15 @@
 
 (require racket/list racket/string)
 
-(provide validate-json json-valid?)
+(provide validate-json json-valid?
+         ;; `type-of` is exported for two REFUSALS elsewhere (#186, SEC-7) and
+         ;; that is the whole reason. Every problem string in this file names a
+         ;; path, a constraint and a TYPE and quotes no value anywhere — which
+         ;; makes this module the tree's one home for "what a refusal may say
+         ;; about data it was handed", and a second copy of the type vocabulary
+         ;; would be `executor-can-run?`'s drift in the place it is hardest to
+         ;; notice, since both copies would read plausibly for ever.
+         type-of)
 
 ;; -> a list of problem strings, empty when the value conforms
 (define (validate-json schema v)

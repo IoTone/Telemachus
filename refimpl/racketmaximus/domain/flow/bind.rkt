@@ -21,7 +21,11 @@
 ;; typed, permissioned, testable and auditable, and is a better answer than
 ;; growing an expression language nobody chose to build.
 
-(require racket/string racket/list json)
+(require racket/string racket/list json
+         ;; type-of ONLY — the type vocabulary a refusal may use, kept in one
+         ;; place (see the note at `compare`). jsonschema.rkt requires nothing
+         ;; but racket libraries, so this leaves bind.rkt as pure as it was.
+         (only-in "../tools/jsonschema.rkt" type-of))
 
 (provide valid-ref? ref-step-id item-ref?
          binding-refs
@@ -151,10 +155,25 @@
   (or (eq? v 'null) (equal? v "") (null? v)
       (and (hash? v) (zero? (hash-count v)))))
 
+;; jsexpr -> the NAME of its type. This is what an incomparable-operand refusal
+;; is allowed to say, and the reason is what the operands ARE: `resolve-value`
+;; has just resolved them out of the run's bindings, so each one is a step's
+;; OUTPUT — which for the document pipeline is extracted document content, the
+;; class #83 r4 sealed four `error` columns over. Quoting both in full put a
+;; whole extracted field in `workflow_steps.error` AND, since #123 routed every
+;; unhandled message to stderr, in the container log, which r4 names as the copy
+;; most likely to be read by a person.
+;;
+;; Naming the types costs the caller nothing: they wrote the predicate and they
+;; own the data, so which type each side turned out to be is the whole of what
+;; they did not know. A truncation would have been the tempting middle answer and
+;; is the worst one — it still quotes content, and it quotes it misleadingly.
+;; (#186, SEC-7.)
 (define (compare who a b num str)
   (cond [(and (real? a) (real? b)) (num a b)]
         [(and (string? a) (string? b)) (str a b)]
-        [else (error 'flow "~a: incomparable operands (~a, ~a)" who (as-text a) (as-text b))]))
+        [else (error 'flow "~a: incomparable operands (~a and ~a) — ~a compares two numbers or two strings"
+                     who (type-of a) (type-of b) who)]))
 
 (define (eval-predicate p ctx)
   (define k (car (hash-keys p)))
