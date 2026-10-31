@@ -456,7 +456,7 @@
   (check-false (assoc "inbox" (plugin-failures)) "and not among the failures")
   (check-equal? (hash-ref (car mine) 'migrations) '("x.inbox.init"))
   (define rs (hash-ref (car mine) 'routes))
-  (check-equal? (length rs) 9)
+  (check-equal? (length rs) 10 "nine single-item routes plus the batch")
   (for ([r (in-list routes)])
     (check-true (and (permission-doc (caddr r)) #t)
                 (format "~a ~a names a permission the catalog describes" (car r) (cadr r)))))
@@ -495,6 +495,26 @@
   (check-regexp-match #rx"not a state this inbox has" (user-error-message (lambda () (call "GET" "/items" p c #:query (hasheq 'state "nope")))))
   (check-regexp-match #rx"not a severity" (user-error-message (lambda () (call "POST" "/items" p c #:body (hasheq 'source "s" 'key "k" 'title "t" 'severity 3))))
                       "a wrong-typed severity is refused, not quietly defaulted"))
+
+(test-case "a batch is one transaction: every item lands, or none does"
+  (define-values (c p uid tid) (setup))
+  (define made (call "POST" "/items/batch" p c
+                     #:body (hasheq 'items (list (hasheq 'source "watcher" 'key "a" 'title "A")
+                                                 (hasheq 'source "watcher" 'key "b" 'title "B")))))
+  (check-equal? (map (lambda (x) (hash-ref x 'outcome)) made) '("created" "created"))
+  (check-equal? (hash-ref (call "GET" "/items" p c) 'count) 2)
+  (check-regexp-match
+   #rx"title is required"
+   (user-error-message
+    (lambda ()
+      (call "POST" "/items/batch" p c
+            #:body (hasheq 'items (list (hasheq 'source "watcher" 'key "c" 'title "C")
+                                        (hasheq 'source "watcher" 'key "d")))))))
+  (check-equal? (query-maybe-value c "SELECT COUNT(*) FROM x_inbox_items WHERE item_key IN ('c','d')") 0
+                "the good half of a refused batch is not left behind")
+  (check-regexp-match
+   #rx"1 to 100"
+   (user-error-message (lambda () (call "POST" "/items/batch" p c #:body (hasheq 'items '()))))))
 
 (test-case "the wake job kind registers under the plugin's own prefix and wakes only its team"
   (check-not-exn init!)

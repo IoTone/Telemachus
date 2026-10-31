@@ -605,6 +605,33 @@
                  #:kind (g 'kind) #:scope (g 'scope) #:body (g 'body) #:url (g 'url)
                  #:data (g 'data) #:revision (g 'revision)))
 
+;; A batch is one transaction and one answer, so a caller that raises a page of
+;; findings cannot half-succeed. The 100 cap is the same order as the platform's
+;; own list caps: a batch is a page of work, not a bulk import.
+(define (route-ingest-batch conn p args)
+  (define b (body-of args))
+  (define items (hash-ref b 'items '()))
+  (unless (and (list? items) (pair? items) (<= (length items) 100))
+    (bad 'inbox_batch "items must be a list of 1 to 100 items"))
+  (define (run)
+    (call-with-transaction conn
+                           (lambda ()
+                             (for/list ([it (in-list items)])
+                               (unless (hash? it)
+                                 (bad 'inbox_batch "every item must be an object"))
+                               (define (g k) (hash-ref it k #f))
+                               (define res
+                                 (inbox-ingest! conn p
+                                                #:source (g 'source) #:key (g 'key) #:title (g 'title)
+                                                #:severity (let ([v (g 'severity)]) (if (or (not v) (eq? v 'null)) "normal" v))
+                                                #:kind (g 'kind) #:scope (g 'scope) #:body (g 'body)
+                                                #:url (g 'url) #:data (g 'data) #:revision (g 'revision)))
+                               (hasheq 'key (g 'key) 'outcome (hash-ref res 'outcome))))))
+  ;; A lost insert race aborts the transaction, so the whole batch is attempted again; the
+  ;; second run finds the winner's rows and reports refreshed or revised, which is true.
+  (with-handlers ([exn:fail:sql? (lambda (_e) (run))])
+    (run)))
+
 ;; ---- the workflow tool ----------------------------------------------------------
 ;; A workflow step or the agent raises an item through the SAME `inbox-ingest!` the route
 ;; uses, so the vocabulary checks, the caps, the revision rule and the race retry are not
@@ -664,6 +691,8 @@
   (list
    (list "POST" "/items" "inbox:write" route-ingest
          "Raise an item, or re-raise one. {source, key, title, severity?: critical|high|normal|low, kind?, scope?, body?, url?, data?, revision?}. One live row exists per (source, key): the same revision refreshes the evidence only, a different revision replaces the content and sends an acknowledged or snoozed item back to open, and a key that was resolved opens a new row. The answer says which: outcome is created, reopened, refreshed, revised or resurfaced.")
+   (list "POST" "/items/batch" "inbox:write" route-ingest-batch
+         "Raise or re-raise up to 100 items in one transaction, all or none: {items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}. The answer lists {key, outcome} in order. A caller that raises a page of findings cannot half-succeed.")
    (list "GET" "/items" "inbox:read" route-list
          "The team's inbox, most severe first then longest waiting. ?state= one or a comma list of open|acknowledged|snoozed|suppressed|resolved, or all (default: open and acknowledged), ?severity=, ?source=, ?kind=, ?scope= one exact scope label, ?scope_prefix= every label starting with it, ?limit=/?offset=. A snooze that has run out reads as open.")
    (list "GET" "/items/:id" "inbox:read" route-get
