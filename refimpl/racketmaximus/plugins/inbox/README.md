@@ -53,6 +53,11 @@ The answer says what happened, in `outcome`:
 
 A producer that polls every hour can raise the same item every hour without waking anyone.
 
+A page of findings goes to `POST /api/x/inbox/items/batch` as `{"items": [...]}`. It is one
+transaction for up to 100 items, every item lands or none does, and the answer lists `{key, outcome}`
+in order. A lost insert race restarts the whole batch, so the second attempt reports what the
+winner's rows already are.
+
 ## Reading
 
 - `GET /items` is most severe first, then longest waiting. The default is open and acknowledged.

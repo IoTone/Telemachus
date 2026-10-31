@@ -5642,7 +5642,7 @@ complete and correct, and it is.
 
 ## INBOX: a team's inbox as a plugin
 
-`plugins/inbox/`, tests in `test/inbox-tests.rkt` (40 cases, both dialects). Written to be used by any
+`plugins/inbox/`, tests in `test/inbox-tests.rkt` (43 cases, both dialects). Written to be used by any
 host: the first consumer is RCNT, which raises regulatory and monitoring items into it, and nothing in
 the plugin names RCNT.
 
@@ -5657,6 +5657,10 @@ the plugin names RCNT.
 | INBOX-7 | No platform event is emitted. Transitions are audited. | `EVENTS` is a closed vocabulary a plugin cannot extend. An `inbox.item.*` event is the upstream ask. |
 | INBOX-8 | `scope` is a label to filter and count by, not an access boundary. A prefix filter uses `substr()`. | A host that needs per-scope visibility enforces it in front of the plugin. LIKE needs `%` and `_` escaped and the escape clause differs by dialect. |
 | INBOX-9 | Not built: per-user read receipts, bulk acts, due dates, delivery to a channel, a screen, a webhook. | Each is a layer a host adds. State here is the team's. Who acted is in the events. |
+
+
+| INBOX-10 | A workflow tool, `inbox_raise`, wraps the route's own ingest. | A triage workflow and an alert adapter need to raise items without an HTTP hop. It calls `route-ingest`, so validation, the revision rule and the lost-race retry exist once. It is behind `inbox:write`. |
+| INBOX-11 | A batch route, `POST /items/batch`, is one transaction for up to 100 items: every item lands or none does. | A caller that raises a page of findings must not half-succeed. It is ingest, not a bulk act: a bulk acknowledge is still not built (INBOX-9). A lost insert race aborts the transaction, so the whole batch is attempted again and the second run reports what the winner's rows already are. |
 
 
 | INBOX-10 | A workflow tool, `inbox_raise`, wraps the route's own ingest. | A triage workflow and an alert adapter need to raise items without an HTTP hop. It calls `route-ingest`, so validation, the revision rule and the lost-race retry exist once. It is behind `inbox:write`. |
