@@ -1359,6 +1359,56 @@ backend; ZDR‑2 is small and makes a compliance claim possible; RSCH‑3 is the
 expensive one, because an SSRF-safe fetcher is the whole cost of the research
 surface and the rest of that loop is assembly.
 
+## The version has one home (REL) — **31 Oct 2026** (issue #227 slice 1)
+
+`refimpl/racketmaximus/VERSION`. Procedure: `docs/ops/release-runbook.md`.
+
+| | |
+|---|---|
+| **REL‑1** | One file, read by all four publishers — it was three literals agreeing by luck |
+| **REL‑2** | The file lives inside the implementation directory, which the packaging forces |
+| **REL‑3** | Read at run time, not baked in at compile time |
+| **REL‑4** | A missing file raises; there is no fallback |
+| **REL‑5** | `1.0.0` is a product decision, and a tag is the owner's to push |
+
+- **REL‑1** — the number was spelled in `config.rkt`'s `app-version`,
+  `nix/telemachus.nix`'s derivation `version`, and the `version` flake.nix hands
+  `nix/container.nix`. **All three said `0.1.0` while `git tag` read `v0.3.0`**,
+  with 442 commits after tags that were all cut within forty minutes on
+  14 Aug 2026. LIVE‑IN's shape with three publishers, and the third one publishes
+  the number three ways: the image tag, the `org.opencontainers.image.version`
+  label and the SBOM component's version.
+- **REL‑2** — `src = ../refimpl/racketmaximus`, so a root-level VERSION reaches
+  neither the store nor the image: the read would work in every checkout and fail
+  on every packaged install. **HELP‑2's trap**, which is why `docs/` is ingested
+  rather than read off disk. Nix sees only git-tracked files, so a new VERSION
+  must be added before `nix build`.
+- **REL‑3** — a macro reading the file during expansion would put the number in
+  the `.zo`, and `raco make` tracks `config.rkt`'s mtime rather than VERSION's —
+  so editing the version alone would report the old one. Fourth appearance of the
+  stale-bytecode trap, on the value least likely to be doubted.
+- **REL‑4** — a fallback is how a packaged install reports a version nobody
+  shipped (#119's shape). `nix build` runs the unit suite in the sandbox, so an
+  untracked file fails there. **Verified by running it**: the derivation is
+  `telemachus-0.4.0`, `share/telemachus/VERSION` is in the store, and
+  `app-version` read out of that store path answers `0.4.0`.
+  The test's build-file case reads files ABOVE `src`, so it is absent from the
+  sandbox and skips there **with its reason printed** — REL‑2's own fact, met
+  from inside the case written to document it.
+- **REL‑5** — semver's minor bump is the conventional reading for additive pre-1.0
+  work, so `0.4.0`; **`1.0.0` is a compatibility promise** about the HTTP API, the
+  SDK contract and the plugin seams, which is the durable product and therefore a
+  product decision rather than a consequence of volume. **No tag was pushed** —
+  a tag on a public repository is something people pull.
+
+What this slice did NOT do, by #227's own three bullets: the machine-readable API
+description (`docs/reference/api.md` is generated and drift-gated but carries no
+request or response shape, so an integrator cannot generate a client) and the
+e-book's expansion (its 19 chapters mention none of semantic retrieval,
+in-product help, redaction, the egress policy, classification, annotations,
+webhooks, timezones, the palette, the queue visualization, OCR or the PDF
+engines). Both are planned on the issue.
+
 ## The security sweep, first pass (SEC) — **started 30 Oct 2026** (issue #186)
 
 #186 is a tracking issue that names five candidate surfaces and a method:
