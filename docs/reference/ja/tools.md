@@ -21,7 +21,7 @@ Every tool the agent may call and a workflow step may use, from `define-tool` de
 | `feed_queue_put` | `files:read` | feeds | 取得済みのフィード項目をチームの作業キューに載せる、または更新します：優先度（0〜100）、任意の期限（エポック秒）、状態、スキルの一覧。キューはドキュメントに対する「インデックス」なので、これはトリアージが決めた内容を記録するものであり、決めるものではありません。 |
 | `feed_queue_status` | `files:read` | feeds | キューにある項目を別の状態へ移します：open、claimed、done、dropped のいずれか。 |
 | `get_usage` | `chat:use` | built-in | チームの現在の AI 使用量をクォータと比べて報告する。 |
-| `inbox_raise` | `inbox:write` | inbox | Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened. |
+| `inbox_raise` | `inbox:write` | inbox | チームの受信箱に項目を登録するか、登録し直します。生きた項目は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。応答の outcome がどちらだったかを示します。 |
 | `kg_extract` | `files:read` | built-in | 1つのリポジトリ文書から、エンティティ（人、組織、製品、場所、イベント、概念）とそれらの関係を知識グラフに抽出する。各言及には原文どおりの抜粋が付きます。検証を通らない返答は拒否します。 |
 | `kg_list_unextracted` | `files:read` | built-in | テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）リポジトリ文書を一覧する。オブジェクト ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。 |
 | `kg_query` | `files:read` | built-in | チームの文書がエンティティについて述べていること：その関係と、それに言及する文書を抜粋付きで。名前（またはエンティティ ID）を指定；hops 1 は近傍を、hops 2 はその近傍まで返します。 |
@@ -271,21 +271,21 @@ No parameters.
 
 ## `inbox_raise`
 
-Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened.
+チームの受信箱に項目を登録するか、登録し直します。生きた項目は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。応答の outcome がどちらだったかを示します。
 
 Permission: `inbox:write` · source: inbox
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `body` | string | no |  |
-| `data` | object | no | At most 8 KiB of JSON |
-| `key` | string | yes | The producer's id for the fact, stable across re-raises |
-| `kind` | string | no | The producer's own grouping label |
-| `revision` | string | no | A different revision is a material change |
-| `scope` | string | no | A label to filter and count by, not an access boundary |
-| `severity` | string (critical, high, normal, low) | no | Defaults to normal |
-| `source` | string | yes | Who raised it, in the producer's own words |
-| `title` | string | yes | What a person reads first |
+| `data` | object | no | 最大 8 KiB の JSON |
+| `key` | string | yes | その事実に対する生産側の ID。再登録しても変わりません |
+| `kind` | string | no | 生産側が独自に付ける分類ラベル |
+| `revision` | string | no | 異なる revision は実質的な変更を意味します |
+| `scope` | string | no | 絞り込みと集計のためのラベルであり、アクセス境界ではありません |
+| `severity` | string (critical, high, normal, low) | no | 既定は normal です |
+| `source` | string | yes | 誰が登録したかを、生産側の言葉で示します |
+| `title` | string | yes | 人が最初に読む見出し |
 | `url` | string | no |  |
 
 ## `kg_extract`

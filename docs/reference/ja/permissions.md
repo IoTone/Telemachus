@@ -19,8 +19,8 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:manage` | team | 文書を管理する：公開範囲の変更、共有と取り消し。所有者は owner-ok により保持し、manage 権限の付与で1つの文書の管理を委任できます。 |
 | `files:read` | team | リポジトリの文書を開く・ダウンロードする・検索する；由来と知識グラフを読む。 |
 | `files:write` | team | ドキュメントと新バージョンをアップロードします。 |
-| `inbox:read` | team | See the team's inbox: the items waiting for a person, their events, and the digest. |
-| `inbox:write` | team | Raise an item into the team's inbox, and acknowledge, snooze, suppress, reopen or resolve one. A producer's service token needs this to raise items. |
+| `inbox:read` | team | チームの受信箱を参照します。人の対応を待つ項目、そのイベント、ダイジェストを返します。 |
+| `inbox:write` | team | チームの受信箱に項目を登録し、確認・スヌーズ・抑止・再オープン・解決を行います。項目を登録するには、生産側のサービス・トークンにこの権限が必要です。 |
 | `instance:*` | instance | インスタンス層のすべて；オペレーター（スーパー管理者）。 |
 | `instance:manage` | instance | インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス |
 | `instance:read` | instance | 読み取り専用のインスタンス運用操作 — ステータス、メトリクス、ワーカーフリート、キュー、監査チェーンの検証。監査ログそのものを渡すエクスポートは含まない。 |

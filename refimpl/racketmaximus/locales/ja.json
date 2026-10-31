@@ -76,6 +76,10 @@
       "text": "AI予算",
       "hash": "d8b28ed5e92646f6133b5e73ccac97d636e34dc9"
     },
+    "doc.perm.inbox:write": {
+      "text": "チームの受信箱に項目を登録し、確認・スヌーズ・抑止・再オープン・解決を行います。項目を登録するには、生産側のサービス・トークンにこの権限が必要です。",
+      "hash": "a328f2092c233cc127297e05c48c168df57276ed"
+    },
     "doc.perm.localization:translate": {
       "text": "翻訳を提出します。",
       "hash": "a1215dd0d6f20b2a3094d0bf3dc04311146ba8b0"
@@ -99,6 +103,10 @@
     "ui.workershint": {
       "text": "仕事を取りに来るホスト",
       "hash": "908daf7804b4f9ebac0142fd35dce4c1fe0ed188"
+    },
+    "doc.tool.inbox_raise.scope": {
+      "text": "絞り込みと集計のためのラベルであり、アクセス境界ではありません",
+      "hash": "3f27a00edc5f3a3187e756d2de2910b3bc6d0788"
     },
     "ui.reviews": {
       "text": "レビュー",
@@ -345,8 +353,8 @@
       "hash": "57f5717f784659e41b73f398f34d8c757d99d3ff"
     },
     "doc.route.get.api.model-requests": {
-      "text": "チームのモデルリクエストの記録。エグゼキュータ、送信経路、モデル、バックエンドのホスト、このマシンの外へ出たかどうか、コンテンツのログ保存について申告された内容、プロンプトの鍵付きダイジェスト、トークン数、結果を返します。プロンプト本文は決して含みません。?executor= で絞り込み、?limit= と ?offset= でページ送りします。",
-      "hash": "f4d9c40d182ca8e0cc0c1b974759a9dfdfabfc98"
+      "text": "チームのモデルリクエストの記録。エグゼキュータ、送信経路、モデル、バックエンドのホスト、このマシンの外へ出たかどうか、コンテンツのログ保存について申告された内容、プロンプトの鍵付きダイジェスト、トークン数、チャットか埋め込みかの別、処理したジョブ、結果を返します。プロンプト本文は決して含みません。プル・ワーカーが処理した呼び出しは、job_id で結合できる2行を残します。ジョブを積んだルートが待ち側から1行を書き、そのミリ秒はキューの待ち時間を含みます。ワーカーの完了が、ジョブ自身の開始時刻から、ワーカーが報告したトークン数で別の1行を書きます。job_id はプッシュまたはストリームの呼び出しでは null で、この列ができる前に書かれた行でも null です。`?executor=` で絞り込み、`?limit=` と `?offset=` でページ送りします。",
+      "hash": "87a0b38add3fa7cbe69a6b24f3e7f6229474ccb8"
     },
     "doc.route.get.api.model-roles": {
       "text": "チームの一括処理をロールごとにどのエグゼキュータへ送るか（utility：知識グラフとフィールド抽出、翻訳の下書き）、およびインスタンスの既定値。",
@@ -796,6 +804,10 @@
       "text": "デッドまたは配信済みのイベントを再送する。試行回数はリセットされます — 再送を選んだ運用者は判断を下しており、10 回のうち既に消費された 1 回分しか残っていなければこの操作は役に立ちません。配信 ID は変わらないため、すでに適用した受信側は冪等キーとして認識できます。",
       "hash": "b17affbdc8d6742b2e242a961b35b0b2ef2dd1d5"
     },
+    "doc.tool.inbox_raise.severity": {
+      "text": "既定は normal です",
+      "hash": "45a5ee2ffa65b805a0fdb1b71b15ef2afe22e6ca"
+    },
     "doc.route.get.api.jobs": {
       "text": "チームのジョブを新しい順に返す。プラットフォームが保留しているキュー内ジョブには `waiting` が付きます — {reason: \"quota\"|\"concurrency\", …}。何も保留しておらず空きワーカーを待っているだけの場合、このキーはありません。",
       "hash": "d43d2fb4962c8810b1ff4079a3608ea56175ad72"
@@ -952,6 +964,10 @@
       "text": "試行",
       "hash": "3240aa0fe3ca15051680641a59e8d7b61c286b23"
     },
+    "doc.route.post.api.x.inbox.items": {
+      "text": "項目を登録するか、登録し直します。`{source, key, title, severity?: critical|high|normal|low, kind?, scope?, body?, url?, data?, revision?}`。生きた行は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。解決済みのキーは新しい行として開きます。応答はどれだったかを返し、outcome は created、reopened、refreshed、revised、resurfaced のいずれかです。",
+      "hash": "3bab4fcb2285b11bceab0a185d25e3fd8c3c7379"
+    },
     "doc.tool.update_note": {
       "text": "ID でノートのタイトルまたは本文を更新する。",
       "hash": "44491022a8c823f95545b85549b446db8e969998"
@@ -1099,6 +1115,10 @@
     "ui.all": {
       "text": "すべて",
       "hash": "6a72085653e4c5be8c7640c868ef787cbcf063d1"
+    },
+    "doc.tool.inbox_raise.kind": {
+      "text": "生産側が独自に付ける分類ラベル",
+      "hash": "30c66185696f12517665efece995d4635ce42db3"
     },
     "ui.steps": {
       "text": "ステップ",
@@ -1268,6 +1288,10 @@
       "text": "呼び出し元の「他のすべて」のセッションを終了する（他の場所からサインアウト）。すべてではない — パスワード変更はすべてを終了するが、こちらは今使っているセッションを残す。",
       "hash": "b3e9ec729c6cedf436582ffe64cf364774a2f0cd"
     },
+    "doc.route.post.api.x.inbox.items.id.suppress": {
+      "text": "終了時刻を定めずに項目を静かに保ちます。`{note?}` を渡します。生産側が登録し続けても、証拠が動いても、項目が呼び戻されることはありません。戻すには再オープンします。",
+      "hash": "a8f4b1957495f93b57fdd6bd3249a7b0cc3e8954"
+    },
     "doc.route.delete.api.sessions.id": {
       "text": "呼び出し元自身のセッションを 1 つ終了する。自分のものでないセッションと存在しないセッションは同じ 404 を返す。",
       "hash": "694bd265ddd63c495318b345499b233155933122"
@@ -1343,6 +1367,10 @@
     "doc.workflow.classify-eval.name": {
       "text": "分類器を評価する",
       "hash": "5c63fbf3c117397cfad5dd12e14921ddd3a14c1b"
+    },
+    "doc.route.get.api.x.inbox.items": {
+      "text": "チームの受信箱を、重要度の高い順、次に待ち時間の長い順で返します。`?state=` は open|acknowledged|snoozed|suppressed|resolved のいずれか、カンマ区切りの複数、または all（既定は open と acknowledged）です。ほかに `?severity=`、`?source=`、`?kind=`、`?scope=`（完全一致のスコープ・ラベル）、`?scope_prefix=`（その接頭辞で始まるすべてのラベル）、`?limit=`/`?offset=` を使えます。期限が過ぎたスヌーズは open として返ります。",
+      "hash": "707335331468b07128edc96f65f50ffb22104ab0"
     },
     "ui.role": {
       "text": "ロール",
@@ -1428,6 +1456,10 @@
       "text": "サイズ",
       "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
     },
+    "doc.tool.inbox_raise.data": {
+      "text": "最大 8 KiB の JSON",
+      "hash": "28975dbf6d9845e8f29f33fb4e31c8a93bec709c"
+    },
     "ui.brandinghint": {
       "text": "このインスタンスの名称・タグライン・ロゴ。サインイン画面、ヘッダー、ブラウザタブに反映されます。",
       "hash": "9c5375a0a4245cc7aba14a6cf9ad8156868c6d23"
@@ -1467,6 +1499,10 @@
     "doc.tool.feed_queue_put.status": {
       "text": "既定は open",
       "hash": "ae650e1d3f893611c541c424ab66de9fd71dcafd"
+    },
+    "doc.tool.inbox_raise.key": {
+      "text": "その事実に対する生産側の ID。再登録しても変わりません",
+      "hash": "e745c98e38d13180112846b4be5c11eb337fd877"
     },
     "doc.route.put.api.l10n.messages.id": {
       "text": "1メッセージの翻訳を提出します。",
@@ -1523,6 +1559,10 @@
     "doc.tool.doc_set_type.labels": {
       "text": "判断の基準となったラベル集合 — doc_classify に与えたものと同じもの",
       "hash": "8e03264f54aff7b19f2b84f775e26148159ff8a6"
+    },
+    "doc.tool.inbox_raise.title": {
+      "text": "人が最初に読む見出し",
+      "hash": "44a8688a8fc73c93211767a7d651d36a57d11c77"
     },
     "doc.workflow.index-knowledge": {
       "text": "インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。",
@@ -1856,6 +1896,10 @@
       "text": "サンドボックス化された Tier-C テンプレートのための CORS プリフライト。",
       "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
     },
+    "doc.tool.inbox_raise.source": {
+      "text": "誰が登録したかを、生産側の言葉で示します",
+      "hash": "6eda5b24c10569671ca663524e844d43c3defca4"
+    },
     "ui.wkcreated": {
       "text": "ワーカーを作成しました — 今すぐトークンをコピーしてください",
       "hash": "2d2c2cefc85e8b0a3d5c1f4c72c2c9d192e573b5"
@@ -1995,6 +2039,10 @@
     "ui.agent": {
       "text": "エージェント",
       "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
+    },
+    "doc.route.post.api.x.inbox.items.id.ack": {
+      "text": "未対応の項目を確認済みにします。`{note?}` を渡します。誰かが内容を見て対応中であることを示し、項目は受信箱に残りますが、対応待ちとしては数えません。生産側から新しい revision が届くと open に戻ります。",
+      "hash": "c5b22c683c6f370d4817a10444f237e70b62aa91"
     },
     "doc.plugin.translate-chat": {
       "text": "デモワークフロープラグイン：一度チャットし、返答をスペイン語/オランダ語/アイスランド語に拡散させ、それぞれをユーザーの母国語に戻す",
@@ -2220,6 +2268,10 @@
       "text": "一致するエンティティが見つかりません。ドキュメントをインデックス化し、その後抽出を行ってください。",
       "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
     },
+    "doc.route.post.api.x.inbox.items.id.reopen": {
+      "text": "確認済み、スヌーズ中、抑止中の項目を open に戻します。",
+      "hash": "49a5b2e679535e43900f6cca129c941251e00366"
+    },
     "doc.route.patch.api.org.members.id": {
       "text": "人の組織ロールを設定またはクリアする — 既存ユーザーを org_reader にする方法（TEN-2h）。自分自身には不可。",
       "hash": "c12db2a62d70522a8cae022cf536347c52499014"
@@ -2247,6 +2299,10 @@
     "ui.bytrigger": {
       "text": "トリガー",
       "hash": "63d62d4aee9a5d4fe8539e53a9e3d05ffc210c9b"
+    },
+    "doc.route.get.api.x.inbox.digest": {
+      "text": "チーム全体またはひとつのスコープについて、まず何を見るかを返します。状態ごとの件数、重要度ごとの未対応件数、最も古い未対応項目の待ち時間、上位のいくつかです。`?scope=` は完全一致のラベル、`?scope_prefix=` はその配下を示します。解決済みの項目は数えません。",
+      "hash": "9704a7af3a86e6e47f3e7d3e1058f4cea694c253"
     },
     "ui.bxrestart": {
       "text": "開始できませんでした — 再読み込みしてください",
@@ -2608,6 +2664,10 @@
       "text": "処理履歴",
       "hash": "e46e1f2081914128a574b3c06686ccce4454d5b1"
     },
+    "doc.route.get.api.x.inbox.items.id": {
+      "text": "ひとつの項目とそのイベントを、起きた順の番号付きで返します。誰がいつ確認したか、そのときのメモ、すべての改訂と自動復帰を含みます。",
+      "hash": "972f95ddadc5f7960c11841dbb7e7215cd0e8e64"
+    },
     "doc.route.get.api.tokens": {
       "text": "チームのAPIトークン",
       "hash": "5ba2729ca20d3fedebf8ffb6e6af646ac7d0959d"
@@ -2771,6 +2831,10 @@
     "ui.localize": {
       "text": "翻訳管理",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "doc.route.post.api.x.inbox.items.id.snooze": {
+      "text": "指定した時刻まで項目を隠します。`{until: エポック秒, 最大90日先まで, note?}` を渡します。時刻を過ぎると open に戻ります。",
+      "hash": "0a6d9d3b62759637933847209ecec84c2a169353"
     },
     "ui.members": {
       "text": "メンバー",
@@ -2964,6 +3028,10 @@
       "text": "テキストの単語数を数える。",
       "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
     },
+    "doc.tool.inbox_raise": {
+      "text": "チームの受信箱に項目を登録するか、登録し直します。生きた項目は `(source, key)` ごとにひとつです。同じ revision は証拠だけを更新し、異なる revision は内容を置き換えて、確認済みまたはスヌーズ中の項目を open に戻します。応答の outcome がどちらだったかを示します。",
+      "hash": "42b3fa7eb80fd5f6e181c7d57cd01a1faafacc04"
+    },
     "doc.tool.doc_classify_eval.rules": {
       "text": "評価するルールセット — パイプラインが実行するのと同じルールです",
       "hash": "54b026958d4e9749b448857ea4e6137b4cd2a6d9"
@@ -3124,6 +3192,10 @@
       "text": "自分が所有していないノートを共有する。",
       "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
     },
+    "doc.perm.inbox:read": {
+      "text": "チームの受信箱を参照します。人の対応を待つ項目、そのイベント、ダイジェストを返します。",
+      "hash": "65ece9af37a0b54667a4a135cedd69af586b83f6"
+    },
     "ui.wkwindowhint": {
       "text": "上で選んだ期間に、このホストが完了・失敗し、取りこぼした仕事です。",
       "hash": "a0192cdf52217ebb65dd6e2357fd5df35f75afd1"
@@ -3231,6 +3303,10 @@
     "ui.signin": {
       "text": "サインイン",
       "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
+    },
+    "doc.tool.inbox_raise.revision": {
+      "text": "異なる revision は実質的な変更を意味します",
+      "hash": "7a91458914311ec629989310dbd1adefe608c709"
     },
     "ui.caphint": {
       "text": "閲覧は開く・ダウンロード；編集はさらに新しいバージョンのアップロード；管理はさらに共有・取り消し・公開範囲の変更。",
@@ -3728,6 +3804,10 @@
       "text": "即時",
       "hash": "f1d16437085ae1e36539a5328125cec05a91bada"
     },
+    "doc.plugin.inbox": {
+      "text": "外部の何かが登録し、人が対応する項目を集めるチームの受信箱です。`(source, key)` を鍵とする冪等な取り込み、閉じたライフサイクル（open、acknowledged、snoozed、suppressed、resolved）、自由形式のスコープ・ラベル、スコープを考慮したダイジェストを持ちます。項目の意味については何も決めず、項目の出所にも関与しません。",
+      "hash": "961aec759538829d78299022a1bb5a278329ac50"
+    },
     "ui.hmt": {
       "text": "マルチテナント",
       "hash": "437ca7ee46f783347bd4c1eaa273bc99f6df4265"
@@ -3767,6 +3847,10 @@
     "ui.edit": {
       "text": "編集",
       "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
+    },
+    "doc.route.post.api.x.inbox.items.id.resolve": {
+      "text": "項目を確定して閉じます。`{note?}` を渡します。解決済みは終端の状態です。同じ `(source, key)` が後から登録されると、次の occurrence を持つ新しい行になります。",
+      "hash": "8793fb6f477d894d1d5b63f9e7cef7d0532a6b21"
     },
     "ui.untitled": {
       "text": "無題",
@@ -3996,6 +4080,10 @@
       "text": "回答は示されたパッセージをすべて挙げており、それでは何も区別できません。回答の辞退として扱ってください。",
       "hash": "df4aa7ee154db599d9cdba06e082c82a5478a2df"
     },
+    "doc.route.post.api.x.inbox.items.batch": {
+      "text": "最大100件の項目をひとつのトランザクションで登録または再登録します。すべて成功するか、すべて失敗するかのどちらかです。`{items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}` を渡します。応答は `{key, outcome}` を順に返します。指摘を一ページ分まとめて登録する呼び出し側が、部分的に成功することはありません。",
+      "hash": "92e9b1c0f101471f761118b647d12e1193f21e12"
+    },
     "ui.palhclose": {
       "text": "Esc または ? で閉じる",
       "hash": "12c378b056c314b77c49ecd535e231aadd18086d"
@@ -4151,8 +4239,7 @@
     "ui.qvreleases": {
       "text": "{n} 件返却",
       "hash": "d668f66d84267fcc859213b166e7d229b5177b25"
-    }
-,
+    },
     "doc.route.get.api.admin.queue.flow": {
       "text": "AIキューを流れる処理を、図として描くための数値（QVIZ, #184）: `?hours=`（既定24、最大720）の期間を固定した分刻みのグリッドで区切った投入・取得・完了の件数と、`breakdown`（待機中ジョブを分割する4つの状態を1回の走査で数えたもの。バーの合計が一致します）。すべての数値はジョブ行そのものから導出されるため、カウンタ用テーブルも保持期間の設定も不要で、遡れる範囲は既存の保持ルールが残している分です。空の分も0として返します。停止したキューが繁忙なキューと同じ形に描かれてはならないためです。1,440区間を超える場合は期間を縮めるのではなく区間幅を広げます。どちらかは `bucket_seconds` が示します。",
       "hash": "e0ca6b11956a5bef6d4bd91f577d7423b4f57aa1"
