@@ -5,7 +5,7 @@
 ;; THIS app's database. Everything reusable lives in the cli-kit/db-kit/web-kit
 ;; packages under pkgs/; this is the only app-branded shared module.
 
-(require racket/runtime-path racket/string
+(require racket/runtime-path racket/string racket/file
          db-kit
          (only-in web-kit default-max-body-length))
 
@@ -74,13 +74,50 @@
                (string-join (for/list ([n (in-list names)]) (string-append OLD-PREFIX n)) ", ")
                NEW-PREFIX)))
 
-(define app-version "0.1.0")
-
 ;; This file lives at <repo>/refimpl/racketmaximus/config.rkt. This reference
 ;; implementation keeps its runtime data alongside itself (racketmaximus/data/),
 ;; so the anchor is this file's own directory.
 (define-runtime-path here ".")
 (define impl-root (simplify-path here))
+
+;; ---- the version, in ONE place (#227) ---------------------------------------
+;; It was spelled THREE times — here, `nix/telemachus.nix`'s derivation version,
+;; and the `version` flake.nix passes to `nix/container.nix`, which becomes the
+;; image TAG, the `org.opencontainers.image.version` label and the SBOM
+;; component's version. They agreed only because nobody had touched any of them:
+;; `git tag` read v0.3.0 while all three said 0.1.0 and 442 commits had landed.
+;; LIVE-IN's shape, with three consumers who each publish the number.
+;;
+;; `refimpl/racketmaximus/VERSION` is now the only spelling. Nix reads it at EVAL
+;; time with `builtins.readFile`; this reads it at instantiation.
+;;
+;; THE FILE LIVES INSIDE THE IMPLEMENTATION DIRECTORY, NOT AT THE REPO ROOT, and
+;; that is forced: `nix/telemachus.nix` sets `src = ../refimpl/racketmaximus`, so
+;; a root-level file is in neither the store nor the image and this read would
+;; work in every developer's checkout and fail on every packaged install —
+;; HELP-2's trap exactly. Nix also only sees GIT-TRACKED files, so a new VERSION
+;; must be `git add`ed before `nix build`.
+;;
+;; AND IT IS READ AT RUN TIME RATHER THAN BAKED IN AT COMPILE TIME, deliberately.
+;; A macro that read the file during expansion would be cheaper and would put the
+;; number in the `.zo` — where `raco make` tracks config.rkt's mtime and not
+;; VERSION's, so editing the version alone would leave a stale compiled constant
+;; reporting the old one. That is the stale-bytecode trap this tree has paid for
+;; three times, and a version is exactly the value nobody would think to doubt.
+;;
+;; A MISSING FILE RAISES. There is no fallback, because a fallback is how a
+;; packaged install reports a version nobody shipped (#119's shape) — and the
+;; unit suite runs inside `nix build`, so an untracked VERSION fails there rather
+;; than in production.
+(define app-version
+  (let ([p (build-path impl-root "VERSION")])
+    (unless (file-exists? p)
+      (error 'telemachus
+             (string-append "VERSION is missing at ~a — it is the one place this "
+                            "build's version is spelled. If this is a packaged "
+                            "install the file was not git-tracked when it was built.")
+             p))
+    (string-trim (file->string p))))
 
 ;; ---- which build is this? ------------------------------------------------------
 ;; Two instances of this platform on one box, one of them a day behind, are

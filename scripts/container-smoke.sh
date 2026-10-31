@@ -7,14 +7,21 @@
 # interesting ones, and every assertion below is one of them.
 #
 #   bash scripts/container-smoke.sh                     # builds the image if needed
-#   IMAGE=telemachus:0.1.0 bash scripts/container-smoke.sh
+#   IMAGE=telemachus:0.4.0 bash scripts/container-smoke.sh   # or any explicit tag
 #
 # Needs docker and a Postgres. With no DATABASE_URL in the environment it starts
 # its own Postgres container; in CI the workflow's service container supplies one.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-IMAGE="${IMAGE:-telemachus:0.1.0}"
+# THE TAG COMES FROM THE ONE HOME (#227). This default was a FOURTH spelling of
+# the version — after `app-version` and the two Nix literals — and it is the one
+# CI caught: `nix build .#container` tags the image with the version, so a bump
+# left this pointing at a tag that no longer exists and every assertion failed
+# with "image not found". A default that has to be edited in step with a release
+# is REL-1's defect in a shell script, so it reads the file instead.
+VERSION="$(tr -d '[:space:]' < refimpl/racketmaximus/VERSION)"
+IMAGE="${IMAGE:-telemachus:$VERSION}"
 PORT="${CONTAINER_SMOKE_PORT:-18835}"
 NAME="telemachus-smoke-$$"
 PGNAME="telemachus-smoke-pg-$$"

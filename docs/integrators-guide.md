@@ -451,7 +451,7 @@ TMach rather than extending it, the deployment surface is two pages:
 nix build .#container && docker load < result    # on a Linux host
 docker run -d --read-only --tmpfs /tmp -v telemachus-data:/data \
   -e DATABASE_URL='postgres://…' -e TMACH_SECRET_KEY="$(openssl rand -hex 32)" \
-  -p 8835:8835 --stop-timeout 30 telemachus:0.1.0
+  -p 8835:8835 --stop-timeout 30 telemachus:0.4.0
 ```
 
 Four things about the image are worth knowing before you plan around it:

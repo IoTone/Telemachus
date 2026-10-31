@@ -238,8 +238,10 @@ lives under `refimpl/<name>/`.
   worked example is `refimpl/racketmaximus/plugins/integrator-demo/`.
 - `docs/reference/` — generated from the source (routes, tools, workflows,
   permissions, plugins, the SDK) and committed; CI fails on drift.
-- `docs/ops/` — operator runbooks (workflow engine, multi-tenancy, document
-  repository, secrets at rest).
+- `docs/ops/` — operator runbooks, one per subsystem (configuration, containers,
+  the workflow engine, multi-tenancy, the document repository, secrets at rest,
+  a GPU fleet, cutting a release). The published site indexes the directory, so
+  a new one appears with no change here.
 - `refimpl/racketmaximus/` — the first reference implementation (Racket); has its own README.
 
 Additional reference implementations (a different backend, or another engineer's

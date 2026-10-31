@@ -104,7 +104,7 @@ services:
     user: "65534:65534"
 
   telemachus:
-    image: telemachus:0.1.0
+    image: telemachus:0.4.0
     depends_on:
       postgres:
         condition: service_healthy

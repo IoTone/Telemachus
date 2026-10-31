@@ -7695,6 +7695,115 @@ model. `telemachus-worker` is a packaged wrapper now, so a worker-only host is
   current name (#128 job 2) — and each one was grepped out of
   `docs/ops/configuration.md` by hand.
 
+## The version has ONE home, and it was two releases stale (#227 slice 1)
+
+`refimpl/racketmaximus/VERSION` is the only spelling. Design: `docs/ops/release-runbook.md`.
+
+```sh
+cat refimpl/racketmaximus/VERSION                       # the one home
+nix eval --raw .#telemachus.version                     # the derivation
+nix eval .#packages.x86_64-linux.container.imageTag     # the image tag
+raco test test/build-identity-tests.rkt                 # 8 cases, the no-literal one controlled
+```
+
+- **IT WAS SPELLED SIX TIMES AND `git tag` DISAGREED WITH ALL OF THEM. I SAID
+  THREE, FROM A TARGETED GREP, AND CI FOUND THE FOURTH.** The tags read
+  `v0.1.0`/`v0.2.0`/`v0.3.0`, **all cut on 14 Aug 2026 within forty minutes**,
+  and 442 commits landed after them while every copy said `0.1.0`. They agreed
+  because nobody had touched any of them — LIVE‑IN's shape, and the
+  `nix/container.nix` one publishes the number **three ways** by itself (the image
+  TAG, the `org.opencontainers.image.version` label and the SBOM component's
+  version). `config.rkt`'s own comment had already recorded the defect — *"it is
+  `0.1.0` on both, and will be `0.1.0` on every instance for as long as nobody
+  bumps it"* — which is why the build-identity work leaned on the COMMIT instead.
+  **The full list, which only a sweep produced:**
+  `app-version`; `nix/telemachus.nix`; flake.nix's container argument;
+  **`scripts/container-smoke.sh`'s default `IMAGE=telemachus:<the old version>`**
+  — written as a placeholder because **the gate found its own author**, exactly as
+  the ENVN gate failed on `TELEMACHUS_BIND` in its own example: what it refuses is
+  a tag an operator could paste, and a placeholder cannot be pasted — (CI's
+  container leg failed with "image not found" the moment the tag moved);
+  **`compose.yaml` and `deploy/k8s/telemachus.yaml`'s `image:`** (the same
+  failure, in the two files an operator copies); plus the `docker run` examples in
+  `docs/ops/container.md` and `docs/integrators-guide.md`.
+  **THE LESSON IS THE ONE THE REFUSAL SWEEP HAD JUST TAUGHT AND I DID NOT
+  APPLY**: enumerate, do not recall. A targeted grep for the places I expected
+  found three of six, and the two that break a deployment were not among them.
+- **WHAT CANNOT READ THE FILE IS GATED INSTEAD.** `config.rkt`, both Nix files and
+  `container-smoke.sh` all READ `VERSION`; a compose file, a Kubernetes manifest
+  and a prose example cannot, so `scripts/check-config-reference.sh` fails on any
+  `telemachus:<semver>` in the tree that is not the current version — **and in the
+  other direction, on a runbook that stops enumerating them**, or the rule rots
+  into a gate nobody knows how to satisfy. It is in that script rather than a new
+  one so `ci.yml` needed no change (the `telemachus-docs check --locale` rule).
+  Three positive controls, all biting: a stale tag, a runbook that drops the list,
+  and a VERSION with a second line.
+- **A RELEASE DOES RE-RENDER `docs/reference/`, AND THE RUNBOOK FIRST SAID IT DID
+  NOT.** `docs/reference/README.md` line 3 reads "Version `<n>`" from the
+  generator's `app-version`, so the bump failed CI's drift gate — and that claim
+  had been written into the runbook **without being tested**, which is the same
+  shape as the `telemachus-docs check --locale` assertion this file records being
+  made three times in one session and disproved by its own control. `render` AND
+  `render --locale ja`.
+- **THE FILE IS INSIDE `refimpl/racketmaximus/`, NOT AT THE REPO ROOT, AND THAT IS
+  FORCED.** `nix/telemachus.nix` sets `src = ../refimpl/racketmaximus`, so a
+  root-level VERSION reaches neither the store nor the image: `app-version` would
+  read it in every developer's checkout and fail on every packaged install —
+  **HELP‑2's trap exactly**, which is the same reason `docs/` has to be ingested
+  rather than read off disk. Nix also only sees GIT-TRACKED files, so a new
+  VERSION must be `git add`ed before `nix build`.
+- **IT IS READ AT RUN TIME RATHER THAN BAKED IN AT COMPILE TIME, deliberately.** A
+  macro reading the file during expansion is cheaper and puts the number in the
+  `.zo` — where `raco make` tracks `config.rkt`'s mtime and **not** VERSION's, so
+  editing the version alone would leave a stale compiled constant reporting the
+  old one. Fourth appearance of the stale-bytecode trap, and a version is exactly
+  the value nobody would think to doubt.
+- **A MISSING FILE RAISES; THERE IS NO FALLBACK.** A fallback is how a packaged
+  install reports a version nobody shipped (#119's shape). The failure is loud and
+  lands in the right place: `nix build` runs the unit suite in the sandbox, so an
+  untracked VERSION fails there rather than in production.
+- **THE TEST'S SECOND CASE IS THE ONE THAT MATTERS**: `app-version` could agree
+  with the file while either Nix copy sat at `0.1.0` — which is precisely the
+  state #227 was filed in — so neither build file may contain a semver literal at
+  all, and both must name `refimpl/racketmaximus/VERSION`. Controlled: put
+  `version = "0.1.0"` back in `nix/telemachus.nix` and it fails by name.
+  The first case also pins that VERSION is **one semver line with no trailing
+  content**, because Nix reads it at eval time and a stray second line would land
+  in an image tag.
+- **THE BUILD-FILE CASE READS FILES ABOVE `src`, SO IT ERRORED IN THE NIX
+  SANDBOX — REL‑2's OWN FACT, MET FROM INSIDE THE TEST WRITTEN TO DOCUMENT IT.**
+  `nix build` put `1/1999 test failures` on exactly that case: the store holds
+  `refimpl/racketmaximus` and nothing above it, so `nix/telemachus.nix` and
+  `flake.nix` are not there. It SKIPS when they are unreachable **and says which
+  check it skipped** — a silent skip is how a path goes unexercised for a year
+  (the S3 smoke's lesson, third appearance) — and still bites in a checkout,
+  which is where CI runs it.
+- **AND `nix build … | tail -5` REPORTED `exit=0` OVER THAT FAILURE.** `tail`
+  eats the exit code, which is the trap at the top of this file about
+  `bash validate.sh 2>&1 | tail -25` — **second appearance, and the first inside
+  `nix build`**, where the verdict line sits well above any window a tail would
+  show. Redirect to a file and echo `$?`; never pipe a gate into `tail`.
+- **The packaged read is verified by RUNNING it, not asserted**: the derivation
+  is `telemachus-0.4.0`, `share/telemachus/VERSION` is in the store, and
+  `app-version` out of that store path answers `0.4.0`. That is the whole of
+  REL‑2's claim, and an assertion about it from inside the tree would have been
+  a claim about the packaging made elsewhere (#119's shape).
+- **The paths are anchored at the test file with `define-runtime-path`, never at
+  `current-directory`** — the first version used `path->complete-path` and
+  resolved against `test/`, two levels off.
+- **The number is 0.4.0 and `1.0.0` is the owner's call**, stated on the issue
+  rather than assumed: semver's minor bump is the conventional reading for
+  additive pre-1.0 work, while 1.0 is a compatibility promise about the HTTP API,
+  the SDK contract and the plugin seams — the durable product, per this file's own
+  layout note — so it does not follow from how much landed. **No tag was pushed**:
+  a tag on a public repository is something people pull.
+- **The README's `docs/ops/` parenthetical was already stale** (it omitted the
+  GPU-fleet, container and configuration pages), so it is non-enumerative now in
+  both languages rather than gaining a fourth name to a rotting list. The site
+  builder globs `docs/ops/*.md` and builds the index, so **the new runbook is
+  published and linked with no change to the builder** — verified by running
+  `build-site.sh` and its own link check (0 broken local links).
+
 ## Which build is this? (the version footer)
 
 Reported from outside, and the report was a person looking at a deployment and

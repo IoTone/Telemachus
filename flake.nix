@@ -34,7 +34,11 @@
           weasyprint = pkgs.python3Packages.weasyprint;
           commit = self.rev or "dev";
         };
-          version = "0.1.0";
+          # the image TAG, the org.opencontainers.image.version label and the
+          # SBOM component's version all come from this, so it is read from the
+          # one home rather than written again (#227).
+          version = pkgs.lib.removeSuffix "\n"
+            (builtins.readFile ./refimpl/racketmaximus/VERSION);
         };
       });
 

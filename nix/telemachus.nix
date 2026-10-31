@@ -31,7 +31,15 @@
 
 stdenv.mkDerivation (finalAttrs: {
   pname = "telemachus";
-  version = "0.1.0";
+
+  # ONE SPELLING OF THE VERSION (#227). It used to be a literal here, another in
+  # flake.nix's container argument and a third in config.rkt's `app-version` —
+  # agreeing only because nobody had touched any of them, while `git tag` read
+  # v0.3.0 and all three said 0.1.0. `refimpl/racketmaximus/VERSION` is the only
+  # home now; this reads it at eval time, config.rkt at instantiation. The file
+  # is INSIDE src, so it reaches the store and the image (a root-level one would
+  # not, and config.rkt's read would fail on every packaged install).
+  version = lib.removeSuffix "\n" (builtins.readFile ../refimpl/racketmaximus/VERSION);
 
   src = ../refimpl/racketmaximus;
 

@@ -170,8 +170,57 @@ if ! grep -q 'TELEMACHUS_<name>' "$DOC"; then
   rc=1
 fi
 
+# ---- the version has ONE home, and these files cannot read it (#227) ---------
+#
+# `refimpl/racketmaximus/VERSION` is the only spelling for everything that CAN
+# read a file: config.rkt reads it at instantiation, both Nix files at eval time,
+# and `container-smoke.sh` with `tr`. A compose file, a Kubernetes manifest and a
+# prose example cannot, so they carry the number and a release has to bump them.
+#
+# THAT IS EXACTLY THE DEFECT #227 WAS FILED OVER — four literals agreeing because
+# nobody had touched any of them while `git tag` read v0.3.0 — so the ones that
+# must stay literal are GATED instead. Two of them are functional: a stale
+# `image:` in compose.yaml or the manifest points at a tag `nix build .#container`
+# no longer produces, and every `docker compose up` fails with "image not found".
+# CI caught the same thing in `container-smoke.sh`, which is why this exists.
+#
+# It lives in THIS script rather than a new one so `ci.yml` needs no change —
+# the rule the `telemachus-docs check --locale` work established.
+VERSION_FILE="refimpl/racketmaximus/VERSION"
+if [ ! -f "$VERSION_FILE" ]; then
+  echo "FAIL: $VERSION_FILE is missing — it is the one place the version is spelled."
+  rc=1
+else
+  VER="$(tr -d '[:space:]' < "$VERSION_FILE")"
+  if ! printf '%s' "$VER" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+    echo "FAIL: $VERSION_FILE must be one semver line, got '$VER'."
+    echo "  (Nix reads it at eval time, so a stray second line lands in an image tag.)"
+    rc=1
+  fi
+  # every `telemachus:<semver>` reference anywhere must be the current version
+  stale="$(grep -rn --exclude-dir=.git --exclude-dir=compiled --exclude-dir=build \
+                   --exclude-dir=node_modules --exclude-dir=result \
+                   -E 'telemachus:[0-9]+\.[0-9]+\.[0-9]+' . 2>/dev/null \
+           | grep -v "telemachus:$VER" || true)"
+  if [ -n "$stale" ]; then
+    echo "FAIL: these name an image tag that is not $VER:"
+    printf '%s\n' "$stale" | sed 's/^/  /'
+    echo "  (nix build .#container tags the image with the version, so a stale tag"
+    echo "   is an image that does not exist. Bump them with VERSION — step 5 of"
+    echo "   docs/ops/release-runbook.md lists every file that carries it.)"
+    rc=1
+  fi
+  # …and the other direction: the runbook must still enumerate them, or the rule
+  # above rots into a gate nobody knows how to satisfy.
+  if ! grep -q 'compose.yaml' docs/ops/release-runbook.md 2>/dev/null; then
+    echo "FAIL: docs/ops/release-runbook.md no longer lists the files that carry the tag."
+    rc=1
+  fi
+fi
+
 if [ $rc = 0 ]; then
   echo "config reference: OK ($(printf '%s\n' "$in_code" | grep -c . ) variable(s) documented)"
   echo "operator prose: OK (no legacy variable names; the fallback is documented)"
+  echo "version: OK ($VER — one home, and every image tag agrees)"
 fi
 exit $rc
