@@ -371,6 +371,16 @@
 ;; is already in the target state changes nothing and writes nothing (idempotent),
 ;; so a double-click or a retried request is harmless. An act the table does not
 ;; allow from the current state is refused with the list of what is allowed.
+;;
+;; THE UPDATE IS GUARDED ON THE STATE IT READ. The read and the write are two
+;; statements and another act can land between them, so an acknowledge that read
+;; `open` used to write `acknowledged` over a row another request had just
+;; resolved -- which breaks the one invariant the lifecycle promises, that resolved
+;; is terminal. With the guard in the WHERE, the loser's UPDATE matches no row; it
+;; re-reads, answers idempotently when the row already reached the state it wanted,
+;; and refuses with the transition message when it reached a different one. A lost
+;; event number (two acts on one item in the same instant) is a unique-index
+;; violation, so the whole act runs once more, as the ingest path does.
 (define (inbox-act! conn p id action
                     #:note [note #f] #:until [until #f]
                     #:now [now (current-seconds)])
@@ -378,6 +388,26 @@
   (unless (hash-has-key? TRANSITIONS action)
     (bad who "~s is not an act this inbox has (it offers: ~a)" action (string-join ACTION-ORDER ", ")))
   (define nt (opt-string who "note" note MAX-NOTE))
+  (define snooze-until (and (equal? action "snooze") (checked-until who until now)))
+  (define (attempt) (act-once! conn p id action nt snooze-until who now))
+  (with-handlers ([exn:fail:sql? (lambda (_e) (attempt))])
+    (attempt)))
+
+(define (checked-until who until now)
+  (unless (exact-integer? until) (bad who "until is required, in epoch seconds"))
+  (unless (> until now) (bad who "until must be in the future"))
+  (unless (<= until (+ now MAX-SNOOZE-SECONDS))
+    (bad who "a snooze is at most ~a days; use suppress for an item that should stay quiet"
+         (quotient MAX-SNOOZE-SECONDS 86400)))
+  until)
+
+(define (refuse-transition who state action)
+  (bad who "an item that is ~a cannot be ~a (it can: ~a)" state
+       (case action [("ack") "acknowledged"] [("snooze") "snoozed"] [("suppress") "suppressed"]
+         [("reopen") "reopened"] [else "resolved"])
+       (let ([ok (allowed-actions state)]) (if (null? ok) "nothing, it is resolved" (string-join ok ", ")))))
+
+(define (act-once! conn p id action nt snooze-until who now)
   (define team (principal-team-id p))
   (define actor (actor-of p))
   (call-with-transaction conn
@@ -386,15 +416,6 @@
       (define state (hash-ref item 'state))
       (define from (car (hash-ref TRANSITIONS action)))
       (define to (cdr (hash-ref TRANSITIONS action)))
-      (define snooze-until
-        (and (equal? action "snooze")
-             (begin
-               (unless (exact-integer? until) (bad who "until is required, in epoch seconds"))
-               (unless (> until now) (bad who "until must be in the future"))
-               (unless (<= until (+ now MAX-SNOOZE-SECONDS))
-                 (bad who "a snooze is at most ~a days; use suppress for an item that should stay quiet"
-                      (quotient MAX-SNOOZE-SECONDS 86400)))
-               until)))
       (cond
         ;; already there, and a snooze to the same instant is also already there
         [(and (equal? state to) (not (equal? action "snooze")))
@@ -402,50 +423,51 @@
         [(and (equal? action "snooze") (equal? state "snoozed")
               (equal? (hash-ref item 'snooze_until_epoch) snooze-until))
          (hasheq 'changed #f 'item (item->json item))]
-        [(not (member state from))
-         (bad who "an item that is ~a cannot be ~a (it can: ~a)" state
-              (case action [("ack") "acknowledged"] [("snooze") "snoozed"] [("suppress") "suppressed"]
-                [("reopen") "reopened"] [else "resolved"])
-              (let ([ok (allowed-actions state)]) (if (null? ok) "nothing, it is resolved" (string-join ok ", "))))]
+        [(not (member state from)) (refuse-transition who state action)]
         [else
+         ;; the state the act was decided from, re-checked by the UPDATE itself
+         (define guard (string-append " WHERE id = ? AND team_id = ? AND state IN ("
+                                      (string-join (for/list ([_s (in-list from)]) "?") ", ") ")"))
+         (define (run sql . args)
+           (apply query-exec conn (append (list sql) args (list id team) from)))
          (case action
            [("ack")
-            (query-exec conn
-                        (string-append "UPDATE x_inbox_items SET state = 'acknowledged', ack_by = ?, ack_at_epoch = ?,"
-                                       " ack_note = ?, updated_epoch = ? WHERE id = ? AND team_id = ?")
-                        (or actor sql-null) now (or nt sql-null) now id team)]
+            (run (string-append "UPDATE x_inbox_items SET state = 'acknowledged', ack_by = ?, ack_at_epoch = ?,"
+                                " ack_note = ?, updated_epoch = ?" guard)
+                 (or actor sql-null) now (or nt sql-null) now)]
            [("snooze")
-            (query-exec conn
-                        (string-append "UPDATE x_inbox_items SET state = 'snoozed', snooze_until_epoch = ?,"
-                                       " updated_epoch = ? WHERE id = ? AND team_id = ?")
-                        snooze-until now id team)]
+            (run (string-append "UPDATE x_inbox_items SET state = 'snoozed', snooze_until_epoch = ?,"
+                                " updated_epoch = ?" guard)
+                 snooze-until now)]
            [("suppress")
-            (query-exec conn
-                        (string-append "UPDATE x_inbox_items SET state = 'suppressed', snooze_until_epoch = NULL,"
-                                       " updated_epoch = ? WHERE id = ? AND team_id = ?")
-                        now id team)]
+            (run (string-append "UPDATE x_inbox_items SET state = 'suppressed', snooze_until_epoch = NULL,"
+                                " updated_epoch = ?" guard)
+                 now)]
            [("reopen")
             ;; an acknowledgement belongs to the fact it answered, so reopening
             ;; clears it; the event log still says who acknowledged and when
-            (query-exec conn
-                        (string-append "UPDATE x_inbox_items SET state = 'open', snooze_until_epoch = NULL,"
-                                       " ack_by = NULL, ack_at_epoch = NULL, ack_note = NULL,"
-                                       " updated_epoch = ? WHERE id = ? AND team_id = ?")
-                        now id team)]
+            (run (string-append "UPDATE x_inbox_items SET state = 'open', snooze_until_epoch = NULL,"
+                                " ack_by = NULL, ack_at_epoch = NULL, ack_note = NULL,"
+                                " updated_epoch = ?" guard)
+                 now)]
            [("resolve")
-            (query-exec conn
-                        (string-append "UPDATE x_inbox_items SET state = 'resolved', snooze_until_epoch = NULL,"
-                                       " resolved_by = ?, resolved_at_epoch = ?, resolve_note = ?,"
-                                       " updated_epoch = ? WHERE id = ? AND team_id = ?")
-                        (or actor sql-null) now (or nt sql-null) now id team)])
-         (event! conn id team action "user" actor
-                 (let ([h (hasheq 'from state 'to to)])
-                   (let* ([h (if nt (hash-set h 'note nt) h)]
-                          [h (if snooze-until (hash-set h 'until snooze-until) h)])
-                     h))
-                 now)
-         (audit-item! conn p action id)
-         (hasheq 'changed #t 'item (item->json (load! who conn p id)))]))))
+            (run (string-append "UPDATE x_inbox_items SET state = 'resolved', snooze_until_epoch = NULL,"
+                                " resolved_by = ?, resolved_at_epoch = ?, resolve_note = ?,"
+                                " updated_epoch = ?" guard)
+                 (or actor sql-null) now (or nt sql-null) now)])
+         (define after (load! who conn p id))
+         (cond
+           [(equal? (hash-ref after 'state) to)
+            (event! conn id team action "user" actor
+                    (let* ([h (hasheq 'from state 'to to)]
+                           [h (if nt (hash-set h 'note nt) h)])
+                      (if snooze-until (hash-set h 'until snooze-until) h))
+                    now)
+            (audit-item! conn p action id)
+            (hasheq 'changed #t 'item (item->json after))]
+           ;; another act landed between the read and the write, and it moved the
+           ;; item somewhere this act is not allowed from
+           [else (refuse-transition who (hash-ref after 'state) action)])]))))
 
 ;; ---- waking a snooze ------------------------------------------------------------
 ;; A snooze that has run out is open again. There is no timer thread (a thread

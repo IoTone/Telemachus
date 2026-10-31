@@ -591,3 +591,50 @@
                     2 (format "~a: both raises were counted" k)))
     (close-db! c2)
     (close-db! c1)))
+
+;; ---- a state another writer moved makes the act refuse, not overwrite --------------
+;; An act reads the row, decides from that state, then writes. Between those two
+;; statements another request can move the row, so the UPDATE re-checks the state it
+;; read. Without that guard an acknowledge that read `open` writes `acknowledged` over
+;; a row that was resolved a moment earlier, and the lifecycle's one promise -- that
+;; resolved is terminal -- is broken silently. This makes the interleaving
+;; deterministic: one connection holds an uncommitted resolve, the other's plain read
+;; sees the last committed `open` and its UPDATE waits on the row lock, and the commit
+;; is what releases it. SQLite serializes writers on one connection, so there is no
+;; interleaving to reproduce and the case needs Postgres, like the ingest race above.
+(when (postgres-fixture?)
+  (test-case "an act that read a state another writer moved is refused, and resolved stays terminal"
+    (define key-name 'inbox-act-race)
+    (define c1 (fresh-db #:shared key-name #:migrate? #f))
+    (migrate! c1 all-migrations)
+    (migrate! c1 (check-migrations! "inbox" migrations))
+    (define c2 (fresh-db #:shared key-name #:migrate? #f))
+    (define-values (uid tid) (bootstrap! c1 #:username "root"))
+    (define p1 (user-principal c1 uid tid))
+    (define p2 (user-principal c2 uid tid))
+    (define id (id-of (raise! c1 p1 "race-act" #:title "A fact")))
+
+    (query-exec c1 "BEGIN")
+    (query-exec c1 "UPDATE x_inbox_items SET state = 'resolved', resolved_at_epoch = ? WHERE id = ? AND team_id = ?"
+                T0 id tid)
+    (define answer
+      (let ([box (make-channel)])
+        (thread (lambda ()
+                  (channel-put box
+                               (with-handlers ([(lambda (_) #t) (lambda (e) e)])
+                                 (inbox-act! c2 p2 id "ack" #:now T0)))))
+        ;; the other act is waiting on this row lock by now: its read is a plain
+        ;; SELECT, which does not block, and its UPDATE is queued behind this write
+        (sleep 2)
+        (query-exec c1 "COMMIT")
+        (channel-get box)))
+    (check-pred exn:fail:user? answer
+                (format "the acknowledge is refused, not answered as a change: ~a" answer))
+    (check-regexp-match #rx"resolved" (exn-message answer)
+                        "the refusal names the state the item is in")
+    (check-equal? (query-value c1 "SELECT state FROM x_inbox_items WHERE id = ?" id) "resolved"
+                  "resolved stays terminal")
+    (check-equal? (query-value c1 "SELECT COUNT(*) FROM x_inbox_events WHERE item_id = ? AND kind = 'ack'" id) 0
+                  "no acknowledgement event was written for the act that lost")
+    (close-db! c2)
+    (close-db! c1)))
