@@ -1,0 +1,7 @@
+{
+  "id": "inbox",
+  "name": "Inbox — things that need a person's attention",
+  "version": "0.1.0",
+  "description": "A team's inbox of items that something outside raised and a person has to answer: an idempotent ingest keyed by (source, key), a closed lifecycle (open, acknowledged, snoozed, suppressed, resolved), a free-form scope label, and a scope-aware digest. It decides nothing about what an item means and holds no opinion about where items come from.",
+  "entry": "main.rkt"
+}
