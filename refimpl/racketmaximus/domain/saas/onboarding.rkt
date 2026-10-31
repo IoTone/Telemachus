@@ -13,14 +13,38 @@
          racket/string
          file/sha1
          "../db/id.rkt"
-         "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!
+         "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!/hash-token
          "../quota/quota.rkt")      ; set-limit!
 
 (provide provision! activate! suspend! resume! team-suspended?
          provisioned-team set-tenant-quota!)
 
-(define tok-salt "telemachus-activation-v0")   ; prototype pepper; swap with the KDF seam
-(define (hash-tok t) (sha1 (open-input-string (string-append tok-salt t))))
+;; ---- how an activation token is stored (#186) --------------------------------
+;;
+;; THIS KEPT THE PRE-#13 PROTOTYPE SCHEME, and its own comment said so: bare
+;; SHA-1 over a COMPILED-IN salt, which is public — this is clean MIT on GitHub.
+;; #13 replaced exactly that for `api_tokens` with a peppered HMAC-SHA-256 under
+;; `TMACH_TOKEN_PEPPER`, and this one credential family was left behind, so the
+;; tree had two token-hashing rules and the weaker one was the one nobody looked
+;; at. `hash-token` is now the only rule.
+;;
+;; WHAT THIS WAS AND WAS NOT, stated precisely, because overclaiming a security
+;; finding is its own failure: a `random-token` is 24 bytes of
+;; `crypto-random-bytes`, so 192 bits — guessing one over the network was never
+;; feasible and neither was recovering one from a leaked hash, whatever the
+;; digest. What the pepper actually buys here is what it buys there: **rotating
+;; `TMACH_TOKEN_PEPPER` retires every outstanding activation link**, which the
+;; compiled-in salt could not do, and the scheme no longer depends on the token's
+;; entropy for its safety margin. That is defence in depth and a one-home rule,
+;; not a hole that was being walked through.
+;;
+;; THE LEGACY READ IS #13's, FOR #13's REASON: an unclaimed activation link in
+;; somebody's inbox must keep working across the upgrade. The lookup tries the
+;; current scheme, then the old 40-hex one, and REWRITES the row on a hit — so a
+;; link is migrated the moment it is used and the legacy path drains by itself.
+(define LEGACY-ACTIVATION-SALT "telemachus-activation-v0")
+(define (legacy-hash-tok t) (sha1 (open-input-string (string-append LEGACY-ACTIVATION-SALT t))))
+(define (hash-tok t) (hash-token t))
 
 ;; plan → limits applied at provision
 (define plan-quotas
@@ -84,9 +108,24 @@
 
 ;; Claim an activation token: set the owner's password + activate. Returns
 ;; (values owner-user-id team-id session-token) or #f on bad/used/expired token.
+(define ACTIVATION-SELECT
+  "SELECT id, user_id, used_at, expires_at FROM activation_tokens WHERE token_hash = ?")
+
+;; the row for an activation token: the current hash first, then the legacy one —
+;; and a legacy hit is rewritten to the current scheme before it is used, which
+;; is `token-row`'s shape in authz.rkt and the reason an outstanding link
+;; survives the upgrade (#186).
+(define (activation-row conn raw)
+  (define h (hash-tok raw))
+  (or (query-maybe-row conn ACTIVATION-SELECT h)
+      (let* ([lh (legacy-hash-tok raw)]
+             [r (query-maybe-row conn ACTIVATION-SELECT lh)])
+        (and r
+             (begin (query-exec conn "UPDATE activation_tokens SET token_hash = ? WHERE token_hash = ?" h lh)
+                    r)))))
+
 (define (activate! conn #:token raw #:password pw)
-  (define row (query-maybe-row conn
-    "SELECT id, user_id, used_at, expires_at FROM activation_tokens WHERE token_hash = ?" (hash-tok raw)))
+  (define row (activation-row conn raw))
   (cond
     [(not row) #f]
     [(not (sql-null? (vector-ref row 2))) #f]                 ; already used

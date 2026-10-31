@@ -6033,6 +6033,100 @@ bash test/e2e/validate.sh          # §7b — the one check that it RENDERS
   churn also reverts any hand edit made earlier in the same session — the
   re-stamped `doc.route.*` hash had to be applied twice.
 
+## The security sweep, first pass (SEC‑1…5, issue #186)
+
+Started 30 Oct 2026, after the performance sweep as #186 itself orders. **Two
+defects fixed, three surfaces audited and recorded.** #186 stays open: this is
+one pass over five candidate areas, not the whole thing.
+
+```sh
+DATABASE_URL="" raco test test/error-response-tests.rkt   # the SSE rule, in CI's own condition
+raco test test/saas-tests.rkt                             # the activation token's storage
+```
+
+- **SEC‑1 — #123 CLOSED THE 500-BODY LEAK AND THE STREAMING PATH KEPT IT.**
+  `sse-response` emitted `(exn-message e)` verbatim, to the client, for every
+  failure. #83 r4 sealed four stored `error` columns because this platform's own
+  code quotes what it choked on — the strict renderer names the missing
+  placeholder, DWF‑5's extraction names the path AND the value, the KG extractor
+  quotes the snippet it refused — and that reasoning applies unchanged to an SSE
+  event. **By then the 200 and its headers have gone**, so there is no status
+  code left to carry the distinction a non-streaming refusal gets, which is why
+  the rule has to be in the event's shape. `sse-error-event` mirrors `handle`'s
+  classification, including its ORDER (`exn:fail:user` is a subtype and the
+  first matching clause wins — PULL‑14, met in a second file): a deliberate
+  refusal keeps its message, everything else is `{error: "internal error",
+  request_id}` with the message on stderr.
+- **SEC‑2 — TWO MORE REQUEST-SCOPED FACTS DID NOT CROSS THE SSE BOUNDARY.**
+  #187 found three readers of `current-request-principal` running outside the
+  handler's extent and carried the principal. `current-request-id` and
+  `current-localizer` were not carried, so a stream's diagnostic could not be
+  joined to the answer the caller got, and a refusal inside a stream was in the
+  instance default's language. Captured as VALUES while the extent still holds,
+  never re-read — #187's rule: where a value can be passed, pass it. **The
+  enumeration is worth keeping**: there are seven request-scoped parameters
+  (`current-plugin`, `current-job`, `current-read-context`,
+  `current-utility-executor`, `current-egress-document`, `current-request-id`,
+  `current-request-principal`), and the egress document's context is a THUNK over
+  the principal, so carrying the principal fixes it transitively.
+- **SEC‑3 — ONE CREDENTIAL FAMILY KEPT THE PRE-#13 HASHING SCHEME, and its own
+  comment said so.** `activation_tokens.token_hash` was bare SHA‑1 over a
+  **compiled-in** salt (`"prototype pepper; swap with the KDF seam"`), in a
+  clean-MIT tree published on GitHub, while #13 moved `api_tokens` to a peppered
+  HMAC‑SHA‑256. Two token-hashing rules, and the weaker one was the one nobody
+  looked at. `hash-token` is the only rule now, with #13's legacy dual-read and
+  rewrite-on-use so an unclaimed link in somebody's inbox survives the upgrade.
+  **THE CLAIM IS NARROW AND SAYING SO IS THE POINT**: `random-token` is 24 bytes
+  of `crypto-random-bytes`, so guessing one over the network was never feasible
+  and neither was recovering one from a leaked hash, whatever the digest. What
+  the pepper buys is that **rotating `TMACH_TOKEN_PEPPER` retires every
+  outstanding activation link**, which a compiled-in salt cannot do. Defence in
+  depth and a one-home rule, not a hole that was being walked through.
+- **SEC‑4 — THE WORKER WARRANT HOLDS, AND IT IS BROADER THAN IT READS.**
+  `worker-document`'s rule is `holder-check` first, then the object id must
+  appear in **that job's own payload**, then the read happens as the job's user
+  so `can?` decides. Adversarially: a member may set a payload via
+  `POST /api/jobs`, so a worker can be handed ids — but the read is still the
+  enqueuer's own, so there is no escalation, and `holder-check` first means a
+  stranger learns nothing. Two observations recorded rather than changed:
+  `jsexpr-strings` walks EVERY string in the payload, so an id merely MENTIONED
+  in a free-text field (a prompt somebody pasted) is a warrant — deliberate
+  ("the payload's shape is the kind's business") and wider than "the inputs this
+  kind declares"; and `#:version` is unconstrained, so a worker may read a
+  SUPERSEDED version of a document whose id is in the payload, which the job's
+  user can also read through the ordinary API.
+- **SEC‑5 — `bxSan` IS A BLOCKLIST WHERE `theme-problem` IS AN ALLOWLIST.** The
+  console's theme is validated SERVER-side, token by token, against narrow
+  patterns, with WCAG contrast enforced. The beta funnel's theme goes through
+  `bxSan`, which strips `; " { } < >` from a value interpolated into a `style`
+  attribute. No breakout found — without `;` no new declaration, without `"` no
+  attribute close, `expression()` is dead and a `javascript:` url does not
+  execute — and the exfiltration case (a remote `url()`) is blocked by
+  `img-src 'self' data: blob:`, which EVERY response carries including the
+  baseline. What is left is defacement by an unterminated `/*`, by an operator,
+  on their own funnel. **The fix is to give the funnel the console's validator —
+  one rule, two askers — and it is its own slice, because it would start refusing
+  themes that work today.**
+- **Rate limits, surveyed:** 23 public routes. `/api/login` is throttled per
+  account and per address (#116–#118); `/api/beta/signup` has the funnel's own
+  anti-abuse; `/api/bootstrap` is loopback-or-secret (#40/#41) and
+  first-run-only. **`/api/activate` has no throttle**, which is defence in depth
+  only at 192 bits of token — recorded, not built. **`GET /api/i18n/catalog` is
+  an unauthenticated amplification** (a tiny request for a whole catalog) and is
+  uncapped; it must stay public, because the sign-in screen picks its language
+  before anyone has a token, so a cap there is a real decision rather than an
+  oversight.
+- **`provision!` ANSWERS FOUR VALUES**, so `(void (provision! …))` is an arity
+  error and not a discard — the fifth appearance of that shape in these notes.
+
+### What this pass did NOT reach
+
+`style-src 'unsafe-inline'` and the ~250 style attributes behind it; the
+`/derive` half of the worker surface; a systematic sweep of every refusal that
+names what it choked on (SEC‑1 was found by enumerating parameters, not
+refusals); and the threat model per surface that #186 asks for as the method
+rather than the finding.
+
 ## The measured performance sweep (PERF‑1…6, issue #185)
 
 Built 30 Oct 2026. `test/bench-platform.rkt` (server-side) and
