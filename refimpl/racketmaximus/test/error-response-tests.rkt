@@ -25,6 +25,8 @@
          ;; and passed everywhere the variable happens to be unset or valid. The
          ;; comment claiming the rule was "unit-testable without a live server"
          ;; was false until the rule moved to a module with no database in it.
+         json
+         (only-in "../domain/authz/authz.rkt" exn:fail:forbidden)
          "../server/errors.rkt")
 
 ;; the response's body, which is written by a procedure rather than stored
@@ -98,3 +100,61 @@
   ;; agree instead of minting two ids for one request
   (check-equal? (parameterize ([current-request-id "bound"]) (request-id-of (req-with))) "bound"))
 (require net/url racket/promise)
+
+;; ---- what an SSE EVENT may say (#186) ---------------------------------------
+;;
+;; #123 closed the 500-body leak for `handle` and the STREAMING path kept it:
+;; `sse-response` emitted `(exn-message e)` verbatim for every failure. By then
+;; the 200 and its headers have gone, so there is no status code left to carry
+;; the distinction a non-streaming refusal gets — which is why the rule has to be
+;; in the event's own shape.
+
+(test-case "a stream's failure event carries no exception message"
+  (define-values (ev log) (sse-error-event (make-exn:fail "duplicate key value violates unique constraint \"users_username_key\"" (current-continuation-marks)) "rid-1"))
+  (check-equal? (hash-ref ev 'error) "internal error")
+  (check-equal? (hash-ref ev 'request_id) "rid-1"
+                "and the id, or a failed stream is unactionable")
+  (check-false (regexp-match? #rx"users_username_key" (jsexpr->string ev))
+               "the constraint name must not reach the client")
+  (check-true (and log (regexp-match? #rx"users_username_key" log) #t)
+              "…and the operator's copy keeps it, or the diagnostic is lost"))
+
+(test-case "a DELIBERATE refusal keeps its message, as it does off the stream"
+  ;; The detail is the point of refusing rather than ignoring — the same call
+  ;; `handle` makes for `exn:fail:user?`, and the two deliberate refusals #123
+  ;; found ("no model configured", "input 'x' is required") are both reachable
+  ;; from a streaming chat.
+  (define-values (ev log)
+    (sse-error-event (with-handlers ([exn:fail:user? values])
+                       (raise-user-error 'run-chat "no model configured"))
+                     "rid-2"))
+  (check-true (and (regexp-match? #rx"no model configured" (hash-ref ev 'error)) #t))
+  (check-false log "a caller's own mistake is not an operator's incident")
+  (check-false (hash-has-key? ev 'request_id)
+               "and it needs no id, because the message is the answer"))
+
+(test-case "a forbidden refusal is LOCALIZED, not the raw exception"
+  ;; The localizer is one of the two parameters that did not cross into the SSE
+  ;; body before #186, so this message was the instance default's whatever the
+  ;; caller asked for — and before that it was the raw `exn-message`.
+  (define-values (ev log)
+    (sse-error-event (exn:fail:forbidden "feature chat is disabled" (current-continuation-marks) "chat:use")
+                     "rid-3"))
+  (check-false log)
+  (check-false (regexp-match? #rx"feature chat is disabled" (hash-ref ev 'error))
+               "the struct's own message is internal; the localized one is the answer")
+  (check-true (string? (hash-ref ev 'error))))
+
+(test-case "the ORDER is the subtype order, and a control proves it matters"
+  ;; `exn:fail:user` is a subtype of `exn:fail` and `exn:fail:forbidden` is
+  ;; another — classified with the generic arm first, every deliberate refusal
+  ;; would come back as "internal error" and the caller would be told nothing.
+  ;; PULL-14's lesson, met in a second file.
+  (define-values (gen _l1) (sse-error-event (make-exn:fail "boom" (current-continuation-marks)) "r"))
+  (define-values (usr _l2) (sse-error-event (with-handlers ([exn:fail:user? values])
+                                              (raise-user-error 'x "say this"))
+                                            "r"))
+  (check-equal? (hash-ref gen 'error) "internal error")
+  (check-true (and (regexp-match? #rx"say this" (hash-ref usr 'error)) #t))
+  (check-false (equal? (hash-ref gen 'error) (hash-ref usr 'error))
+               "the two classes must not collapse into one answer"))

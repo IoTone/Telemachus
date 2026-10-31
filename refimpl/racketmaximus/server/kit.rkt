@@ -371,15 +371,54 @@
 ;; two call sites instead would leave the next SSE endpoint to rediscover it;
 ;; both of today's are model calls, and both were wrong.
 (define (sse-response proc)
+  ;; AN SSE BODY RUNS AFTER ITS HANDLER HAS RETURNED, so it is outside the
+  ;; parameterize extent `handle` and `with-auth` set up — and everything inside
+  ;; it that reads a request-scoped fact from the DYNAMIC CONTEXT sees `#f`.
+  ;; #187 found three such readers, all in the model path a streaming endpoint
+  ;; exists for, and fixed them by carrying the PRINCIPAL. Two more facts cross
+  ;; the same boundary and were not carried (#186):
+  ;;
+  ;;   • the REQUEST ID, which is what joins a logged diagnostic to the answer a
+  ;;     caller was given;
+  ;;   • the LOCALIZER, so a refusal inside a stream is in the caller's language
+  ;;     rather than the instance default.
+  ;;
+  ;; They are captured as VALUES while the handler's extent still holds, not
+  ;; re-read later, so they cannot go stale and it does not matter which thread
+  ;; writes the body — #187's rule: where a value can be passed, pass it.
   (define p (current-request-principal))
+  (define rid (or (current-request-id) (new-id)))
+  (define loc (current-localizer))
   (response/output
    #:mime-type #"text/event-stream; charset=utf-8"
    #:headers (list (make-header #"Cache-Control" #"no-cache")
                    (make-header #"X-Accel-Buffering" #"no"))
    (lambda (out)
      (define (emit ev) (write-string (string-append "data: " (jsexpr->string ev) "\n\n") out) (flush-output out))
-     (parameterize ([current-request-principal p])
-       (with-handlers ([exn:fail? (lambda (e) (emit (hasheq 'error (exn-message e))))])
+     (parameterize ([current-request-principal p]
+                    [current-request-id rid]
+                    [current-localizer loc])
+       ;; #123 CLOSED THE 500-BODY LEAK AND THIS PATH KEPT IT. `handle` answers
+       ;; `{error: "internal error", request_id}` and sends the message to the
+       ;; log; this emitted `(exn-message e)` verbatim, to the client, for every
+       ;; failure — and the headers have already gone, so there is no status code
+       ;; to carry the distinction. #83 r4 sealed four stored `error` columns
+       ;; because this platform's own code quotes what it choked on; the same
+       ;; reasoning applies to an SSE event, and the wire had not been looked at.
+       ;;
+       ;; The classification mirrors `handle`'s, including its ORDER:
+       ;; `exn:fail:user` is a subtype of `exn:fail` and the first matching
+       ;; clause wins (PULL-14's lesson). A deliberate refusal keeps its message
+       ;; — that detail is the point of refusing rather than ignoring — and
+       ;; everything else does not.
+       ;; `sse-error-event` lives in server/errors.rkt beside `handle`'s own
+       ;; rule, and is unit-tested there: requiring kit instantiates the
+       ;; connection pool, so a test of this classification in kit could not run
+       ;; on CI's SQLite leg at all (#123's recorded trap).
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (define-values (ev log) (sse-error-event e rid))
+                                    (when log (eprintf "ERROR [~a] ~a\n" rid log))
+                                    (emit ev))])
          (proc emit))))))
 
 ;; ---- the company a request is for, and this instance's public base ---------

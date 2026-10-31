@@ -1359,6 +1359,111 @@ backend; ZDR‑2 is small and makes a compliance claim possible; RSCH‑3 is the
 expensive one, because an SSRF-safe fetcher is the whole cost of the research
 surface and the rest of that loop is assembly.
 
+## The security sweep, first pass (SEC) — **started 30 Oct 2026** (issue #186)
+
+#186 is a tracking issue that names five candidate surfaces and a method:
+*"threat-model per surface, then a positive control for every claim — the
+project's own standard, which is that a check nobody has seen fail is a check
+nobody has."* It also says "after the performance sweep", which is why this
+follows PERF. **Two defects fixed, three surfaces audited and recorded, and the
+issue stays open**: this is one pass, not the whole thing.
+
+| | |
+|---|---|
+| **SEC‑1** | #123 closed the 500-body leak and the STREAMING path kept it — fixed |
+| **SEC‑2** | Two more request-scoped facts did not cross the SSE boundary — fixed |
+| **SEC‑3** | One credential family kept the pre-#13 hashing scheme — fixed, and the claim is narrow |
+| **SEC‑4** | The worker warrant holds, and is broader than it reads — recorded |
+| **SEC‑5** | `bxSan` is a blocklist where `theme-problem` is an allowlist — recorded, its own slice |
+
+- **SEC‑1 — THE LEAK #123 CLOSED, STILL OPEN ONE LAYER OVER.** `sse-response`
+  emitted `(exn-message e)` verbatim to the client for every failure. #83 r4
+  sealed four stored `error` columns precisely because this platform's own code
+  quotes what it choked on — the strict renderer names the missing placeholder,
+  DWF‑5's extraction names the JSON path AND the offending value, the KG
+  extractor refuses a snippet that is not a verbatim substring and quotes it —
+  and that reasoning applies unchanged to an SSE event. **The reason it needs its
+  own rule rather than `handle`'s**: by the time the body runs, the 200 and its
+  headers have gone, so there is no status code left to carry the distinction.
+  `sse-error-event` lives in `server/errors.rkt` beside `handle`'s rule and
+  mirrors its classification and its ORDER (`exn:fail:user` is a subtype of
+  `exn:fail` and the first matching clause wins — PULL‑14's lesson in a second
+  file). It is in errors.rkt and not kit because **requiring kit instantiates the
+  connection pool**, so a test of this in kit could not run on CI's SQLite leg at
+  all — #123's own recorded trap, and the module header's claim had to be
+  corrected from "holds no database" to "instantiates no connection pool",
+  because the stricter wording would have forced the rule back into kit where it
+  is untestable.
+- **SEC‑2 — THE PARAMETER-AFTER-EXTENT CLASS, ENUMERATED.** #187 found three
+  readers of `current-request-principal` running after the handler returned and
+  carried the principal into the SSE body. The useful thing is the enumeration:
+  there are **seven** request-scoped parameters (`current-plugin`,
+  `current-job`, `current-read-context`, `current-utility-executor`,
+  `current-egress-document`, `current-request-id`, `current-request-principal`),
+  the egress document's request context is a THUNK over the principal so
+  carrying the principal fixes it transitively, and **two were still not
+  carried**: the request id (so a stream's logged diagnostic could not be joined
+  to the answer the caller got) and the localizer (so a refusal inside a stream
+  was in the instance default's language). Captured as VALUES while the extent
+  holds, never re-read later, so they cannot go stale and it does not matter
+  which thread writes the body.
+- **SEC‑3 — TWO TOKEN-HASHING RULES, AND THE WEAKER ONE WAS THE UNWATCHED ONE.**
+  `activation_tokens.token_hash` was bare SHA‑1 over a **compiled-in** salt, with
+  a comment reading *"prototype pepper; swap with the KDF seam"*, in a clean-MIT
+  tree published on GitHub — while #13 replaced exactly that for `api_tokens`
+  with a peppered HMAC‑SHA‑256 and a legacy dual-read. `hash-token` is the one
+  rule now, with #13's rewrite-on-use so an unclaimed link survives the upgrade
+  and the legacy path drains by itself.
+  **THE CLAIM IS NARROW AND STATING IT IS THE POINT**: `random-token` is 24 bytes
+  of `crypto-random-bytes`, so neither guessing one over the network nor
+  recovering one from a leaked hash was ever feasible, whatever the digest. What
+  the pepper buys is what it buys for a session: **rotating
+  `TMACH_TOKEN_PEPPER` retires every outstanding activation link**, which a
+  compiled-in salt cannot do, and the scheme stops depending on the token's
+  entropy for its safety margin. The same discipline as #19's narrow claim about
+  defending a DUMP and not a HOST, and LAY‑11's about an altered record and not a
+  rewrite: a narrow true claim beats a broad one an auditor breaks in one
+  question.
+- **SEC‑4 — THE WORKER WARRANT HOLDS AND IS BROADER THAN IT READS.** PULL‑9's
+  rule is `holder-check` first, then the object id must appear in **that job's
+  own payload**, then the read happens as the job's user so `can?` decides.
+  Adversarially: a member sets a payload through `POST /api/jobs`, so a worker
+  can be handed ids — and the read is still the enqueuer's own, so there is no
+  escalation, and `holder-check` first means a stranger cannot even learn that a
+  job exists. Two things recorded rather than changed, because both are the
+  design's stated trade: `jsexpr-strings` walks EVERY string in the payload, so
+  an id merely MENTIONED in free text is a warrant, which is wider than "the
+  inputs this kind declares"; and `#:version` is unconstrained, so a worker may
+  read a SUPERSEDED version of a document the payload names — which the job's
+  own user can read through the ordinary API anyway.
+- **SEC‑5 — A BLOCKLIST AND AN ALLOWLIST FOR THE SAME VOCABULARY.** The console's
+  theme is validated server-side token by token against narrow patterns with WCAG
+  contrast enforced (`theme-problem`); the beta funnel's goes through `bxSan`,
+  which strips `; " { } < >` from a value interpolated into a `style` attribute.
+  No breakout found — without `;` no new declaration, without `"` no attribute
+  close, `expression()` is dead, a `javascript:` url does not execute — and the
+  exfiltration case, a remote `url()`, is blocked by `img-src 'self' data:
+  blob:`, which **every** response carries including the baseline. What is left is
+  defacement by an unterminated `/*`, by an operator, on their own funnel. **The
+  fix is to give the funnel the console's validator — one rule, two askers — and
+  it is its own slice, because it would start refusing themes that work today.**
+- **Rate limits, surveyed across 23 public routes.** `/api/login` is throttled
+  per account and per address (#116–#118), `/api/beta/signup` has the funnel's
+  anti-abuse, `/api/bootstrap` is loopback-or-secret and first-run-only.
+  `/api/activate` has **no throttle**, which at 192 bits of token is defence in
+  depth rather than a fix — recorded, not built. And
+  **`GET /api/i18n/catalog` is an unauthenticated amplification**: a tiny request
+  for a whole catalog, uncapped, and it must stay public because the sign-in
+  screen picks its language before anyone holds a token. That makes a cap there a
+  decision rather than an oversight, and it is not this pass's to make.
+
+**What this pass did not reach**, so the next one has a starting point:
+`style-src 'unsafe-inline'` and the ~250 style attributes behind it; the
+`/derive` half of the worker surface; a systematic sweep of every refusal that
+names what it choked on — SEC‑1 was found by enumerating PARAMETERS, not
+refusals, so that class is unswept; and the per-surface threat model #186 asks
+for as the method rather than as a finding.
+
 ## The measured performance sweep (PERF) — **built 30 Oct 2026** (issue #185)
 
 #185 is a tracking issue with a method rather than a claim: *"measure first and
