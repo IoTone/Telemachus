@@ -638,3 +638,51 @@
                   "no acknowledgement event was written for the act that lost")
     (close-db! c2)
     (close-db! c1)))
+
+;; ---- two acts of the SAME kind on one row: the loser is a repeat, not an author ----
+;; The case above covers acts aiming at DIFFERENT states, where the loser is refused
+;; because the state it finds is not the one it wanted. The harder case is two acts
+;; aiming at the SAME state: the second UPDATE matches nothing (the row is already
+;; acknowledged), but the state it reads back is exactly the state it wanted, so a
+;; comparison on state alone calls it a change. That wrote a second `ack` event naming
+;; the loser for a transition they did not perform, and answered `changed: true`.
+;; The row now carries the token of the last act that actually wrote it, so the answer
+;; is exact. Same interleaving as above, so Postgres again.
+(when (postgres-fixture?)
+  (test-case "two acks of one open item: the loser answers as a repeat and writes no event"
+    (define key-name 'inbox-same-act-race)
+    (define c1 (fresh-db #:shared key-name #:migrate? #f))
+    (migrate! c1 all-migrations)
+    (migrate! c1 (check-migrations! "inbox" migrations))
+    (define c2 (fresh-db #:shared key-name #:migrate? #f))
+    (define-values (uid tid) (bootstrap! c1 #:username "root"))
+    (define p1 (user-principal c1 uid tid))
+    (define p2 (user-principal c2 uid tid))
+    (define id (id-of (raise! c1 p1 "race-same" #:title "A fact")))
+
+    (query-exec c1 "BEGIN")
+    (query-exec c1 "UPDATE x_inbox_items SET state = 'acknowledged', ack_by = ?, ack_at_epoch = ?, updated_epoch = ? WHERE id = ? AND team_id = ?"
+                uid T0 T0 id tid)
+    (define answer
+      (let ([box (make-channel)])
+        (thread (lambda ()
+                  (channel-put box
+                               (with-handlers ([(lambda (_) #t) (lambda (e) e)])
+                                 (inbox-act! c2 p2 id "ack" #:now T0)))))
+        ;; the loser's UPDATE is queued behind this uncommitted write by now
+        (sleep 2)
+        (query-exec c1 "COMMIT")
+        (channel-get box)))
+    (check-pred hash? answer (format "the losing ack answers rather than raising: ~a" answer))
+    (when (hash? answer)
+      (check-equal? (hash-ref answer 'changed) #f
+                    "a lost race is not a change, even when the state it wanted is the state it found"))
+    ;; The only ACT in this case is the loser: the row it raced against was moved by a
+    ;; bare UPDATE, which writes no event. So the count that proves the fix is zero --
+    ;; before it, this act wrote the one ack event naming a person who changed nothing.
+    (check-equal? (query-value c1 "SELECT COUNT(*) FROM x_inbox_events WHERE item_id = ? AND kind = 'ack'" id) 0
+                  "the losing act writes no acknowledgement event")
+    (check-equal? (query-value c1 "SELECT ack_by FROM x_inbox_items WHERE id = ?" id) uid
+                  "the acknowledgement still names the actor whose act wrote it")
+    (close-db! c2)
+    (close-db! c1)))

@@ -111,7 +111,15 @@
                         "  resolved_by TEXT,"
                         "  resolved_at_epoch BIGINT,"
                         "  resolve_note TEXT,"
-                        "  updated_epoch BIGINT NOT NULL)")
+                        "  updated_epoch BIGINT NOT NULL,"
+                        ;; THE TOKEN OF THE LAST ACT THAT ACTUALLY WROTE THIS ROW. An act's UPDATE
+                        ;; carries its own fresh id here, so after the write the row says whether
+                        ;; THIS act landed: a row still carrying someone else's token means the
+                        ;; guard matched nothing. `query-exec` cannot report an affected-row count,
+                        ;; so the token is the portable way to tell "I moved it" from "another act
+                        ;; had already moved it to where I was going" — the difference between a
+                        ;; real change and an idempotent repeat.
+                        "  last_act_id TEXT)")
          (string-append "CREATE UNIQUE INDEX x_inbox_items_live ON x_inbox_items"
                         " (team_id, source, item_key) WHERE state <> 'resolved'")
          (string-append "CREATE INDEX x_inbox_items_queue ON x_inbox_items"
@@ -428,36 +436,46 @@
          ;; the state the act was decided from, re-checked by the UPDATE itself
          (define guard (string-append " WHERE id = ? AND team_id = ? AND state IN ("
                                       (string-join (for/list ([_s (in-list from)]) "?") ", ") ")"))
+         ;; this act's own marker, written only if the UPDATE matches
+         (define token (new-id))
          (define (run sql . args)
-           (apply query-exec conn (append (list sql) args (list id team) from)))
+           (apply query-exec conn (append (list sql token) args (list id team) from)))
          (case action
            [("ack")
-            (run (string-append "UPDATE x_inbox_items SET state = 'acknowledged', ack_by = ?, ack_at_epoch = ?,"
-                                " ack_note = ?, updated_epoch = ?" guard)
+            (run (string-append "UPDATE x_inbox_items SET last_act_id = ?, state = 'acknowledged',"
+                                " ack_by = ?, ack_at_epoch = ?, ack_note = ?, updated_epoch = ?" guard)
                  (or actor sql-null) now (or nt sql-null) now)]
            [("snooze")
-            (run (string-append "UPDATE x_inbox_items SET state = 'snoozed', snooze_until_epoch = ?,"
-                                " updated_epoch = ?" guard)
+            (run (string-append "UPDATE x_inbox_items SET last_act_id = ?, state = 'snoozed',"
+                                " snooze_until_epoch = ?, updated_epoch = ?" guard)
                  snooze-until now)]
            [("suppress")
-            (run (string-append "UPDATE x_inbox_items SET state = 'suppressed', snooze_until_epoch = NULL,"
-                                " updated_epoch = ?" guard)
+            (run (string-append "UPDATE x_inbox_items SET last_act_id = ?, state = 'suppressed',"
+                                " snooze_until_epoch = NULL, updated_epoch = ?" guard)
                  now)]
            [("reopen")
             ;; an acknowledgement belongs to the fact it answered, so reopening
             ;; clears it; the event log still says who acknowledged and when
-            (run (string-append "UPDATE x_inbox_items SET state = 'open', snooze_until_epoch = NULL,"
-                                " ack_by = NULL, ack_at_epoch = NULL, ack_note = NULL,"
-                                " updated_epoch = ?" guard)
+            (run (string-append "UPDATE x_inbox_items SET last_act_id = ?, state = 'open',"
+                                " snooze_until_epoch = NULL, ack_by = NULL, ack_at_epoch = NULL,"
+                                " ack_note = NULL, updated_epoch = ?" guard)
                  now)]
            [("resolve")
-            (run (string-append "UPDATE x_inbox_items SET state = 'resolved', snooze_until_epoch = NULL,"
-                                " resolved_by = ?, resolved_at_epoch = ?, resolve_note = ?,"
-                                " updated_epoch = ?" guard)
+            (run (string-append "UPDATE x_inbox_items SET last_act_id = ?, state = 'resolved',"
+                                " snooze_until_epoch = NULL, resolved_by = ?, resolved_at_epoch = ?,"
+                                " resolve_note = ?, updated_epoch = ?" guard)
                  (or actor sql-null) now (or nt sql-null) now)])
          (define after (load! who conn p id))
+         (define landed (query-maybe-value conn
+                                           "SELECT last_act_id FROM x_inbox_items WHERE id = ? AND team_id = ?"
+                                           id team))
          (cond
-           [(equal? (hash-ref after 'state) to)
+           ;; ONLY the act whose token is on the row changed anything. Comparing the
+           ;; state instead was wrong in the one case that matters: two acks of one
+           ;; open row, where the loser's UPDATE matched nothing but the state it found
+           ;; was already the state it wanted. That wrote a second event naming an
+           ;; actor for a transition they did not perform and answered `changed`.
+           [(equal? landed token)
             (event! conn id team action "user" actor
                     (let* ([h (hasheq 'from state 'to to)]
                            [h (if nt (hash-set h 'note nt) h)])
@@ -465,8 +483,11 @@
                     now)
             (audit-item! conn p action id)
             (hasheq 'changed #t 'item (item->json after))]
-           ;; another act landed between the read and the write, and it moved the
-           ;; item somewhere this act is not allowed from
+           ;; another act landed between the read and the write. If it arrived at the
+           ;; same state this act wanted, this act is an idempotent repeat: answer, do
+           ;; not write.
+           [(equal? (hash-ref after 'state) to)
+            (hasheq 'changed #f 'item (item->json after))]
            [else (refuse-transition who (hash-ref after 'state) action)])]))))
 
 ;; ---- waking a snooze ------------------------------------------------------------
