@@ -1359,6 +1359,111 @@ backend; ZDR‑2 is small and makes a compliance claim possible; RSCH‑3 is the
 expensive one, because an SSRF-safe fetcher is the whole cost of the research
 surface and the rest of that loop is assembly.
 
+## The measured performance sweep (PERF) — **built 30 Oct 2026** (issue #185)
+
+#185 is a tracking issue with a method rather than a claim: *"measure first and
+write the numbers in the issue, change one thing, measure again. No optimization
+lands without a before and after."* This is that pass. Two harnesses —
+`test/bench-platform.rkt` server-side and `test/e2e/bench-handlers.mjs` in a
+browser — and **two fixes, each with a before and after**. Three further findings
+are measured and deliberately NOT acted on.
+
+| | |
+|---|---|
+| **PERF‑1** | A poll that finds nothing cost 60 ms, because the claim asked `team-hold` per CANDIDATE; one memo, 25× |
+| **PERF‑2** | The handler table's own estimate was wrong by ~50×, and #184's auto-refresh is what made it reachable |
+| **PERF‑3** | The sweep is range-bracketed and the shell-resident overlays opt out BY NAME, not by timing |
+| **PERF‑4** | The first metric could not see its own fix — `length` never shrinks; `live` is the figure |
+| **PERF‑5** | Search is usable to ~20k documents, and a key search cannot use its index (named, not fixed) |
+| **PERF‑6** | The queue and fleet reads are fine, and the bounds are why |
+
+- **PERF‑1 — THE FIX WAS A MEMO `job-waiting`'s OWN COMMENT ALREADY
+  PRESCRIBED.** `worker-claim!`'s window is `LIMIT 64` and its comment says the
+  limit bounds the scan rather than the answer. True of the SQL; **false of the
+  `for/or` after it**, which asked `team-hold` once per candidate — a `COUNT(*)`
+  over the team's jobs plus a quota check, each time. Under the cap candidate 1
+  wins and the loop stops, so the cost was invisible; AT the cap every candidate
+  is rejected, so a poll runs 64 of each and returns nothing. **The default cap
+  is 2**, so that is the ordinary state of a busy team rather than an edge.
+  Measured, 20,000-row queue, SQLite: **2.3 ms under the cap, 60.4 ms at it,
+  1,888 ms for one round of thirty workers** through the single claim semaphore.
+  After: **2.4 ms and 70.6 ms**, with at-cap costing the same as under-cap —
+  which is the right shape, because the hold is one question either way.
+  QUOTA‑3 settled the rule ("the answer is a property of the team, not of the
+  job"), `job-waiting` has carried it as a comment since, `fleet.rkt` built its
+  own copy, and the claim path was the one caller doing it per row in the hottest
+  path there is. `make-hold-cache` lives in `scheduler.rkt` beside the thing it
+  memoizes, with three askers; it is **created per pass and thrown away, never a
+  cache with a lifetime**, because a hold that outlived its request would report
+  a budget as exhausted after the window reset. A concurrency hold now reaches
+  `on-hold` where only a quota one did — `note-deferred!` returns early unless
+  the reason is `"quota"`, so nothing new is written, but it is a seam widening
+  and a test double will see the call.
+- **PERF‑2 — THE ESTIMATE IN THE SOURCE WAS WRONG BY FIFTY TIMES, AND THE SLICE
+  THAT MADE IT REACHABLE WAS YESTERDAY'S.** `01-base.js` said the handler table
+  accumulates "a few thousand — tens of kilobytes". Right for navigation on an
+  empty instance; wrong twice. These cards grow with ROWS — measured per render
+  pass, Health is `6 + 2·executors + 1·queue-rows` and Admin 19 more, so 6/pass
+  empty and **45/pass** with six workers and a full queue page — and **#184
+  added an auto-refresh**, which turns a per-navigation cost into a timer. At
+  15 s with a 30-worker fleet that is ~91 a pass, 21,800 an hour, ~175,000 over
+  a shift, each closure retaining its row. Measured: **120 Admin passes retained
+  14,963 closures before and 128 after.**
+- **PERF‑3 — THE OVERLAYS OPT OUT BY NAME, BECAUSE TIMING CANNOT BE TRUSTED.**
+  `H()` is called between passes as well as inside them: the palette and the
+  help overlay write their markup when they OPEN (#182, #183), and `jobTrail`,
+  `kgOpen` and `repoOpenDetail` register on a click. `hPassStart()` /
+  `hPassEnd()` bracket a pass and free only what was registered inside it, two
+  passes later; `Hk()` is the overlays' registration and is never swept — belt
+  and braces for the one race a bracket cannot close, an overlay opened by a
+  keystroke while a pass is awaiting its fetches. A swept entry is a **hole, not
+  a splice**: the index IS an element's identity, sitting in a `data-h-click`
+  attribute, so compacting would re-point every attribute on screen, and a hole
+  reaches the dispatcher's existing `typeof fn !== 'function'` guard. **The
+  array's LENGTH is not reclaimed** and that is stated rather than implied —
+  ~175,000 empty slots over that shift, about a megabyte, against tens of
+  megabytes of closures.
+  **THE BRACKET MUST CLOSE WHEN THE PASS FINISHES PAINTING**, and the first
+  version closed it at the NEXT pass's start, so "between passes" fell inside the
+  previous range and the palette's own input was swept two passes after it
+  opened. The e2e assertion caught it on its first run, which is why §3f exists:
+  without a case that leaves an overlay open while passes run behind it, this
+  could take the Send button out from under somebody typing and nothing would
+  fail. Both brackets close in a `finally`, because both render functions return
+  early. And **splitting `render()` into a wrapper hid an existing test** —
+  `console-tests` asserts `render` itself contains `await renderTab()` (#210's
+  CI-only race), so the body is wrapped in place.
+- **PERF‑4 — A MEASUREMENT THAT CANNOT DISTINGUISH THE TWO STATES OF ITS SUBJECT
+  IS NOT A MEASUREMENT.** The browser harness counted `HANDLERS.length`, which
+  by design never shrinks, so its first run after the sweep landed reported
+  figures identical to the before — against a working fix. It reports `length`
+  and `live` now, and the ratio is the result.
+- **PERF‑5 — SEARCH, AND WHERE IT STOPS BEING USABLE.** 1 KB per document, a
+  tenth private so the per-row `can?` does work. SQLite 0.4 / 1.1 / **19.9 ms**
+  at 100 / 1,000 / 20,000 documents; PostgreSQL ~5× throughout, 1.2 / 4.9 /
+  **105.5**. Linear, so ~100 ms and ~500 ms at 100,000 — the issue's question,
+  answered. **A key search is as slow as a content search** (26.8 / 117.1 ms at
+  20,000) because `search-all` matches `o.key LIKE '%q%'` with a leading
+  wildcard, so `idx_repo_objects_key` cannot serve it. **Named and not fixed**:
+  prefix-matching a query with no wildcard changes what search FINDS, which is a
+  behaviour decision and not something to slip into a measurement slice.
+- **PERF‑6 — THE BOUNDS ARE WHY THE READS ARE FINE.** At 20,000 queued rows,
+  SQLite: `fleet-report` 15.2 ms, `queue-listing` 4.9, `queue-flow` 5.9,
+  `queue-breakdown` 7.8; PostgreSQL 19.0 / 7.5 / 6.3 / 4.5. The one superlinear
+  shape is the **OFFSET scan** — the last page of 20,000 costs 15.8 ms against
+  4.9 for the first, CLS‑27's paging-a-lot-to-return-little — bounded by
+  `QUEUE-PAGE-MAX` and on nobody's hot path. PostgreSQL pays ~8 ms for a round of
+  thirty idle polls where SQLite pays 0.6: a socket round trip per query, under
+  1% of a core at one poll a second. Recorded, not acted on.
+
+**What this sweep did not reach**, so the next pass knows where to start: the
+knowledge-graph read (`kg-neighbourhood` at depth, which #191 is about to lean
+on), `?semantic=1` against a real embedder, the repository's own listing under a
+deep prefix, and the console's render path measured on a loaded box rather than a
+fresh one. The claim path's SEMAPHORE is also unexamined as a contention point —
+these figures are one process polling serially, which is the serialized cost but
+not the queueing behaviour of thirty real hosts.
+
 ## Research over a knowledge graph (RG) — **proposed 30 Oct 2026** (issue #191)
 
 Bookmarked URLs, archived against link rot, distilled into the knowledge graph

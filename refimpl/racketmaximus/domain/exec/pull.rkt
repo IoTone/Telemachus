@@ -713,6 +713,33 @@
                                   "       OR released_by IS NULL OR released_by <> ?) "
                                   "ORDER BY priority DESC, created_at ASC LIMIT 64")
                    (append want-kinds (list (now) (hash-ref ex 'id))))))
+      ;; #185: ONE hold per team per poll, not one per candidate.
+      ;;
+      ;; The window above is `LIMIT 64` and the comment says the limit bounds the
+      ;; scan rather than the answer — true of the SQL and false of the loop that
+      ;; follows it, which asked `team-hold` once per CANDIDATE. While the team
+      ;; is under its cap candidate 1 wins and the loop stops, so the cost was
+      ;; invisible; once the team is AT its cap every candidate is rejected and
+      ;; the poll runs 64 COUNT(*)s and 64 quota checks to return nothing. The
+      ;; default cap is 2, so that is the ordinary state of a busy team.
+      ;;
+      ;; Measured at a 20,000-row queue: 2.3 ms under the cap, 60.4 ms at it, and
+      ;; 1.9 SECONDS for a round of thirty workers through the one claim
+      ;; semaphore. `job-waiting`'s own comment has said why since QUOTA-3 — "the
+      ;; answer is a property of the team, not of the job" — and this was the one
+      ;; caller that did it per row, in the hottest path there is.
+      ;;
+      ;; The AUDIT entry is deduped per team too. QUOTA-3's dedup asks the audit
+      ;; log whether this window already has an entry, which is itself a query,
+      ;; so firing it per candidate was 64 of those as well.
+      ;;
+      ;; A CONCURRENCY hold now reaches `on-hold` where before only a quota one
+      ;; did, and that writes nothing: `note-deferred!` returns early unless the
+      ;; reason is "quota". Stated because it is a seam contract widening rather
+      ;; than a behaviour change, and a test double for `on-hold` will see the
+      ;; extra call.
+      (define hold-for (make-hold-cache conn))
+      (define announced (make-hash))
       (for/or ([r (in-list candidates)])
         (define id (vector-ref r 0)) (define team (vector-ref r 1)) (define kind (vector-ref r 2))
         (define req (with-handlers ([exn:fail? (lambda (_) (hasheq))])
@@ -726,14 +753,25 @@
                                 #:kind kind #:team team #:requirements req)
              ;; LIVE-IN, not `status='running'`: a job being canceled still has a
              ;; worker on it and still spends the team's budget (SCHED-8).
-             (or sub? (< (query-value conn (string-append "SELECT COUNT(*) FROM jobs WHERE team_id = ? AND " LIVE-IN) team)
-                         ((scheduler-cap-for) team)))
-             ;; the quota gate, and the deferral is recorded (issue #55) — a
-             ;; worker that polls an over-budget team's queue for ever otherwise
-             ;; looks like a queue with no work in it
-             (let ([hold ((scheduler-hold-reason) conn team)])
+             ;; The cap and the quota gate are ONE question and one answer now:
+             ;; `team-hold` already asks the cap first and the budget second, in
+             ;; that order and for QUOTA-3's reason (a team at both is told about
+             ;; the one that clears on its own). Asking the cap here by hand was
+             ;; a second copy of the arithmetic as well as a second COUNT(*).
+             ;;
+             ;; A sub-job is cap-exempt at claim, which `#:sub?` is for: two
+             ;; parents at cap 2 would otherwise each wait on a sub-job nothing
+             ;; could claim.
+             (let ([hold (hold-for team sub?)])
                (cond
-                 [hold ((scheduler-on-hold) conn team id hold) #f]
+                 [hold
+                  ;; recorded once per team per poll (issue #55) — a worker that
+                  ;; polls an over-budget team's queue for ever otherwise looks
+                  ;; like a queue with no work in it
+                  (unless (hash-ref announced team #f)
+                    (hash-set! announced team #t)
+                    ((scheduler-on-hold) conn team id hold))
+                  #f]
                  [else #t]))
              ;; the same conditional claim the pool makes: the update names the
              ;; row it expects and is believed only when RETURNING hands one back,

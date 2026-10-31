@@ -98,6 +98,15 @@ async function doSearch(){
 // boundary, so the newest render always wins and no half-render reaches the DOM.
 let shellSeq = 0;
 async function render(){
+  // #185: bracket the pass so its handlers can be swept. The body is wrapped in
+  // place rather than hoisted into a `_render` helper — console-tests asserts
+  // that `render` itself contains `await renderTab()`, and splitting it moved
+  // that out of the function the test names, hiding the #210 race it pins. The
+  // `finally` is what matters here: this function has a dozen early returns (the
+  // activate view, the sign-in screen, every `stale()` check), and a range left
+  // open swallows every registration made after the pass.
+  hPassStart();
+  try {
   const seq = ++shellSeq;
   const stale = () => seq !== shellSeq;
   const app=document.getElementById('app');
@@ -168,7 +177,8 @@ async function render(){
   // that awaited `render()` and then read the page was therefore reading the
   // placeholder — which is the same hazard `goTab` was written for in the e2e
   // gate, one layer down and on the product's side of it.
-  await renderTab(); }
+  await renderTab();
+  } finally { hPassEnd(); } }
 window.localizeView=localizeView; window.l10nSetLocale=l10nSetLocale; window.l10nFilter=l10nFilter;
 window.l10nPage=l10nPage; window.l10nSave=l10nSave; window.l10nReview=l10nReview;
 window.l10nImport=l10nImport; window.l10nDraft=l10nDraft; window.l10nExport=l10nExport;

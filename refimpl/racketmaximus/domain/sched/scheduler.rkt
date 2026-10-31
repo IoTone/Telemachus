@@ -56,6 +56,7 @@
          seal-payload seal-result unseal-payload unseal-result seal-error unseal-error
          purge-job-content! PURGEABLE-STATUSES
          job-canceled? settle-canceling! max-job-seconds lease-tick! LIVE-IN finished-set
+         make-hold-cache
          process-one! start-scheduler! set-cap-for! set-hold-reason! set-on-hold! set-record!!
          remote-kind? remote-kinds remote-kind-validator
          scheduler-cap-for scheduler-hold-reason scheduler-on-hold scheduler-record!
@@ -222,6 +223,28 @@
     [(and (not sub?) (>= running cap))
      (hasheq 'reason "concurrency" 'running running 'limit cap)]
     [else ((unbox *hold-reason*) conn team)]))
+
+;; A `team-hold` MEMO for one pass over many rows (#185).
+;;
+;; `job-waiting` below computes the hold once per listing because the answer is a
+;; property of the TEAM and not of the job, and that comment has been right since
+;; QUOTA-3. `fleet.rkt` built its own copy for a listing that spans teams. And
+;; `worker-claim!` did neither: it asked per CANDIDATE, up to 64 times per poll,
+;; which is the one place the rule actually costs something — measured at 2.3 ms
+;; for a poll while the team is under its cap and 60.4 ms once it is AT its cap
+;; (every candidate rejected, one COUNT(*) and one quota check each), which for a
+;; round of thirty workers through the one claim semaphore is 1.9 SECONDS to
+;; return no work. The default cap is 2, so that is the ordinary state of a busy
+;; team rather than an edge.
+;;
+;; So the memo lives here, beside the thing it memoizes, with three askers. It is
+;; deliberately NOT a cache with a lifetime: it is created per pass and thrown
+;; away, because a hold that outlived its request would report a budget as
+;; exhausted after the window reset.
+(define (make-hold-cache conn)
+  (define seen (make-hash))
+  (lambda (team [sub? #f])
+    (hash-ref! seen (cons team sub?) (lambda () (team-hold conn team #:sub? sub?)))))
 
 ;; attach that reason to the QUEUED jobs of a listing. Computed ONCE: the answer
 ;; is a property of the team, not of the job, and a per-row call would run the

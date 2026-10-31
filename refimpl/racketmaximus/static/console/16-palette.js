@@ -105,7 +105,7 @@ function palPaint(){
   const items = palItems();
   if (S.pal.sel >= items.length) S.pal.sel = Math.max(0, items.length - 1);
   const list = items.map((x, i) => `<li class="${i === S.pal.sel ? 'sel' : ''}"
-      data-h-click="${H(() => palRun(i))}">
+      data-h-click="${Hk(() => palRun(i))}">
       <span class="pal-k">${esc(x.label)}</span>
       <span class="pal-h muted">${esc(x.hint || '')}</span></li>`).join('')
     || `<li class="pal-none muted">${esc(t('palnone'))}</li>`;
@@ -114,8 +114,8 @@ function palPaint(){
   box.innerHTML = `<div class="pal-box">
     <input id="palq" autocomplete="off" spellcheck="false"
       placeholder="${esc(t('palplaceholder'))}" value="${esc(S.pal.q || '')}"
-      data-h-input="${H((el) => { S.pal.q = el.value; S.pal.sel = 0; palPaint(); palSearch(el.value); })}"
-      data-h-keydown="${H((el, ev) => palInputKey(ev))}">
+      data-h-input="${Hk((el) => { S.pal.q = el.value; S.pal.sel = 0; palPaint(); palSearch(el.value); })}"
+      data-h-keydown="${Hk((el, ev) => palInputKey(ev))}">
     <ul id="pallist">${list}</ul>
     <div class="pal-foot muted">${esc(t('palfoot'))}</div></div>`;
 }
