@@ -12,7 +12,7 @@ filesystem.
 ```sh
 nix build .#container        # on a Linux host; produces ./result, a tarball
 docker load < result
-docker image ls telemachus   # telemachus:0.1.0
+docker image ls telemachus   # telemachus:0.4.0
 ```
 
 The image is built from the **same derivation `nix build` produces**, so what
@@ -36,7 +36,7 @@ docker run -d --name telemachus \
   -e TMACH_SECRET="$(openssl rand -hex 32)" \
   -p 8835:8835 \
   --stop-timeout 30 \
-  telemachus:0.1.0
+  telemachus:0.4.0
 ```
 
 Then `curl localhost:8835/health`, and bootstrap the first operator:
@@ -290,7 +290,7 @@ they actually use, which is a few lines against this flake and costs ~7%:
 packages.container-ocr = import ./nix/container.nix {
   inherit pkgs;
   telemachus = pkgs.callPackage ./nix/telemachus.nix { };
-  version = "0.1.0";
+  version = lib.removeSuffix "\n" (builtins.readFile ../refimpl/racketmaximus/VERSION);
   extraPath = [ (pkgs.tesseract.override { enableLanguages = [ "eng" "spa" ]; }) ];
 };
 ```
@@ -333,7 +333,7 @@ packages.container-office = import ./nix/container.nix {
   telemachus = pkgs.callPackage ./nix/telemachus.nix {
     weasyprint = pkgs.python3Packages.weasyprint;
   };
-  version = "0.1.0";
+  version = lib.removeSuffix "\n" (builtins.readFile ../refimpl/racketmaximus/VERSION);
   extraPath = [ pkgs.libreoffice ];
 };
 ```
@@ -363,7 +363,7 @@ both are positions a working instance can legitimately hold.
 
 ```sh
 bash scripts/container-smoke.sh          # builds if needed, starts its own Postgres
-IMAGE=telemachus:0.1.0 DATABASE_URL='postgres://…' bash scripts/container-smoke.sh
+IMAGE=telemachus:0.4.0 DATABASE_URL='postgres://…' bash scripts/container-smoke.sh
 ```
 
 It asserts the image's own promises, then runs it the way this page describes —

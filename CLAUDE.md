@@ -7706,17 +7706,45 @@ nix eval .#packages.x86_64-linux.container.imageTag     # the image tag
 raco test test/build-identity-tests.rkt                 # 8 cases, the no-literal one controlled
 ```
 
-- **IT WAS SPELLED THREE TIMES AND `git tag` DISAGREED WITH ALL THREE.** The tags
-  read `v0.1.0`/`v0.2.0`/`v0.3.0`, **all cut on 14 Aug 2026 within forty
-  minutes**, and 442 commits landed after them while `app-version`,
-  `nix/telemachus.nix`'s derivation `version` and the `version` flake.nix hands
-  `nix/container.nix` all said `0.1.0`. They agreed because nobody had touched
-  any of them, which is LIVE‑IN's shape with **three publishers**: that last one
-  becomes the image TAG, the `org.opencontainers.image.version` label AND the
-  SBOM component's version, so a stale literal was being published three ways.
-  `config.rkt`'s own comment had already recorded the defect — *"it is `0.1.0` on
-  both, and will be `0.1.0` on every instance for as long as nobody bumps it"* —
-  which is why the build-identity work leaned on the COMMIT instead.
+- **IT WAS SPELLED SIX TIMES AND `git tag` DISAGREED WITH ALL OF THEM. I SAID
+  THREE, FROM A TARGETED GREP, AND CI FOUND THE FOURTH.** The tags read
+  `v0.1.0`/`v0.2.0`/`v0.3.0`, **all cut on 14 Aug 2026 within forty minutes**,
+  and 442 commits landed after them while every copy said `0.1.0`. They agreed
+  because nobody had touched any of them — LIVE‑IN's shape, and the
+  `nix/container.nix` one publishes the number **three ways** by itself (the image
+  TAG, the `org.opencontainers.image.version` label and the SBOM component's
+  version). `config.rkt`'s own comment had already recorded the defect — *"it is
+  `0.1.0` on both, and will be `0.1.0` on every instance for as long as nobody
+  bumps it"* — which is why the build-identity work leaned on the COMMIT instead.
+  **The full list, which only a sweep produced:**
+  `app-version`; `nix/telemachus.nix`; flake.nix's container argument;
+  **`scripts/container-smoke.sh`'s default `IMAGE=telemachus:<the old version>`**
+  — written as a placeholder because **the gate found its own author**, exactly as
+  the ENVN gate failed on `TELEMACHUS_BIND` in its own example: what it refuses is
+  a tag an operator could paste, and a placeholder cannot be pasted — (CI's
+  container leg failed with "image not found" the moment the tag moved);
+  **`compose.yaml` and `deploy/k8s/telemachus.yaml`'s `image:`** (the same
+  failure, in the two files an operator copies); plus the `docker run` examples in
+  `docs/ops/container.md` and `docs/integrators-guide.md`.
+  **THE LESSON IS THE ONE THE REFUSAL SWEEP HAD JUST TAUGHT AND I DID NOT
+  APPLY**: enumerate, do not recall. A targeted grep for the places I expected
+  found three of six, and the two that break a deployment were not among them.
+- **WHAT CANNOT READ THE FILE IS GATED INSTEAD.** `config.rkt`, both Nix files and
+  `container-smoke.sh` all READ `VERSION`; a compose file, a Kubernetes manifest
+  and a prose example cannot, so `scripts/check-config-reference.sh` fails on any
+  `telemachus:<semver>` in the tree that is not the current version — **and in the
+  other direction, on a runbook that stops enumerating them**, or the rule rots
+  into a gate nobody knows how to satisfy. It is in that script rather than a new
+  one so `ci.yml` needed no change (the `telemachus-docs check --locale` rule).
+  Three positive controls, all biting: a stale tag, a runbook that drops the list,
+  and a VERSION with a second line.
+- **A RELEASE DOES RE-RENDER `docs/reference/`, AND THE RUNBOOK FIRST SAID IT DID
+  NOT.** `docs/reference/README.md` line 3 reads "Version `<n>`" from the
+  generator's `app-version`, so the bump failed CI's drift gate — and that claim
+  had been written into the runbook **without being tested**, which is the same
+  shape as the `telemachus-docs check --locale` assertion this file records being
+  made three times in one session and disproved by its own control. `render` AND
+  `render --locale ja`.
 - **THE FILE IS INSIDE `refimpl/racketmaximus/`, NOT AT THE REPO ROOT, AND THAT IS
   FORCED.** `nix/telemachus.nix` sets `src = ../refimpl/racketmaximus`, so a
   root-level VERSION reaches neither the store nor the image: `app-version` would

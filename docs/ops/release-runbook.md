@@ -48,9 +48,41 @@ is also why `flake.nix` passes `self.rev or "dev"` rather than `dirtyRev`.
    to boot. That is the intended failure: `nix build` runs the unit suite, so it
    fails there rather than in production.
 
-4. **Run the gates.** The version is not in any generated document, so
-   `telemachus-docs check` is unaffected — but run the suite, because the read is
-   at module instantiation and a malformed file takes the server down at boot:
+4. **Re-render the generated reference, in BOTH locales.** The version IS in a
+   generated document — `docs/reference/README.md` line 3 reads "Version
+   `<version>`", from the generator's `app-version` — so a bump that does not
+   re-render fails CI's drift gate. **This page first claimed the opposite and
+   CI corrected it on the first run**, which is the same shape as the
+   `telemachus-docs check --locale` claim asserted three times without testing
+   and then disproved by its own control:
+
+   ```sh
+   racket cli/telemachus-docs.rkt render
+   racket cli/telemachus-docs.rkt render --locale ja   # `check` covers every committed locale
+   racket cli/telemachus-docs.rkt check
+   ```
+
+5. **Bump the files that cannot read VERSION, and let the gate find any you
+   miss.** Everything that can read a file does — `config.rkt` at instantiation,
+   both Nix files at eval time, `scripts/container-smoke.sh` with `tr`. A compose
+   file, a Kubernetes manifest and a prose example cannot, so they carry the
+   number:
+
+   - `compose.yaml` (`image:`)
+   - `deploy/k8s/telemachus.yaml` (`image:`)
+   - `docs/ops/container.md` and `docs/integrators-guide.md` (`docker run` /
+     `docker image ls` examples)
+
+   **The first two are functional**: `nix build .#container` tags the image with
+   the version, so a stale `image:` points at a tag that does not exist and every
+   `docker compose up` fails with "image not found". `scripts/check-config-reference.sh`
+   fails on any `telemachus:<semver>` anywhere in the tree that is not the current
+   version, in both directions — **it was written because CI caught exactly this
+   in `container-smoke.sh`, whose default `IMAGE=` was a fourth spelling nobody
+   had noticed.**
+
+6. **Run the gates and the suite**, because the read is at module instantiation
+   and a malformed file takes the server down at boot:
 
    ```sh
    nix develop --command bash -c 'cd refimpl/racketmaximus && raco test test/*-tests.rkt'
@@ -58,7 +90,7 @@ is also why `flake.nix` passes `self.rev or "dev"` rather than `dirtyRev`.
    bash test/server-smoke.sh && bash test/doc-pipeline-smoke.sh   # one at a time: fixed ports
    ```
 
-5. **Check all four publishers agree**, which is the one step a literal made
+7. **Check all four publishers agree**, which is the one step a literal made
    impossible:
 
    ```sh
@@ -68,7 +100,7 @@ is also why `flake.nix` passes `self.rev or "dev"` rather than `dirtyRev`.
    curl -s -H "Authorization: Bearer $TOK" http://127.0.0.1:8835/api/admin/status | jq .version
    ```
 
-6. **Merge, then tag the merge commit** — never a branch head, so the tag names
+8. **Merge, then tag the merge commit** — never a branch head, so the tag names
    something that passed CI:
 
    ```sh
@@ -80,7 +112,7 @@ is also why `flake.nix` passes `self.rev or "dev"` rather than `dirtyRev`.
    merge is green, and verify it is an ancestor of `main`
    (`git merge-base --is-ancestor v<version> origin/main`).
 
-7. **The container image is Linux-only** (`packages.container` is behind
+9. **The container image is Linux-only** (`packages.container` is behind
    `optionalAttrs isLinux`), because an image's contents are Linux store paths.
    Build it on a Linux host; `nix eval` answering "does not provide attribute" on
    a Mac is that working, not a fault.
