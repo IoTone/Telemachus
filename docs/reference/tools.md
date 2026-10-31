@@ -1,42 +1,41 @@
 # Tools
 
-Every tool a workflow step may use, from `define-tool` declarations and plugin registrations. Each tool checks its own permission when invoked; a workflow step also needs `tools:invoke`.
+Every tool the agent may call and a workflow step may use, from `define-tool` declarations and plugin registrations. Each tool checks its own permission when invoked; a workflow step also needs `tools:invoke`.
 
-**Agent** says whether the conversational agent is OFFERED the tool. A tool whose required arguments are spec-authored — a label set, a JSON Schema, a template and its data, a form's own field names — is a workflow tool: nobody asks for it in a sentence, and a model handed one with no such structure invents it. It is not a permission and not the per-team switch; a workflow tool is registered, documented and dispatchable exactly as any other. Keeping them off that surface is also what makes the agent's whole tool list fit a 4,096-token window.
-
-| Tool | Agent | Permission | Source | Description |
-|---|---|---|---|---|
-| `chat_message` | — | `chat:use` | translate-chat | Send one chat message to the model and return its reply. |
-| `create_note` | yes | `notes:write` | built-in | Create a note for the current user's team. |
-| `doc_classify` | — | `files:write` | built-in | Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json. |
-| `doc_classify_eval` | — | `files:read` | built-in | Measure the classifier against a labelled fixture set: the documents under a key prefix that carry a doc_type_expected attribute. Reports accuracy and coverage per backend AND per label, what each label was confused for, and the mean confidence of right and wrong answers — the figure that tells you whether a review threshold can separate them. Each backend is run SEPARATELY, so rules and llm are compared rather than chained, and the chain's own answer is reported beside them. Writes nothing: no type is recorded and no trigger fires. |
-| `doc_extract_fields` | — | `files:write` | built-in | Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json. |
-| `doc_fill_form` | — | `files:write` | built-in | Fill the AcroForm fields of a PDF in the repository from a JSON object of field names to values, and write the result beside it as <key>.filled.pdf. A text field takes a string, a checkbox true or false, and a radio group, combo box or list box one of its own options. Field names that the form does not carry are REPORTED in `unmatched` (every name wrong is refused instead). With flatten true the fields are drawn into the page and the document is no longer editable. |
-| `doc_list_unclassified` | — | `files:read` | built-in | List repository documents under a key prefix that have no document type yet — the input to a classification backfill. Returns object ids, capped at a batch; run the backfill again to continue. A document that already carries doc_type is skipped, which is what makes a re-run free, and the outputs other runs derived are never listed. |
-| `doc_redact` | yes | `files:write` | built-in | Replace the identifiers in a document's text with stable tokens — <PERSON_1>, <DATE_2>, <ID_3> — so a model request can be built from what is left. Detectors are named, not written by the caller: email, date, id_number, dictionary (terms you supply) and phone. Writes the redacted text beside the source as <key>.redacted.txt and keeps the map from token back to value in a sealed row that no endpoint returns. Reports counts per detector, so under-redaction is visible. |
-| `doc_render` | — | `files:write` | built-in | Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is "pdf" (a Markdown or HTML template, converted with pandoc and tectonic). |
-| `doc_set_type` | — | `files:write` | built-in | Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of "unknown". Writes doc_type / doc_type_confidence / doc_type_source with source "review" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history. |
-| `doc_text` | yes | `files:read` | built-in | Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run. |
-| `doc_transcribe` | — | `files:write` | built-in | Transcribe a repository audio document — a voice note — into the search index. Needs TMACH_TRANSCRIBE_URL. The transcript becomes the document's text, so search, the knowledge graph, ?semantic=1 and the field extractor all read it afterwards with nothing further to run. Refuses a document that is not audio by name rather than sending it. |
-| `doc_translate` | yes | `files:write` | built-in | Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt). |
-| `feed_propose` | yes | `chat:use` | feeds | Read a pulled feed item and write a PROPOSAL about what to do with it, as a document beside the item. It proposes only — nothing acts on the proposal until a person decides, which is what the review step in the feed-propose workflow is for. |
-| `feed_queue_put` | yes | `files:read` | feeds | Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it. |
-| `feed_queue_status` | yes | `files:read` | feeds | Move a queued item to another status: open, claimed, done or dropped. |
-| `get_usage` | yes | `chat:use` | built-in | Report the team's current AI usage against its quota. |
-| `kg_extract` | — | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate. |
-| `kg_list_unextracted` | — | `files:read` | built-in | List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue. |
-| `kg_query` | yes | `files:read` | built-in | What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too. |
-| `list_notes` | yes | `notes:read` | built-in | List the current user's notes (title and visibility). |
-| `repo_embed_chunks` | — | `files:write` | built-in | Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version. |
-| `repo_extract_text` | — | `files:write` | built-in | Extract the text of one repository document into the search index. |
-| `repo_list_unembedded` | — | `files:read` | built-in | List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue. |
-| `repo_list_unindexed` | — | `files:read` | built-in | List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue. |
-| `repo_retrieve` | yes | `files:read` | built-in | Find the passages of the team's repository documents closest in MEANING to a question, for answering from them. Returns a passage's text with its document key and the character offsets it was read at, so an answer can cite where it came from. Needs TMACH_EMBED_URL and documents that the Embed Documents workflow has already processed; it finds nothing on a team with no embeddings, rather than falling back to keyword search. |
-| `shipment_eta` | yes | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
-| `translate_text` | yes | `chat:use` | translate-chat | Translate text into a target language. |
-| `update_note` | yes | `notes:write` | built-in | Update a note's title and/or body by id. |
-| `voice_list_untranscribed` | — | `files:read` | built-in | List the team's audio documents that have no transcript yet — the input to a transcription pass. Returns object ids, capped at a batch; run the workflow again to continue. A recording that has already been transcribed is skipped, which is what makes a re-run free. |
-| `word_count` | yes | `chat:use` | example-tools | Count the number of words in a piece of text. |
+| Tool | Permission | Source | Description |
+|---|---|---|---|
+| `chat_message` | `chat:use` | translate-chat | Send one chat message to the model and return its reply. |
+| `create_note` | `notes:write` | built-in | Create a note for the current user's team. |
+| `doc_classify` | `files:write` | built-in | Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json. |
+| `doc_classify_eval` | `files:read` | built-in | Measure the classifier against a labelled fixture set: the documents under a key prefix that carry a doc_type_expected attribute. Reports accuracy and coverage per backend AND per label, what each label was confused for, and the mean confidence of right and wrong answers — the figure that tells you whether a review threshold can separate them. Each backend is run SEPARATELY, so rules and llm are compared rather than chained, and the chain's own answer is reported beside them. Writes nothing: no type is recorded and no trigger fires. |
+| `doc_extract_fields` | `files:write` | built-in | Extract structured fields from a document's text against a JSON schema. The model's reply is validated and REFUSED if it does not conform — a missing required field, a wrong type, an invented key. With `object`, the fields are also written beside the source as <key>.extracted.json. |
+| `doc_fill_form` | `files:write` | built-in | Fill the AcroForm fields of a PDF in the repository from a JSON object of field names to values, and write the result beside it as <key>.filled.pdf. A text field takes a string, a checkbox true or false, and a radio group, combo box or list box one of its own options. Field names that the form does not carry are REPORTED in `unmatched` (every name wrong is refused instead). With flatten true the fields are drawn into the page and the document is no longer editable. |
+| `doc_list_unclassified` | `files:read` | built-in | List repository documents under a key prefix that have no document type yet — the input to a classification backfill. Returns object ids, capped at a batch; run the backfill again to continue. A document that already carries doc_type is skipped, which is what makes a re-run free, and the outputs other runs derived are never listed. |
+| `doc_redact` | `files:write` | built-in | Replace the identifiers in a document's text with stable tokens — <PERSON_1>, <DATE_2>, <ID_3> — so a model request can be built from what is left. Detectors are named, not written by the caller: email, date, id_number, dictionary (terms you supply) and phone. Writes the redacted text beside the source as <key>.redacted.txt and keeps the map from token back to value in a sealed row that no endpoint returns. Reports counts per detector, so under-redaction is visible. |
+| `doc_render` | `files:write` | built-in | Fill a form template (a Markdown, HTML or DOCX document in the repository) with data: {{field}}, {{a.b}}, and {{#each items}}…{{/each}} with {{this}} / {{@index}} inside (in a DOCX, a table row that is only {{#each items}} opens a per-item row block). Writes the result beside the source as <key>.form.<ext>, or as <key>.form.pdf when format is "pdf" (a Markdown or HTML template, converted with pandoc and tectonic). |
+| `doc_set_type` | `files:write` | built-in | Record the document type a PERSON decided, after a review. The label is held to the same label set the classification offered, so a type no trigger could match is refused rather than stored. An EMPTY label withdraws the type — the honest record of a rejection, since there is no doc_type of "unknown". Writes doc_type / doc_type_confidence / doc_type_source with source "review" and confidence 1.00, and versions <key>.classification.json beside the document so the backend's original guess stays in its history. |
+| `doc_text` | `files:read` | built-in | Return the text of a repository document (PDF, DOCX, HTML, Markdown, plain text). The first step of any document pipeline; it does not depend on the search index having run. |
+| `doc_transcribe` | `files:write` | built-in | Transcribe a repository audio document — a voice note — into the search index. Needs TMACH_TRANSCRIBE_URL. The transcript becomes the document's text, so search, the knowledge graph, ?semantic=1 and the field extractor all read it afterwards with nothing further to run. Refuses a document that is not audio by name rather than sending it. |
+| `doc_translate` | `files:write` | built-in | Translate a repository document into a language, applying the team glossary, and write the result beside it (the locale goes before the extension: report.md -> report.ja.md; a PDF's text becomes report.ja.txt). |
+| `feed_propose` | `chat:use` | feeds | Read a pulled feed item and write a PROPOSAL about what to do with it, as a document beside the item. It proposes only — nothing acts on the proposal until a person decides, which is what the review step in the feed-propose workflow is for. |
+| `feed_queue_put` | `files:read` | feeds | Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it. |
+| `feed_queue_status` | `files:read` | feeds | Move a queued item to another status: open, claimed, done or dropped. |
+| `get_usage` | `chat:use` | built-in | Report the team's current AI usage against its quota. |
+| `inbox_raise` | `inbox:write` | inbox | Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened. |
+| `kg_extract` | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate. |
+| `kg_list_unextracted` | `files:read` | built-in | List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue. |
+| `kg_query` | `files:read` | built-in | What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too. |
+| `list_notes` | `notes:read` | built-in | List the current user's notes (title and visibility). |
+| `repo_embed_chunks` | `files:write` | built-in | Chunk one repository document's extracted text and store an embedding per chunk, replacing any previous set for that version. |
+| `repo_extract_text` | `files:write` | built-in | Extract the text of one repository document into the search index. |
+| `repo_list_unembedded` | `files:read` | built-in | List repository documents whose extracted text has no chunk embeddings yet for the current version, or whose embeddings are from a different model. Returns object ids, capped at a batch; run the workflow again to continue. |
+| `repo_list_unindexed` | `files:read` | built-in | List repository documents whose text has not been extracted for search yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the indexing workflow again to continue. |
+| `repo_retrieve` | `files:read` | built-in | Find the passages of the team's repository documents closest in MEANING to a question, for answering from them. Returns a passage's text with its document key and the character offsets it was read at, so an answer can cite where it came from. Needs TMACH_EMBED_URL and documents that the Embed Documents workflow has already processed; it finds nothing on a team with no embeddings, rather than falling back to keyword search. |
+| `shipment_eta` | `chat:use` | integrator-demo | Estimate arrival days for a shipment lane. |
+| `translate_text` | `chat:use` | translate-chat | Translate text into a target language. |
+| `update_note` | `notes:write` | built-in | Update a note's title and/or body by id. |
+| `voice_list_untranscribed` | `files:read` | built-in | List the team's audio documents that have no transcript yet — the input to a transcription pass. Returns object ids, capped at a batch; run the workflow again to continue. A recording that has already been transcribed is skipped, which is what makes a re-run free. |
+| `word_count` | `chat:use` | example-tools | Count the number of words in a piece of text. |
 
 ## `chat_message`
 
@@ -269,6 +268,25 @@ Permission: `chat:use` · source: built-in
 
 No parameters.
 
+
+## `inbox_raise`
+
+Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened.
+
+Permission: `inbox:write` · source: inbox
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `body` | string | no |  |
+| `data` | object | no | At most 8 KiB of JSON |
+| `key` | string | yes | The producer's id for the fact, stable across re-raises |
+| `kind` | string | no | The producer's own grouping label |
+| `revision` | string | no | A different revision is a material change |
+| `scope` | string | no | A label to filter and count by, not an access boundary |
+| `severity` | string (critical, high, normal, low) | no | Defaults to normal |
+| `source` | string | yes | Who raised it, in the producer's own words |
+| `title` | string | yes | What a person reads first |
+| `url` | string | no |  |
 
 ## `kg_extract`
 

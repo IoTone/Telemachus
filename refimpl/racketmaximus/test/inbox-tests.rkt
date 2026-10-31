@@ -17,6 +17,7 @@
          (only-in "../domain/authz/permissions.rkt" permission-doc)
          (only-in "../domain/agent/plugins.rkt" load-plugins! loaded-plugins plugin-failures
                   check-migrations! plugin-table-prefix)
+         (only-in "../domain/agent/registry.rkt" tool-by-name tool-perm tool-source)
          "../plugins/inbox/main.rkt")
 
 (define-runtime-path PLUGINS-DIR "../plugins")
@@ -464,7 +465,7 @@
   (for ([r (in-list routes)])
     (define method (car r))
     (define perm (caddr r))
-    (check-equal? perm (if (equal? method "GET") "tasks:read" "tasks:write")
+    (check-equal? perm (if (equal? method "GET") "inbox:read" "inbox:write")
                   (format "~a ~a" method (cadr r)))))
 
 (define (call route-method route-path p #:params [params (hasheq)] #:query [query (hasheq)] #:body [body (hasheq)] c)
@@ -502,3 +503,71 @@
   (inbox-act! c p id "snooze" #:until (+ (current-seconds) 1) #:now (- (current-seconds) 10))
   (sleep 1.1)
   (check-equal? (inbox-wake! c tid) 1))
+
+;; ---- the workflow tool ------------------------------------------------------------
+(define (tool-raise-via c p args) ((cadddr (car tools)) c p args))
+
+(test-case "inbox_raise is one thin tool over the same ingest, behind inbox:write"
+  (check-equal? (map car tools) '("inbox_raise"))
+  (load-plugins! PLUGINS-DIR)
+  (define t (tool-by-name "inbox_raise"))
+  (check-true (and t #t) "the loader registered it")
+  (check-equal? (tool-perm t) "inbox:write")
+  (check-equal? (tool-source t) "inbox")
+  (define-values (c p uid tid) (setup))
+  (define a (tool-raise-via c p (hasheq 'source "wf" 'key "k1" 'title "From a workflow" 'revision "r1")))
+  (check-equal? (outcome a) "created")
+  (check-equal? (hash-ref (item a) 'severity) "normal" "severity defaults as the route's does")
+  (check-equal? (outcome (tool-raise-via c p (hasheq 'source "wf" 'key "k1" 'title "From a workflow" 'revision "r1")))
+                "refreshed" "the same revision is a refresh, by the same rule")
+  (inbox-act! c p (id-of a) "ack" #:now T0)
+  (check-equal? (outcome (tool-raise-via c p (hasheq 'source "wf" 'key "k1" 'title "Changed" 'revision "r2")))
+                "resurfaced" "a new revision wakes an acknowledged item, by the same rule")
+  (check-regexp-match #rx"not a severity"
+                      (user-error-message (lambda () (tool-raise-via c p (hasheq 'source "wf" 'key "k2" 'title "t" 'severity "urgent"))))
+                      "the vocabulary check is the route's own")
+  (check-equal? (hash-ref (hash-ref (tool-raise-via c (other-team c) (hasheq 'source "wf" 'key "k1" 'title "x")) 'item) 'occurrence) 1
+                "another team's raise of the same key is its own item"))
+
+;; ---- the lost insert race, on two real connections --------------------------------
+;; The unique index is what makes one live row per (team, source, key); the retry in
+;; `inbox-ingest!` is what makes the LOSER answer correctly instead of with a 500. SQLite
+;; serializes writers on one connection, so this needs Postgres: two connections on the
+;; same schema, released together, 20 keys per run.
+(when (postgres-fixture?)
+  (test-case "two connections raising one key at once leave one live row and two good answers"
+    (define key-name 'inbox-race)
+    (define c1 (fresh-db #:shared key-name #:migrate? #f))
+    (migrate! c1 all-migrations)
+    (migrate! c1 (check-migrations! "inbox" migrations))
+    (define c2 (fresh-db #:shared key-name #:migrate? #f))
+    (define-values (uid tid) (bootstrap! c1 #:username "root"))
+    (define p1 (user-principal c1 uid tid))
+    (define p2 (user-principal c2 uid tid))
+    (for ([i (in-range 20)])
+      (define k (format "race-~a" i))
+      (define gate (make-semaphore 0))
+      (define results (make-vector 2 #f))
+      (define (go slot c p)
+        (thread (lambda ()
+                  (semaphore-wait gate)
+                  (vector-set! results slot
+                               (with-handlers ([(lambda (_) #t) (lambda (e) e)])
+                                 (raise! c p k #:title "Racing" #:revision "r1"))))))
+      (define ts (list (go 0 c1 p1) (go 1 c2 p2)))
+      (semaphore-post gate) (semaphore-post gate)
+      (for-each thread-wait ts)
+      (for ([r (in-vector results)])
+        (check-pred hash? r (format "~a: both calls return an answer, not an exception: ~a" k r)))
+      (when (andmap hash? (vector->list results))
+        (check-equal? (sort (map outcome (vector->list results)) string<?) '("created" "refreshed")
+                      (format "~a: one creates, the other finds the winner's row" k))
+        (check-equal? (id-of (vector-ref results 0)) (id-of (vector-ref results 1))
+                      (format "~a: both answers name the same item" k)))
+      (check-equal? (query-value c1 (string-append "SELECT COUNT(*) FROM x_inbox_items WHERE team_id = ?"
+                                                   " AND item_key = ? AND state <> 'resolved'") tid k)
+                    1 (format "~a: exactly one live row" k))
+      (check-equal? (query-value c1 "SELECT seen_count FROM x_inbox_items WHERE team_id = ? AND item_key = ?" tid k)
+                    2 (format "~a: both raises were counted" k)))
+    (close-db! c2)
+    (close-db! c1)))

@@ -65,10 +65,17 @@ A snooze that has run out reads as open. Every read wakes the team's expired sno
 `x.inbox.wake` does it on a schedule for a team that wants the wake in the event log at the time it
 happened.
 
+## From a workflow
+
+`inbox_raise` is a workflow and agent tool over the same ingest as `POST /items`, behind `inbox:write`.
+It takes the same fields and answers the same `outcome`, so a triage step or an alert adapter does not
+carry a second set of rules.
+
 ## Permissions
 
-`tasks:read` for reads and `tasks:write` for ingest and acts (INBOX-6). The platform has no inbox
-permission, and adding one is a core change.
+`inbox:read` for reads and `inbox:write` for ingest and acts (INBOX-6). Owners hold both through
+`*:*`, admins and members hold both, and a viewer reads through `*:read`. A service token that only
+raises items needs `inbox:write` and nothing else.
 
 ## Tests
 

@@ -61,7 +61,7 @@
          (only-in "../../domain/db/id.rkt" new-id)
          (only-in "../../domain/sched/scheduler.rkt" register-job-kind!))
 
-(provide routes migrations init!
+(provide routes migrations init! tools
          ;; exported FOR the tests: the vocabulary, the transition table and the
          ;; limits are the whole of what this plugin decides, so they are pinned
          ;; rather than re-derived there.
@@ -587,12 +587,10 @@
                            #:limit (min 20 top) #:now now))))
 
 ;; ---- routes ---------------------------------------------------------------------
-;; PERMISSIONS (INBOX-6). The platform's catalog has no inbox permission and a new
-;; one is a core change (`PERMISSION-DOCS`, the role tables, the generated
-;; permissions reference). `tasks:read` and `tasks:write` already mean "see what
-;; needs doing" and "change it", a member holds both and a viewer holds the first,
-;; so the inbox rides on them. A deployment that wants the inbox gated apart from
-;; tasks asks the platform for `inbox:*`; that is the upstream ask in the plan.
+;; PERMISSIONS (INBOX-6). `inbox:read` for reads and `inbox:write` for ingest and acts. They are
+;; separate from `tasks:*` because an item is raised by a producer outside the platform, so a
+;; service token can hold `inbox:write` and nothing else. A member and an admin hold both, a
+;; viewer reads through `*:read`, an owner holds them through `*:*`.
 (define (qs q k) (let ([v (hash-ref q k #f)]) (and (string? v) (not (string=? v "")) v)))
 (define (body-of args) (let ([b (hash-ref args 'body #f)]) (if (hash? b) b (hasheq))))
 (define (bnum v) (and (real? v) (inexact->exact (round v))))
@@ -606,6 +604,36 @@
                  #:severity (let ([v (g 'severity)]) (if (or (not v) (eq? v 'null)) "normal" v))
                  #:kind (g 'kind) #:scope (g 'scope) #:body (g 'body) #:url (g 'url)
                  #:data (g 'data) #:revision (g 'revision)))
+
+;; ---- the workflow tool ----------------------------------------------------------
+;; A workflow step or the agent raises an item through the SAME `inbox-ingest!` the route
+;; uses, so the vocabulary checks, the caps, the revision rule and the race retry are not
+;; written twice. The platform checks `inbox:write` before the handler runs.
+(define raise-schema
+  (hasheq 'type "function"
+          'function
+          (hasheq 'name "inbox_raise"
+                  'description (string-append "Raise an item into the team's inbox, or re-raise one. One live item "
+                                              "exists per (source, key): the same revision only refreshes the evidence, "
+                                              "a different revision replaces the content and sends an acknowledged or "
+                                              "snoozed item back to open. The answer's outcome says which happened.")
+                  'parameters
+                  (hasheq 'type "object"
+                          'properties
+                          (hasheq 'source (hasheq 'type "string" 'description "Who raised it, in the producer's own words")
+                                  'key (hasheq 'type "string" 'description "The producer's id for the fact, stable across re-raises")
+                                  'title (hasheq 'type "string" 'description "What a person reads first")
+                                  'severity (hasheq 'type "string" 'enum SEVERITIES 'description "Defaults to normal")
+                                  'kind (hasheq 'type "string" 'description "The producer's own grouping label")
+                                  'scope (hasheq 'type "string" 'description "A label to filter and count by, not an access boundary")
+                                  'body (hasheq 'type "string") 'url (hasheq 'type "string")
+                                  'data (hasheq 'type "object" 'description "At most 8 KiB of JSON")
+                                  'revision (hasheq 'type "string" 'description "A different revision is a material change"))
+                          'required '("source" "key" "title")))))
+
+(define (tool-raise conn p args) (route-ingest conn p (hasheq 'body args)))
+
+(define tools (list (list "inbox_raise" raise-schema "inbox:write" tool-raise)))
 
 (define (route-list conn p args)
   (define q (hash-ref args 'query (hasheq)))
@@ -634,23 +662,23 @@
 
 (define routes
   (list
-   (list "POST" "/items" "tasks:write" route-ingest
+   (list "POST" "/items" "inbox:write" route-ingest
          "Raise an item, or re-raise one. {source, key, title, severity?: critical|high|normal|low, kind?, scope?, body?, url?, data?, revision?}. One live row exists per (source, key): the same revision refreshes the evidence only, a different revision replaces the content and sends an acknowledged or snoozed item back to open, and a key that was resolved opens a new row. The answer says which: outcome is created, reopened, refreshed, revised or resurfaced.")
-   (list "GET" "/items" "tasks:read" route-list
+   (list "GET" "/items" "inbox:read" route-list
          "The team's inbox, most severe first then longest waiting. ?state= one or a comma list of open|acknowledged|snoozed|suppressed|resolved, or all (default: open and acknowledged), ?severity=, ?source=, ?kind=, ?scope= one exact scope label, ?scope_prefix= every label starting with it, ?limit=/?offset=. A snooze that has run out reads as open.")
-   (list "GET" "/items/:id" "tasks:read" route-get
+   (list "GET" "/items/:id" "inbox:read" route-get
          "One item with its events, numbered in the order they happened: who acknowledged and when, the note they gave, every revision and wake.")
-   (list "POST" "/items/:id/ack" "tasks:write" (route-act "ack")
+   (list "POST" "/items/:id/ack" "inbox:write" (route-act "ack")
          "Acknowledge an open item: {note?}. Someone has seen it and is on it; it stays in the inbox and stops counting as needing attention. A new revision from the producer sends it back to open.")
-   (list "POST" "/items/:id/snooze" "tasks:write" (route-act "snooze")
+   (list "POST" "/items/:id/snooze" "inbox:write" (route-act "snooze")
          "Hide an item until a time: {until: epoch seconds, at most 90 days ahead, note?}. When the time passes it is open again.")
-   (list "POST" "/items/:id/suppress" "tasks:write" (route-act "suppress")
+   (list "POST" "/items/:id/suppress" "inbox:write" (route-act "suppress")
          "Keep an item quiet with no end time: {note?}. The producer can keep raising it, the evidence moves and nothing wakes it. Reopen it to bring it back.")
-   (list "POST" "/items/:id/reopen" "tasks:write" (route-act "reopen")
+   (list "POST" "/items/:id/reopen" "inbox:write" (route-act "reopen")
          "Bring an acknowledged, snoozed or suppressed item back to open.")
-   (list "POST" "/items/:id/resolve" "tasks:write" (route-act "resolve")
+   (list "POST" "/items/:id/resolve" "inbox:write" (route-act "resolve")
          "Close an item for good: {note?}. Resolved is terminal. The same (source, key) raised later is a new row with the next occurrence.")
-   (list "GET" "/digest" "tasks:read" route-digest
+   (list "GET" "/digest" "inbox:read" route-digest
          "What to look at first, for the whole team or one scope: counts by state, open items by severity, how long the oldest open one has waited, and the top few. ?scope= one exact label, ?scope_prefix= a subtree. Resolved items are not counted.")))
 
 ;; ---- job kind -------------------------------------------------------------------

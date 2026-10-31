@@ -19,6 +19,8 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `files:manage` | team | 文書を管理する：公開範囲の変更、共有と取り消し。所有者は owner-ok により保持し、manage 権限の付与で1つの文書の管理を委任できます。 |
 | `files:read` | team | リポジトリの文書を開く・ダウンロードする・検索する；由来と知識グラフを読む。 |
 | `files:write` | team | ドキュメントと新バージョンをアップロードします。 |
+| `inbox:read` | team | See the team's inbox: the items waiting for a person, their events, and the digest. |
+| `inbox:write` | team | Raise an item into the team's inbox, and acknowledge, snooze, suppress, reopen or resolve one. A producer's service token needs this to raise items. |
 | `instance:*` | instance | インスタンス層のすべて；オペレーター（スーパー管理者）。 |
 | `instance:manage` | instance | インスタンス管理：ブランド設定、ローカライゼーションポリシー、クォータ、組織、メトリクス |
 | `instance:read` | instance | 読み取り専用のインスタンス運用操作 — ステータス、メトリクス、ワーカーフリート、キュー、監査チェーンの検証。監査ログそのものを渡すエクスポートは含まない。 |
@@ -69,8 +71,8 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | Role | Tier | Grants |
 |---|---|---|
 | Owner (`owner`) | team | `*:*` |
-| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `feeds:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `jobs:purge`, `jobs:schedule`, `workflows:read`, `workflows:write`, `workflows:run` |
-| Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
+| Admin (`admin`) | team | `members:manage`, `tokens:manage`, `webhooks:manage`, `feeds:manage`, `settings:manage`, `models:serve`, `roles:read`, `audit:read`, `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `documents:delete`, `notes:read`, `notes:write`, `notes:delete`, `tasks:read`, `tasks:write`, `tasks:delete`, `inbox:read`, `inbox:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `files:manage`, `localization:read`, `localization:translate`, `localization:review`, `localization:manage`, `reviews:read`, `reviews:decide`, `jobs:cancel`, `jobs:purge`, `jobs:schedule`, `workflows:read`, `workflows:write`, `workflows:run` |
+| Member (`member`) | team | `chat:use`, `tools:invoke`, `research:use`, `documents:read`, `documents:write`, `notes:read`, `notes:write`, `tasks:read`, `tasks:write`, `inbox:read`, `inbox:write`, `memory:read`, `memory:write`, `files:read`, `files:write`, `files:delete`, `localization:read`, `localization:translate`, `reviews:read`, `reviews:decide`, `workflows:read`, `workflows:run` |
 | Viewer (`viewer`) | team | `*:read` |
 | Organization Owner (`org_owner`) | org | `org:*`, `team:read`, `team:write`, `team:create`, `team:delete`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
 | Organization Admin (`org_admin`) | org | `org:read`, `org:manage`, `team:read`, `team:write`, `team:create`, `members:manage`, `roles:manage`, `roles:read`, `quota:manage`, `quota:read`, `settings:manage`, `features:manage`, `tokens:manage`, `audit:read`, `workflows:read` |
@@ -93,6 +95,8 @@ Which built-in role covers which permission (wildcards expanded).
 | `files:manage` | ✓ | ✓ |  |  |  |  |  |
 | `files:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
 | `files:write` | ✓ | ✓ | ✓ |  |  |  |  |
+| `inbox:read` | ✓ | ✓ | ✓ | ✓ |  |  |  |
+| `inbox:write` | ✓ | ✓ | ✓ |  |  |  |  |
 | `instance:manage` |  |  |  |  |  |  |  |
 | `instance:read` |  |  |  |  |  |  |  |
 | `jobs:cancel` | ✓ | ✓ |  |  |  |  |  |
