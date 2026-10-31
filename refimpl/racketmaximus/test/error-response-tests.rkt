@@ -47,6 +47,11 @@
                  (current-continuation-marks)))
 (define RENDERER-EXN
   (make-exn:fail "render: no value for {{patient_name}}" (current-continuation-marks)))
+;; NB: an INVENTED shape, not one this tree produces — `jsonschema.rkt` quotes no
+;; value anywhere (#186's sweep established that, correcting this file's own
+;; earlier claim). It is kept because the rule under test is "a 500 body carries
+;; no exception message", and a message that quotes a national id is the right
+;; adversarial input for that whatever raised it.
 (define EXTRACT-EXN
   (make-exn:fail "$.total: expected number, got string \"444-55-6666\"" (current-continuation-marks)))
 
@@ -62,6 +67,7 @@
 (test-case "…and no document content either, which is the half that matters"
   ;; a template placeholder and an extracted value are both CONTENT. #83 sealed
   ;; the stored copies of exactly these messages; the wire is the other copy.
+  ;; (The second fixture's shape is invented — see the note at its definition.)
   (for ([e (in-list (list RENDERER-EXN EXTRACT-EXN))]
         [needle (in-list '("patient_name" "444-55-6666"))])
     (define-values (resp _l) (capture-stderr (lambda () (server-error-response e "rid-2"))))

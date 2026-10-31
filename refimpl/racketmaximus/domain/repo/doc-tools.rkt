@@ -1006,7 +1006,15 @@
             (when (eq? items 'missing)
               (error 'doc_render "template references {{#each ~a}} but the data has no ~a" path path))
             (unless (list? items)
-              (error 'doc_render "template's {{#each ~a}} needs an array, got ~a" path (value->text items)))
+              ;; the TYPE, never the value (#186, SEC-7): `items` is whatever the
+              ;; caller's `data` bound at that path, which under the pipeline is
+              ;; an extracted field — document content, and the renderer's
+              ;; refusal is stored in a step's sealed `error` and printed to the
+              ;; log. Naming the path tells the caller where to look; naming the
+              ;; type tells them what was wrong; the value tells them nothing
+              ;; they do not already have.
+              (error 'doc_render "template's {{#each ~a}} needs an array, got ~a"
+                     path (type-of items)))
             (define end (block-end (cdr toks)))
             (define block (take (cdr toks) end))
             (define rendered

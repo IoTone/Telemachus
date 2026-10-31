@@ -171,6 +171,19 @@
   (check-exn #rx"template references {{missing}} but the data has no missing"
              (lambda () (render-template "{{vendor}} {{missing}}" data)))
   (check-exn #rx"needs an array" (lambda () (render-template "{{#each vendor}}{{/each}}" data)))
+  ;; …and it names the TYPE, not the value (#186, SEC-7). `items` is whatever the
+  ;; caller's own `data` bound at that path, which under the pipeline is an
+  ;; extracted field — document content, and this refusal is stored in a step's
+  ;; sealed `error` and printed to the log by #123's handler. Naming the path says
+  ;; where to look and the type says what was wrong; the value says nothing the
+  ;; caller does not already hold.
+  (let ([msg (with-handlers ([exn:fail? exn-message])
+               (render-template "{{#each note}}{{/each}}"
+                                (hasheq 'note "Arun Patel, 078-05-1120")))])
+    (check-false (regexp-match? #rx"Arun Patel" msg) "no content in the refusal")
+    (check-false (regexp-match? #rx"078-05-1120" msg))
+    (check-true (and (regexp-match? #rx"\\{\\{#each note\\}\\}" msg) #t) "the path is still named")
+    (check-true (and (regexp-match? #rx"got string" msg) #t) "and the type that was there instead"))
   (check-exn #rx"unclosed" (lambda () (render-template "{{#each items}}x" data)))
   (check-exn #rx"stray" (lambda () (render-template "x{{/each}}" data))))
 

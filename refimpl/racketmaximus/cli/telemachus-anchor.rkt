@@ -54,7 +54,11 @@
                                        "this build.\n  DATABASE_URL=~a\n"
                                        "Start the server once against it, or point DATABASE_URL at the "
                                        "instance's own database.")
-                                      (database-url)))
+                                      ;; REDACTED: a DATABASE_URL carries its
+                                      ;; password in the clear, and this prints to
+                                      ;; an operator's terminal and into whatever
+                                      ;; captures it (#186, SEC-6).
+                                      (redact-db-url (database-url))))
                          (raise e)))])
     (proc conn)))
 

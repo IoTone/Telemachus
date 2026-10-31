@@ -47,11 +47,23 @@
 ;; exception's message became the response body. The duplicate-username INSERT is
 ;; how that was reported (#123) and SQL is the least of it: #83 r4 sealed four
 ;; stored `error` columns precisely because this platform's own code quotes what
-;; it choked on — the strict renderer names the missing placeholder, DWF-5's
-;; extraction names the JSON path AND the offending value, the knowledge-graph
-;; extractor refuses a snippet that is not a verbatim substring and quotes it.
-;; That reasoning applies unchanged to a response body, and the wire had never
-;; been looked at.
+;; it choked on. That reasoning applies unchanged to a response body, and the
+;; wire had never been looked at.
+;;
+;; TWO OF THE THREE EXAMPLES THIS HEADER USED TO GIVE WERE WRONG, and #186's
+;; refusal sweep is what found that out. `domain/tools/jsonschema.rkt` quotes NO
+;; value anywhere — every problem string it builds names a path, a constraint and
+;; a TYPE — so the `got string "444-55-6666"` this header claimed for it is a
+;; message it cannot produce (CLAUDE.md's own copy of that example is correct and
+;; was always value-free; the embellishment was local to here, and to the test's
+;; fixture, which now says it is invented). And the knowledge-graph extractor
+;; does not quote the snippet it refuses either: it names the entity.
+;;
+;; The real quoting refusals were elsewhere — `compare` in bind.rkt put both
+;; whole operands in the message and the renderer put the whole bound value in
+;; one — which is the argument for sweeping by enumeration rather than by
+;; reputation. Only the surviving example holds: the renderer names the missing
+;; placeholder, which is the caller's own template.
 ;;
 ;; So the body carries a generic refusal and a REQUEST ID, and the message goes
 ;; to the log where an operator can find it by that id — which keeps the

@@ -1464,6 +1464,71 @@ names what it choked on — SEC‑1 was found by enumerating PARAMETERS, not
 refusals, so that class is unswept; and the per-surface threat model #186 asks
 for as the method rather than as a finding.
 
+### The second pass: the refusals (SEC‑6…8) — **31 Oct 2026**
+
+The class the first pass named as unswept, swept: **every refusal in the tree
+that interpolates a value — 442 `error`/`raise-user-error` sites, 46 of them
+formatting something in.** Four defects fixed, two standing examples corrected.
+
+| | |
+|---|---|
+| **SEC‑6** | `redact-db-url` had three callers that bypassed its own header's rule — fixed |
+| **SEC‑7** | `compare` and the renderer quoted whole values that were document content — fixed |
+| **SEC‑8** | One provider-detail rule spelled three times, unbounded — fixed, one home, capped |
+
+- **THE METHOD FINDING: #123 AND SEC‑1 BOTH MOVED THE MESSAGE RATHER THAN
+  REMOVING THE VALUE.** #123 stopped `(exn-message e)` reaching a 500 body and
+  sent it to stderr; SEC‑1 did the same for an SSE event. Both are right and
+  neither touches the string, so every refusal that quotes what it choked on
+  still quotes it — into a sealed `error` column and into the container log,
+  which #83 r4 names as the copy most likely to be read by a person. **Only the
+  raise site can remove the value.**
+- **THE EXAMPLES THE SEALING WAS JUSTIFIED WITH WERE PARTLY WRONG.**
+  `domain/tools/jsonschema.rkt` quotes no value anywhere — every problem string
+  names a path, a constraint and a TYPE — so the `got string "444-55-6666"` that
+  `server/errors.rkt`'s header attributed to DWF‑5 is a message it cannot
+  produce, and the knowledge-graph extractor names the entity rather than the
+  snippet it refused. One of that header's three examples held. The real leaks
+  were elsewhere, which is the argument for enumerating rather than recalling,
+  and it makes `jsonschema.rkt` the tree's one home for the type vocabulary a
+  refusal may use (`type-of`, exported for its two new askers).
+- **SEC‑6** — `sqlite-path`'s refusal, and the two CLIs' "this database has not
+  been migrated" message, printed a `DATABASE_URL` in full; `redact-db-url` sits
+  in the same package under a header reading *"never print or error on the raw
+  string"*. **`sqlite-path`'s is the sharpest, because the only URL that can
+  reach that refusal is a non-sqlite one** — exactly the `user:PASS@host` case.
+  ENC‑23's shape and FEED‑6's. The host and database survive the redaction, or
+  nobody can see which URL was wrong.
+- **SEC‑7** — `compare` in `bind.rkt` quoted BOTH operands whole, and
+  `resolve-value` had just resolved them out of the run's bindings, so each is a
+  step's output — extracted document content under the pipeline. The renderer's
+  `{{#each}}` refusal had the same shape. Both name the TYPE now: the author
+  wrote the predicate and owns the data, so the type is the whole of what they
+  did not know. **A truncation is the tempting middle answer and is the worst
+  one**, because it still quotes content and quotes it misleadingly.
+- **SEC‑8** — the model, embedding and transcription seams each formatted
+  `(hash-ref resp 'error)` whole. `provider-detail` is one home and **keeps the
+  detail**, because a provider's `invalid_api_key` is the operator's only
+  diagnostic for a backend that will not answer; what was never bounded is its
+  length, and FEED‑6 records that many gateways echo the request back inside
+  that field. The distinction from SEC‑7 is explicit at the definition: there
+  the value was content the caller already held, here the text IS the answer.
+- **Clean on secrets**, recorded as a result: no refusal interpolates a key, a
+  token, a password or a sealed plaintext.
+- **Recorded, not changed**: `domain/mcp/client.rkt` is a fourth asker for
+  `provider-detail` and lives outside the model seam, so one home across two
+  subsystems needs a shared place (`fetch.rkt`, beside `safe-url`) and is a
+  refactor; `feeds/poll.rkt` passes a third party's item value to the operator
+  who configured that feed, which is their own data arriving; repository KEYS
+  stay in `doc_*` refusals, because AUD‑2 keeps the key out of the read LOG for
+  that record's different reader; and `config.rkt`'s `call-with-app-db` calls
+  `sqlite-path` unguarded with no caller in the tree — narrowing it is an export
+  slice's call.
+- **Still not reached**: `style-src 'unsafe-inline'`, the `/derive` half of the
+  worker surface, and the per-surface threat model. Two passes have each been one
+  enumeration — parameters, then refusals — which is what a threat model would
+  have told us to do in a planned order.
+
 ## The measured performance sweep (PERF) — **built 30 Oct 2026** (issue #185)
 
 #185 is a tracking issue with a method rather than a claim: *"measure first and
