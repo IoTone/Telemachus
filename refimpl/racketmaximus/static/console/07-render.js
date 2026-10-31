@@ -76,11 +76,16 @@ async function doAddTerm(){
 // a stale tab over the one you just asked for. Stamp each render and drop any result that a newer
 // render has superseded.
 let renderSeq = 0;
-async function renderTab(){ const el=document.getElementById('main'); const seq = ++renderSeq;
+async function renderTab(){ hPassStart(); try {
+  const el=document.getElementById('main'); const seq = ++renderSeq;
   el.innerHTML='<p class="muted">…</p>';
   const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,health:healthView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
-  el.innerHTML = html; }
+  el.innerHTML = html;
+  // #185: the bracket closes in a `finally` because of the early return above —
+  // a range left open swallows every registration made after the pass, which is
+  // how the first version swept the palette's own input.
+} finally { hPassEnd(); } }
 // allowlisted font stacks — no CDN, no external fetch (privacy + deterministic deps)
 function fontStack(n){ const m={System:'ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif',
   Serif:'Georgia,Cambria,"Times New Roman",serif',Mono:'ui-monospace,SFMono-Regular,Menlo,monospace',

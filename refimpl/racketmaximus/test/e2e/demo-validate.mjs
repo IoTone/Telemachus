@@ -368,6 +368,39 @@ try {
   ok('…while the overlay the shell reserves for it is still there',
     await page.evaluate(() => !!document.getElementById('helpbox')));
 
+  // ── 3f. an open overlay survives render passes behind it (#185) ─────────────
+  // #185 bounded the delegated-handler table: entries created inside a render
+  // pass are freed once two further passes have completed. That is safe only
+  // because `H()` is ALSO called between passes — the palette and the help
+  // overlay write their markup when they open, and `jobTrail`/`kgOpen` register
+  // on a click — and those registrations are deliberately never swept.
+  //
+  // This is the assertion that makes the design's one risk falsifiable: the
+  // overlay is opened, several passes run behind it (which is precisely what
+  // #184's auto-refresh does on a timer), and its controls must still be bound.
+  // Without this case the sweep could take the Send button out from under
+  // somebody typing, and nothing would fail.
+  step('an open overlay survives render passes behind it');
+  await page.evaluate(() => { S.pal = S.pal || {}; palOpen(); });
+  await page.waitForTimeout(300);
+  const palBound = async () => page.evaluate(() => {
+    const el = document.querySelector('#palette [data-h-input], #palette [data-h-keydown]');
+    if (!el) return 'no-input';
+    const idx = +(el.getAttribute('data-h-input') ?? el.getAttribute('data-h-keydown'));
+    return typeof HANDLERS[idx] === 'function' ? 'bound' : 'SWEPT';
+  });
+  ok('the palette opens with its input bound', (await palBound()) === 'bound');
+  for (let i = 0; i < 6; i++) await page.evaluate(() => renderTab());
+  await page.waitForTimeout(800);
+  ok('…and six render passes behind it do not unbind it', (await palBound()) === 'bound',
+    await palBound());
+  // and the sweep really is running, or the assertion above passes for the wrong
+  // reason — a table nothing sweeps keeps every handler bound trivially.
+  ok('…while the pass handlers behind it WERE swept',
+    await page.evaluate(() => HANDLERS.some((f, i) => f === undefined && i > 10)));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));

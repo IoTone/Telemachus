@@ -281,10 +281,12 @@
 ;; `team-hold` is a property of the TEAM, so a cross-team listing asks it once
 ;; per team rather than once per row — the reason QUOTA-3 computes it once per
 ;; listing, scaled up to a listing that spans teams.
-(define (hold-cache conn)
-  (define seen (make-hash))
-  (lambda (team sub?)
-    (hash-ref! seen (cons team sub?) (lambda () (team-hold conn team #:sub? sub?)))))
+;;
+;; #185 moved the memo itself into `scheduler.rkt`, beside the thing it
+;; memoizes, when `worker-claim!` turned out to be a third asker that did it per
+;; row in the hottest path there is. This is the local name, kept so the call
+;; sites below read the same.
+(define (hold-cache conn) (make-hold-cache conn))
 
 (define QSELECT
   (string-append

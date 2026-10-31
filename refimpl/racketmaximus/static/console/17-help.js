@@ -50,11 +50,11 @@ function helpPaint(){
     <h3 style="margin:0 0 8px;padding:14px 16px 0">${esc(t('helptitle'))}</h3>
     <div style="padding:0 16px 12px">
       <textarea id="helpq" rows="2" placeholder="${esc(t('helpph'))}"
-        data-h-input="${H((el) => { S.help.q = el.value; })}"
-        data-h-keydown="${H((el, ev) => sendKey(ev, doHelpAsk))}"
+        data-h-input="${Hk((el) => { S.help.q = el.value; })}"
+        data-h-keydown="${Hk((el, ev) => sendKey(ev, doHelpAsk))}"
         >${esc(st.q)}</textarea>
       <button class="btn sm" ${st.asking ? 'disabled' : ''}
-        data-h-click="${H(() => doHelpAsk())}">${esc(st.asking ? t('helpasking') : t('helpsend'))}</button>
+        data-h-click="${Hk(() => doHelpAsk())}">${esc(st.asking ? t('helpasking') : t('helpsend'))}</button>
     </div>
     <div id="helpout" style="padding:0 16px 12px;max-height:48vh;overflow:auto">${helpBody(st.rep)}</div>
     <div class="pal-foot muted">${esc(t('helpclose'))}</div></div>`;

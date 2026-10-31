@@ -633,3 +633,61 @@
     (map cadr (regexp-match* #px"\"ui[.](qv[a-z0-9_]+)\"" en #:match-select values)))
   (check-equal? (remove* keys shipped) '()
                 "a ui.qv* string nothing asks for means a label was typed in place"))
+
+;; ---- the delegated-handler table is bounded (#185) --------------------------
+
+(define base (file->string (build-path console-dir "01-base.js")))
+
+(test-case "the handler table is SWEPT, in brackets that always close"
+  ;; #185 measured what the old comment estimated: 120 render passes of the Admin
+  ;; tab retained 14,963 closures, each closing over its row. Bounded, the same
+  ;; 120 passes retain 128.
+  (check-true (and (regexp-match? #rx"function hPassStart" base) #t))
+  (check-true (and (regexp-match? #rx"function hPassEnd" base) #t))
+  ;; THE BRACKET MUST CLOSE IN A `finally`, and this is the case that pins the
+  ;; defect the first version shipped: both render functions return early —
+  ;; superseded mid-flight, or on the sign-in screen — and a range left open
+  ;; swallows every registration made after the pass, which swept the command
+  ;; palette's own input two passes after it opened.
+  (for ([f (in-list '("07-render.js" "13-kg.js"))])
+    (define src (file->string (build-path console-dir f)))
+    (check-true (and (regexp-match? #rx"hPassStart\\(\\)" src) #t) (format "~a opens a bracket" f))
+    (check-true (and (regexp-match? #px"finally\\s*\\{\\s*hPassEnd\\(\\)" src) #t)
+                (format "~a closes it in a finally" f))))
+
+(test-case "a swept entry is a HOLE, never a splice"
+  ;; The index IS an element's identity — it is sitting in a `data-h-click`
+  ;; attribute in the DOM — so compacting the array would re-point every
+  ;; attribute on screen at somebody else's closure. A hole reaches the
+  ;; dispatcher's existing `typeof fn !== 'function'` guard and does nothing,
+  ;; which is what a bad index has always done.
+  (check-true (and (regexp-match? #rx"HANDLERS\\[i\\] = undefined" base) #t))
+  (check-false (and (regexp-match? #px"HANDLERS[.]splice|HANDLERS[.]length *=" base) #t)
+               "compacting or truncating would re-point every data-h-* attribute on screen")
+  (check-true (and (regexp-match? #rx"typeof fn !== 'function'" base) #t)
+              "and the guard that makes a hole harmless is still there"))
+
+(test-case "the overlays register OUTSIDE the sweep, by name and not by timing"
+  ;; The one risk the sweep takes on: `H()` is also called between passes. The
+  ;; palette and the help overlay write their markup when they OPEN and stay on
+  ;; screen while passes run behind them — which is exactly what #184's
+  ;; auto-refresh does on a timer. `Hk()` says so at the call site, so an
+  ;; overlay opened while a pass is awaiting its fetches is not caught by the
+  ;; bracket either.
+  (check-true (and (regexp-match? #rx"function Hk\\(fn\\)" base) #t))
+  (check-true (and (regexp-match? #rx"H_KEPT" base) #t))
+  (for ([f (in-list '("16-palette.js" "17-help.js"))])
+    (define src (file->string (build-path console-dir f)))
+    (check-true (> (length (regexp-match* #rx"\\$\\{Hk\\(" src)) 0)
+                (format "~a registers with Hk" f))
+    (check-equal? (length (regexp-match* #px"\\$\\{H\\(" src)) 0
+                  (format "~a has no sweepable registration left" f)))
+  ;; …and nothing ELSE uses Hk, or the bound it buys would drain away one
+  ;; convenient exception at a time. A view that wants its handler kept is a
+  ;; view that should not be re-rendering.
+  (define others
+    (for/list ([p (in-list script-files)]
+               #:unless (member p '("01-base.js" "16-palette.js" "17-help.js"))
+               #:when (regexp-match? #rx"Hk\\(" (file->string (build-path console-dir p))))
+      p))
+  (check-equal? others '() "Hk is for the shell-resident overlays only"))

@@ -21,12 +21,79 @@
 // behaviour change: only the NEAREST element with a handler for that event runs,
 // where inline attributes on nested elements would each fire as the event bubbled.
 // The console has no nested clickable regions that relied on that.
-// The table is never cleared: entries are a closure each, a render pass adds a
-// few dozen, and dropping them would risk unbinding an element still on screen
-// from a partial re-render. A long session accumulates a few thousand — tens of
-// kilobytes, against the certainty of a live button going dead.
+// THE TABLE IS SWEPT IN GENERATIONS, and the estimate that used to be here was
+// measured and found wrong by about fifty times (#185).
+//
+// It said: "entries are a closure each, a render pass adds a few dozen… a long
+// session accumulates a few thousand — tens of kilobytes, against the certainty
+// of a live button going dead." The first half was right for NAVIGATION and
+// right for an empty instance. What it did not account for:
+//
+//   • these cards grow with ROWS. Measured per render pass: Health is
+//     `6 + 2·executors + 1·queue-rows` and Admin 19 more — 6/pass on an empty
+//     box, 45/pass with six workers and a full queue page.
+//   • #184 added an AUTO-REFRESH. At 15 s, a 30-worker fleet and a full page is
+//     ~91 a pass, 21,800 an hour, ~175,000 over a shift — and each entry closes
+//     over its row, so it retains the row's data too, not just a function.
+//
+// So they are swept, and the sweep is RANGE-BASED rather than generational for
+// one specific reason: `H()` is also called BETWEEN passes — the command palette
+// and the help overlay write their markup when they OPEN (#182, #183), and
+// `jobTrail`, `kgOpen` and `repoOpenDetail` each register on a click. Those
+// elements are on screen while no render pass is running, and a scheme that
+// swept everything older than N passes would take the Send button out from under
+// somebody typing into the help overlay while the auto-refresh ticked — which is
+// exactly the "live button going dead" the old comment was protecting against,
+// made reachable by the timer.
+//
+// So there are TWO registrations. `H()` is swept; `Hk()` is kept for ever, and
+// the overlays use it. `hPassStart()`/`hPassEnd()` bracket a render pass, and
+// only `H()` entries created INSIDE a bracket are freed — once two further
+// passes have completed, so the DOM on screen and the two passes behind it are
+// always live.
+//
+// THE BRACKET HAS TO CLOSE WHEN THE PASS FINISHES PAINTING, not when the next
+// one starts, and the first version of this got that wrong: with the range
+// closed at the next `hPassStart()`, "between passes" fell INSIDE the previous
+// pass's range, so the palette's own input was swept two passes after it opened.
+// The e2e gate caught it on its first run, which is the whole reason that
+// assertion exists. Both brackets are closed in a `finally`, because both render
+// functions return early — superseded mid-flight, or on the sign-in screen — and
+// a range left open would swallow every later registration.
+//
+// `Hk()` is belt and braces on top of that, for the one race the bracket cannot
+// close: an overlay opened by a keystroke WHILE a pass is awaiting its fetches
+// would otherwise be tagged as part of that pass. Six call sites, all in the two
+// overlay files, against a Send button dying under somebody typing.
+//
+// What this does NOT reclaim, stated rather than implied: the array's LENGTH.
+// Freed slots become holes so the closures and their rows are collectable, but
+// the slots remain, because the index is the identity an element already holds.
+// That is 175,000 empty slots over the shift above — about a megabyte — against
+// the tens of megabytes the closures were.
 const HANDLERS = [];
 function H(fn){ HANDLERS.push(fn); return HANDLERS.length - 1; }
+// Registered OUTSIDE the sweep, by name rather than by timing: an overlay that
+// the shell keeps on screen while render passes run behind it.
+function Hk(fn){ const i = H(fn); H_KEPT.add(i); return i; }
+const H_KEPT = new Set();
+// [start, end) of recent COMPLETED render passes, oldest first; and the open
+// pass's start, or -1 when no pass is painting.
+const H_PASSES = [];
+let H_OPEN = -1;
+const H_KEEP = 2;                       // completed passes kept beyond the open one
+function hPassStart(){ if (H_OPEN < 0) H_OPEN = HANDLERS.length; }
+function hPassEnd(){
+  if (H_OPEN >= 0 && HANDLERS.length > H_OPEN) H_PASSES.push([H_OPEN, HANDLERS.length]);
+  H_OPEN = -1;
+  while (H_PASSES.length > H_KEEP) {
+    const [a, z] = H_PASSES.shift();
+    // a hole, not a splice: the index IS the identity, and an element still
+    // holding a swept one reaches `typeof fn !== 'function'` in the dispatcher
+    // below and does nothing, which is what a bad index has always done.
+    for (let i = a; i < z; i++) if (!H_KEPT.has(i)) HANDLERS[i] = undefined;
+  }
+}
 for (const evname of ['click','input','change','keydown']) {
   document.addEventListener(evname, (ev) => {
     // #182: the command palette and the `?` overlay are GLOBAL shortcuts, so
