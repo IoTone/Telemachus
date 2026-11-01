@@ -18,6 +18,9 @@
 ;; the per-team concurrency cap exactly like the simulated job did.
 
 (require racket/string
+         ;; `jsexpr->string` — `prompt-chars` counts the EXTRAS as the JSON they
+         ;; are serialized into, which is literally what crosses the wire.
+         json
          "../agent/llm.rkt"             ; http-post-json / http-post-data, sanitize-wire-messages
                                         ; + exn:fail:model-retryable's reason, which
                                         ; is what makes the log's error kind honest
@@ -43,7 +46,7 @@
          ;; and the detector is only reachable directly (every caller of it
          ;; needs a live socket) — an export with a test behind it is not an
          ;; over-wide export (#110 r4).
-         model-context max-input-chars prompt-truncated? truncation-message
+         model-context max-input-chars prompt-chars prompt-truncated? truncation-message
          CONTEXT-DEFAULT CONTEXT-RESERVE
          embed-exchange embed-configured? embed-model embedding-vectors embedding-tokens
          ;; #192: the THIRD seam. Audio in, text out, over the OpenAI-compatible
@@ -354,15 +357,36 @@
 ;; backend being far under its declared window, which the model-request log
 ;; already holds the data for — is the honest way to close it and is its own
 ;; piece of work.
-(define (prompt-truncated? prompt-tokens messages)
+
+;; EVERYTHING THAT GOES INTO THE PROMPT, IN CHARACTERS — and the second argument
+;; is why this is its own function rather than a `for/sum` inside the detector.
+;;
+;; The first version counted `messages` and nothing else, and `#:extras` is
+;; where the TOOL SCHEMAS ride. So on the agent's path the detector was blind to
+;; 22,599 characters of the prompt — measured, on the shipped tool set — and
+;; went quiet on the one caller whose prompt is mostly not messages. That is the
+;; same silent truncation #231 was filed about, in the same function, found one
+;; session later from the other side: the agent's six rounds each reported
+;; `prompt_tokens: 4095` against 356 characters of messages, `(<= 4095 356)` was
+;; false, and nothing fired.
+;;
+;; A token covers at least one character in every tokenizer and every language,
+;; so a character count is a SOUND upper bound on the token count of what was
+;; sent — which is the only property the guard needs, and the only one an
+;; estimate cannot give. The extras are counted as the JSON they are serialized
+;; into, because that is literally what crosses the wire.
+(define (prompt-chars messages [extras (hasheq)])
+  (+ (for/sum ([m (in-list messages)])
+       (let ([c (hash-ref m 'content "")])
+         (if (string? c) (string-length c) 0)))
+     (if (or (not (hash? extras)) (zero? (hash-count extras)))
+         0
+         (with-handlers ([exn:fail? (lambda (_) 0)])
+           (string-length (jsexpr->string extras))))))
+
+(define (prompt-truncated? prompt-tokens messages [extras (hasheq)])
   (define ctx (model-context))
-  ;; CHARACTERS, not an estimate of tokens. A token covers at least one
-  ;; character in every tokenizer and every language, so `chars` is a SOUND
-  ;; upper bound on the token count of what we sent — which is the only
-  ;; property the guard below needs, and the only one an estimate cannot give.
-  (define chars (for/sum ([m (in-list messages)])
-                  (let ([c (hash-ref m 'content "")])
-                    (if (string? c) (string-length c) 0))))
+  (define chars (prompt-chars messages extras))
   (and (number? prompt-tokens)
        ;; IT READ A NUMBER OF TOKENS EQUAL TO THE WINDOW WE THINK IT HAS. The
        ;; band is narrow in both directions on purpose. Below it, nothing is
@@ -427,6 +451,12 @@
   (hasheq 'configured (model-configured?)
           'url (or (model-url) 'null)
           'model (model-name)
+          ;; #231's two numbers, so a prompt field can count against the SERVER's
+          ;; limit rather than a literal of its own — `GET /api/translate` already
+          ;; reports `max_chars` for the same reason, and two console copies of
+          ;; one budget is LIVE-IN's shape.
+          'context (model-context)
+          'max_chars (max-input-chars)
           'capabilities (model-caps)))
 
 ;; total_tokens as the provider reported it, or #f. The agent needs the count
@@ -574,7 +604,7 @@
   ;; operator looking at `GET /api/model-requests` to find out why answers went
   ;; strange should find the reason there rather than an unbroken run of `ok`.
   (let ([pt (hash-ref (hash-ref resp 'usage (hasheq)) 'prompt_tokens #f)])
-    (when (prompt-truncated? pt messages)
+    (when (prompt-truncated? pt messages extras)
       (log! "error" #:kind "truncated" #:http 200 #:tokens (response-tokens resp))
       (raise-user-error who "~a" (truncation-message who pt))))
   (log! "ok" #:http 200 #:tokens (response-tokens resp))

@@ -416,6 +416,34 @@ try {
     JSON.stringify(helpRefusal));
   ok('…and does not leave the last answer on screen', helpRefusal.body === '',
     JSON.stringify(helpRefusal.body).slice(0, 160));
+  // HELP-23: AN ANSWER THAT NAMED NO SOURCE STILL SHOWS WHAT IT WAS READ FROM.
+  // Reported from outside as "ask the documentation is still broken" — and the
+  // panel and the endpoint were both working. What the reader met was a correct
+  // answer under an orange warning saying it was declining: measured over ten
+  // real questions against the live corpus, FOUR came back flagged while
+  // carrying a good answer, because on this model `uncited` usually means the
+  // model answered and did not bracket anything. This is the branch that was
+  // wrong, so it is driven here rather than asserted over the source.
+  const helpUncited = await page.evaluate(async () => {
+    const saved = window.api;
+    window.api = async () => ({ ok: true, status: 200, json: {
+      answer: 'Export both keys and run rewrap.',
+      citations: [],
+      passages: [{ path: 'docs/ops/secrets-at-rest-runbook.md', heading: 'Rotating',
+                   text: 'Export TMACH_SECRET_KEY_OLD and run rewrap.' }],
+      reason: 'uncited' } });
+    try {
+      window.S.help = { q: 'how do I rotate the key?', rep: null, asking: false };
+      await window.doHelpAsk();
+      return document.getElementById('helpout').innerHTML;
+    } finally { window.api = saved; }
+  });
+  ok('an uncited answer is still shown', helpUncited.includes('run rewrap'),
+    helpUncited.slice(0, 200));
+  ok('…and the passages it was read from are listed',
+    helpUncited.includes('secrets-at-rest-runbook.md'), helpUncited.slice(0, 300));
+  ok('…numbered, so a [1] in the prose resolves for a reader',
+    helpUncited.includes('[1]'), helpUncited.slice(0, 300));
   await page.evaluate(() => { window.helpClose && window.helpClose(); });
 
   // ── 3f. an open overlay survives render passes behind it (#185) ─────────────

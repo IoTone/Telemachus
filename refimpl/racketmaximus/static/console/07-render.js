@@ -70,18 +70,12 @@ async function translateView(){
 // WRONG rather than failing (#231), so the number has to be visible BEFORE the
 // button is pressed. Over the limit it turns red and says what will happen, and
 // the server refuses it anyway — this is the warning, not the enforcement.
-function trCountText(n){
-  const max = S.trMax || 0;
-  if (!max) return '';
-  return t('trcount').replace('{n}', n.toLocaleString()).replace('{max}', max.toLocaleString());
-}
-function trCount(){
-  const el = document.getElementById('trsrc'), out = document.getElementById('trcount');
-  if (!el || !out) return;
-  const n = el.value.length, max = S.trMax || 0;
-  out.textContent = trCountText(n) + (max && n > max ? ' — ' + t('troverlimit') : '');
-  out.style.color = (max && n > max) ? 'var(--bad)' : '';
-}
+// Chat and Agent want the same count against the same kind of limit, so the
+// implementation moved to `01-base.js` and these two are the Translate field's
+// binding of it. Three copies of the arithmetic would be the drift this console
+// has paid for before.
+function trCountText(n){ return charCountText(n, S.trMax || 0); }
+function trCount(){ charCount('trsrc', 'trcount', S.trMax || 0); }
 // ONE SEND, the flag IS the guard and the pending state, and the `finally` is
 // what stops one network error leaving the button dead — #174's shape, which
 // this call never had. It also shows the CLOCK: a translation of any length
@@ -136,6 +130,7 @@ async function renderTab(){ hPassStart(); try {
   // run's 1.5s poll from flooding the history with an entry per tick.
   // a prefilled prompt is sized on arrival; a grow-on-input handler never sees it
   growAll();
+  countAll();
   navigate();
   // #185: the bracket closes in a `finally` because of the early return above —
   // a range left open swallows every registration made after the pass, which is

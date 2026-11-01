@@ -131,7 +131,12 @@
     ""
     "Rules:"
     "- Answer from the passages. Do not use anything you know from elsewhere."
-    "- Cite every claim by putting the file's path in square brackets, like [docs/ops/container.md]."
+    ;; EITHER SPELLING RESOLVES — the number or the path — and HELP-23 records
+    ;; what happened when the prompt asked for the number ALONE: nothing
+    ;; improved. Naming both is what the resolver accepts, so the prompt should
+    ;; not pretend one of them is wrong.
+    "- Cite every claim in square brackets: either the passage's number, like [2],"
+    "  or its file path, like [docs/ops/container.md]."
     "- If the passages do not answer the question, say so plainly and cite nothing."
     "  Do not guess, and do not describe what the passages are about instead."
     "- Be brief: a few sentences, or a short list."
@@ -153,6 +158,49 @@
                 (if (string=? h "") "" (format " — ~a" h)))
               (hash-ref p 'text))))
    "\n"))
+
+;; HELP-23 — A CITATION THE MODEL HAS TO RETYPE IS ONE IT GETS WRONG, AND THE
+;; RATE WAS MEASURED. Reported from outside as "ask the documentation is still
+;; broken"; the panel and the endpoint were both working, and what the reader
+;; met was a correct answer under a warning saying it had cited nothing.
+;;
+;; Over ten real questions against the live corpus and `qwen2.5:7b`, FOUR came
+;; back flagged as a non-answer while carrying a good one — three `uncited` and
+;; one `unfocused`. Two of the three were not the model declining at all: it
+;; cited a path it had NOT been shown (`docs/ops/container.md` for the budget
+;; answer, `oop-plugins/example-tools/main.py` for the plugin one), HELP-16
+;; correctly dropped the invented path, and the answer was left with nothing.
+;; The third printed no brackets at all.
+;;
+;; SO A NUMBER IS ACCEPTED AS A CITATION, because a number is the one part of
+;; one a model cannot plausibly get wrong: two characters it was just shown,
+;; against a path of forty it has to reproduce exactly. VEC-38 named the same
+;; thing from the other side — the point of carrying offsets at all is that a
+;; citation be machine-readable rather than something a model retypes.
+;;
+;; AND ASKING FOR THE NUMBER *INSTEAD OF* THE PATH DID NOT HELP, WHICH IS THE
+;; HALF WORTH RECORDING. Re-measured over the same ten questions with the prompt
+;; demanding a number and nothing else: five flagged rather than four. The
+;; invented paths stopped, and the model simply stopped bracketing anything
+;; instead — so the format was never the thing that was wrong, and at ten
+;; questions a difference of one is noise in either direction. The prompt names
+;; both spellings now, which is what the resolver accepts; the resolver stays
+;; because accepting more can only ever resolve more.
+;;
+;; WHAT THE READER ACTUALLY MET IS THE PRESENTATION, and that is where this was
+;; fixed: `uncited` was rendered as a warning saying the answer "is declining to
+;; answer", over an answer that was correct. On this model `uncited` usually
+;; means the model answered and did not bracket anything, so the panel shows the
+;; retrieved passages as what the answer was read FROM — `no-model`'s posture,
+;; report what did not run and keep what did — instead of telling the reader
+;; that a good answer is a refusal.
+;;
+;; WHAT DOES NOT CHANGE IS THE VERIFICATION, and that is the part worth being
+;; careful about: a number is resolved against the passages that were actually
+;; retrieved, so an out-of-range one is `invented` exactly as a wrong path is.
+;; The guarantee is unchanged — a citation names something the retrieval
+;; offered, or it is dropped — and HELP-22's inventory rule sits on top of the
+;; resolved PATHS, so it is unaffected by how they were named.
 
 ;; Every `[…]` the answer carries, in the order it carries them, de-duplicated.
 ;; Exported FOR the test: this is the half of HELP‑16 that has to be exercised
@@ -233,8 +281,20 @@
         ;; the failure this feature cannot be allowed to have.
         (define offered (for/list ([x (in-list ps)]) (hash-ref x 'path)))
         (define named (help-cited-paths reply))
-        (define resolved (filter (lambda (c) (and (member c offered) #t)) named))
-        (define invented (filter (lambda (c) (not (member c offered))) named))
+        ;; A citation is a NUMBER (1-based, into the passages as they were
+        ;; numbered in the prompt) or the path itself. `resolve-citation`
+        ;; answers the path it names, or #f — which is what makes an
+        ;; out-of-range number `invented` on exactly the same footing as a path
+        ;; nobody was shown.
+        (define (resolve-citation c)
+          (define n (string->number c))
+          (cond [(and (exact-integer? n) (>= n 1) (<= n (length offered)))
+                 (list-ref offered (sub1 n))]
+                [(member c offered) c]
+                [else #f]))
+        (define resolved (remove-duplicates
+                          (filter values (for/list ([c (in-list named)]) (resolve-citation c)))))
+        (define invented (for/list ([c (in-list named)] #:unless (resolve-citation c)) c))
         ;; HELP‑22: citing all of them is an inventory, not a citation.
         (define inventory?
           (and (>= (length offered) HELP-INVENTORY-MIN)
@@ -245,6 +305,12 @@
                              (define hit (for/first ([x (in-list ps)]
                                                      #:when (equal? (hash-ref x 'path) c)) x))
                              (hasheq 'path c
+                                     ;; The passage's own number, as the prompt
+                                     ;; numbered it — so the `[2]` the answer
+                                     ;; carries in its prose resolves to a line
+                                     ;; the reader can see, rather than to a
+                                     ;; bracket that means nothing (HELP-23).
+                                     'index (add1 (or (index-of offered c) 0))
                                      'title (hash-ref hit 'title)
                                      'heading (hash-ref hit 'heading)
                                      'start (hash-ref hit 'start)

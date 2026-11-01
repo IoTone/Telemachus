@@ -888,6 +888,10 @@
       "text": "表示",
       "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
     },
+    "ui.view": {
+      "text": "表示",
+      "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
+    },
     "doc.route.put.api.beta.experience": {
       "text": "オンボーディング体験のドラフトを保存します。",
       "hash": "da7eda299b32e249d8261670d51c472e5c522447"
@@ -3528,6 +3532,10 @@
       "text": "閉じる",
       "hash": "bbfa773e5a63a5ea58c9b6207e608ca0120e592a"
     },
+    "ui.created": {
+      "text": "作成",
+      "hash": "accf40c89baa4fa88e6a7ff11e1f805beecafd3f"
+    },
     "doc.route.post.api.translate": {
       "text": "目標言語にテキストを翻訳し、チーム用語集を使用します。",
       "hash": "6e66e87c1cec75b5d7189cb342fb0b0e273abaa1"
@@ -3949,8 +3957,12 @@
       "hash": "382a1ac958f81acd9a2f15dbe4bff44dba0a077e"
     },
     "ui.helpuncited": {
-      "text": "回答はパッセージを一つも挙げませんでした。通常はモデルが回答を辞退したことを意味します。",
-      "hash": "f869c22eef29a6400b7755a6b927bc33551e1e0e"
+      "text": "回答は出典を挙げませんでしたので、参照したパッセージを以下に示します。",
+      "hash": "e6894a8a4971beab7ef1ac3c6a99db22adfb6ae3"
+    },
+    "ui.helpread": {
+      "text": "参照元",
+      "hash": "5e83f1b69dcc7f3a46ff0f3234d2808a352e9d91"
     },
     "ui.palhdocs": {
       "text": "ドキュメントに質問する",

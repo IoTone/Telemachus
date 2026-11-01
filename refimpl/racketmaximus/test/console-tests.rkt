@@ -1011,3 +1011,72 @@
   ;; the heading said "Search" three times on one screen.
   (check-equal? (length (regexp-match* #rx"wklegend" fleet)) 1
                 "said once, in the header"))
+
+(test-case "the chat and agent prompts count characters against the SERVER's limit"
+  ;; Reported from outside: "on the translate screen and the chat screen, add a
+  ;; character count to the chat window." #231 built it for Translate, where
+  ;; past the limit the answer comes back WRONG rather than failing; a chat
+  ;; prompt over the window is truncated oldest-first by the model server, which
+  ;; drops the instruction and answers about what is left — the same failure,
+  ;; so the same warning belongs beside the same kind of field.
+  (define base (console-code "01-base.js"))
+  (define tabs (console-code "03-tabs.js"))
+  (define rv (console-code "07-render.js"))
+  ;; ONE implementation, three fields. Two copies of the arithmetic is the drift
+  ;; this console has paid for before (LIVE-IN's shape).
+  (check-true (and (regexp-match? #px"function charCount\\(" base) #t)
+              "the counter lives once, beside growTA")
+  (check-equal? (length (regexp-match* #px"function charCountText\\(" (string-append base tabs rv))) 1
+                "…and is spelled once in the whole console")
+  (check-true (and (regexp-match? #rx"cpcount" tabs) #t) "the chat prompt has a count")
+  (check-true (and (regexp-match? #rx"apcount" tabs) #t) "…and so does the agent prompt")
+  ;; THE LIMIT IS THE SERVER'S, reported on the read each tab already makes, so
+  ;; the number in the browser cannot disagree with the rule that refuses.
+  (check-true (and (regexp-match? #rx"max_chars" tabs) #t))
+  (check-false (regexp-match? #rx"7680" tabs) "the limit must not be spelled in the console")
+  ;; a prefilled prompt is counted on arrival — both prompts ship with example
+  ;; text, which a count-on-input handler never sees (growAll's own reason)
+  (check-true (and (regexp-match? #rx"countAll\\(\\)" rv) #t)
+              "counted after a render, as the fields are sized after a render"))
+
+(test-case "a note can be READ, not only edited"
+  ;; Reported from outside: "the notes view should have a view button, not just
+  ;; edit." The list has rendered each body since #180, so what was missing is a
+  ;; place to read ONE note — with the facts about it, and no editor and no
+  ;; delete button under the cursor.
+  (define tabs (console-code "03-tabs.js"))
+  (check-true (and (regexp-match? #px"noteShow\\(" tabs) #t))
+  (check-true (and (regexp-match? #px"function noteViewCard\\(" tabs) #t))
+  (check-true (and (regexp-match? #px"t\\('view'\\)" tabs) #t) "the button says so in the catalogs")
+  ;; VIEWING AND EDITING ARE ONE SLOT: opening either closes the other, or two
+  ;; cards claim the top of the tab and a reader has to work out which is live.
+  (check-true (and (regexp-match? #px"function noteEdit\\([^)]*\\)\\s*\\{[^}]*S\\.noteShow\\s*=\\s*null" tabs) #t)
+              "editing closes the view")
+  (check-true (and (regexp-match? #px"function noteShow\\([^)]*\\)\\s*\\{[^}]*S\\.noteEdit\\s*=\\s*null" tabs) #t)
+              "…and viewing closes the editor")
+  ;; THE TIMESTAMPS ARE NOT PARSED. `notes.created_at` is TEXT
+  ;; `CURRENT_TIMESTAMP` and `new Date("2026-11-01 05:15:17")` is read as LOCAL
+  ;; time by most engines while the value is UTC — silently out by the viewer's
+  ;; own offset, with nothing to catch it (CARD-3's trap). This table has no
+  ;; epoch columns, so the string is shown as stored and labelled.
+  (check-false (regexp-match? #px"new Date\\(n\\.created_at" tabs)
+               "a UTC string must not be parsed as local time")
+  (check-true (and (regexp-match? #rx"UTC" tabs) #t) "…so it is labelled instead")
+  ;; a tab change drops the view, beside the editor's own reset
+  (check-true (and (regexp-match? #rx"S.noteShow=null" (console-code "02-auth.js")) #t)))
+
+(test-case "HELP-23: with no citations to show, the panel shows what the answer was READ FROM"
+  ;; Reported from outside as "ask the documentation is still broken". The panel
+  ;; and the endpoint were both working: measured over ten real questions
+  ;; against the live corpus, FOUR came back flagged while carrying a good
+  ;; answer, because on this model `uncited` usually means the model answered
+  ;; and did not bracket anything. So the reader met a correct answer under an
+  ;; orange warning saying it was a refusal, and nothing under Sources at all.
+  (define help (console-code "17-help.js"))
+  (check-true (and (regexp-match? #px"rep\\.citations \\|\\| \\[\\]\\)\\.length && \\(rep\\.passages" help) #t)
+              "the passages are shown whenever there are no citations, not only for no-model")
+  (check-true (and (regexp-match? #px"t\\('helpread'\\)" help) #t)
+              "…under a heading that says what they are, rather than claiming they are sources")
+  ;; the citation carries its passage NUMBER, so a `[2]` in the prose resolves
+  ;; to a line the reader can see
+  (check-true (and (regexp-match? #rx"c.index" help) #t)))

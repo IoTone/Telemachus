@@ -10,7 +10,8 @@
          ;; #231: the context budget and the truncation detector live at the
          ;; model seam, because the backstop belongs where the response is.
          (only-in "../domain/ai/executor.rkt"
-                  model-context max-input-chars prompt-truncated? truncation-message)
+                  model-context max-input-chars prompt-chars prompt-truncated?
+                  truncation-message)
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt")
@@ -146,6 +147,22 @@
       (check-false (parameterize () (with-env "TMACH_MODEL_CONTEXT" "16384"
                                       (lambda () (prompt-truncated? 4095 (msgs 32256)))))
                    "an OVER-declared window is caught by neither layer — by contract")
+      ;; THE EXTRAS ARE PART OF THE PROMPT, AND THEY WERE NOT COUNTED. This is
+      ;; the regression for the agent's six empty notes: the tool schemas ride in
+      ;; `#:extras`, not in `messages`, so on that path the detector was blind
+      ;; to 22,599 characters of what it was judging and the live rows — six
+      ;; rounds, `prompt_tokens: 4095` against 356 characters of messages — went
+      ;; through as `ok`. The character bound is sound only if it counts
+      ;; everything that is sent.
+      (define tools (hasheq 'tools (for/list ([i 24])
+                                     (hasheq 'name (format "t~a" i)
+                                             'description (make-string 900 #\y)))))
+      (check-true (> (prompt-chars (msgs 356) tools) 20000)
+                  "the extras are counted as the JSON they are serialized into")
+      (check-false (prompt-truncated? 4095 (msgs 356))
+                   "messages alone cannot explain a windowful — this is the OLD blindness")
+      (check-true (prompt-truncated? 4095 (msgs 356) tools)
+                  "…and with the tool list counted, the agent's own case fires")
       ;; The message names the numbers and both remedies, and never the text.
       (define m (truncation-message 'translate 4095))
       (check-true (regexp-match? #rx"4095" m))

@@ -201,6 +201,40 @@ function growTA(el){
 // handler never sees.
 function growAll(){ document.querySelectorAll('textarea.grow').forEach(growTA); }
 
+// A CHARACTER COUNT BESIDE A PROMPT FIELD, AGAINST THE SERVER'S OWN LIMIT.
+//
+// #231 built this for Translate, where past the limit the answer comes back
+// WRONG rather than failing, so the number has to be visible before the button
+// is pressed. Reported from outside that Chat wants it too — and it does, for
+// the same reason and not a cosmetic one: a chat prompt over the window is
+// truncated oldest-first by the model server, which silently drops the
+// instruction and answers about what is left.
+//
+// ONE implementation, three fields. Two copies of a budget is LIVE-IN's shape,
+// and the limit is never a literal here: it is whatever the server reported on
+// the read the tab already makes (`max_chars` on `/api/translate` and on
+// `/api/ai/model`), so the count in the browser cannot disagree with the rule
+// that refuses.
+function charCountText(n, max){
+  if (!max) return '';
+  return t('trcount').replace('{n}', n.toLocaleString()).replace('{max}', max.toLocaleString());
+}
+function charCount(srcId, outId, max){
+  const el = document.getElementById(srcId), out = document.getElementById(outId);
+  if (!el || !out) return;
+  const n = el.value.length;
+  out.textContent = charCountText(n, max) + (max && n > max ? ' — ' + t('troverlimit') : '');
+  out.style.color = (max && n > max) ? 'var(--bad)' : '';
+}
+// Called after a render for the same reason `growAll` is: both prompts ship
+// with example text, which a count-on-input handler never sees.
+function countAll(){
+  const m = (S.model && S.model.max_chars) || 0;
+  charCount('trsrc', 'trcount', S.trMax || 0);
+  charCount('cp', 'cpcount', m);
+  charCount('ap', 'apcount', m);
+}
+
 // REFRESH ONE CARD IN PLACE, WITHOUT A TAB RE-RENDER.
 //
 // `renderTab()` paints a `…` placeholder BEFORE it awaits its view, which is

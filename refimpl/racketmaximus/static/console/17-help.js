@@ -84,15 +84,27 @@ function helpBody(rep){
   // and a second renderer here would be the drift this console already paid for.
   const answer = (typeof rep.answer === 'string' && rep.answer)
     ? `<div class="md">${mdRender(rep.answer)}</div>` : '';
+  // The passage NUMBER rides on each citation, so the `[2]` the answer carries
+  // in its prose resolves to a line the reader can see (HELP-23).
   const cites = (rep.citations || []).length
     ? `<div class="help-sec">${esc(t('helpsources'))}</div><ul class="help-cites">${
-        rep.citations.map(c => `<li><span class="mono">${esc(c.path)}</span>${
+        rep.citations.map(c => `<li>${c.index ? `<span class="muted">[${c.index}]</span> ` : ''}<span class="mono">${esc(c.path)}</span>${
           c.heading ? ' — ' + esc(c.heading) : ''}</li>`).join('')}</ul>` : '';
-  // With no model the PASSAGES are what this instance can give, so they are
-  // shown rather than thrown away.
-  const passages = (reason === 'no-model' && (rep.passages || []).length)
-    ? `<div class="help-sec">${esc(t('helpsources'))}</div>${
-        rep.passages.map(p => `<div class="help-p"><div class="mono muted">${esc(p.path)}${
+  // THE PASSAGES ARE SHOWN WHENEVER THERE ARE NO CITATIONS TO SHOW, which is a
+  // widening of the `no-model` case and the fix for what was reported as "ask
+  // the documentation is still broken".
+  //
+  // Measured over ten real questions against the live corpus (HELP-23): four
+  // came back flagged while carrying a perfectly good answer, because on this
+  // model `uncited` usually means the model answered and did not bracket
+  // anything — not that it is declining. So the reader met a correct answer
+  // under an orange warning telling them it was a refusal, and nothing under
+  // Sources at all. Now the passages the answer was read FROM are listed
+  // whenever the citations are empty: `content_search: false`'s posture, report
+  // what did not run and keep what did.
+  const passages = (!(rep.citations || []).length && (rep.passages || []).length)
+    ? `<div class="help-sec">${esc(t('helpread'))}</div>${
+        rep.passages.map((p, i) => `<div class="help-p"><div class="mono muted">[${i + 1}] ${esc(p.path)}${
           p.heading ? ' — ' + esc(p.heading) : ''}</div><div>${
           esc(p.text.slice(0, 400))}…</div></div>`).join('')}` : '';
   return note + answer + cites + passages;

@@ -701,3 +701,35 @@
     (check-false (hash-ref rep 'reason) "two of two is a citation, not an inventory")
     (check-equal? (length (hash-ref rep 'citations)) 2)
     (close-db! conn))))
+
+(test-case "27. HELP‑23: a citation may be the passage NUMBER, and an out-of-range one is invented"
+  (with-help-env (lambda ()
+    (define-values (conn p tid root) (seed-corpus!))
+    (define base (let-values ([(_b n _d) (split-path root)]) (path->string n)))
+    ;; A NUMBER RESOLVES TO THE PATH IT WAS SHOWN AGAINST, which is the whole
+    ;; point: a number is two characters the model was just handed, where a path
+    ;; is forty it has to reproduce exactly — and the measured failure was
+    ;; precisely a model naming a plausible path it had never been offered.
+    (define rep (ask conn p "rotating a key and rewrapping sealed columns"
+                     #:reply "Rotation rewraps every sealed column [1]."))
+    (check-false (hash-ref rep 'reason) "a numbered citation is a citation")
+    (check-equal? (length (hash-ref rep 'citations)) 1)
+    (define c (car (hash-ref rep 'citations)))
+    (check-true (string-contains? (hash-ref c 'path) base)
+                "it resolved to a path the retrieval really offered")
+    (check-equal? (hash-ref c 'index) 1
+                  "the passage's own number rides along, so [1] in the prose resolves for a READER too")
+    ;; THE VERIFICATION IS UNCHANGED, and this is the half worth being careful
+    ;; about: a number past the end of the passages is invented on exactly the
+    ;; same footing as a path nobody was shown (case 17).
+    (define bad (ask conn p "rotating a key and rewrapping sealed columns"
+                     #:reply "Yes [99]."))
+    (check-equal? (hash-ref bad 'citations) '())
+    (check-equal? (hash-ref bad 'invented_citations) '("99"))
+    (check-equal? (hash-ref bad 'reason) "uncited")
+    ;; …and the prompt names BOTH spellings, because that is what the resolver
+    ;; accepts. Asking for the number ALONE was measured and did not help — see
+    ;; HELP‑23 — so the prompt must not pretend one of them is wrong.
+    (check-true (string-contains? HELP-SYSTEM "[2]"))
+    (check-true (string-contains? HELP-SYSTEM "docs/ops/container.md"))
+    (close-db! conn))))

@@ -9,7 +9,9 @@ async function chatView(){
   return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
     <div class="card">
       <label>${t('prompt')}</label>
-      <textarea id="cp" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doChat))}" data-h-input="${H((el)=>growTA(el))}">Hello team</textarea>
+      <textarea id="cp" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doChat))}"
+        data-h-input="${H((el)=>{growTA(el);cpCount();})}">Hello team</textarea>
+      <div id="cpcount" class="muted" style="font-size:12px"></div>
       <div class="row" style="align-items:center;gap:8px">
         <button class="btn" id="cpsend" data-h-click="${H((el,ev)=>doChat())}">${t('send')}</button>
         <button class="btn ghost" id="cpstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('chatAbort'))}">${t('stop')}</button>
@@ -17,6 +19,12 @@ async function chatView(){
       </div>
     </div><div id="chatlog"></div>`;
 }
+// The two prompt fields' bindings of the shared counter (`01-base.js`). The
+// limit is the server's own `max_chars`, reported on `/api/ai/model` — never a
+// literal here, for the reason #231 gave on the Translate field.
+function cpCount(){ charCount('cp', 'cpcount', (S.model && S.model.max_chars) || 0); }
+function apCount(){ charCount('ap', 'apcount', (S.model && S.model.max_chars) || 0); }
+
 async function doChat(){
   // #174: one in-flight send. Returning early is the whole guard; everything
   // below releases it in the `finally`, or one network error would leave the
@@ -56,10 +64,16 @@ async function doChat(){
   } finally { S.chatAbort=null; sendBusy('cpsend','cpstop',false); }
 }
 
+// The counter needs the server's limit, and the agent tab never read it — so it
+// makes the same one-line fetch Chat does rather than keeping a literal of its
+// own. `S.model` is shared, so a tab change does not pay for it twice.
 async function agentView(){
+  if(!S.model){ const m=await api('/api/ai/model'); S.model=m.json; }
   return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
     <div class="card"><label>${t('prompt')}</label>
-      <textarea id="ap" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doAgent))}" data-h-input="${H((el)=>growTA(el))}">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
+      <textarea id="ap" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doAgent))}"
+        data-h-input="${H((el)=>{growTA(el);apCount();})}">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
+      <div id="apcount" class="muted" style="font-size:12px"></div>
       <div class="row" style="align-items:center;gap:8px">
         <button class="btn" id="apsend" data-h-click="${H((el,ev)=>doAgent())}">${t('send')}</button>
         <button class="btn ghost" id="apstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('agentAbort'))}">${t('stop')}</button>
@@ -85,6 +99,11 @@ async function doAgent(){
   for(;;){ const {value,done}=await reader.read(); if(done) break; buf+=dec.decode(value,{stream:true});
     let i; while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2);
       if(!line.startsWith('data:')) continue; let ev={}; try{ ev=JSON.parse(line.slice(5).trim()); }catch(e){ continue; }
+      // WHAT THE MODEL WAS NOT OFFERED IS SAID HERE, or the fitting that makes
+      // the agent work on a 4,096-token window would be a silent subtraction.
+      // It leads the run rather than trailing it: a run that could not use a
+      // tool is explained before the reader watches it not use one.
+      if(ev.type==='tools_withheld') steps.insertAdjacentHTML('beforeend', `<div class="bx-warn">${esc(ev.message)}</div>`);
       if(ev.type==='assistant' && ev.text) steps.insertAdjacentHTML('beforeend', `<div class="muted" style="margin:3px 0">💭 ${esc(ev.text)}</div>`);
       if(ev.type==='tool') steps.insertAdjacentHTML('beforeend', `<div style="margin:3px 0">🔧 <b>${esc(ev.name)}</b> <span class="mono muted">${esc(JSON.stringify(ev.args))}</span></div>`);
       if(ev.type==='tool_result') steps.insertAdjacentHTML('beforeend', ev.artifact ? artifactCard(ev.artifact) : `<div class="mono" style="margin:0 0 6px 20px;color:var(--ok);white-space:pre-wrap">${esc(ev.result)}</div>`);
@@ -117,16 +136,26 @@ async function notesView(){
   // shape on this side of the wire. An editor for a field you can only fill in
   // once is worth very little, so the edit path lands with the editor.
   const editing = S.noteEdit ? notes.filter(n=>n.id===S.noteEdit)[0] : null;
+  // Reported from outside: "the notes view should have a view button, not just
+  // edit." The list has rendered each body since #180, so what was missing is a
+  // place to READ one — a note alone, with the facts about it, and no editor
+  // and no delete button under the cursor. Viewing and editing are the same
+  // state slot, so opening one closes the other: two cards claiming the top of
+  // the tab would be a layout somebody has to reason about.
+  const viewing = (S.noteShow && !editing) ? notes.filter(n=>n.id===S.noteShow)[0] : null;
   const list=notes.map(n=>`<div class="note">
       <h4>${esc(n.title)||'(untitled)'} <span class="badge">${esc(n.visibility)}</span> ${n.owner_user_id===S.me.user_id?'<span class="badge ok">mine</span>':''}</h4>
       <div class="md">${mdRender(n.body)}</div>
       <div class="row" style="margin-top:8px">
         <div style="flex:2"><select id="sh_${n.id}">${opts}</select></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>doShare((n.id)))}">${t('share')}</button></div>
+        <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteShow((n.id)))}">${t('view')}</button></div>
         <div><button class="btn sm ghost" data-h-click="${H((el,ev)=>noteEdit((n.id),(n.body),(n.title),(n.visibility)))}">${t('edit')}</button></div>
         <div><button class="btn sm bad" data-h-click="${H((el,ev)=>doDelNote((n.id)))}">${t('del')}</button></div>
       </div></div>`).join('') || `<p class="muted">—</p>`;
-  const card = editing
+  const card = viewing
+    ? noteViewCard(viewing)
+    : editing
     ? `<div class="card"><h3>${t('editnote')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
       <label>${t('title')}</label><input id="nt" value="${esc(editing.title||'')}">
       <label>${t('body')}</label>${editorHTML('note', {id:'nb'})}
@@ -155,7 +184,32 @@ function noteTools(key, titleId){
       data-h-click="${H(()=>edToRepo(key, titleId))}"
       title="${esc(t('edtorepohint'))}">${t('edtorepo')}</button></div></div>`;
 }
-function noteEdit(id, body, title, vis){ S.noteEdit=id; edReset('note', body, 'nb'); renderTab(); }
+// READ-ONLY, AND THE TIMESTAMPS ARE NOT PARSED. `notes.created_at` and
+// `updated_at` are TEXT `CURRENT_TIMESTAMP`, whose format differs by dialect —
+// and worse, `new Date("2026-11-01 05:15:17")` is read as LOCAL time by most
+// engines while the value is UTC, so a parsed timestamp is silently out by the
+// viewer's own offset with nothing to catch it (CARD-3's trap). There are no
+// epoch columns on this table, so the string is shown as stored and LABELLED
+// UTC rather than converted wrongly.
+function noteViewCard(n){
+  const mine = n.owner_user_id === S.me.user_id;
+  return `<div class="card">
+    <h3 style="margin-top:0">${esc(n.title)||'(untitled)'}
+      <span class="badge">${esc(n.visibility)}</span>${mine?' <span class="badge ok">mine</span>':''}</h3>
+    <div class="md">${mdRender(n.body)}</div>
+    <div class="muted" style="font-size:12px;margin-top:10px">
+      ${esc(t('created'))}: ${esc(n.created_at)} UTC · ${esc(t('updated'))}: ${esc(n.updated_at)} UTC
+      · <span class="mono">${esc(n.id)}</span></div>
+    <div class="row" style="margin-top:10px;gap:8px">
+      <div style="flex:0 0 auto"><button class="btn sm"
+        data-h-click="${H(()=>noteEdit(n.id, n.body, n.title, n.visibility))}">${t('edit')}</button></div>
+      <div style="flex:0 0 auto"><button class="btn sm ghost"
+        data-h-click="${H(()=>noteViewClose())}">${t('close')}</button></div>
+    </div></div>`;
+}
+function noteShow(id){ S.noteShow=id; S.noteEdit=null; edReset('note','', 'nb'); renderTab(); }
+function noteViewClose(){ S.noteShow=null; renderTab(); }
+function noteEdit(id, body, title, vis){ S.noteEdit=id; S.noteShow=null; edReset('note', body, 'nb'); renderTab(); }
 function noteEditCancel(){ S.noteEdit=null; edReset('note', '', 'nb'); renderTab(); }
 async function doSaveNote(){
   const r=await api('/api/notes/'+S.noteEdit,{method:'PUT',

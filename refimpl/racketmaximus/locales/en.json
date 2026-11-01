@@ -1959,6 +1959,10 @@
       "text": "How long the job ran — from the moment a worker or the pool claimed it to the moment it settled.",
       "hash": "2406714fa2e5b377f8d62150682a932f2d3b54c9"
     },
+    "ui.created": {
+      "text": "Created",
+      "hash": "accf40c89baa4fa88e6a7ff11e1f805beecafd3f"
+    },
     "ui.wkconfigured": {
       "text": "configured",
       "hash": "3be9f957f29f905f10f7b652cab1c95ba8a2c205"
@@ -2036,8 +2040,8 @@
       "hash": "2053377e7a863ef6782341d2a4d8cd30cd23b8aa"
     },
     "ui.helpuncited": {
-      "text": "The answer cited no passage, which usually means it is declining to answer.",
-      "hash": "f869c22eef29a6400b7755a6b927bc33551e1e0e"
+      "text": "The answer named no source, so these are the passages it was read from.",
+      "hash": "e6894a8a4971beab7ef1ac3c6a99db22adfb6ae3"
     },
     "doc.route.get.api.repo-obj.id.content": {
       "text": "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.",
@@ -2694,6 +2698,10 @@
     "ui.logout": {
       "text": "Sign out",
       "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
+    },
+    "ui.helpread": {
+      "text": "Read from",
+      "hash": "5e83f1b69dcc7f3a46ff0f3234d2808a352e9d91"
     },
     "doc.route.get.api.features": {
       "text": "The team's feature flags.",
@@ -4042,6 +4050,10 @@
     "ui.kg_entity": {
       "text": "Entity",
       "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
+    },
+    "ui.view": {
+      "text": "View",
+      "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
     },
     "doc.tool.doc_classify_eval.step": {
       "text": "The workflow step id, for provenance",
