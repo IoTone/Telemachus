@@ -324,11 +324,36 @@
 ;; `test/translate-tests.rkt` carries the Japanese case, and the ratio control
 ;; fails it.
 ;;
-;; It needs the window to be DECLARED to fire, which is the same number the
-;; budget above is derived from. So the two layers share one knob: raise
-;; `TMACH_MODEL_CONTEXT` without raising the server's real window and the
-;; pre-flight cap stops protecting you, while this catches the overrun and says
-;; so by name. That is what makes the cap safe to raise.
+;; WHAT IT DOES NOT CATCH, AND I CLAIMED IT DID. The first version of this
+;; paragraph said that raising `TMACH_MODEL_CONTEXT` without raising the
+;; server's real window leaves the pre-flight cap useless "while this catches
+;; the overrun and says so by name — that is what makes the cap safe to raise".
+;; That is FALSE, and running it on the live box is what said so: declared
+;; 16,384 against an ollama serving 4,096, a 32,256-character input came back in
+;; English with `prompt_tokens: 4095` and nothing fired, because 4,095 is far
+;; BELOW the declared band.
+;;
+;; The band's upper bound is what makes an under-declaration safe and its lower
+;; bound is what makes an over-declaration invisible, and the two cannot both be
+;; had, because at realistic sizes the observation is the same: a token count
+;; below the declared window, over characters that could have produced it. There
+;; is no sound language-independent test that separates "a complete prompt on a
+;; bigger window than we were told" from "a truncated prompt on a smaller one".
+;; A pin on the power-of-two boundaries below the declared window WOULD separate
+;; them — real windows are powers of two and ollama reports window minus one —
+;; and it is rejected as a REFUSAL rather than overlooked: a genuinely complete
+;; ~4,096-token prompt on a 32,768 server would be refused by it, which is on
+;; the order of one request in a thousand, and refusing a good answer that often
+;; is worse than this gap.
+;;
+;; So the contract is that the DECLARATION MUST BE TRUTHFUL, which is why the
+;; default is the one ollama itself ships and `docs/ops/configuration.md` says
+;; to raise this only together with the server's real window.
+;; `test/translate-tests.rkt` pins the gap so the coverage cannot be mistaken,
+;; and the stateful version — the highest `prompt_tokens` ever seen from a
+;; backend being far under its declared window, which the model-request log
+;; already holds the data for — is the honest way to close it and is its own
+;; piece of work.
 (define (prompt-truncated? prompt-tokens messages)
   (define ctx (model-context))
   ;; CHARACTERS, not an estimate of tokens. A token covers at least one

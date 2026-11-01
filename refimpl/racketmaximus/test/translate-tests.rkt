@@ -133,6 +133,19 @@
       (define ja (list (hasheq 'role "user" 'content (make-string 8000 #\u3042))))
       (check-true (prompt-truncated? 4095 ja)
                   "a truncated Japanese prompt: the pin must fire where a ratio cannot")
+      ;; THE GAP, PINNED RATHER THAN IMPLIED. An operator who declares a window
+      ;; LARGER than the server really serves is protected by neither layer: the
+      ;; cap grows to fit the declaration and the detector looks for a pin at
+      ;; the declared number, so a prompt truncated at the real 4,096 reports
+      ;; 4,095 and sails under a band centred on 16,384. Verified on the live
+      ;; box — 32,256 characters came back in English with CJK 0.0 and nothing
+      ;; fired. There is no sound test that separates it from a complete prompt
+      ;; on a window bigger than we were told, so the contract is that the
+      ;; declaration is truthful, and this case exists so that nobody reads the
+      ;; detector as covering more than it does.
+      (check-false (parameterize () (with-env "TMACH_MODEL_CONTEXT" "16384"
+                                      (lambda () (prompt-truncated? 4095 (msgs 32256)))))
+                   "an OVER-declared window is caught by neither layer — by contract")
       ;; The message names the numbers and both remedies, and never the text.
       (define m (truncation-message 'translate 4095))
       (check-true (regexp-match? #rx"4095" m))
