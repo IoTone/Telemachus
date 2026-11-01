@@ -184,11 +184,46 @@ async function repoLink(id){
       </div></div>
     <div class="muted" style="font-size:12px;margin:6px 0">${t('linkhint').replace('{m}', mins)}</div>
     <pre class="wfjson" id="rlink">${esc(r.json.url)}</pre></div>`;
+  repoRevealDetail();
 }
 function repoCopyLink(){
   const el=document.getElementById('rlink'); if(!el) return;
   navigator.clipboard.writeText(el.textContent).then(()=>toast(t('copied'),true),
                                                      ()=>toast('copy failed'));
+}
+
+// "WHEN YOU CLICK ON DETAILS IT SEEMS LIKE NOTHING HAPPENS."
+//
+// Reported from outside, and true: `#rdetail` sits AFTER the object table, so on
+// a repository of any size the panel is painted below the fold and the click
+// produces no visible change at all. The work was done; the result was off
+// screen.
+//
+// A scroll rather than a modal, for two reasons. The panel is not a dialog —
+// it is a detail of the row you came from, you read it alongside the list, and
+// it has its own Close; and a modal is an overlay, which means `Hk()`,
+// Esc-handling that has to be ordered against the palette's and the help
+// overlay's (#182/#183), and a focus trap. The panel already works; what was
+// missing was being taken to it.
+//
+// It only scrolls when the panel is NOT already in view, because
+// `repoOpenDetail` is also re-called after a visibility change, a share and a
+// revoke — and a jump each time somebody toggles a checkbox is its own
+// annoyance.
+//
+// `prefers-reduced-motion` is honoured: the point is to arrive, not to glide.
+function repoRevealDetail(){
+  const el = document.getElementById('rdetail');
+  if (!el || !el.firstChild) return;
+  try {
+    const r = el.getBoundingClientRect();
+    const seen = r.top >= 0 && r.top < (window.innerHeight || 0) * 0.75;
+    if (seen) return;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  } catch(e) {
+    try { el.scrollIntoView(); } catch(e2) {}   // an engine without the options form
+  }
 }
 
 async function repoOpenDetail(id){
@@ -264,6 +299,7 @@ async function repoOpenDetail(id){
         <table><tbody>${vrows}</tbody></table></div>
     </div>
     ${processed}</div>`;
+  repoRevealDetail();
 }
 function repoViewRun(runId){ go('workflows'); S.wfRun=runId; S.wfPoll++; renderTab(); }
 

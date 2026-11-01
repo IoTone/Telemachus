@@ -100,6 +100,8 @@
   "ui.jobwhenhint": "When the job was created, and for a finished job how long it took to run. Hover for the wall-clock time in your own timezone.",
   "ui.jobago": "{age} ago",
   "ui.jobtookhint": "How long the job ran — from the moment a worker or the pool claimed it to the moment it settled.",
+  "ui.jobsofar": "{age} so far",
+  "ui.jobrunninghint": "How long this job has been running. It has not finished, so the figure moves on every refresh.",
   "ui.jobkindhint": "chat and translate run in the server's own pool, so they report no worker. Work that goes to a GPU host is kind infer.chat, which a chat routed to the fleet creates as a sub-job.",
   "ui.key": "Path",
   "ui.kg_alltypes": "any type",

@@ -100,15 +100,33 @@ function jobWhen(j){
   return `<span class="muted" title="${esc(abs.toLocaleString())}">${esc(t('jobago').replace('{age}', age))}</span>`;
 }
 
-// HOW LONG IT TOOK, for a job that has finished. Both ends are epochs from the
-// same clock (0038 stamps the claim, 0066 the terminal write), so this is a
-// duration and not a difference between two differently-formatted strings.
+// HOW LONG IT TOOK — or how long it has been going, which is the number
+// somebody watching a queue actually wants.
+//
+// The first version answered only for a FINISHED job, so the column was blank
+// for exactly the rows a person is staring at. Reported from outside: "Jobs page
+// should have durations for the run, or duration so far if not complete."
+//
+// Both ends are epochs from the same clock (0038 stamps the claim, 0066 the
+// terminal write), so this is a duration and not a difference between two
+// differently-formatted strings. A RUNNING job has only the first, so the second
+// end is now — and it is marked, because "14s" and "14s and counting" are
+// different facts and a reader who cannot tell them apart will read a stalled
+// job as a fast one.
+//
+// A QUEUED job has NEITHER end and gets nothing: it has not started, so it has
+// no duration, and showing its age here would duplicate the `when` column while
+// looking like a run time.
 function jobTook(j){
-  const a=j.started_epoch, b=j.finished_epoch;
-  if(a==null||a==='null'||b==null||b==='null') return '';
-  const d=b-a;
+  const a=j.started_epoch;
+  if(a==null||a==='null') return '';
+  const b=j.finished_epoch;
+  const settled = !(b==null||b==='null');
+  const d = (settled ? b : Math.floor(Date.now()/1000)) - a;
   if(d<0) return '';
-  return ` <span class="muted" title="${esc(t('jobtookhint'))}">· ${esc(wkAge(d))}</span>`;
+  return settled
+    ? ` <span class="muted" title="${esc(t('jobtookhint'))}">· ${esc(wkAge(d))}</span>`
+    : ` <span title="${esc(t('jobrunninghint'))}" style="color:var(--accent3)">· ${esc(t('jobsofar').replace('{age}', wkAge(d)))}</span>`;
 }
 
 function jobsRows(jobs){

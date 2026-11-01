@@ -163,6 +163,44 @@ function hKeepSlot(key, html){
 // the shell is just the first slot
 function hShell(paint){ return hKeepSlot('shell', paint()); }
 
+// A PROMPT BAR THAT GROWS WITH WHAT YOU TYPE.
+//
+// The chat and agent prompts were `rows="3"` and fixed, so anything longer than
+// three lines was typed into a slot you could not see the top of — and the one
+// place in this console where people paste a lot of text.
+//
+// It measures `scrollHeight`, and that is NOT the same rule as the editor's
+// `edRows`, which counts newlines. The editor turns soft wrap OFF so its line
+// gutter can stay aligned (ED-6), which makes a line count exact there and
+// wrong here: a prompt bar wraps, so a wrapped line occupies several visual rows
+// that no newline count can see. Two functions with different contracts are not
+// `executor-can-run?`'s drift — that is about two copies of ONE rule — and a
+// shared implementation would have to be the wrong one for one of them.
+//
+// It is CAPPED. An unbounded bar pushes Send off the bottom of the screen on a
+// long paste, which is worse than a scrollbar: the control you are reaching for
+// has to stay reachable.
+const GROW_MAX_ROWS = 14;
+function growTA(el){
+  if(!el) return;
+  try {
+    const cs = getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 20;
+    const pad = (parseFloat(cs.paddingTop)||0) + (parseFloat(cs.paddingBottom)||0)
+              + (parseFloat(cs.borderTopWidth)||0) + (parseFloat(cs.borderBottomWidth)||0);
+    const max = Math.round(line * GROW_MAX_ROWS + pad);
+    // height must be released before scrollHeight is read, or it only ever grows
+    el.style.height = 'auto';
+    const want = el.scrollHeight;
+    el.style.height = Math.min(want, max) + 'px';
+    el.style.overflowY = want > max ? 'auto' : 'hidden';
+  } catch(e){}
+}
+// Called after a render so a PREFILLED prompt is sized on arrival — the console
+// ships both prompts with example text, which is exactly the case a grow-on-input
+// handler never sees.
+function growAll(){ document.querySelectorAll('textarea.grow').forEach(growTA); }
+
 // REFRESH ONE CARD IN PLACE, WITHOUT A TAB RE-RENDER.
 //
 // `renderTab()` paints a `…` placeholder BEFORE it awaits its view, which is

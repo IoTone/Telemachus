@@ -16,6 +16,18 @@
 ;; anchored at this FILE, never at `current-directory`, which is `test/`
 ;; when raco runs from there — the "anchor at definition, never at use" rule
 (define-runtime-path scheduler-rkt "../domain/sched/scheduler.rkt")
+
+;; A TEXT SCAN OVER THE CONSOLE READS ITS OWN COMMENTS, and that has now cost
+;; four separate assertions in these notes. A check for a code construct must
+;; look at CODE: `09-repo.js` explains in prose why a modal would mean `Hk()`
+;; and the Hk test below reported that as a sweep violation, while the one-seam
+;; check for `navigate()` counted the router's own header three times.
+(define (console-code f)
+  (string-join
+   (for/list ([ln (in-list (string-split (file->string (build-path console-dir f)) "\n"))]
+              #:unless (regexp-match? #px"^\\s*(//|\\*|/\\*)" ln))
+     ln)
+   "\n"))
 (define shell (file->string console-html))
 
 ;; #110 r6 moved the console's 2,295 lines of inline script into
@@ -691,7 +703,7 @@
   (define others
     (for/list ([p (in-list script-files)]
                #:unless (member p '("01-base.js" "16-palette.js" "17-help.js"))
-               #:when (regexp-match? #rx"Hk\\(" (file->string (build-path console-dir p))))
+               #:when (regexp-match? #rx"Hk\\(" (console-code p)))
       p))
   (check-equal? others '() "Hk is for the shell-resident overlays only"))
 
@@ -834,15 +846,10 @@
   ;; …and the count is of CODE, not of prose: this file's own header says
   ;; `navigate()` three times, and an assertion that greps a literal must not run
   ;; against a comment mentioning it — the trap CLAUDE.md records twice already.
-  (define (code-of f)
-    (string-join (for/list ([ln (in-list (string-split (file->string (build-path console-dir f)) "\n"))]
-                            #:unless (regexp-match? #px"^\\s*(//|\\*|/\\*)" ln))
-                   ln)
-                 "\n"))
   (define callers
     (for/list ([f (in-list script-files)]
                #:unless (member f '("19-route.js"))
-               #:when (regexp-match? #px"(?<![A-Za-z_.])navigate[(][)]" (code-of f)))
+               #:when (regexp-match? #px"(?<![A-Za-z_.])navigate[(][)]" (console-code f)))
       f))
   (check-equal? callers '("07-render.js")
                 "renderTab is the ONLY place outside the router that writes the URL")

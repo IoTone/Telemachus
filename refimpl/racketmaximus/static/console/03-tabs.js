@@ -9,7 +9,7 @@ async function chatView(){
   return `<h2>${t('chat')} <span class="muted" style="font-size:14px">${t('model')}: ${badge}</span></h2>
     <div class="card">
       <label>${t('prompt')}</label>
-      <textarea id="cp" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doChat))}">Hello team</textarea>
+      <textarea id="cp" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doChat))}" data-h-input="${H((el)=>growTA(el))}">Hello team</textarea>
       <div class="row" style="align-items:center;gap:8px">
         <button class="btn" id="cpsend" data-h-click="${H((el,ev)=>doChat())}">${t('send')}</button>
         <button class="btn ghost" id="cpstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('chatAbort'))}">${t('stop')}</button>
@@ -59,7 +59,7 @@ async function doChat(){
 async function agentView(){
   return `<h2>${t('agent')} <span class="muted" style="font-size:14px">— the AI uses tools to act on your platform</span></h2>
     <div class="card"><label>${t('prompt')}</label>
-      <textarea id="ap" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doAgent))}">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
+      <textarea id="ap" class="grow" rows="3" data-h-keydown="${H((el,ev)=>sendKey(ev,doAgent))}" data-h-input="${H((el)=>growTA(el))}">Create a private note titled "Q3 goals" with body "ship v1, hire two, launch". Then list my notes.</textarea>
       <div class="row" style="align-items:center;gap:8px">
         <button class="btn" id="apsend" data-h-click="${H((el,ev)=>doAgent())}">${t('send')}</button>
         <button class="btn ghost" id="apstop" style="display:none" data-h-click="${H((el,ev)=>stopStream('agentAbort'))}">${t('stop')}</button>

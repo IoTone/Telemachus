@@ -6441,6 +6441,69 @@ bash test/e2e/validate.sh          # §3i — the pager's arithmetic, in the bro
   only while there is live work — queued, running or canceling — and a settled
   queue schedules nothing, so an idle console really does go idle.
 
+## Three usability reports (UX‑1‑4, reported from outside)
+
+```sh
+raco test test/console-tests.rkt   # 48 cases; the Hk scan now reads CODE
+bash test/e2e/validate.sh          # §3k and §5b — nine assertions, all controlled
+```
+
+- **"WHEN YOU CLICK ON DETAILS IT SEEMS LIKE NOTHING HAPPENS"** (UX‑1), and it
+  was true: `#rdetail` sits AFTER the object table, so on a repository of any
+  size the panel is painted below the fold and the click produces no visible
+  change at all. The work happened; the result was off screen.
+  **A scroll rather than a modal**, for two reasons: the panel is not a dialog
+  (it is a detail of the row you came from, read alongside the list, with its own
+  Close), and a modal means an overlay — `Hk()`, a focus trap, and Esc ordered
+  against the palette's and the help overlay's (#182/#183). It scrolls only when
+  the panel is NOT already in view, because `repoOpenDetail` is re-called after a
+  visibility change, a share and a revoke, and a jump on every checkbox is its
+  own annoyance. `prefers-reduced-motion` is honoured: the point is to arrive.
+- **AND PLAYWRIGHT'S `click()` SCROLLS ITS TARGET INTO VIEW FIRST, WHICH MADE THE
+  FIRST TEST MEASURE PLAYWRIGHT.** The control passed with `repoRevealDetail()`
+  REMOVED: the click's own auto-scroll brought the panel along with it. The test
+  calls `repoOpenDetail(id)` directly now and the control fails by name
+  (`681 of 320`). **A real person clicking Details half way down a long list does
+  not get that favour** — which is the case the report is about.
+- **THE VIEWPORT IS SHRUNK TO 320px FOR THAT TEST, and without it the assertion
+  is vacuous.** The gate's repository holds ONE object, so at full height the
+  whole page fits and the panel is in view whether anything scrolled or not. The
+  comment claiming `window.scrollTo(0,0)` guarded against this was wrong —
+  scrolling to the top does nothing when the page does not overflow. The guard
+  that makes it mean something is an assertion that the panel **starts** below
+  the fold.
+- **AN EXPANDING PROMPT BAR** (UX‑2). Chat and Agent were `rows="3"` and fixed,
+  in the one place in this console where people paste a lot of text. `growTA`
+  measures `scrollHeight`, and that is **not** the editor's `edRows`, which
+  counts newlines: ED‑6 turns soft wrap OFF so the line gutter stays aligned,
+  which makes a line count exact there and wrong here, because a wrapped line
+  occupies several visual rows no newline count can see. Two functions with
+  different contracts are not `executor-can-run?`'s drift — that is two copies of
+  ONE rule — and a shared implementation would have to be the wrong one for one
+  of them.
+- **IT IS CAPPED AT 14 ROWS, and the control shows why**: uncapped, 400 lines
+  grow the bar to **9,018px** and push Send off the bottom of the screen, which
+  is worse than a scrollbar. The control to keep is that the button you are
+  reaching for stays reachable.
+- **`growAll()` RUNS AFTER A RENDER**, because both prompts ship with example
+  text and a grow-on-input handler never sees a prefilled value.
+- **A DURATION FOR A JOB THAT HAS NOT FINISHED** (UX‑3). CARD‑3's version
+  answered only for a settled job, so the column was blank for exactly the rows
+  somebody is staring at. A running job's second end is NOW, and it is MARKED —
+  "14s" and "14s so far" are different facts, and a reader who cannot tell them
+  apart reads a stalled job as a fast one. A QUEUED job still gets nothing: it
+  has no duration, and showing its age there would duplicate the `when` column
+  while looking like a run time. The jobs card's live poll re-renders every 2s,
+  so the figure ticks without a second timer.
+- **A TEXT SCAN OVER THE CONSOLE READS ITS OWN COMMENTS — FOURTH APPEARANCE, AND
+  IT IS FIXED IN ONE PLACE NOW** (UX‑4). `repoRevealDetail`'s header explains in
+  prose why a modal would mean `Hk()`, and the sweep test reported `09-repo.js`
+  as using `Hk(` outside the two overlay files. The fix is the SCAN, not the
+  wording: `console-code` strips comment lines and both askers share it — the Hk
+  test and ROUTE‑3's one-seam count, which had the same defect against the
+  router's own header. Controlled: a real `Hk(` in code still fails by name, so
+  the stripper is not a hole.
+
 ## Linkable URLs: the hash mirrors the view (ROUTE‑1‑8, issue #230)
 
 `static/console/19-route.js`. **No route, no permission, no migration, no server

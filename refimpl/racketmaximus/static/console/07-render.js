@@ -87,6 +87,8 @@ async function renderTab(){ hPassStart(); try {
   // palette all end here, so none of them had to learn about the address bar.
   // A re-render with unchanged state writes nothing, which is what stops a live
   // run's 1.5s poll from flooding the history with an entry per tick.
+  // a prefilled prompt is sized on arrival; a grow-on-input handler never sees it
+  growAll();
   navigate();
   // #185: the bracket closes in a `finally` because of the early return above —
   // a range left open swallows every registration made after the pass, which is

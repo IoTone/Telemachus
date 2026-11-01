@@ -659,6 +659,56 @@ try {
     (await page.evaluate(() => location.search)).includes('login=1'),
     await page.evaluate(() => location.search + location.hash));
 
+  // ── 3k. two usability reports: the prompt bar and the run duration ──────────
+  // "For the chat screen, we should have an expanding chat bar." The prompts
+  // were rows="3" and fixed, which is the one place in this console where people
+  // paste a lot of text.
+  step('chat: the prompt bar grows with what you type');
+  await goTab(page, 'chat', '#cp');
+  const h0 = await page.evaluate(() => document.getElementById('cp').getBoundingClientRect().height);
+  await page.fill('#cp', Array.from({length: 9}, (_, i) => 'line ' + (i + 1)).join('\n'));
+  await page.waitForTimeout(500);
+  const h1 = await page.evaluate(() => document.getElementById('cp').getBoundingClientRect().height);
+  ok('typing nine lines grows the bar', h1 > h0 + 30, `${Math.round(h0)} -> ${Math.round(h1)}`);
+  // …and it is CAPPED, or Send is pushed off the bottom of the screen on a paste
+  await page.fill('#cp', Array.from({length: 400}, (_, i) => 'line ' + i).join('\n'));
+  await page.waitForTimeout(500);
+  const h2 = await page.evaluate(() => document.getElementById('cp').getBoundingClientRect().height);
+  ok('…and 400 lines do NOT grow it without bound', h2 < 600, `${Math.round(h2)}px`);
+  ok('…so the Send button is still on screen', await page.evaluate(() => {
+    const r = document.getElementById('cpsend').getBoundingClientRect();
+    return r.top > 0 && r.bottom < window.innerHeight + 400;   // in the document, not pushed miles down
+  }));
+  ok('…and it scrolls once it is capped', await page.evaluate(() =>
+    getComputedStyle(document.getElementById('cp')).overflowY === 'auto'));
+  await page.fill('#cp', 'Hello team');
+
+  // "Jobs page should have durations for the run, or duration so far if not
+  // complete." The first version answered only for a FINISHED job, so the column
+  // was blank for exactly the rows a person is staring at.
+  step('jobs: a running job shows how long it has been going');
+  ok('a running job reports elapsed time, a queued one does not',
+    await page.evaluate(() => {
+      const now = Math.floor(Date.now() / 1000);
+      const running = jobTook({ started_epoch: now - 42, finished_epoch: null, status: 'running' });
+      const done    = jobTook({ started_epoch: now - 42, finished_epoch: now - 30, status: 'done' });
+      const queued  = jobTook({ started_epoch: null, finished_epoch: null, status: 'queued' });
+      return /4[0-9]s/.test(running) && running !== done && done.length > 0 && queued === '';
+    }),
+    await page.evaluate(() => {
+      const now = Math.floor(Date.now() / 1000);
+      return JSON.stringify({ running: jobTook({started_epoch:now-42,finished_epoch:null}),
+                              queued: jobTook({started_epoch:null,finished_epoch:null}) });
+    }));
+  // the two must be DISTINGUISHABLE, or a stalled job reads as a fast one
+  ok('…and the running figure is marked as still going',
+    await page.evaluate(() => {
+      const now = Math.floor(Date.now() / 1000);
+      const r = jobTook({ started_epoch: now - 42, finished_epoch: null });
+      const d = jobTook({ started_epoch: now - 42, finished_epoch: now - 42 + 42 });
+      return r !== d && r.length > d.length;
+    }));
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));
@@ -714,6 +764,77 @@ try {
   }, pngB64);
   ok('object listed via the API', roundTrip.found);
   if (roundTrip.found) ok('download is byte-identical to the upload', roundTrip.same, `got ${roundTrip.size} bytes`);
+
+  // ── 5b. repository: Details takes you to the panel ──────────────────────────
+  // Placed AFTER §5, because it needs an object to open: at §3k the repository
+  // is still empty and the assertion failed for a reason with nothing to do
+  // with the scroll it is about.
+  // "When you click on details it seems like nothing happens. It's true,
+  // something happens way at the bottom of the screen." `#rdetail` sits AFTER
+  // the object table, so on a repository of any size the panel paints below the
+  // fold and the click produces no visible change. A scroll, not a modal: the
+  // panel is a detail of the row you came from, read alongside the list, with
+  // its own Close — a modal would mean an overlay, `Hk()`, and Esc ordered
+  // against the palette's and the help overlay's.
+  step('repository: Details takes you to the panel');
+  await goTab(page, 'repository', 'table');
+  // THE VIEWPORT IS SHRUNK, AND THAT IS WHAT MAKES THIS TEST MEAN ANYTHING.
+  // The gate's repository holds one object, so at 1000px the whole page fits and
+  // the panel is in view whether or not anything scrolled — the first version of
+  // this assertion passed against code with the scroll REMOVED, which is a test
+  // that agrees with any change. A short viewport puts the panel genuinely below
+  // the fold, the way a real repository of any size does.
+  const vp = page.viewportSize();
+  await page.setViewportSize({ width: vp.width, height: 320 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(300);
+  const detailBtn = page.locator('table button', { hasText: /details/i }).first();
+  ok('there is a Details button to click', await detailBtn.count() > 0);
+  // …and it is WIRED, which is the click path
+  ok('…and it is bound', await page.evaluate(() => {
+    const b = [...document.querySelectorAll('table button')].find(x => /details/i.test(x.textContent));
+    return !!b && typeof HANDLERS[+b.getAttribute('data-h-click')] === 'function';
+  }));
+  // THE PANEL IS OPENED PROGRAMMATICALLY, not by clicking, and that is the only
+  // way this can test OUR code: Playwright's `click()` scrolls its target into
+  // view first, so the click's own auto-scroll brings the panel along with it
+  // and the assertion passes with `repoRevealDetail()` REMOVED. Measured — the
+  // first version of this did exactly that. A real person clicking a Details
+  // button half way down a long list does not get that favour.
+  const objId = await page.evaluate(async () => {
+    const r = await api('/api/repo?limit=1');
+    return r.ok && r.json.objects && r.json.objects[0] ? r.json.objects[0].id : null;
+  });
+  ok('an object to open', !!objId);
+  if (objId) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(200);
+    const before = await page.evaluate(() => {
+      const el = document.getElementById('rdetail');
+      return el ? Math.round(el.getBoundingClientRect().top) : null;
+    });
+    ok('…and the panel starts BELOW the fold', before !== null && before >= 320,
+      `top ${before} of 320`);
+    await page.evaluate((id) => repoOpenDetail(id), objId);
+    await page.waitForTimeout(1800);
+    ok('the detail panel is filled', await page.evaluate(() =>
+      !!document.getElementById('rdetail') && !!document.getElementById('rdetail').firstChild));
+    ok('…and it is ON SCREEN afterwards', await page.evaluate(() => {
+      const r = document.getElementById('rdetail').getBoundingClientRect();
+      return r.top >= -2 && r.top < window.innerHeight;
+    }), await page.evaluate(() => Math.round(document.getElementById('rdetail').getBoundingClientRect().top)
+      + ' of ' + window.innerHeight));
+    // a RE-open while it is already in view must not jump again: the panel is
+    // re-rendered after a visibility change, a share and a revoke
+    const y1 = await page.evaluate(() => window.scrollY);
+    await page.evaluate(() => repoRevealDetail());
+    await page.waitForTimeout(600);
+    ok('…and revealing it again while visible does not jump',
+      Math.abs(await page.evaluate(() => window.scrollY) - y1) < 4,
+      `${y1} -> ${await page.evaluate(() => window.scrollY)}`);
+  }
+  await page.setViewportSize(vp);
+  await page.waitForTimeout(300);
 
   // ── 6. search reaches document content ──────────────────────────────────────
   step('search');
