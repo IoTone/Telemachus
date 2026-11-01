@@ -568,6 +568,97 @@ try {
   await page.evaluate(() => qSet('status', ''));
   await page.waitForTimeout(800);
 
+  // ── 3j. LINKABLE URLS (#230) ────────────────────────────────────────────────
+  // Nothing in the console was linkable: no URL for a job, a run, a document or
+  // a filtered queue page, a reload always landed on Chat, and Back did nothing.
+  // These are behaviour assertions in a real browser because the question is
+  // what the router COMPUTES and what the history stack then does — neither of
+  // which a source assertion can answer.
+  step('linkable URLs: the hash mirrors the view');
+  await goTab(page, 'jobs', '#jobscard');
+  ok('a tab change writes the hash', await page.evaluate(() => location.hash) === '#/jobs',
+    await page.evaluate(() => location.hash));
+  await goTab(page, 'team', 'table');
+  ok('…and changing tab again moves it', await page.evaluate(() => location.hash) === '#/team');
+
+  // A LIVE POLL MUST NOT FLOOD THE HISTORY. `renderTab()` is the seam that
+  // writes the URL and a live run re-renders every 1.5s, so an unconditional
+  // push would leave an entry per tick and Back would need a hundred presses.
+  const lenBefore = await page.evaluate(() => history.length);
+  for (let i = 0; i < 5; i++) await page.evaluate(() => renderTab());
+  await page.waitForTimeout(700);
+  ok('five re-renders of the same view add NO history entries',
+    await page.evaluate(() => history.length) === lenBefore,
+    `${lenBefore} -> ${await page.evaluate(() => history.length)}`);
+
+  // BACK moves through the views visited
+  await page.goBack();
+  await page.waitForTimeout(900);
+  ok('Back returns to the previous view',
+    await page.evaluate(() => location.hash) === '#/jobs' && await page.evaluate(() => S.tab) === 'jobs',
+    `${await page.evaluate(() => location.hash)} / ${await page.evaluate(() => S.tab)}`);
+  ok('…and the tab bar shows it', await page.evaluate(() =>
+    document.querySelector('nav.tabs button.active')?.dataset.tab) === 'jobs');
+
+  // A PASTED URL survives a reload — the whole point
+  await page.goto(BASE + '/#/usage', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('nav.tabs button', { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  ok('a pasted hash decides the view after a reload',
+    await page.evaluate(() => S.tab) === 'usage', await page.evaluate(() => S.tab));
+
+  // THE QUEUE'S FILTER AND PAGE are what make "look at page 2, filtered to done"
+  // sendable — and the page number is what the earlier pagination work asked for
+  await page.goto(BASE + '/#/admin/queue?status=done&page=2', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#qcard', { timeout: 25000 });
+  await page.waitForTimeout(800);
+  ok('a hash carries the queue filter and page',
+    await page.evaluate(() => (S.qFilter || {}).status) === 'done'
+    && await page.evaluate(() => S.qOffset) === 25,
+    JSON.stringify(await page.evaluate(() => ({ f: S.qFilter, o: S.qOffset }))));
+
+  // AN UNREACHABLE HASH FALLS BACK rather than painting a tab that is not in
+  // the bar: `visibleTabs()` is decided by permissions and feature switches, and
+  // a link may come from somebody who holds more than the reader does.
+  await page.goto(BASE + '/#/not-a-tab', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('nav.tabs button', { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  ok('an unreachable hash falls back to a real view',
+    (await page.evaluate(() => visibleTabs())).includes(await page.evaluate(() => S.tab)),
+    await page.evaluate(() => S.tab));
+  ok('…and the address bar is put back rather than left lying',
+    await page.evaluate(() => location.hash) !== '#/not-a-tab',
+    await page.evaluate(() => location.hash));
+
+  // A CREDENTIAL MUST NEVER REACH THE URL. `S.newToken`/`S.wkToken` hold a
+  // freshly minted token shown once, and a URL is pasted into chat, logged by
+  // proxies and kept in history — which is why /activate already strips its own.
+  ok('a minted token never appears in the route',
+    await page.evaluate(() => {
+      const keep = S.newToken, keepW = S.wkToken, keepTab = S.tab;
+      S.newToken = { token: 'SECRET-API-TOKEN' }; S.wkToken = { token: 'SECRET-WORKER-TOKEN' };
+      S.tab = 'team';
+      const r = routeFromState();
+      S.newToken = keep; S.wkToken = keepW; S.tab = keepTab;
+      return !/SECRET/.test(r);
+    }));
+  ok('…nor does unsaved editor text',
+    await page.evaluate(() => {
+      const keep = S.noteEdit, keepTab = S.tab;
+      S.noteEdit = { body: 'UNSAVED-DRAFT' }; S.tab = 'notes';
+      const r = routeFromState();
+      S.noteEdit = keep; S.tab = keepTab;
+      return !/UNSAVED/.test(r);
+    }));
+
+  // the funnel's own shareable param must still survive a hash being written
+  await page.goto(BASE + '/?login=1#/jobs', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('nav.tabs button', { timeout: 20000 });
+  await page.waitForTimeout(900);
+  ok('an existing query string survives the hash',
+    (await page.evaluate(() => location.search)).includes('login=1'),
+    await page.evaluate(() => location.search + location.hash));
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));

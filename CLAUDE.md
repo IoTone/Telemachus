@@ -6441,6 +6441,73 @@ bash test/e2e/validate.sh          # §3i — the pager's arithmetic, in the bro
   only while there is live work — queued, running or canceling — and a settled
   queue schedules nothing, so an idle console really does go idle.
 
+## Linkable URLs: the hash mirrors the view (ROUTE‑1‑8, issue #230)
+
+`static/console/19-route.js`. **No route, no permission, no migration, no server
+change at all** — which is the whole argument for a fragment.
+
+```sh
+raco test test/console-tests.rkt   # 48 cases; the one-seam rule is controlled
+bash test/e2e/validate.sh          # §3j — 12 behaviour assertions in a browser
+```
+
+- **NOTHING WAS LINKABLE AND IT WAS AN OMISSION, NOT A DECISION.** `history` was
+  touched ONCE in the whole console — `bxSetLang`, which keeps `?lang=` in the
+  funnel's URL because ONB‑8 decided a funnel is a page people are LINKED to —
+  plus one `replaceState` to strip the activation token from the bar. Everything
+  else lived in `S` alone, so a reload always landed on Chat and Back did
+  nothing. The exceptions show the need had been met one case at a time:
+  `?lang=`, `?login=1`, the `/login` route, `/activate?token=`.
+- **HASH, NOT PATHS, FOR A SERVER-SIDE REASON** (ROUTE‑1). `routes.rkt` has four
+  HTML entry points and **no catch-all**, so `/jobs` would 404 rather than serve
+  the console. A catch-all turns every typo into the console instead of a 404 and
+  has to be reconciled with `/console/*path`,
+  `/beta/bundle/:plugin/*path` and `/api/x/:plugin/bundle/*path`.
+- **THE HASH IS A MIRROR OF STATE, AND THE ASYMMETRY IS THE DESIGN** (ROUTE‑2).
+  `navigate()` writes it FROM `S`; a hash that DISAGREES with `S` is an inbound
+  navigation. Nothing else reads the URL, so there is no write/read loop to
+  guard — and `pushState` fires no event, which is why this needs no re-entrancy
+  flag at all.
+- **ONE SEAM, AND IT IS `renderTab()`** (ROUTE‑3). Every view change passes
+  through it — `go()`, `wfOpen`, `repoOpenDetail`, `qSet`, `qGo`, the palette —
+  so not one call site had to learn about the address bar. **Controlled**: adding
+  a second writer in `go()` fails the test by name. A second writer is how a view
+  and its URL start disagreeing.
+- **AN UNCHANGED ROUTE WRITES NOTHING, and that is load-bearing** (ROUTE‑4). A
+  live run re-renders every 1.5s, so an unconditional push leaves a history entry
+  per tick and Back needs a hundred presses. The control measures it:
+  `30 -> 35` over five re-renders, **and Back then breaks too** — which is the
+  real-world consequence a count alone would not show.
+- **THE FIRST WRITE REPLACES.** Booting must not leave an entry you press Back
+  through to leave the page.
+- **AN UNREACHABLE HASH FALLS BACK AND THE BAR IS PUT BACK** (ROUTE‑5).
+  `visibleTabs()` is decided by permissions AND feature switches, so a link may
+  come from somebody who holds more than the reader does; painting a tab that is
+  not in the bar is worse than landing on the default. Leaving the URL describing
+  a view that is not on screen is worse again, so `routeChanged` rewrites it.
+- **THE ROUTE IS APPLIED AFTER `S.me` AND `S.features`** (ROUTE‑6), because the
+  tab list is not knowable until both have arrived. Earlier and every pasted link
+  would be judged against an empty tab list.
+- **NO CREDENTIAL AND NO UNSAVED TEXT, BY CONSTRUCTION** (ROUTE‑7).
+  `routeFromState` reads five fields and none is a token: `S.newToken` and
+  `S.wkToken` hold a credential shown ONCE, and a URL is pasted into chat, logged
+  by proxies and kept in history — which is why `/activate` already strips its
+  own. Unsaved editor text is out for a different reason: a link promising
+  content that was never saved is a link that lies, and `go()` already abandons
+  an edit on leaving a tab (#180). Asserted over the function's own source AND in
+  the browser against a state carrying a fake token.
+- **BOTH EVENTS, deliberately**: Back and Forward fire `popstate`, a hash typed
+  into the bar fires `hashchange`, and some engines fire both. The handler
+  compares and returns early, so a duplicate costs nothing.
+- **A SHARED LINK CANNOT LEAK**, which is why encoding a FILTER is safe: every
+  list in the console is already `can?`-filtered per row, so the recipient sees
+  their own view of it rather than the sender's.
+- **A SOURCE ASSERTION THAT COUNTS A LITERAL MUST SKIP COMMENTS.** The one-seam
+  check first counted `navigate()` across the tree and got 4 against an expected
+  2 — one was this router's own header prose, and there are legitimately two
+  CALLS (the seam, and the put-the-bar-back path). Third appearance of that trap;
+  the check now strips comment lines and asserts WHICH file calls it.
+
 ## A PARTIAL UPDATE IS NOT A PASS EITHER (SWEEP‑4‑6, reported from outside)
 
 "If I click on refresh, I can no longer submit a chat from the jobs page."

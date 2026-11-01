@@ -82,6 +82,12 @@ async function renderTab(){ hPassStart(); try {
   const html = await ({chat:chatView,agent:agentView,translate:translateView,search:searchView,notes:notesView,documents:documentsView,repository:repoView,workflows:workflowsView,reviews:reviewsView,knowledge:knowledgeView,jobs:jobsView,beta:betaTabView,team:teamView,usage:usageView,health:healthView,localize:localizeView,admin:adminView}[S.tab]||chatView)();
   if (seq !== renderSeq) return;                    // superseded mid-flight — discard, don't clobber
   el.innerHTML = html;
+  // #230: the URL mirrors the view, and THIS is the one seam every view change
+  // passes through — `go()`, `wfOpen`, `repoOpenDetail`, `qSet`, `qGo` and the
+  // palette all end here, so none of them had to learn about the address bar.
+  // A re-render with unchanged state writes nothing, which is what stops a live
+  // run's 1.5s poll from flooding the history with an entry per tick.
+  navigate();
   // #185: the bracket closes in a `finally` because of the early return above —
   // a range left open swallows every registration made after the pass, which is
   // how the first version swept the palette's own input.

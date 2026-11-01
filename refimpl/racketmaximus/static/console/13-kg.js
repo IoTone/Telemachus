@@ -166,6 +166,12 @@ async function render(){
   // cannot disagree with itself.
   S.featRows = fr.ok ? fr.json.features : [];
   S.features = Object.fromEntries(S.featRows.map(x=>[x.feature,x.enabled]));
+  // #230: a pasted URL decides the first view — applied HERE and not earlier
+  // because `visibleTabs()` is decided by permissions AND feature switches, so
+  // the tab list is not knowable until both have arrived. An unreachable hash
+  // falls through to the default rather than painting a tab that is not in the
+  // bar.
+  if(!routeInit) applyRoute(location.hash);
   if(S.features[S.tab]===false) S.tab='team';
   if(!S.me) return;                      // signed out while we were awaiting
   const wasAuth=!!document.getElementById('lu');

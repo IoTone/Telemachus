@@ -814,6 +814,64 @@
   (check-true (and (regexp-match? #px"function qGo[^}]*qRefresh\\(\\)" fl) #t)
               "so does changing page"))
 
+(test-case "linkable URLs: one seam writes the hash, and no credential is in it"
+  ;; #230. Nothing in the console was linkable: no URL for a job, a run, a
+  ;; document or a filtered queue page, a reload always landed on Chat, and Back
+  ;; did nothing. HASH and not paths, because `server/routes.rkt` has four HTML
+  ;; entry points and NO catch-all — `/jobs` would 404 rather than serve the
+  ;; console, and adding a catch-all turns every typo into the console and has to
+  ;; be reconciled with three `*path` bundle routes.
+  (define rt (file->string (build-path console-dir "19-route.js")))
+  (define rend (file->string (build-path console-dir "07-render.js")))
+  (check-true (and (regexp-match? #rx"function routeFromState" rt) #t))
+  (check-true (and (regexp-match? #rx"function applyRoute" rt) #t))
+  ;; ONE SEAM. `renderTab()` is what every view change passes through — `go()`,
+  ;; `wfOpen`, `repoOpenDetail`, `qSet`, `qGo` and the palette all end there — so
+  ;; the URL is written in exactly one place and no call site had to learn about
+  ;; the address bar. A second writer is how a view and its URL start disagreeing.
+  (check-true (and (regexp-match? #rx"navigate[(][)];" rend) #t)
+              "renderTab mirrors the URL")
+  ;; …and the count is of CODE, not of prose: this file's own header says
+  ;; `navigate()` three times, and an assertion that greps a literal must not run
+  ;; against a comment mentioning it — the trap CLAUDE.md records twice already.
+  (define (code-of f)
+    (string-join (for/list ([ln (in-list (string-split (file->string (build-path console-dir f)) "\n"))]
+                            #:unless (regexp-match? #px"^\\s*(//|\\*|/\\*)" ln))
+                   ln)
+                 "\n"))
+  (define callers
+    (for/list ([f (in-list script-files)]
+               #:unless (member f '("19-route.js"))
+               #:when (regexp-match? #px"(?<![A-Za-z_.])navigate[(][)]" (code-of f)))
+      f))
+  (check-equal? callers '("07-render.js")
+                "renderTab is the ONLY place outside the router that writes the URL")
+  ;; a re-render with unchanged state must write nothing, or a live run's 1.5s
+  ;; poll leaves a history entry per tick and Back needs a hundred presses
+  (check-true (and (regexp-match? #px"location[.]hash === want[)] return" rt) #t)
+              "an unchanged route writes nothing")
+  ;; the first write REPLACES: booting must not leave an entry you press Back
+  ;; through to leave the page
+  (check-true (and (regexp-match? #rx"replaceState" rt) #t))
+  (check-true (and (regexp-match? #rx"pushState" rt) #t))
+  ;; an unreachable hash falls back rather than painting a tab that is not in the
+  ;; bar — `visibleTabs()` is decided by permissions AND feature switches, and a
+  ;; link may come from somebody who holds more than the reader does
+  (check-true (and (regexp-match? #rx"visibleTabs[(][)][.]indexOf" rt) #t))
+  ;; BOTH events: Back and Forward fire popstate, a typed hash fires hashchange
+  (check-true (and (regexp-match? #rx"'popstate'" rt) #t))
+  (check-true (and (regexp-match? #rx"'hashchange'" rt) #t))
+  ;; NO CREDENTIAL AND NO UNSAVED TEXT, by construction rather than by review:
+  ;; `S.newToken`/`S.wkToken` hold a token shown once, and a URL is pasted into
+  ;; chat, logged by proxies and kept in history — which is why /activate already
+  ;; strips its own. Unsaved editor text is out because a link promising content
+  ;; that was never saved is a link that lies.
+  (define state-reader
+    (car (regexp-match #px"function routeFromState[(][)][{].*?\n[}]" rt)))
+  (for ([forbidden (in-list '("newToken" "wkToken" "noteEdit" "docEdit" "token"))])
+    (check-false (and (regexp-match? (regexp forbidden) state-reader) #t)
+                 (format "routeFromState must not read S.~a" forbidden))))
+
 (test-case "a button shares the form controls' box"
   ;; "On every page, there are some issues with buttons alignment with the
   ;; content. Buttons are staggered oddly." Measured across the console: 12 of 22
