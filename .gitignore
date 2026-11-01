@@ -54,3 +54,4 @@ docs/book/.book.*
 # A calibration run writes this; the numbers that matter live in
 # docs/design/vector-store.md, so the raw log is not a committed artifact.
 refimpl/racketmaximus/test/calibration-result.json
+refimpl/racketmaximus/cli/telemachus-reset-login.rkt
