@@ -207,8 +207,12 @@
                      'messages (hash-ref payload 'messages '())
                      'temperature (hash-ref payload 'temperature 0.7)
                      'stream #f)])
-      (let ([rf (hash-ref payload 'response_format #f)])
-        (if (and rf (not (eq? rf 'null))) (hash-set b 'response_format rf) b))))
+      ;; response_format and the reply ceiling are both forwarded when the platform set them, so a
+      ;; request routed to a pull executor reaches the provider exactly as the platform asked for it.
+      (let* ([rf (hash-ref payload 'response_format #f)]
+             [b (if (and rf (not (eq? rf 'null))) (hash-set b 'response_format rf) b)]
+             [mt (hash-ref payload 'max_tokens #f)])
+        (if (and (exact-integer? mt) (> mt 0)) (hash-set b 'max_tokens mt) b))))
   (define-values (code resp)
     ;; http-post-json raises exn:fail:model-retryable once its OWN retries are
     ;; spent — an unreachable endpoint, a deadline, a stalled read. Those are
