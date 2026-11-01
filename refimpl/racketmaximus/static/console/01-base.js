@@ -103,38 +103,66 @@ function hPassEnd(){
   }
 }
 
-// THE SHELL OUTLIVES THE PASS THAT PAINTED IT, AND THAT BROKE THE TAB BAR.
+// A REGION THAT OUTLIVES THE PASS THAT PAINTED IT NEEDS A SLOT, NOT A BRACKET.
 //
 // The sweep's premise is that "the DOM on screen and the two passes behind it
-// are always live". That is true of a tab's own markup, which `renderTab()`
-// replaces wholesale every pass, and FALSE of the shell: `go()` calls only
-// `renderTab()`, so one `appShell()` paint stays on screen across every later
-// tab change. Its handlers were registered inside `render()`'s bracket, so after
-// the shell's pass plus H_KEEP further passes the range was shifted off and
-// swept — and the tab buttons, logout, ⌘K and Ask all went dead after about
-// three tab clicks, silently, because the dispatcher's `typeof fn !== 'function'`
-// guard just returns. Reported from outside ("once I click on a few of the tabs,
-// none of the tabs stay responsive").
+// are always live". That holds for a whole tab, which `renderTab()` replaces
+// wholesale. It is FALSE for any region that is painted once and then left
+// alone while passes run — and there are two kinds:
 //
-// `Hk()` was built for exactly this class — "an overlay that the shell keeps on
-// screen while render passes run behind it" — and the shell itself, the largest
-// instance of it, was not given it. Plain `Hk()` would still be wrong here: the
-// shell is REPAINTED on every `render()` (a language switch, a brand apply, a
-// sign-in), so keeping each paint for ever would leak a set per render with
-// nothing ever freeing the shell that was replaced. So this is a single slot:
-// the shell on screen is kept, and the shell it replaces is freed in the same
-// breath. Bounded at one shell's worth, and the ranges cannot overlap because
-// the new indices are all above the old range's end.
-let H_SHELL = null;
-function hShell(paint){
-  const a = HANDLERS.length;
-  const html = paint();
-  const z = HANDLERS.length;
-  if (H_SHELL) for (let i = H_SHELL[0]; i < H_SHELL[1]; i++){ H_KEPT.delete(i); HANDLERS[i] = undefined; }
-  for (let i = a; i < z; i++) H_KEPT.add(i);
-  H_SHELL = [a, z];
+//   the SHELL, because `go()` calls only `renderTab()`, so one `appShell()`
+//   paint stays on screen across every later tab change; and
+//
+//   the UN-SWAPPED SIBLINGS OF A PARTIAL UPDATE. This is the one that bit
+//   twice. `cardSwap` opened a bracket, so every refresh counted as a pass —
+//   and the Jobs tab's submit form, painted by the tab render and never
+//   swapped, was swept after two refreshes. Reported from outside: "if I click
+//   on refresh, I can no longer submit a chat from the jobs page". A live poll
+//   makes one click enough, because the tick is the second pass.
+//
+// So a long-lived region goes in a NAMED SLOT: its handlers are kept out of the
+// sweep, and the generation it replaces is freed in the same breath. One slot
+// holds at most one generation, so this is bounded — `hShell` was the first
+// instance and `cardSwap` is the general one.
+//
+// What it does NOT free, stated: the last generation in a slot whose region has
+// been replaced by a TAB render rather than by another swap of the same card.
+// That is one card's worth of closures per card id, freed the next time that
+// card is swapped. Making a tab render clear every card slot would be wrong —
+// the shell's slot must survive exactly that.
+// The delegated event types, in ONE place: the listener loop below installs one
+// per name, and `hIndicesIn` scans markup for the same set. Two lists would
+// disagree the day a fifth event was added, and the failure would be a region
+// whose handlers are silently not kept.
+const H_EVENTS = ['click','input','change','keydown'];
+
+// Which handler indices a piece of MARKUP actually references. Reading them off
+// the markup rather than off a range of the table is what makes a slot immune to
+// interleaving: a tab render that completes while a swap is awaiting its fetch
+// registers handlers that would fall inside a naive [start, end) range and be
+// wrongly kept — or, worse, freed on the next swap.
+function hIndicesIn(html){
+  const out = [];
+  const re = new RegExp('data-h-(?:' + H_EVENTS.join('|') + ')="(\\d+)"', 'g');
+  let m; while ((m = re.exec(html))) out.push(+m[1]);
+  return out;
+}
+
+const H_SLOTS = new Map();              // key -> the indices currently kept
+function hKeepSlot(key, html){
+  const prev = H_SLOTS.get(key) || [];
+  const now = hIndicesIn(html);
+  // the new generation is kept BEFORE the old is freed, so an index that appears
+  // in both (nothing produces one today, but a future painter might reuse one)
+  // survives rather than being freed out from under the markup that names it.
+  for (const i of now) H_KEPT.add(i);
+  for (const i of prev) if (!now.includes(i)) { H_KEPT.delete(i); HANDLERS[i] = undefined; }
+  H_SLOTS.set(key, now);
   return html;
 }
+// the shell is just the first slot
+function hShell(paint){ return hKeepSlot('shell', paint()); }
+
 // REFRESH ONE CARD IN PLACE, WITHOUT A TAB RE-RENDER.
 //
 // `renderTab()` paints a `…` placeholder BEFORE it awaits its view, which is
@@ -157,19 +185,22 @@ function hShell(paint){
 // whatever replaced it.
 async function cardSwap(id, build){
   if(!document.getElementById(id)) return false;
-  hPassStart();
-  try {
-    const html = await build();
-    if(html == null) return false;
-    const cur = document.getElementById(id);
-    if(!cur) return false;
-    cur.outerHTML = html;
-    return true;
-  } catch (e) { return false; }
-  finally { hPassEnd(); }
+  // NOT a bracket. A bracket makes every refresh a render pass, and the
+  // un-swapped parts of the tab — the Jobs tab's submit form, the filters above
+  // a table — were painted by the tab render and are swept two refreshes later.
+  // That is the bug this function shipped with, reported as "if I click on
+  // refresh, I can no longer submit a chat from the jobs page". A slot keeps
+  // only what this card's own markup names, so a refresh cannot reach anything
+  // it did not paint.
+  const html = await build();
+  if(html == null) return false;                // a failed fetch leaves the card alone
+  const cur = document.getElementById(id);      // the tab may have changed under us
+  if(!cur) return false;
+  cur.outerHTML = hKeepSlot('card:' + id, html);
+  return true;
 }
 
-for (const evname of ['click','input','change','keydown']) {
+for (const evname of H_EVENTS) {
   document.addEventListener(evname, (ev) => {
     // #182: the command palette and the `?` overlay are GLOBAL shortcuts, so
     // they are not about an element and an element-scoped dispatch cannot

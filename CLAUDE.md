@@ -6441,6 +6441,82 @@ bash test/e2e/validate.sh          # §3i — the pager's arithmetic, in the bro
   only while there is live work — queued, running or canceling — and a settled
   queue schedules nothing, so an idle console really does go idle.
 
+## A PARTIAL UPDATE IS NOT A PASS EITHER (SWEEP‑4‑6, reported from outside)
+
+"If I click on refresh, I can no longer submit a chat from the jobs page."
+
+```sh
+raco test test/console-tests.rkt   # 47 cases
+bash test/e2e/validate.sh          # §3h2 — four real Refresh clicks
+```
+
+- **THE SWEEP'S PREMISE FAILS FOR ANY PARTIAL UPDATE, and `cardSwap` was one.**
+  It opened a render-pass bracket, so every refresh counted as a pass — and the
+  UN-SWAPPED siblings, painted by the tab render and then left alone, were swept
+  two refreshes later. The Jobs tab's submit form was the victim. **A live poll
+  makes ONE click enough**, because the tick is the second pass: reproduced in a
+  harness, the submit handler dies on refresh #2.
+- **This is the SHELL bug one layer down**, found three slices after it. The
+  shell survives because `go()` only re-renders the tab; a sibling card survives
+  because a refresh only replaces its neighbour. Both outlive the pass that
+  painted them, and the fix is the same — so `hShell` is now the first instance
+  of a general `hKeepSlot(key, html)` and a card swap is the second.
+- **THE KEPT SET IS READ OFF THE MARKUP, not off a range of the table.** A tab
+  render completing while a swap awaits its fetch registers handlers that would
+  fall inside a naive `[start, end)` and be wrongly kept — or freed on the next
+  swap. `hIndicesIn` scans for `data-h-*` indices, so a slot can only ever keep
+  or free what its own markup names.
+- **`H_EVENTS` IS ONE HOME, because two lists would drift silently.** The
+  dispatcher installs one listener per name and `hIndicesIn` scans for the same
+  set; a fifth event added to one and not the other is a region whose handlers
+  are quietly not kept. LIVE‑IN's shape in the dispatcher.
+- **§3g COULD NOT HAVE SEEN THIS, for the same reason §3f could not see §3g.**
+  Each assertion covered the region the previous bug was in: §3f the overlays,
+  §3g the shell, and the victim here is an ordinary sibling card inside the
+  tab's own pass. **Three bugs, one root cause, three separate assertions** —
+  the lesson is that "which regions outlive a pass?" is the question to enumerate
+  rather than to discover one report at a time.
+- **What a slot does NOT free, stated:** the last generation in a slot whose
+  region was replaced by a TAB render rather than by another swap of the same
+  card. One card's worth per card id, freed the next time that card is swapped.
+  Clearing every card slot on a tab render would be wrong — the shell's slot must
+  survive exactly that.
+
+## A button has to share the form controls' box (CSS‑1/‑2)
+
+"On every page, there are some issues with buttons alignment with the content.
+Buttons are staggered oddly."
+
+- **MEASURED BEFORE CHANGING ANYTHING, across every tab**: 12 of 22 control rows
+  misaligned, the worst by 23px. `input,textarea,select` carry
+  **`margin:4px 0 10px`** and a **1px border**; `.btn` had NEITHER — so in a
+  `.row` a button sat **10px below** the field beside it and was **2px shorter**.
+  The transparent border is what makes the heights match. After:
+  **7 of 22, worst 13px.**
+- **MY FIRST TWO HYPOTHESES WERE BOTH WRONG AND THE MEASUREMENT SAID SO.** I
+  read the rule as `margin:4px` (a wrapped line truncated by grep — it is
+  `4px 0 10px`) and guessed `.row{align-items:end}` would help, which it could
+  not: the rows that stagger ALREADY set it inline, where a stylesheet cannot
+  reach. Injecting a candidate and re-measuring is what settled it — 32→28 for
+  the wrong fix, 23→13 for the right one.
+- **AND THE METRIC ITSELF OVER-REPORTED BY ~20px** until it stopped counting
+  CHECKBOXES. A 13px checkbox inside its label cannot share a 43px text-field
+  box, so every row containing one looked catastrophically broken. A measurement
+  that flags something unfixable will send you looking for a cause that is not
+  there.
+- **`.btn.sm` NEEDED THE OPPOSITE RULE IN TWO PLACES**: no margin in a table cell
+  or the pager, which set their own spacing, and the control margin when it
+  really is in a form row (`.row > * > .btn.sm`). Zeroing it everywhere left the
+  small buttons 10px low; the pager opts back out by name, or its own `gap` is
+  doubled.
+- **WHAT IS LEFT, AND IT IS NOT CSS:** a `select` is 3px shorter than an `input`
+  because Chromium forces `line-height:normal` on it and ignores the author's;
+  and a `.btn.sm` beside a full-size field is genuinely 11px shorter, which is a
+  per-view MARKUP choice (use `.btn`, not `.btn.sm`, next to a full input) rather
+  than a rule. Stated rather than claimed as fixed.
+- **The shell is cached at startup, so a CSS change needs a RESTART** — unlike
+  `static/console/*.js`, which is read per request.
+
 ## A timestamp has to come from the EPOCH (CARD‑3)
 
 "Jobs screen needs a timestamp and still doesn't show what worker handled the

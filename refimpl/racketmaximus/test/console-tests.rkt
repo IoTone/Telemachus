@@ -719,7 +719,13 @@
   ;; replaced. The previous range is freed from H_KEPT in the same breath.
   (check-true (and (regexp-match? #rx"H_KEPT.delete" base) #t)
               "the shell it replaces must leave H_KEPT, or the bound drains away")
-  (check-true (and (regexp-match? #rx"H_SHELL" base) #t)))
+  ;; the shell is now the FIRST instance of a general mechanism: `cardSwap`
+  ;; needed the same thing, because the un-swapped siblings of a partial update
+  ;; outlive the pass that painted them exactly as the shell does. One slot per
+  ;; key, holding at most one generation.
+  (check-true (and (regexp-match? #rx"const H_SLOTS" base) #t))
+  (check-true (and (regexp-match? #px"function hShell[^\n]*hKeepSlot[(]'shell'" base) #t)
+              "hShell delegates to the slot rather than keeping its own range"))
 
 (test-case "the Workers card reads the OBSERVED models, not the typed-in column"
   ;; Reported from outside: "why does only one model show up in the workers page,
@@ -764,18 +770,30 @@
   (define fl (file->string (build-path console-dir "05-fleet.js")))
   (define rv (file->string (build-path console-dir "08-reviews.js")))
   (check-true (and (regexp-match? #rx"async function cardSwap" base) #t))
-  ;; THE SWAP MUST BE BRACKETED. The markup it paints registers handlers through
-  ;; `H()`, and a registration outside a bracket is never swept — so a card
-  ;; refreshing every 2.5s would accumulate closures for the life of the
-  ;; session, which is the leak #185 bounded, reintroduced by the thing meant to
-  ;; be cheaper than a render.
-  (let ([body (car (regexp-match #px"async function cardSwap.*?\n\\}" base))])
-    (check-true (and (regexp-match? #rx"hPassStart" body) #t) "cardSwap opens a bracket")
-    (check-true (and (regexp-match? #px"finally\\s*\\{\\s*hPassEnd" body) #t) "…and closes it in a finally")
-    ;; the element is looked up AGAIN after the await: the tab may have changed
-    ;; under it, and writing into a card that has gone paints over its successor
-    (check-true (>= (length (regexp-match* #rx"getElementById" body)) 2)
-                "the card is re-found after the await"))
+  ;; A PARTIAL UPDATE MUST NOT BE A RENDER PASS, and the first version was one.
+  ;; `cardSwap` opened a bracket, so every refresh counted as a pass — and the
+  ;; UN-SWAPPED parts of the tab, painted by the tab render and left alone, were
+  ;; swept two refreshes later. Reported from outside: "if I click on refresh, I
+  ;; can no longer submit a chat from the jobs page". A live poll makes ONE click
+  ;; enough, because the tick is the second pass. Reproduced in a harness: the
+  ;; submit handler dies on refresh #2.
+  (let ([body (car (regexp-match #px"async function cardSwap.*?\n[}]" base))])
+    (check-false (and (regexp-match? #rx"hPassStart" body) #t)
+                 "a card swap is NOT a render pass — that is the bug")
+    (check-true (and (regexp-match? #rx"hKeepSlot" body) #t)
+                "it keeps only what its own markup names")
+    ;; the element is re-found after the await: the tab may have changed under it
+    (check-true (>= (length (regexp-match* #rx"getElementById" body)) 2)))
+  ;; the slot reads its indices from the MARKUP, not from a range of the table:
+  ;; a render completing while a swap awaits its fetch would otherwise be caught
+  ;; up in the range and wrongly kept — or freed on the next swap
+  (check-true (and (regexp-match? #rx"function hIndicesIn" base) #t))
+  (check-true (and (regexp-match? #rx"data-h-" base) #t))
+  ;; ONE home for the delegated event list: the listener loop and the markup
+  ;; scan must not drift, or a region's handlers are silently not kept
+  (check-true (and (regexp-match? #rx"const H_EVENTS" base) #t))
+  (check-true (and (regexp-match? #px"for [(]const evname of H_EVENTS[)]" base) #t)
+              "the dispatcher installs from the same list the scan reads")
   ;; neither poller nor any pager control may reach for a tab render
   (for ([nm (in-list '("qRefresh" "jobsRefresh"))]
         [src (in-list (list fl rv))])
@@ -795,6 +813,24 @@
                "…and does not re-render the tab")
   (check-true (and (regexp-match? #px"function qGo[^}]*qRefresh\\(\\)" fl) #t)
               "so does changing page"))
+
+(test-case "a button shares the form controls' box"
+  ;; "On every page, there are some issues with buttons alignment with the
+  ;; content. Buttons are staggered oddly." Measured across the console: 12 of 22
+  ;; control rows were misaligned, the worst by 23px. `input,textarea,select`
+  ;; carry `margin:4px 0 10px` and a 1px border; `.btn` had NEITHER, so a button
+  ;; sat 10px below the field beside it and was 2px shorter. The transparent
+  ;; border is what makes the heights match.
+  (define css (file->string console-html))
+  (check-true (and (regexp-match? #px"[.]btn[{][^}]*margin:4px 0 10px" css) #t)
+              "a button carries the controls' vertical margin")
+  (check-true (and (regexp-match? #px"[.]btn[{][^}]*border:1px solid transparent" css) #t)
+              "…and a transparent border, or it is 2px short of an input")
+  ;; a small button lives in a table cell or a pager, which set their own
+  ;; spacing — and gains the control margin when it is really in a form row
+  (check-true (and (regexp-match? #px"[.]row > [*] > [.]btn[.]sm" css) #t))
+  (check-true (and (regexp-match? #rx"qpager" css) #t)
+              "the pager opts out, or its own gap is doubled"))
 
 (test-case "the queue pager is numbered, bounded and jumpable"
   (define fl (file->string (build-path console-dir "05-fleet.js")))

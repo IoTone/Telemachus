@@ -466,6 +466,42 @@ try {
       return live === notice;          // the notice appears exactly when it is true
     }));
 
+  // ── 3h2. REFRESHING A CARD MUST NOT KILL THE REST OF THE TAB ───────────────
+  // Reported from outside: "if I click on refresh, I can no longer submit a chat
+  // from the jobs page." `cardSwap` opened a render-pass bracket, so every
+  // refresh counted as a pass — and the submit form, painted by the tab render
+  // and never swapped, was swept two refreshes later. A live poll makes ONE
+  // click enough, because the tick is the second pass.
+  //
+  // §3g asserts the SHELL survives tab clicks and could not see this: the shell
+  // is in a slot, and the victim here is an ordinary sibling card in the tab's
+  // own pass. So this clicks the real Refresh button repeatedly and checks the
+  // control that is NOT in the card being swapped.
+  step('refreshing the jobs list leaves the rest of the tab alive');
+  await goTab(page, 'jobs', '#jobscard');
+  const submitBound = () => page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find(x => x.closest('#jobscard') === null
+      && x.hasAttribute('data-h-click') && !x.closest('nav.tabs') && !x.closest('header.top'));
+    if (!b) return 'no-submit';
+    return typeof HANDLERS[+b.getAttribute('data-h-click')] === 'function' ? 'bound' : 'DEAD';
+  });
+  ok('the submit button starts bound', (await submitBound()) === 'bound', await submitBound());
+  for (let i = 0; i < 4; i++) {
+    await page.click('#jobscard button.btn.sm');     // the card's own Refresh
+    await page.waitForTimeout(500);
+  }
+  ok('…and four refreshes later it is STILL bound', (await submitBound()) === 'bound',
+    await submitBound());
+  // the swapped card's own controls must be bound too, or the slot freed what it
+  // had just painted
+  ok('…as are the refreshed card\'s own controls',
+    await page.evaluate(() => [...document.querySelectorAll('#jobscard [data-h-click]')]
+      .every(el => typeof HANDLERS[+el.getAttribute('data-h-click')] === 'function')));
+  // …and the slot must still be RECLAIMING, or this passes by never freeing
+  // anything — the bound #185 exists for
+  ok('…while the slot still frees the generation it replaced',
+    await page.evaluate(() => H_SLOTS.has('card:jobscard') && HANDLERS.some(f => f === undefined)));
+
   // ── 3i. the queue pager's arithmetic, and a refresh that does NOT re-render ──
   // The page window, the ellipses and the clamp are a pure function with
   // interesting EDGES, so they are exercised by calling the real one in the real
