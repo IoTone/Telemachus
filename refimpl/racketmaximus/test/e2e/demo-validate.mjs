@@ -368,6 +368,56 @@ try {
   ok('…while the overlay the shell reserves for it is still there',
     await page.evaluate(() => !!document.getElementById('helpbox')));
 
+  // ── 3e2. …and when it CAN answer, the answer reaches the panel ──────────────
+  // THE BUG THIS EXISTS FOR SHIPPED, AND §3e ABOVE IS WHY IT COULD NOT BE SEEN.
+  // `doHelpAsk` assigned the WRAPPER `api()` returns — {ok, status, json} —
+  // where the body belongs, so `helpBody` read `reason`, `answer` and
+  // `citations` off an object with none of them and rendered the empty string
+  // for every question ever asked. Reported from outside as "Help is broken,
+  // doesn't respond to chat", with the server answering perfectly all along.
+  //
+  // §3e asserts the HIDDEN half, which is all a fresh install can show — and
+  // that is exactly the trap: the branch CI can reach was covered and the branch
+  // a user meets was not. So this one STUBS `api` and drives the real
+  // `doHelpAsk`, which needs no embedder, no corpus and no model. The console's
+  // scripts are classic, so `api` is a writable global.
+  step('help: a reply reaches the panel');
+  const helpHtml = await page.evaluate(async () => {
+    const saved = window.api;
+    window.api = async () => ({ ok: true, status: 200, json: {
+      answer: 'Raise the window with OLLAMA_CONTEXT_LENGTH.',
+      citations: [{ path: 'docs/ops/gpu-fleet-runbook.md', heading: 'Models' }],
+      reason: null } });
+    try {
+      window.S.help = { q: 'how do I raise the context window?', rep: null, asking: false };
+      await window.doHelpAsk();
+      return document.getElementById('helpout').innerHTML;
+    } finally { window.api = saved; }
+  });
+  ok('the answer text is rendered', helpHtml.includes('OLLAMA_CONTEXT_LENGTH'), helpHtml.slice(0, 200));
+  ok('…and the citation is listed', helpHtml.includes('gpu-fleet-runbook.md'), helpHtml.slice(0, 200));
+  ok('…and nothing of the wrapper leaks in', !/\bstatus\b.*200/.test(helpHtml));
+
+  // A REFUSAL HAS TO LAND SOMEWHERE TOO, and the old code could not tell one
+  // from an answer: both became a wrapper with no `answer`, so a 403 for a quota
+  // was also silence. It is a toast now, like every other call in this console.
+  const helpRefusal = await page.evaluate(async () => {
+    const saved = window.api, savedToast = window.toast;
+    let toasted = null;
+    window.toast = (m) => { toasted = m; };
+    window.api = async () => ({ ok: false, status: 403, json: { error: 'Forbidden: chat:use' } });
+    try {
+      window.S.help = { q: 'x', rep: null, asking: false };
+      await window.doHelpAsk();
+      return { toasted, body: document.getElementById('helpout').innerHTML };
+    } finally { window.api = saved; window.toast = savedToast; }
+  });
+  ok('a refused question says so', (helpRefusal.toasted || '').includes('chat:use'),
+    JSON.stringify(helpRefusal));
+  ok('…and does not leave the last answer on screen', helpRefusal.body === '',
+    JSON.stringify(helpRefusal.body).slice(0, 160));
+  await page.evaluate(() => { window.helpClose && window.helpClose(); });
+
   // ── 3f. an open overlay survives render passes behind it (#185) ─────────────
   // #185 bounded the delegated-handler table: entries created inside a render
   // pass are freed once two further passes have completed. That is safe only

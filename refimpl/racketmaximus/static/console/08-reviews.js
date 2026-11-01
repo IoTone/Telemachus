@@ -174,6 +174,18 @@ async function jobsRefresh(){
   });
 }
 
+// WHAT APPEARS HERE AND WHAT DOES NOT, said in words. Reported from outside as
+// "jobs don't seem to be populating anymore, no new jobs since 9+ hours ago" —
+// and the queue was perfectly healthy: the newest row really was nine hours old,
+// because everything done in between was Chat (which STREAMS, so there is no job
+// to row), Translate (synchronous — the request IS the work) and Ask (a direct
+// call). None of the three creates a scheduler job, so a screen that lists
+// scheduler jobs correctly showed nothing new, and a correct empty answer to an
+// unasked question reads exactly like a broken one.
+//
+// The honest fix is to say so. Making a translation a job instead is the real
+// answer and is #233 — it is what gives it progress, a cancel and a place in
+// this list — but the silence is a defect of its own and is not waiting on that.
 async function jobsView(){
   const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
   return `<h2>${t('jobs')}</h2>
@@ -184,15 +196,16 @@ async function jobsView(){
         <div><label>${t('target')}</label><input id="jtgt" value="ja" style="width:90px"></div>
         <div><button class="btn" data-h-click="${H((el,ev)=>doSubmitJob())}">${t('submit')}</button></div></div>
       <p class="muted" style="margin:8px 0 0;font-size:13px">${esc(t('jobkindhint'))}</p></div>
-    ${jobsListCard(jobs)}`;
+    ${jobsListCard(jobs)}
+    <p class="muted" style="font-size:13px;margin-top:10px">${esc(t('jobscope'))}</p>`;
 }
 async function doSubmitJob(){
   const kind=val('jk'), text=val('jtext');
   const payload = kind==='translate' ? {text, target_lang: val('jtgt')} : {prompt: text};
   const r=await api('/api/jobs',{method:'POST',body:{kind,payload}});
-  if(r.ok){ toast('queued',true); jobsRefresh(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(t('queued'),true); jobsRefresh(); } else toast(r.json.error||t('error'));
 }
 async function doCancelJob(id){
   const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
-  if(r.ok){ toast('canceled',true); jobsRefresh(); } else toast(r.json.error||'error');
+  if(r.ok){ toast(t('canceled'),true); jobsRefresh(); } else toast(r.json.error||t('error'));
 }

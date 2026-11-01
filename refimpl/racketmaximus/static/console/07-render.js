@@ -35,13 +35,19 @@ async function translateView(){
   const langs=[['ja','日本語'],['nl','Nederlands'],['es-419','Español (LatAm)'],['en','English'],['fr','Français'],['de','Deutsch']];
   const gl=await api('/api/glossary'); const terms=gl.ok?gl.json.glossary:[];
   const hr=await api('/api/translate'); const hist=hr.ok?hr.json.translations:[];
+  // #231: the limit is the SERVER's number, reported on this same read, so the
+  // count beside the field cannot disagree with the rule that refuses.
+  S.trMax = (hr.ok && hr.json.max_chars) || 0;
   const manage=canManage();
   const opts=langs.map(([c,n])=>`<option value="${c}">${esc(n)}</option>`).join('');
   const termRows=terms.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc(x.term)}</td><td>${esc(x.translation)}</td></tr>`).join('');
   const histRows=hist.map(x=>`<tr><td class="mono muted">${esc(x.target_lang)}</td><td>${esc((x.source_text||'').slice(0,40))}</td><td>${esc((x.result||'').slice(0,70))}</td></tr>`).join('');
   return `<h2>${t('translate')}</h2>
    <div class="card">
-     <label>${t('sourcetext')}</label><textarea id="trsrc" rows="4"></textarea>
+     <label>${t('sourcetext')}</label>
+     <textarea id="trsrc" class="grow" rows="4"
+       data-h-input="${H((el)=>{growTA(el);trCount();})}"></textarea>
+     <div id="trcount" class="muted" style="font-size:12px">${trCountText(0)}</div>
      <div class="row" style="margin-top:8px;align-items:end">
        <div><label>${t('target')}</label><select id="trtgt">${opts}</select></div>
        <div><label><input type="checkbox" id="trgl" checked> ${t('useglossary')}</label></div>
@@ -60,12 +66,53 @@ async function translateView(){
    <div class="card" style="margin-top:14px"><h3>${t('recent')}</h3>
      <table><thead><tr><th>lang</th><th>${t('sourcetext')}</th><th>${t('translation')}</th></tr></thead><tbody>${histRows}</tbody></table></div>`;
 }
+// WHAT THE COUNTER IS FOR is not tidiness: past the limit the answer comes back
+// WRONG rather than failing (#231), so the number has to be visible BEFORE the
+// button is pressed. Over the limit it turns red and says what will happen, and
+// the server refuses it anyway — this is the warning, not the enforcement.
+function trCountText(n){
+  const max = S.trMax || 0;
+  if (!max) return '';
+  return t('trcount').replace('{n}', n.toLocaleString()).replace('{max}', max.toLocaleString());
+}
+function trCount(){
+  const el = document.getElementById('trsrc'), out = document.getElementById('trcount');
+  if (!el || !out) return;
+  const n = el.value.length, max = S.trMax || 0;
+  out.textContent = trCountText(n) + (max && n > max ? ' — ' + t('troverlimit') : '');
+  out.style.color = (max && n > max) ? 'var(--bad)' : '';
+}
+// ONE SEND, the flag IS the guard and the pending state, and the `finally` is
+// what stops one network error leaving the button dead — #174's shape, which
+// this call never had. It also shows the CLOCK: a translation of any length
+// takes seconds to a minute on a local model, and the old version painted a
+// single "…" and gave no sign it was still alive.
+//
+// A REFUSAL GOES IN THE OUTPUT PANE, NOT IN A TOAST. #231's message is several
+// sentences — the length sent, the limit, why longer comes back wrong, and the
+// two remedies — and a toast scrolls away in 2.6 seconds with no second chance.
+// It is the one thing the person needs to read.
 async function doTranslate(){
+  if(S.trBusy) return;
   const text=val('trsrc'), target_lang=val('trtgt'), use_glossary=document.getElementById('trgl').checked;
-  if(!text){toast('empty');return;}
-  const out=document.getElementById('trout'); out.textContent='…';
-  const r=await api('/api/translate',{method:'POST',body:{text,target_lang,use_glossary}});
-  if(r.ok){ out.textContent=r.json.result; } else { out.textContent=''; toast(r.json.error||'error'); }
+  if(!text){toast(t('empty'));return;}
+  const out=document.getElementById('trout');
+  S.trBusy=true;
+  const t0=Date.now();
+  const paint=()=>{ out.textContent = t('trworking').replace('{s}', Math.round((Date.now()-t0)/1000)); };
+  paint();
+  const tick=setInterval(paint, 1000);
+  try {
+    const r=await api('/api/translate',{method:'POST',body:{text,target_lang,use_glossary}});
+    const secs=Math.round((Date.now()-t0)/1000);
+    out.style.color = r.ok ? '' : 'var(--bad)';
+    if(r.ok){ out.textContent=r.json.result; out.dataset.took=secs;
+              toast(t('trdone').replace('{s}', secs), true); }
+    else out.textContent=(r.json && r.json.error) || t('trfailed');
+  } finally {
+    clearInterval(tick);
+    S.trBusy=false;
+  }
 }
 async function doAddTerm(){
   const r=await api('/api/glossary',{method:'POST',body:{target_lang:val('gltgt'),term:val('glterm'),translation:val('gltr')}});

@@ -2100,6 +2100,22 @@
       "text": "chat と translate はサーバー自身のプールで実行されるため、ワーカーは表示されません。GPU ホストに渡される処理の種別は infer.chat で、フリートにルーティングされたチャットはこれをサブジョブとして作成します。",
       "hash": "d6de0198fba5acbe003ee38e5e13d4ee851828c2"
     },
+    "ui.jobscope": {
+      "text": "この一覧はスケジューラーのキューです。チャットは回答をストリームし、翻訳とヘルプはリクエスト内で処理されるため、いずれもジョブを作成しません。ここに表示されるのは、上で送信したもの、ワークフローのステップ、トリガーの実行、およびフリートワーカーが受け取った作業です。",
+      "hash": "027c00bf23be5832dadfa4da5d3bca8fe122a132"
+    },
+    "ui.queued": {
+      "text": "キューに入りました",
+      "hash": "efcc77141dbfd3ab9c9315b5d04cb462de5bb921"
+    },
+    "ui.canceled": {
+      "text": "キャンセルしました",
+      "hash": "140e7351379dcf91c8a2461ed5cf53e1b9d1414b"
+    },
+    "ui.error": {
+      "text": "エラー",
+      "hash": "11f9578d05e6f7bb58a3cdd00107e9f4e3882671"
+    },
     "ui.share": {
       "text": "共有",
       "hash": "09ca55ca52d207f2cc1d9339e0226a88e9e96e2f"
@@ -2679,6 +2695,30 @@
     "ui.sourcetext": {
       "text": "翻訳するテキスト",
       "hash": "9b7a799525e4005411b291dcacd01a83a6a47d89"
+    },
+    "ui.empty": {
+      "text": "翻訳するテキストがありません — まず入力または貼り付けてください。",
+      "hash": "c708ee18187cefb1105ec22dde71430e74570d05"
+    },
+    "ui.trcount": {
+      "text": "{n} / {max} 文字",
+      "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
+    },
+    "ui.troverlimit": {
+      "text": "長すぎます：誤った言語の要約が返ってくるため、拒否されます",
+      "hash": "7cf175fbfb31f4d7d4063eaf6dc921e0470463fd"
+    },
+    "ui.trworking": {
+      "text": "翻訳中… {s}秒",
+      "hash": "9556fa9dee7834f8de0a91f7ceacb1cb2f66e058"
+    },
+    "ui.trdone": {
+      "text": "{s}秒で翻訳しました",
+      "hash": "fa2b3cefb8c4bbb9d8065bb953518d72fefe0aa9"
+    },
+    "ui.trfailed": {
+      "text": "翻訳に失敗しました。",
+      "hash": "4961cdf5d2a505275ce6e0f2a88745122cd09099"
     },
     "doc.route.get.api.reviews.id": {
       "text": "1つのレビュー：対象、回答すべきチェックリスト、そして判断済みであればその内容。",
@@ -3875,6 +3915,10 @@
     "ui.helpasking": {
       "text": "問い合わせ中…",
       "hash": "b18ce81df55ca8aa4952c93e6f7c8a5d112980cc"
+    },
+    "ui.helpfailed": {
+      "text": "ヘルプを照会できませんでした — リクエストが失敗しました。",
+      "hash": "2ba52721ce4ab534a4a6e990585d52ff9fd1042a"
     },
     "ui.helpsources": {
       "text": "出典",

@@ -16,6 +16,16 @@ function wkAge(sec){
   if(s<172800) return Math.round(s/3600)+'h';
   return Math.round(s/86400)+'d';
 }
+// A HEADER, NOT A LEGEND BESIDE THE CONTROL (reported from outside: "what is
+// the meaning of the numbers 73 ✓ 0 ✗ 0 ⧖ — this needs a table header or
+// something"). #178 gave each figure its own tooltip and put a legend under the
+// window selector, and that was not enough for the plain reason that it was in
+// the wrong place: a tooltip is invisible until you suspect there is something
+// to hover, and a muted line above a table is not what somebody reading a cell
+// looks at. It is the column HEADER now and the legend is NOT also printed above
+// the table — the search card's lesson, where the heading said "Search" three
+// times on one screen.
+//
 // #178: the ✓ ✗ ⧖ figures are over a WINDOW, and the window was a hardcoded
 // "24h" in a column header's tooltip — so the three numbers an operator reads
 // beside a Drain button said nothing about themselves, and the figure that
@@ -156,7 +166,7 @@ function workersCard(xr, fr){
     <div style="flex:0 0 auto"><select style="margin:0" data-h-change="${H((el)=>wkSetHours(parseInt(el.value,10)))}">
       ${WKWINDOWS.map(h=>`<option value="${h}"${h===wkHours()?' selected':''}>${wkWindowLabel(h)}</option>`).join('')}
     </select></div>
-    <div class="muted" style="font-size:12px">${esc(t('wklegend'))}</div></div>`;
+    </div>`;
 
   const tok = S.wkToken ? `<div class="card" style="margin-top:10px;border-color:var(--warn)">
       <label>${t('wktoken')}</label>
@@ -170,7 +180,8 @@ function workersCard(xr, fr){
     ${win}
     <table><thead><tr><th>${t('name')}</th><th title="${esc(t('wkmodelshint'))}">${t('wkmodels')}</th><th>${t('wkhealth')}</th><th>${t('wkreports')}</th>
       <th>${t('wklastseen')}</th><th>${t('wkholding')}</th>
-      <th title="${esc(t('wkwindowhint'))}">${t('wkwindow').replace('{window}', wkWindowLabel(wkHours()))}</th>
+      <th title="${esc(t('wkwindowhint'))}">${t('wkwindow').replace('{window}', wkWindowLabel(wkHours()))}<br>
+        <span class="muted" style="font-weight:400;font-size:11px">${esc(t('wklegend'))}</span></th>
       <th style="border-left:1px solid var(--line)"></th></tr></thead>
       <tbody>${body}</tbody></table>
     ${none}

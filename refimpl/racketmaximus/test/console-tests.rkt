@@ -945,3 +945,69 @@
   (check-true (and (regexp-match? #rx"H_DEPTH" base) #t))
   (check-true (and (regexp-match? #px"H_DEPTH\\s*>\\s*0[)]\\s*return" base) #t)
               "an inner bracket closing must return before the sweep runs"))
+
+(test-case "api() answers a WRAPPER, and a reply has to be unwrapped before it is read"
+  ;; `doHelpAsk` assigned the wrapper — {ok, status, json} — where the BODY
+  ;; belongs, so `helpBody` read `reason`, `answer` and `citations` off an object
+  ;; with none of them and the panel rendered the empty string for every
+  ;; question ever asked. Reported from outside as "Help is broken, doesn't
+  ;; respond to chat", with the server answering correctly throughout: probed in
+  ;; process against the live corpus, "why do my jobs stay queued" came back
+  ;; "your team has exceeded its AI budget" in 0.9 s.
+  ;;
+  ;; THE E2E GATE COULD NOT HAVE SEEN IT, which is the lesson rather than the
+  ;; bug: §3e asserts the HIDDEN half, because a fresh install has no embedder
+  ;; and no corpus, so the branch CI can reach was covered and the branch a
+  ;; person meets was not. §3e2 now stubs `api` and drives the real `doHelpAsk`.
+  ;; This case is the cheap guard beside it.
+  (define help (console-code "17-help.js"))
+  (check-true (and (regexp-match? #px"S\\.help\\.rep\\s*=\\s*r\\.json" help) #t)
+              "the BODY is what gets stored, never the wrapper")
+  (check-false (regexp-match? #px"S\\.help\\.rep\\s*=\\s*r\\s*;" help)
+               "assigning the wrapper is the defect")
+  ;; A REFUSAL HAS TO LAND SOMEWHERE TOO. The old code could not tell a 403 from
+  ;; an answer — both became a wrapper with no `answer` — so a quota refusal was
+  ;; silence as well.
+  (check-true (and (regexp-match? #px"r\\.ok" help) #t) "the status has to be read")
+  (check-true (and (regexp-match? #rx"toast" help) #t) "…and a failure says so"))
+
+(test-case "#231: the Translate field grows, counts, and shows its clock"
+  (define rv (console-code "07-render.js"))
+  ;; the field was `rows="4"` and fixed, in the one place in this console where
+  ;; people paste a document
+  (check-true (and (regexp-match? #px"id=\"trsrc\"[^>]*class=\"grow\"" rv) #t)
+              "the source field must grow")
+  (check-true (and (regexp-match? #rx"growTA" rv) #t))
+  ;; ONE home for the limit — the server's, reported on the read the tab already
+  ;; makes — so the count in the browser cannot disagree with the rule that
+  ;; refuses. A literal here would be LIVE-IN's shape.
+  (check-true (and (regexp-match? #rx"max_chars" rv) #t))
+  (check-false (regexp-match? #rx"7680" rv) "the limit must not be spelled in the console")
+  ;; #174's shape, which this call never had: one send, the flag IS the guard
+  ;; and the pending state, and a `finally` so one network error cannot leave it
+  ;; dead.
+  (check-true (and (regexp-match? #px"if\\s*\\(S\\.trBusy\\)\\s*return" rv) #t))
+  (check-true (and (regexp-match? #rx"finally" rv) #t))
+  ;; a refusal goes in the OUTPUT pane, not a toast that scrolls away in 2.6s —
+  ;; #231's message is the several sentences the person needs to read
+  (check-true (and (regexp-match? #px"out\\.textContent\\s*=\\s*\\(r\\.json" rv) #t)
+              "the refusal has to be readable")
+  ;; and the English literals the old version toasted are gone (doSearch's defect)
+  (check-false (regexp-match? #px"toast\\('empty'\\)" rv)))
+
+(test-case "the outcome figures are explained in the column HEADER"
+  ;; Reported from outside: "what is the meaning of the numbers 73 ✓ 0 ✗ 0 ⧖ —
+  ;; this needs a table header or something." #178 had given each figure its own
+  ;; tooltip and put a legend under the window selector, and that was not
+  ;; enough for the plain reason that it was in the wrong PLACE: a tooltip is
+  ;; invisible until you suspect there is something to hover, and a muted line
+  ;; above a table is not what somebody reading a cell looks at.
+  (define fleet (console-code "05-fleet.js"))
+  ;; the legend is in the `<th>` with the window, and the figures are the cell
+  ;; below it
+  (check-true (and (regexp-match? #px"<th[^>]*>[^<]*wkwindow[\\s\\S]{0,200}wklegend" fleet) #t)
+              "the legend belongs in the header of the column it describes")
+  ;; …and is NOT also printed above the table. The search card's lesson, where
+  ;; the heading said "Search" three times on one screen.
+  (check-equal? (length (regexp-match* #rx"wklegend" fleet)) 1
+                "said once, in the header"))

@@ -109,8 +109,22 @@ async function doHelpAsk(){
   S.help.asking = true;
   helpPaint();
   try {
+    // `api()` answers a WRAPPER — {ok, status, json} — and this assigned the
+    // wrapper itself, so `helpBody` read `reason`, `answer` and `citations` off
+    // an object that has none of them, every field came back undefined, and the
+    // panel rendered the EMPTY STRING for every question ever asked. Reported
+    // from outside as "help doesn't respond". The server was answering
+    // perfectly: probed in process against the live corpus, "why do my jobs
+    // stay queued" came back "your team has exceeded its AI budget" in 0.9s.
+    //
+    // A REFUSAL HAS TO LAND SOMEWHERE TOO. The old code could not tell a 403
+    // from an answer either, because both became a wrapper with no `answer` —
+    // so a quota refusal was also silence. `helpBody` is for the server's own
+    // closed reasons (HELP-19); an HTTP failure is a different thing and gets
+    // the toast every other call in this console uses.
     const r = await api('/api/help', { method: 'POST', body: { question: q } });
-    S.help.rep = r;
+    if (r.ok) S.help.rep = r.json;
+    else { S.help.rep = null; toast((r.json && r.json.error) || t('helpfailed')); }
   } catch (e) {
     toast(String((e && e.message) || e));
   } finally {

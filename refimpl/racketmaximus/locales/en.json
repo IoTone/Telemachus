@@ -211,6 +211,10 @@
       "text": "Delete a team.",
       "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
     },
+    "ui.trfailed": {
+      "text": "the translation failed.",
+      "hash": "4961cdf5d2a505275ce6e0f2a88745122cd09099"
+    },
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
       "hash": "e26ec1d25a8b169289a64b2395aa35867742ad61"
@@ -386,6 +390,10 @@
     "ui.reviewrevise": {
       "text": "Send back",
       "hash": "0aa2a5cc3f18a3fdca8547cbf066e131c1c06469"
+    },
+    "ui.error": {
+      "text": "error",
+      "hash": "11f9578d05e6f7bb58a3cdd00107e9f4e3882671"
     },
     "doc.route.post.api.2fa.enable": {
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.",
@@ -1791,6 +1799,10 @@
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
     },
+    "ui.trdone": {
+      "text": "translated in {s}s",
+      "hash": "fa2b3cefb8c4bbb9d8065bb953518d72fefe0aa9"
+    },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
       "hash": "bba4ed6d31893fac39c03f250081b0787cdc73cb"
@@ -1838,6 +1850,10 @@
     "doc.route.post.api.profile": {
       "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
       "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
+    },
+    "ui.trcount": {
+      "text": "{n} / {max} characters",
+      "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
     },
     "doc.tool.doc_redact.detectors": {
       "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
@@ -1894,6 +1910,10 @@
     "ui.operator": {
       "text": "operator",
       "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
+    },
+    "ui.queued": {
+      "text": "queued",
+      "hash": "efcc77141dbfd3ab9c9315b5d04cb462de5bb921"
     },
     "doc.perm.files:write": {
       "text": "Upload documents and new versions.",
@@ -2331,6 +2351,14 @@
       "text": "Read every team-visible resource; no AI spend, no mutation.",
       "hash": "b4b905e1f8563427da3e415c721f45d732072ab5"
     },
+    "doc.tool.doc_render.engine": {
+      "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with `src=\"repo:<object id>\"`; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.",
+      "hash": "6fa73480e15fbd0e370e16f1e6f34b65cc8a3e34"
+    },
+    "ui.canceled": {
+      "text": "canceled",
+      "hash": "140e7351379dcf91c8a2461ed5cf53e1b9d1414b"
+    },
     "ui.wkmodelnone": {
       "text": "Nothing declared. A job that names a model will not be offered to this worker; a job that names none can be.",
       "hash": "25670df38c28a356eac44f2fcc45cef65f4b7153"
@@ -2483,10 +2511,6 @@
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
-    "doc.tool.doc_render.engine": {
-      "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with `src=\"repo:<object id>\"`; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.",
-      "hash": "6fa73480e15fbd0e370e16f1e6f34b65cc8a3e34"
-    },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
@@ -2554,6 +2578,10 @@
     "doc.perm.org:read": {
       "text": "See the company, its teams, members and audit trail.",
       "hash": "05279417b614668317d0b96f13b779958ddfcdda"
+    },
+    "ui.trworking": {
+      "text": "translating… {s}s",
+      "hash": "9556fa9dee7834f8de0a91f7ceacb1cb2f66e058"
     },
     "doc.route.post.api.admin.seed-tenants": {
       "text": "Seed Acme and Globex with known dev passwords — demo fixture only.",
@@ -3187,6 +3215,10 @@
       "text": "Count the number of words in a piece of text.",
       "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
     },
+    "ui.empty": {
+      "text": "Nothing to translate — type or paste some text first.",
+      "hash": "c708ee18187cefb1105ec22dde71430e74570d05"
+    },
     "doc.tool.doc_classify_eval.rules": {
       "text": "The rule set to evaluate — the same rules the pipeline would run",
       "hash": "54b026958d4e9749b448857ea4e6137b4cd2a6d9"
@@ -3231,13 +3263,17 @@
       "text": "Theme",
       "hash": "a797e30923ac1be590300ce6b08e63b4e6dc6688"
     },
-    "doc.tool.doc_extract_fields.schema": {
-      "text": "A JSON schema the extracted object must conform to",
-      "hash": "83e904382cbf96b6d364748cb9688696e3f88a3d"
-    },
     "doc.perm.org:*": {
       "text": "Everything at the company tier. Never reaches instance:*.",
       "hash": "52de0860cce2504961d6406e8975a750db44984c"
+    },
+    "ui.troverlimit": {
+      "text": "too long: this will come back as a summary in the wrong language, and will be refused",
+      "hash": "7cf175fbfb31f4d7d4063eaf6dc921e0470463fd"
+    },
+    "doc.tool.doc_extract_fields.schema": {
+      "text": "A JSON schema the extracted object must conform to",
+      "hash": "83e904382cbf96b6d364748cb9688696e3f88a3d"
     },
     "ui.thcontrast": {
       "text": "Low contrast",
@@ -3315,6 +3351,14 @@
       "text": "Set a team's model roles: {roles: {utility: <executor name> | @fleet | null}}. The executor must exist; `@fleet` (#173) sends the role's work to whichever pull worker is free instead of pinning it to one host; null returns to the instance default, then the local model.",
       "hash": "7a4ccddc61b39393a950680b329dc5a572eb16a3"
     },
+    "ui.helpfailed": {
+      "text": "Help could not be asked — the request failed.",
+      "hash": "2ba52721ce4ab534a4a6e990585d52ff9fd1042a"
+    },
+    "ui.input": {
+      "text": "Input",
+      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
+    },
     "ui.palfoot": {
       "text": "↑↓ to move · Enter to run · Esc to close",
       "hash": "37c078ff1df1e11f304b0fc305068c9919f1144c"
@@ -3326,10 +3370,6 @@
     "doc.route.get.api.i18n.catalog": {
       "text": "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.",
       "hash": "80282f87d17426ec9fcc94a64519d2691104a001"
-    },
-    "ui.input": {
-      "text": "Input",
-      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
     },
     "doc.route.get.api.usage": {
       "text": "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).",
@@ -3962,6 +4002,10 @@
     "doc.route.get.api.feeds.id": {
       "text": "One feed. Another team's id is a 404, not a 403.",
       "hash": "7cbf68872016efd24eec9befddf94a66fe1a34ad"
+    },
+    "ui.jobscope": {
+      "text": "This list is the SCHEDULER queue. Chat streams its answer, and Translate and Ask are answered in the request itself — none of the three creates a job, so using them leaves nothing here. What appears: what you submit above, a workflow's steps, a trigger's run, and any work a fleet worker claims.",
+      "hash": "027c00bf23be5832dadfa4da5d3bca8fe122a132"
     },
     "doc.route.get.api.reviews": {
       "text": "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.",
