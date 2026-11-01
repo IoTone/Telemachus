@@ -169,6 +169,10 @@ function go(tab){ S.tab=tab; S.newToken=null;
   S.wfPoll++;
   // leaving the Jobs tab drops its live poll, the same way it drops a run poll
   S.jobPoll++;
+  // …and leaving Admin or Health drops the queue card's. The tick also checks
+  // that #qcard is still on screen, which covers a render that removed it; this
+  // covers the one it does not, a tick already scheduled when the tab changed.
+  S.qPoll++;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }
 

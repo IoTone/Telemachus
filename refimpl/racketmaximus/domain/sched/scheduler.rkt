@@ -279,6 +279,21 @@
           ;; leaves `executor_id` NULL by design — the pool does not mint a row —
           ;; so an absent name means "this ran in the server", not "unknown".
           'executor (nz (vr r 13))
+          ;; THE EPOCHS, NOT `created_at`, AND THAT IS NOT A PREFERENCE.
+          ;; `created_at`/`started_at`/`finished_at` are TEXT `CURRENT_TIMESTAMP`
+          ;; whose FORMAT DIFFERS BY DIALECT — SQLite gives `2026-08-21 04:16:09`
+          ;; and PostgreSQL `2026-08-21 10:12:10.225696-07`. A console that parsed
+          ;; either would be wrong on one engine, and wrong in the worst way:
+          ;; `new Date("2026-11-01 05:15:17")` is read as LOCAL time by most
+          ;; engines while the value is UTC, so the timestamp would be silently
+          ;; out by the viewer's own offset with nothing to catch it. The epoch
+          ;; columns exist for exactly this (migrations 0038/0041/0066, each of
+          ;; which records the trap), so the age and the duration are computed
+          ;; from integers and the absolute time is formatted in the viewer's own
+          ;; zone from one.
+          'created_epoch (nz (vr r 14))
+          'started_epoch (nz (vr r 15))
+          'finished_epoch (nz (vr r 16))
           ;; `purged_at` is reported because WITHOUT it an empty payload and a
           ;; purged one are the same thing to a reader (issue #59). A caller that
           ;; honoured a deletion request needs to be able to show that it was
@@ -298,7 +313,8 @@
 (define JSELECT
   (string-append "SELECT j.id, j.kind, j.status, j.priority, j.result, j.error, j.created_at, "
                  "j.started_at, j.finished_at, j.executor_id, j.attempt, j.parent_job_id, "
-                 "j.purged_at, x.name FROM jobs j LEFT JOIN executors x ON x.id = j.executor_id"))
+                 "j.purged_at, x.name, j.created_epoch, j.started_epoch, j.finished_epoch "
+                 "FROM jobs j LEFT JOIN executors x ON x.id = j.executor_id"))
 
 (define (get-job conn id team)
   (define r (query-maybe-row conn (string-append JSELECT " WHERE j.id = ? AND j.team_id = ?") id team))

@@ -2064,6 +2064,34 @@
       "text": "まだワーカーに取得されていません",
       "hash": "6f95f4a2ea37bc775f17f763215c1567f8d20b2c"
     },
+    "ui.jobunclaimedshort": {
+      "text": "未取得",
+      "hash": "4f24d75496e51eddcda170d8fa47b49f5034a85d"
+    },
+    "ui.jobinprocshort": {
+      "text": "サーバー内",
+      "hash": "99fc8f91a50120270b90e2468c6536e073b4bea9"
+    },
+    "ui.jobwhen": {
+      "text": "時刻",
+      "hash": "30603fa9e0f620c305cd627ab0ff138a960c48bd"
+    },
+    "ui.jobwhenhint": {
+      "text": "ジョブが作成された時刻と、完了したジョブの実行時間です。マウスを重ねると、お使いのタイムゾーンでの時刻が表示されます。",
+      "hash": "e8b6f2e17afe0771ace7070f117e7bb32d4ef599"
+    },
+    "ui.jobago": {
+      "text": "{age}前",
+      "hash": "1ebef83b6f3881bed47f04d4eabef9ee2108c73d"
+    },
+    "ui.jobtookhint": {
+      "text": "ジョブの実行時間です。ワーカーまたはプールが取得した時点から、終了した時点までを測っています。",
+      "hash": "2406714fa2e5b377f8d62150682a932f2d3b54c9"
+    },
+    "ui.jobkindhint": {
+      "text": "chat と translate はサーバー自身のプールで実行されるため、ワーカーは表示されません。GPU ホストに渡される処理の種別は infer.chat で、フリートにルーティングされたチャットはこれをサブジョブとして作成します。",
+      "hash": "d6de0198fba5acbe003ee38e5e13d4ee851828c2"
+    },
     "ui.share": {
       "text": "共有",
       "hash": "09ca55ca52d207f2cc1d9339e0226a88e9e96e2f"
@@ -2595,6 +2623,30 @@
     "ui.wkhealth": {
       "text": "稼働状態",
       "hash": "834b34f16f451e00f268dd5c8c81d16e3c020275"
+    },
+    "ui.qlive": {
+      "text": "キューの動きに合わせて更新しています",
+      "hash": "106d131ad089dd7f653e80871e7673b51bd161c7"
+    },
+    "ui.qjump": {
+      "text": "ページ",
+      "hash": "767013ce0ee0f6d7a07587912eba3104cfaabc15"
+    },
+    "ui.qfirst": {
+      "text": "最初のページ",
+      "hash": "ef4f67bfcef05127f3df77ceb287d8535a8b1975"
+    },
+    "ui.qprev": {
+      "text": "前のページ",
+      "hash": "a2cd197c60374befa6edb04fd2e92376b59d7c97"
+    },
+    "ui.qnext": {
+      "text": "次のページ",
+      "hash": "f9875a4acc75704ac77125a94a2519c274a49d62"
+    },
+    "ui.qlast": {
+      "text": "最後のページ",
+      "hash": "f300bdd18781a463f3ac5666b1b21281ca55b12a"
     },
     "ui.wkmodels": {
       "text": "モデル",

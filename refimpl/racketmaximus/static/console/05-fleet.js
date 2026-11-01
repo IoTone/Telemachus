@@ -223,10 +223,17 @@ async function wkCreate(){
 //
 // Read-only on purpose: cancelling is team-tier (owner-ok or jobs:cancel), and
 // an operator stopping another company's job is its own decision.
+// The page size has ONE home: `queueQuery` asks the server for it and the
+// pager computes the page count from it. Two literals would disagree the day
+// one changed, and the symptom would be a pager that offers a page the
+// listing never fills. Declared ABOVE its first use — a top-level `const`
+// does not hoist, and while nothing calls these during script evaluation,
+// #110 r6 paid for that assumption once already.
+const QPAGE = 25;
 function queueQuery(){
   const f=S.qFilter||{};
   const qs=Object.keys(f).filter(k=>f[k]).map(k=>k+'='+encodeURIComponent(f[k]));
-  qs.push('limit=25'); qs.push('offset='+(S.qOffset||0));
+  qs.push('limit='+QPAGE); qs.push('offset='+(S.qOffset||0));
   return '?'+qs.join('&');
 }
 // The kinds worth offering are the ones the fleet read already names: what is in
@@ -239,11 +246,93 @@ function qKinds(fr){
   const here=(q.depth||[]).map(d=>d.kind), remote=q.remote_kinds||[];
   return Array.from(new Set(here.concat(remote))).sort();
 }
-function qSet(k,v){ S.qFilter=Object.assign({}, S.qFilter||{}, {[k]:v}); S.qOffset=0; renderTab(); }
-function qPage(d){ S.qOffset=Math.max(0,(S.qOffset||0)+d); renderTab(); }
+function qPages(){ return Math.max(1, Math.ceil((S.qTotal||0)/QPAGE)); }
+function qCur(){ return Math.min(qPages(), Math.floor((S.qOffset||0)/QPAGE)+1); }
+
+// A FILTER OR A PAGE CHANGE SWAPS THIS CARD, NOT THE TAB.
+//
+// Both used to call `renderTab()`, which on Admin re-fires the eight requests
+// that tab opens with AND paints a `…` placeholder over the whole screen before
+// it awaits — so changing page blanked the page, scrolled it to the top and
+// re-read the metrics, the session policy, the executors, the fleet and the
+// instance features to show twenty-five different rows of one table.
+async function qRefresh(){
+  return cardSwap('qcard', async () => {
+    const qr = await api('/api/admin/queue'+queueQuery());
+    // `fr` is only ever used for the kind dropdown, and a refresh must not have
+    // to re-read the fleet to fill it — the full render caches the list in
+    // S.qKinds, so the options survive a swap that never asked for them.
+    return qr.ok ? queueCard(qr, null) : null;
+  });
+}
+function qSet(k,v){ S.qFilter=Object.assign({}, S.qFilter||{}, {[k]:v}); S.qOffset=0; qRefresh(); }
+function qGo(page){
+  const n=Math.min(Math.max(1, page|0), qPages());
+  S.qOffset=(n-1)*QPAGE;
+  qRefresh();
+}
+function qPage(d){ qGo(qCur()+d); }
+// The jump box is honest about its own bounds: a page number outside the range
+// is clamped rather than refused, because the only way to produce one is to type
+// it and the useful answer to "page 900 of 6" is page 6.
+function qJump(el){
+  const n=parseInt(el.value,10);
+  if(!isNaN(n)) qGo(n);
+}
+
+// NUMBERED, WITH A WINDOW AND A JUMP. `←`/`→` alone cannot answer "how much is
+// there" or get you to the end of a long queue, which is where the interesting
+// rows are when something has gone wrong — the drain order puts the oldest
+// queued job FIRST, but a `recent` listing of a thousand settled jobs buries
+// last night's failures pages deep.
+//
+// First and last are always offered, so the range is visible even when the
+// window is nowhere near either end; the ellipsis is NOT a button, because a
+// control whose destination a reader cannot predict is worse than none.
+function qPager(Q, rows){
+  const total=Q.total||0, pages=qPages(), cur=qCur();
+  const from=(Q.offset||0)+1, to=(Q.offset||0)+rows.length;
+  const showing=`<span class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',total)}</span>`;
+  if(pages<=1) return `<p style="margin-top:8px">${showing}</p>`;
+  const btn=(label,page,opts)=>{
+    const o=opts||{};
+    if(o.disabled) return `<button class="btn sm ghost" disabled>${label}</button>`;
+    return `<button class="btn sm ${o.active?'':'ghost'}" ${o.title?`title="${esc(o.title)}"`:''}
+      data-h-click="${H(()=>qGo(page))}"${o.active?' aria-current="page"':''}>${label}</button>`;
+  };
+  const win=2, nums=[];
+  let lo=Math.max(1,cur-win), hi=Math.min(pages,cur+win);
+  if(lo>1){ nums.push(btn('1',1,{active:cur===1})); if(lo>2) nums.push(`<span class="muted">…</span>`); }
+  for(let p=lo;p<=hi;p++) nums.push(btn(String(p),p,{active:p===cur}));
+  if(hi<pages){ if(hi<pages-1) nums.push(`<span class="muted">…</span>`); nums.push(btn(String(pages),pages,{active:cur===pages})); }
+  return `<div class="row qpager" style="align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap">
+    ${showing}
+    <span style="flex:1 1 auto"></span>
+    ${btn('«',1,{disabled:cur<=1,title:t('qfirst')})}
+    ${btn('‹',cur-1,{disabled:cur<=1,title:t('qprev')})}
+    ${nums.join('')}
+    ${btn('›',cur+1,{disabled:cur>=pages,title:t('qnext')})}
+    ${btn('»',pages,{disabled:cur>=pages,title:t('qlast')})}
+    <label style="margin:0 0 0 10px;white-space:nowrap">${t('qjump')}
+      <input type="number" min="1" max="${pages}" value="${cur}" style="width:5.5em;margin-left:6px"
+        data-h-change="${H((el)=>qJump(el))}"
+        data-h-keydown="${H((el,ev)=>{ if(ev.key==='Enter'&&!ev.isComposing){ qJump(el); return false; } })}">
+      <span class="muted">/ ${pages}</span></label></div>`;
+}
 function queueCard(qr, fr){
   if(!qr||!qr.ok) return '';
   const Q=qr.json, rows=Q.jobs||[], f=S.qFilter||{};
+  // the pager needs the total and the kind list on a refresh that re-read
+  // neither, so a FULL render is what keeps them current
+  S.qTotal = Q.total||0;
+  if(fr) S.qKinds = qKinds(fr);
+  // UPDATES ARRIVE WHILE THE QUEUE IS MOVING, in place, and stop when it stops.
+  // The jobs tab's rule (QVIZ-6): the idle clock counts from the last REQUEST,
+  // so a queue that ticked for as long as the tab was open would hold a session
+  // alive indefinitely. A settled queue schedules nothing.
+  const live = rows.some(j=>j.status==='queued'||j.status==='running'||j.status==='canceling');
+  if(live){ const gen=++S.qPoll;
+    setTimeout(()=>{ if(S.qPoll===gen && document.getElementById('qcard')) qRefresh(); }, 2500); }
   const sel=(k,opts,lbl)=>`<div><label>${lbl}</label><select data-h-change="${H((el)=>qSet(k,el.value))}">
     ${['',...opts].map(o=>`<option value="${esc(o)}"${(f[k]||'')===o?' selected':''}>${o?esc(o):'—'}</option>`).join('')}
   </select></div>`;
@@ -265,17 +354,15 @@ function queueCard(qr, fr){
       <td><button class="btn sm ghost" title="${esc(t('qvpathhint'))}"
         data-h-click="${H((el)=>jobTrail(j.id, el))}">${t('qvpath')}</button></td></tr>`;
   };
-  const from=(Q.offset||0)+1, to=(Q.offset||0)+rows.length;
-  const pager = Q.total>rows.length ? `<p class="muted">${t('qshowing').replace('{from}',from).replace('{to}',to).replace('{total}',Q.total)}
-      <button class="btn sm ghost" data-h-click="${H(()=>qPage(-25))}"${(Q.offset||0)<=0?' disabled':''}>←</button>
-      <button class="btn sm ghost" data-h-click="${H(()=>qPage(25))}"${to>=Q.total?' disabled':''}>→</button></p>` : '';
+  const pager = qPager(Q, rows);
   // `order` is reported rather than assumed: a list that LOOKED like the drain
   // order and was not would mislead about what runs next.
   const ord = Q.order==='drain' ? t('qdrainorder') : t('qrecentorder');
-  return `<div class="card" id="qcard" style="margin-top:14px"><h3>${t('queue')} <span class="muted" style="font-size:13px">— ${esc(ord)}</span></h3>
+  return `<div class="card" id="qcard" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('queue')} <span class="muted" style="font-size:13px">— ${esc(ord)}</span></h3>
+      <div class="row" style="align-items:center;gap:10px;margin:0">${live?`<span class="muted" style="font-size:13px">${esc(t('qlive'))}</span>`:''}<button class="btn sm ghost" data-h-click="${H(()=>qRefresh())}">${t('refresh')}</button></div></div>
     <div class="row">
       ${sel('status',['queued','running','canceling','done','error','canceled'],t('status'))}
-      ${sel('kind',qKinds(fr),t('qkind'))}
+      ${sel('kind',fr?qKinds(fr):(S.qKinds||[]),t('qkind'))}
     </div>
     ${rows.length?`<table><thead><tr><th>${t('qkind')}</th><th>${t('status')}</th><th>${t('qage')}</th>
       <th>${t('team')}</th><th>${t('workers')}</th><th>${t('qattempt')}</th><th></th><th></th></tr></thead>

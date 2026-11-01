@@ -6381,6 +6381,101 @@ bash test/e2e/validate.sh          # §3g — real CLICKS on the tab bar, five o
   escapes, so every `#px"\\s*"` landed as `#px"\s*"` and the test file would not
   `read` at all. Use a raw string, or `[(]`-style character classes.
 
+## A refresh is not a re-render (CARD‑1‑6, reported from outside)
+
+"The queue on the admin page should stream in updates, not full page refresh …
+its pagination should have a numbered pagination, not just left and right, and
+shouldn't reload the entire page."
+
+```sh
+raco test test/console-tests.rkt   # 46 cases; three new blocks, controlled
+bash test/e2e/validate.sh          # §3i — the pager's arithmetic, in the browser
+```
+
+- **`renderTab()` PAINTS A `…` PLACEHOLDER BEFORE IT AWAITS, so using it as a
+  refresh blanks the screen.** That is right for a tab CHANGE and wrong for
+  everything else, and three things were using it as a refresh: the queue's
+  filter, its pager, and — **mine, from one slice earlier** — the 2-second jobs
+  poll, which therefore flashed the whole tab on every tick. On Admin it is worse
+  than a flash: that tab opens with EIGHT requests, so changing page re-read the
+  metrics, the session policy, the executors, the fleet and the instance features
+  to show twenty-five different rows of one table.
+- **`cardSwap(id, build)` IS BRACKETED, AND THAT IS NOT OPTIONAL** (CARD‑2). The
+  markup it paints registers handlers through `H()`, and a registration made
+  outside a bracket is NEVER swept — so a card refreshing every 2.5s would
+  accumulate closures for the life of the session, which is the leak #185
+  bounded, reintroduced by the thing meant to be cheaper than a render. With the
+  bracket the card's handlers live two further passes, by which time this card's
+  DOM has been replaced by a later refresh or by a tab render.
+- **THE ELEMENT IS LOOKED UP AGAIN AFTER THE AWAIT.** The tab may have changed
+  under it, and writing into a card that is no longer on screen paints over
+  whatever replaced it — `renderTab`'s own `renderSeq` lesson, one layer down.
+- **THE PAGE SIZE HAS ONE HOME** (CARD‑4). `queueQuery` asks the server for
+  `QPAGE` and the pager computes the page count from it; two literals would
+  disagree the day one changed and the symptom is a pager offering a page the
+  listing never fills — LIVE‑IN's shape. `const QPAGE` is declared ABOVE its
+  first use: it does not hoist, and while nothing calls these during script
+  evaluation, #110 r6 paid for that assumption once already.
+- **FIRST AND LAST ARE ALWAYS REACHABLE AND THE ELLIPSIS IS NOT A BUTTON**
+  (CARD‑5). A control whose destination a reader cannot predict is worse than
+  none. A page number out of range is CLAMPED rather than refused: the only way
+  to produce one is to type it, and the useful answer to "page 900 of 6" is page
+  6.
+- **THE PAGER'S EDGES ARE TESTED IN THE BROWSER, not by a source assertion**
+  (§3i). The window, the two ellipses and the clamp are a pure function with
+  interesting edges, so the gate CALLS the real one with fabricated totals —
+  §3c's rule for the Markdown sanitiser: a question about what code COMPUTES
+  cannot be answered by grepping it.
+- **AND THE PROPERTY THE REPORT WAS ABOUT IS ASSERTED DIRECTLY**: `renderSeq`
+  before and after a filter change. Controlled — put `renderTab()` back in
+  `qSet` and the gate fails with `renderSeq 27 -> 28`.
+- **A CONTROL WHOSE PATCH DID NOT APPLY IS NOT A CONTROL, for the second time in
+  these notes.** `sed` refused the substitution (`bad flag in substitute
+  command: '{'` — the replacement contained `{}`), printed its complaint, and
+  the gate then passed against UNCHANGED code, which reads exactly like a control
+  that did not bite. Patch with something that ASSERTS the old text was found.
+- **TRUE STREAMING IS STILL NOT THIS, and the reason is the idle clock.** There
+  is no event channel for job or queue state, and an SSE stream would be worse
+  than a poll here rather than better: it holds a connection open by design,
+  which is QVIZ‑6's objection in its strongest form. Both tickers therefore run
+  only while there is live work — queued, running or canceling — and a settled
+  queue schedules nothing, so an idle console really does go idle.
+
+## A timestamp has to come from the EPOCH (CARD‑3)
+
+"Jobs screen needs a timestamp and still doesn't show what worker handled the
+job."
+
+- **THE TEXT COLUMNS CANNOT BE PARSED BY THE CONSOLE.**
+  `created_at`/`started_at`/`finished_at` are TEXT `CURRENT_TIMESTAMP` and the
+  format differs by dialect (`2026-08-21 04:16:09` against
+  `2026-08-21 10:12:10.225696-07`) — but the sharper problem is that
+  **`new Date("2026-11-01 05:15:17")` is read as LOCAL time by most engines while
+  the value is UTC**, so a parsed timestamp is silently out by the viewer's own
+  offset with nothing anywhere to catch it. `created_epoch`, `started_epoch` and
+  `finished_epoch` (0041/0038/0066) exist for exactly this and each migration
+  records the trap; the age is arithmetic on integers and the absolute time is
+  formatted by the browser in the viewer's own zone.
+- **RELATIVE IS THE TEXT AND ABSOLUTE IS THE TITLE.** "4m ago" is what answers
+  "is this moving?", which is why somebody is looking at the column; the
+  wall-clock time is one hover away for when it is not. `{age} ago` is a sentence,
+  so the word order is the catalog's — `ja` is `{age}前`.
+- **The duration is a separate fact and is only shown once there is one**:
+  `finished_epoch - started_epoch`, both from the same clock, so it is a duration
+  and not a difference between two differently-formatted strings.
+- **"STILL DOESN'T SHOW THE WORKER" WAS A BARE DASH BEING READ AS MISSING DATA,
+  AND THAT IS A FAIR READING.** The column was correct — 50 of 50 rows carried a
+  name — and the two cases with no worker rendered `–` with the explanation in a
+  `title`. A tooltip is invisible, so under a column headed `worker` it reads as
+  broken rather than as "no worker was involved, by design". Both cases say so in
+  WORDS now (`unclaimed`, `in process`), which is the same argument #178 made for
+  the fleet figures.
+- **AND THE KINDS ON THAT TAB'S OWN FORM CANNOT HAVE A WORKER AT ALL.** `chat`
+  and `translate` are in-process scheduler kinds, so a job submitted there runs
+  in the pool and reports none; work that reaches a GPU host is `infer.chat`,
+  which a chat routed to the fleet creates as a SUB-JOB. The form now says so,
+  because otherwise the honest answer looks like the defect.
+
 ## Only one worker showed a model (FLEET‑5, reported from outside)
 
 "Why does only one model show up in the workers page, and not for all workers,

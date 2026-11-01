@@ -135,6 +135,40 @@ function hShell(paint){
   H_SHELL = [a, z];
   return html;
 }
+// REFRESH ONE CARD IN PLACE, WITHOUT A TAB RE-RENDER.
+//
+// `renderTab()` paints a `…` placeholder BEFORE it awaits its view, which is
+// right for a tab change and wrong for a refresh: using it as one makes the
+// whole tab blank and repaint on every tick, and on Admin it also re-fires the
+// eight requests that tab opens with. That is what a 2s jobs poll and a queue
+// page click both did — the "reloads the entire page" this replaces.
+//
+// It is BRACKETED, and that is not optional: the markup it paints registers
+// handlers through `H()`, and a registration made outside a bracket is never
+// swept, so a card refreshing every 2.5s would accumulate closures for the life
+// of the session — the leak #185 bounded, reintroduced by the thing meant to be
+// cheaper than a render. With the bracket the card's handlers live for two
+// further passes, by which time this card's DOM has been replaced by a later
+// refresh or by a tab render.
+//
+// `build()` may answer null to decline the swap (a failed fetch), and the
+// element is looked up AGAIN after the await: the tab may have changed under it,
+// and writing into a card that is no longer on screen would be painting over
+// whatever replaced it.
+async function cardSwap(id, build){
+  if(!document.getElementById(id)) return false;
+  hPassStart();
+  try {
+    const html = await build();
+    if(html == null) return false;
+    const cur = document.getElementById(id);
+    if(!cur) return false;
+    cur.outerHTML = html;
+    return true;
+  } catch (e) { return false; }
+  finally { hPassEnd(); }
+}
+
 for (const evname of ['click','input','change','keydown']) {
   document.addEventListener(evname, (ev) => {
     // #182: the command palette and the `?` overlay are GLOBAL shortcuts, so
@@ -162,7 +196,7 @@ for (const evname of ['click','input','change','keydown']) {
 }
 
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
-  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0, jobPoll:0,
+  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0, jobPoll:0, qPoll:0, qTotal:0, qKinds:[],
   // the AbortController of a stream in flight, or null: the guard and the
   // pending state in one, as S.signingIn is for the sign-in button (#174)
   chatAbort:null, agentAbort:null,

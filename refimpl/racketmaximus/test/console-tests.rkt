@@ -13,6 +13,9 @@
 
 (define-runtime-path console-html "../static/index.html")
 (define-runtime-path console-dir "../static/console")
+;; anchored at this FILE, never at `current-directory`, which is `test/`
+;; when raco runs from there — the "anchor at definition, never at use" rule
+(define-runtime-path scheduler-rkt "../domain/sched/scheduler.rkt")
 (define shell (file->string console-html))
 
 ;; #110 r6 moved the console's 2,295 lines of inline script into
@@ -748,6 +751,89 @@
   ;; the declared list is joined AS DECLARED and never sorted: the first entry is
   ;; what the worker answers with when a job names no model
   (check-true (and (regexp-match? #px"models\\)[.]join|obs[.]join" fl) #t)))
+
+(test-case "a refresh swaps ONE card and never re-renders the tab"
+  ;; Reported from outside: "the queue on the admin page should stream in
+  ;; updates, not full page refresh ... shouldn't reload the entire page."
+  ;;
+  ;; `renderTab()` paints a `…` placeholder BEFORE it awaits its view, so using
+  ;; it as a refresh blanks and repaints the whole tab — and on Admin it also
+  ;; re-fires the eight requests that tab opens with, to show twenty-five
+  ;; different rows of one table. The jobs poll added one slice earlier had the
+  ;; same defect: a 2s tick that flashed the entire screen.
+  (define fl (file->string (build-path console-dir "05-fleet.js")))
+  (define rv (file->string (build-path console-dir "08-reviews.js")))
+  (check-true (and (regexp-match? #rx"async function cardSwap" base) #t))
+  ;; THE SWAP MUST BE BRACKETED. The markup it paints registers handlers through
+  ;; `H()`, and a registration outside a bracket is never swept — so a card
+  ;; refreshing every 2.5s would accumulate closures for the life of the
+  ;; session, which is the leak #185 bounded, reintroduced by the thing meant to
+  ;; be cheaper than a render.
+  (let ([body (car (regexp-match #px"async function cardSwap.*?\n\\}" base))])
+    (check-true (and (regexp-match? #rx"hPassStart" body) #t) "cardSwap opens a bracket")
+    (check-true (and (regexp-match? #px"finally\\s*\\{\\s*hPassEnd" body) #t) "…and closes it in a finally")
+    ;; the element is looked up AGAIN after the await: the tab may have changed
+    ;; under it, and writing into a card that has gone paints over its successor
+    (check-true (>= (length (regexp-match* #rx"getElementById" body)) 2)
+                "the card is re-found after the await"))
+  ;; neither poller nor any pager control may reach for a tab render
+  (for ([nm (in-list '("qRefresh" "jobsRefresh"))]
+        [src (in-list (list fl rv))])
+    (define body (car (regexp-match (pregexp (string-append "function " nm "\\(\\)\\s*\\{.*?\n\\}")) src)))
+    (check-true (and (regexp-match? #rx"cardSwap" body) #t)
+                (format "~a goes through cardSwap" nm))
+    (check-false (and (regexp-match? #rx"renderTab" body) #t)
+                 (format "~a must not re-render the tab" nm)))
+  (check-false (and (regexp-match? #px"S\\.jobPoll===gen\\) renderTab" rv) #t)
+               "the jobs poll must not re-render the tab")
+  (check-false (and (regexp-match? #px"S\\.qPoll===gen[^;]*renderTab" fl) #t)
+               "nor the queue tick")
+  ;; a filter or a page change is the same rule
+  (check-true (and (regexp-match? #px"function qSet[^\n]*qRefresh\\(\\)" fl) #t)
+              "changing a filter swaps the card")
+  (check-false (and (regexp-match? #px"function qSet[^\n]*renderTab" fl) #t)
+               "…and does not re-render the tab")
+  (check-true (and (regexp-match? #px"function qGo[^}]*qRefresh\\(\\)" fl) #t)
+              "so does changing page"))
+
+(test-case "the queue pager is numbered, bounded and jumpable"
+  (define fl (file->string (build-path console-dir "05-fleet.js")))
+  (check-true (and (regexp-match? #rx"function qPager" fl) #t))
+  ;; ONE home for the page size: `queueQuery` asks the server for it and the
+  ;; pager computes the page count from it. Two literals would disagree the day
+  ;; one changed, and the symptom is a pager offering a page the listing never
+  ;; fills — LIVE-IN's shape.
+  (check-true (and (regexp-match? #rx"const QPAGE" fl) #t))
+  (check-true (and (regexp-match? #px"limit='\\+QPAGE" fl) #t)
+              "the request uses the constant, not a second literal")
+  (check-false (and (regexp-match? #px"limit=25" fl) #t) "…and no literal 25 is left in the query")
+  ;; first and last are always reachable, and there is a jump box
+  (check-true (and (regexp-match? #rx"qJump" fl) #t))
+  (check-true (and (regexp-match? #rx"function qPages" fl) #t))
+  ;; the ellipsis is NOT a control: a button whose destination a reader cannot
+  ;; predict is worse than none
+  (check-false (and (regexp-match? #px"data-h-click=\"[$][{]H[(][^\"]*…" fl) #t)
+               "the ellipsis must not be clickable"))
+
+(test-case "the jobs timestamp comes from the EPOCH, never from the text column"
+  ;; `created_at` is TEXT `CURRENT_TIMESTAMP` and its format differs by dialect;
+  ;; worse, `new Date("2026-11-01 05:15:17")` is read as LOCAL time by most
+  ;; engines while the value is UTC, so a parsed timestamp is silently out by the
+  ;; viewer's own offset with nothing to catch it. The epoch columns exist for
+  ;; exactly this (0038/0041/0066, each of which records the trap).
+  (define rv (file->string (build-path console-dir "08-reviews.js")))
+  (check-true (and (regexp-match? #rx"created_epoch" rv) #t))
+  (check-false (and (regexp-match? #px"new Date\\([^)]*created_at" rv) #t)
+               "parsing the dialect-dependent text column is the defect")
+  ;; …and the server must actually send it, or the column renders a dash forever
+  (define sch (file->string scheduler-rkt))
+  (check-true (and (regexp-match? #rx"'created_epoch" sch) #t)
+              "JSELECT/row->job must project the epoch")
+  ;; an in-process job says so IN WORDS. A bare dash with the explanation in a
+  ;; `title` was the first version and was reported as the column not working:
+  ;; a tooltip is invisible, and "–" under `worker` reads as missing data.
+  (check-true (and (regexp-match? #rx"jobinprocshort" rv) #t))
+  (check-true (and (regexp-match? #rx"jobunclaimedshort" rv) #t)))
 
 (test-case "the pass brackets NEST, so an inner close is not the pass"
   ;; `render()` opens a bracket and then awaits `renderTab()`, which opens its

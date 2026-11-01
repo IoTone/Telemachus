@@ -466,6 +466,72 @@ try {
       return live === notice;          // the notice appears exactly when it is true
     }));
 
+  // ── 3i. the queue pager's arithmetic, and a refresh that does NOT re-render ──
+  // The page window, the ellipses and the clamp are a pure function with
+  // interesting EDGES, so they are exercised by calling the real one in the real
+  // page — §3c's rule for the Markdown sanitiser: a question about what the code
+  // COMPUTES cannot be answered by a source assertion.
+  step('the queue pager computes its window');
+  await goTab(page, 'admin', '#qcard');
+  const pager = async (total, offset) => page.evaluate(([tt, oo]) => {
+    const keepT = S.qTotal, keepO = S.qOffset;
+    S.qTotal = tt; S.qOffset = oo;
+    const html = qPager({ total: tt, offset: oo }, new Array(Math.min(25, tt - oo)).fill({}));
+    S.qTotal = keepT; S.qOffset = keepO;
+    // the page numbers offered, in order, and which one is current
+    const d = document.createElement('div'); d.innerHTML = html;
+    const nums = [...d.querySelectorAll('button')].map(b => b.textContent.trim());
+    const cur = [...d.querySelectorAll('button[aria-current="page"]')].map(b => b.textContent.trim());
+    return { nums, cur, ell: (html.match(/…/g) || []).length, jump: !!d.querySelector('input[type=number]') };
+  }, [total, offset]);
+
+  const p1 = await pager(10, 0);
+  ok('a single page offers no pager at all', p1.nums.length === 0 && p1.ell === 0,
+    JSON.stringify(p1));
+  const p2 = await pager(500, 0);         // page 1 of 20
+  ok('on page 1 the window starts at 1 and the last page is reachable',
+    p2.cur[0] === '1' && p2.nums.includes('20') && p2.ell === 1, JSON.stringify(p2));
+  const p3 = await pager(500, 250);       // page 11 of 20 — ellipsis BOTH sides
+  ok('…mid-range it ellipsises both sides and keeps first and last',
+    p3.cur[0] === '11' && p3.nums.includes('1') && p3.nums.includes('20') && p3.ell === 2,
+    JSON.stringify(p3));
+  const p4 = await pager(500, 475);       // last page
+  ok('…and on the last page the window ends there',
+    p4.cur[0] === '20' && p4.nums.includes('1'), JSON.stringify(p4));
+  ok('…with a jump box on every multi-page view', p2.jump && p3.jump && p4.jump);
+  // the clamp: the only way to ask for page 900 of 20 is to type it, and the
+  // useful answer is the last page rather than a refusal
+  ok('a page number out of range is CLAMPED, not refused',
+    await page.evaluate(() => {
+      const keepT = S.qTotal, keepO = S.qOffset;
+      S.qTotal = 500; S.qOffset = 0;
+      const pages = qPages();
+      const lo = Math.min(Math.max(1, -5 | 0), pages), hi = Math.min(Math.max(1, 900 | 0), pages);
+      S.qTotal = keepT; S.qOffset = keepO;
+      return pages === 20 && lo === 1 && hi === 20;
+    }));
+
+  // THE PROPERTY THE REPORT WAS ABOUT: a refresh must not re-render the tab.
+  // `renderTab()` bumps `renderSeq` and paints a `…` placeholder first, so if a
+  // filter change went through it the sequence would move and the screen would
+  // blank. A filter is used rather than a page because it needs no 25 rows.
+  step('a queue filter swaps the card without re-rendering the tab');
+  const seqBefore = await page.evaluate(() => renderSeq);
+  await page.evaluate(() => qSet('status', 'done'));
+  await page.waitForTimeout(1200);
+  ok('the card is still there after the swap', await page.evaluate(() => !!document.getElementById('qcard')));
+  ok('…and renderTab was never called', await page.evaluate(() => renderSeq) === seqBefore,
+    `renderSeq ${seqBefore} -> ${await page.evaluate(() => renderSeq)}`);
+  ok('…and the filter really took', await page.evaluate(() => (S.qFilter || {}).status) === 'done');
+  // the swapped card's own controls must be BOUND — cardSwap brackets its
+  // registrations, and an unbracketed swap would leak them while a mis-swept one
+  // would leave the pager dead, which is #185's bug in a card
+  ok('…and the swapped card\'s controls are bound',
+    await page.evaluate(() => [...document.querySelectorAll('#qcard [data-h-click],#qcard [data-h-change]')]
+      .every(el => typeof HANDLERS[+(el.getAttribute('data-h-click') ?? el.getAttribute('data-h-change'))] === 'function')));
+  await page.evaluate(() => qSet('status', ''));
+  await page.waitForTimeout(800);
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));

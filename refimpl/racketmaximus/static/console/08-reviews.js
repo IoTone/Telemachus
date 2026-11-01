@@ -68,48 +68,113 @@ function jobWaitBadge(j){
 // An absent name means TWO different things and conflating them misleads: a
 // queued job has not been claimed by anybody yet, while a job that has RUN with
 // no holder ran in the server's own pool — an in-process claim leaves
-// `executor_id` NULL by design, because the pool mints no executor row. So the
-// dash says which, in its title, rather than reading as "unknown" for both.
+// `executor_id` NULL by design, because the pool mints no executor row.
+//
+// BOTH CASES SAY SO IN WORDS. A bare dash with the explanation in a `title` was
+// the first version and it was reported as the column not working at all, which
+// is fair: a tooltip is invisible, and "–" in a column headed `worker` reads as
+// missing data rather than as "no worker was involved, by design".
 function jobWorker(j){
   if(j.executor && j.executor!=='null') return `<span class="mono">${esc(j.executor)}</span>`;
-  const unclaimed = (j.status==='queued');
-  return `<span class="muted" title="${esc(unclaimed?t('jobunclaimed'):t('jobinproc'))}">—</span>`;
+  if(j.status==='queued')
+    return `<span class="muted" title="${esc(t('jobunclaimed'))}">${esc(t('jobunclaimedshort'))}</span>`;
+  return `<span class="muted" title="${esc(t('jobinproc'))}">${esc(t('jobinprocshort'))}</span>`;
 }
-async function jobsView(){
-  const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
+
+// WHEN, FROM THE EPOCH AND NEVER FROM THE TEXT COLUMN. `created_at` is TEXT
+// `CURRENT_TIMESTAMP` and its format differs by dialect; worse,
+// `new Date("2026-11-01 05:15:17")` is read as LOCAL time by most engines while
+// the value is UTC, so a parsed timestamp would be silently out by the viewer's
+// own offset. `created_epoch` is an integer, so the age is arithmetic and the
+// absolute time is formatted by the browser in the viewer's own zone.
+//
+// The ABSOLUTE time is the title and the RELATIVE age is the text: "4m ago" is
+// what answers "is this moving?", which is why somebody is looking at this
+// column, and the wall-clock time is one hover away for when it is not.
+function jobWhen(j){
+  const e=j.created_epoch;
+  if(e==null||e==='null') return `<span class="muted">–</span>`;
+  const abs=new Date(e*1000);
+  const age=wkAge(Math.floor(Date.now()/1000)-e);
+  // "4m ago" is a sentence, so the word order is the catalog's and not English's
+  return `<span class="muted" title="${esc(abs.toLocaleString())}">${esc(t('jobago').replace('{age}', age))}</span>`;
+}
+
+// HOW LONG IT TOOK, for a job that has finished. Both ends are epochs from the
+// same clock (0038 stamps the claim, 0066 the terminal write), so this is a
+// duration and not a difference between two differently-formatted strings.
+function jobTook(j){
+  const a=j.started_epoch, b=j.finished_epoch;
+  if(a==null||a==='null'||b==null||b==='null') return '';
+  const d=b-a;
+  if(d<0) return '';
+  return ` <span class="muted" title="${esc(t('jobtookhint'))}">· ${esc(wkAge(d))}</span>`;
+}
+
+function jobsRows(jobs){
+  return jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td>`
+    + `<td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td>`
+    + `<td style="white-space:nowrap">${jobWhen(j)}${jobTook(j)}</td>`
+    + `<td>${jobWorker(j)}</td>`
+    + `<td class="muted">${esc(jobResultText(j))}</td>`
+    + `<td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
+}
+
+// The LIST is its own card so a refresh can swap it alone. The submit form above
+// it holds whatever the person has typed, and re-rendering the tab to show a new
+// row would throw that away as well as blanking the screen.
+function jobsListCard(jobs){
   // REFRESH WHILE THE STATUS IS ACTUALLY CHANGING, AND NOT A MOMENT LONGER.
   //
   // A plain interval was the other option and QVIZ-6 is why it is not taken:
   // the idle clock counts from the last REQUEST (#38), so a screen that
   // refreshed itself for as long as it was left open would hold a session
   // alive indefinitely — a security control switched off by a convenience.
-  // This is the live-run poll `wfRunView` already uses: it ticks only while
-  // some job is queued or running, and the last settling job stops it, so an
-  // idle console really does go idle. The generation counter is what stops two
-  // polls from overlapping after a tab change; `go()` bumps it on the way out.
+  // This ticks only while some job is queued, running or canceling, and the
+  // last settling job stops it, so an idle console really does go idle.
+  //
+  // It swaps THIS CARD rather than calling `renderTab()`, which paints a `…`
+  // placeholder before it awaits — as a 2s poll that blanked and repainted the
+  // whole tab on every tick.
   const live = jobs.some(j=>j.status==='queued'||j.status==='running'||j.status==='canceling');
   if(live){ const gen=++S.jobPoll;
-    setTimeout(()=>{ if(S.tab==='jobs'&&S.jobPoll===gen) renderTab(); },2000); }
-  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td><td>${jobWorker(j)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
+    setTimeout(()=>{ if(S.tab==='jobs'&&S.jobPoll===gen) jobsRefresh(); },2000); }
+  return `<div class="card" id="jobscard" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3>
+      <div class="row" style="align-items:center;gap:10px;margin:0">${
+        live?`<span class="muted" style="font-size:13px">${esc(t('joblive'))}</span>`:''
+      }<button class="btn sm ghost" data-h-click="${H((el,ev)=>jobsRefresh())}">${t('refresh')}</button></div></div>
+      <table style="margin-top:8px"><thead><tr><th>id</th><th>kind</th><th>${t('status')}</th>
+        <th title="${esc(t('jobwhenhint'))}">${t('jobwhen')}</th>
+        <th>${t('worker')}</th><th>result</th><th></th></tr></thead>
+      <tbody>${jobsRows(jobs)}</tbody></table></div>`;
+}
+
+async function jobsRefresh(){
+  return cardSwap('jobscard', async () => {
+    const r=await api('/api/jobs');
+    return r.ok ? jobsListCard(r.json.jobs||[]) : null;
+  });
+}
+
+async function jobsView(){
+  const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
   return `<h2>${t('jobs')}</h2>
     <div class="card"><h3>${t('submitjob')}</h3>
       <div class="row" style="align-items:end">
         <div><label>kind</label><select id="jk"><option value="chat">chat</option><option value="translate">translate</option></select></div>
         <div style="flex:1"><label>${t('prompt')} / ${t('sourcetext')}</label><input id="jtext"></div>
         <div><label>${t('target')}</label><input id="jtgt" value="ja" style="width:90px"></div>
-        <div><button class="btn" data-h-click="${H((el,ev)=>doSubmitJob())}">${t('submit')}</button></div></div></div>
-    <div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3><div class="row" style="align-items:center;gap:10px;margin:0">${
-        live?`<span class="muted" style="font-size:13px">${esc(t('joblive'))}</span>`:''
-      }<button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div></div>
-      <table style="margin-top:8px"><thead><tr><th>id</th><th>kind</th><th>status</th><th>${t('worker')}</th><th>result</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        <div><button class="btn" data-h-click="${H((el,ev)=>doSubmitJob())}">${t('submit')}</button></div></div>
+      <p class="muted" style="margin:8px 0 0;font-size:13px">${esc(t('jobkindhint'))}</p></div>
+    ${jobsListCard(jobs)}`;
 }
 async function doSubmitJob(){
   const kind=val('jk'), text=val('jtext');
   const payload = kind==='translate' ? {text, target_lang: val('jtgt')} : {prompt: text};
   const r=await api('/api/jobs',{method:'POST',body:{kind,payload}});
-  if(r.ok){ toast('queued',true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast('queued',true); jobsRefresh(); } else toast(r.json.error||'error');
 }
 async function doCancelJob(id){
   const r=await api('/api/jobs/'+id+'/cancel',{method:'POST'});
-  if(r.ok){ toast('canceled',true); renderTab(); } else toast(r.json.error||'error');
+  if(r.ok){ toast('canceled',true); jobsRefresh(); } else toast(r.json.error||'error');
 }
