@@ -59,6 +59,10 @@
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
     },
+    "ui.wkmodelsobs": {
+      "text": "Declared by this worker on its last claim. The first is what it answers with when a job names no model at all.",
+      "hash": "4df91b5e52dd3e0e22f4bd941c947f799d07c3ca"
+    },
     "doc.route.post.api.beta.experience.publish": {
       "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
       "hash": "8b8d9679be3d7961296292bc0f59e7cb1fb62470"
@@ -1711,6 +1715,10 @@
       "text": "The team's outbound webhook subscriptions, plus the closed list of event names a subscription may filter on and how many delivery attempts a dead letter takes. A secret is never in a listing.",
       "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
     },
+    "ui.wkmodels": {
+      "text": "models",
+      "hash": "5ba2688dffd71df813a468578a87c653e1575e1e"
+    },
     "doc.route.get.api.webhooks.id.deliveries": {
       "text": "This subscription's delivery attempts, newest first: status (`pending`/`delivered`/`dead`), attempt count, the last response code, the last error, the latency, and when the next attempt is due. `?status=dead` is the dead-letter list.",
       "hash": "3dfcd8b9e0f8246de6afe75e7ba7529869337e0e"
@@ -2278,6 +2286,10 @@
     "doc.perm.*:read": {
       "text": "Read every team-visible resource; no AI spend, no mutation.",
       "hash": "b4b905e1f8563427da3e415c721f45d732072ab5"
+    },
+    "ui.wkmodelnone": {
+      "text": "Nothing declared. A job that names a model will not be offered to this worker; a job that names none can be.",
+      "hash": "25670df38c28a356eac44f2fcc45cef65f4b7153"
     },
     "ui.thbrandink": {
       "text": "Text on brand",
@@ -3815,9 +3827,17 @@
       "text": "sub",
       "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
     },
+    "ui.wkmodelunconfirmed": {
+      "text": "Typed in when this worker was created and confirmed by nothing — it has not claimed yet, so it has declared nothing. This value governs no matching.",
+      "hash": "4616091308ba95a423c76f00735240609d5f8f7d"
+    },
     "ui.hdrainnow": {
       "text": "immediate",
       "hash": "f1d16437085ae1e36539a5328125cec05a91bada"
+    },
+    "ui.wkmodelshint": {
+      "text": "What each worker can serve. For a pull worker this is what it DECLARED on its last claim, which is what the platform matches a job's requested model against — not a value typed in when it was created.",
+      "hash": "a40c160642d3ffb1c8f4288d57c19c78db0bc01f"
     },
     "ui.brandthemehint": {
       "text": "The palette this console wears — the same tokens the beta funnel uses. Changes preview live; Save applies them for everyone.",

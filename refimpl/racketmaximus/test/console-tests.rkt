@@ -718,6 +718,37 @@
               "the shell it replaces must leave H_KEPT, or the bound drains away")
   (check-true (and (regexp-match? #rx"H_SHELL" base) #t)))
 
+(test-case "the Workers card reads the OBSERVED models, not the typed-in column"
+  ;; Reported from outside: "why does only one model show up in the workers page,
+  ;; and not for all workers, only for red5buntu?" Because there are TWO records
+  ;; and the card read the wrong one. `executors.model` is set ONCE at create
+  ;; from a value an operator typed and governs no matching;
+  ;; `capabilities.models` is what the worker DECLARES on every claim, recorded
+  ;; by `observe-capabilities!`, and is what `executor-can-run?` matches a job's
+  ;; `requirements.model` against.
+  ;;
+  ;; FLEET-2 added the second for exactly this reason — "an aspirational record
+  ;; cannot answer the question" — and this card went on rendering the field it
+  ;; replaced, so a four-worker fleet showed one model and three dashes while all
+  ;; four were declaring correctly on every poll.
+  (define fl (file->string (build-path console-dir "05-fleet.js")))
+  (check-true (and (regexp-match? #px"capabilities\\s*&&\\s*e[.]capabilities[.]models" fl) #t)
+              "the pull row must read the observed capabilities")
+  ;; …and the static column may only be a FALLBACK. A row that renders it
+  ;; unconditionally is the defect, so the cell must go through the helper.
+  (check-true (and (regexp-match? #px"<td>\\$\\{wkModels\\(e\\)\\}</td>" fl) #t)
+              "the pull/push row renders the helper, not e.model directly")
+  ;; the fallback is MARKED, because a value nobody has confirmed and one observed
+  ;; on the last claim are different claims about the world (PULL-11e's rule)
+  (check-true (and (regexp-match? #rx"wkmodelunconfirmed" fl) #t))
+  ;; a PUSH backend is called by us, never claims, and has nothing to declare —
+  ;; its own column IS the answer, so the helper must branch on the mode
+  (check-true (and (regexp-match? #px"e[.]mode\\s*!==\\s*.pull." fl) #t)
+              "a push backend keeps its configured model")
+  ;; the declared list is joined AS DECLARED and never sorted: the first entry is
+  ;; what the worker answers with when a job names no model
+  (check-true (and (regexp-match? #px"models\\)[.]join|obs[.]join" fl) #t)))
+
 (test-case "the pass brackets NEST, so an inner close is not the pass"
   ;; `render()` opens a bracket and then awaits `renderTab()`, which opens its
   ;; own. Undepth-counted, the inner `hPassEnd()` closed the OUTER range and the

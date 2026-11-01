@@ -56,6 +56,37 @@ function workersCard(xr, fr){
     (fl.paused ? `<span class="badge">${fl.paused} ${t('wkpaused')}</span>` : '')
   ].filter(Boolean).join(' ');
 
+  // WHICH MODEL? There are TWO records and the card was reading the wrong one.
+  //
+  // `executors.model` is a static column set ONCE at create time from a value an
+  // operator typed; nothing ever updates it and it governs no matching.
+  // `capabilities.models` is what the worker DECLARES on every claim, recorded by
+  // `observe-capabilities!`, and it is what `executor-can-run?` actually matches
+  // a job's `requirements.model` against. FLEET-2 added the second for exactly
+  // this reason — "an aspirational record cannot answer the question" — and this
+  // card went on rendering the field it replaced. The visible result was a fleet
+  // where one worker showed a model and three showed a dash, because the three
+  // were created without one (their unit's `TMACH_WORKER_MODELS` is what governs
+  // them) while all four were declaring correctly on every poll.
+  //
+  // So: observed first, the static column only as a FALLBACK and marked as
+  // unconfirmed — a value nobody has confirmed and one observed on the last claim
+  // are different claims about the world, and PULL-11e's rule is that a field a
+  // reader learns to distrust is worse than an honest absence.
+  //
+  // A PUSH backend is the exception and not a special case: we CALL it, so it
+  // never claims and has nothing to declare. Its row's own `model` is the answer.
+  const wkModels=(e)=>{
+    if(e.mode!=='pull') return `<span class="mono">${esc(e.model||'–')}</span>`;
+    const obs=(e.capabilities&&e.capabilities.models)||[];
+    // the ORDER is load-bearing, which is why they are joined as declared rather
+    // than sorted: the FIRST is what the worker answers with when a job names no
+    // model at all.
+    if(obs.length) return `<span class="mono" title="${esc(t('wkmodelsobs'))}">${esc(obs.join(', '))}</span>`;
+    if(e.model) return `<span class="mono muted" title="${esc(t('wkmodelunconfirmed'))}">${esc(e.model)}*</span>`;
+    return `<span class="muted" title="${esc(t('wkmodelnone'))}">–</span>`;
+  };
+
   const row=(e)=>{
     const w=e.window||{}, cur=e.current;
     const drained = e.admin_state==='drained';
@@ -64,7 +95,7 @@ function workersCard(xr, fr){
     const lease = cur ? `<span class="muted" title="${esc(t('wkleasehint'))}">${t('wklease')} ${wkAge(cur.seconds_left)}</span>` : '';
     return `<tr${drained?' style="opacity:.62"':''}>
       <td><span class="badge">${e.mode==='pull'?'🛰️':'↗'} ${esc(e.name)}</span>${drained?` <span class="badge warn" title="${esc(t('wkdrainhint'))}">${t('wkdrained')}</span>`:''}</td>
-      <td class="mono">${esc(e.model||'–')}</td>
+      <td>${wkModels(e)}</td>
       <td>${wkHealth(e.status)}</td>
       <td>${e.worker_state?`<span class="badge">${esc(e.worker_state)}</span>`:`<span class="muted" title="${esc(t('wkunreportedhint'))}">–</span>`}</td>
       <td class="muted">${e.last_seen_at?wkAge(now-e.last_seen_at):'–'}</td>
@@ -137,7 +168,7 @@ function workersCard(xr, fr){
   return `<div class="card" id="wkcard" style="margin-top:14px"><h3>${t('workers')} <span class="muted" style="font-size:13px">— ${t('workershint')}</span></h3>
     <p>${sum}</p>
     ${win}
-    <table><thead><tr><th>${t('name')}</th><th>${t('model')}</th><th>${t('wkhealth')}</th><th>${t('wkreports')}</th>
+    <table><thead><tr><th>${t('name')}</th><th title="${esc(t('wkmodelshint'))}">${t('wkmodels')}</th><th>${t('wkhealth')}</th><th>${t('wkreports')}</th>
       <th>${t('wklastseen')}</th><th>${t('wkholding')}</th>
       <th title="${esc(t('wkwindowhint'))}">${t('wkwindow').replace('{window}', wkWindowLabel(wkHours()))}</th>
       <th style="border-left:1px solid var(--line)"></th></tr></thead>

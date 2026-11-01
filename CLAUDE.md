@@ -6381,6 +6381,53 @@ bash test/e2e/validate.sh          # §3g — real CLICKS on the tab bar, five o
   escapes, so every `#px"\\s*"` landed as `#px"\s*"` and the test file would not
   `read` at all. Use a raw string, or `[(]`-style character classes.
 
+## Only one worker showed a model (FLEET‑5, reported from outside)
+
+"Why does only one model show up in the workers page, and not for all workers,
+only for red5buntu?" Because **there are TWO records of a worker's model and the
+card read the one that governs nothing.**
+
+```sh
+raco test test/console-tests.rkt   # 43 cases; the new one is controlled
+```
+
+- **`executors.model` IS SET ONCE AND NEVER AGAIN.** It is a static column filled
+  from a value an operator typed at create time (`executor-create! #:model`),
+  nothing updates it, and **`executor-can-run?` does not read it** — matching is
+  against `capabilities.models`, which `observe-capabilities!` rewrites on EVERY
+  claim. So the card was rendering intent and ignoring observation.
+- **FLEET‑2 ADDED THE OBSERVED RECORD FOR EXACTLY THIS REASON AND THE CONSOLE
+  WAS NEVER MOVED OVER.** Its own note says `capabilities` "was written once at
+  create and was usually `{}` while the worker told us its kinds and models on
+  every poll — an aspirational record cannot answer the question above". It fixed
+  the DATA and left `05-fleet.js` reading the field it had replaced. #113's shape
+  with the halves swapped: the right value was being recorded and nothing showed
+  it.
+- **WHAT MADE IT VISIBLE WAS A FLEET BUILT THE DOCUMENTED WAY.** The GPU-fleet
+  runbook creates a worker and sets its models in the UNIT
+  (`TMACH_WORKER_MODELS`), because that is what governs matching and what the
+  worker declares; it never passes `#:model`. So all three oddriggo workers had a
+  NULL column and a correct declaration, while red5-ollama — created by hand,
+  earlier, with a model typed in — had both. One worker with a model and three
+  with dashes, on a fleet where all four were declaring correctly every poll.
+- **OBSERVED FIRST, THE COLUMN AS A MARKED FALLBACK.** A value nobody has
+  confirmed and one observed on the last claim are different claims about the
+  world, so the fallback renders muted with a `*` and says in its title that it
+  governs no matching — PULL‑11e's rule that a field a reader learns to distrust
+  is worse than an honest absence. It is only reachable for a worker that has
+  never claimed, which is the one state in which it is the only thing there is.
+- **THE DECLARED LIST IS JOINED AS DECLARED, NEVER SORTED.** The FIRST entry is
+  what the worker answers with when a job names no model — the GPU-fleet runbook
+  calls `TMACH_WORKER_MODELS` "the setting that fails QUIETLY" for that reason —
+  so the order carries information and `json-out`'s sort rule would be actively
+  wrong here, as it is for the judge wire.
+- **A PUSH BACKEND IS THE EXCEPTION AND NOT A SPECIAL CASE:** we CALL it, so it
+  never claims and has nothing to declare. Its own column is the answer, and the
+  helper branches on `mode` rather than on whether capabilities happen to be
+  empty — which would have made a push row's correct value look like a fallback.
+- **The header is `models`, plural.** A worker may declare several and the column
+  said "model", which is how a reader concludes the first of two is the only one.
+
 ## The jobs list names its worker, and refreshes only while work is live
 
 - **"WHICH WORKER RAN THIS" IS THE FIRST QUESTION ASKED OF A FLEET, and the
