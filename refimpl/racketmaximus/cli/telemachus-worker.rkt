@@ -321,7 +321,7 @@
                                 (define why (or (unbox stopped) "interrupted"))
                                 (post (format "/api/workers/jobs/~a/fail" id)
                                       (hasheq 'error why 'claim_token token))
-                                (printf "job ~a (~a): STOPPED — ~a\n" id kind why))]
+                                (eprintf "job ~a (~a): STOPPED — ~a\n" id kind why))]
                   ;; BEFORE the exn:fail? clause below, which would otherwise
                   ;; match this too — the first matching clause wins.
                   ;;
@@ -337,13 +337,13 @@
                      (define-values (code _r)
                        (post (format "/api/workers/jobs/~a/release" id)
                              (hasheq 'claim_token token 'reason "busy")))
-                     (printf "job ~a (~a): HANDED BACK — ~a~a\n" id kind (exn-message e)
+                     (eprintf "job ~a (~a): HANDED BACK — ~a~a\n" id kind (exn-message e)
                              (if (= code 200) "" (format " (release refused: HTTP ~a)" code))))]
                   [exn:fail? (lambda (e)
                                (kill-thread beat)
                                (post (format "/api/workers/jobs/~a/fail" id)
                                      (hasheq 'error (exn-message e) 'claim_token token))
-                               (printf "job ~a (~a): FAILED — ~a\n" id kind (exn-message e)))])
+                               (eprintf "job ~a (~a): FAILED — ~a\n" id kind (exn-message e)))])
     (define result
       (case kind
         [("infer.chat") (run-infer-chat (hash-ref job 'payload (hasheq)))]
@@ -352,7 +352,7 @@
     (kill-thread beat)
     (define-values (code resp) (post (format "/api/workers/jobs/~a/complete" id)
                                      (hasheq 'result result 'claim_token token)))
-    (printf "job ~a (~a): ~a\n" id kind (if (= code 200) "done" (format "complete refused (HTTP ~a)" code)))))
+    (eprintf "job ~a (~a): ~a\n" id kind (if (= code 200) "done" (format "complete refused (HTTP ~a)" code)))))
 
 ;; ---- rotating this host's own credential (issue #60) -------------------------
 
@@ -392,7 +392,7 @@
                                            TOKEN-FILE (exn-message e)))])
        (persist-token! new)
        (set-box! token new)
-       (printf "telemachus-worker: worker token rotated~a\n"
+       (eprintf "telemachus-worker: worker token rotated~a\n"
                (let ([e (hash-ref resp 'expires_at 'null)])
                  (if (number? e) (format " (expires in ~as)" (max 0 (- e (current-seconds)))) ""))))]
     ;; 429 is "you asked too soon" and is not an error worth a line every hour
@@ -418,7 +418,7 @@
                                  "POST /api/executors/<id>/rotate-token and redeploy\n"))]
         [else (void)]))))
 
-(printf "telemachus-worker → ~a  models ~a  kinds ~a\n" BASE (if (null? MODELS) "(any)" (string-join MODELS ",")) (string-join KINDS ","))
+(eprintf "telemachus-worker → ~a  models ~a  kinds ~a\n" BASE (if (null? MODELS) "(any)" (string-join MODELS ",")) (string-join KINDS ","))
 
 ;; Say so on the way out (issue #58). A worker that is stopped — Ctrl-C, a
 ;; systemd stop, a drain before maintenance — otherwise just goes quiet, and
@@ -428,7 +428,7 @@
 (define (report-paused!)
   (with-handlers ([exn:fail? void])
     (post "/api/workers/state" (hasheq 'state "paused"))
-    (printf "telemachus-worker: reported paused\n")))
+    (eprintf "telemachus-worker: reported paused\n")))
 
 ;; …and hand back the job it is holding, if any (issue #61). Letting the lease
 ;; lapse instead costs the job one of its three attempts for something that was
@@ -446,7 +446,7 @@
     (with-handlers ([exn:fail? void])
       (post (format "/api/workers/jobs/~a/release" (car h))
             (hasheq 'claim_token (cdr h) 'reason "shutdown"))
-      (printf "telemachus-worker: released ~a on the way out\n" (car h)))))
+      (eprintf "telemachus-worker: released ~a on the way out\n" (car h)))))
 (void (plumber-add-flush! (current-plumber) (lambda (_) (release-held!) (report-paused!))))
 
 ;; Standing down is reported ONCE per outage, not once per check (issue #93).
@@ -469,7 +469,7 @@
   (when (unbox stood-down)
     (set-box! stood-down #f)
     ;; no state post needed: the claim below reports `ready` itself
-    (printf "telemachus-worker: ready again — claiming\n")))
+    (eprintf "telemachus-worker: ready again — claiming\n")))
 
 (let loop ()
   (cond
