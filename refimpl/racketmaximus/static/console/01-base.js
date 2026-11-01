@@ -81,9 +81,17 @@ const H_KEPT = new Set();
 // pass's start, or -1 when no pass is painting.
 const H_PASSES = [];
 let H_OPEN = -1;
+// The brackets NEST — `render()` opens one and then awaits `renderTab()`, which
+// opens its own — so they are depth-counted. Without this the inner `hPassEnd()`
+// closed the OUTER range and the outer `finally` became a no-op, which left any
+// registration made after `await renderTab()` outside every bracket. Nothing is
+// registered there today; the counter is what stops that from being load-bearing.
+let H_DEPTH = 0;
 const H_KEEP = 2;                       // completed passes kept beyond the open one
-function hPassStart(){ if (H_OPEN < 0) H_OPEN = HANDLERS.length; }
+function hPassStart(){ if (H_DEPTH++ === 0) H_OPEN = HANDLERS.length; }
 function hPassEnd(){
+  if (H_DEPTH > 0) H_DEPTH--;
+  if (H_DEPTH > 0) return;              // an inner bracket closing: not the pass
   if (H_OPEN >= 0 && HANDLERS.length > H_OPEN) H_PASSES.push([H_OPEN, HANDLERS.length]);
   H_OPEN = -1;
   while (H_PASSES.length > H_KEEP) {
@@ -93,6 +101,39 @@ function hPassEnd(){
     // below and does nothing, which is what a bad index has always done.
     for (let i = a; i < z; i++) if (!H_KEPT.has(i)) HANDLERS[i] = undefined;
   }
+}
+
+// THE SHELL OUTLIVES THE PASS THAT PAINTED IT, AND THAT BROKE THE TAB BAR.
+//
+// The sweep's premise is that "the DOM on screen and the two passes behind it
+// are always live". That is true of a tab's own markup, which `renderTab()`
+// replaces wholesale every pass, and FALSE of the shell: `go()` calls only
+// `renderTab()`, so one `appShell()` paint stays on screen across every later
+// tab change. Its handlers were registered inside `render()`'s bracket, so after
+// the shell's pass plus H_KEEP further passes the range was shifted off and
+// swept — and the tab buttons, logout, ⌘K and Ask all went dead after about
+// three tab clicks, silently, because the dispatcher's `typeof fn !== 'function'`
+// guard just returns. Reported from outside ("once I click on a few of the tabs,
+// none of the tabs stay responsive").
+//
+// `Hk()` was built for exactly this class — "an overlay that the shell keeps on
+// screen while render passes run behind it" — and the shell itself, the largest
+// instance of it, was not given it. Plain `Hk()` would still be wrong here: the
+// shell is REPAINTED on every `render()` (a language switch, a brand apply, a
+// sign-in), so keeping each paint for ever would leak a set per render with
+// nothing ever freeing the shell that was replaced. So this is a single slot:
+// the shell on screen is kept, and the shell it replaces is freed in the same
+// breath. Bounded at one shell's worth, and the ranges cannot overlap because
+// the new indices are all above the old range's end.
+let H_SHELL = null;
+function hShell(paint){
+  const a = HANDLERS.length;
+  const html = paint();
+  const z = HANDLERS.length;
+  if (H_SHELL) for (let i = H_SHELL[0]; i < H_SHELL[1]; i++){ H_KEPT.delete(i); HANDLERS[i] = undefined; }
+  for (let i = a; i < z; i++) H_KEPT.add(i);
+  H_SHELL = [a, z];
+  return html;
 }
 for (const evname of ['click','input','change','keydown']) {
   document.addEventListener(evname, (ev) => {
@@ -121,7 +162,7 @@ for (const evname of ['click','input','change','keydown']) {
 }
 
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
-  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0,
+  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0, jobPoll:0,
   // the AbortController of a stream in flight, or null: the guard and the
   // pending state in one, as S.signingIn is for the sign-in button (#174)
   chatAbort:null, agentAbort:null,

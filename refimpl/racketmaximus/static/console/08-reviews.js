@@ -61,9 +61,36 @@ function jobWaitBadge(j){
     : t('heldbyquota').replace('{dimension}', esc(w.dimension||''));
   return ` <span class="badge op">${txt}</span>`;
 }
+// WHICH WORKER RAN THIS? On a fleet of several GPU hosts that is the first
+// question asked of this table, and `executor_id` is a uuid, so the name is
+// joined server-side (see JSELECT in scheduler.rkt).
+//
+// An absent name means TWO different things and conflating them misleads: a
+// queued job has not been claimed by anybody yet, while a job that has RUN with
+// no holder ran in the server's own pool — an in-process claim leaves
+// `executor_id` NULL by design, because the pool mints no executor row. So the
+// dash says which, in its title, rather than reading as "unknown" for both.
+function jobWorker(j){
+  if(j.executor && j.executor!=='null') return `<span class="mono">${esc(j.executor)}</span>`;
+  const unclaimed = (j.status==='queued');
+  return `<span class="muted" title="${esc(unclaimed?t('jobunclaimed'):t('jobinproc'))}">—</span>`;
+}
 async function jobsView(){
   const r=await api('/api/jobs'); const jobs=r.ok?r.json.jobs:[];
-  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
+  // REFRESH WHILE THE STATUS IS ACTUALLY CHANGING, AND NOT A MOMENT LONGER.
+  //
+  // A plain interval was the other option and QVIZ-6 is why it is not taken:
+  // the idle clock counts from the last REQUEST (#38), so a screen that
+  // refreshed itself for as long as it was left open would hold a session
+  // alive indefinitely — a security control switched off by a convenience.
+  // This is the live-run poll `wfRunView` already uses: it ticks only while
+  // some job is queued or running, and the last settling job stops it, so an
+  // idle console really does go idle. The generation counter is what stops two
+  // polls from overlapping after a tab change; `go()` bumps it on the way out.
+  const live = jobs.some(j=>j.status==='queued'||j.status==='running'||j.status==='canceling');
+  if(live){ const gen=++S.jobPoll;
+    setTimeout(()=>{ if(S.tab==='jobs'&&S.jobPoll===gen) renderTab(); },2000); }
+  const rows=jobs.map(j=>`<tr><td class="mono muted">${esc(j.id.slice(0,8))}</td><td>${esc(j.kind)}</td><td>${jobStatusBadge(j.status)}${jobWaitBadge(j)}</td><td>${jobWorker(j)}</td><td class="muted">${esc(jobResultText(j))}</td><td>${(j.status==='queued'||j.status==='running')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doCancelJob((j.id)))}">${t('cancel')}</button>`:''}</td></tr>`).join('');
   return `<h2>${t('jobs')}</h2>
     <div class="card"><h3>${t('submitjob')}</h3>
       <div class="row" style="align-items:end">
@@ -71,8 +98,10 @@ async function jobsView(){
         <div style="flex:1"><label>${t('prompt')} / ${t('sourcetext')}</label><input id="jtext"></div>
         <div><label>${t('target')}</label><input id="jtgt" value="ja" style="width:90px"></div>
         <div><button class="btn" data-h-click="${H((el,ev)=>doSubmitJob())}">${t('submit')}</button></div></div></div>
-    <div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3><button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div>
-      <table style="margin-top:8px"><thead><tr><th>id</th><th>kind</th><th>status</th><th>result</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="card" style="margin-top:14px"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">${t('jobs')}</h3><div class="row" style="align-items:center;gap:10px;margin:0">${
+        live?`<span class="muted" style="font-size:13px">${esc(t('joblive'))}</span>`:''
+      }<button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div></div>
+      <table style="margin-top:8px"><thead><tr><th>id</th><th>kind</th><th>status</th><th>${t('worker')}</th><th>result</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 async function doSubmitJob(){
   const kind=val('jk'), text=val('jtext');

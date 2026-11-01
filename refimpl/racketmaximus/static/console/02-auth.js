@@ -167,6 +167,8 @@ function go(tab){ S.tab=tab; S.newToken=null;
   if(tab!=='notes'){ S.noteEdit=null; edReset('note','', 'nb'); }
   if(tab!=='documents'){ S.docEdit=null; edReset('doc','', 'dc'); }
   S.wfPoll++;
+  // leaving the Jobs tab drops its live poll, the same way it drops a run poll
+  S.jobPoll++;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }
 

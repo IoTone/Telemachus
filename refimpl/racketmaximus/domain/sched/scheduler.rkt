@@ -275,23 +275,38 @@
           'error (let ([e (vr r 5)]) (if (sql-null? e) 'null (unseal-error (vr r 0) e)))
           'created_at (vr r 6) 'started_at (nz (vr r 7)) 'finished_at (nz (vr r 8))
           'executor_id (nz (vr r 9)) 'attempt (vr r 10) 'parent_job_id (nz (vr r 11))
+          ;; the readable name beside the id; 'null for an IN-PROCESS job, which
+          ;; leaves `executor_id` NULL by design — the pool does not mint a row —
+          ;; so an absent name means "this ran in the server", not "unknown".
+          'executor (nz (vr r 13))
           ;; `purged_at` is reported because WITHOUT it an empty payload and a
           ;; purged one are the same thing to a reader (issue #59). A caller that
           ;; honoured a deletion request needs to be able to show that it was
           ;; honoured, and `payload = '{}'` cannot show that on its own.
           'purged_at (nz (vr r 12))))
 
+;; The executor's NAME is joined, not just its id. `executor_id` is a uuid, which
+;; answers nothing a person can act on — "which worker ran my job" is the
+;; question, and on a fleet of several GPU hosts it is the FIRST question. The
+;; join discloses nothing new: `executor-list` already shows every own-org and
+;; every shared (NULL-org) executor's name to any authenticated caller, so this
+;; only joins a name the caller can already read to a job that is already theirs.
+;;
+;; The jobs table is aliased, and the two call sites below qualify their WHERE
+;; clauses, because `executors` has a `team_id` column of its own — an
+;; unqualified `WHERE team_id = ?` becomes ambiguous the moment this join exists.
 (define JSELECT
-  (string-append "SELECT id, kind, status, priority, result, error, created_at, started_at, "
-                 "finished_at, executor_id, attempt, parent_job_id, purged_at FROM jobs"))
+  (string-append "SELECT j.id, j.kind, j.status, j.priority, j.result, j.error, j.created_at, "
+                 "j.started_at, j.finished_at, j.executor_id, j.attempt, j.parent_job_id, "
+                 "j.purged_at, x.name FROM jobs j LEFT JOIN executors x ON x.id = j.executor_id"))
 
 (define (get-job conn id team)
-  (define r (query-maybe-row conn (string-append JSELECT " WHERE id = ? AND team_id = ?") id team))
+  (define r (query-maybe-row conn (string-append JSELECT " WHERE j.id = ? AND j.team_id = ?") id team))
   (and r (car (job-waiting conn team (list (row->job r))))))
 
 (define (list-jobs conn team #:limit [lim 50])
   (job-waiting conn team
-    (for/list ([r (in-list (query-rows conn (string-append JSELECT " WHERE team_id = ? ORDER BY created_at DESC LIMIT ?") team lim))])
+    (for/list ([r (in-list (query-rows conn (string-append JSELECT " WHERE j.team_id = ? ORDER BY j.created_at DESC LIMIT ?") team lim))])
       (row->job r))))
 
 ;; The statuses in which a job's work is LIVE — it holds a thread (or a remote

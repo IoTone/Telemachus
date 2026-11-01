@@ -401,6 +401,71 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
 
+  // ── 3g. THE TAB BAR SURVIVES BEING USED ─────────────────────────────────────
+  // The bug this pins was reported from outside: "once I click on a few of the
+  // tabs (try agents, then translate), none of the tabs stay responsive." §3f
+  // above proves an OVERLAY survives passes behind it and could not see this,
+  // because the shell is not an overlay and nobody had asked whether it is swept.
+  //
+  // It is the same defect from the other side: `go()` calls only `renderTab()`,
+  // so one `appShell()` paint stays on screen across every later tab change,
+  // while its handlers were registered inside `render()`'s bracket and swept
+  // after H_KEEP further passes. The failure is SILENT — a hole reaches the
+  // dispatcher's `typeof fn !== 'function'` guard and returns — so nothing
+  // errored, no request was made, and the page looked perfectly healthy.
+  //
+  // So this clicks the tabs as a person does, by DISPATCHING ON THE BUTTON
+  // rather than calling `go()`, which is the whole point: `go()` would work fine
+  // against the broken version. Three clicks is already past the old limit (the
+  // control dies on the second), and the measured reproduction was two.
+  step('the tab bar survives being used');
+  const tabBound = async () => page.evaluate(() => {
+    const bs = [...document.querySelectorAll('nav.tabs button')];
+    if (!bs.length) return 'no-tabs';
+    const dead = bs.filter(b => typeof HANDLERS[+b.getAttribute('data-h-click')] !== 'function');
+    return dead.length ? 'DEAD:' + dead.map(b => b.dataset.tab).join(',') : 'bound';
+  });
+  ok('the tab bar starts bound', (await tabBound()) === 'bound', await tabBound());
+  for (const tab of ['agent', 'translate', 'search', 'notes', 'jobs']) {
+    await page.click(`nav.tabs button[data-tab="${tab}"]`);
+    await page.waitForTimeout(400);
+  }
+  ok('…and five real tab CLICKS later every tab is still bound',
+    (await tabBound()) === 'bound', await tabBound());
+  // the click must actually have moved the tab, or the assertion above is about
+  // a tab bar nobody used — the silent failure mode means a dead button looks
+  // exactly like a working one from the outside.
+  ok('…and the last click really did change tab',
+    await page.evaluate(() => S.tab === 'jobs'), await page.evaluate(() => S.tab));
+  // the header's own controls ride in the same shell paint and died with it
+  ok('…and the shell header survived with it',
+    await page.evaluate(() => [...document.querySelectorAll('header.top [data-h-click]')]
+      .every(b => typeof HANDLERS[+b.getAttribute('data-h-click')] === 'function')));
+  // …and the sweep is still running, or all of the above passes for the wrong
+  // reason, exactly as §3f's last assertion guards against.
+  ok('…while the pass handlers behind them WERE swept',
+    await page.evaluate(() => HANDLERS.some((f, i) => f === undefined && i > 10)));
+
+  // ── 3h. the jobs list names the worker, and refreshes only while work is live
+  // #172's lesson on the console's side: "which worker ran this" is the first
+  // question asked of a fleet, and the column carried a uuid or nothing at all.
+  step('jobs: the worker column');
+  await goTab(page, 'jobs', 'table');
+  ok('the jobs table has a worker column',
+    await page.evaluate(() => [...document.querySelectorAll('table thead th')]
+      .some(th => th.textContent.trim().length && /worker|ワーカー/i.test(th.textContent))));
+  // A settled list must NOT leave a poll running: the idle clock counts from the
+  // last request (#38), so a jobs tab that ticked for ever would hold a session
+  // open — QVIZ-6's objection, which is why this polls on live work rather than
+  // on an interval. Asserted by the absence of the live notice when nothing is.
+  ok('…and a list with nothing live says so by not claiming to refresh',
+    await page.evaluate(() => {
+      const live = [...document.querySelectorAll('table tbody tr')].some(
+        tr => /queued|running|canceling/i.test(tr.textContent));
+      const notice = document.body.textContent.includes('refreshing while work is live');
+      return live === notice;          // the notice appears exactly when it is true
+    }));
+
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
   await page.evaluate(() => window.go('documents'));

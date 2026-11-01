@@ -2048,6 +2048,22 @@
       "text": "ジョブ",
       "hash": "437736fdb5bb707abdc048483193c86b9a99983e"
     },
+    "ui.worker": {
+      "text": "ワーカー",
+      "hash": "10f5ebe6acb4467b71602be4c4fdb44c44fa26b6"
+    },
+    "ui.joblive": {
+      "text": "実行中の作業がある間は自動更新します",
+      "hash": "dd4691f5c465820eda94f5891e23a4a31a788bb7"
+    },
+    "ui.jobinproc": {
+      "text": "サーバー自身で実行されました — インプロセスのジョブにワーカーはありません",
+      "hash": "2690f8ab63bf161e9f8f4644dcb9ba2c579f1109"
+    },
+    "ui.jobunclaimed": {
+      "text": "まだワーカーに取得されていません",
+      "hash": "6f95f4a2ea37bc775f17f763215c1567f8d20b2c"
+    },
     "ui.share": {
       "text": "共有",
       "hash": "09ca55ca52d207f2cc1d9339e0226a88e9e96e2f"

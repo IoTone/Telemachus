@@ -6327,6 +6327,91 @@ re-running against them.
   socket round trip per query, under 1% of a core at one poll a second, recorded
   rather than acted on.
 
+## The sweep killed the tab bar (SWEEP‑1…3, reported from outside)
+
+PERF‑2/‑3 bounded the delegated-handler table and **broke every tab button after
+two clicks**. Reported from outside: "once I click on a few of the tabs (try
+agents, then translate), none of the tabs stay responsive."
+
+```sh
+raco test test/console-tests.rkt   # 42 cases; the two new ones are controlled
+bash test/e2e/validate.sh          # §3g — real CLICKS on the tab bar, five of them
+```
+
+- **THE SWEEP'S PREMISE IS FALSE FOR THE SHELL, AND THE SHELL IS THE BIGGEST
+  THING ON SCREEN.** `01-base.js` says entries are freed "once two further
+  passes have completed, so the DOM on screen and the two passes behind it are
+  always live". True of a tab's markup, which `renderTab()` replaces wholesale
+  every pass. False of `appShell()`: **`go()` calls only `renderTab()`**, so one
+  shell paint stays on screen across every later tab change while its handlers
+  sat inside `render()`'s bracket. After H_KEEP further passes the range was
+  swept and the tab buttons, logout, ⌘K and Ask all went dead.
+- **IT FAILS SILENTLY, WHICH IS WHY IT SURVIVED A FULL GREEN SUITE.** A swept
+  slot is a hole, so a click reaches the dispatcher's `typeof fn !== 'function'`
+  guard and returns: no error, no request, no console warning, and a page that
+  looks perfectly healthy. The e2e gate fails on any console error and there was
+  none to fail on.
+- **AND THE COMMENT ABOVE THE DEFECT DESCRIBED IT.** `Hk()` exists for "an
+  overlay that the shell keeps on screen while render passes run behind it", and
+  the shell itself — the largest instance of that class — was not given it. The
+  one risk the design wrote down is the one it then took.
+- **`Hk()` WOULD STILL HAVE BEEN WRONG HERE.** The shell is REPAINTED on every
+  `render()` (a language switch, a brand apply, a sign-in), so keeping each paint
+  for ever leaks a set per render with nothing freeing the shell it replaced.
+  `hShell()` is a SINGLE SLOT: the shell on screen is kept, the shell it replaces
+  is freed in the same breath, bounded at one shell's worth. The ranges cannot
+  overlap, because the new indices are all above the old range's end.
+- **THE BRACKETS NEST AND WERE NOT DEPTH-COUNTED** (SWEEP‑2). `render()` opens
+  one and then awaits `renderTab()`, which opens its own — so the inner
+  `hPassEnd()` closed the OUTER range and the outer `finally` became a no-op,
+  leaving anything registered after `await renderTab()` outside every bracket.
+  Nothing is registered there today, which is exactly why it needed fixing now
+  rather than when something was.
+- **§3f COULD NOT HAVE SEEN IT, AND THAT IS THE TESTING LESSON.** That case
+  proves an OVERLAY survives passes behind it — the design's own stated risk —
+  and nobody had asked whether the SHELL is swept, because the shell is not an
+  overlay. A positive control written against the real page is what settled it:
+  §3g clicks the tabs by **dispatching on the button**, never by calling `go()`,
+  which would work fine against the broken version. The control reports
+  `DEAD:chat,agent,translate,…` **before any click at all**, because the gate has
+  already run many passes by then — so the live reach was wider than the report:
+  any three render passes from any source, not specifically three tab clicks.
+- **A `\\s` IN A PYTHON STRING IS AN `\s` IN THE FILE IT WRITES.** A quoted
+  heredoc stops bash touching the text and does nothing about Python's own
+  escapes, so every `#px"\\s*"` landed as `#px"\s*"` and the test file would not
+  `read` at all. Use a raw string, or `[(]`-style character classes.
+
+## The jobs list names its worker, and refreshes only while work is live
+
+- **"WHICH WORKER RAN THIS" IS THE FIRST QUESTION ASKED OF A FLEET, and the
+  listing answered with a uuid.** `executor_id` was projected and the NAME was
+  not, so on a multi-host fleet the column was unreadable. `JSELECT` LEFT JOINs
+  `executors` now. It discloses nothing new: `executor-list` already shows every
+  own-org and every shared (NULL-org) executor's name to any authenticated
+  caller, so this joins a name the caller can already read to a job that is
+  already theirs.
+- **THE JOIN MUST BE A `LEFT` JOIN AND THE TABLE MUST BE ALIASED.** An inner join
+  drops every in-process job, which on a single-box instance is all of them —
+  controlled, and the control names it. And `executors` has a `team_id` column of
+  its own, so an unqualified `WHERE team_id = ?` becomes ambiguous the moment the
+  join exists; both call sites qualify.
+- **AN ABSENT NAME MEANS TWO DIFFERENT THINGS and the console says which.** A
+  queued job has not been claimed by anybody; a job that has RUN with no holder
+  ran in the server's own pool, because an in-process claim leaves `executor_id`
+  NULL by design (the pool mints no executor row). Rendering one dash for both
+  reads as "unknown" for a case that is perfectly well known.
+- **THE REFRESH TICKS ON LIVE WORK, NOT ON A CLOCK** — QVIZ‑6's objection is
+  what rules out an interval: the idle clock counts from the last REQUEST (#38),
+  so a screen refreshing itself for as long as it is left open holds a session
+  alive indefinitely, which is a security control switched off by a convenience.
+  This is `wfRunView`'s live-run poll: it ticks only while some job is queued,
+  running or canceling, and the last settling job stops it, so an idle console
+  really does go idle. A generation counter (`S.jobPoll`, bumped by `go()`) stops
+  two polls overlapping after a tab change.
+- **True STREAMING is not this** and would be a platform slice: there is no event
+  channel for job status, and a persistent stream makes QVIZ‑6's problem worse
+  rather than better, since it holds the connection open by design.
+
 ## Research over a knowledge graph (RG‑1…14, issue #191) — DESIGNED, NOT BUILT
 
 `docs/design/research-graph-rag.md` plus the **RG** block in `decisions.md`.

@@ -691,3 +691,39 @@
                #:when (regexp-match? #rx"Hk\\(" (file->string (build-path console-dir p))))
       p))
   (check-equal? others '() "Hk is for the shell-resident overlays only"))
+
+(test-case "the SHELL is kept across passes, and freed when it is replaced"
+  ;; THE BUG THIS PINS KILLED THE TAB BAR AFTER TWO CLICKS, and was reported
+  ;; from outside: "once I click on a few of the tabs, none of the tabs stay
+  ;; responsive". The sweep's premise is that the DOM on screen and the two
+  ;; passes behind it are always live — true of a tab's markup, which
+  ;; `renderTab()` replaces wholesale every pass, and FALSE of the shell, because
+  ;; `go()` calls only `renderTab()` and one `appShell()` paint therefore stays
+  ;; on screen across every later tab change. Its handlers sat inside
+  ;; `render()`'s bracket, so after H_KEEP further passes the range was swept and
+  ;; every tab button, logout, ⌘K and Ask went dead — silently, because a hole
+  ;; reaches the dispatcher's `typeof fn !== 'function'` guard and returns.
+  (check-true (and (regexp-match? #rx"function hShell" base) #t))
+  ;; the shell paint goes THROUGH it — this is the call site that was the bug
+  (define kg (file->string (build-path console-dir "13-kg.js")))
+  (check-true (and (regexp-match? #px"innerHTML\\s*=\\s*hShell[(]appShell[)]" kg) #t)
+              "render() must paint the shell through hShell, not call appShell() bare")
+  (check-false (and (regexp-match? #px"innerHTML\\s*=\\s*appShell[(][)]" kg) #t)
+               "a bare appShell() paint is the defect")
+  ;; …and it is a SLOT, not a second Hk: the shell is repainted on every
+  ;; `render()` (a language switch, a brand apply, a sign-in), so keeping each
+  ;; paint for ever would leak a set per render with nothing freeing the shell it
+  ;; replaced. The previous range is freed from H_KEPT in the same breath.
+  (check-true (and (regexp-match? #rx"H_KEPT.delete" base) #t)
+              "the shell it replaces must leave H_KEPT, or the bound drains away")
+  (check-true (and (regexp-match? #rx"H_SHELL" base) #t)))
+
+(test-case "the pass brackets NEST, so an inner close is not the pass"
+  ;; `render()` opens a bracket and then awaits `renderTab()`, which opens its
+  ;; own. Undepth-counted, the inner `hPassEnd()` closed the OUTER range and the
+  ;; outer `finally` became a no-op — so any registration made after
+  ;; `await renderTab()` fell outside every bracket. Nothing is registered there
+  ;; today; the counter is what stops that from being load-bearing.
+  (check-true (and (regexp-match? #rx"H_DEPTH" base) #t))
+  (check-true (and (regexp-match? #px"H_DEPTH\\s*>\\s*0[)]\\s*return" base) #t)
+              "an inner bracket closing must return before the sweep runs"))

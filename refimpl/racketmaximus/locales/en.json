@@ -163,6 +163,10 @@
       "text": "holding",
       "hash": "329bb6c3b55346c25bd3f35339f2942b972a5966"
     },
+    "ui.jobinproc": {
+      "text": "ran in the server itself — an in-process job has no worker",
+      "hash": "2690f8ab63bf161e9f8f4644dcb9ba2c579f1109"
+    },
     "ui.kg_mentions": {
       "text": "mentions",
       "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
@@ -1351,6 +1355,10 @@
       "text": "One chunk, as the raw request body, at part number `n` (1 or above). A retry of the same number REPLACES it, which is the point of numbering them: a chunk whose request failed costs that chunk rather than the whole recording. Each part is staged as its own content-addressed blob and charged against storage.bytes on arrival, so an upload that is never completed is visible in usage rather than free; aborting or reaping refunds it. `TMACH_MAX_UPLOAD` caps one part.",
       "hash": "e66e4b56e88d682ad88695df5d79c0366bedbab8"
     },
+    "ui.jobunclaimed": {
+      "text": "not claimed by a worker yet",
+      "hash": "6f95f4a2ea37bc775f17f763215c1567f8d20b2c"
+    },
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
       "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
@@ -2450,6 +2458,10 @@
     "doc.perm.audit:read": {
       "text": "Read the audit trail.",
       "hash": "87c1c4a7b67d30455fcce098e19ad429a1808b91"
+    },
+    "ui.worker": {
+      "text": "worker",
+      "hash": "10f5ebe6acb4467b71602be4c4fdb44c44fa26b6"
     },
     "ui.brandreset": {
       "text": "Reset to default",
@@ -3779,13 +3791,17 @@
       "text": "The company's audit trail.",
       "hash": "c709a0e57ace017ced6c3b073c4d646da3787214"
     },
-    "doc.workflow.embed-documents.name": {
-      "text": "Embed Documents",
-      "hash": "3b526c6a6ba4894126caa893f960536848f10b58"
-    },
     "ui.bxtouch": {
       "text": "We’ll be in touch.",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "ui.joblive": {
+      "text": "refreshing while work is live",
+      "hash": "dd4691f5c465820eda94f5891e23a4a31a788bb7"
+    },
+    "doc.workflow.embed-documents.name": {
+      "text": "Embed Documents",
+      "hash": "3b526c6a6ba4894126caa893f960536848f10b58"
     },
     "doc.tool.doc_fill_form.object": {
       "text": "The form document's object id — a PDF carrying AcroForm fields",
