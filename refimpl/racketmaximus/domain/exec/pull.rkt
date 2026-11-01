@@ -107,7 +107,15 @@
 ;;                    hosts that let it go. A job no worker will run needs a
 ;;                    person, and saying so beats recycling it silently.
 (define RELEASE-BACKOFF 30)
-(define MAX-RELEASES 10)
+;; RAISED FROM 10 TO 60 on 2026-11-01. A release is blameless: the worker hands the job back because
+;; it cannot serve it (usually its model is loading or restarting) and the job stays claimable by every
+;; other host at once. Ten releases at the 30 s cool-off is five minutes, which a single model restart
+;; already spends, and on dev1 three document reads failed with "no executor would run it: released 10
+;; times (last by workstation-worker-2: busy)" while the model they needed was being restarted for
+;; reasons that had nothing to do with the job. Sixty releases is half an hour of "no host can take
+;; this", long enough for a fleet to come back, and a job no host will EVER run still ends as a
+;; failure rather than cycling for ever.
+(define MAX-RELEASES 60)
 
 ;; What an operator may intend for a host (FLEET-3). Two values, because the
 ;; question is binary: is this box in rotation or not. `retired` is deliberately

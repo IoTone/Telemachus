@@ -866,11 +866,12 @@
     v)
   (for ([_ (in-range MAX-RELEASES)]) (check-equal? (claim-release! "busy") 'ok))
   (check-equal? (hash-ref (get-job c j tid) 'attempt) 1
-                "ten releases later it has still never spent an attempt")
+                "every release so far, and it has still never spent an attempt")
   (check-equal? (claim-release! "unsupported") 'failed "the next one gives up on it")
   (define done (get-job c j tid))
   (check-equal? (hash-ref done 'status) "error")
-  (check-true (regexp-match? #rx"released 10 times" (hash-ref done 'error)))
+  (check-true (regexp-match? (pregexp (format "released ~a times" MAX-RELEASES)) (hash-ref done 'error))
+              "the message counts the releases rather than naming a constant somebody could change")
   (check-true (regexp-match? #rx"fussy" (hash-ref done 'error))
               "…and names the host, so an operator knows where to look")
   ;; every release is in the trail, for FLEET-1's reason: the re-queue clears
