@@ -3675,6 +3675,21 @@ bash test/e2e/validate.sh                              # §3e — no affordance 
   `unconfigured` / `empty` / `locale-empty` / `no-model` / `nothing-relevant` /
   `uncited`, `reason` absent when answered. With no chat model the PASSAGES come
   back instead of an error (HELP‑20) — `content_search: false`'s posture.
+- **IT STAYS SYNCHRONOUS, DECIDED (HELP‑23, issue #238, 2 Nov 2026).** A question
+  is TWO model calls — the embedding and the chat — and both are inside
+  `POST /api/help`. The deciding factor is **the wire, not the latency**:
+  0.9–3.8 s warm is inside any request budget, so what would force a job is that
+  a pull executor's wire IS a job (`infer.chat`), and that is the day to make it
+  one. Against it, `ai.concurrency` defaults to **2** per team, so queueing a
+  Cmd+/ panel behind two running jobs is worse than the 3 s call it replaced —
+  HELP‑21's objection through a different door. What is given up is stated: no
+  job row, no progress, no elapsed time, no cancel. **Two things #238 named are
+  NOT built** — a deadline naming the 60 s tailnet cut (which staying
+  synchronous does not escape; a cold 18 s answer is within a factor of three of
+  it) and showing the `tokens` the reply already carries, without which nobody
+  can reason about `ai.help.total`. #233 is the same question for a longer call
+  and may legitimately go the other way, because the trade turns on the
+  measurement.
 - **The overlay is shell-resident, so A LIVE BOX NEEDS A RESTART**, like #182's
   two. It hooks the one delegated `keydown` listener **after** `paletteKey`, and
   the order is asserted rather than commented: the palette owns `Esc` while ITS
