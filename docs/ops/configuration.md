@@ -273,7 +273,7 @@ the job writes one from the waiting side, so its `ms` covers the queue wait as
 well as the call and it cannot know the tokens the model produced. The worker's
 completion writes the other, with the job's own start and finish, the tokens the
 worker reported, and the alias the payload asked for. `job_id` is null on rows
-written before migration 0064 and on every push and stream call.
+written before migration 0067 and on every push and stream call.
 
 The digest is an **HMAC under `TMACH_SECRET_KEY`**, not a bare SHA‑256,
 because a bare hash of a short prompt is reversible from a word list — a leaked
