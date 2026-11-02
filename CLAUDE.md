@@ -1320,6 +1320,35 @@ document and version that said it. Design: `docs/design/knowledge-graph.md`
   `kg_query` answers in text with `[key]` citations.
 - KG‑7 (a `utility` model role) is not distinct yet — one configured model.
 
+- **THE LISTER WAS THE THIRD ASKER OF TWO RULES AND HAD NEITHER** (#234, #235).
+  `kg-list-unextracted` selected by `o.team_id` alone and excluded nothing, so a
+  member running **index-knowledge** on a team holding a colleague's PRIVATE
+  document was handed its id and `kg_extract` then raised `forbidden:
+  files:read` — failing the step and the run, which reads as a broken extractor
+  rather than a permission; and it was asked to extract entities from the
+  pipeline's OWN output, where the "entities" are phrases from the renderer's
+  boilerplate (`TMach document pipeline`) and the refusals are KG‑3 working
+  correctly on input it should never have been given. **Measured on the demo: 2
+  entities from 13 documents, nine of them derived, and a red run.** Both rules
+  had been fixed once already — `repo-readable?` by #189 step 4, as "the ONE
+  predicate both listers ask", and CLS‑26's derivation test for the
+  classification backfill — and neither reached here. **`repo-derived-ids` and
+  `REPO-NOT-DERIVED` are CLS‑26's test's home now**, in `repo.rkt` beside
+  `repo-readable?`, in two shapes because a page already authorized in Racket
+  and a SQL window cannot share an implementation; the note at the definition is
+  what keeps it one rule. **Neither fault was visible because the lister offers
+  only what is UNEXTRACTED** — once the owner has run the workflow the private
+  document stops being listed — so a regression test needs a private document
+  created AFTER a run, or it passes for the wrong reason. Third appearance of
+  "exactly-once hides every later mistake", and the second in a lister.
+- **A SQL exclusion narrows the WINDOW; a `can?` filter narrows the ANSWER**, and
+  that asymmetry is why the derivation test went into the statement and the
+  readability test could not. Nine derived documents in a window of forty
+  otherwise consume nine slots, and past the batch a page comes back empty with
+  real documents behind it — a silent early stop for a drain somebody runs until
+  it finds nothing. The residual (an unreadable document still occupies a slot)
+  is the one the sibling lister also carries, bounded by the same batch.
+
 ```sh
 raco test test/kg-tests.rkt        # the mention rule, validation, supersession, the pipeline
 ```

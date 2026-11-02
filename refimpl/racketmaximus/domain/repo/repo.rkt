@@ -47,6 +47,8 @@
          ;; exported so the audit read surface can ask for it instead of
          ;; rebuilding it (issue #84)
          obj->resource repo-readable?
+         ;; CLS-26's test, in its two forced shapes — see the note at the definition
+         repo-derived-ids REPO-NOT-DERIVED
          repo-set-visibility! repo-delete! repo-usage
          blob-referenced? release-blob-if-unreferenced!
          derived-closure repo-delete-tree! repo-delete-prefix! repo-traces
@@ -265,6 +267,42 @@
 (define (repo-readable? conn p id)
   (define r (obj-row conn id))
   (and r (can? conn p "files:read" #:resource (obj->resource (row->obj r)))))
+
+;; ---- "is this document somebody's OUTPUT?" (CLS-26), in one home --------------
+;;
+;; CLS-26 settled the TEST — a `repo_derivations` row, never a key suffix, because
+;; `.extracted.json`, the filled forms, the translations, the redactions, the
+;; proposals and the classification records are all somebody's output and a suffix
+;; list would have to be kept in step with seven tools. What it did not settle is
+;; where that test lives, and the knowledge-graph lister (#234) is its third asker,
+;; so it moves here beside `repo-readable?` — which is the same move for the same
+;; reason, `repo-readable?` having been added as "the ONE predicate both listers
+;; ask" and then not asked by the third.
+;;
+;; TWO SHAPES, ONE RULE, AND THE DIFFERENCE IS FORCED. `repo-derived-ids` filters a
+;; PAGE that `repo-list` has already authorized in Racket; `REPO-NOT-DERIVED` is
+;; the same test as a correlated subquery, for a lister whose window is SQL. They
+;; cannot share an implementation, so they share a definition site and this
+;; paragraph instead — and a SQL exclusion is strictly better where it is
+;; available, because it narrows the WINDOW rather than the answer: a page filtered
+;; afterwards can yield nothing while documents wait behind it, which is CLS-27's
+;; problem and, for a drain somebody runs until it finds nothing, a silent early
+;; stop.
+(define REPO-NOT-DERIVED
+  "NOT EXISTS (SELECT 1 FROM repo_derivations d WHERE d.object_id = o.id)")
+
+;; -> a hash of the ids among `ids` that are derived. Batched, because the caller
+;; has a page in hand and one query beats one per row.
+(define (repo-derived-ids conn ids)
+  (cond
+    [(null? ids) (hasheq)]
+    [else
+     (define qs (string-join (for/list ([_ (in-list ids)]) "?") ","))
+     (for/hash ([r (in-list (apply query-rows conn
+                                   (string-append "SELECT DISTINCT object_id FROM repo_derivations "
+                                                  "WHERE object_id IN (" qs ")")
+                                   ids))])
+       (values (vector-ref r 0) #t))]))
 
 (define (obj-row conn id)
   (query-maybe-row conn (string-append OSELECT " WHERE o.id = ? AND o.deleted_at IS NULL") id))

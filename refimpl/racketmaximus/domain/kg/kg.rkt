@@ -132,6 +132,43 @@
 
 ;; objects whose CURRENT version has text in the index but no extraction for
 ;; that version — never-extracted and re-written-since both, keyed to the version
+;;
+;; TWO FILTERS THIS LISTER DID NOT HAVE, AND BOTH HAD ALREADY BEEN FIXED ONCE
+;; IN ITS SIBLING. It selected by `o.team_id` alone and excluded nothing.
+;;
+;; #235 — A COLLEAGUE'S PRIVATE DOCUMENT WAS LISTED INTO A RUN THAT COULD NOT
+;; READ IT. `kg_extract` then raises `forbidden: files:read`, which fails the
+;; step and the run, so `index-knowledge` was unusable for anyone but the owner
+;; on any team holding one private document — and what that looks like is a
+;; broken extractor rather than a permission. #189 step 4 found and fixed exactly
+;; this in `repo_list_unindexed` and added `repo-readable?` as "the ONE predicate
+;; both listers ask"; this is the third lister and was never pointed at it.
+;;
+;; WHY IT WAS NOT NOTICED, which is the same reason the first one took a slice to
+;; find: THE LISTER ONLY OFFERS WHAT IS UNEXTRACTED, so once the owner has run
+;; the workflow the private document stops being listed and the fault
+;; disappears. A regression test needs a private document created AFTER an
+;; earlier run — "exactly-once hides every later mistake", in a lister.
+;;
+;; #234 — AND IT WAS ASKED TO EXTRACT ENTITIES FROM THE PIPELINE'S OWN OUTPUT.
+;; Measured on the demo: thirteen documents of which nine were derived, every
+;; child refused by `validate-extraction`, **2 entities from 13 documents** and a
+;; red run. The refusals were CORRECT — KG-3 admits nothing without a verbatim
+;; snippet — and the "entities" were phrases out of the renderer's own
+;; boilerplate (`TMach document pipeline`), so the subsystem was doing its job on
+;; input it should never have been given, at one metered model request each.
+;; CLS-26 made this exclusion for the classification backfill and its test is a
+;; derivation row, never a key suffix; `REPO-NOT-DERIVED` is that test.
+;;
+;; THE DERIVED EXCLUSION IS IN SQL AND THE READABILITY FILTER CANNOT BE, and the
+;; asymmetry is worth stating because it is not a style choice. `can?` is Racket,
+;; so readability narrows the ANSWER after the `LIMIT`; the derivation test
+;; narrows the WINDOW. That matters for a drain somebody runs until it finds
+;; nothing: nine derived documents in a window of forty would otherwise consume
+;; nine slots and, past the batch, a page could come back empty with real
+;; documents waiting behind it. What remains is the residual the sibling lister
+;; also carries — an unreadable document still occupies a slot — and it is
+;; bounded by the same batch.
 (define (kg-list-unextracted conn p #:limit [lim 40])
   (require-perm conn p "files:read")
   (define rows (query-rows conn
@@ -140,9 +177,12 @@
      "JOIN repo_text t ON t.object_id = o.id AND t.version_id = o.current_version_id "
      "LEFT JOIN kg_extractions x ON x.object_id = o.id AND x.version_id = o.current_version_id "
      "WHERE o.team_id = ? AND o.deleted_at IS NULL AND x.object_id IS NULL AND t.content <> '' "
+     "AND " REPO-NOT-DERIVED " "
      "ORDER BY o.updated_at ASC LIMIT ?")
     (principal-team-id p) lim))
-  (for/list ([r (in-list rows)]) (vector-ref r 0)))
+  (for/list ([r (in-list rows)]
+             #:when (repo-readable? conn p (vector-ref r 0)))
+    (vector-ref r 0)))
 
 ;; ---- read path: the mention rule ---------------------------------------------------------
 (define (readable-object conn p object-id)
