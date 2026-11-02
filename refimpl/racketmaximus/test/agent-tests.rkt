@@ -4,13 +4,13 @@
 ;; dispatch. The model round-trip needs a live model; here we pin the pure parser
 ;; and the exec dispatcher.  raco test test/agent-tests.rkt
 
-(require rackunit db-kit/portable
+(require rackunit db-kit/portable json
          db-kit/migrate
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt"
          "../domain/agent/loop.rkt"       ; assistant-msg accessors
-         "../domain/agent/run.rkt"        ; parse-agent-response, make-exec
+         "../domain/agent/run.rkt"        ; parse-agent-response, make-exec, fit-tools, CORE-TOOLS
          "../domain/agent/registry.rkt"   ; set-tool-enabled!, tool-settings-for
          "../domain/tools/convert.rkt")   ; tool-block
 
@@ -96,3 +96,87 @@
   (check-true (regexp-match? #rx"fat" m))
   (check-true (regexp-match? #rx"OLLAMA_CONTEXT_LENGTH" m))
   (check-true (regexp-match? #rx"TMACH_MODEL_CONTEXT" m)))
+
+;; ---- A WORKFLOW TOOL IS NOT A CONVERSATIONAL TOOL ----------------------------
+;;
+;; Reported from outside: "Agent currently fails: 27 tool(s) were not offered …",
+;; and the 27 included `create_note`, `update_note`, `list_notes` and `get_usage`
+;; — every tool the agent's own system prompt instructs it to use. The budget
+;; walk above was working exactly as written; what was wrong is that it was fed
+;; the whole registry in MODULE INSTANTIATION order, so what survived was
+;; whatever `server/main.rkt` happened to require first.
+;;
+;; The arithmetic off the reported instance, against the measured schema sizes:
+;; doc_text 473 + doc_classify 3,140 + doc_list_unclassified 750 +
+;; doc_classify_eval 2,369 + repo_list_unindexed 331 + repo_extract_text 270 +
+;; repo_embed_chunks 329 = 7,662 of a 7,680-character budget. The next tool of
+;; any size was refused, and the agent's own four came 14th to 17th.
+(require (only-in "../domain/repo/index-tools.rkt")
+         (only-in "../domain/repo/embed-tools.rkt")
+         (only-in "../domain/repo/retrieve-tools.rkt")
+         (only-in "../domain/repo/voice-tools.rkt")
+         (only-in "../domain/repo/doc-tools.rkt")
+         (only-in "../domain/kg/kg-tools.rkt")
+         (only-in "../domain/ai/executor.rkt" max-input-chars model-context))
+
+;; THE HOSTILE ORDER IS PASSED IN RATHER THAN ARRANGED, because a test cannot
+;; control module instantiation order from inside one module — and that is the
+;; point: the fix must not depend on the order at all.
+(test-case "the tools the system prompt NAMES survive, whatever order they arrive in"
+  (define (sch name chars)
+    (hasheq 'type "function"
+            'function (hasheq 'name name 'description (make-string chars #\x))))
+  ;; the reported instance's own shape: the fat pipeline schemas first, the
+  ;; agent's own four last.
+  (define hostile
+    (append (list (sch "doc_classify" 3140) (sch "doc_classify_eval" 2369)
+                  (sch "doc_set_type" 1796) (sch "doc_render" 2090))
+            (for/list ([n (in-list CORE-TOOLS)]) (sch n 300))))
+  (define-values (kept withheld) (fit-tools hostile 7680))
+  (for ([n (in-list CORE-TOOLS)])
+    (check-true (and (member n (map tool-schema-name kept)) #t)
+                (format "~a is named by the system prompt and must be offered" n))
+    (check-false (member n withheld)))
+  ;; and the fat ones are what gave way, which is the whole trade
+  (check-true (> (length withheld) 0) "something had to go — it must not be a core tool"))
+
+(test-case "a workflow tool is registered and dispatchable, and never offered to the agent"
+  ;; `agent?` is not a permission and not the per-team switch: the tool is still
+  ;; in the registry, still documented, still callable by a workflow step.
+  (for ([n (in-list '("repo_list_unindexed" "repo_extract_text"
+                      "repo_list_unembedded" "repo_embed_chunks"
+                      "voice_list_untranscribed" "doc_transcribe"
+                      "kg_list_unextracted" "kg_extract"
+                      "doc_list_unclassified" "doc_classify_eval"
+                      "doc_classify" "doc_set_type" "doc_extract_fields"
+                      "doc_render" "doc_fill_form"))])
+    (define t (tool-by-name n))
+    (check-true (tool? t) (format "~a must still be registered" n))
+    (check-false (tool-agent? t) (format "~a is a workflow tool, not a conversational one" n)))
+  ;; …and the ones a person really does ask for in a sentence are kept
+  (for ([n (in-list '("create_note" "update_note" "list_notes" "get_usage"
+                      "doc_text" "doc_redact" "doc_translate"
+                      "repo_retrieve" "kg_query"))])
+    (define t (tool-by-name n))
+    (check-true (tool? t) (format "~a must be registered" n))
+    (check-true (tool-agent? t) (format "~a is conversational and must be offered" n))))
+
+;; THE GATE: a new agent-facing tool whose schema does not fit fails HERE rather
+;; than silently pushing somebody else's tool out of the window on a box running
+;; ollama's documented default. The remedy when it fails is `#:agent? #f` if the
+;; tool's required arguments are spec-authored, and a smaller schema if not.
+(test-case "the whole agent-facing surface fits the shipped window"
+  (define agentable (filter tool-agent? (all-tools)))
+  (define-values (kept withheld) (fit-tools (map tool-schema agentable)))
+  (check-equal? withheld '()
+                (format "~a of ~a chars does not fit ~a (window ~a tokens)"
+                        withheld
+                        (for/sum ([t agentable]) (string-length (jsexpr->string (tool-schema t))))
+                        (max-input-chars) (model-context)))
+  (check-equal? (length kept) (length agentable)))
+
+(test-case "#:agent? defaults to #t, so a plugin's tool keeps appearing"
+  (register-tool! "probe_plugin_tool"
+                  (hasheq 'type "function" 'function (hasheq 'name "probe_plugin_tool"))
+                  "notes:read" (lambda (c p a) "ok") #:source "probe")
+  (check-true (tool-agent? (tool-by-name "probe_plugin_tool"))))

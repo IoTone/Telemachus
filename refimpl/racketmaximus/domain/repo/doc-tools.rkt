@@ -1395,13 +1395,41 @@
 ;; files:write on every one that writes; the two AI tools ALSO require chat:use in
 ;; their handlers, because a tool has one permission string and both apply
 (register-tool! "doc_text"           doc_text           "files:read"  doc-text)
-(register-tool! "doc_classify"       doc_classify       "files:write" doc-classify)
-(register-tool! "doc_list_unclassified" doc_list_unclassified "files:read" list-unclassified)
+;; `labels` is REQUIRED and is the team's own label set — a workflow binds it as a
+;; literal. A model offered this tool and no label set invents one, and CLS-5 then
+;; holds its answer to a set nobody chose. Workflow tool (registry.rkt's `agent?`),
+;; and at 3,140 characters it is the single fattest schema in the registry.
+(register-tool! "doc_classify"       doc_classify       "files:write" doc-classify
+                #:agent? #f)
+;; The backfill's lister and the evaluation harness are workflow tools (registry.rkt):
+;; one pages ids for `classify-backfill`'s `map`, the other scores a fixture SET and
+;; answers an aggregate report. Between them they are 3,119 characters of schema, 41%
+;; of the agent's whole budget, for two things nobody asks for in a sentence.
+(register-tool! "doc_list_unclassified" doc_list_unclassified "files:read" list-unclassified
+                #:agent? #f)
 ;; req 6: an evaluation READS the repository and writes nothing (CLS-33)
-(register-tool! "doc_classify_eval"  doc_classify_eval  "files:read"  doc-classify-eval)
+(register-tool! "doc_classify_eval"  doc_classify_eval  "files:read"  doc-classify-eval
+                #:agent? #f)
 (register-tool! "doc_redact"         doc_redact         "files:write" doc-redact)
-(register-tool! "doc_set_type"       doc_set_type       "files:write" doc-set-type)
-(register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields)
-(register-tool! "doc_render"         doc_render         "files:write" doc-render)
-(register-tool! "doc_fill_form"      doc_fill_form      "files:write" doc-fill-form)
+;; Records a REVIEW decision (CLS-16) — it carries a verdict, a review id and a
+;; rationale. Only the review hook calls it. Workflow tool.
+(register-tool! "doc_set_type"       doc_set_type       "files:write" doc-set-type
+                #:agent? #f)
+;; `schema` is REQUIRED and is a JSON Schema. Nobody utters one; an invented one is
+;; DWF-5's refusal with the caller blamed for it. Workflow tool.
+(register-tool! "doc_extract_fields" doc_extract_fields "files:write" doc-extract-fields
+                #:agent? #f)
+;; `template` and `data` are both REQUIRED, `data` an object the strict renderer holds
+;; every placeholder of. Workflow tool.
+(register-tool! "doc_render"         doc_render         "files:write" doc-render
+                #:agent? #f)
+;; `values` is REQUIRED and its keys are the FORM's own field names, which are
+;; discovered through GET /api/repo-obj/:id/form-fields — a route no tool reaches. So
+;; a model would have to guess them, and FORM-4 refuses a guess by name. Workflow tool.
+;;
+;; `doc_redact` and `doc_translate` deliberately STAY agent-facing: "redact this" and
+;; "translate this into Japanese" are whole sentences, and their required arguments are
+;; an object id and a locale.
+(register-tool! "doc_fill_form"      doc_fill_form      "files:write" doc-fill-form
+                #:agent? #f)
 (register-tool! "doc_translate"      doc_translate      "files:write" doc-translate)

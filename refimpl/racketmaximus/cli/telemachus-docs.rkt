@@ -88,6 +88,7 @@
                'description (let ([d (js-get fn 'description "")]) (if (string? d) d ""))
                'permission (or (tool-perm t) 'null)
                'source (tool-source t)
+               'agent (tool-agent? t)
                'parameters (js-get fn 'parameters (hasheq))))
      string<? #:key (lambda (t) (hash-ref t 'name))))
   (define workflows
@@ -242,12 +243,20 @@
   (define tools (hash-ref model 'tools))
   (string-append
    "# Tools\n\n"
-   "Every tool the agent may call and a workflow step may use, from `define-tool` "
-   "declarations and plugin registrations. Each tool checks its own permission when "
-   "invoked; a workflow step also needs `tools:invoke`.\n\n"
-   (table '("Tool" "Permission" "Source" "Description")
+   "Every tool a workflow step may use, from `define-tool` declarations and plugin "
+   "registrations. Each tool checks its own permission when invoked; a workflow step "
+   "also needs `tools:invoke`.\n\n"
+   "**Agent** says whether the conversational agent is OFFERED the tool. A tool whose "
+   "required arguments are spec-authored — a label set, a JSON Schema, a template and "
+   "its data, a form's own field names — is a workflow tool: nobody asks for it in a "
+   "sentence, and a model handed one with no such structure invents it. It is not a "
+   "permission and not the per-team switch; a workflow tool is registered, documented "
+   "and dispatchable exactly as any other. Keeping them off that surface is also what "
+   "makes the agent's whole tool list fit a 4,096-token window.\n\n"
+   (table '("Tool" "Agent" "Permission" "Source" "Description")
           (for/list ([t (in-list tools)])
             (list (code (hash-ref t 'name))
+                  (if (hash-ref t 'agent #t) "yes" "—")
                   (let ([p (hash-ref t 'permission)]) (if (string? p) (code p) "—"))
                   (hash-ref t 'source)
                   (L (string-append "doc.tool." (hash-ref t 'name)) (hash-ref t 'description)))))

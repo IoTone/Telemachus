@@ -206,5 +206,8 @@
           'model (transcribe-model)
           'empty (string=? (string-trim capped) "")))
 
-(register-tool! "doc_transcribe" doc_transcribe "files:write" transcribe-one)
-(register-tool! "voice_list_untranscribed" voice_list_untranscribed "files:read" list-untranscribed)
+;; `transcribe-documents`' two steps: workflow tools (registry.rkt). A person asking
+;; for a recording to be transcribed runs the workflow, which is also what meters it.
+(register-tool! "doc_transcribe" doc_transcribe "files:write" transcribe-one #:agent? #f)
+(register-tool! "voice_list_untranscribed" voice_list_untranscribed "files:read" list-untranscribed
+                #:agent? #f)

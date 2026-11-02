@@ -202,5 +202,7 @@
         [(<= (length xs) n) (list xs)]
         [else (cons (take xs n) (chunk-batches (drop xs n) n))]))
 
-(register-tool! "repo_list_unembedded" repo_list_unembedded "files:read" list-unembedded)
-(register-tool! "repo_embed_chunks" repo_embed_chunks "files:write" embed-one)
+;; `embed-documents`' two steps, and nothing else: workflow tools (registry.rkt).
+(register-tool! "repo_list_unembedded" repo_list_unembedded "files:read" list-unembedded
+                #:agent? #f)
+(register-tool! "repo_embed_chunks" repo_embed_chunks "files:write" embed-one #:agent? #f)
