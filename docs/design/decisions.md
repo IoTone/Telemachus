@@ -4954,6 +4954,57 @@ dimension, `help-cited-paths`, the prompt's only-the-passages rule, the help
 hook's position in the dispatch, `helpBlocked`'s two reasons, the header button's
 guard, the one-send guard and its `finally`.
 
+### HELP‑23 — a help question stays SYNCHRONOUS until it is routed (issue #238, decided 2 Nov 2026)
+
+**Decided by the owner, as the issue recommended.** Asked from outside: *"are doc
+queries run vs an LLM? if so shouldn't they go onto the jobs?"* They are — every
+question is **two** model calls, the embedding of the question (`embed-exchange`,
+by the same checkpoint the corpus is of) and the chat over the retrieved passages
+(`run-chat`, or the team's `utility` executor) — and both stay inside
+`POST /api/help`.
+
+**THE DECIDING FACTOR IS THE WIRE, NOT THE LATENCY**, and that is the whole of
+the argument. Measured on the lab box: **0.9–3.8 s warm, 18 s with the model
+cold**, 1,600–1,900 tokens a question, over a 1,605-chunk corpus whose scan is
+~55 ms. Every one of those is inside a sensible request budget, so latency does
+not force the question either way. What forces it is that **a pull executor's
+wire IS a job** (`infer.chat`): the day help is pointed at the fleet it has no
+choice, and that is the day to make it one.
+
+**AND A JOB WOULD COST THE THING HELP‑21 WENT OUT OF ITS WAY TO AVOID.**
+`ai.concurrency` defaults to **2** per team, so a question queued behind two
+running jobs waits — and for a panel somebody opened with Cmd+/ that is worse
+than the 3 s call it replaced, through a different door. QUOTA‑3's `waiting`
+would explain the hold honestly and the asker still would not have an answer.
+What a job would buy is real and is not needed yet: quota admission, cancel, the
+lease, the fence, the attempt trail and a row in the Jobs list. Help is metered
+either way (`ai.help.total` + `ai.requests`), and `GET /api/model-requests`
+records both calls, which is where it is visible today.
+
+**WHAT IS GIVEN UP, STATED**: help creates no job, so the Jobs tab is silent
+about it, and it has no progress, no elapsed time and no cancel. That is #233's
+shape — the third instance after Chat and Translate — and it is accepted here
+rather than denied.
+
+**#233 IS DECIDED SEPARATELY AND MAY GO THE OTHER WAY.** Both issues asked one
+question — *one mechanism for "a model call that may outlive its request", not
+three* — and the answers legitimately differ by caller, because the trade turns
+on the measurement: 20 s at 8,000 characters (#233's own table) makes
+`ai.concurrency`'s cost worth paying where 3 s does not.
+
+**TWO THINGS #238 NAMED AND THIS DECISION DOES NOT BUILD**, carried here so
+closing the issue does not lose them:
+
+- **The 60 s cut is real.** A synchronous call over the tailnet is severed at
+  exactly 60 s by something in the path (recorded in the GPU-fleet notes), so a
+  cold 18 s answer is already within a factor of three of being unanswerable. A
+  deadline and a message naming it beats a dropped connection — and note that
+  this is an argument the decision above does not escape: staying synchronous
+  means living inside that cut.
+- **Say what it cost.** The reply already carries `tokens` and the panel does not
+  show it. An operator who cannot see that a question spent 1,900 tokens cannot
+  reason about `ai.help.total`, which is the dimension HELP‑21 created for them.
+
 ## FEED (continued) — the four remaining adapters (issue #193, built 29 Oct 2026)
 
 #114 named six sources. One had an adapter (`github.issues`, FEED‑14…22) and one
