@@ -367,7 +367,7 @@ and each can be dropped without stranding the one before it.
 |---|---|---|
 | WF‑1 | The **data spec is the contract**; `define-workflow` is the authoring surface that compiles to it | ✅ decided |
 | WF‑2 | Binding sublanguage **frozen**: references + a fixed predicate set, no evaluation | ✅ decided |
-| WF‑3 | Borrow CNCF Serverless Workflow **vocabulary** as a documented subset; claim no conformance | ✅ decided |
+| WF‑3 | Borrow CNCF Serverless Workflow **vocabulary** as a documented subset; conformance is not asserted | ✅ decided |
 | WF‑4 | Durability unit is **one scheduler job per step** | ✅ decided |
 | WF‑5 | A human gate lands in v1 | ✅ decided; **built Oct 2026 as the `review` step** (LAY‑1…3), not as the `approve` gate originally sketched — a verdict, a rationale, a checklist and four-eyes, with its own queue rather than a release endpoint |
 | WF‑6 | Visual interface is **read-only** at v1; editor deferred | ✅ decided |

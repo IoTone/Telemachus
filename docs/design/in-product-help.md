@@ -110,7 +110,7 @@ They do (#189, #163). The retrieval here is `vec-nearest` over the same stored
 form, so the corpus is comparable with the document corpus and the same
 calibration applies to both.
 
-**What is NOT claimed is cross-lingual retrieval** (HELP‑12). The console ships
+**Cross-lingual retrieval is NOT promised** (HELP‑12). The console ships
 in Japanese and the documentation has a Japanese e-book and a Japanese generated
 reference, so the locale is a SQL filter with an honest fallback: an exact match
 first, the default locale second, and the report says **which locale answered**.
@@ -185,7 +185,7 @@ be made against.**
 directories — in English.** `docs/reference/ja/permissions.md` scored 0.613,
 because the generated reference is English where a string is not yet translated.
 That is HELP‑12's exact filter doing exactly what it says, and it is also why
-cross-lingual retrieval stays unclaimed: the Japanese PROSE did not surface for an
+cross-lingual retrieval is not promised: the Japanese PROSE did not surface for an
 English question.
 
 ## The answer (slice 2, built)

@@ -528,7 +528,7 @@ the conformance target, and it differs from what the documentation implies.
 | A failed `Complete` was followed by `DELETE ?uploadId` | abort is part of the happy path, not an edge case |
 | `x-amz-sdk-checksum-algorithm: CRC64NVME` + `x-amz-checksum-crc64nvme`, **both in `SignedHeaders`** | they must be included in the canonical request even though we do not verify the CRC |
 | `aws s3 ls` → `GET /` then `GET /bucket?list-type=2&prefix=&delimiter=%2F&encoding-type=url` | empty query values are part of the canonical string; responses must honour `encoding-type=url` |
-| `X-Amz-Content-SHA256` of an empty body is the SHA‑256 of the empty string | it is a claim to be recomputed, never trusted |
+| `X-Amz-Content-SHA256` of an empty body is the SHA‑256 of the empty string | it is a value to be recomputed, never trusted |
 | **No** `aws-chunked` / `STREAMING-*` payload on any request observed | implement the plain payload path first; answer `STREAMING-*` with `NotImplemented` until a client that needs it turns up. Arsenal's `streamingV4/` is the reference when one does |
 
 ## The S3 surface

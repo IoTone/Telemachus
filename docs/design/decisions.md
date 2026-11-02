@@ -146,7 +146,7 @@ Status: **LOCKED 2026-08-13.** `→ default` = the recommendation above was acce
 | ONB‑8 | 30-day retention then deprovision + export | ⏳ control-plane |
 | WF‑1 | workflow **spec is the contract**; `define-workflow` compiles to it | ✅ decided [^4] |
 | WF‑2 | binding sublanguage **frozen** (references + fixed predicates, no eval) | ✅ decided |
-| WF‑3 | borrow CNCF Serverless Workflow **vocabulary**, claim no conformance | ✅ decided |
+| WF‑3 | borrow CNCF Serverless Workflow **vocabulary**; conformance is not asserted | ✅ decided |
 | WF‑4 | durability unit = **one scheduler job per step** | ✅ decided |
 | WF‑5 | human `approve` gate in v1 | ✅ decided |
 | WF‑6 | visual interface **read-only** at v1 | ✅ decided |
@@ -294,10 +294,10 @@ submission forms) are plugins and workflow content by construction.
 | **LAY‑10** | Measuring AI reliability | **A report over the decisions LAY‑2 already records** · vs an evaluation subsystem · vs an external benchmark only | Their "framework to determine the reliability and acceptable scope of AI outputs" sounds like a platform and is a query. The same rows are also a supervised dataset for fine-tuning a domain model — which is why LAY‑1/‑2 pay three times. |
 | **LAY‑11** | Tamper-evidence | **Hash-chain the decision records** · vs trusting append-only convention · vs external signing | For an administrative audit the difference between a record and evidence is whether alteration can be detected. Built on primitives that exist: SHA‑256 content addressing and `sha2.rkt`'s HMAC. |
 | **LAY‑12** | Where review appears in the console | **The queue is a core, permission-gated surface; domain canvases stay plugin bundles** · vs all of it in a plugin · vs all of it in core | Every team with a human gate needs the queue, so it is platform. Drawing regions on an inspection photograph is domain work, and the authenticated bundle already serves custom screens. The platform owes the queue, the record and the storage — not a crack-width widget. |
-| **LAY‑13** | Where a human annotation lives | **Its own table, `repo_annotations`, bound to a VERSION** · vs a flag on LAY‑5's `repo_text.spans` · vs an attribute on the object | A span is a function of the bytes: an extractor reports it and a new version replaces the set wholesale. A person's observation is not — it was true about the bytes they were looking at — so it survives and names the version it was drawn on. `version_id` is NOT NULL: a region with no version is a region on unknown bytes, and the one thing an annotation must not do is claim to mark a place in a document it never saw. `stale` is DERIVED against the object's current version, never stored, so re-uploading the same bytes cannot leave a row disagreeing with the object (the Localization Manager's `missing`/`stale` rule, and QUOTA‑3's `waiting`). |
+| **LAY‑13** | Where a human annotation lives | **Its own table, `repo_annotations`, bound to a VERSION** · vs a flag on LAY‑5's `repo_text.spans` · vs an attribute on the object | A span is a function of the bytes: an extractor reports it and a new version replaces the set wholesale. A person's observation is not — it was true about the bytes they were looking at — so it survives and names the version it was drawn on. `version_id` is NOT NULL: a region with no version is a region on unknown bytes, and the one thing an annotation must not do is say it marks a place in a document it never saw. `stale` is DERIVED against the object's current version, never stored, so re-uploading the same bytes cannot leave a row disagreeing with the object (the Localization Manager's `missing`/`stale` rule, and QUOTA‑3's `waiting`). |
 | 🔑 **LAY‑14** | Who may annotate | **Anyone who may READ the document** · vs `files:write` · vs a new `annotations:write` permission | This is the decision of the slice. Requiring write would mean a specialist handed a document to review could not mark it up — and `view` (DSH‑1) is exactly what sharing for review GIVES them, so the asymmetry would fall on the one case the feature exists for. Nothing about the document changes: bytes, versions and extracted text are untouched, and the row carries whose observation it is. LAY‑1…3 already lets a reviewer record a verdict and a rationale on work they cannot write to; this is the same act at a finer grain. The cost is stated rather than hidden: a colleague may annotate your team-visible document, and you cannot edit what they wrote. |
 | **LAY‑15** | Who may change one | **Only the author may EDIT; the author or a `files:manage` steward may DELETE** · vs the document's owner may edit · vs anyone with read may delete | Editing is deliberately a NARROWER power than deletion, which is the opposite of the usual shape and is the point: a steward may remove an annotation from their document, and may not put words in somebody's mouth. A correction to somebody else's observation is your own annotation — the grants table's superseding-record rule and the review queue's terminal decision. Somebody else's annotation answers 403, not 404: the request is fine, the person is wrong for it (LAY‑3's four-eyes refusal takes the same line). |
-| **LAY‑16** | How it relates to LAY‑11's chain | **A reference to the decision, not a chained record of its own** · vs chaining annotations too · vs no link | An annotation is an observation; a decision is what somebody is accountable for, and that is what LAY‑11 hashes. A second chain over observations would imply a tamper-evidence claim the storage cannot make and nobody asked for. So an annotation may name the review that cited it, and `annotations-for-review` reads those back PER OBJECT under that object's own `can?` — a review may legitimately cite a region in a document the reader cannot see, and this must not be the way around that. |
+| **LAY‑16** | How it relates to LAY‑11's chain | **A reference to the decision, not a chained record of its own** · vs chaining annotations too · vs no link | An annotation is an observation; a decision is what somebody is accountable for, and that is what LAY‑11 hashes. A second chain over observations would imply a tamper-evidence guarantee the storage cannot give and nobody asked for. So an annotation may name the review that cited it, and `annotations-for-review` reads those back PER OBJECT under that object's own `can?` — a review may legitimately cite a region in a document the reader cannot see, and this must not be the way around that. |
 | **LAY‑17** | What an annotation may NOT be | **No place, no annotation — and one bbox rule, shared with LAY‑5** · vs free-form comments · vs a second geometry validator | Without a region or a range it is a comment on the document as a whole, which a note (or a review rationale) already is, and a table of place-less rows would make "what is marked on page 3" answer with things that belong nowhere. The bbox check is extracted from `span-problem` as `bbox-problem` and shared, because deriving it twice is `executor-can-run?`'s drift: the two copies would disagree about an edge only one caller's tests would see. The kinds are CLOSED (`note` needs a body, `highlight` does not — that behavioural difference is the bar for a second member); `redaction` was left out because it would imply enforcement, and enforcement is #91. |
 
 ## Issue #54's open questions — **decided and BUILT 12 Oct 2026**
@@ -437,7 +437,7 @@ idle one, and a crashed worker looked exactly like a paused one.
 | **PULL‑11b** | The vocabulary | **Closed: `ready` / `busy` / `paused`** · vs free text · vs adding `draining` | A closed vocabulary for the reason `EXTRACT-REASONS` and `REVIEW-VERDICTS` are closed: an operator surface switches on these, so a worker inventing a fifth would arrive as a state nothing can explain. `draining` was considered and left out — the job rows already say what a paused worker is still finishing, so it would be a state the database can already answer. |
 | **PULL‑11c** | Where it is reported | **`POST /api/workers/state` as the authoritative channel, AND an optional `state` on claim and heartbeat** · vs the claim alone · vs the dedicated endpoint alone | The claim alone cannot carry `paused`, which is the whole point of the issue: a drained worker has stopped claiming and holds no job to heartbeat, so it would simply go stale. The dedicated endpoint alone would double a busy worker's request count for a field that fits on a call it already makes every poll. Both, then — one mechanism with a convenience, not two mechanisms. |
 | **PULL‑11d** | Silence | **A call that names no state leaves the stored one ALONE** · vs defaulting a claim to `ready` | A third-party worker written against the old wire must keep reading as "never reported". Defaulting a claim to `ready` would make every such worker assert something it never said, and a worker that is in fact paused and polling occasionally would be reported as ready. |
-| 🔑 **PULL‑11e** | A stale worker's last word | **Withdrawn, not repeated: `worker_state` is `null` unless the row is otherwise live** · vs reporting the last state with its timestamp and letting the client judge | A worker that said `busy` an hour ago and then vanished is **stale**, not busy. Repeating its last word is a claim nothing stands behind, which is the rule QUOTA‑3 settled for a held job's reason — the key is absent rather than guessed, because a field a reader learns to distrust is worse than no field. The timestamp is dropped with it for the same reason. |
+| 🔑 **PULL‑11e** | A stale worker's last word | **Withdrawn, not repeated: `worker_state` is `null` unless the row is otherwise live** · vs reporting the last state with its timestamp and letting the client judge | A worker that said `busy` an hour ago and then vanished is **stale**, not busy. Repeating its last word states something nothing stands behind, which is the rule QUOTA‑3 settled for a held job's reason — the key is absent rather than guessed, because a field a reader learns to distrust is worse than no field. The timestamp is dropped with it for the same reason. |
 | **PULL‑11f** | An unknown state | **Refused on `/api/workers/state` (400), IGNORED on a claim** · vs refusing both · vs ignoring both | Asymmetric on purpose. On the state endpoint the state *is* the request, so there is nothing to do but refuse. On a claim it is a field riding along with the call that fetches work, and failing that call over a cosmetic field would stop the queue — the kind of refusal that turns a reporting nicety into an outage. |
 
 Migration `0040-executor-state` adds `worker_state TEXT` and `state_epoch
@@ -484,7 +484,7 @@ unaudited — the cancellation itself is audited (`job.cancel`, SCHED‑8), so t
 missing entry is the narrower fact that a holder ignored it past the ceiling.
 `reap-orphans!`, which sweeps NULL-lease rows at boot, is likewise silent. Both
 are the same class and neither is a lease expiry; noted here rather than folded
-in, so the slice stays the one thing it claims to be.
+in, so the slice stays the one thing it says it is.
 
 **The one place the refactor nearly changed behaviour.** The condition was
 `(< attempt MAX-ATTEMPTS)` → requeue. Naming the negation reads better as
@@ -536,7 +536,7 @@ drain meant re-provisioning the host afterwards.
 | **FLEET‑3b** | Reversibility | **Drain/resume, token untouched** · vs retire-and-recreate | A retire revokes the worker token and is irreversible, which is the wrong tool for "take this box out for ten minutes" — and it was the only tool. `retired` is deliberately **not** an `admin_state` value: the two operations differ in kind, and a vocabulary that contained both would invite a console to offer them as peers. |
 | 🔑 **FLEET‑3c** | What a drained worker sees | **It keeps polling and is answered 204** · vs refusing its token · vs telling it to stop | A drained host that keeps polling keeps being *seen*, so the operator watches a live box taking nothing instead of one that has gone stale — which is the whole gap issue #58 opened and this would otherwise reopen from the other side. 204 is also a meaning the wire already has, so a **third-party worker needs no change to be drainable**. Revoking the token instead would make a reversible act look exactly like a retire to the worker. |
 | **FLEET‑3d** | Work already in flight | **Left running** · vs cancelling it · vs waiting for the lease to lapse | Draining says "start nothing new". Stopping work in flight is what cancel is for (SCHED‑8), and an operator who means that should have to say it. Releasing the claim without spending an attempt is **#61**, and this slice is the reason that issue matters. |
-| 🔑 **FLEET‑3e** | Intent is NOT withdrawn when the row goes stale | **`admin_state` is reported whatever the health** · vs PULL‑11e's withdrawal rule | PULL‑11e withdraws a stale worker's reported state because it is a claim the worker can no longer stand behind. Intent is the opposite kind of fact: it is a **standing instruction**, it does not decay, and a drained box that went quiet is still drained — and still drained when it comes back. Withdrawing it would mean a host silently returned to rotation by going offline and coming back. |
+| 🔑 **FLEET‑3e** | Intent is NOT withdrawn when the row goes stale | **`admin_state` is reported whatever the health** · vs PULL‑11e's withdrawal rule | PULL‑11e withdraws a stale worker's reported state because it is something the worker can no longer stand behind. Intent is the opposite kind of fact: it is a **standing instruction**, it does not decay, and a drained box that went quiet is still drained — and still drained when it comes back. Withdrawing it would mean a host silently returned to rotation by going offline and coming back. |
 | **FLEET‑3f** | Who may drain | **`instance:manage` only** · vs also the org admin who may retire their own executor | Draining is day-to-day operation of the instance's compute. The asymmetry with retire is deliberate rather than an oversight, and is worth revisiting when an org runs a fleet of its own. |
 | **FLEET‑3g** | The claim's double check | **The predicate refuses a drained executor AND the claim short-circuits before touching the queue** · vs one or the other | `executor-can-run?` is authoritative, because it is what keeps FLEET‑2's `unclaimable` honest — a drained host must never read as a reason the queue can drain. The short-circuit in `worker-claim!` is the same answer reached without scanning anything, which is what keeps a drained fleet's polling free. Both, with a comment saying so, because removing either looks like a simplification. |
 | **FLEET‑3h** | The console card | **Replace "Compute" outright** · vs adding a second card | The old card showed name, model and endpoint — and a pull worker has no endpoint, so every worker drew an empty cell while a box that had died an hour ago drew identically to one mid-job. It displayed none of `status`, `worker_state` or `last_seen_at`, all of which the API already answered. Leaving it beside a correct card would leave the misleading one on screen. |
@@ -727,7 +727,7 @@ transient content purged.
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|
 | 🔑 **ENC‑8** | How the work was found | **Write the acceptance criterion as a WHOLE-DATABASE SCAN first, and let it name the leaks** · vs enumerate the SQL sites and audit the list | There are eleven sites, and the dangerous half is the WRITES: a missed read usually raises, a missed write stores plaintext in silence. Auditing one's own enumeration is the check that passes because it never looked in the right place. `test/dump-leak-tests.rkt` walks every table and column the schema HAS, with a CONTROL case proving the scanner finds the needle when encryption is off — without which the encrypted case proves nothing. It named `jobs.payload` and `jobs.result` precisely. |
-| 🔑 **ENC‑9** | The worker wire | **A worker always receives PLAINTEXT; `worker-claim!` unseals** · vs ship ciphertext and give workers a key · vs a second wire | A worker holds no key and could not decrypt. The protection here is of the DATABASE — a dump, a replica, a snapshot — which is #19's narrow claim applied to content. The wire is therefore unchanged and a third-party worker needs no change; `pull-smoke` passes with the switch on. |
+| 🔑 **ENC‑9** | The worker wire | **A worker always receives PLAINTEXT; `worker-claim!` unseals** · vs ship ciphertext and give workers a key · vs a second wire | A worker holds no key and could not decrypt. The protection here is of the DATABASE — a dump, a replica, a snapshot — which is #19's narrow promise applied to content. The wire is therefore unchanged and a third-party worker needs no change; `pull-smoke` passes with the switch on. |
 | 🔑 **ENC‑10** | Three reads that SWALLOW | **Unseal before parsing, and say so at each** · vs rely on "a missed unseal raises" | It does not raise at three sites. `run-claimed!` wraps the parse in a handler returning `(hasheq)`, so a missed unseal hands the kind an EMPTY payload and the job runs on nothing. PULL‑9's and PULL‑13's warrant checks do the same and answer `'not-in-job`, refusing a worker a document its own job names — safe, and wrong. The leak scan cannot see either, which is why `dump-leak-tests.rkt` also asserts a job's RESULT is still correct with encryption on. |
 | **ENC‑11** | What the suite does when sealed | **`server-smoke` is MODE-AWARE and skips loudly** · vs let it fail · vs drop the assertions | Three assertions depend on content search (two document searches and LAY‑7's plugin-extractor demonstration), and one asserts the no-key posture a key contradicts. Four red lines an operator has to triage into "expected" and "not" is worse than a suite that names which capability is off. The skip is loud, and the default mode still RUNS all four. |
 | **ENC‑12** | `requirements` | **NOT sealed** · vs seal everything on the row | It is the kind's matching criteria — models and capabilities — which a claim filters on in SQL and which carries no document content. |
@@ -843,7 +843,7 @@ not answer it at all.
 
 | # | Question | Decision · alternatives | Why |
 |---|---|---|---|
-| **AUD‑1** | Where the read is recorded | **At `repo-open`, the ONE seam that produces bytes** · vs at each of the nine call sites | Every door arrives there: the console download and the API GET, the S3 listener's GetObject / HeadObject / CopyObject source, LAY‑6's out-of-process `repo.get`, PULL‑9's worker read, the indexer, and `doc_text` inside a workflow step. Nine call sites would be nine chances to forget, and the tenth — written later — would be silent. `repo-put!`'s trigger hook is there for the same reason. The claim is TESTED, not asserted: a read through a door that was never taught to audit anything still appears. |
+| **AUD‑1** | Where the read is recorded | **At `repo-open`, the ONE seam that produces bytes** · vs at each of the nine call sites | Every door arrives there: the console download and the API GET, the S3 listener's GetObject / HeadObject / CopyObject source, LAY‑6's out-of-process `repo.get`, PULL‑9's worker read, the indexer, and `doc_text` inside a workflow step. Nine call sites would be nine chances to forget, and the tenth — written later — would be silent. `repo-put!`'s trigger hook is there for the same reason. It is TESTED, not asserted: a read through a door that was never taught to audit anything still appears. |
 | **AUD‑2** | How the door is known | **A `current-read-context` parameter** · vs a new argument on `repo-open` | Nine signatures would change and a caller that forgot would read as the wrong door. The default is `"internal"`, which is honest — a read from a path that set no context is not an API read, and guessing `"api"` would put a client in the record that never existed. `READ-DOORS` is a CLOSED vocabulary, like `WORKER-STATES`: an export groups by it. |
 | **AUD‑3** | What counts as a content read | **`repo-open` only; metadata GETs are not audited** · vs every `repo-get` | `repo-get` answers a listing, a share dialog, a "Processed by" panel. Auditing it would bury the reads that matter under rows about rendering a table — and r1's "API GET" is the GET that returns the document. The absence is ASSERTED in `server-smoke.sh` (the entry count does not move) so it is a decision rather than an oversight. |
 | **AUD‑4** | A refused read | **Recorded, with the same shape, and the exception re-raised unchanged** · vs record only successes | r4, and it is the event an auditor is looking for. It has to be CAUGHT rather than inferred, because `repo-get` RAISES on a permission failure while answering `#f` for a miss. The entry is written even where the API deliberately collapses the two into one answer (the knowledge graph's rule, PULL‑9's, the derive warrant's): the caller is told one thing, the record keeps them apart. |
@@ -872,7 +872,7 @@ reads an auditor makes rather than the write path.
 | **AUD‑15** | An entry with no org | **Chained in its own bucket, `-`** · vs left unchained | A single-tenant instance's entries all have no org, and so do instance-level events everywhere. Leaving them unchained would make them deletable without trace — on the one deployment shape where the whole log is in that bucket. |
 | **AUD‑16** | The export's shape | **JSONL, streamed to the response port, chain fields included** · vs a JSON array · vs the chain stripped | One object per line appends and streams; an org's year of document reads is not something to hold in memory. The chain fields are IN it deliberately: a copy kept elsewhere can be verified against itself, and that external copy is the nearest thing to the external anchor this design is missing. The export is itself audited (`audit.exported`) — taking a copy of the log off the box is exactly the event a later reader wants to find. |
 
-**The claim is the narrow one, stated as LAY‑11 states it.** The chain detects an
+**What it detects is narrow, exactly as LAY‑11 states it.** The chain detects an
 entry altered in place, an entry removed from the middle, and a rewritten link.
 It does **NOT** detect a rewrite by anyone who can WRITE the table, who can
 recompute every link after the row they changed — and that is the party an
@@ -881,7 +881,7 @@ rest, which defends a DUMP and not a HOST. Closing it needs an external anchor:
 publishing the head hash somewhere the database's owner does not control. That is
 a deployment decision rather than a schema one, and it is not built — but the
 export is what makes it POSSIBLE without further code, which is the most this
-slice can honestly claim.
+slice can honestly promise.
 
 **The acceptance criterion is tested at its stated scale**: 10,000 events seal
 and verify, and three separate tamperings each break it and are each NAMED — a
@@ -905,7 +905,7 @@ for a build that had stopped recording failures, which is the same answer for th
 opposite reason — and sealing a diagnostic into illegibility would be a different
 bug wearing this one's clothes.
 
-**r6 is a documentation claim and is now made**: `docs/ops/secrets-at-rest-runbook.md`
+**r6 is a point for the documentation to make, and it now makes it**: `docs/ops/secrets-at-rest-runbook.md`
 §2b says why volume encryption is necessary and not sufficient — a running
 database decrypts for anyone it answers, so `pg_dump`, a read replica, a restore
 onto a shared-key host and any account with `SELECT` all travel in plaintext
@@ -1043,7 +1043,7 @@ for a second backend has existed since DOC‑5 and nothing had used it.
   `input-port-append`), so an inbound multipart upload is exactly how a blob larger
   than the cap reaches the store. Above 5 GiB such a write fails. AWS documents
   `EntityTooLarge` for it and that has NOT been observed here — a 5 GiB upload is
-  not something this suite does — so the claim worth making is the one that
+  not something this suite does — so the point worth making is the one that
   follows from the design rather than from a vendor's table: the request carries
   Content-Length AND the digest as its payload hash, so a rejected or truncated
   write cannot be mistaken for a complete one. It fails; it does not silently
@@ -1286,7 +1286,7 @@ role growing a `judge` sibling — not until two things want different judges.
 ## Research, bring-your-own-key, data-policy routing (RSCH / BYOK / ZDR) — **proposed 13 Oct 2026**
 
 Three questions raised while testing. **None of the three is built.** They are
-recorded together because the first is a feature the requirements already claim,
+recorded together because the first is a feature the requirements already promise,
 and the other two are terms from the hosted-gateway world that land on seams this
 platform already has — one of them almost entirely.
 
@@ -1304,7 +1304,7 @@ Synthesize loop producing a cited Markdown and HTML report.
 | **RSCH‑1** | Where the loop lives | **A shipped plugin with its own workflow** · vs a core console tab beside Chat and Translate · vs nothing | Almost everything the loop needs is built: the scheduler gives it a cancellable background job with SCHED‑8's cancel and SCHED‑9's run-time ceiling for free, the workflow engine gives it the step loop and survives a restart because the rows are the state, `doc_render` writes the report, and quota admission meters it against `ai.tokens.total`. What is missing is **one tool pair**: there is no `web_search` or `web_fetch` in the registry — `domain/tools/convert.rkt` only normalizes the NAME `web_search` when translating somebody else's tool schema inbound, which is easy to mistake for an implementation. The search backend is deployment-specific (a self-hosted SearxNG, a vendor API), so it belongs behind a plugin-registered tool rather than in core — the call LAY‑7 made for extractors. |
 | **RSCH‑2** | Where the report lands | **A repo object** — `research/<slug>-<id8>.md`, `text/markdown`, returned as an artifact of kind `document` · vs a `research_*` table · vs blobs in a directory | Migration `0022-fold-documents` already folded `documents` into the repository, so a text report inherits visibility, sharing, search over extracted text, derivations and `storage.bytes` with no new code. The on-disk variant is what forced Odysseus to write a `tidy_research` action to GC orphans — a second lifecycle to maintain for a document the repository already knows how to own. |
 | 🔑 **RSCH‑3** | Egress | **A per-team feature flag, and a fetcher that refuses private address space with DNS resolved ONCE and the connection pinned to the resolved address** · vs trusting the URLs the model chose · vs search snippets only, no fetch | Today every outbound request goes to an endpoint the **operator** configured — the model URL, `executors.json`, an MCP server. A research loop would be the first thing to fetch a URL a *model* picked out of a *search result*, which turns the server into an SSRF proxy onto its own network: the cloud metadata endpoint, the database, the ArangoDB on 8529. "Nothing is trusted for looking private" is the call `domain/authz/peer.rkt` already made for inbound identity; this is the same rule pointed outward. Resolving the name twice is the rebinding hole — but "resolve once and connect to the address" is the WRONG fix and #142 (EGR‑3) replaced it: connecting to a literal breaks TLS verification and SNI, and round-robin alone makes a prior resolution disagree with the peer. The connection is made by NAME and the socket's real PEER is vetted before a byte is written, which is the same property without the cost. This is the row that gates the feature for a privacy-first, self-hosted product. |
-| **RSCH‑4** | Citations | **A claim whose source is not in the fetched set is REFUSED, not footnoted** · vs trusting the model's bibliography | `validate-extraction` in the knowledge graph already refuses a reply whose snippet is not a verbatim substring of the text, and the step retries once. Reuse it: a fabricated citation is the worst output this feature can produce, and it is also the one that looks most finished. KG‑3's "nothing enters without a source" is the same principle one layer up. |
+| **RSCH‑4** | Citations | **A statement whose source is not in the fetched set is REFUSED, not footnoted** · vs trusting the model's bibliography | `validate-extraction` in the knowledge graph already refuses a reply whose snippet is not a verbatim substring of the text, and the step retries once. Reuse it: a fabricated citation is the worst output this feature can produce, and it is also the one that looks most finished. KG‑3's "nothing enters without a source" is the same principle one layer up. |
 | **RSCH‑5** | The `research:use` permission | **It gates the surface when the surface ships; until then its description says nothing reads it** · vs leaving the text as it is · vs removing the permission | RBAC‑5b's treatment of `roles:manage`, for RBAC‑5b's reason: a permission with nothing behind it reads as an unfinished feature unless the text says otherwise. Removing it would be worse — it is in two built-in roles and in the committed `docs/reference/permissions.md`, so dropping it breaks the published catalog for no gain. Note the cost of the edit: the description is a `doc.*` message, so it moves `strings.json`, `en.json`, `ja.json` and both rendered reference trees, and the localize gate will name it. |
 
 ### BYOK — whose provider key pays
@@ -1351,11 +1351,11 @@ inverted, which is the whole of the decision.
 | **ZDR‑1** | Where a data policy lives | **The `executors.capabilities` document, new keys** · vs a column · vs a separate table | It is the same document the pull claim matcher and LAY‑9 already read (`{kinds, models}`, plus `tools` and `json_schema`), and `GET /api/executors` already reports it. A second mechanism for a third kind of fact about a backend is exactly what LAY‑9 avoided by reusing the claim-matching document. |
 | 🔑 **ZDR‑2** | What an undeclared policy means | **Unknown means it RETAINS; a requirement is satisfied only by an explicit `true`** · vs LAY‑9's unknown-is-permissive | LAY‑9's rule is right for `tools` and `json_schema`: the cost of being wrong is one named refusal instead of an opaque 400 three layers down, and nothing that works today should start failing. It is **exactly wrong** for retention, where being wrong means prompts landed somewhere the operator promised they would not. So this needs a second predicate, not another key on `#:needs`: `capability-refusal` and `local-capability-refusal` refuse only on an explicit `#f`, so a missing `retention` key sails straight through. Same call `normalize` makes in session policy — a corrupt stored document reads as the shipped posture, not as "no limits" — because a control must fail CLOSED. And the refusal must be **by name, before the request leaves the process**, never a fallback to a backend that does retain: a named executor that is not a push backend used to fall through to the local model while the response still reported the executor's name, and a misroute that lies about where it ran is the worst shape this can take. |
 | **ZDR‑3** | Who sets the requirement | **An instance floor that an org may TIGHTEN and may never loosen** · vs per-team · vs per-request | SESS‑4's rule for SESS‑4's reason: the instance operator owns the compliance posture of the box, and if an org admin could lower the floor it would be advisory. `session-policy:<org-id>` already proved the two-layer shape over `instance_settings`, so the org layer needs no migration. The per-request override is the one to refuse outright — a prompt is not the place to relax a data policy. |
-| **ZDR‑4** | How narrowly the claim is stated | **"The model call retains nothing", and nothing more** · vs an instance-level "we retain nothing" posture | The platform retains plenty by design: `repo_text` holds extracted content, a job's payload and result hold the prompt and the answer, `audit_log` holds the trail, `l10n_translations` holds strings, and a research loop's search backend has its own policy entirely — the gateways carve plugins and web search out of their own ZDR guarantee for exactly this reason. Stating it as an instance property would be false. Same discipline as secrets-at-rest defending a DUMP and not a HOST, and LAY‑11's chain detecting an altered record and not a rewrite: a narrow true claim is worth more than a broad one a customer's auditor breaks in one question. |
+| **ZDR‑4** | How narrowly it is stated | **"The model call retains nothing", and nothing more** · vs an instance-level "we retain nothing" posture | The platform retains plenty by design: `repo_text` holds extracted content, a job's payload and result hold the prompt and the answer, `audit_log` holds the trail, `l10n_translations` holds strings, and a research loop's search backend has its own policy entirely — the gateways carve plugins and web search out of their own ZDR guarantee for exactly this reason. Stating it as an instance property would be false. Same discipline as secrets-at-rest defending a DUMP and not a HOST, and LAY‑11's chain detecting an altered record and not a rewrite: a narrow true statement is worth more than a broad one a customer's auditor breaks in one question. |
 
 **If these are adopted, the order is BYOK‑2 → ZDR‑2 → RSCH‑3.** BYOK‑2 is a
 tenancy defect that exists now and gets worse the moment a second org registers a
-backend; ZDR‑2 is small and makes a compliance claim possible; RSCH‑3 is the
+backend; ZDR‑2 is small and makes a compliance statement possible; RSCH‑3 is the
 expensive one, because an SSRF-safe fetcher is the whole cost of the research
 surface and the rest of that loop is assembly.
 
@@ -1380,7 +1380,7 @@ surface and the rest of that loop is assembly.
   and the flake's container argument publishes the number three ways by itself:
   the image tag, the `org.opencontainers.image.version` label and the SBOM
   component's version.
-  **I claimed three, from a targeted grep, and CI found the fourth** — the
+  **I said three, from a targeted grep, and CI found the fourth** — the
   container smoke's default tag, which failed with "image not found" the moment
   the image was tagged `0.4.0`; `compose.yaml` and the manifest would have failed
   the same way for an operator. Enumerate, do not recall: the refusal sweep
@@ -1431,7 +1431,7 @@ issue stays open**: this is one pass, not the whole thing.
 |---|---|
 | **SEC‑1** | #123 closed the 500-body leak and the STREAMING path kept it — fixed |
 | **SEC‑2** | Two more request-scoped facts did not cross the SSE boundary — fixed |
-| **SEC‑3** | One credential family kept the pre-#13 hashing scheme — fixed, and the claim is narrow |
+| **SEC‑3** | One credential family kept the pre-#13 hashing scheme — fixed, and what it buys is narrow |
 | **SEC‑4** | The worker warrant holds, and is broader than it reads — recorded |
 | **SEC‑5** | `bxSan` is a blocklist where `theme-problem` is an allowlist — recorded, its own slice |
 
@@ -1449,7 +1449,7 @@ issue stays open**: this is one pass, not the whole thing.
   `exn:fail` and the first matching clause wins — PULL‑14's lesson in a second
   file). It is in errors.rkt and not kit because **requiring kit instantiates the
   connection pool**, so a test of this in kit could not run on CI's SQLite leg at
-  all — #123's own recorded trap, and the module header's claim had to be
+  all — #123's own recorded trap, and the module header's wording had to be
   corrected from "holds no database" to "instantiates no connection pool",
   because the stricter wording would have forced the rule back into kit where it
   is untestable.
@@ -1473,15 +1473,15 @@ issue stays open**: this is one pass, not the whole thing.
   with a peppered HMAC‑SHA‑256 and a legacy dual-read. `hash-token` is the one
   rule now, with #13's rewrite-on-use so an unclaimed link survives the upgrade
   and the legacy path drains by itself.
-  **THE CLAIM IS NARROW AND STATING IT IS THE POINT**: `random-token` is 24 bytes
+  **WHAT THIS BUYS IS NARROW AND SAYING SO IS THE POINT**: `random-token` is 24 bytes
   of `crypto-random-bytes`, so neither guessing one over the network nor
   recovering one from a leaked hash was ever feasible, whatever the digest. What
   the pepper buys is what it buys for a session: **rotating
   `TMACH_TOKEN_PEPPER` retires every outstanding activation link**, which a
   compiled-in salt cannot do, and the scheme stops depending on the token's
-  entropy for its safety margin. The same discipline as #19's narrow claim about
+  entropy for its safety margin. The same discipline as #19's narrow promise about
   defending a DUMP and not a HOST, and LAY‑11's about an altered record and not a
-  rewrite: a narrow true claim beats a broad one an auditor breaks in one
+  rewrite: a narrow true statement beats a broad one an auditor breaks in one
   question.
 - **SEC‑4 — THE WORKER WARRANT HOLDS AND IS BROADER THAN IT READS.** PULL‑9's
   rule is `holder-check` first, then the object id must appear in **that job's
@@ -1590,7 +1590,7 @@ formatting something in.** Four defects fixed, two standing examples corrected.
 
 ## The measured performance sweep (PERF) — **built 30 Oct 2026** (issue #185)
 
-#185 is a tracking issue with a method rather than a claim: *"measure first and
+#185 is a tracking issue with a method rather than a conclusion: *"measure first and
 write the numbers in the issue, change one thing, measure again. No optimization
 lands without a before and after."* This is that pass. Two harnesses —
 `test/bench-platform.rkt` server-side and `test/e2e/bench-handlers.mjs` in a
@@ -1713,7 +1713,7 @@ citation verifier, #135/#140's schedule and `repo-derive!`, and #191 is
 **assembly plus one table, one renderer and one retrieval seam**.
 
 **And RSCH‑5 is now a standing debt with a gate behind it.** `research:use` is
-granted to member, admin and owner, its description claims "Use the research
+granted to member, admin and owner, its description says "Use the research
 surfaces", nothing reads it, and `test/route-perm-gate-tests.rkt` carries it in
 `UNREACHABLE-BY-DESIGN` reasoned *"no research surface is built"*. That list
 fails in BOTH directions, so the first slice that enforces it must delete the
@@ -1731,7 +1731,7 @@ at it.
 | **RG‑7** | Traversal bounds | **Hops ≤ 2 (`kg-neighbourhood`'s existing clamp), plus caps on entities and on objects scanned, and `truncated` says WHICH** · vs unbounded with a timeout | Two hops is a ceiling rather than timidity: with a few hub entities the 3-hop neighbourhood is the whole graph, and a retrieval window that is the whole corpus is `chunksearch` with extra steps and a worse budget. CLS‑27 and VEC‑29's rule for reporting both ways of stopping — here the remedies differ (ask a narrower question, or split a hub). |
 | **RG‑8** | Authorization | **KG‑3 and VEC‑28 compose unchanged; the SHORTENING is reported** · vs a research-specific check | An entity is visible only through a mention on a readable object, and a chunk is scanned only on a current version of a readable object, so a walk cannot learn a private document's facts and the retrieval cannot quote one. The new consequence deserves a field: a traversal is legitimately SHORTER for one reader than another, because an entity reachable only through a colleague's private document does not exist for them. Correct — and silently shortening is the failure, which is VEC‑28's recall hole in a second place. `withheld` reports it; VEC‑28's `k × 4` headroom applies to the restricted scan too. |
 | 🔑 **RG‑9** | The visual graph | **A DETERMINISTIC radial layout, one ring per hop, hand-drawn in inline SVG** · vs a force-directed simulation · vs a charting/graph library · vs staying with lists (KG‑6) | KG‑6 declined a library and #184 has since established hand-drawn SVG inheriting the theme tokens under `script-src 'self'`. The force simulation is the obvious Obsidian-like thing and loses on three counts that are not taste: it needs an **animation loop** on a console that deliberately polls nothing (QVIZ‑6, #38's idle clock), it is **non-deterministic** so no screenshot and no e2e assertion can pin it — and this project's gates are its evidence — and it is a library or ~200 lines of physics for a few dozen nodes. Radial is O(n), assertable, themed free, and is the shape `kg-neighbourhood` already answers. **The cost stated: a neighbourhood view, not a whole-graph map** — which is unreadable at five thousand entities under any layout — and the drag-and-arrange canvas is a plugin's (LAY‑12). |
-| **RG‑10** | Citations | **#183's TWO layers, moved to one module with two askers** · vs RSCH‑4's single rule · vs trusting the bibliography | RSCH‑4 said a claim whose source is not in the fetched set is refused rather than footnoted, and `answer.rkt` implements that plus the layer only a real-model run found: **an answer that cites EVERY passage it was shown has cited nothing** (HELP‑22 — `qwen2.5:7b` refused correctly and then named all five sources explaining what they were about, turning a refusal into a five-source answer). A second copy of a score floor, a path resolver and an inventory rule is `executor-can-run?`'s drift in the worst place available, because the failure is a reader following a citation to a page that says something else. The prompt, the locale filter and the floor's VALUE stay corpus-specific; HELP‑15 records the value as model-dependent and provisional. |
+| **RG‑10** | Citations | **#183's TWO layers, moved to one module with two askers** · vs RSCH‑4's single rule · vs trusting the bibliography | RSCH‑4 said a statement whose source is not in the fetched set is refused rather than footnoted, and `answer.rkt` implements that plus the layer only a real-model run found: **an answer that cites EVERY passage it was shown has cited nothing** (HELP‑22 — `qwen2.5:7b` refused correctly and then named all five sources explaining what they were about, turning a refusal into a five-source answer). A second copy of a score floor, a path resolver and an inventory rule is `executor-can-run?`'s drift in the worst place available, because the failure is a reader following a citation to a page that says something else. The prompt, the locale filter and the floor's VALUE stay corpus-specific; HELP‑15 records the value as model-dependent and provisional. |
 | **RG‑11** | `research:use` | **Enforce it, and delete the `UNREACHABLE-BY-DESIGN` entry in the same commit; `chat:use` is ALSO required where a model is called** · vs gating on `chat:use` alone | RSCH‑5, now with the gate behind it. The two are not redundant: `research:use` is about the surface and `chat:use` about the spend (VEC‑35's rule — asking a question spends the team's AI allowance), and a team may legitimately want the archive without the answers. The description edit costs `strings.json`, `en.json`, `ja.json` and both rendered reference trees, as RSCH‑5 already noted. |
 | **RG‑12** | `robots.txt` and re-fetching | **Not consulted for a person-initiated fetch; a per-host delay and a rate cap on the SCHEDULED re-fetch, which is OFF unless configured** · vs always honouring robots · vs never | A person bookmarking a page they are reading is not a crawler, and a robots check there would refuse pages they can open in a browser. A scheduled re-fetch is different in kind — automated, repeated, unattended — so that is where the courtesy belongs. Off by default for every default-bearing knob's reason here (DEL‑9, PULL‑15a, ANCHOR‑7): an instance that quietly began crawling the web on a timer after an upgrade is #119's shape at its worst. Copyright and terms are the operator's; the platform fetches what it is told, archives what it received, and records who asked. |
 | **RG‑13** | Out of scope | **Declined: web SEARCH (stays RSCH‑1's plugin tool), a headless browser, a whole-graph canvas, a second graph store, wiki-links, OpenMetrics** · vs a fuller first cut | The second graph store is the one with a measurement behind it: #189 measured a full scan over `repo_chunks` at 8 ms for 1,000 chunks and 759 ms for 100,000, and says to revisit at 50,000 for one team — a team's bookmarks are an order of magnitude under that, so a property graph or a triple store buys nothing and costs a service. Web search stays a plugin because the backend is deployment-specific, and RSCH's Think → Search → Extract → Synthesize loop is **easier** after this slice: it is this retrieval seam with a different source of URLs. |
@@ -1803,7 +1803,7 @@ report rather than in the slice that creates the horizon.
 
 ## An external anchor for the two hash chains (ANCHOR) — **decided and BUILT 22 Oct 2026** (issue #66)
 
-Two chains now make the same narrow claim and leave the same gap. LAY‑11 chains
+Two chains now give the same narrow guarantee and leave the same gap. LAY‑11 chains
 each **review decision** per team; AUD‑10…16 chains each **audit entry** per org.
 Both detect a row altered in place, a row removed from the middle, and a
 rewritten link. Neither detects a rewrite by anyone who can **write** the table,
@@ -1832,7 +1832,7 @@ small, so the decision is recorded before any of it:
 | **ANCHOR‑10** | What the digest covers | **The chain rows, the sequence, the predecessor, and the emitting instance** · vs the heads alone | A receipt that signed only head hashes could be replayed into another instance's series, or re-dated. The signed payload is an ordered list — never a hash, the trap that `json-out` sorts for and that JUDGE‑13's wire refuses re-serialization for — carrying `ANCHOR-VERSION`, the sequence, the previous receipt's hash, the emission time and the rows in a fixed order. A field not in it could be changed without breaking the signature, so the list is the statement of what is protected. |
 
 **What this detects, and what it does not** — stated narrowly, because the point
-of the issue was that the chains' own claim had been stated too widely:
+of the issue was that the chains' own guarantee had been stated too widely:
 
 - It detects a rewrite of either chain **after a receipt was retained**: the
   recomputed head will not match the retained one, and no amount of relinking
@@ -2374,7 +2374,7 @@ because the attempt has not changed, so a second write differs only by the
 seconds the POST took. The control could not bite, and the test says so where
 somebody might otherwise trust it to — `canonical-json`'s sort rule carries the
 same note for the same reason. Two copies of one rule is still worth removing;
-claiming it was a defect would not have been.
+calling it a defect would not have been.
 
 **The ping does not race, it owns** (WHK‑3). Leaving the ping to contend for its
 own row would have been correct — exactly one POST either way — and would have
@@ -2612,7 +2612,7 @@ nothing and costs correctness — a rule keyed on an account-number prefix would
 match `<ID_1>` and nothing else. `classify` gained `#:llm-text`, defaulting to
 `#:text`, so every existing caller is unchanged. With a **rules-only** chain
 nothing is redacted at all and the record says `applied: false`: reporting
-otherwise would claim a protection that was never needed, because no model saw
+otherwise would report a protection that was never needed, because no model saw
 the document.
 
 Only a classification's **rationale** can carry a token back — the label is held
@@ -2629,7 +2629,7 @@ redaction was applied, so the two are not a mystery.
 **`redact` takes a string prompt and refuses content parts** (RED‑13). A parts
 prompt may carry an IMAGE, and none of these detectors can read one — so
 redacting the text while sending a picture of the same letter untouched would be a
-redaction that claimed more than it did. A 400 that says so beats a half-measure
+redaction that reported more than it did. A 400 that says so beats a half-measure
 nobody can see.
 
 **The stream refuses it rather than ignoring the field** (RED‑14). A token can be
@@ -2687,7 +2687,7 @@ logged**, and that is the sharper half of the same rule: nothing left the
 process, and a row for it would make the log answer "yes, this was sent" about a
 call nobody made, which is the worst thing a log of this kind can do.
 
-A `pull` row claims **no endpoint**. The platform does not know, and must not
+A `pull` row carries **no endpoint**. The platform does not know, and must not
 guess, which model URL a worker will call; so the row says nothing about it, and
 consequently reads as not-on-this-box, which is the honest answer for content
 that left by a job row.
@@ -3053,7 +3053,7 @@ new environment variable, no new permission.**
   options.** A checkbox takes a boolean; a radio group, combo box or list box
   takes one of the options the form itself declares. The second is the one worth
   the code: a `/V` the form's own reader cannot interpret renders as **blank**
-  while the document claims it was filled, which is the failure shape this whole
+  while the document reports it was filled, which is the failure shape this whole
   area has to avoid. The set is known, so guessing is not needed — CLS‑5's
   argument about a label, applied to a field.
 - **FORM‑6 — a read-only field is REFUSED, not skipped.** `/Ff` bit 1 is the
@@ -3214,7 +3214,7 @@ it.
 - **HPDF‑6 — ONE PDF variant, because one was validated.** WeasyPrint accepts a
   dozen; `PDF-VARIANTS` holds `pdf/a-2b` alone — the one requirement 1 names and
   the only one whose output was put through a validator. Offering a member nobody
-  checked would be a conformance **claim** wearing a flag's clothes. A member is
+  checked would be a conformance **guarantee** wearing a flag's clothes. A member is
   added by validating it.
 
   **And the limitation is measured, not guessed**: with a RASTER logo the same
@@ -3224,7 +3224,7 @@ it.
   So the remedy is real and is stated in the tool's own description: for an
   archival document, use a vector logo. veraPDF is a ~300 MB Java validator and
   is deliberately **not** a dependency of the suite — what the test asserts is
-  that the flag reached the engine and that an ordinary render does *not* claim
+  that the flag reached the engine and that an ordinary render does *not* report
   PDF/A, which is the half that can regress.
 - **HPDF‑7 — there is NO `deterministic` flag, because there is nothing to pin.**
   Requirement 6 asks for byte-identical re-renders behind a flag. WeasyPrint 69
@@ -3254,7 +3254,7 @@ all — and it is roughly a gigabyte, which for the OCI image is the trade the
 container notes already declined twice (all tesseract languages for 63%, a slim
 variant for 23%). Shipping a conversion whose success path nothing has run is
 #119's shape exactly: a capability recorded as working on the strength of a
-claim. When it is built it should follow the OCR plugin's pattern — opt-in, not
+sentence nobody had run. When it is built it should follow the OCR plugin's pattern — opt-in, not
 in the image, added through `extraPath` — and be verified on a Linux host.
 **Requirement 6 is satisfied by HPDF‑7** without a flag; requirements 4 and 5
 were already satisfied by `derive!` and the content-addressed store. So #88 has
@@ -3330,8 +3330,8 @@ integrator who installed it can ask: `engine: "libreoffice"`.
   about is not covered. Headless soffice does not update document links on load,
   but that is the ENGINE's behaviour and not something this platform enforces —
   which is the whole reason the engine is opt-in and absent from the image.
-  Overclaiming here would be #119's shape: a protection recorded as working on
-  the strength of a sentence.
+  Saying more than that would be #119's shape: a protection recorded as working
+  on the strength of a sentence.
 - **OFFICE‑3 — the check matched by looking for `TargetMode="External"` anywhere
   in a relationship element, so it FAILS CLOSED.** A shape the expression does
   not understand is treated as external and refused, which is the safe
@@ -3514,7 +3514,7 @@ second is the more interesting:
   it. The put's `#:visibility` closes the WINDOW between the two statements, and
   no test at that level can observe a window. Stated in the test rather than left
   for a reader to assume the assertion covers it — the alternative was a stronger
-  claim than the test supports.
+  statement than the test supports.
 - **`raco make` EXITING 0 DID NOT MEAN THE PLUGIN LOADED**, the documented trap,
   and #48's plugin-failure surface is what made it loud: the first boot printed
   `plugin: feeds: FAILED — invalid workflow spec: step 'decide': checklist[0]:
@@ -3804,7 +3804,7 @@ on a deployment that HAS a fleet, which is precisely where #175 wants it to.
 
 | **FLEETD‑11** | How a caller asks for THIS BOX | **`"executor": "local"` declines the default** · vs no way at all | Before the flip `pick-executor` folded `"local"` into `#f`, so "say nothing" and "say local" were one request and both ran here. With the default flipped there would be NO WAY to ask for this node — and **the smoke is what found it**, by making its own "the simulated echo is not logged" assertion pass vacuously: the echo it was about had quietly become a fleet job that nothing was going to claim, which wedged the team's concurrency cap and failed thirty assertions in five later sections. `""` is deliberately NOT a pin — that is an absent field spelled badly, and reading it as one would let a client's empty string decide where the call runs. It needs no permission, because declining to route is not routing to specific compute. |
 
-**What this does NOT claim.** The measured win in the #169 validation — 24
+**What this does NOT promise.** The measured win in the #169 validation — 24
 unpinned jobs across three hosts with four running at once, against the one box
 every routed chat would have pinned to — is about the QUEUE, which has fanned
 out since #173. What this slice adds is that a person's chat reaches that queue
@@ -3860,7 +3860,7 @@ step 4, and is named here so it cannot be forgotten there.
 
 **NOTHING CALLS EITHER MODULE, AND THAT IS THE PLAN'S OWN ORDERING RATHER THAN
 AN OVERSIGHT.** #110 r4's rule is that an export in `domain/` with no consumer is
-a claim the next reader has to assume is load-bearing; the exception it states is
+something the next reader has to assume is load-bearing; the exception it states is
 an export with a test behind it, which both of these have — fourteen cases for
 the arithmetic, eight for the seal, twenty-two controls between them and all of
 them biting. Step 3 is the chunker, which is the one decision in this subsystem
@@ -4040,7 +4040,7 @@ field here is a PUT, a GET and a DELETE against somebody's bucket on every
 refresh — and the route is `instance:read`, which must not perform a write. The
 honest signal already exists and is stronger: **startup refuses to serve on a
 failed probe, so an instance that is ANSWERING has already proven its store
-once.** A field asserting that from this module would be a claim about
+once.** A field asserting that from this module would be a statement about
 main.rkt's behaviour made somewhere else, which is #119's shape, so the console
 says it in prose and no field can go stale. What this does NOT tell an operator
 is whether the store has gone away since boot; that is stated rather than
@@ -4132,7 +4132,7 @@ question about what it COMPUTES. `test/e2e/demo-validate.mjs` §3c calls the rea
 function on the real page with the inputs somebody would actually try — an
 `<img onerror>`, a `<script>`, `[click](javascript:…)`, the entity-encoded
 variant, a fenced block whose asterisks must stay literal — and asserts the
-output. That is the strongest form available here and it is where the claim
+output. That is the strongest form available here and it is where the guarantee
 lives; `test/console-tests.rkt` pins only the structure.
 
 **ED‑6 — A TIE, NOT A PREFERENCE.** A wrapped logical line occupies several
@@ -4379,7 +4379,7 @@ a test, so the question cannot go quiet again.
 
 **CHUNK‑9 — NOTHING CALLS IT YET, AND THE TWO NUMBERS SAY THEY ARE
 PROVISIONAL.** #110 r4's rule is that an export in `domain/` with no consumer is
-a claim, and its stated exception is an export with a test behind it; step 4 is
+something a reader has to assume is load-bearing, and its stated exception is an export with a test behind it; step 4 is
 the table and the write path in `plugins/doc-indexer`, which is where the
 consumer arrives. The defaults carry the word "provisional" at their definition
 together with what would change them, because a number that looks decided is
@@ -4438,7 +4438,7 @@ it, naming the mixture.
 skipped later. `vec-normalize` answers `#f` for a zero or NaN vector and the
 store's invariant is that every row is a UNIT vector, because that is what makes
 the read a bare dot product (VEC‑11). A stored zero would compare 0.0 against
-every query — the WORST match — which is a claim where "this chunk could not be
+every query — the WORST match — which states something, where "this chunk could not be
 embedded" is the truth. Providers really do answer a zero vector for empty
 input, which is `cosine`'s own reason for the same choice.
 
@@ -4596,7 +4596,7 @@ next reader will run that control and should know it was run.
 NAME.** `vec-dot` is only a similarity when both sides are unit (VEC‑12); the
 stored side is unit by the write's own invariant (VEC‑22), so the query is the
 half left to establish. Scoring a zero or NaN vector would compare 0.0 against
-everything and report the whole corpus as equally bad — a claim, where the honest
+everything and report the whole corpus as equally bad — a statement, where the honest
 answer is that the question had no direction — and an embedder really does answer
 one for empty input, so the refusal says that the query TEXT is the thing to look
 at. `vec-normalize`'s `#f` is what makes this one line rather than a second guard.
@@ -4769,7 +4769,7 @@ no new environment variable**: migration `0065-help-corpus`,
 | **HELP‑9** | Re-ingesting | **An unchanged file costs no model request** · vs always re-embed | 1,568 chunks is 111 embedding requests; editing one runbook should be one. Measured: a second ingest of `docs/ops` makes **zero** requests and does not call the embedder at all. `--force` exists because changing the chunk SIZE does not change the model name and so cannot be detected, unlike a model change (EMB‑8), which `status` warns about and which needs `clear` first. |
 | **HELP‑10** | Finding a locale in a path | **A closed set, matched as a directory segment or a `.xx.md` suffix** · vs a two-letter grammar | Both spellings are real here (`docs/book/ja/…`, `docs/reference/ja/…`, `README.ja.md`). The set is the catalogs this build actually ships — `available-locales`, exported for this second asker — which is the `available` rule: an instance must not build a help corpus in a language it cannot render one string of. A grammar would read any two-character directory as a language, and a mis-tagged document is INVISIBLE: never retrieved for the locale that should have found it. |
 | **HELP‑11** | The window cap | **20,000, which is sixteen times the corpus** · vs VEC‑26's 50,000 | A different kind of number from VEC‑26's, which is deliberately equal to the scale at which `vector-store.md` says to reconsider the design, because a team's document count is unbounded. This corpus is the project's own documentation — measured at 1,568 chunks — so a truncating window would mean the documentation had outgrown the assumption. `truncated` is reported for that reason. |
-| **HELP‑12** | The locale of an answer | **An exact SQL filter, a fallback, and the report says which locale answered** · vs one pooled corpus | The console ships in Japanese; a Japanese operator asking a Japanese question should be answered out of the Japanese pages. What is NOT claimed is cross-lingual retrieval: whether `nomic-embed-text` puts a Japanese question near its English answer is unmeasured, and relying on it quietly would be the confident wrong answer CHUNK‑2 warns about. A silent fallback is worse than an obviously untranslated page — the screenshot captions' own rule — so the fallback is named in the result. |
+| **HELP‑12** | The locale of an answer | **An exact SQL filter, a fallback, and the report says which locale answered** · vs one pooled corpus | The console ships in Japanese; a Japanese operator asking a Japanese question should be answered out of the Japanese pages. What is NOT promised is cross-lingual retrieval: whether `nomic-embed-text` puts a Japanese question near its English answer is unmeasured, and relying on it quietly would be the confident wrong answer CHUNK‑2 warns about. A silent fallback is worse than an obviously untranslated page — the screenshot captions' own rule — so the fallback is named in the result. |
 | **HELP‑13** | A passage whose text moved | **Dropped and counted** · vs clamped, vs raising | VEC‑37, unchanged: a clamped substring quotes characters the vector was never made from, which is wrong in the one way a citation must not be; raising takes a whole answer down over one file. `help-replace-doc!` writes text and chunks in one transaction, so a mismatch means something raced an ingest. |
 | **HELP‑14** | What a citation carries | **path, title, heading, character range — and the text** · vs an id, vs prose | CHUNK‑1 is why this is free: the chunker indexes the string it was given and the store keeps that same string, so a hit resolves to a substring with no mapping in between. The path is relative to the tree the operator named, because an absolute one names a directory on a machine the reader has no access to. |
 
@@ -4815,7 +4815,7 @@ Japanese against Japanese otherwise worked and scored the highest of the six
 (0.805 for the job-queue chapter). An English question asked under
 `#:locale "ja"` is answered out of the Japanese directories **in English**,
 because the generated reference is English where untranslated — HELP‑12's filter
-doing what it says, and the reason cross-lingual stays unclaimed.
+doing what it says, and the reason cross-lingual is not promised.
 
 ### Three things this slice paid for
 
@@ -4877,7 +4877,7 @@ answer — in the one field this feature exists to get right.
 A citation distinguishes; naming every input distinguishes nothing. So an answer
 that cites all of the passages it was given is an **inventory**, reported as
 `unfocused` with the citations dropped. The passages are returned anyway, so
-nothing is lost; what goes is the claim that they are sources.
+nothing is lost; what goes is the suggestion that they are sources.
 
 **Raising the floor is NOT the fix, and that is worth stating because it is the
 obvious one**: the genuinely useful container-healthcheck answer scored **0.587**
@@ -4917,7 +4917,7 @@ The overlay is shell-resident like the palette's two (#182), so a tab re-render
 cannot take it down mid-answer — and the documented cost is the same: **the shell
 is cached at startup, so a live box needs a restart.** It hooks the one delegated
 `keydown` listener AFTER `paletteKey`, and the order is asserted rather than
-commented: the palette owns `Esc` while ITS overlay is open and `helpKey` claims
+commented: the palette owns `Esc` while ITS overlay is open and `helpKey` takes
 `Esc` only while its own is, so two handlers taking `Esc` unconditionally is how
 one starts closing the other's. Asking is ONE send on #174's shape — the flag is
 both the guard and the pending state, nothing awaits between the check and the
@@ -5036,7 +5036,7 @@ no new route.**
 | **VOICE‑2** | The body | **`multipart/form-data`, through `http-post-data`** · vs a JSON spelling, vs a second transport | `/v1/audio/transcriptions` takes a file part and there is no JSON spelling of it in the OpenAI shape; inventing one would mean picking the providers that accept base64 and excluding the rest. `http-post-json` is now a thin wrapper over `http-post-data`, so the encoding is the only thing that differs — a second copy of the open/deadline/dynamic-wind/retry shape would reintroduce the descriptor leak `llm.rkt`'s header was written about, for the request kind carrying the LARGEST body. The boundary is checked against the payload, not merely randomised: a collision truncates the part, and what that produces is not an error but a shorter transcript. |
 | **VOICE‑3** | What the request log records | **The filename and the byte count; never the audio, never the transcript** | `log-model-request!` digests its `messages` (RED‑18), and audio is not a message — a digest of 40 MB of it is an HMAC nobody can reproduce or compare, which is the opposite of what a digest is for. The filename and size are enough for an operator auditing egress to see what left and how much of it, and cannot reconstruct a word. The transcript stays out because it is content and the row is the record that a request was made. |
 | **VOICE‑4** | An empty answer | **`""` is an answer; a missing `text` key is an error** | Silence really does transcribe to empty and a recording of a quiet room is a legitimate voice note. A response with no `text` at all is a proxy, a gateway or a different API — treating it as silence would store an empty transcript for a recording that was never read. `content->text`'s rule: an empty answer must never be manufactured. |
-| **VOICE‑5** | Which types | **A closed list, not `audio/*`** · and `video/*` excluded | A prefix match claims every format anybody invents, and the endpoint picks its decoder from the filename EXTENSION — so a type with no extension in the table would be posted as `.bin` and refused by the far end with a message about the format rather than about the type. `video/*` is a different decision: a screen recording carries pictures this platform would be discarding silently, and "which audio stream?" has no answer a closed list can give. |
+| **VOICE‑5** | Which types | **A closed list, not `audio/*`** · and `video/*` excluded | A prefix match takes every format anybody invents, and the endpoint picks its decoder from the filename EXTENSION — so a type with no extension in the table would be posted as `.bin` and refused by the far end with a message about the format rather than about the type. `video/*` is a different decision: a screen recording carries pictures this platform would be discarding silently, and "which audio stream?" has no answer a closed list can give. |
 | **VOICE‑6** | The posted filename | **Derived from the content type, never from the key** | Two reasons and the second is the one that matters: a key is somebody else's string and it becomes part of a multipart header, where a newline would ADD a header — the injection `fetch` refuses for its own headers. And a key need not carry an extension at all, while every OpenAI-compatible server picks its decoder from one. So it is `voice-note.<ext>` and the document's identity stays in the row. |
 | **VOICE‑8** | Uploading an offline note | **Already true; no code** | `PUT /api/repo/<key>` with an `audio/*` content type. The repository takes any format in and `web-kit/http1` moves it. What requirement 2 needed was for the thing to be worth uploading. |
 | **VOICE‑9** | Where the transcript goes | **`repo_text`** · vs a derived `<key>.transcript.txt` | `doc_redact` writes a derived document because RED‑8's point was that a person must audit what would have been sent. A transcript is not a copy of anything — it is the text OF the recording, which is what `repo_text` is for. And it is what makes requirement 4's "converse with data" need NOTHING: keyword search, the knowledge graph, `?semantic=1` and `doc_extract_fields` all already read that column. A derived document would double the storage and give search two hits for one recording. |

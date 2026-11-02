@@ -447,7 +447,7 @@ single-tenant hardening, not multi-tenant isolation.)*
   but actions attribute to the real owner (`effective_user()`).
 - **Token scopes** — a fixed catalog (`chat`, `todos:*`, `documents:*`, `email:*`,
   `calendar:*`, `memory:*`, `cookbook:*`), writes imply reads, plus curated
-  profiles. *(Finer than `THREAT_MODEL.md` still claims — treat code as
+  profiles. *(Finer than `THREAT_MODEL.md` still says — treat code as
   authoritative.)*
 - **Bypass modes** — `AUTH_ENABLED=false` (anonymous), `LOCALHOST_BYPASS=true`
   (loopback), pre-setup loopback. Rate limits on login/signup.

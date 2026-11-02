@@ -2072,8 +2072,8 @@
       "hash": "2d2c2cefc85e8b0a3d5c1f4c72c2c9d192e573b5"
     },
     "doc.route.delete.api.repo-obj.id": {
-      "text": "Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing claims to come from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one.",
-      "hash": "8a77253fbf22577e5150fca5bfb06840b75f9d6b"
+      "text": "Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing is left saying it came from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one.",
+      "hash": "c5216fd00a418af2efb1a94a9c62acd57e0202b7"
     },
     "doc.route.delete.api.org.branding": {
       "text": "Drop the company's branding; its users see the instance's again.",
@@ -3156,8 +3156,8 @@
       "hash": "b658bbb3bc5f374f75c095db243bfd4e36f99f04"
     },
     "doc.route.get.api.admin.anchor": {
-      "text": "Anchor status (#66): whether receipt emission is configured, the public key receipts are signed with, the instance's series id, how many receipts exist and the latest sequence and hash. It reports what was EMITTED and deliberately never claims anything was RETAINED — the retained copy is the anchor, and the platform cannot verify that somebody else kept it.",
-      "hash": "ec1afd17a430e4a2de6727a7bc4afdda7899c300"
+      "text": "Anchor status (#66): whether receipt emission is configured, the public key receipts are signed with, the instance's series id, how many receipts exist and the latest sequence and hash. It reports what was EMITTED and deliberately never says anything was RETAINED — the retained copy is the anchor, and the platform cannot verify that somebody else kept it.",
+      "hash": "8c750227cdf6c09ce987e52d3579b692bca37515"
     },
     "doc.tool.create_note.visibility": {
       "text": "Who can see it; defaults to team",

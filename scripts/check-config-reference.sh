@@ -218,9 +218,46 @@ else
   fi
 fi
 
+# ---- the register: "claim" as a word for an assertion ------------------------
+#
+# Reported from outside: *"in our documentation, we should remove the use of
+# 'claimed', 'claims'. It's LLM speak."* Correct, and it was mine — 60-odd
+# sentences across the design documents, the decision log, the runbooks and the
+# book said "the claim is narrow", "every claim about what exists", "a claim the
+# next reader has to assume", "overclaiming here would be #119's shape". Plain
+# words say all of it: what this protects, what it promises, what it detects,
+# what it says.
+#
+# WHAT THIS GATE DELIBERATELY DOES NOT TOUCH IS THE WORD ITSELF, because here it
+# is also a load-bearing technical term. A worker CLAIMS a job; `claim-job!` is
+# the one atomic claim (#17), `claim_token` fences an attempt (#24),
+# `POST /api/workers/claim` is a route, `?status=claimed` is a stored enum value
+# in the feed queue, and an extractor plugin claims a content type (LAY-7).
+# Renaming any of those would break the wire, the schema or the prose that
+# explains them. So the gate lists only phrases that CANNOT be the protocol —
+# a claim does not have a "to", a "whose" or an "about", and nothing in the
+# queue is ever "overclaimed".
+#
+# One exemption, and it is a quotation: `docs/design/decisions.md` quotes issue
+# #186 verbatim, and the owner's own words there are "a positive control for
+# every claim". Rewriting a quotation would misquote it, so `every claim` is NOT
+# in the list below — only `every claim that`.
+claim_bad="$(grep -rIn --exclude-dir=.git -E \
+  "overclaim|claims to|claims that|claim no conformance|State the claim|NOT claimed|is a claim|a claim (about|whose)|every claim that|narrow claim|the claim is narrow|claiming otherwise|claims anything" \
+  --include='*.md' docs README.md README.ja.md 2>/dev/null || true)"
+if [ -n "$claim_bad" ]; then
+  echo "FAIL: \"claim\" used as a word for an assertion — say what it is instead"
+  echo "  (protects, promises, detects, guarantees, says, states — see this check's"
+  echo "   comment for why the word itself is kept where it names the job-queue"
+  echo "   protocol, and what it must not be swapped for there):"
+  printf '%s\n' "$claim_bad" | sed 's/^/  /'
+  rc=1
+fi
+
 if [ $rc = 0 ]; then
   echo "config reference: OK ($(printf '%s\n' "$in_code" | grep -c . ) variable(s) documented)"
   echo "operator prose: OK (no legacy variable names; the fallback is documented)"
   echo "version: OK ($VER — one home, and every image tag agrees)"
+  echo "register: OK (no \"claim\" standing in for an assertion in docs/)"
 fi
 exit $rc

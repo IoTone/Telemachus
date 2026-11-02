@@ -33,6 +33,24 @@ an image spelling Telemachus is worse than an old label.
   the end of the window. Redirect to a file and echo `$?` — the same shape as
   this file's note about a smoke helper that silently never ran.
 
+**DO NOT USE "claim" AS A WORD FOR AN ASSERTION.** Reported from outside as
+LLM speak, and it was: sixty-odd sentences across the design documents, the
+decision log, the runbooks and the book said "the claim is narrow", "every claim
+about what exists", "an export with no consumer is a claim", "overclaiming here
+would be #119's shape". Say what it actually is — what it **protects**,
+**promises**, **detects**, **guarantees**, **reports**, **says** or **states**.
+`scripts/check-config-reference.sh` gates the unambiguous phrasings over `docs/`
+and both READMEs, and it caught three I had missed on its first run.
+
+**The word itself STAYS where it names the protocol**, and that is why the gate
+lists phrases rather than the word: a worker CLAIMS a job, `claim-job!` is the
+one atomic claim (#17), `claim_token` fences an attempt (#24),
+`POST /api/workers/claim` is a route, `?status=claimed` is a stored enum value
+in the feed queue, and an extractor plugin claims a content type (LAY-7).
+Renaming any of those would break the wire, the schema, or the prose explaining
+them. A claim has no "to", no "whose" and no "about", and nothing in the queue is
+ever "overclaimed" — which is what makes the two separable by grep.
+
 TMach is a clean-MIT, team-oriented, self-hosted, privacy-first, Racket-first
 platform for hosting AI tools & apps (the successor to the Python "Odysseus"). Pure
 OSS: no open-core, no held-back tier. Concepts may be reused from Odysseus; **only
@@ -1189,13 +1207,13 @@ numbered so the load order is in the filename.
   changed lines, which is the churn the "do not tidy a catalog by sorting it"
   rule exists to prevent. The `hash` is `sha1` of the English, no salt.
 
-## An export is a claim; a kit's export is its API (#110 r4)
+## An export is a promise; a kit's export is its API (#110 r4)
 
 89 bindings were `provide`d with no consumer anywhere in the tree — not another
 module, not a test, not a plugin. 84 are narrowed out and five are deliberately
 kept, and the line between them is the useful part:
 
-- **`domain/`, `server/`, `surface/` — narrow it.** An export there is a claim
+- **`domain/`, `server/`, `surface/` — narrow it.** An export there is a statement
   about this application's internal structure, and one nothing imports is a
   thing the next reader has to assume is load-bearing.
 - **`pkgs/` — leave it.** `db-kit`, `web-kit`, `sha2-kit` are reusable kits;
@@ -2747,7 +2765,7 @@ raco test test/embed-tests.rkt   # 17 cases, seven controls, all biting
   shape refusals beside it (count, duplicate index, out-of-range index,
   unusable vector, differing widths), because every one of them is silent.
 - **A ZERO VECTOR HAS NO DIRECTION, so `cosine` answers `#f`, not 0.** Zero would
-  make it the WORST match, which is a claim; `#f` lets the caller say it could
+  make it the WORST match, which states something; `#f` lets the caller say it could
   not compare. Providers really do return one for empty input.
 - **A MODEL CHANGE INVALIDATES EVERYTHING; A LABEL EDIT INVALIDATES ONE**
   (EMB‑8). Vectors from two checkpoints are not comparable and mixing them does
@@ -3440,7 +3458,7 @@ racket cli/telemachus-help.rkt status                      # and what it holds, 
   matched. The first chunk of a document has no heading above it — nothing
   precedes offset 0 — which is the second reason the title is in the composition.
 - **THE LOCALE IS AN EXACT SQL FILTER WITH A NAMED FALLBACK** (HELP‑12), and
-  cross-lingual retrieval is NOT claimed: whether `nomic-embed-text` puts a
+  cross-lingual retrieval is NOT promised: whether `nomic-embed-text` puts a
   Japanese question near its English answer is unmeasured. The report says which
   locale answered, because a silent English fallback in a Japanese page is worse
   than an obviously untranslated one. The locale of a document comes from a closed
@@ -5115,7 +5133,7 @@ bash test/s3-smoke.sh                 # the presign round trip: issuance + redem
   console download and the API GET, S3 GetObject / HeadObject / CopyObject
   source, LAY‑6's `repo.get`, PULL‑9's worker read, the indexer, `doc_text` in a
   workflow step. Nine call sites would be nine chances to forget and the tenth
-  would be silent. `current-read-context` says WHICH door; the claim is tested,
+  would be silent. `current-read-context` says WHICH door; it is tested,
   not asserted — a read through a door taught nothing about auditing still
   appears.
 - **A metadata GET is NOT a content read**, and the absence is asserted (the
@@ -5245,7 +5263,7 @@ racket cli/telemachus-anchor.rkt verify receipts.jsonl --public-key <hex>
   measures, so whoever can rewrite those can delete from here too. It exists to
   continue the sequence and to hold what has not yet been retained. **The
   retained copy is the anchor**, which is why the status read reports what was
-  EMITTED and never claims anything was retained — the platform cannot verify
+  EMITTED and never says anything was retained — the platform cannot verify
   that somebody else kept something (PULL‑11e's withdrawn-field rule).
 - **The heads are read AFTER a seal** (ANCHOR‑8). The audit chain is sealed by a
   sweep, so a head read mid-window is a value the next sweep legitimately
@@ -5517,7 +5535,7 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   the scheduler in for `current-plugin`. Same seam `#:conn`/`#:migrations` use.
 - **Both checks run.** The path check still gives the better message for a
   missing or root-owned data directory; the probe is the one that exercises the
-  store. The path one is no longer the thing that claims to cover a bucket.
+  store. The path one is no longer the thing said to cover a bucket.
 - **`register-blob-store!` refuses a name another plugin owns** (#120), naming
   both plugins and telling the integrator to pick another name and select it with
   `TMACH_BLOB_STORE`. It was a bare `hash-set`, and the reported direction is
@@ -5770,7 +5788,7 @@ Built 15 Oct 2026. `POST /api/executors/:id/drain` and `/resume`,
   it is a healthy machine held back, which is what a drain creates. NULL reads
   as `active`; nothing is backfilled.
 - **Intent is NOT withdrawn when the row goes stale**, unlike `worker_state`
-  (PULL‑11e). A reported state is a claim the worker can no longer stand behind;
+  (PULL‑11e). A reported state is something the worker can no longer stand behind;
   intent is a standing instruction that does not decay. Withdrawing it would let
   a host return to rotation by going offline and coming back.
 - **A drained worker keeps polling and is answered 204.** It therefore keeps
@@ -5997,7 +6015,7 @@ bash test/e2e/validate.sh          # §7b — the one check that it RENDERS
   route that is `instance:read` and must not write. The existing signal is
   stronger: **startup refuses to serve on a failed probe, so an instance that is
   ANSWERING has already proven its store once.** Asserting that from this module
-  would be a claim about main.rkt made elsewhere (#119's shape), so the console
+  would be a statement about main.rkt made elsewhere (#119's shape), so the console
   says it in prose. What it cannot tell you is whether the store has gone away
   SINCE boot, and that is stated rather than implied. The smoke `refute`s the
   field, so it cannot quietly appear.
@@ -8220,7 +8238,7 @@ raco test test/build-identity-tests.rkt                 # 8 cases, the no-litera
   is `telemachus-0.4.0`, `share/telemachus/VERSION` is in the store, and
   `app-version` out of that store path answers `0.4.0`. That is the whole of
   REL‑2's claim, and an assertion about it from inside the tree would have been
-  a claim about the packaging made elsewhere (#119's shape).
+  a statement about the packaging made elsewhere (#119's shape).
 - **The paths are anchored at the test file with `define-runtime-path`, never at
   `current-directory`** — the first version used `path->complete-path` and
   resolved against `test/`, two levels off.

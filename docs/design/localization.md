@@ -88,7 +88,7 @@ Three properties worth stating, because each replaced a wrong behaviour:
 - **`available` is a fact, not a field.** It is read off the catalogs on disk, so
   the instance can never advertise a language it cannot render — and `default` is
   validated against it, so `{"default":"de"}` on a build with no German catalog is
-  a `400`, not an instance quietly serving English while claiming German.
+  a `400`, not an instance quietly serving English under a German label.
 - **Turning negotiation off is not the same as shipping one catalog.** The other
   catalogs stay; a bilingual instance can still choose to answer everyone in one
   voice — support scripts, manual screenshots and audit conversations all get

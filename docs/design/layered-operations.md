@@ -342,12 +342,12 @@ first break. The canonical form is an ordered LIST, never a hash, because `hashe
 iteration order is not stable across processes — the trap `json-out` sorts to
 avoid.
 
-**State the claim narrowly.** The chain detects a record altered in place, or
+**Say what it detects, and no more.** The chain detects a record altered in place, or
 removed from the middle. It does **not** detect a rewrite by anyone who can write
 the table, because they can recompute every link after the row they changed — and
 that is the party an administrative audit is most meant to defend against. This is
 the same shape as secrets at rest, which defends a DUMP and not a HOST, and which
-is written down that way because the old note in `creds.rkt` had overclaimed in
+is written down that way because the old note in `creds.rkt` had said more than was true in
 exactly this direction. Closing the gap needs an EXTERNAL anchor: publishing the
 head hash somewhere the database's owner does not control.
 
