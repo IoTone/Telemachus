@@ -2709,8 +2709,8 @@
       "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
     },
     "ui.troverlimit": {
-      "text": "長すぎます：誤った言語の要約が返ってくるため、拒否されます",
-      "hash": "7cf175fbfb31f4d7d4063eaf6dc921e0470463fd"
+      "text": "上限超過：長い文章は分割して翻訳されますが、これを超えると拒否されます",
+      "hash": "ef80ea5709ee395aa2121cf277011c3c8c379fb6"
     },
     "ui.trworking": {
       "text": "翻訳中… {s}秒",
@@ -2719,6 +2719,10 @@
     "ui.trdone": {
       "text": "{s}秒で翻訳しました",
       "hash": "fa2b3cefb8c4bbb9d8065bb953518d72fefe0aa9"
+    },
+    "ui.trsections": {
+      "text": "{s}秒で{c}個のセクションに分けて翻訳しました",
+      "hash": "4397ad064bb9a0fbb1816f1495c689c55ad61f0e"
     },
     "ui.trfailed": {
       "text": "翻訳に失敗しました。",

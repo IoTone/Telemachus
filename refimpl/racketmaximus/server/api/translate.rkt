@@ -11,7 +11,10 @@
 
 (require web-kit
          (only-in "../../domain/authz/authz.rkt" principal-team-id require-perm)
-         (only-in "../../domain/apps/translate.rkt" glossary-add! glossary-list translate! translate-catalog! translate-list translate-max-chars)
+         (only-in "../../domain/apps/translate.rkt" glossary-add! glossary-list translate! translate-catalog! translate-list translate-max-chars
+                  ;; #232: a long translation is N model calls, so the endpoint
+                  ;; has to know N before it admits anything
+                  translate-plan)
          (only-in "../../domain/orgs/orgs.rkt" tenant-quota-check tenant-quota-record!)
          (only-in "../../domain/quota/quota.rkt" get-limit)
          (only-in "../../domain/sched/governor.rkt" with-slot)
@@ -31,8 +34,22 @@
       [(or (string=? text "") (string=? tgt "")) (err "text and target_lang required" 400)]
       [else
        (define sid (principal-team-id p))
+       ;; #232: THE WHOLE DOCUMENT, IN N SECTIONS. `translate-plan` is the same
+       ;; function `translate!` runs, with the same glossary, so the count
+       ;; admitted here cannot disagree with the count performed there — which
+       ;; is why the glossary is read twice on this path. One indexed query
+       ;; against N model calls is noise, and a plan computed WITHOUT the terms
+       ;; would size its chunks larger than the real prompt allows and so
+       ;; under-admit.
+       (define-values (chunks _problem)
+         (translate-plan text #:target tgt
+                         #:source (hash-ref b 'source_lang "auto")
+                         #:terms (if (and (hash-ref b 'use_glossary #t) #t)
+                                     (glossary-list db-conn p #:target-lang tgt)
+                                     '())))
+       (define nreq (max 1 (length chunks)))
        (define est (estimate-tokens text))
-       (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+       (define rq (tenant-quota-check db-conn p "ai.requests" nreq))
        (define tq (tenant-quota-check db-conn p "ai.tokens.total" est))
        (cond
          [(not (hash-ref rq 'allowed)) (quota-429 rq "ai.requests")]
@@ -41,12 +58,31 @@
           (define-values (climit _w) (get-limit db-conn "team" sid "ai.concurrency"))
           (with-slot GOV (string-append "team:" sid) (or climit 2)
             (lambda (inflight)
+              ;; #232: PER CHUNK, AND BEFORE EACH ONE (FEED-9). A long document
+              ;; is several model calls, so admitting one request up front and
+              ;; recording one at the end would let a team paste sixty pages
+              ;; against a 200/day allowance and be billed for a single request.
+              ;; The pre-check above already refused the obvious case; this is
+              ;; the per-call admission, which is also what stops a team that
+              ;; crosses its budget MID-document with a named reason instead of
+              ;; half a translation.
+              (define (admit i n)
+                (define rq (tenant-quota-check db-conn p "ai.requests" 1))
+                (cond
+                  [(hash-ref rq 'allowed) #f]
+                  [else (format (string-append "section ~a of ~a could not be translated: the team's"
+                                               " ai.requests budget is exhausted. Nothing was stored —"
+                                               " raise the limit, or wait for the window to reset, and"
+                                               " run it again.")
+                                i n)]))
+              (define (record-chunk! tokens)
+                (tenant-quota-record! db-conn p "ai.requests" 1)
+                (tenant-quota-record! db-conn p "ai.tokens.total" tokens))
               (define-values (job tokens)
                 (translate! db-conn p #:text text #:target-lang tgt
                             #:source-lang (hash-ref b 'source_lang "auto")
-                            #:use-glossary (and (hash-ref b 'use_glossary #t) #t)))
-              (tenant-quota-record! db-conn p "ai.requests" 1)
-              (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
+                            #:use-glossary (and (hash-ref b 'use_glossary #t) #t)
+                            #:admit admit #:record! record-chunk!))
               (json-response (hash-set (hash-set job 'tokens_used tokens) 'concurrent inflight))))])]))))
 
 ;; `max_chars` rides on the LIST read because that is the call the tab already

@@ -17,6 +17,9 @@
          "../db/id.rkt"
          "../authz/authz.rkt"
          "../ai/executor.rkt"      ; run-chat, model-info, max-input-chars
+         ;; #232: the chunker has been on disk since #189 step 3 and the
+         ;; embedding path was its only caller
+         (only-in "../ai/chunk.rkt" chunk-text)
          ;; issue #83 r1: these two columns hold derived document content whenever
          ;; the pipeline translates
          (only-in "../authz/sealed.rkt" define-sealed-column))
@@ -29,7 +32,15 @@
          ;; #231: the endpoint reports it so the console can show the limit
          ;; beside the field, rather than a person discovering it by being
          ;; refused. ONE number, the server's.
-         translate-max-chars)
+         translate-max-chars
+         ;; #232: exported FOR the endpoint, which has to admit N requests
+         ;; before it starts, and for the tests, which must not depend on
+         ;; today's window (`help-answer`'s `#:floor`, for its reason)
+         translate-chunk-chars translate-plan TRANSLATE-MAX-CHUNKS
+         ;; the composed prompt the budget is CHARGED against. Exported for the
+         ;; tests, which must charge the same thing the code does — a test that
+         ;; re-derived it would agree with any change to it.
+         system-prompt)
 
 ;; ---- language labels --------------------------------------------------------
 (define lang-names
@@ -74,56 +85,193 @@
 
 (define (default-chat text sys) (run-chat text #:system sys))
 
-;; ---- #231: too long to translate is a REFUSAL, not a summary -----------------
+;; ---- #232: a long document is CHUNKED, and #231 is why it had to be ----------
 ;;
-;; Reported from outside, twice, with the input attached: a Wikipedia article
-;; pasted in came back as a short English summary, and the platform stored that
-;; as the Japanese translation. The live row is 39,462 characters in and 1,187
-;; out. WHY it happens is in `executor.rkt` beside the budget — the model server
-;; serves a 4,096-token window, the overflow is discarded oldest first, and the
-;; oldest message is the system prompt that said "translate".
+;; #231 made the failure LOUD and deliberately did not make it work: a
+;; 39,462-character paste came back as a 1,187-character English summary and the
+;; platform stored that as the Japanese translation, so until this slice the
+;; answer was a named refusal. WHY it happens is in `executor.rkt` beside the
+;; budget — the model server serves a 4,096-token window, the overflow is
+;; discarded oldest first, and the oldest message is the system prompt that said
+;; "translate".
 ;;
-;; THE PRE-FLIGHT CHECK IS HERE RATHER THAN AT THE SEAM, and the reason is
-;; coverage in the one direction the seam has none: `model-exchange`'s backstop
-;; reads what the provider says it read, and a translation routed to a PULL
-;; worker never goes through `model-exchange` at all — the worker calls its own
-;; model on another host and answers with a reply and a token count, so there is
-;; no `prompt_tokens` to read. This check is on the text, before anything is
-;; enqueued or dispatched, so it holds for every backend this platform has.
+;; THE CHUNKER WAS ALREADY ON DISK. `domain/ai/chunk.rkt` has been there since
+;; #189 step 3 with everything this needs: a boundary window that prefers
+;; sentence ends (CJK enders included), a progress guarantee rather than a
+;; coverage one (CHUNK-4), whitespace-only chunks never emitted (CHUNK-5), and a
+;; count cap independent of `EXTRACT-CAP` (CHUNK-7). The embedding path was its
+;; only caller.
 ;;
-;; It is also the half a PERSON meets. A refusal that arrives before the wait,
-;; naming the limit and the length they sent, is the difference between "this is
-;; too long" and twenty seconds of spinner followed by a wrong answer.
+;; THREE THINGS A TRANSLATION NEEDS ON TOP OF IT, and each is a decision:
 ;;
-;; `#:max-chars` is an argument because the budget is derived from a window the
-;; operator declares, and a test of anything else here must not depend on
-;; today's value (`help-answer`'s `#:floor`, for its reason).
-(define (translate-max-chars) (max-input-chars))
+;; 1. THE OVERLAP IS ZERO, where retrieval wants 15%. An overlap is what rescues
+;;    recall when a chunk ends mid-clause; here you cannot emit the overlap twice
+;;    — the reader would see the seam sentence rendered once in each direction.
+;;    So the chunks TILE, and the boundary search is what has to carry the
+;;    quality: `chunk-text` already walks back to a sentence end within a quarter
+;;    of the size, which is the behaviour CHUNK-3 settled for a different reason.
+;;
+;; 2. THE SIZE IS DERIVED FROM THE WINDOW, NOT FROM A CONSTANT. CHUNK-10 measured
+;;    384–2,048 characters for recall and found the parameter was not the lever;
+;;    translation has a different constraint entirely, because the chunk AND its
+;;    translation AND the system prompt with the glossary must all fit the context
+;;    at once. So the budget is solved for rather than chosen.
+;;
+;; 3. AND IT IS NOT FOUR CHARACTERS PER TOKEN IN BOTH DIRECTIONS (CHUNK-2). This
+;;    is the trap, and it is the one the retrieval work already paid for: English
+;;    runs near four characters to the token and Japanese near ONE, so an
+;;    English chunk sized against the window will have its JAPANESE reply
+;;    truncated — by the model, silently, which is a quietly worse translation
+;;    and never an error. The reserve is therefore computed against the TARGET.
 
-(define (translate-problem text #:max-chars [cap (translate-max-chars)])
-  (define n (string-length text))
-  (and (> n cap)
-       (format (string-append
-                "this text is ~a characters and the limit is ~a. Longer than that does not fail —"
-                " it comes back WRONG: the model server's context window is ~a tokens, the text"
-                " past it is discarded before the model reads it, and what gets discarded first"
-                " is the instruction to translate, so the reply is a summary or a comment in the"
-                " wrong language. Translate it in sections, or raise the window on the model"
-                " server (for ollama, OLLAMA_CONTEXT_LENGTH) and set TMACH_MODEL_CONTEXT to"
-                " match.")
-               n cap (model-context))))
+;; Characters per token, by language. CHUNK-2's measurement: English ~4, Japanese
+;; ~1. Korean is given 1.5 rather than 1.0 because Hangul syllables tokenize
+;; somewhat better than CJK ideographs on the tokenizers in use here — that one is
+;; an estimate and is marked as such; the two that matter are measured.
+(define CHARS-PER-TOKEN (hash "ja" 1.0 "zh" 1.0 "ko" 1.5))
+(define CHARS-PER-TOKEN-DEFAULT 4.0)
+(define (chars-per-token code)
+  (hash-ref CHARS-PER-TOKEN (if (string? code) code "") CHARS-PER-TOKEN-DEFAULT))
 
+;; How long a translation is in CHARACTERS relative to its source. ONE
+;; measurement: a book chapter is 3,342 characters in English and 2,079 in
+;; Japanese (0.62). It is pinned at 1.0 — "the reply is no longer than the
+;; source" — because that is CONSERVATIVE in the direction that matters: too
+;; small a chunk costs an extra model call, too large a one loses the end of
+;; somebody's translation to a truncation nothing reports.
+(define REPLY-EXPANSION 1.0)
+
+;; The window reserve `max-input-chars` already keeps for the exchange's own
+;; overhead. Named here so the two cannot drift apart silently.
+(define WINDOW-RESERVE 256)
+
+;; A chunk this small is not a translation unit, it is a word. Reaching the floor
+;; means the SYSTEM PROMPT does not fit — an operator with an enormous glossary —
+;; and that is a named refusal rather than a thousand one-word requests.
+(define MIN-CHUNK-CHARS 240)
+
+;; CHUNK-7's rule, for this caller's reason: each chunk is a model request, and
+;; `ai.requests` defaults to 200/day, so an unbounded fan-out over a pasted novel
+;; would spend a team's allowance on one document. 24 chunks is ~180,000
+;; characters of English at a 4,096-token window — about sixty pages.
+(define TRANSLATE-MAX-CHUNKS 24)
+
+;; -> how many characters of SOURCE fit in one request, given the composed system
+;; prompt and the target language. Solves
+;;
+;;     chars/cpt(source) + chars*expansion/cpt(target) + prompt <= window - reserve
+;;
+;; for `chars`. On a Latin target with a small glossary this reproduces
+;; `max-input-chars` (7,680 at a 4,096-token window), which is the number #231
+;; measured either side of — 8,000 characters translated correctly, 24,000 did
+;; not — so the existing behaviour is the arithmetic's own answer rather than a
+;; constant sitting beside it.
+(define (translate-chunk-chars #:target tgt #:source [src "auto"] #:system [sys ""])
+  (define ctx (model-context))
+  (define prompt-tokens (/ (string-length sys) CHARS-PER-TOKEN-DEFAULT))
+  (define budget (- ctx WINDOW-RESERVE prompt-tokens))
+  (define per-char (+ (/ 1.0 (chars-per-token (if (equal? src "auto") #f src)))
+                      (/ REPLY-EXPANSION (chars-per-token tgt))))
+  (define n (inexact->exact (floor (/ budget per-char))))
+  (max 0 n))
+
+;; What `translate!` is about to do, computed BEFORE anything is spent: the
+;; chunks, and whether the text is longer than the cap allows. The endpoint asks
+;; for it so it can admit N requests up front (FEED-9: meter per request, and
+;; before the request).
+;;
+;; -> (values chunks problem-or-#f)
+(define (translate-plan text #:target tgt #:source [src "auto"] #:terms [terms '()])
+  (define sys (system-prompt tgt src terms))
+  (define size (translate-chunk-chars #:target tgt #:source src #:system sys))
+  (cond
+    [(< size MIN-CHUNK-CHARS)
+     (values '()
+             (format (string-append
+                      "the translation instructions and glossary alone need ~a of the model"
+                      " server's ~a-token window, leaving room for ~a characters of text."
+                      " Shorten the glossary for ~a, or raise the window on the model server"
+                      " (for ollama, OLLAMA_CONTEXT_LENGTH) and set TMACH_MODEL_CONTEXT to match.")
+                     (inexact->exact (round (/ (string-length sys) CHARS-PER-TOKEN-DEFAULT)))
+                     (model-context) size (lang-label tgt)))]
+    [else
+     (define-values (chunks truncated?)
+       (chunk-text text #:size size #:overlap 0 #:max-chunks TRANSLATE-MAX-CHUNKS))
+     (cond
+       [truncated?
+        (values '()
+                (format (string-append
+                         "this text is ~a characters and the limit is ~a. It is translated in"
+                         " sections of ~a characters and at most ~a sections per request, because"
+                         " each section is a separate model call against the team's AI budget."
+                         " Split it, or raise the window on the model server (for ollama,"
+                         " OLLAMA_CONTEXT_LENGTH) and set TMACH_MODEL_CONTEXT to match.")
+                        (string-length text) (* size TRANSLATE-MAX-CHUNKS)
+                        size TRANSLATE-MAX-CHUNKS))]
+       [else (values chunks #f)])]))
+
+;; The number the console counts against (#231). It has no target language — the
+;; Translate tab reports it before anybody has chosen one — so it is the WORST
+;; case, a CJK target with no glossary. Conservative on purpose: being allowed
+;; MORE than the counter showed is a pleasant surprise, being refused at a number
+;; below the one on screen is the failure #231 was reported for. The server's
+;; per-target budget is still the authority.
+(define (translate-max-chars)
+  (* TRANSLATE-MAX-CHUNKS
+     (translate-chunk-chars #:target "ja" #:system (system-prompt "ja" "auto" '()))))
 
 ;; returns (values job-hash tokens-used)
+;;
+;; `#:admit` and `#:record!` are the per-chunk metering seams (#232). Each chunk
+;; is a separate model request, so a long document is N requests against a
+;; `ai.requests` default of 200/day and N lots of tokens — and FEED-9's rule is
+;; to meter PER REQUEST and BEFORE the request, because metering only successes
+;; makes a failing run free and metering at the end makes a run that stops
+;; halfway look free.
+;;
+;; THE DEFAULTS ARE TODAY'S BEHAVIOUR EXACTLY — admit everything, record nothing —
+;; so every existing caller and every test is unchanged. The ENDPOINT fills them,
+;; because only the caller knows which tier it bills at: `ai.requests` counts
+;; scheduler jobs at the job tier and model calls at the tool tier, which
+;; CLAUDE.md records and deliberately declines to change. Inside the `translate`
+;; JOB kind the scheduler bills the job's own `tokens_used`, so the job passes
+;; neither seam and is metered as it always was.
+;;
+;; `#:admit` answers #f to admit, or a REASON STRING to stop. A refusal mid-way
+;; raises and nothing is stored — the acceptance criterion is "a named reason
+;; rather than a partial result" — but what was already spent has already been
+;; recorded, which is the honest half of FEED-9.
 (define (translate! conn p #:text text #:target-lang tgt
-                    #:source-lang [src "auto"] #:use-glossary [gl? #t] #:chat [chat default-chat])
+                    #:source-lang [src "auto"] #:use-glossary [gl? #t] #:chat [chat default-chat]
+                    #:admit [admit (lambda (i n) #f)]
+                    #:record! [record! (lambda (tokens) (void))])
   (require-perm conn p "chat:use")
-  ;; #231. BEFORE the glossary read, before anything is spent, and
-  ;; `raise-user-error` so it is a 400 the caller sees rather than a 500 whose
-  ;; message only ever reached them through the leak #123 closed.
-  (let ([bad (translate-problem text)]) (when bad (raise-user-error 'translate "~a" bad)))
   (define terms (if gl? (glossary-list conn p #:target-lang tgt) '()))
-  (define-values (reply tokens) (chat text (system-prompt tgt src terms)))
+  (define sys (system-prompt tgt src terms))
+  ;; #232/#231: the plan is computed BEFORE anything is spent, and a text past
+  ;; the cap is still a named refusal — `raise-user-error`, so it is a 400 the
+  ;; caller sees rather than a 500 whose message only ever reached them through
+  ;; the leak #123 closed.
+  (define-values (chunks problem) (translate-plan text #:target tgt #:source src #:terms terms))
+  (when problem (raise-user-error 'translate "~a" problem))
+  ;; A SHORT TRANSLATION IS STILL EXACTLY ONE MODEL CALL, which is the fourth
+  ;; acceptance criterion and is what the single-chunk case gives for free — the
+  ;; loop below runs once and `string-append` of one element is that element.
+  (define total (box 0))
+  (define parts
+    (for/list ([c (in-list chunks)] [i (in-naturals 1)])
+      (let ([stop (admit i (length chunks))])
+        (when stop (raise-user-error 'translate "~a" stop)))
+      ;; THE SYSTEM PROMPT AND THE GLOSSARY GO TO EVERY CHUNK. Composed once
+      ;; above and passed N times: an agreed term applied to the first section of
+      ;; a document and not the rest is worse than no glossary at all, because
+      ;; nobody reading the output can tell which half to trust.
+      (define-values (reply tokens) (chat (hash-ref c 'text) sys))
+      (set-box! total (+ (unbox total) (if (number? tokens) tokens 0)))
+      (record! (if (number? tokens) tokens 0))
+      reply))
+  (define reply (apply string-append parts))
+  (define tokens (unbox total))
   (define id (new-id))
   (define model (hash-ref (model-info) 'model "fallback"))
   (query-exec conn
@@ -139,7 +287,13 @@
     (seal-source id text)
     (seal-result id reply)
     model)
-  (values (hasheq 'id id 'source_lang src 'target_lang tgt 'source_text text 'result reply 'model model) tokens))
+  (values (hasheq 'id id 'source_lang src 'target_lang tgt 'source_text text 'result reply 'model model
+                  ;; how many model calls this cost. Reported rather than
+                  ;; inferred: `tokens_used` cannot distinguish one long call
+                  ;; from six short ones, and the difference is what an operator
+                  ;; reading their budget needs.
+                  'chunks (length chunks))
+          tokens))
 
 (define (row->tr r)
   (hasheq 'id (vector-ref r 0) 'source_lang (vector-ref r 1) 'target_lang (vector-ref r 2)

@@ -12,6 +12,10 @@
          (only-in "../domain/ai/executor.rkt"
                   model-context max-input-chars prompt-chars prompt-truncated?
                   truncation-message)
+         ;; #232: the chunk budget and the plan, exported so a test need not
+         ;; depend on today's window
+         (only-in "../domain/apps/translate.rkt"
+                  translate-chunk-chars translate-plan TRANSLATE-MAX-CHUNKS system-prompt)
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt")
@@ -170,7 +174,119 @@
       (check-true (regexp-match? #rx"OLLAMA_CONTEXT_LENGTH" m))
       (check-true (regexp-match? #rx"TMACH_MODEL_CONTEXT" m)))))
 
-(test-case "#231: translate! refuses an over-long text BEFORE it spends anything"
+(test-case "#232: a long text is TRANSLATED IN SECTIONS, not refused"
+  ;; THE CONTRACT #231 ESTABLISHED IS DELIBERATELY CHANGED HERE, and the old
+  ;; case is what caught it: #231 made the failure loud and said in as many words
+  ;; that it did not make it work. A text past one window's worth is now chunked.
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define conn (fresh))
+      (define-values (uid tid) (bootstrap! conn #:username "alice"))
+      (define alice (user-principal conn uid tid))
+      (define calls (box '()))
+      (define (counting-chat text sys)
+        (set-box! calls (cons (cons (string-length text) sys) (unbox calls)))
+        (values (string-append "[" text "]") 7))
+      ;; one window's worth for a LATIN target reproduces #231's measured number
+      (define size (translate-chunk-chars #:target "fr"
+                                          #:system (system-prompt "fr" "auto" '())))
+      ;; sentences, so the boundary search has something to find — a single
+      ;; 40,000-character run of `x` has no boundary at all, which is CHUNK-3's
+      ;; own fixture and a different test
+      (define sentence "The quick brown fox jumps over the lazy dog. ")
+      (define long (apply string-append (for/list ([_ (in-range 900)]) sentence)))
+      (check-true (> (string-length long) (* 3 size)) "the fixture really is several windowfuls")
+      (define-values (job tokens)
+        (translate! conn alice #:text long #:target-lang "fr" #:chat counting-chat))
+      (define n (length (unbox calls)))
+      (check-true (> n 3) (format "several model calls, got ~a" n))
+      (check-equal? (hash-ref job 'chunks) n "the job reports how many it cost")
+      (check-equal? tokens (* 7 n) "tokens are the SUM across the sections")
+      ;; NO SECTION OVERRUNS THE BUDGET — the whole point
+      (for ([c (in-list (unbox calls))])
+        (check-true (<= (car c) size) (format "a section of ~a exceeds the ~a budget" (car c) size)))
+      ;; …and the whole document came back: the sections TILE (overlap 0), so
+      ;; joining them reconstructs the source with nothing dropped and nothing
+      ;; rendered twice
+      (define result (hash-ref job 'result))
+      (check-equal? (string-length (regexp-replace* #rx"[][]" result ""))
+                    (string-length long)
+                    "every character of the source is accounted for exactly once")
+      (check-equal? (length (translate-list conn alice)) 1 "ONE stored translation, not one per section"))))
+
+(test-case "#232: the glossary and the instructions go to EVERY section"
+  ;; An agreed term applied to the first part of a document and not the rest is
+  ;; worse than no glossary at all, because nobody reading the output can tell
+  ;; which half to trust.
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define conn (fresh))
+      (define-values (uid tid) (bootstrap! conn #:username "alice"))
+      (define alice (user-principal conn uid tid))
+      (glossary-add! conn alice #:term "fox" #:translation "renard" #:target-lang "fr")
+      (define systems (box '()))
+      (define (spy text sys) (set-box! systems (cons sys (unbox systems))) (values text 1))
+      (define sentence "The quick brown fox jumps over the lazy dog. ")
+      (define long (apply string-append (for/list ([_ (in-range 900)]) sentence)))
+      (translate! conn alice #:text long #:target-lang "fr" #:chat spy)
+      (check-true (> (length (unbox systems)) 3))
+      (for ([sys (in-list (unbox systems))])
+        (check-true (regexp-match? #rx"renard" sys) "the glossary reached this section")
+        (check-true (regexp-match? #rx"professional translator" sys) "…and so did the instructions")))))
+
+(test-case "#232: a SHORT translation is still exactly one model call"
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define conn (fresh))
+      (define-values (uid tid) (bootstrap! conn #:username "alice"))
+      (define alice (user-principal conn uid tid))
+      (define calls (box 0))
+      (define (counting-chat text sys) (set-box! calls (add1 (unbox calls))) (values (string-upcase text) 7))
+      (define-values (job tokens)
+        (translate! conn alice #:text "hello world" #:target-lang "ja" #:chat counting-chat))
+      (check-equal? (unbox calls) 1)
+      (check-equal? (hash-ref job 'chunks) 1)
+      (check-equal? (hash-ref job 'result) "HELLO WORLD" "…and the text is untouched by the chunker"))))
+
+(test-case "#232: a CJK target gets SMALLER sections — CHUNK-2's trap, priced in"
+  ;; THE ONE THING A SIZE DERIVED FROM THE INPUT ALONE CANNOT SEE. English runs
+  ;; near four characters to the token and Japanese near one, so an English chunk
+  ;; sized against the window has its JAPANESE reply truncated — by the model,
+  ;; silently, which is a quietly worse translation and never an error.
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define latin (translate-chunk-chars #:target "fr" #:system ""))
+      (define cjk   (translate-chunk-chars #:target "ja" #:system ""))
+      (check-true (< cjk latin) (format "ja ~a must be under fr ~a" cjk latin))
+      ;; and the arithmetic reproduces #231's measured number for a Latin target,
+      ;; so the existing behaviour is the model's own answer rather than a
+      ;; constant sitting beside it: 8,000 characters translated correctly,
+      ;; 24,000 did not
+      (check-equal? latin 7680)
+      (check-equal? cjk 3072))))
+
+(test-case "#232: the SYSTEM PROMPT is charged against the window"
+  ;; N sections is N copies of the prompt and the glossary, so the budget has to
+  ;; be computed against the real composed prompt rather than against the text.
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define bare (translate-chunk-chars #:target "fr" #:system ""))
+      (define heavy (translate-chunk-chars #:target "fr" #:system (make-string 4000 #\x)))
+      (check-true (< heavy bare) "a longer prompt leaves room for less text")
+      ;; and a glossary that cannot fit at all is a NAMED refusal rather than a
+      ;; thousand one-word requests
+      (define-values (chunks problem)
+        (translate-plan "hello" #:target "fr"
+                        #:terms (for/list ([i (in-range 400)])
+                                  (hasheq 'term (format "term~a" i) 'translation (make-string 40 #\y)))))
+      (check-equal? chunks '())
+      (check-true (and problem #t))
+      (check-true (regexp-match? #rx"glossary" problem) problem))))
+
+(test-case "#232: past the SECTION CAP it is still a refusal, and nothing is spent"
+  ;; CHUNK-7's rule for this caller's reason: each section is a model request and
+  ;; `ai.requests` defaults to 200/day, so an unbounded fan-out over a pasted
+  ;; novel would spend a team's allowance on one document.
   (with-env "TMACH_MODEL_CONTEXT" "4096"
     (lambda ()
       (define conn (fresh))
@@ -178,24 +294,44 @@
       (define alice (user-principal conn uid tid))
       (define called (box 0))
       (define (counting-chat text sys) (set-box! called (add1 (unbox called))) (values text 7))
-      (define long (make-string (+ 1 (max-input-chars)) #\x))
-      ;; A 400 the caller sees, not a 500 (#123).
+      (define sentence "The quick brown fox jumps over the lazy dog. ")
+      (define cap (* TRANSLATE-MAX-CHUNKS
+                     (translate-chunk-chars #:target "fr" #:system (system-prompt "fr" "auto" '()))))
+      (define toolong (apply string-append
+                             (for/list ([_ (in-range (add1 (quotient cap (string-length sentence))))])
+                               sentence)))
+      (check-true (> (string-length toolong) cap))
       (check-exn exn:fail:user?
-                 (lambda () (translate! conn alice #:text long #:target-lang "ja" #:chat counting-chat)))
-      ;; THE MODEL WAS NEVER CALLED, which is the point of doing it pre-flight:
-      ;; a refusal after the wait has already spent the budget and the minute.
+                 (lambda () (translate! conn alice #:text toolong #:target-lang "fr" #:chat counting-chat)))
+      ;; THE MODEL WAS NEVER CALLED, which is the point of doing it pre-flight
       (check-equal? (unbox called) 0 "the model must not be called for a text that cannot fit")
-      ;; …and nothing was stored. The live row this was reported from is 39,462
-      ;; characters in and 1,187 out, kept as though it were the translation.
-      (check-equal? (length (translate-list conn alice)) 0)
-      ;; One character under the limit still goes through.
-      (define-values (job _t)
-        (translate! conn alice #:text (make-string (max-input-chars) #\x)
-                    #:target-lang "ja" #:chat counting-chat))
-      (check-equal? (unbox called) 1)
-      (check-equal? (length (translate-list conn alice)) 1)
-      ;; The refusal says the length, the limit and why longer comes back wrong.
+      (check-equal? (length (translate-list conn alice)) 0 "…and nothing was stored")
       (define m (with-handlers ([exn:fail:user? exn-message])
-                  (translate! conn alice #:text long #:target-lang "ja" #:chat counting-chat)))
-      (check-true (regexp-match? #rx"7680" m) m)
-      (check-true (regexp-match? #rx"7681" m) m))))
+                  (translate! conn alice #:text toolong #:target-lang "fr" #:chat counting-chat)))
+      (check-true (regexp-match? #rx"sections" m) m)
+      (check-true (regexp-match? (regexp (number->string TRANSLATE-MAX-CHUNKS)) m) m))))
+
+(test-case "#232: a budget exhausted MID-document stops with a reason, not a partial result"
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define conn (fresh))
+      (define-values (uid tid) (bootstrap! conn #:username "alice"))
+      (define alice (user-principal conn uid tid))
+      (define calls (box 0))
+      (define spent (box 0))
+      (define (counting-chat text sys) (set-box! calls (add1 (unbox calls))) (values text 7))
+      (define sentence "The quick brown fox jumps over the lazy dog. ")
+      (define long (apply string-append (for/list ([_ (in-range 900)]) sentence)))
+      ;; the endpoint's seam, scripted: the team runs out after two sections
+      (define (admit i n) (and (> i 2) (format "section ~a of ~a: out of budget" i n)))
+      (check-exn exn:fail:user?
+                 (lambda () (translate! conn alice #:text long #:target-lang "fr"
+                                        #:chat counting-chat #:admit admit
+                                        #:record! (lambda (t) (set-box! spent (+ (unbox spent) t))))))
+      (check-equal? (unbox calls) 2 "it stopped where it was refused")
+      ;; NOTHING IS STORED — the acceptance criterion is "a named reason rather
+      ;; than a partial result"
+      (check-equal? (length (translate-list conn alice)) 0)
+      ;; …but WHAT WAS SPENT WAS RECORDED (FEED-9): metering only successes makes
+      ;; a run that stops halfway look free
+      (check-equal? (unbox spent) 14))))
