@@ -294,19 +294,27 @@ async function doActivate(){
   if(r.ok){ S.token=r.json.token; localStorage.setItem('tmx_token',S.token); history.replaceState({},'','/'); toast('welcome!',true); render(); }
   else toast(r.json.error||'activation failed');
 }
+// #239: the Documents tab files into the SAME prefix the Repository tab
+// navigates, which is what makes "write chapters, build up a report, upload
+// information" one project rather than two trees.
+function docGo(prefix){ S.docPrefix=prefix; S.docOffset=0; S.docEdit=null; renderTab(); }
 async function documentsView(){
   const off=S.docOffset||0;
-  const r=await api('/api/documents?offset='+off);
+  const prefix=S.docPrefix||'';
+  const r=await api('/api/documents?offset='+off+(prefix?'&prefix='+encodeURIComponent(prefix):''));
   const docs=r.ok?r.json.documents:[]; const next=r.ok?r.json.next_offset:null;
+  const nav=r.ok?pathNav(r.json.folders, prefix, docGo):'';
   // #180: `PUT /api/documents/:id` has existed as long as the route table and
   // the console called it nowhere, exactly as for notes. Same editor, same
   // edit path — the issue's "three bare textareas becoming three different
   // editors" is avoided by there being one component, not three.
   const editing = S.docEdit ? docs.filter(d=>d.id===S.docEdit)[0] : null;
-  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}</td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>docEdit((d.id),(d.content)))}">${t('edit')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDelDoc((d.id)))}">${t('del')}</button></td></tr>`).join('');
+  const rows=docs.map(d=>`<tr><td>${esc(d.title||'—')}<div class="muted mono" style="font-size:12px">${esc(d.key||'')}</div></td><td><span class="badge">${esc(d.visibility)}</span></td><td class="muted">${esc((d.content||'').slice(0,60))}</td><td><button class="btn sm ghost" data-h-click="${H((el,ev)=>docEdit((d.id),(d.content)))}">${t('edit')}</button> <button class="btn sm ghost" data-h-click="${H((el,ev)=>doDelDoc((d.id)))}">${t('del')}</button></td></tr>`).join('');
   const card = editing
     ? `<div class="card"><h3>${t('editdoc')} <span class="muted" style="font-size:13px">${esc(editing.title||'')}</span></h3>
       <label>${t('title')}</label><input id="dt" value="${esc(editing.title||'')}">
+      <div class="muted mono" style="font-size:12px;margin-top:4px">${esc(editing.key||'')}</div>
+      <div class="muted" style="font-size:12px">${t('docmovehint')}</div>
       <label>${t('content')}</label>${editorHTML('doc', {id:'dc'})}
       <label>${t('visibility')}</label><select id="dv">${
         ['team','private'].map(x=>`<option${x===editing.visibility?' selected':''}>${x}</option>`).join('')}</select>
@@ -316,6 +324,8 @@ async function documentsView(){
         data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${t('edexport')}</button></div></div></div>`
     : `<div class="card"><h3>${t('newdoc')}</h3>
       <label>${t('title')}</label><input id="dt">
+      <label>${t('key')}</label><input id="dk" placeholder="levee-7/chapters/" value="${esc(prefix)}">
+      <div class="muted" style="font-size:12px">${t('dockeyhint')}</div>
       <label>${t('content')}</label>${editorHTML('doc', {id:'dc'})}
       <label>${t('visibility')}</label><select id="dv"><option>team</option><option>private</option></select>
       <button class="btn" data-h-click="${H((el,ev)=>doCreateDoc())}">${t('create')}</button>
@@ -323,7 +333,7 @@ async function documentsView(){
         data-h-click="${H(()=>edExport('doc', (document.getElementById('dt')||{}).value||'document'))}">${t('edexport')}</button></div></div></div>`;
   return `<h2>${t('documents')}</h2>
     ${card}
-    <div class="card" style="margin-top:14px"><table><thead><tr><th>${t('title')}</th><th>${t('visibility')}</th><th>${t('content')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="card" style="margin-top:14px">${nav?`<div style="margin-bottom:10px">${nav}</div>`:''}<table><thead><tr><th>${t('title')}</th><th>${t('visibility')}</th><th>${t('content')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <div class="row" style="margin-top:8px">${off>0?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs(0))}">« first</button>`:''}${(typeof next==='number')?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMoreDocs((next)))}">more »</button>`:''}</div></div>`;
 }
 function docEdit(id, content){ S.docEdit=id; edReset('doc', content, 'dc'); renderTab(); }
@@ -334,7 +344,7 @@ async function doSaveDoc(){
   if(r.ok){ S.docEdit=null; edReset('doc','', 'dc'); toast(t('saved'),true); renderTab(); }
   else toast((r.json&&r.json.error)||'error');
 }
-async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',body:{title:val('dt'),content:edRead('doc'),visibility:val('dv')}});
+async function doCreateDoc(){ const r=await api('/api/documents',{method:'POST',body:{title:val('dt'),content:edRead('doc'),key:val('dk'),visibility:val('dv')}});
   if(r.ok){ S.docOffset=0; edReset('doc','', 'dc'); toast('created',true); renderTab(); } else toast(r.json.error||'error'); }
 async function doDelDoc(id){ const r=await api('/api/documents/'+id,{method:'DELETE'});
   if(r.ok){ if(S.docEdit===id){ S.docEdit=null; edReset('doc','', 'dc'); } toast('deleted',true); renderTab(); } else toast(r.json.error||'error'); }

@@ -5005,6 +5005,130 @@ closing the issue does not lose them:
   show it. An operator who cannot see that a question spent 1,900 tokens cannot
   reason about `ai.help.total`, which is the dimension HELP‑21 created for them.
 
+## PATH — a project is a key prefix (issue #239, built 2 Nov 2026)
+
+The owner asked twice: *"I previously requested documents get saved into a path,
+otherwise, they are in an amorphous blob of flat organization"*, and #239 names
+the use case — *"write chapters, build up a report, upload information. When we
+upload docs into the repository, we will want to organize them as well."*
+
+**PATH‑1 — A PROJECT IS A KEY PREFIX AND NOTHING IS STORED ABOUT IT.** The
+alternative was a named row: it would appear in a picker before anything was
+filed into it, could be renamed, and could carry members. It was declined, and
+not on cost. A row is a second source of truth about which projects exist, and
+the authoritative answer is *which prefixes have objects in them* — the rule
+`available` locales and `FEED-KINDS` already live by, which is what stops an
+instance advertising something it cannot serve. It also means a project cannot
+be empty and stops existing when its last object does. And the direction is
+one-way: a prefix convention can later gain a row, while a row cannot be
+un-invented. What a row would buy — renaming a project, listing one nobody has
+filed into yet — is a decision somebody can still make, with every key already
+in place.
+
+**PATH‑2 — THE STORAGE MODEL ALREADY DID THIS; TWO SURFACES DID NOT.**
+`valid-key?` has accepted any `/`-separated key since slice 49, `GET
+/api/repo?prefix=` has filtered on it since, `DELETE /api/repo?prefix=` acts on
+it, and the console's own upload placeholder is literally
+`reports/2026/q3.pdf`. So the honest first sentence of any answer to #239 is
+that an upload could always be filed anywhere. What was flat: a text document's
+key was composed for the caller and could not be set, and the Repository tab had
+no prefix navigation. **`put-doc!` has taken `#:key` since the fold (migration
+0022) and BOTH layers above it dropped it on the floor** — `documents-create`
+and `ep-documents-create` — which is #113's shape exactly: a capability one
+level down that nothing could reach.
+
+**PATH‑3 — A KEY ENDING IN `/` IS A FOLDER.** The console sends the project it
+is looking at and nothing else, so a form field prefilled with `levee-7/` must
+mean something — and as a literal key it is REFUSED, for its empty last segment.
+So a trailing slash composes the filename under it (`<slug>-<id8>.md`), which is
+also what an S3 user already means by one, and it keeps `slugify` out of every
+caller. An absent or blank key still composes `documents/<slug>-<id8>.md`, so
+nothing anybody has deployed changes.
+
+**PATH‑4 — THE DOCUMENTS LISTING IS THE CONTENT TYPE NOW, NOT THE `documents/`
+PREFIX, AND THAT FOLLOWS FROM PATH‑2 RATHER THAN BEING A SEPARATE CHOICE.** A
+window keyed on the prefix would simply lose every document somebody filed into
+a project, so the tab's default view would hide half of them. `DOC-CONTENT-TYPE`
+lives in `repo.rkt` because the storage decides it. Two consequences, both
+deliberate: a markdown file uploaded through the repository or over S3 now
+appears in the Documents tab — it IS a text document, which is what the fold
+settled, and until now an uploaded `notes.md` and a written one were the same
+object presented two ways — and a DERIVED document does not, because
+`doc_render` writes `<key>.form.md` and `doc_translate` writes
+`<key>.<locale>.md`. Without `REPO-NOT-DERIVED` the tab fills with the
+pipeline's own output, which is CLS‑26's rule arriving at a third lister.
+
+**PATH‑5 — `type` ON A SEARCH HIT DECIDES AN AFFORDANCE, NOT A CATEGORY, AND A
+TEST IS WHAT SAID SO.** `search.rkt` asked "is this a document?" by the
+`documents/` prefix too, and #239 makes that wrong in one direction: a chapter
+filed into `levee-7/` would be presented as an untitled file. Swapping it for
+the content type ALONE is wrong in the other direction — the console offers
+Download only on a `file` row and uses the title as the download filename, so
+**every uploaded `.md` would have silently lost its download button**.
+`index-tests.rkt` reported it on the first full run. The question is narrower
+than it looks — *does this row have a human TITLE to show instead of a path?* —
+and `title-like?` answers it from the row: markdown, a non-empty filename, no
+`/` in it (`repo-put! #:filename key` is what several callers do, and a path is
+not a title), and not simply the key's own basename (an ordinary upload names
+the file it came from). Each clause earns its place against a shape that really
+occurs, and all four are pinned.
+
+**PATH‑6 — THE FOLDER LIST APPLIES `can?` WHERE `repo-count` DELIBERATELY DOES
+NOT, AND THE DIFFERENCE IS THE DISCLOSURE.** A count within one team behind
+`files:read` is a count and no identity (CLS‑27's argument); a FOLDER NAME is
+somebody's words — `legal/acme-dispute/` names the thing it holds — so an
+unfiltered list would hand a member the names of a colleague's private tree and
+then show them an empty folder when they opened it. What makes that affordable
+is that ONE READABLE OBJECT SETTLES A FOLDER: the question is "may I see
+anything in here", not "how many", so the probe stops at the first row that
+passes and an ordinary team-visible tree costs one `can?` per folder rather than
+one per object. Both bounds are reported — `truncated` is true when the key
+window filled OR the probe budget ran out — because a folder list that silently
+stopped reads as a tree that is not there (VEC‑29's two ways of stopping).
+
+**PATH‑7 — THE FOLDERS RIDE ON THE LISTING, NOT ON A ROUTE OF THEIR OWN.** The
+tab wants both to draw one screen, and the sign-in slice measured a sequential
+round trip as the whole of what made the console feel slow. It costs one indexed
+query beside a listing that already spends up to a hundred `can?` calls. It is
+NOT computed for `?shared=1`: a grant is not tree-shaped, so a folder list over
+what somebody handed you answers a question nobody asked.
+
+**PATH‑8 — THERE IS NO MOVE.** An edit is a new version at the same key, and in
+a content-addressed store a move is a new object plus a delete — which would
+break every grant, derivation row and presigned link pointing at the old id.
+Filing is done at creation, and the edit form says so rather than offering a
+field that cannot work.
+
+**PATH‑9 — `escape-like` HAD BEEN PRODUCING A PATTERN THAT MATCHED NOTHING ON
+SQLITE, AND #239 IS THE FEATURE THAT WOULD HAVE MET IT ON DAY ONE.** `_` and `%`
+are LIKE wildcards, so a user-supplied prefix was escaped — **and escaping it
+only means anything if the statement names an escape character.** That half was
+missing, and the two dialects disagree about the default in OPPOSITE directions:
+PostgreSQL's LIKE takes backslash as its escape with no clause at all, while
+SQLite has NONE unless one is named, so the escaped pattern asked SQLite for a
+backslash followed by anything — which no key can contain, `valid-key?`
+forbidding `\`. **Every prefix holding an underscore answered empty on the
+default dialect.** Measured rather than reasoned, on real SQLite: the unescaped
+pattern returns all three fixtures, the escaped one returns none, and the escaped
+one with `ESCAPE '\'` returns the right key. It was latent only because nothing
+navigated by prefix; `levee_7/` is an everyday folder name. The same fault
+reached `repo-count` (a page that reads as the last one) and `DELETE
+/api/repo?prefix=` (which deletes nothing and reports success — fail-safe, and
+silently wrong). `voice-tools.rkt` had a THIRD spelling that escaped nothing at
+all, so `_` over-matched there. One home now: `LIKE-ESCAPED` + `prefix-pattern`
++ `deep-pattern` in `repo.rkt`.
+
+**PATH‑10 — AN UPLOAD LANDS YOU IN THE FOLDER IT WENT TO, and the e2e gate is
+what found that it did not.** A folder view shows only what sits directly under
+the current prefix (`?immediate=1` — without it, opening a folder shows its whole
+subtree and looks identical to the view above it), so uploading
+`templates/approval.md` from the top stored the object perfectly well and did
+NOT list it: "Uploaded", and then nothing on screen. Two assertions failed two
+screens later, in a block with nothing to do with paths. The fixture half of the
+same lesson is that this slice's own e2e block left both tabs standing in a
+folder and broke the pipeline section — a fixture that changes global state puts
+it back, which is the smoke's second-team-owner rule in a browser.
+
 ## FEED (continued) — the four remaining adapters (issue #193, built 29 Oct 2026)
 
 #114 named six sources. One had an adapter (`github.issues`, FEED‑14…22) and one

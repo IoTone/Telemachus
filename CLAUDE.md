@@ -7739,6 +7739,85 @@ instance layers, and #177 gave the instance layer a console card.
   assertions on `--path-as-is`, and add the percent-encoded (`%2e%2e`) and nested
   (`a/../../`) forms — the plain one alone proves nothing.
 
+## A project is a key prefix (PATH‑1…10, issue #239)
+
+Built 2 Nov 2026. `repo-prefixes` + the one prefix-window spelling in
+`repo.rkt`; `#:key` reaching `documents-create`; `?prefix=`/`?immediate=1` and a
+`folders` field on two listings; `pathNav` in the console. **No migration, no new
+route, no new permission.** Decisions PATH‑1…10 in `docs/design/decisions.md`.
+
+```sh
+raco test test/document-paths-tests.rkt                              # 8 cases, four controls
+DATABASE_URL="postgres://…" raco test test/document-paths-tests.rkt  # the dialect half — see below
+bash test/server-smoke.sh                                            # the "#239" block, 16 assertions
+bash test/e2e/validate.sh                                            # §5c — the folder strip, in a browser
+```
+
+- **THE STORAGE ALREADY DID THIS AND TWO SURFACES DID NOT**, so the honest first
+  sentence is never "the repository cannot do paths". `valid-key?` has taken any
+  `/`-separated key since slice 49 and `?prefix=` has filtered on it since.
+  **`put-doc!` has taken `#:key` since the fold and BOTH layers above it dropped
+  it** — #113's shape, a capability one level down that nothing could reach.
+- **A PROJECT IS A PREFIX AND NOTHING IS STORED ABOUT IT** (PATH‑1). The folder
+  list is DERIVED from the keys that exist, which is `available` locales' rule, so
+  a project cannot be empty and stops existing with its last object. A named row
+  was declined on direction rather than cost: a prefix can later gain a row, a row
+  cannot be un-invented.
+- **A KEY ENDING IN `/` IS A FOLDER** (PATH‑3), because the console sends the
+  project it is looking at and `levee-7/` as a literal key is REFUSED for its
+  empty last segment — so the obvious spelling of "put it here" had to mean
+  something. Absent or blank still composes `documents/<slug>-<id8>.md`.
+- **`escape-like` HAD BEEN PRODUCING A PATTERN THAT MATCHED NOTHING ON SQLITE**
+  (PATH‑9), and #239 is the feature that would have met it on day one. Escaping a
+  prefix means nothing unless the statement NAMES an escape character, and the
+  dialects differ in OPPOSITE directions — PostgreSQL's LIKE takes backslash with
+  no clause, SQLite has none unless named — so every prefix holding an `_`
+  answered empty on the default dialect, in `repo-list`, in `repo-count` (a page
+  that reads as the last one) and in `DELETE /api/repo?prefix=` (deletes nothing,
+  reports success). `voice-tools.rkt` had a third spelling that escaped nothing.
+  **Measured on real SQLite before writing anything**; one home now,
+  `LIKE-ESCAPED` + `prefix-pattern` + `deep-pattern`. Never write `key LIKE ?`
+  over a user prefix again.
+- **THE DOCUMENTS WINDOW IS THE CONTENT TYPE NOW** (PATH‑4), which follows from
+  freeing the key rather than being a separate choice: a prefix-keyed window
+  loses every filed document, so the tab's default view would hide half of them.
+  So an uploaded `.md` appears there (it IS a text document — the fold's own
+  point) and a DERIVED one does not, because `doc_render` writes `<key>.form.md`
+  — `REPO-NOT-DERIVED`, CLS‑26 at a third lister.
+- **`type` ON A SEARCH HIT DECIDES AN AFFORDANCE, NOT A CATEGORY, AND A TEST SAID
+  SO** (PATH‑5). The console offers Download only on a `file` row and uses the
+  title as the download filename, so swapping the prefix test for the content type
+  alone would have **silently removed the download button from every uploaded
+  `.md`** — `index-tests.rkt` reported it. The question is *does this row have a
+  human TITLE to show instead of a path?*, and `title-like?` answers it from the
+  row: markdown, non-empty filename, no `/` in it (`repo-put! #:filename key` is
+  what several callers do), and not the key's own basename. Four clauses, four
+  shapes that really occur, all pinned.
+- **THE FOLDER LIST APPLIES `can?` WHERE `repo-count` DOES NOT** (PATH‑6): a
+  count is a count, a folder NAME is somebody's words (`legal/acme-dispute/`).
+  What makes it affordable is that ONE READABLE OBJECT SETTLES A FOLDER — "may I
+  see anything in here", not "how many" — so an ordinary tree costs one `can?` per
+  folder. `truncated` reports BOTH bounds (the key window, and the probe budget).
+- **`?immediate=1` IS WHAT MAKES A FOLDER A FOLDER**, and it has a cost worth
+  knowing: at the root it correctly hides everything inside a folder, so **an
+  upload into a folder lands invisibly** unless the view follows it. It does now
+  (PATH‑10) — found by the e2e gate, two screens from the cause.
+- **A FIXTURE THAT CHANGES GLOBAL STATE PUTS IT BACK, IN A BROWSER TOO.** This
+  slice's own e2e block left both tabs standing in a folder and failed five
+  assertions in the pipeline section. Same shape as the smoke fixture that minted
+  a second team owner and broke a membership block 300 lines below.
+- **There is NO MOVE** (PATH‑8): in a content-addressed store it is a new object
+  plus a delete, which breaks every grant, derivation row and presigned link
+  pointing at the old id. The edit form says so rather than offering a field that
+  cannot work.
+- **`pregexp` HAS NO `\n` ESCAPE, and a doubled backslash in a Racket string
+  reaches the engine as backslash-then-n** — `read-syntax: illegal alphabetic
+  escape`, at READ time, before any case runs. Third appearance; a SINGLE
+  backslash in the string literal is a real newline and is what a character class
+  wants.
+- `file-name-from-path` is `racket/path`, not `racket/base` — `directory-list`
+  already answers relative paths, so it was not needed at all.
+
 ## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
 
 The agent is offered the tools the team has ENABLED that fit the window, and for

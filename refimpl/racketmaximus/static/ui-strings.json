@@ -520,5 +520,10 @@
   "ui.qvexpiredat": "lease expired",
   "ui.qvexhausted": "attempts exhausted",
   "ui.qvattempts": "attempt {a}/{m}",
-  "ui.qvreleases": "{n} handed back"
+  "ui.qvreleases": "{n} handed back",
+  "ui.allpaths": "All paths",
+  "ui.nohereobjects": "Nothing filed here yet.",
+  "ui.foldercut": "More paths than fit one listing \u2014 open one to narrow it.",
+  "ui.dockeyhint": "A path ending in / files it into a project; the filename comes from the title. Blank means documents/.",
+  "ui.docmovehint": "Filed here. A document keeps its path \u2014 its versions, shares and links all point at it."
 }

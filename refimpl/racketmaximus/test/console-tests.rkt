@@ -1123,3 +1123,68 @@
   (for ([src (in-list (list repo flow))] [who (in-list '("repoRunWorkflow" "wfSelect"))])
     (check-true (and (regexp-match? #px"await renderTab\\(\\);\\s*revealEl\\('wfform'\\)" src) #t)
                 (format "~a awaits the pass, then reveals" who))))
+
+;; ---- a project is a key PREFIX (#239) ---------------------------------------
+
+(test-case "the path navigator is spelled once and both tabs ask it"
+  ;; ONE component, two tabs. The Repository files uploads into a path and the
+  ;; Documents tab writes chapters into the same one, so a crumb trail drawn twice
+  ;; would be two renderings of one answer — `executor-can-run?`'s drift, and
+  ;; `visibleTabs()`'s own argument (PAL-5), where the wrong copy is the one
+  ;; somebody is looking at.
+  (define base* (console-code "01-base.js"))
+  (define repo* (console-code "09-repo.js"))
+  (define render* (console-code "07-render.js"))
+  (check-true (and (regexp-match? #px"function pathNav\\(" base*) #t)
+              "the component lives in the file both tabs load before their own")
+  ;; it is DEFINED once across the whole console…
+  (define defs
+    (for*/sum ([f (in-list (sort (map path->string (directory-list console-dir)) string<?))]
+               #:when (regexp-match? #px"[.]js$" f))
+      (length (regexp-match* #px"function pathNav\\(" (console-code f)))))
+  (check-equal? defs 1 "a second definition is how a crumb trail starts to drift")
+  ;; …and ASKED by both, each with its own navigator, because each keeps its own
+  ;; prefix in `S` and has its own paging to reset
+  (check-true (and (regexp-match? #px"pathNav\\(r\\.json\\.folders, prefix, repoGo\\)" repo*) #t))
+  (check-true (and (regexp-match? #px"pathNav\\(r\\.json\\.folders, prefix, docGo\\)" render*) #t))
+  (check-true (and (regexp-match? #px"function repoGo\\(" repo*) #t))
+  (check-true (and (regexp-match? #px"function docGo\\(" render*) #t))
+  ;; THE FOLDERS ARE THE SERVER'S ANSWER, never a tree built from the page: a
+  ;; listing is bounded and `can?`-filtered per row, so folders derived from the
+  ;; keys on screen would show only what this page happened to reach — and could
+  ;; offer one the caller may read nothing in.
+  (check-false (and (regexp-match? #px"(repoKeys|objs)[^\n]*split\\('/'\\)" repo*) #t)
+               "the folder strip is not derived from the keys on this page")
+  ;; navigating RESETS the page: an offset is a position in the old window, so
+  ;; carrying it over lands somebody in the middle of a folder they just opened
+  (check-true (and (regexp-match? #px"function docGo\\(prefix\\)\\{[^}]*docOffset=0" render*) #t)
+              "docGo clears the offset"))
+
+(test-case "the two tabs file into the folder being viewed"
+  (define repo* (console-code "09-repo.js"))
+  (define render* (console-code "07-render.js"))
+  ;; the upload key field and the document path field are both PREFILLED, or the
+  ;; forms are the one place in the tab that ignores where you are standing
+  (check-true (and (regexp-match? #px"id=\"rkey\"[^\n]*value=\"\\$\\{esc\\(prefix\\)\\}\"" repo*) #t))
+  (check-true (and (regexp-match? #px"id=\"dk\"[^\n]*value=\"\\$\\{esc\\(prefix\\)\\}\"" render*) #t))
+  ;; …and choosing a file APPENDS to that path rather than replacing it
+  (check-true (and (regexp-match? #px"k\\.value=\\(k\\.value\\|\\|''\\)\\+f\\.name" repo*) #t)
+              "the filename appends to the prefilled folder")
+  ;; the create call carries it; `key` absent is what composes documents/<slug>
+  (check-true (and (regexp-match? #px"key:val\\('dk'\\)" render*) #t))
+  ;; `?immediate=1`, or opening a folder shows its whole subtree and looks
+  ;; identical to the view above it
+  (check-true (and (regexp-match? #px"immediate=1" repo*) #t)))
+
+(test-case "every path string the two tabs show is in the catalogs"
+  ;; `doSearch`'s lesson (#178) at a third surface, and these labels are exactly
+  ;; the kind that gets typed in place.
+  (define src (string-append (console-code "01-base.js") "\n"
+                             (console-code "09-repo.js") "\n"
+                             (console-code "07-render.js")))
+  (define en (file->string (build-path console-dir "../ui-strings.json")))
+  (for ([k (in-list '("allpaths" "foldercut" "nohereobjects" "dockeyhint" "docmovehint"))])
+    (check-true (and (regexp-match? (regexp (string-append "t\\('" k "'\\)")) src) #t)
+                (format "t('~a') is asked for" k))
+    (check-true (and (regexp-match? (regexp (string-append "\"ui\\." k "\"")) en) #t)
+                (format "ui.~a is in static/ui-strings.json" k))))

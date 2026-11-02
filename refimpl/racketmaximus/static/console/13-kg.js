@@ -84,7 +84,7 @@ async function doSearch(){
   el.innerHTML = res.length
     ? `<table><thead><tr><th>type</th><th>title</th><th>${t('results')}</th><th></th></tr></thead><tbody>`+
       res.map(x=>`<tr><td><span class="badge${x.type==='file'?' run':''}">${esc(x.type)}</span></td>
-        <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}</td>
+        <td class="${x.type==='file'?'mono':''}">${esc(x.title||'')}${(x.key&&x.key!==x.title)?`<div class="muted mono" style="font-size:12px">${esc(x.key)}</div>`:''}</td>
         <td class="muted">${esc(x.snippet||'')}</td>
         <td>${x.type==='file'?`<button class="btn sm ghost" data-h-click="${H((el,ev)=>repoDownload((x.id),(x.title||'')))}">${t('download')}</button>`:''}</td></tr>`).join('')+`</tbody></table>`
     : `<p class="muted">${esc(t('noresults'))}</p>`;

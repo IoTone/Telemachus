@@ -537,3 +537,40 @@ function revealEl(id){
     try { el.scrollIntoView(); } catch(e2) {}   // an engine without the options form
   }
 }
+
+// ---------- a project is a key PREFIX (#239) ----------
+// ONE component, two tabs. The Repository files uploads into a path and the
+// Documents tab writes chapters into the same one, so #239's use case — "write
+// chapters, build up a report, upload information" — is one project seen from two
+// surfaces. A crumb trail drawn twice would drift, which is `executor-can-run?`'s
+// rule arriving in the console (and `visibleTabs()`'s, PAL-5).
+//
+// THE FOLDERS ARE THE SERVER'S ANSWER AND NOT A TREE BUILT FROM THE PAGE. The
+// listing is bounded and `can?`-filtered per row, so folders derived from the keys
+// on screen would show only the folders this page happens to reach — and would
+// show one the caller may not read anything in. `repo-prefixes` answers that
+// question directly and says when it had to stop (`truncated`).
+//
+// `go` is the tab's own navigator, because each one keeps its own prefix in `S`
+// and has its own paging to reset.
+function pathNav(folders, prefix, go){
+  const segs = (prefix || '').split('/').filter(s => s.length);
+  const crumbs = [`<button class="btn sm${prefix ? ' ghost' : ''}" data-h-click="${H(() => go(''))}">${t('allpaths')}</button>`];
+  let acc = '';
+  segs.forEach(s => {
+    acc += s + '/';
+    const at = acc;                      // captured per crumb, not the loop's
+    crumbs.push(`<span class="muted">/</span><button class="btn sm${at === prefix ? '' : ' ghost'}" data-h-click="${H(() => go(at))}">${esc(s)}</button>`);
+  });
+  const kids = (folders && folders.prefixes) || [];
+  // A plain flex box, NOT `.row`: that one's children are flex COLUMNS, which is
+  // what staggered the search button (CSS-1) — a wrapping strip of buttons wants
+  // neither the columns nor the bottom margin.
+  const strip = s => `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">${s}</div>`;
+  const folderStrip = kids.length
+    ? strip(kids.map(f => `<button class="btn sm ghost" data-h-click="${H(() => go(f.prefix))}">${esc(f.name)}/</button>`).join(''))
+    : '';
+  const cut = (folders && folders.truncated)
+    ? `<div class="muted" style="font-size:12px;margin-top:4px">${t('foldercut')}</div>` : '';
+  return strip(crumbs.join('')) + folderStrip + cut;
+}

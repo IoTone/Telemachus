@@ -171,15 +171,26 @@
 
 (define (ep-repo-list req)
   (with-auth req (lambda (p)
+    (define prefix (query-param req 'prefix ""))
+    (define shared? (and (member (query-param req 'shared "") '("1" "true" "yes")) #t))
+    ;; #239: `?immediate=1` is one folder's own objects rather than its whole
+    ;; subtree, which is what a folder view shows.
+    (define immediate? (and (member (query-param req 'immediate "") '("1" "true" "yes")) #t))
     (define objs (repo-list db-conn p
-                            #:prefix (query-param req 'prefix "")
+                            #:prefix prefix
                             #:limit (or (string->number (query-param req 'limit "100")) 100)
                             #:offset (or (string->number (query-param req 'offset "0")) 0)
-                            #:shared-with-me? (member (query-param req 'shared "") '("1" "true" "yes"))
+                            #:shared-with-me? shared?
+                            #:immediate? immediate?
                             #:scope (scope-of req)
                             #:attrs (attr-filters req)))
-    (json-response (hasheq 'objects (map obj-json objs)
-                           'usage (repo-usage db-conn p))))))
+    (json-response
+     (hasheq 'objects (map obj-json objs)
+             'usage (repo-usage db-conn p)
+             ;; Not computed for `?shared=1`: a grant is not tree-shaped, so a
+             ;; folder list over what somebody handed you would be an answer to a
+             ;; question nobody asked — and it saves the scan.
+             'folders (if shared? 'null (repo-prefixes db-conn p #:prefix prefix)))))))
 
 (define (ep-repo-meta req id)
   (with-auth req (lambda (p)

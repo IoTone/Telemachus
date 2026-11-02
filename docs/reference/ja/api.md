@@ -115,8 +115,8 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | POST | `/api/org/branding/logo` | org-admin | `org:manage` | role | — | 会社のロゴをアップロードし（base64）、会社のマークにする。 |
 | POST | `/api/notes` | bearer | `notes:write` | role | — | 公開範囲を指定してノートを作成する。 |
 | GET | `/api/notes` | bearer | `notes:read` | role | — | 呼び出し元が読めるノートを一覧する；?scope=org は会社内のすべてのチームにわたります（org_reader にはチーム公開のノートだけが見え、非公開のものは見えません）。 |
-| POST | `/api/documents` | bearer | `files:write` | role | — | テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。 |
-| GET | `/api/documents` | bearer | `files:read` | role | — | 文書をリスト表示します。 |
+| POST | `/api/documents` | bearer | `files:write` | role | — | テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。`key` はプロジェクトへの振り分けに使います（#239）。末尾が `/` のキーはフォルダとして扱われ、ファイル名はタイトルから作られます。完全なキーはそのまま使われ、未指定または空欄の場合は従来どおり `documents/<slug>-<id8>.md` を組み立てます。 |
+| GET | `/api/documents` | bearer | `files:read` | role | — | 文書をリスト表示します。対象はチーム内の派生でない `text/markdown` オブジェクトすべてで、`?prefix=` で 1 つのプロジェクトに絞り込めます。`folders` はそのプレフィックスの直下にあるパスを返します。実在するキーから導出され、呼び出し元が読めるものだけに絞られます。 |
 | GET | `/api/documents/:id` | bearer | `files:read` | resource | — | 一つのテキストドキュメントとその本文。 |
 | PUT | `/api/documents/:id` | bearer | `files:write` | resource | — | テキスト文書のタイトル・本文・公開範囲を更新する（新しいバージョン）。 |
 | DELETE | `/api/documents/:id` | bearer | `files:delete` | resource | — | テキストドキュメントを削除します。 |
@@ -193,7 +193,7 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | PATCH | `/api/schedules/:id` | bearer | `jobs:schedule` | role | — | スケジュールを調整する: `cadence`、`interval_seconds`、`at_minute`、`days_of_week`、`timezone`、`paused`、`payload`、`priority`、`name`。検証は変更後の状態に対して行われるため、`daily` への切り替えと `at_minute` を同じリクエストで送るのは受け付けられ、`at_minute` なしの切り替えは拒否されます — パッチで作成できない状態に到達することはありません。実行タイミングに関わる変更は次回実行を再計算します。古い時刻で一度実行してから編集に従う、という挙動にはなりません。プリンシパルは変更できません: タイマーが誰の権限を使うかを変えることは編集ではなく新しいスケジュールです。一時停止を解除すると、見送ったティックをまとめて実行するのではなく次回実行が先に進みます。 |
 | DELETE | `/api/schedules/:id` | bearer | `jobs:schedule` | role | — | ジョブスケジュールを削除する。すでに投入されたジョブは通常のジョブであり、影響を受けません。 |
 | DELETE | `/api/repo` | bearer | `files:delete` | resource | — | `?prefix=` 配下のすべてのオブジェクトを削除し、各オブジェクトの派生物にもカスケードします（#86）。既定はドライランです。`confirm=1` がなければ何も削除せず、削除対象となる件数・バイト数・ID を返します。プレフィックスが空または未指定の場合は「チームの全オブジェクト」とは解釈せず拒否します。`?cascade=0` は列挙されたオブジェクトのみを削除し、派生物は残します。対象は呼び出し側自身の一覧取得を通じて決まるため、可視性・共有・組織ゲートは `GET /api/repo?prefix=` と同一に適用され、削除ごとにオブジェクト単位の権限確認が再実行されます。 |
-| GET | `/api/repo` | bearer | `files:read` | role | — | リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。 |
+| GET | `/api/repo` | bearer | `files:read` | role | — | リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。?immediate=1 はサブツリー全体ではなく、プレフィックスの直下にあるものだけを一覧します。`folders` はプレフィックスの直下にあるパスを返します。実在するキーから導出され、呼び出し元が読めるものだけに絞られます。?shared=1 では権限付与がツリー構造を持たないため返されません（#239）。 |
 | POST | `/api/repo-obj/:id/share` | bearer | `files:manage` | resource | — | 組織内のユーザーまたはチームと共有する：{principal_type, principal_id, capability: view\|edit\|manage, expires_at?}。{user_id} は従来どおり view を意味します。 |
 | POST | `/api/repo-obj/:id/unshare` | bearer | `files:manage` | resource | — | プリンシパルがそのオブジェクトに持つすべての権限付与を取り消す。 |
 | GET | `/api/repo-obj/:id/grants` | bearer | `files:manage` | resource | — | 1つのプリンシパルにつき1行: 能力、権限、授与者、期限、期限切れ |

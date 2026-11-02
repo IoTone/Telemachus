@@ -45,7 +45,7 @@
          (only-in "../orgs/orgs.rkt" tenant-quota-record!)
          (only-in "../ai/executor.rkt" transcribe-exchange transcribe-configured? transcribe-model)
          (only-in "repo.rkt" repo-open repo-get repo-readable? repo-fields-declare!
-                  repo-set-attributes!)
+                  repo-set-attributes! LIKE-ESCAPED prefix-pattern)
          (only-in "extract.rkt" repo-text-upsert! EXTRACT-CAP)
          "voice.rkt")
 
@@ -110,8 +110,13 @@
   (define prefix (let ([v (hash-ref args 'prefix #f)]) (and (string? v) (> (string-length v) 0) v)))
   (define rows
     (if prefix
-        (query-rows conn (string-append (untranscribed-sql) "AND o.key LIKE ? " (untranscribed-tail))
-                    (principal-team-id p) (string-append prefix "%") VOICE-LIST-BATCH)
+        ;; the prefix was interpolated RAW, so `_` and `%` in it were wildcards and
+        ;; the window came back wider than the caller asked for — the third
+        ;; spelling of this one rule, now `repo.rkt`'s (#239). Harmless here, since
+        ;; `can?` runs per row below, but it listed documents nobody asked about.
+        (query-rows conn (string-append (untranscribed-sql) "AND o.key " LIKE-ESCAPED " "
+                                        (untranscribed-tail))
+                    (principal-team-id p) (prefix-pattern prefix) VOICE-LIST-BATCH)
         (query-rows conn (string-append (untranscribed-sql) (untranscribed-tail))
                     (principal-team-id p) VOICE-LIST-BATCH)))
   (for/list ([r (in-list rows)]

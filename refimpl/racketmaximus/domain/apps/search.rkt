@@ -18,18 +18,52 @@
 
 (require db-kit/portable
          racket/string
+         (only-in racket/list last)
          "../authz/authz.rkt"
          "../kg/kg.rkt"
          ;; #189 step 6: the semantic half. One asker of `passages-for`, the
          ;; retrieval tool being the other — and the question is embedded there,
          ;; so nothing in this module makes a model request of its own.
          (only-in "../repo/passages.rkt" passages-for semantic-available?)
+         ;; #239: "is this a text document?" lives with the storage that decides it
+         (only-in "../repo/repo.rkt" DOC-CONTENT-TYPE)
          ;; issue #83: with the extracted text sealed, a LIKE over it cannot match
          (only-in "../../config.rkt" content-encryption-enabled?))
 
-(provide search-all search-passages SEMANTIC-REASONS SEMANTIC-SNIPPET)
+(provide search-all search-passages SEMANTIC-REASONS SEMANTIC-SNIPPET
+         ;; exported FOR the test: three shapes, each of which really occurs
+         title-like?)
 
 (define (like q) (string-append "%" q "%"))
+
+;; ---- does this row have a human TITLE to show instead of a path? (#239) -------
+;;
+;; `type` on a repository hit DECIDES AN AFFORDANCE, not a category: the console
+;; offers Download on a `file` row and uses the title as the download filename. So
+;; the question is narrower than "is this a text document", and the answer is one
+;; idea — a document's `filename` holds a TITLE where a file's holds a filename.
+;;
+;; THE TEST USED TO BE THE `documents/` KEY PREFIX, and #239 makes that wrong in
+;; one direction: a chapter filed into `levee-7/` would be presented as an
+;; untitled file. Swapping it for the content type ALONE is wrong in the other
+;; direction, and `index-tests` is what said so — every uploaded `.md` would
+;; become a `document` and lose its download button. Each clause below earns its
+;; place against a case that really occurs:
+;;
+;;   markdown            — only a text document has a title at all
+;;   not empty           — an object written with no filename falls back to its key
+;;   no "/" in it        — `repo-put! #:filename key` is what test fixtures and
+;;                         several callers do, and a path is not a title
+;;   not the basename    — an ordinary upload names the file it came from
+;;
+;; Derived from the row rather than from a migration's prefix, so it survives a
+;; document being filed anywhere — which is the whole point of #239.
+(define (title-like? key filename content-type)
+  (and (equal? content-type DOC-CONTENT-TYPE)
+       (not (string=? filename ""))
+       (not (string-contains? filename "/"))
+       (let ([segs (string-split key "/")])
+         (not (string=? filename (if (null? segs) "" (last segs)))))))
 
 (define (snippet text q)
   (define t (if (or (not text) (sql-null? text)) "" text))
@@ -106,11 +140,28 @@
       (define content-hit?
         (and (> (string-length text) 0)
              (regexp-match? (regexp-quote (string-downcase q)) (string-downcase text))))
-      ;; a folded document (migration 0022) is an object under documents/ whose
-      ;; filename is its human title — present it the way its tab does
-      (define doc? (string-prefix? (vector-ref r 3) "documents/"))
+      ;; WHAT `type` DECIDES HERE IS AN AFFORDANCE, NOT A CATEGORY — the console
+      ;; offers Download on a `file` row and uses the title as the download
+      ;; filename — so the question is narrower than "is this a text document":
+      ;; it is "does this row have a human TITLE to show instead of its path?".
+      ;;
+      ;; The test used to be the `documents/` key prefix, which #239 makes wrong in
+      ;; one direction: a chapter filed into `levee-7/` would be presented as an
+      ;; untitled file. Swapping it for the content type alone is wrong in the
+      ;; OTHER direction, and `index-tests` is what said so — every uploaded `.md`
+      ;; would become a `document` and LOSE ITS DOWNLOAD BUTTON. So both
+      ;; conditions, each carrying its own half: markdown, because only a text
+      ;; document has a title where a file has a filename; and a filename that is
+      ;; not simply the key's own basename, which is exactly what distinguishes
+      ;; the one from the other. Derived from the row rather than from a
+      ;; migration's prefix, so it survives a document being filed anywhere.
+      (define doc? (title-like? (vector-ref r 3) (vector-ref r 4) (vector-ref r 5)))
       (hasheq 'type (if doc? "document" "file")
               'id (vector-ref r 0)
+              ;; #239: WHERE it is. A file's title has always been its key, so this
+              ;; is new only for a document — and for a document it is the whole of
+              ;; "which project is this in", which is the question #239 asks.
+              'key (vector-ref r 3)
               'title (if (and doc? (not (string=? (vector-ref r 4) "")))
                          (vector-ref r 4)
                          (vector-ref r 3))

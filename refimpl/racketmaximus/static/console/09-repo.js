@@ -15,13 +15,26 @@ function visBadge(v){
 }
 
 function repoFilter(on){ S.repoShared=on; renderTab(); }
+// #239: navigating resets the page, because an offset is a position in the OLD
+// window and carrying it over lands somebody in the middle of a folder they have
+// just opened.
+function repoGo(prefix){ S.repoPrefix=prefix; S.repoShared=false; renderTab(); }
 async function repoView(){
-  const r=await api('/api/repo'+(S.repoShared?'?shared=1':''));
+  // `immediate=1` is this folder's own objects: without it opening `levee-7/`
+  // shows its whole subtree, so the folder buttons would navigate to a view that
+  // looked exactly like the one above it.
+  const prefix=S.repoPrefix||'';
+  const q = S.repoShared ? '?shared=1'
+          : '?immediate=1'+(prefix?'&prefix='+encodeURIComponent(prefix):'');
+  const r=await api('/api/repo'+q);
   if(!r.ok) return `<h2>${t('repository')}</h2><div class="card"><p class="muted">${esc(r.json.error||'unavailable')}</p></div>`;
   const objs=r.json.objects||[], usage=r.json.usage||{};
   S.repoKeys = objs.map(o=>o.key);
+  // Folders are absent in "shared with me": a grant is not tree-shaped, so the
+  // server does not compute them and the strip is not drawn.
+  const nav = S.repoShared ? '' : pathNav(r.json.folders, prefix, repoGo);
   const rows=objs.map(o=>`<tr>
-      <td><b class="mono">${esc(o.key)}</b>
+      <td><b class="mono" title="${esc(o.key)}">${esc(prefix&&o.key.indexOf(prefix)===0?o.key.slice(prefix.length):o.key)}</b>
           <div class="muted" style="font-size:12px">${esc(o.content_type)}${o.version>1?` · v${esc(o.version)}`:''}</div></td>
       <td>${visBadge(o.visibility)}</td>
       <td class="muted" style="font-variant-numeric:tabular-nums">${esc(humanBytes(o.size))}</td>
@@ -39,7 +52,7 @@ async function repoView(){
       <div class="row" style="align-items:end">
         <div style="flex:2"><label>${t('file')}</label><input type="file" id="rfile" data-h-change="${H((el,ev)=>repoFilePicked())}"></div>
         <div style="flex:2"><label>${t('key')}</label>
-          <input id="rkey" placeholder="reports/2026/q3.pdf" data-h-input="${H((el,ev)=>repoKeyChanged())}">
+          <input id="rkey" placeholder="reports/2026/q3.pdf" value="${esc(prefix)}" data-h-input="${H((el,ev)=>repoKeyChanged())}">
           <div id="rovr"></div></div>
         <div style="flex:1"><label>${t('visibility')}</label>
           <select id="rvis">
@@ -58,9 +71,10 @@ async function repoView(){
           <button class="btn sm${S.repoShared?' ghost':''}" id="rf_all" data-h-click="${H((el,ev)=>repoFilter(false))}">${t('all')}</button>
           <button class="btn sm${S.repoShared?'':' ghost'}" id="rf_shared" data-h-click="${H((el,ev)=>repoFilter(true))}">${t('sharedwithme')}</button>
           <button class="btn sm ghost" data-h-click="${H((el,ev)=>renderTab())}">${t('refresh')}</button></div></div>
+      ${nav?`<div style="margin-top:8px">${nav}</div>`:''}
       ${objs.length
         ? `<table style="margin-top:8px"><thead><tr><th>${t('key')}</th><th>${t('visibility')}</th><th>${t('size')}</th><th>${t('updated')}</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
-        : `<p class="muted" style="margin-top:8px">${S.repoShared?t('nosharedwithme'):t('norepoobjects')}</p>`}
+        : `<p class="muted" style="margin-top:8px">${S.repoShared?t('nosharedwithme'):(prefix?t('nohereobjects'):t('norepoobjects'))}</p>`}
     </div>
     <div id="rdetail"></div>
     ${await s3Card()}`;
@@ -113,7 +127,10 @@ async function s3Revoke(id){
 function repoFilePicked(){
   const f=document.getElementById('rfile').files[0];
   const k=document.getElementById('rkey');
-  if(f && !k.value) k.value=f.name;
+  // #239: the field is prefilled with the folder being viewed, so the filename
+  // APPENDS to a path rather than replacing it — `!k.value` alone would have made
+  // the upload form the one place that ignores where you are standing.
+  if(f && (!k.value || /\/$/.test(k.value))) k.value=(k.value||'')+f.name;
   repoKeyChanged();
 }
 // say out loud what an existing path means, before the button is pressed
@@ -149,6 +166,13 @@ async function repoUpload(){
   let j={}; try{ j=await res.json(); }catch(e){}
   prog.innerHTML='';
   if(res.ok){ document.getElementById('rfile').value='';
+              // #239: LAND WHERE THE FILE WENT. The folder view shows only what
+              // sits directly under the current prefix, so uploading
+              // `templates/approval.md` from the top left the object stored
+              // perfectly well and NOT LISTED — "Uploaded", and then nothing on
+              // screen. The e2e gate is what reported it, two screens later.
+              S.repoPrefix = key.indexOf('/')>=0 ? key.slice(0, key.lastIndexOf('/')+1) : '';
+              S.repoShared = false;
               toast(overwrite ? t('newversion') : t('uploaded'), true); renderTab(); }
   else toast(j.error||('upload failed ('+res.status+')'));
 }
