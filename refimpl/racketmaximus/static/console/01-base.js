@@ -500,3 +500,40 @@ function sendBusy(sendId, stopId, busy){
 // `finally` — a stop that left the flag set would block every later send.
 function stopStream(key){ const ac=S[key]; if(ac) ac.abort(); }
 
+
+// ---- taking somebody to the thing they just asked for -----------------------
+//
+// "WHEN YOU CLICK ON DETAILS IT SEEMS LIKE NOTHING HAPPENS" (UX-1), then the
+// same report about the workflow run form: "the workflow UI doesn't seem to
+// populate anything you enter from a document in the repository". The form was
+// populated every time — the e2e gate asserts `object_id` is prefilled and has
+// passed for as long as the feature has existed — and it was 385px BELOW THE
+// FOLD, behind a table of thirteen definitions. Measured at a 900px viewport:
+// `#wfi_0` at y=1285, `scrollY` 0. The click changed nothing anybody could see.
+//
+// So this is one rule with two askers rather than a second copy of it, which is
+// `executor-can-run?`'s drift argument: the half that is easy to get wrong is
+// not the scroll, it is WHEN NOT TO. It only moves when the target is not
+// already in view, because both callers are re-invoked for reasons that are not
+// a fresh request — `repoOpenDetail` after a visibility change, a share and a
+// revoke, `wfSelect` whenever the Workflows tab re-renders — and a jump on each
+// of those is its own annoyance.
+//
+// A scroll and not a modal, for UX-1's reasons: neither of these is a dialog,
+// both are read alongside the list above them, both have their own Close, and a
+// modal means `Hk()`, a focus trap and Esc ordered against the palette's and the
+// help overlay's (#182/#183).
+//
+// `prefers-reduced-motion` is honoured: the point is to arrive, not to glide.
+function revealEl(id){
+  const el = document.getElementById(id);
+  if (!el || !el.firstChild) return;
+  try {
+    const r = el.getBoundingClientRect();
+    if (r.top >= 0 && r.top < (window.innerHeight || 0) * 0.75) return;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  } catch(e) {
+    try { el.scrollIntoView(); } catch(e2) {}   // an engine without the options form
+  }
+}

@@ -1080,3 +1080,46 @@
   ;; the citation carries its passage NUMBER, so a `[2]` in the prose resolves
   ;; to a line the reader can see
   (check-true (and (regexp-match? #rx"c.index" help) #t)))
+
+(test-case "the reveal is ONE rule with two askers, and the run form is reachable"
+  ;; "The workflow UI doesn't seem to populate anything you enter from a document
+  ;; in the repository." Reported from outside, and the form was populated every
+  ;; time: the e2e gate has asserted `object_id is prefilled` for as long as the
+  ;; feature has existed, and it still passes. What was wrong is UX-1 again, in
+  ;; the sibling surface — MEASURED at a 900px viewport, `#wfi_0` is painted at
+  ;; y=1285 with `scrollY` 0, so the form sat 385px below the fold behind a table
+  ;; of thirteen definitions and the click changed nothing anybody could see.
+  ;;
+  ;; What is pinned here is the ONE-HOME half. The scroll is the easy part; the
+  ;; part that is easy to get wrong is WHEN NOT TO move, because both askers are
+  ;; re-invoked for reasons that are not a fresh request — `repoOpenDetail` after
+  ;; a visibility change, a share and a revoke, `wfSelect` on any re-render — and
+  ;; a second copy of that condition is `executor-can-run?`'s drift. Whether it
+  ;; actually lands on screen is a question about what the code COMPUTES, so it
+  ;; is answered in a browser (demo-validate.mjs, §5) and not by grepping.
+  (define base (console-code "01-base.js"))
+  (define repo (console-code "09-repo.js"))
+  (define flow (console-code "10-flow.js"))
+  (check-true (and (regexp-match? #px"function revealEl\\(" base) #t)
+              "the rule lives in 01-base.js")
+  ;; …and NOWHERE else: one definition, and no second copy of the viewport test
+  (check-equal? (length (for/list ([f (in-list script-files)]
+                                   #:when (regexp-match? #px"function revealEl\\(" (console-code f)))
+                          f))
+                1 "revealEl is defined exactly once")
+  (check-false (regexp-match? #px"scrollIntoView" repo)
+               "repoRevealDetail delegates rather than carrying its own copy")
+  (check-false (regexp-match? #px"scrollIntoView" flow)
+               "…and so does the run form's")
+  (check-true (and (regexp-match? #px"prefers-reduced-motion" base) #t)
+              "the point is to arrive, not to glide")
+  ;; it must not move a target that is already in view
+  (check-true (and (regexp-match? #px"r\\.top >= 0 && r\\.top < \\(window\\.innerHeight" base) #t)
+              "already in view means do nothing")
+  ;; the form carries an id, or there is nothing to be taken to
+  (check-true (and (regexp-match? #px"id=\"wfform\"" flow) #t))
+  ;; BOTH askers, and both must AWAIT the render first: `revealEl` MEASURES the
+  ;; element, and `renderTab` paints a `…` placeholder before it awaits its view.
+  (for ([src (in-list (list repo flow))] [who (in-list '("repoRunWorkflow" "wfSelect"))])
+    (check-true (and (regexp-match? #px"await renderTab\\(\\);\\s*revealEl\\('wfform'\\)" src) #t)
+                (format "~a awaits the pass, then reveals" who))))
