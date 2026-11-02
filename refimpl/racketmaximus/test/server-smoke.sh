@@ -2650,5 +2650,72 @@ assert "help: whoami says which half is missing" \
 assert "help: ai.help.total is a dimension the usage read reports" \
   "$(curl -s "$B/api/usage" -H "Authorization: Bearer $OP")" '"dimension":"ai.help.total"'
 
+echo "== a project is a key prefix (#239) ==========================================="
+# `_` IS THE CASE THIS FEATURE WOULD HAVE MET ON DAY ONE, and the fault is
+# dialect-divergent: SQLite names no LIKE escape character by default, so the
+# escaped prefix asked for a literal backslash and matched nothing, while
+# PostgreSQL's LIKE takes backslash as its default escape and was always right.
+# Run this suite under DATABASE_URL to exercise the other half.
+curl -s -X PUT "$B/api/repo/levee_7/survey.pdf?filename=survey.pdf&visibility=team" \
+  -H "Authorization: Bearer $OP" -H 'Content-Type: application/pdf' --data-binary 'x' > /dev/null
+curl -s -X PUT "$B/api/repo/leveeX7/other.pdf?filename=other.pdf&visibility=team" \
+  -H "Authorization: Bearer $OP" -H 'Content-Type: application/pdf' --data-binary 'x' > /dev/null
+curl -s -X PUT "$B/api/repo/levee_7/chapters/01.pdf?filename=01.pdf&visibility=team" \
+  -H "Authorization: Bearer $OP" -H 'Content-Type: application/pdf' --data-binary 'x' > /dev/null
+UNDERSCORE=$(curl -s "$B/api/repo?prefix=levee_7/" -H "Authorization: Bearer $OP")
+assert "paths: a prefix with _ finds its own objects"  "$UNDERSCORE" 'levee_7/survey.pdf'
+refute "paths: …and not the one _ as a wildcard matches" "$UNDERSCORE" 'leveeX7/other.pdf'
+# `folders` rides on the listing rather than a route of its own: the tab wants
+# both to draw one screen.
+assert "paths: the listing carries the folders under the prefix" \
+  "$(curl -s "$B/api/repo?prefix=levee_7/" -H "Authorization: Bearer $OP")" '"name":"chapters"'
+assert "paths: …with a trailing slash, usable as the next prefix verbatim" \
+  "$(curl -s "$B/api/repo?prefix=levee_7/" -H "Authorization: Bearer $OP")" '"prefix":"levee_7/chapters/"'
+# ?immediate=1 is one folder's own objects — without it, opening a folder shows
+# its whole subtree and looks exactly like the view above it.
+IMM=$(curl -s "$B/api/repo?prefix=levee_7/&immediate=1" -H "Authorization: Bearer $OP")
+assert "paths: ?immediate=1 keeps this folder's own object"   "$IMM" 'levee_7/survey.pdf'
+refute "paths: …and drops what sits in a subfolder of it"     "$IMM" 'levee_7/chapters/01.pdf'
+# A grant is not tree-shaped, so the server does not compute folders for it — the
+# console does not draw the strip in that mode, and this is what says so.
+assert "paths: ?shared=1 reports no folders at all" \
+  "$(curl -s "$B/api/repo?shared=1" -H "Authorization: Bearer $OP")" '"folders":null'
+# #113's shape closed: `put-doc!` has taken #:key since the fold and BOTH layers
+# above it dropped it.
+FILED=$(curl -s -X POST "$B/api/documents" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Chapter One","key":"levee_7/chapters/01.md","content":"# one"}')
+assert "paths: a document is filed where the caller said" "$FILED" '"key":"levee_7/chapters/01.md"'
+# A KEY ENDING IN / IS A FOLDER: the console sends the project it is looking at,
+# and `levee_7/chapters/` as a literal key would be refused for its empty last
+# segment — so the obvious spelling of "put it here" had to mean something.
+UNDER=$(curl -s -X POST "$B/api/documents" -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Chapter Two","key":"levee_7/chapters/","content":"# two"}')
+assert "paths: a trailing slash is a folder, and the filename is composed" \
+  "$UNDER" '"key":"levee_7/chapters/chapter-two-'
+# An absent key composes documents/<slug>-<id8>.md exactly as before, so nothing
+# anybody has deployed changes.
+assert "paths: no key still composes the old default" \
+  "$(curl -s -X POST "$B/api/documents" -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"title":"Loose Note","content":"x"}')" \
+  '"key":"documents/loose-note-'
+# THE LISTING WINDOW IS THE CONTENT TYPE NOW, NOT THE documents/ PREFIX: keyed on
+# the prefix it would simply have lost every document somebody filed, so the tab's
+# default view would hide half of them.
+DLIST=$(curl -s "$B/api/documents" -H "Authorization: Bearer $OP")
+assert "paths: a filed document is still listed"       "$DLIST" 'Chapter One'
+assert "paths: …beside one at the default path"        "$DLIST" 'Loose Note'
+PROJ=$(curl -s "$B/api/documents?prefix=levee_7/chapters/" -H "Authorization: Bearer $OP")
+assert "paths: ?prefix= is one project's documents"    "$PROJ" 'Chapter One'
+refute "paths: …and not the whole team's"              "$PROJ" 'Loose Note'
+# The key is REPORTED, or the console cannot show which project a document is in.
+assert "paths: the documents listing carries each key" "$PROJ" '"key":"levee_7/chapters/01.md"'
+# An unusable key is still refused by the one validator that has always run.
+assert "paths: a traversal key is refused" \
+  "$(curl -s -X POST "$B/api/documents" -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"title":"bad","key":"../escape.md","content":"x"}')" \
+  'error'
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

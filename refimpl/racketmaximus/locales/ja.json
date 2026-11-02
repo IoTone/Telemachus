@@ -1164,6 +1164,26 @@
       "text": "一致するものはありません。",
       "hash": "b9d865c85161cd9dd4ec75f613fadaa44b45b87e"
     },
+    "ui.allpaths": {
+      "text": "すべてのパス",
+      "hash": "8c68ae591df71c298945b4d12487a9d1db3c99b5"
+    },
+    "ui.nohereobjects": {
+      "text": "ここにはまだ何もありません。",
+      "hash": "c7f5cf39f6e7efadf8ac60ae323629d6da0eb82c"
+    },
+    "ui.foldercut": {
+      "text": "パスが多すぎて一覧に収まりません。いずれかを開いて絞り込んでください。",
+      "hash": "77b288ada4c448587232604023831437a7cbfe13"
+    },
+    "ui.dockeyhint": {
+      "text": "末尾が / のパスを指定するとそのプロジェクトに保存され、ファイル名はタイトルから作られます。空欄の場合は documents/ です。",
+      "hash": "ec1d059aef3b89012a0be57f28f21857d87c9e9b"
+    },
+    "ui.docmovehint": {
+      "text": "ここに保存されています。ドキュメントのパスは変わりません — バージョン、共有、リンクはすべてこのパスを指しています。",
+      "hash": "f6da9bd3a226b2ef7f0fea304ab72152c9202d16"
+    },
     "ui.norepoobjects": {
       "text": "まだドキュメントがありません。形式は自由です — pdf、svg、png、docx、xml、md。",
       "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
@@ -1585,8 +1605,8 @@
       "hash": "33cb8ffb167170483550825fffce8ed0f6a039e3"
     },
     "doc.route.get.api.repo": {
-      "text": "リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。",
-      "hash": "ba6c59298d0ab709ce62c0d2e0044bedbc4855a2"
+      "text": "リポジトリのオブジェクトを ?prefix= で一覧（ページング対応）。?shared=1 は、呼び出し元が有効な権限付与を持ち、かつ所有していないものだけを一覧します。?scope=org は会社内のすべてのチームにまたがります（TEN-2h）。?attr=key:value はチーム定義のメタデータが一致するものに絞り込みます（繰り返し指定可、LAY-4）。?immediate=1 はサブツリー全体ではなく、プレフィックスの直下にあるものだけを一覧します。`folders` はプレフィックスの直下にあるパスを返します。実在するキーから導出され、呼び出し元が読めるものだけに絞られます。?shared=1 では権限付与がツリー構造を持たないため返されません（#239）。",
+      "hash": "26449ca5b53784cfeceec3a9de670963520622f6"
     },
     "doc.route.get.activate": {
       "text": "マジックリンク認証画面（ホストモード）のコンソール.",
@@ -1981,8 +2001,8 @@
       "hash": "91f7eb085397a93509322e65886d76dc1659b76f"
     },
     "doc.route.get.api.documents": {
-      "text": "文書をリスト表示します。",
-      "hash": "de4fa39c0955689307a963f108c0396528663e13"
+      "text": "文書をリスト表示します。対象はチーム内の派生でない `text/markdown` オブジェクトすべてで、`?prefix=` で 1 つのプロジェクトに絞り込めます。`folders` はそのプレフィックスの直下にあるパスを返します。実在するキーから導出され、呼び出し元が読めるものだけに絞られます。",
+      "hash": "0a7f40c59b8f025c89d70300a79c9969f3596283"
     },
     "ui.visibility": {
       "text": "公開範囲",
@@ -2761,8 +2781,8 @@
       "hash": "5c2e33d5d944b2c8eaf0e207473c8f61b6ca91f2"
     },
     "doc.route.post.api.documents": {
-      "text": "テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。",
-      "hash": "d8633651c22e353d235c4425d3599afa38db6fc0"
+      "text": "テキストドキュメントを作成する（content_type が text/markdown のrepositoryオブジェクト）。`key` はプロジェクトへの振り分けに使います（#239）。末尾が `/` のキーはフォルダとして扱われ、ファイル名はタイトルから作られます。完全なキーはそのまま使われ、未指定または空欄の場合は従来どおり `documents/<slug>-<id8>.md` を組み立てます。",
+      "hash": "62544897f0b3c3f7bb85a06429601f77e751a23f"
     },
     "doc.route.get.api.mcp": {
       "text": "接続されたMCPサーバー",

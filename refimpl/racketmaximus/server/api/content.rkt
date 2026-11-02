@@ -16,6 +16,8 @@
          (only-in "../../config.rkt" content-encryption-enabled?)
          (only-in "../../domain/notes/notes.rkt" notes-create notes-delete notes-get notes-list notes-share notes-update)
          (only-in "../../domain/documents/documents.rkt" documents-create documents-delete documents-get documents-list documents-update)
+         ;; #239: a project is a key prefix, so the folder list is derived there
+         (only-in "../../domain/repo/repo.rkt" repo-prefixes)
          (only-in "../../domain/apps/search.rkt" search-all search-passages)
          (only-in "../../domain/kg/kg.rkt" STARTER-TYPES kg-entity kg-find kg-stats)
          (only-in "../../domain/flow/run.rkt" flow-def-by-slug flow-run-start!)
@@ -34,16 +36,27 @@
   (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p #:scope (scope-of req)))))))
 
 ;; ---- documents (offset-paginated) -------------------------------------------
+;; #239: `key` files the document into a project. Absent, it composes
+;; `documents/<slug>-<id8>.md` exactly as before — `put-doc!` has taken the keyword
+;; since the fold and both layers above it dropped it on the floor.
 (define (ep-documents-create req)
   (with-auth req (lambda (p)
     (define b (read-json-body req))
     (json-response (documents-create db-conn p #:title (hash-ref b 'title "")
-                                     #:content (hash-ref b 'content "") #:visibility (hash-ref b 'visibility "team"))
+                                     #:content (hash-ref b 'content "")
+                                     #:key (hash-ref b 'key #f)
+                                     #:visibility (hash-ref b 'visibility "team"))
                    #:code 201))))
+;; The folders ride on the listing rather than on a route of their own: the tab
+;; wants both to draw one screen, and a second round trip is what the sign-in
+;; slice measured as the whole of what made the console feel slow.
 (define (ep-documents-list req)
   (with-auth req (lambda (p)
     (define off (or (string->number (query-param req 'offset "0")) 0))
-    (json-response (documents-list db-conn p #:offset off)))))
+    (define prefix (query-param req 'prefix ""))
+    (json-response
+     (hash-set (documents-list db-conn p #:offset off #:prefix prefix)
+               'folders (repo-prefixes db-conn p #:prefix prefix))))))
 (define (ep-documents-get req id)
   (with-auth req (lambda (p)
     (define d (documents-get db-conn p id))

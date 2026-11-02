@@ -43,6 +43,13 @@
          ;; issue #87 req 5: how many objects a key window holds, so a caller
          ;; paging through repo-list can tell a short page from the last page
          repo-count
+         ;; #239: a project is a key PREFIX, so the folders under one are DERIVED
+         ;; from the keys that exist rather than stored anywhere
+         repo-prefixes
+         ;; the ONE spelling of a prefix window — see the note at the definition
+         prefix-pattern deep-pattern LIKE-ESCAPED
+         ;; what makes an object a TEXT DOCUMENT, stated by the column that says so
+         DOC-CONTENT-TYPE
          ;; the ONE implementation of the triple can? reads for an object —
          ;; exported so the audit read surface can ask for it instead of
          ;; rebuilding it (issue #84)
@@ -117,6 +124,16 @@
 ;; list is ever allowed to render in a browser tab; everything else is downloaded.
 ;; The list is what may be INLINED — not what may be uploaded. Any format is
 ;; accepted, per the requirement.
+
+;; ---- what makes an object a TEXT DOCUMENT (#239) ------------------------------
+;; The fold (migration 0022) gave every former `documents` row the key prefix
+;; `documents/` and the content type `text/markdown`, and TWO places then asked
+;; "is this a document?" by testing the PREFIX — the shim's own listing window and
+;; `search.rkt`'s presentation. That worked only while the prefix was compulsory,
+;; which is exactly what #239 asks us to stop doing: once a chapter may be filed
+;; into `levee-7/`, a prefix test answers no about a document and the Documents
+;; tab loses it. The column states it directly, so the column is the test.
+(define DOC-CONTENT-TYPE "text/markdown")
 (define INLINE-SAFE
   '("image/png" "image/jpeg" "image/gif" "image/webp" "application/pdf"
     "text/plain" "text/markdown" "text/csv"))
@@ -494,8 +511,14 @@
                    ;; over. Applied in Racket AFTER the per-row can?, so a filter can
                    ;; never widen what a caller may see, only narrow it. At the
                    ;; volumes this is for that costs nothing a WHERE clause would save.
-                   #:attrs [attrs '()])
+                   #:attrs [attrs '()]
+                   ;; #239: only what sits DIRECTLY under `prefix`, which is what a
+                   ;; folder view shows. Off by default, so every existing caller
+                   ;; still gets the whole subtree.
+                   #:immediate? [immediate? #f])
   (require-perm conn p "files:read")
+  (define deep (and immediate? (list (deep-pattern prefix))))
+  (define NOT-DEEP (if immediate? (string-append "AND o.key NOT " LIKE-ESCAPED " ") ""))
   (define teams
     (if (eq? scope 'org)
         (let ([org (or (principal-org-id p) (team-org conn (principal-team-id p)))])
@@ -506,27 +529,31 @@
       [(and (eq? scope 'org) (not shared?))
        (apply query-rows conn
          (string-append OSELECT " WHERE o.team_id IN (" (string-join (for/list ([_ teams]) "?") ",") ") "
-                        "AND o.deleted_at IS NULL AND o.key LIKE ? ORDER BY o.team_id, o.key ASC LIMIT ? OFFSET ?")
-         (append teams (list (string-append (escape-like prefix) "%") limit offset)))]
+                        "AND o.deleted_at IS NULL AND o.key " LIKE-ESCAPED " " NOT-DEEP
+                        "ORDER BY o.team_id, o.key ASC LIMIT ? OFFSET ?")
+         (append teams (list (prefix-pattern prefix)) (or deep '()) (list limit offset)))]
       [shared?
-        (query-rows conn
-          (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key LIKE ? "
+         (apply query-rows conn
+          (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key " LIKE-ESCAPED " "
+                         NOT-DEEP
                          "AND o.owner_user_id <> ? "
                          "AND EXISTS (SELECT 1 FROM resource_grants g WHERE g.resource_type = 'repo' "
                          "  AND g.resource_id = o.id AND (g.expires_at IS NULL OR g.expires_at > ?) "
                          "  AND ((g.principal_type = 'user' AND g.principal_id = ?) "
                          "    OR (g.principal_type = 'team' AND g.principal_id = ?))) "
                          "ORDER BY o.updated_at DESC LIMIT ? OFFSET ?")
-          (principal-team-id p) (string-append (escape-like prefix) "%")
-          (principal-user-id p) (current-seconds) (principal-user-id p) (or (principal-team-id p) "")
-          limit offset)]
+          (principal-team-id p) (prefix-pattern prefix)
+          (append (or deep '())
+                  (list (principal-user-id p) (current-seconds)
+                        (principal-user-id p) (or (principal-team-id p) "")
+                        limit offset)))]
       [else
-        (query-rows conn
-          (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key LIKE ? "
+        (apply query-rows conn
+          (string-append OSELECT " WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key " LIKE-ESCAPED " "
+                         NOT-DEEP
                          "ORDER BY o.key ASC LIMIT ? OFFSET ?")
-          (principal-team-id p)
-          (string-append (escape-like prefix) "%")
-          limit offset)]))
+          (principal-team-id p) (prefix-pattern prefix)
+          (append (or deep '()) (list limit offset)))]))
   (for/list ([r (in-list rows)]
              #:when (let ([o (row->obj r)])
                       (and (can? conn p "files:read" #:resource (obj->resource o))
@@ -544,11 +571,79 @@
 ;; anything beyond a colleague's private document, which is the failure that
 ;; matters here. The disclosure is a count and no identity, within one team,
 ;; behind `files:read`.
-(define (repo-count conn p #:prefix [prefix ""])
+(define (repo-count conn p #:prefix [prefix ""] #:immediate? [immediate? #f])
   (require-perm conn p "files:read")
-  (query-value conn
-    "SELECT COUNT(*) FROM repo_objects WHERE team_id = ? AND deleted_at IS NULL AND key LIKE ?"
-    (principal-team-id p) (string-append (escape-like prefix) "%")))
+  (apply query-value conn
+    (string-append "SELECT COUNT(*) FROM repo_objects o WHERE o.team_id = ? AND o.deleted_at IS NULL "
+                   "AND o.key " LIKE-ESCAPED
+                   (if immediate? (string-append " AND o.key NOT " LIKE-ESCAPED) ""))
+    (principal-team-id p) (prefix-pattern prefix)
+    (if immediate? (list (deep-pattern prefix)) '())))
+
+;; ---- the folders under a prefix (#239) ----------------------------------------
+;;
+;; A PROJECT IS A KEY PREFIX AND NOTHING IS STORED ABOUT IT. So the list of
+;; projects is DERIVED from the keys that exist — the rule `available` locales and
+;; `FEED-KINDS` already live by — which means a team cannot be offered a folder
+;; with nothing in it, and a folder stops existing when its last object does.
+;;
+;; IT APPLIES `can?`, UNLIKE `repo-count` one definition above, and the difference
+;; is the disclosure. A count within one team behind `files:read` is a count and no
+;; identity; a FOLDER NAME is somebody's words — `legal/acme-dispute/` names the
+;; thing it holds — so an unfiltered list would hand a member the names of a
+;; colleague's private tree and then show them an empty folder when they opened it.
+;;
+;; WHAT MAKES THAT AFFORDABLE IS THAT ONE READABLE OBJECT SETTLES A FOLDER.
+;; The question is "may I see anything in here", not "how many", so the probe stops
+;; at the first row that passes and an ordinary team-visible tree costs one `can?`
+;; per folder rather than one per object. Both bounds are reported: `truncated` is
+;; true when the key window filled OR the probe budget ran out, because a folder
+;; list that silently stopped would read as a tree that is not there (CLS-27's
+;; rule, and VEC-29's two ways of stopping).
+(define PREFIX-SCAN 5000)    ; keys examined
+(define PREFIX-PROBE 500)    ; `can?` calls spent deciding what is visible
+
+(define (repo-prefixes conn p #:prefix [prefix ""])
+  (require-perm conn p "files:read")
+  (define team (principal-team-id p))
+  (define rows
+    (query-rows conn
+      (string-append "SELECT o.id, o.key, o.owner_user_id, o.visibility FROM repo_objects o "
+                     "WHERE o.team_id = ? AND o.deleted_at IS NULL AND o.key " LIKE-ESCAPED " "
+                     "ORDER BY o.key ASC LIMIT ?")
+      team (prefix-pattern prefix) (add1 PREFIX-SCAN)))
+  (define scan-full? (> (length rows) PREFIX-SCAN))
+  (define window (if scan-full? (take rows PREFIX-SCAN) rows))
+  ;; group the window by the IMMEDIATE child segment under `prefix`. A key with no
+  ;; further `/` sits directly here and names no folder; `valid-key?` has already
+  ;; refused an empty segment, so the first part is never "".
+  (define plen (string-length prefix))
+  (define groups (make-hash))
+  (for ([r (in-list window)])
+    (define parts (string-split (substring (vector-ref r 1) plen) "/" #:trim? #f))
+    (when (> (length parts) 1)
+      (hash-update! groups (car parts) (lambda (xs) (cons r xs)) '())))
+  (define budget (box PREFIX-PROBE))
+  (define visible
+    (for/list ([seg (in-list (sort (hash-keys groups) string<?))]
+               #:when (let loop ([rs (reverse (hash-ref groups seg))])
+                        (cond
+                          [(null? rs) #f]
+                          [(<= (unbox budget) 0) #f]
+                          [else
+                           (set-box! budget (sub1 (unbox budget)))
+                           (define r (car rs))
+                           (or (can? conn p "files:read"
+                                     #:resource (hasheq 'resource_type "repo"
+                                                        'resource_id (vector-ref r 0)
+                                                        'team_id team
+                                                        'owner_user_id (vector-ref r 2)
+                                                        'visibility (vector-ref r 3)))
+                               (loop (cdr rs)))])))
+      (hasheq 'name seg 'prefix (string-append prefix seg "/"))))
+  (hasheq 'prefix prefix
+          'prefixes visible
+          'truncated (or scan-full? (<= (unbox budget) 0))))
 
 ;; every (key . value) must be present and equal — an object missing the key does
 ;; not match, which is what "every survey for levee 7" means
@@ -557,10 +652,34 @@
   (for/and ([kv (in-list attrs)])
     (equal? (hash-ref a (string->symbol (car kv)) #f) (cdr kv))))
 
-;; `_` and `%` in a user-supplied prefix are wildcards to LIKE; a key containing one
-;; would otherwise match far more than the caller asked for.
+;; ---- a prefix window, spelled ONCE (#239) --------------------------------------
+;;
+;; `_` and `%` are LIKE wildcards, so a user-supplied prefix has to be escaped —
+;; and ESCAPING IT ONLY MEANS ANYTHING IF THE STATEMENT SAYS SO. That half was
+;; missing, and the two dialects disagree about the default in OPPOSITE
+;; directions: PostgreSQL's LIKE takes backslash as its escape with no clause at
+;; all, while SQLite has NO escape character unless one is named — so the escaped
+;; pattern asked SQLite for a backslash followed by anything, which no key can
+;; contain (`valid-key?` forbids `\`), and every prefix holding an underscore
+;; answered NOTHING on the default dialect. Measured rather than reasoned: on
+;; SQLite the unescaped pattern returns all three fixtures, the escaped one
+;; returns none, and the escaped one WITH this clause returns the right key.
+;;
+;; It was latent only because nothing navigated by prefix, and `_` in a folder
+;; name is an everyday case — so #239 is the feature that would have met it on day
+;; one. The same fault reaches `repo-count` (a page that reads as the last one)
+;; and `DELETE /api/repo?prefix=` (which deletes nothing and reports success).
+;; Never write `key LIKE ?` over a user prefix again: write `LIKE-ESCAPED`.
+(define LIKE-ESCAPED "LIKE ? ESCAPE '\\'")
 (define (escape-like s)
   (regexp-replace* #px"([%_])" s "\\\\\\1"))
+;; everything AT or under `prefix`
+(define (prefix-pattern prefix) (string-append (escape-like prefix) "%"))
+;; …and everything under a FURTHER segment, which is what an immediate-only window
+;; excludes. A NOT LIKE narrows the WINDOW rather than the answer (CLS-27's
+;; preference) and carries no authorization semantics, so SQL is the right home for
+;; it where the visibility test deliberately is not.
+(define (deep-pattern prefix) (string-append (escape-like prefix) "%/%"))
 
 (define (repo-versions conn p id)
   (define o (repo-get conn p id))

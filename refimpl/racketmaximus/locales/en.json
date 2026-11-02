@@ -631,6 +631,10 @@
       "text": "First run only: create the operator, the first org and team. Returns the operator's token. Refuses once the instance has a user.",
       "hash": "b8f59ef37a9d9a8df2dfabcb89713cc4ff7aaeaf"
     },
+    "ui.foldercut": {
+      "text": "More paths than fit one listing — open one to narrow it.",
+      "hash": "77b288ada4c448587232604023831437a7cbfe13"
+    },
     "ui.definitions": {
       "text": "Definitions",
       "hash": "15225baac48fc3d689cb2b0f74b936eff4339ff7"
@@ -1227,6 +1231,14 @@
       "text": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.",
       "hash": "57debe14263c6fd7babde28e1412f4fbe9492a1f"
     },
+    "ui.instfeathint": {
+      "text": "Turn a feature off for the whole instance. No company and no team can turn it back on — they may only tighten further.",
+      "hash": "faeaa660b33d4852d96ea17ee93ce17afce1bf9d"
+    },
+    "ui.docmovehint": {
+      "text": "Filed here. A document keeps its path — its versions, shares and links all point at it.",
+      "hash": "f6da9bd3a226b2ef7f0fea304ab72152c9202d16"
+    },
     "ui.norepoobjects": {
       "text": "No documents yet. Any format — pdf, svg, png, docx, xml, md.",
       "hash": "6c1514aa0c3412fd0da417d7da4fd4fb43d11682"
@@ -1234,10 +1246,6 @@
     "ui.hplaintext": {
       "text": "plaintext",
       "hash": "d8bb04dddbecd3eb0eaa36481f878a4a60caeabc"
-    },
-    "ui.instfeathint": {
-      "text": "Turn a feature off for the whole instance. No company and no team can turn it back on — they may only tighten further.",
-      "hash": "faeaa660b33d4852d96ea17ee93ce17afce1bf9d"
     },
     "ui.del": {
       "text": "Delete",
@@ -1266,6 +1274,10 @@
     "ui.wkdrain": {
       "text": "Drain",
       "hash": "4e4369e733c095a308c9f110fad31b6a36951fae"
+    },
+    "ui.nohereobjects": {
+      "text": "Nothing filed here yet.",
+      "hash": "c7f5cf39f6e7efadf8ac60ae323629d6da0eb82c"
     },
     "ui.wkdrained": {
       "text": "drained",
@@ -1350,6 +1362,10 @@
     "doc.route.delete.api.org.session-policy": {
       "text": "Drop the company's session timeouts; its users fall back to the instance policy.",
       "hash": "31f74f2824b4a25e07c1aa68ac60f5ae9f5d1ea2"
+    },
+    "ui.allpaths": {
+      "text": "All paths",
+      "hash": "8c68ae591df71c298945b4d12487a9d1db3c99b5"
     },
     "doc.route.get.console.path": {
       "text": "One of the console's own script files (static/console/*.js), served same-origin so the console's `script-src 'self'` policy admits it with no inline block and no nonce.",
@@ -1780,8 +1796,8 @@
       "hash": "33cb8ffb167170483550825fffce8ed0f6a039e3"
     },
     "doc.route.get.api.repo": {
-      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4).",
-      "hash": "ba6c59298d0ab709ce62c0d2e0044bedbc4855a2"
+      "text": "List repository objects by ?prefix=, paged; ?shared=1 lists only what the caller holds a live grant on and does not own; ?scope=org spans every team in the company (TEN-2h); ?attr=key:value narrows to objects whose team-defined metadata matches, repeatable (LAY-4); ?immediate=1 lists only what sits directly under the prefix rather than its whole subtree. `folders` carries the paths directly under the prefix — derived from the keys that exist, filtered to what the caller may read, and absent for ?shared=1, where a grant is not tree-shaped (#239).",
+      "hash": "26449ca5b53784cfeceec3a9de670963520622f6"
     },
     "doc.route.get.activate": {
       "text": "The console, on the magic-link activation screen (hosted mode).",
@@ -2232,8 +2248,8 @@
       "hash": "91f7eb085397a93509322e65886d76dc1659b76f"
     },
     "doc.route.get.api.documents": {
-      "text": "List text documents.",
-      "hash": "de4fa39c0955689307a963f108c0396528663e13"
+      "text": "List text documents — every non-derived `text/markdown` object in the team, narrowed to one project by `?prefix=`. `folders` carries the paths directly under that prefix, derived from the keys that exist and filtered to what the caller may read.",
+      "hash": "0a7f40c59b8f025c89d70300a79c9969f3596283"
     },
     "doc.route.get.api.x.matrix.rooms": {
       "text": "The team's Matrix room subscriptions, the events they may filter on, and whether this instance has a homeserver configured at all.",
@@ -3000,8 +3016,8 @@
       "hash": "514eb0beb628064fd184ad122b809b2cbb522b39"
     },
     "doc.route.post.api.documents": {
-      "text": "Create a text document (a repository object with content_type text/markdown).",
-      "hash": "d8633651c22e353d235c4425d3599afa38db6fc0"
+      "text": "Create a text document (a repository object with content_type text/markdown). `key` files it into a project (#239): a key ending in `/` is a folder and the filename is composed from the title, a full key is taken verbatim, and an absent or blank one composes `documents/<slug>-<id8>.md` as before.",
+      "hash": "62544897f0b3c3f7bb85a06429601f77e751a23f"
     },
     "ui.qvcompletionshint": {
       "text": "Jobs that finished in each bucket, whatever their outcome.",
@@ -3354,6 +3370,10 @@
     "doc.route.get.api.l10n.messages": {
       "text": "The messages of one locale, filterable by ?status=, ?ns=, ?q=, paged.",
       "hash": "d6cb6026eb6b9ff6e1665b7c274f8b0282c9c9d0"
+    },
+    "ui.dockeyhint": {
+      "text": "A path ending in / files it into a project; the filename comes from the title. Blank means documents/.",
+      "hash": "ec1d059aef3b89012a0be57f28f21857d87c9e9b"
     },
     "ui.reply": {
       "text": "Reply",

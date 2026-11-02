@@ -914,6 +914,108 @@ try {
   await page.setViewportSize(vp);
   await page.waitForTimeout(300);
 
+  // ── 5c. a project is a key PREFIX (#239) ────────────────────────────────────
+  // "Right now all docs go into one big bucket. It should be possible to organize
+  // a project around an S3 style bucket path." The STORAGE always could — keys
+  // have been `/`-separated paths since slice 49 and `?prefix=` has filtered on
+  // them since — so what this asserts is the two surfaces that could not: the
+  // folder strip, and the editor filing into a path.
+  //
+  // IN THE BROWSER, because the strip is DOM and a source assertion cannot say
+  // that it renders — §3c's rule for the Markdown sanitiser. The crumb trail is
+  // also a pure function of the prefix with interesting edges, so `pathNav` is
+  // CALLED with a fabricated folder list, the way §3i calls the pager.
+  step('a project is a key prefix (#239)');
+  await page.evaluate(async () => {
+    const put = (key) => fetch('/api/repo/' + key.split('/').map(encodeURIComponent).join('/')
+                               + '?filename=' + encodeURIComponent(key.split('/').pop())
+                               + '&visibility=team',
+      { method: 'PUT',
+        headers: { 'Authorization': 'Bearer ' + S.token, 'Content-Type': 'application/pdf' },
+        body: 'x' });
+    // `_` is the everyday folder name AND a LIKE wildcard: the prefix window is
+    // escaped, and the escape means nothing unless the statement names an escape
+    // character — which it did not, so this folder answered empty on SQLite.
+    await put('levee_7/survey.pdf');
+    await put('levee_7/chapters/01.pdf');
+    await put('leveeX7/other.pdf');
+  });
+  await goTab(page, 'repository', 'table');
+  await page.waitForTimeout(400);
+  const folders = () => page.evaluate(() =>
+    [...document.querySelectorAll('button')].map(b => b.textContent.trim()).filter(x => /\/$/.test(x)));
+  ok('the folder strip is drawn', (await folders()).includes('levee_7/'),
+    JSON.stringify(await folders()));
+  // CLICKING it, not calling `repoGo` — the strip has to be wired
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === 'levee_7/');
+    b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  await page.waitForTimeout(900);
+  const inside = await page.evaluate(() => ({
+    crumbs: [...document.querySelectorAll('button')].map(b => b.textContent.trim()),
+    keys: [...document.querySelectorAll('table td b.mono')].map(b => b.textContent.trim()),
+    rkey: (document.getElementById('rkey') || {}).value
+  }));
+  // THE UNDERSCORE FOLDER HAS ITS OBJECT IN IT. Against the unescaped statement
+  // this is where the gate fails, on the default dialect, with an empty folder.
+  ok('…and opening it lists that folder\'s own object', inside.keys.includes('survey.pdf'),
+    JSON.stringify(inside.keys));
+  // `?immediate=1`: without it the subtree comes too and the view looks identical
+  // to the one above it
+  ok('…and not what sits in a subfolder of it',
+    !inside.keys.some(k => k.indexOf('chapters/01.pdf') === 0 || k === 'chapters/01.pdf'),
+    JSON.stringify(inside.keys));
+  ok('…with a crumb back to the top', inside.crumbs.some(c => /^All paths$/i.test(c)),
+    JSON.stringify(inside.crumbs.slice(0, 6)));
+  // the upload form files into where you are standing, or it is the one control
+  // on the tab that ignores it
+  eq('…and the upload form is prefilled with the folder', inside.rkey, 'levee_7/');
+  // the subfolder is reachable from here, which is what makes it navigation
+  ok('…and the subfolder is offered', (await folders()).includes('chapters/'),
+    JSON.stringify(await folders()));
+
+  // the crumb arithmetic, called directly: a question about what the code
+  // COMPUTES cannot be answered by grepping it
+  const crumbHTML = await page.evaluate(() =>
+    pathNav({ prefixes: [{ name: 'c', prefix: 'a/b/c/' }], truncated: true }, 'a/b/', () => {}));
+  ok('pathNav draws a crumb per segment', (crumbHTML.match(/>a</g) || []).length === 1
+     && (crumbHTML.match(/>b</g) || []).length === 1, crumbHTML.slice(0, 200));
+  ok('…says so when it had to stop listing', /\/\/|more paths|More paths/i.test(crumbHTML)
+     || crumbHTML.indexOf('foldercut') >= 0 || /listing/i.test(crumbHTML));
+
+  // the Documents tab files into the SAME prefix, which is what makes "write
+  // chapters, build up a report, upload information" one project
+  await goTab(page, 'documents', '#dt');
+  await page.waitForTimeout(300);
+  const filed = await page.evaluate(async () => {
+    const r = await api('/api/documents', { method: 'POST',
+      body: { title: 'Chapter One', key: 'levee_7/chapters/', content: '# one' } });
+    return r.ok ? r.json.key : ('error: ' + JSON.stringify(r.json));
+  });
+  // A KEY ENDING IN `/` IS A FOLDER: the console sends the project it is looking
+  // at, and that as a literal key would be refused for its empty last segment.
+  ok('a document is filed into a project, with the filename composed',
+    /^levee_7\/chapters\/chapter-one-[0-9a-f]{8}\.md$/.test(filed), filed);
+  await goTab(page, 'documents', '#dt');
+  await page.waitForTimeout(400);
+  ok('…and the Documents tab lists it although it is not under documents/',
+    await page.evaluate(() => document.body.textContent.indexOf('Chapter One') >= 0));
+  ok('…showing the path it was filed at',
+    await page.evaluate(() => document.body.textContent.indexOf('levee_7/chapters/') >= 0));
+  // THIS BLOCK LEAVES THE TWO TABS STANDING IN A FOLDER, AND THAT BROKE §6b.
+  // The pipeline section uploads to `templates/approval.md` and then asserts the
+  // page shows that key — with the Repository tab still filtered to `levee_7/`
+  // the object is uploaded perfectly well and simply not listed, so two
+  // assertions failed in a block with nothing to do with paths. Same shape as the
+  // smoke fixture that minted a second team owner and broke a membership block
+  // 300 lines below: a fixture that changes global state puts it back.
+  await page.evaluate(() => { S.repoPrefix = ''; S.docPrefix = ''; S.docOffset = 0; });
+  await goTab(page, 'repository', 'table');
+  await page.waitForTimeout(300);
+  ok('…and this block leaves both tabs back at the top',
+    await page.evaluate(() => !S.repoPrefix && !S.docPrefix));
+
   // ── 6. search reaches document content ──────────────────────────────────────
   step('search');
   await page.evaluate(() => window.go('search'));
@@ -937,12 +1039,23 @@ try {
       buffer: Buffer.from('# Approval\n\nTitle: {{title}}\nSummary: {{summary}}\n') });
     await page.fill('#rkey', 'templates/approval.md');
     await page.evaluate(() => window.repoUpload());
-    ok('template uploaded', await until(page, () => document.body.innerText.includes('templates/approval.md'), { timeout: 20000 }));
+    // #239: AN UPLOAD LANDS YOU IN THE FOLDER IT WENT TO, and inside a folder the
+    // key column shows the LEAF — the crumb trail carries the path, the way any
+    // file browser does. So the full key is no longer one visible substring, and
+    // asserting the crumb AND the leaf is strictly stronger than the single
+    // `includes` it replaces: it also establishes that we are standing in the
+    // right folder, which is what the e2e gate caught this slice getting wrong.
+    ok('template uploaded, and the view is standing in its folder',
+      await until(page, () => document.body.innerText.includes('approval.md')
+                           && [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'templates')
+                           && S.repoPrefix === 'templates/', { timeout: 20000 }));
     await page.setInputFiles('#rfile', { name: 'acme-invoice.txt', mimeType: 'text/plain',
       buffer: Buffer.from('INVOICE\nAcme Corp\nWidgets 1000\nShipping 250.50\nTotal 1250.50\n') });
     await page.fill('#rkey', 'inbox/acme-invoice.txt');
     await page.evaluate(() => window.repoUpload());
-    ok('invoice uploaded', await until(page, () => document.body.innerText.includes('inbox/acme-invoice.txt'), { timeout: 20000 }));
+    ok('invoice uploaded, in its own folder',
+      await until(page, () => document.body.innerText.includes('acme-invoice.txt')
+                           && S.repoPrefix === 'inbox/', { timeout: 20000 }));
     // a budget, or the run sits queued (the default is 2,000 tokens/day)
     await apiCall(page, '/api/quota', { method: 'POST', body: { dimension: 'ai.tokens.total', limit: 1000000, window: 'day' } });
     const inv = await apiCall(page, '/api/repo?prefix=inbox/acme-invoice.txt');
@@ -1012,8 +1125,12 @@ try {
     await page.evaluate(() => window.go('repository'));
     await page.waitForSelector('#rfile', { timeout: 10000 });
     // `until` serializes its predicate, so a closure over `k` would not survive; pass it as an argument
-    for (const k of ['inbox/acme-invoice.txt.extracted.json', 'inbox/acme-invoice.txt.form.md', 'inbox/acme-invoice.txt.form.nl.md'])
-      ok('derived document listed: ' + k,
+    // The derived documents sit BESIDE the invoice, so the folder view is where
+    // they belong — stand in `inbox/` and the leaf names are what is on screen.
+    await page.evaluate(() => { S.repoPrefix = 'inbox/'; });
+    await goTab(page, 'repository', 'table');
+    for (const k of ['acme-invoice.txt.extracted.json', 'acme-invoice.txt.form.md', 'acme-invoice.txt.form.nl.md'])
+      ok('derived document listed: inbox/' + k,
          await page.waitForFunction(key => document.body.innerText.includes(key), k, { timeout: 15000 }).then(() => true, () => false));
     await page.evaluate(id => window.repoOpenDetail(id), invId);
     ok('"Processed by" lists the derived documents and the run',
