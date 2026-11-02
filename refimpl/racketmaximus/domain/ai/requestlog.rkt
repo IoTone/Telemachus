@@ -24,10 +24,18 @@
 ;;
 ;; A row means a model was asked something and this instance knows the outcome. So:
 ;;
-;;   push / stream (executor.rkt)  one row, written from the waiting side
+;;   push / stream (executor.rkt)  one row, written from the waiting side, no job
+;;   pull dispatch (executor.rkt)  one row, written when the router hands the call to
+;;                                 a worker: the waiting side, its ms spanning the queue
+;;                                 wait, and the job_id so it joins the row below
 ;;   pull completion (pull.rkt)    one row, written at settle, from the JOB's start,
 ;;                                 with the tokens the worker reported and its job_id
 ;;   pull failure (pull.rkt)       one row, status error, error-kind transport
+;;
+;; A pull call therefore writes TWO `ok` rows that share a job_id, because neither
+;; side can answer both questions: the route knows the wait and not the tokens, the
+;; settle knows the run and not the wait. Count calls, not rows — `COUNT(DISTINCT
+;; job_id)` plus the rows whose job_id is null.
 ;;
 ;; and these write one row with status `unserved`, which is the vocabulary's way of
 ;; saying "no call was observed, and here is why", with the reason in error_kind:

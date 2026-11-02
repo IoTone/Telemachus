@@ -207,8 +207,11 @@
                      'messages (hash-ref payload 'messages '())
                      'temperature (hash-ref payload 'temperature 0.7)
                      'stream #f)])
-      ;; response_format and the reply ceiling are both forwarded when the platform set them, so a
-      ;; request routed to a pull executor reaches the provider exactly as the platform asked for it.
+      ;; response_format and the reply ceiling are both forwarded when the payload carries them, so a
+      ;; request routed to a pull executor reaches the provider exactly as the caller asked for it.
+      ;; `response_format` arrives from the chat route itself; `max_tokens` arrives only when the
+      ;; ENQUEUING plugin put it in the payload (#197's shape) — the platform's own chat route does not
+      ;; set one, so a runaway generation on a plain `/api/ai/chat` call is not cut short here.
       (let* ([rf (hash-ref payload 'response_format #f)]
              [b (if (and rf (not (eq? rf 'null))) (hash-set b 'response_format rf) b)]
              [mt (hash-ref payload 'max_tokens #f)])

@@ -175,6 +175,9 @@
 ;; Caps, so one item cannot carry a document. Counted in characters.
 (define MAX-SOURCE 120) (define MAX-KEY 200) (define MAX-KIND 60) (define MAX-SCOPE 200)
 (define MAX-TITLE 200) (define MAX-BODY 4000) (define MAX-URL 500) (define MAX-NOTE 500)
+;; Strings are counted in CHARACTERS (`string-length`), `data` in UTF-8 BYTES (`string->bytes/utf-8`),
+;; so 4000 characters of Japanese is about 12 KB while `data` stops at 8 KB. The two are not meant to
+;; be comparable: one is text a person reads, the other is a machine payload stored as JSON.
 (define MAX-REVISION 200) (define MAX-DATA-BYTES 8192)
 
 (define (bad who fmt . args) (raise-user-error who (apply format fmt args)))

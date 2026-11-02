@@ -78,7 +78,7 @@
 (define model-request-logger
   (box (lambda (#:executor e #:transport t #:model m #:endpoint u #:messages msgs
                 #:tokens tok #:status st #:error-kind ek #:http-status hs
-                #:operation [op "chat"] #:ms ms)
+                #:job-id [jid #f] #:operation [op "chat"] #:ms ms)
          (void))))
 
 ;; A FAILURE HERE NEVER FAILS THE MODEL CALL — the trigger seam's rule. An
@@ -87,6 +87,7 @@
                             #:endpoint [endpoint #f] #:messages [msgs '()]
                             #:tokens [tokens #f] #:status status
                             #:error-kind [error-kind #f] #:http-status [http-status #f]
+                            #:job-id [job-id #f]
                             #:operation [operation "chat"]
                             #:ms [ms #f])
   ;; `exn:fail?`, NOT a catch-all: a break must pass through. The model deadline
@@ -98,7 +99,7 @@
     ((unbox model-request-logger)
      #:executor executor #:transport transport #:model model #:endpoint endpoint
      #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-     #:http-status http-status #:operation operation #:ms ms)))
+     #:http-status http-status #:job-id job-id #:operation operation #:ms ms)))
 
 ;; RED-26: the per-org executor policy (issue #91 requirement 4). A box for the
 ;; reason `pull-router` and `model-request-logger` above are boxes — the policy
@@ -898,8 +899,11 @@
                               (raise e))])
              (define r ((unbox pull-router) executor msgs temp rf))
              (when r
+               ;; the router answers (reply tokens job-id): the job id is what
+               ;; makes this row and the worker's settle row one call rather
+               ;; than two, so the log can be counted and joined.
                (log-model-request! #:executor executor #:transport "pull" #:messages msgs
-                                   #:tokens (cdr r) #:status "ok"
+                                   #:tokens (cadr r) #:status "ok" #:job-id (caddr r)
                                    #:ms (ms-since pull-started)))
              r))))
   (define (verify! reply)
@@ -913,7 +917,7 @@
       (when problem
         (raise-user-error 'run-chat "the reply does not honour response_format: ~a" problem))))
   (cond
-    [routed (verify! (car routed)) (values (car routed) (cdr routed))]   ; a pull executor answered
+    [routed (verify! (car routed)) (values (car routed) (cadr routed))]   ; a pull executor answered
     ;; A NAMED executor that neither a pull worker nor the push registry owns must
     ;; not fall through: with a local model it would quietly run there while the
     ;; response still reported the executor's name, and with no local model it

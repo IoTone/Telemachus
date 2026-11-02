@@ -77,12 +77,12 @@
   (set-box! model-request-logger
     (lambda (#:executor executor #:transport transport #:model model #:endpoint endpoint
              #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-             #:http-status http-status #:operation operation #:ms ms)
+             #:http-status http-status #:job-id [jid #f] #:operation operation #:ms ms)
       (model-request-record! conn
         #:team #f #:user #f #:org #f
         #:executor executor #:transport transport #:model model #:endpoint endpoint
         #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-        #:http-status http-status #:operation operation #:ms ms)
+        #:http-status http-status #:job-id jid #:operation operation #:ms ms)
       (void))))
 
 (define (flag args name)

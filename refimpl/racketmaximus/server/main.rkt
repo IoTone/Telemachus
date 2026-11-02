@@ -902,7 +902,7 @@
   (set-box! model-request-logger
     (lambda (#:executor executor #:transport transport #:model model #:endpoint endpoint
              #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-             #:http-status http-status #:operation operation #:ms ms)
+             #:http-status http-status #:job-id [jid #f] #:operation operation #:ms ms)
       (define job (current-job))
       (define p (current-request-principal))
       (model-request-record! db-conn
@@ -911,7 +911,7 @@
         #:org  (and p (principal-org-id p))
         #:executor executor #:transport transport #:model model #:endpoint endpoint
         #:messages msgs #:tokens tokens #:status status #:error-kind error-kind
-        #:http-status http-status #:operation operation #:ms ms)
+        #:http-status http-status #:job-id jid #:operation operation #:ms ms)
       (void)))
   ;; RED-26: the per-org executor policy (issue #91 requirement 4). The gate is
   ;; `egress-refusal` in executor.rkt, at the three places a request leaves the
@@ -946,11 +946,11 @@
                   [team (cond [job (hash-ref job 'team)] [p (principal-team-id p)] [else #f])]
                   [user (cond [job (hash-ref job 'user)] [p (principal-user-id p)] [else #f])])
              (unless team (error 'run-chat "no team context for executor ~a" name))
-             (define-values (reply tokens)
+             (define-values (reply tokens jid)
                (pull-dispatch! db-conn #:team team #:user user #:executor name #:messages msgs
                                #:temperature temp #:parent (and job (hash-ref job 'id))
                                #:response-format rf))
-             (cons reply tokens)))))
+             (list reply tokens jid)))))
   ;; async job kinds + the worker pool
   (register-job-kind! "translate"
     (lambda (conn p payload)

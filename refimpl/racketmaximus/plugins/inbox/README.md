@@ -66,9 +66,11 @@ winner's rows already are.
 - `GET /digest` returns counts by state, open items by severity, the age of the oldest open one, and
   the top few. It takes the same `scope` and `scope_prefix`.
 
-A snooze that has run out reads as open. Every read wakes the team's expired snoozes first, and
+A snooze that has run out reads as open: every read wakes the team's expired snoozes first, and
 `x.inbox.wake` does it on a schedule for a team that wants the wake in the event log at the time it
-happened.
+happened. The wake is a write, so a read that cannot write (a read-only replica, a locked database)
+leaves the row saying `snoozed` and it drops out of the default listing; the item is never lost, and
+the next read that can write puts it back in the queue with an event at that moment.
 
 ## From a workflow
 

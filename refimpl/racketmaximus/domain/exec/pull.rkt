@@ -857,11 +857,11 @@
 ;; ---- what a worker's call cost, recorded where the job is settled ----------
 ;;
 ;; The route that enqueued a pull job already logs a row, but it is written from
-;; the waiting side: its `ms` spans the queue wait as well as the call, it cannot
-;; know the tokens the model produced, and it has no job to name. This row is the
-;; other half — the job's own start and finish and the worker's reported token
-;; count, joined to the job by `job_id`. Two rows, one call, and the pair answers
-;; "how long did the model run" and "what did the team wait".
+;; the waiting side: its `ms` spans the queue wait as well as the call and it
+;; cannot know the tokens the model produced. This row is the other half — the
+;; job's own start and finish and the worker's reported token count. Both rows
+;; carry `job_id`, so the pair is one call and answers "how long did the model
+;; run" and "what did the team wait".
 ;;
 ;; A failure here NEVER fails the settle: losing a log line is an operational
 ;; problem, losing a worker's completed job is somebody's answer (RED-17).
@@ -1322,7 +1322,11 @@
        (define reply
          (cond [(string? (hash-ref res 'reply #f)) (hash-ref res 'reply)]
                [else (let-values ([(t _p) (content->text (hash-ref res 'content ""))]) t)]))
-       (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
+       ;; A third value, the job's id, so the route's own request-log row can
+       ;; name the call the worker will report on. Without it the pair of rows a
+       ;; pull call writes could not be joined, and a count of rows would count
+       ;; one model call twice.
+       (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)) id)]
       [(member st '("error" "canceled"))
        (error 'run-chat "executor ~a: ~a" (if fleet? "the fleet" name)
               (let ([e (vector-ref r 2)]) (if (sql-null? e) st (unseal-error id e))))]

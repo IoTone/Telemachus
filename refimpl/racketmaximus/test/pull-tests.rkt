@@ -150,10 +150,14 @@
                                              #:token (hash-ref job 'claim_token))
                            (semaphore-post done)]
                       [(< n 400) (sleep 0.05) (loop (add1 n))])))))
-  (define-values (reply tokens)
+  (define-values (reply tokens jid)
     (pull-dispatch! c #:team tid #:user uid #:executor "box" #:messages (list (hasheq 'role "user" 'content "hi")) #:temperature 0))
   (check-equal? reply "echo: hi")
   (check-equal? tokens 3)
+  ;; the job id comes back with the reply, because the route's request-log row
+  ;; must name the call the worker reports — the pair is one call
+  (check-true (string? jid) "a dispatch answers the job it queued")
+  (check-equal? jid (query-value c "SELECT id FROM jobs WHERE kind = 'infer.chat'"))
   (semaphore-wait done)
   (define jobs (list-jobs c tid))
   (check-equal? (length jobs) 1)
@@ -203,7 +207,7 @@
                                    #:token (hash-ref job 'claim_token))
                  (semaphore-post done)]
             [(< n 400) (sleep 0.05) (loop (add1 n))])))))
-  (define-values (reply tokens)
+  (define-values (reply tokens _jid)
     (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
                     #:messages (list (hasheq 'role "user" 'content "hi")) #:temperature 0))
   (check-equal? reply "from B" "a host that was not named answered")
@@ -242,8 +246,8 @@
                                    #:token (hash-ref job 'claim_token))
                  (semaphore-post done)]
             [(< n 400) (sleep 0.05) (loop (add1 n))])))))
-  ;; two values, so a single-value context is an arity error
-  (define-values (_r _t2) (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
+  ;; three values, so a single-value context is an arity error
+  (define-values (_r _t2 _j) (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
                                           #:messages (list (hasheq 'role "user" 'content "hi"))
                                           #:model "qwen2.5:3b"))
   (semaphore-wait done)
