@@ -106,5 +106,8 @@
      (format "skipped ~a — unreadable as ~a (~a)"
              (hash-ref o 'key) (hash-ref o 'content_type) reason)]))
 
-(register-tool! "repo_list_unindexed" repo_list_unindexed "files:read" list-unindexed)
-(register-tool! "repo_extract_text" repo_extract_text "files:write" extract-one)
+;; Workflow tools, not conversational ones — `index-documents` is the only caller
+;; either has, and the agent's window is decided by what is offered (registry.rkt).
+(register-tool! "repo_list_unindexed" repo_list_unindexed "files:read" list-unindexed
+                #:agent? #f)
+(register-tool! "repo_extract_text" repo_extract_text "files:write" extract-one #:agent? #f)

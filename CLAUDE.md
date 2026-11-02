@@ -7724,6 +7724,66 @@ instance layers, and #177 gave the instance layer a console card.
   assertions on `--path-as-is`, and add the percent-encoded (`%2e%2e`) and nested
   (`a/../../`) forms — the plain one alone proves nothing.
 
+## A workflow tool is not a conversational tool (`#:agent?`, reported from outside)
+
+The agent is offered the tools the team has ENABLED that fit the window, and for
+a year that was every registered tool in module instantiation order. Reported
+from outside: *"Agent currently fails: 27 tool(s) were not offered … "* — and the
+27 included `create_note`, `update_note`, `list_notes` and `get_usage`, **every
+tool the agent's own system prompt instructs it to use**.
+
+```sh
+raco test test/agent-tests.rkt   # 8 cases; three positive controls, all biting
+```
+
+- **`fit-tools` WAS WORKING EXACTLY AS WRITTEN; WHAT WAS WRONG IS WHAT IT WAS
+  FED.** Its own comment said "THE ORDER IS THE REGISTRY'S, which puts the
+  built-ins first" — and the registry's order is **module instantiation order**,
+  i.e. whatever `server/main.rkt` happens to require first. **A comment stating
+  an invariant that nothing enforced**, the shape this file keeps meeting. On the
+  reported instance the arithmetic is exact: doc_text 473 + doc_classify 3,140 +
+  doc_list_unclassified 750 + doc_classify_eval 2,369 + repo_list_unindexed 331 +
+  repo_extract_text 270 + repo_embed_chunks 329 = **7,662 of a 7,680-character
+  budget**, so the next tool of any size was refused and the agent's own four
+  came 14th to 17th. Nothing failed; the agent simply had none of its own tools
+  and invented calls from the NAMES, which is #231-in-the-agent all over again.
+- **THE LINE IS THE REQUIRED ARGUMENTS, NOT TASTE**, and reading the schemas is
+  what drew it. A tool whose REQUIRED arguments are spec-authored structures is a
+  workflow tool: `doc_classify` requires `labels` (the team's own label set, which
+  a spec binds as a literal and CLS‑5 then holds the answer to), `doc_extract_fields`
+  requires `schema` (a JSON Schema nobody utters — an invented one is DWF‑5's
+  refusal with the caller blamed), `doc_render` requires `template` + `data`,
+  `doc_fill_form` requires `values` whose keys are the form's own field names,
+  discovered through a route **no tool can reach** (FORM‑4 refuses a guess by
+  name), and `doc_set_type` carries a verdict and a review id. `doc_redact`
+  (required: `object`) and `doc_translate` (`object`, `locale`) are whole
+  sentences and STAY. A drain lister and its `map` child are the easy half:
+  `repo_list_unindexed` exists to hand a step a page of ids.
+- **`#:agent?` IS NOT A PERMISSION AND NOT THE PER-TEAM SWITCH.** A tool with
+  `#:agent? #f` is registered, documented, dispatchable and callable by a workflow
+  step exactly as before — it is simply never put in front of a model that is
+  talking to a person. **It DEFAULTS to `#t`**, so a plugin's tool is untouched,
+  and `tool_settings` still reaches every tool.
+- **MEASURED at ollama's documented 4,096-token default**: before, 10 of 24
+  offered and 14 withheld; after, **9 of 9 offered and 0 withheld** — 5,475 of
+  7,680 characters with 2,205 to spare for plugin tools. `CORE-TOOLS` (the four
+  the system prompt names) is hoisted by NAME, so the order no longer depends on
+  a require list, and the hoisting list lives beside the prompt that names them.
+- **THE GATE IS THE POINT**: `test/agent-tests.rkt` asserts the whole
+  agent-facing surface fits `(max-input-chars)` with NOTHING withheld, so a new
+  agent-facing tool whose schema does not fit fails there rather than silently
+  pushing somebody else's tool out of the window on a default box. When it fails
+  the remedy is `#:agent? #f` if the required arguments are spec-authored, and a
+  smaller schema if not.
+- **A test cannot control module instantiation order from inside one module**, so
+  the hostile order is PASSED IN as a schema list rather than arranged — which is
+  also the stronger assertion, because the fix must not depend on the order at
+  all.
+- **`docs/reference/tools.md` said "Every tool the agent may call"**, which was
+  false for fifteen of twenty-four. It has an **Agent** column now. The headers
+  there are plain English in both locales, so the column needed no `doc.*` string
+  and the localization gate was unaffected — only `render` + `render --locale ja`.
+
 ## Pull-model executors (slice 66)
 
 Inference hosts that claim work instead of being called. Design:

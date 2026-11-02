@@ -16,17 +16,42 @@
 (provide (struct-out tool)
          register-tool! all-tools tool-by-name
          tool-enabled? set-tool-enabled!
-         enabled-tool-schemas tool-settings-for)
+         enabled-tool-schemas agent-tool-schemas tool-settings-for)
 
-(struct tool (name schema perm handler source) #:transparent)
+;; ---- A WORKFLOW TOOL IS NOT A CONVERSATIONAL TOOL ----------------------------
+;;
+;; `agent?` is whether the conversational agent may be OFFERED this tool. It is
+;; not a permission and not the per-team switch: a tool with `#:agent? #f` is
+;; registered, documented, dispatchable, and callable by a workflow step exactly
+;; as before — it is simply never put in front of a model that is talking to a
+;; person.
+;;
+;; THE REASON IS THAT THE TOOL LIST HAS TO FIT THE WINDOW AND THE DRAIN LISTERS
+;; WERE WINNING IT. `fit-tools` (run.rkt) offers what fits; measured on this
+;; build the whole registry is 21,513 characters of JSON schema against a
+;; 7,680-character budget at ollama's 4,096-token default, so what is offered is
+;; decided by ORDER — and the order was module instantiation order, which is an
+;; accident of main.rkt's require list. On the demo instance it spent 7,662 of
+;; 7,680 characters on SEVEN document-pipeline tools and withheld all four the
+;; agent's own system prompt names.
+;;
+;; The line is who the caller is. `repo_list_unindexed` exists to feed a `map`
+;; step with a page of ids and `repo_extract_text` exists to be that map's child;
+;; `doc_classify_eval` scores a fixture set. Not one of them is something a
+;; person asks for in a sentence, and `doc_classify_eval`'s schema alone is 2,369
+;; characters — 31% of the budget. Offering them is not a feature anybody loses.
+;;
+;; IT DEFAULTS TO #t, so a plugin's tool keeps appearing with no change, and the
+;; per-team `tool_settings` lever is untouched and still works on every tool.
+(struct tool (name schema perm handler source agent?) #:transparent)
 
 (define *registry* (box '()))
 
 ;; register (or replace) a tool by name; preserves declaration order.
 ;; `source` is "built-in" for core tools, or a plugin id for loaded plugins.
-(define (register-tool! name schema perm handler #:source [source "built-in"])
+(define (register-tool! name schema perm handler #:source [source "built-in"] #:agent? [agent? #t])
   (define without (filter (lambda (t) (not (string=? (tool-name t) name))) (unbox *registry*)))
-  (set-box! *registry* (append without (list (tool name schema perm handler source)))))
+  (set-box! *registry* (append without (list (tool name schema perm handler source agent?)))))
 
 (define (all-tools) (unbox *registry*))
 (define (tool-by-name name) (findf (lambda (t) (string=? (tool-name t) name)) (all-tools)))
@@ -49,8 +74,13 @@
 
 (define (enabled-tool-schemas conn team-id) (map tool-schema (enabled-tools conn team-id)))
 
+;; what the conversational agent may be offered: enabled AND agent-facing.
+(define (agent-tool-schemas conn team-id)
+  (map tool-schema (filter tool-agent? (enabled-tools conn team-id))))
+
 ;; for the management UI: every tool with its permission + current enabled state
 (define (tool-settings-for conn team-id)
   (for/list ([t (in-list (all-tools))])
     (hasheq 'name (tool-name t) 'permission (tool-perm t) 'source (tool-source t)
+            'agent (tool-agent? t)
             'enabled (tool-enabled? conn team-id (tool-name t)))))

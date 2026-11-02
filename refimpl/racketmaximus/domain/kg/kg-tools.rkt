@@ -177,6 +177,10 @@
          (fprintf out "  · ~a: \"~a\"\n" (hash-ref m 'key) (hash-ref m 'snippet))))
      (get-output-string out)]))
 
-(register-tool! "kg_list_unextracted" kg_list_unextracted "files:read" list-unextracted)
-(register-tool! "kg_extract" kg_extract "files:read" extract-one)
+;; A DRAIN LISTER AND ITS MAP CHILD ARE WORKFLOW TOOLS (registry.rkt's `agent?`):
+;; `index-knowledge` pages ids out of one and fans the other over them. Neither is
+;; something a person asks for in a sentence. `kg_query` IS conversational and stays.
+(register-tool! "kg_list_unextracted" kg_list_unextracted "files:read" list-unextracted
+                #:agent? #f)
+(register-tool! "kg_extract" kg_extract "files:read" extract-one #:agent? #f)
 (register-tool! "kg_query" kg_query "files:read" query)

@@ -34,7 +34,15 @@
 (test-case "a token expires; 'never means never; the listing says which"
   (define c (fresh-db))
   (define-values (uid tid) (bootstrap! c #:username "root"))
-  (define-values (short short-id) (issue-token! c #:user uid #:team tid #:name "short" #:scopes '("*:read") #:ttl 1))
+  ;; THE TTL IS AN HOUR, NOT A SECOND, AND THAT IS NOT A WEAKENING. `#:ttl 1`
+  ;; raced its own next assertion: two more `issue-token!` calls and a
+  ;; `resolve-token` sit between the issue and "fresh, it resolves", and on
+  ;; PostgreSQL each is a socket round trip — so the token expired before the
+  ;; line checking it had not, and CI failed on a correct server (2 Nov 2026,
+  ;; postgres leg only). The expiry is exercised BY THE UPDATE below, which is
+  ;; why this test does not sleep in the first place, so the one-second window
+  ;; bought nothing and cost a flake.
+  (define-values (short short-id) (issue-token! c #:user uid #:team tid #:name "short" #:scopes '("*:read") #:ttl 3600))
   (define-values (long _l) (issue-token! c #:user uid #:team tid #:name "long" #:scopes '("*:read") #:ttl 'never))
   (define-values (dflt _d) (issue-token! c #:user uid #:team tid #:name "default" #:scopes '("*:read")))
   (check-true (and (resolve-token c short) #t) "fresh, it resolves")

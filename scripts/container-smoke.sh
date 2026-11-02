@@ -7,7 +7,7 @@
 # interesting ones, and every assertion below is one of them.
 #
 #   bash scripts/container-smoke.sh                     # builds the image if needed
-#   IMAGE=telemachus:0.6.0 bash scripts/container-smoke.sh   # or any explicit tag
+#   IMAGE=telemachus:0.6.1 bash scripts/container-smoke.sh   # or any explicit tag
 #
 # Needs docker and a Postgres. With no DATABASE_URL in the environment it starts
 # its own Postgres container; in CI the workflow's service container supplies one.

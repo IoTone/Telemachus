@@ -9,9 +9,10 @@
 
 (require "artifact.rkt" racket/string
          json
+         (only-in racket/list partition)
          "loop.rkt"                     ; run-agent, assistant-msg, agent-result (+accessors)
          "../tools/convert.rkt"         ; tool-block struct
-         "registry.rkt"                 ; tool-by-name, tool-enabled?, enabled-tool-schemas, tool-*
+         "registry.rkt"                 ; tool-by-name, tool-enabled?, agent-tool-schemas, tool-*
          "tools.rkt"                    ; side effect: registers the built-in tools
          "../authz/authz.rkt"           ; can?, exn:fail:forbidden, principal-*
          "../ai/executor.rkt"           ; model-exchange, response-tokens, model-configured?,
@@ -23,7 +24,7 @@
          ;; exported FOR test/agent-tools-tests.rkt: every caller of the flow
          ;; needs a live model, so the fitting rule is only reachable directly.
          ;; An export with a test behind it is not an over-wide export (#110 r4).
-         fit-tools tool-schema-name withheld-tools-message)
+         fit-tools tool-schema-name withheld-tools-message CORE-TOOLS)
 
 (define SYSTEM
   (string-append
@@ -32,6 +33,15 @@
    "calling a tool over guessing. After the tools run, reply with a short natural-language summary."))
 
 (define (agent-configured?) (model-configured?))
+
+;; THE PROSE ABOVE NAMES FOUR TOOLS, SO THOSE FOUR ARE OFFERED FIRST. A system
+;; prompt that instructs a model to use a tool it was not given is the failure
+;; this whole section is about, and it is the state the demo instance was in:
+;; seven document-pipeline tools filled 7,662 of the 7,680-character budget and
+;; every one of these four was withheld. Keep this list and that sentence in
+;; step; `test/agent-tools-tests.rkt` asserts each one is registered and each one
+;; survives the shipped budget, so dropping one here fails rather than drifting.
+(define CORE-TOOLS '("create_note" "update_note" "list_notes" "get_usage"))
 
 ;; ---- THE TOOL LIST HAS TO FIT THE WINDOW, AND IT DID NOT ---------------------
 ;;
@@ -68,12 +78,29 @@
 ;; says them. It is `truncated`'s posture (CLS-27, VEC-29) and
 ;; `content_search: false`'s: report what did not run, keep what did.
 ;;
-;; THE ORDER IS THE REGISTRY'S, which puts the built-ins first and is the order a
-;; plugin's tools were loaded in — not sorted, because the order decides what
-;; survives and sorting by name would make that arbitrary. A tool whose schema
-;; does not fit the remaining budget is SKIPPED rather than ending the walk, so
-;; one fat schema (`doc_classify` is 3,140 characters by itself) cannot shut out
-;; the small ones behind it.
+;; THE ORDER DECIDES WHAT SURVIVES, AND IT USED TO BE AN ACCIDENT. This paragraph
+;; said "the registry's, which puts the built-ins first" — and the registry's
+;; order is MODULE INSTANTIATION order, so what came first was whatever
+;; `server/main.rkt` happened to require first. On the demo instance that was
+;; doc-tools, and the arithmetic is exact: doc_text 473 + doc_classify 3,140 +
+;; doc_list_unclassified 750 + doc_classify_eval 2,369 + repo_list_unindexed 331
+;; + repo_extract_text 270 + repo_embed_chunks 329 = **7,662 of 7,680**, so the
+;; next tool of any size was refused and the four the system prompt names came
+;; 14th to 17th. Nothing failed; the agent simply had none of its own tools.
+;;
+;; So `CORE-TOOLS` goes first by NAME, and everything else keeps registry order,
+;; which for plugins is load order and is the only meaningful order there is —
+;; still not sorted, because sorting by name would be arbitrary and sorting by
+;; size would permanently exclude whichever essential tool is fattest. A tool
+;; whose schema does not fit the remaining budget is SKIPPED rather than ending
+;; the walk, so one fat schema (`doc_classify` is 3,140 characters by itself)
+;; cannot shut out the small ones behind it.
+;;
+;; AND THE LIST IS SHORTER NOW BECAUSE HALF OF IT WAS NEVER THE AGENT'S.
+;; `#:agent? #f` (registry.rkt) keeps the drain listers, their map children and
+;; the evaluation harness off this surface entirely — ten tools and 6,423
+;; characters that no person asks for in a sentence. That is the fix; this budget
+;; walk is the backstop behind it.
 ;;
 ;; THE BUDGET IS HALF THE WINDOW'S CHARACTERS — `max-input-chars`, #231's one
 ;; number, reused rather than re-derived. What the other half pays for is the
@@ -86,8 +113,10 @@
     (hash-ref (hash-ref sch 'function (hasheq)) 'name "?")))
 
 ;; -> (values kept withheld-names)
-(define (fit-tools schemas [budget (max-input-chars)])
-  (let loop ([rest schemas] [left budget] [kept '()] [out '()])
+(define (fit-tools schemas [budget (max-input-chars)] #:first [first-names CORE-TOOLS])
+  (define-values (head tail)
+    (partition (lambda (sch) (and (member (tool-schema-name sch) first-names) #t)) schemas))
+  (let loop ([rest (append head tail)] [left budget] [kept '()] [out '()])
     (cond
       [(null? rest) (values (reverse kept) (reverse out))]
       [else
@@ -223,7 +252,7 @@
            (string-append "the agent runs on a push backend; ~a is not one. A pull executor "
                           "answers infer.chat, which carries a reply rather than tool calls.")
            executor))
-  (define-values (tools withheld) (fit-tools (enabled-tool-schemas conn (principal-team-id p))))
+  (define-values (tools withheld) (fit-tools (agent-tool-schemas conn (principal-team-id p))))
   (unless (null? withheld)
     (on-event (hasheq 'type "tools_withheld" 'names withheld
                       'message (withheld-tools-message withheld))))
