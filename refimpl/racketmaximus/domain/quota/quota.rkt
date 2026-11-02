@@ -101,11 +101,13 @@
 ;; Engineering team held exactly that row and the page warned that the daily allowance might be used up.
 ;; A quota is a guard against runaway spend, not a price list, so the default has to sit far above what
 ;; ordinary work costs and below what a runaway job would burn. Concurrency is a capacity knob and stays
-;; close to what a single worker serves.
+;; close to what a single worker serves — and it stays at the trial plan's own cap, because the governor
+;; reads the TEAM row only (`get-limit` does not walk up to the org), so a larger team default would let
+;; a trial org run double the concurrency it is allowed.
 (define (default-policy! conn team-id
                          #:tokens-per-day [tokens 100000000]
                          #:requests-per-day [requests 100000]
-                         #:concurrency [concurrency 4])
+                         #:concurrency [concurrency 2])
   (set-limit! conn "team" team-id "ai.tokens.total" tokens #:window "day")
   (set-limit! conn "team" team-id "ai.requests"     requests #:window "day")
   (set-limit! conn "team" team-id "ai.concurrency"  concurrency #:window "instant"))
