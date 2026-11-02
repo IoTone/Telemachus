@@ -209,10 +209,10 @@ exists at all:
 | "what have we read about supply-chain risk?" | **vector-first** — `chunks-nearest` for a seed set, then the entities those chunks mention | the neighbours of what matched, which is the half plain retrieval misses |
 
 Plain `repo_retrieve` already answers the second question *without* the
-expansion. **The expansion is the whole claim of graph‑RAG and it is unmeasured
+expansion. **The expansion is the whole point of graph‑RAG and it is unmeasured
 here**, exactly as the chunk size was before #189 step 3 — so the build plan ends
 with a calibration against `test/calibration-questions.json`'s shape, and the
-claim stays "this is what it does" until there is a recall number. CHUNK‑10's
+wording stays "this is what it does" until there is a recall number. CHUNK‑10's
 lesson: the parameter that looked like the lever was not, and only the
 measurement said so.
 
@@ -272,7 +272,7 @@ it would use.
 
 ## RG‑10 — The answer's citation rule is #183's, and it moves to one home
 
-RSCH‑4 said a claim whose source is not in the fetched set is **refused, not
+RSCH‑4 said a statement whose source is not in the fetched set is **refused, not
 footnoted**. `domain/help/answer.rkt` implements that and one more layer #183's
 only real-model run had to discover:
 

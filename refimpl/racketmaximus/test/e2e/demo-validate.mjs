@@ -368,6 +368,84 @@ try {
   ok('…while the overlay the shell reserves for it is still there',
     await page.evaluate(() => !!document.getElementById('helpbox')));
 
+  // ── 3e2. …and when it CAN answer, the answer reaches the panel ──────────────
+  // THE BUG THIS EXISTS FOR SHIPPED, AND §3e ABOVE IS WHY IT COULD NOT BE SEEN.
+  // `doHelpAsk` assigned the WRAPPER `api()` returns — {ok, status, json} —
+  // where the body belongs, so `helpBody` read `reason`, `answer` and
+  // `citations` off an object with none of them and rendered the empty string
+  // for every question ever asked. Reported from outside as "Help is broken,
+  // doesn't respond to chat", with the server answering perfectly all along.
+  //
+  // §3e asserts the HIDDEN half, which is all a fresh install can show — and
+  // that is exactly the trap: the branch CI can reach was covered and the branch
+  // a user meets was not. So this one STUBS `api` and drives the real
+  // `doHelpAsk`, which needs no embedder, no corpus and no model. The console's
+  // scripts are classic, so `api` is a writable global.
+  step('help: a reply reaches the panel');
+  const helpHtml = await page.evaluate(async () => {
+    const saved = window.api;
+    window.api = async () => ({ ok: true, status: 200, json: {
+      answer: 'Raise the window with OLLAMA_CONTEXT_LENGTH.',
+      citations: [{ path: 'docs/ops/gpu-fleet-runbook.md', heading: 'Models' }],
+      reason: null } });
+    try {
+      window.S.help = { q: 'how do I raise the context window?', rep: null, asking: false };
+      await window.doHelpAsk();
+      return document.getElementById('helpout').innerHTML;
+    } finally { window.api = saved; }
+  });
+  ok('the answer text is rendered', helpHtml.includes('OLLAMA_CONTEXT_LENGTH'), helpHtml.slice(0, 200));
+  ok('…and the citation is listed', helpHtml.includes('gpu-fleet-runbook.md'), helpHtml.slice(0, 200));
+  ok('…and nothing of the wrapper leaks in', !/\bstatus\b.*200/.test(helpHtml));
+
+  // A REFUSAL HAS TO LAND SOMEWHERE TOO, and the old code could not tell one
+  // from an answer: both became a wrapper with no `answer`, so a 403 for a quota
+  // was also silence. It is a toast now, like every other call in this console.
+  const helpRefusal = await page.evaluate(async () => {
+    const saved = window.api, savedToast = window.toast;
+    let toasted = null;
+    window.toast = (m) => { toasted = m; };
+    window.api = async () => ({ ok: false, status: 403, json: { error: 'Forbidden: chat:use' } });
+    try {
+      window.S.help = { q: 'x', rep: null, asking: false };
+      await window.doHelpAsk();
+      return { toasted, body: document.getElementById('helpout').innerHTML };
+    } finally { window.api = saved; window.toast = savedToast; }
+  });
+  ok('a refused question says so', (helpRefusal.toasted || '').includes('chat:use'),
+    JSON.stringify(helpRefusal));
+  ok('…and does not leave the last answer on screen', helpRefusal.body === '',
+    JSON.stringify(helpRefusal.body).slice(0, 160));
+  // HELP-23: AN ANSWER THAT NAMED NO SOURCE STILL SHOWS WHAT IT WAS READ FROM.
+  // Reported from outside as "ask the documentation is still broken" — and the
+  // panel and the endpoint were both working. What the reader met was a correct
+  // answer under an orange warning saying it was declining: measured over ten
+  // real questions against the live corpus, FOUR came back flagged while
+  // carrying a good answer, because on this model `uncited` usually means the
+  // model answered and did not bracket anything. This is the branch that was
+  // wrong, so it is driven here rather than asserted over the source.
+  const helpUncited = await page.evaluate(async () => {
+    const saved = window.api;
+    window.api = async () => ({ ok: true, status: 200, json: {
+      answer: 'Export both keys and run rewrap.',
+      citations: [],
+      passages: [{ path: 'docs/ops/secrets-at-rest-runbook.md', heading: 'Rotating',
+                   text: 'Export TMACH_SECRET_KEY_OLD and run rewrap.' }],
+      reason: 'uncited' } });
+    try {
+      window.S.help = { q: 'how do I rotate the key?', rep: null, asking: false };
+      await window.doHelpAsk();
+      return document.getElementById('helpout').innerHTML;
+    } finally { window.api = saved; }
+  });
+  ok('an uncited answer is still shown', helpUncited.includes('run rewrap'),
+    helpUncited.slice(0, 200));
+  ok('…and the passages it was read from are listed',
+    helpUncited.includes('secrets-at-rest-runbook.md'), helpUncited.slice(0, 300));
+  ok('…numbered, so a [1] in the prose resolves for a reader',
+    helpUncited.includes('[1]'), helpUncited.slice(0, 300));
+  await page.evaluate(() => { window.helpClose && window.helpClose(); });
+
   // ── 3f. an open overlay survives render passes behind it (#185) ─────────────
   // #185 bounded the delegated-handler table: entries created inside a render
   // pass are freed once two further passes have completed. That is safe only
@@ -400,6 +478,314 @@ try {
     await page.evaluate(() => HANDLERS.some((f, i) => f === undefined && i > 10)));
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
+
+  // ── 3g. THE TAB BAR SURVIVES BEING USED ─────────────────────────────────────
+  // The bug this pins was reported from outside: "once I click on a few of the
+  // tabs (try agents, then translate), none of the tabs stay responsive." §3f
+  // above proves an OVERLAY survives passes behind it and could not see this,
+  // because the shell is not an overlay and nobody had asked whether it is swept.
+  //
+  // It is the same defect from the other side: `go()` calls only `renderTab()`,
+  // so one `appShell()` paint stays on screen across every later tab change,
+  // while its handlers were registered inside `render()`'s bracket and swept
+  // after H_KEEP further passes. The failure is SILENT — a hole reaches the
+  // dispatcher's `typeof fn !== 'function'` guard and returns — so nothing
+  // errored, no request was made, and the page looked perfectly healthy.
+  //
+  // So this clicks the tabs as a person does, by DISPATCHING ON THE BUTTON
+  // rather than calling `go()`, which is the whole point: `go()` would work fine
+  // against the broken version. Three clicks is already past the old limit (the
+  // control dies on the second), and the measured reproduction was two.
+  step('the tab bar survives being used');
+  const tabBound = async () => page.evaluate(() => {
+    const bs = [...document.querySelectorAll('nav.tabs button')];
+    if (!bs.length) return 'no-tabs';
+    const dead = bs.filter(b => typeof HANDLERS[+b.getAttribute('data-h-click')] !== 'function');
+    return dead.length ? 'DEAD:' + dead.map(b => b.dataset.tab).join(',') : 'bound';
+  });
+  ok('the tab bar starts bound', (await tabBound()) === 'bound', await tabBound());
+  for (const tab of ['agent', 'translate', 'search', 'notes', 'jobs']) {
+    await page.click(`nav.tabs button[data-tab="${tab}"]`);
+    await page.waitForTimeout(400);
+  }
+  ok('…and five real tab CLICKS later every tab is still bound',
+    (await tabBound()) === 'bound', await tabBound());
+  // the click must actually have moved the tab, or the assertion above is about
+  // a tab bar nobody used — the silent failure mode means a dead button looks
+  // exactly like a working one from the outside.
+  ok('…and the last click really did change tab',
+    await page.evaluate(() => S.tab === 'jobs'), await page.evaluate(() => S.tab));
+  // the header's own controls ride in the same shell paint and died with it
+  ok('…and the shell header survived with it',
+    await page.evaluate(() => [...document.querySelectorAll('header.top [data-h-click]')]
+      .every(b => typeof HANDLERS[+b.getAttribute('data-h-click')] === 'function')));
+  // …and the sweep is still running, or all of the above passes for the wrong
+  // reason, exactly as §3f's last assertion guards against.
+  ok('…while the pass handlers behind them WERE swept',
+    await page.evaluate(() => HANDLERS.some((f, i) => f === undefined && i > 10)));
+
+  // ── 3h. the jobs list names the worker, and refreshes only while work is live
+  // #172's lesson on the console's side: "which worker ran this" is the first
+  // question asked of a fleet, and the column carried a uuid or nothing at all.
+  step('jobs: the worker column');
+  await goTab(page, 'jobs', 'table');
+  ok('the jobs table has a worker column',
+    await page.evaluate(() => [...document.querySelectorAll('table thead th')]
+      .some(th => th.textContent.trim().length && /worker|ワーカー/i.test(th.textContent))));
+  // A settled list must NOT leave a poll running: the idle clock counts from the
+  // last request (#38), so a jobs tab that ticked for ever would hold a session
+  // open — QVIZ-6's objection, which is why this polls on live work rather than
+  // on an interval. Asserted by the absence of the live notice when nothing is.
+  ok('…and a list with nothing live says so by not claiming to refresh',
+    await page.evaluate(() => {
+      const live = [...document.querySelectorAll('table tbody tr')].some(
+        tr => /queued|running|canceling/i.test(tr.textContent));
+      const notice = document.body.textContent.includes('refreshing while work is live');
+      return live === notice;          // the notice appears exactly when it is true
+    }));
+
+  // ── 3h2. REFRESHING A CARD MUST NOT KILL THE REST OF THE TAB ───────────────
+  // Reported from outside: "if I click on refresh, I can no longer submit a chat
+  // from the jobs page." `cardSwap` opened a render-pass bracket, so every
+  // refresh counted as a pass — and the submit form, painted by the tab render
+  // and never swapped, was swept two refreshes later. A live poll makes ONE
+  // click enough, because the tick is the second pass.
+  //
+  // §3g asserts the SHELL survives tab clicks and could not see this: the shell
+  // is in a slot, and the victim here is an ordinary sibling card in the tab's
+  // own pass. So this clicks the real Refresh button repeatedly and checks the
+  // control that is NOT in the card being swapped.
+  step('refreshing the jobs list leaves the rest of the tab alive');
+  await goTab(page, 'jobs', '#jobscard');
+  const submitBound = () => page.evaluate(() => {
+    const b = [...document.querySelectorAll('button')].find(x => x.closest('#jobscard') === null
+      && x.hasAttribute('data-h-click') && !x.closest('nav.tabs') && !x.closest('header.top'));
+    if (!b) return 'no-submit';
+    return typeof HANDLERS[+b.getAttribute('data-h-click')] === 'function' ? 'bound' : 'DEAD';
+  });
+  ok('the submit button starts bound', (await submitBound()) === 'bound', await submitBound());
+  for (let i = 0; i < 4; i++) {
+    await page.click('#jobscard button.btn.sm');     // the card's own Refresh
+    await page.waitForTimeout(500);
+  }
+  ok('…and four refreshes later it is STILL bound', (await submitBound()) === 'bound',
+    await submitBound());
+  // the swapped card's own controls must be bound too, or the slot freed what it
+  // had just painted
+  ok('…as are the refreshed card\'s own controls',
+    await page.evaluate(() => [...document.querySelectorAll('#jobscard [data-h-click]')]
+      .every(el => typeof HANDLERS[+el.getAttribute('data-h-click')] === 'function')));
+  // …and the slot must still be RECLAIMING, or this passes by never freeing
+  // anything — the bound #185 exists for
+  ok('…while the slot still frees the generation it replaced',
+    await page.evaluate(() => H_SLOTS.has('card:jobscard') && HANDLERS.some(f => f === undefined)));
+
+  // ── 3i. the queue pager's arithmetic, and a refresh that does NOT re-render ──
+  // The page window, the ellipses and the clamp are a pure function with
+  // interesting EDGES, so they are exercised by calling the real one in the real
+  // page — §3c's rule for the Markdown sanitiser: a question about what the code
+  // COMPUTES cannot be answered by a source assertion.
+  step('the queue pager computes its window');
+  await goTab(page, 'admin', '#qcard');
+  const pager = async (total, offset) => page.evaluate(([tt, oo]) => {
+    const keepT = S.qTotal, keepO = S.qOffset;
+    S.qTotal = tt; S.qOffset = oo;
+    const html = qPager({ total: tt, offset: oo }, new Array(Math.min(25, tt - oo)).fill({}));
+    S.qTotal = keepT; S.qOffset = keepO;
+    // the page numbers offered, in order, and which one is current
+    const d = document.createElement('div'); d.innerHTML = html;
+    const nums = [...d.querySelectorAll('button')].map(b => b.textContent.trim());
+    const cur = [...d.querySelectorAll('button[aria-current="page"]')].map(b => b.textContent.trim());
+    return { nums, cur, ell: (html.match(/…/g) || []).length, jump: !!d.querySelector('input[type=number]') };
+  }, [total, offset]);
+
+  const p1 = await pager(10, 0);
+  ok('a single page offers no pager at all', p1.nums.length === 0 && p1.ell === 0,
+    JSON.stringify(p1));
+  const p2 = await pager(500, 0);         // page 1 of 20
+  ok('on page 1 the window starts at 1 and the last page is reachable',
+    p2.cur[0] === '1' && p2.nums.includes('20') && p2.ell === 1, JSON.stringify(p2));
+  const p3 = await pager(500, 250);       // page 11 of 20 — ellipsis BOTH sides
+  ok('…mid-range it ellipsises both sides and keeps first and last',
+    p3.cur[0] === '11' && p3.nums.includes('1') && p3.nums.includes('20') && p3.ell === 2,
+    JSON.stringify(p3));
+  const p4 = await pager(500, 475);       // last page
+  ok('…and on the last page the window ends there',
+    p4.cur[0] === '20' && p4.nums.includes('1'), JSON.stringify(p4));
+  ok('…with a jump box on every multi-page view', p2.jump && p3.jump && p4.jump);
+  // the clamp: the only way to ask for page 900 of 20 is to type it, and the
+  // useful answer is the last page rather than a refusal
+  ok('a page number out of range is CLAMPED, not refused',
+    await page.evaluate(() => {
+      const keepT = S.qTotal, keepO = S.qOffset;
+      S.qTotal = 500; S.qOffset = 0;
+      const pages = qPages();
+      const lo = Math.min(Math.max(1, -5 | 0), pages), hi = Math.min(Math.max(1, 900 | 0), pages);
+      S.qTotal = keepT; S.qOffset = keepO;
+      return pages === 20 && lo === 1 && hi === 20;
+    }));
+
+  // THE PROPERTY THE REPORT WAS ABOUT: a refresh must not re-render the tab.
+  // `renderTab()` bumps `renderSeq` and paints a `…` placeholder first, so if a
+  // filter change went through it the sequence would move and the screen would
+  // blank. A filter is used rather than a page because it needs no 25 rows.
+  step('a queue filter swaps the card without re-rendering the tab');
+  const seqBefore = await page.evaluate(() => renderSeq);
+  await page.evaluate(() => qSet('status', 'done'));
+  await page.waitForTimeout(1200);
+  ok('the card is still there after the swap', await page.evaluate(() => !!document.getElementById('qcard')));
+  ok('…and renderTab was never called', await page.evaluate(() => renderSeq) === seqBefore,
+    `renderSeq ${seqBefore} -> ${await page.evaluate(() => renderSeq)}`);
+  ok('…and the filter really took', await page.evaluate(() => (S.qFilter || {}).status) === 'done');
+  // the swapped card's own controls must be BOUND — cardSwap brackets its
+  // registrations, and an unbracketed swap would leak them while a mis-swept one
+  // would leave the pager dead, which is #185's bug in a card
+  ok('…and the swapped card\'s controls are bound',
+    await page.evaluate(() => [...document.querySelectorAll('#qcard [data-h-click],#qcard [data-h-change]')]
+      .every(el => typeof HANDLERS[+(el.getAttribute('data-h-click') ?? el.getAttribute('data-h-change'))] === 'function')));
+  await page.evaluate(() => qSet('status', ''));
+  await page.waitForTimeout(800);
+
+  // ── 3j. LINKABLE URLS (#230) ────────────────────────────────────────────────
+  // Nothing in the console was linkable: no URL for a job, a run, a document or
+  // a filtered queue page, a reload always landed on Chat, and Back did nothing.
+  // These are behaviour assertions in a real browser because the question is
+  // what the router COMPUTES and what the history stack then does — neither of
+  // which a source assertion can answer.
+  step('linkable URLs: the hash mirrors the view');
+  await goTab(page, 'jobs', '#jobscard');
+  ok('a tab change writes the hash', await page.evaluate(() => location.hash) === '#/jobs',
+    await page.evaluate(() => location.hash));
+  await goTab(page, 'team', 'table');
+  ok('…and changing tab again moves it', await page.evaluate(() => location.hash) === '#/team');
+
+  // A LIVE POLL MUST NOT FLOOD THE HISTORY. `renderTab()` is the seam that
+  // writes the URL and a live run re-renders every 1.5s, so an unconditional
+  // push would leave an entry per tick and Back would need a hundred presses.
+  const lenBefore = await page.evaluate(() => history.length);
+  for (let i = 0; i < 5; i++) await page.evaluate(() => renderTab());
+  await page.waitForTimeout(700);
+  ok('five re-renders of the same view add NO history entries',
+    await page.evaluate(() => history.length) === lenBefore,
+    `${lenBefore} -> ${await page.evaluate(() => history.length)}`);
+
+  // BACK moves through the views visited
+  await page.goBack();
+  await page.waitForTimeout(900);
+  ok('Back returns to the previous view',
+    await page.evaluate(() => location.hash) === '#/jobs' && await page.evaluate(() => S.tab) === 'jobs',
+    `${await page.evaluate(() => location.hash)} / ${await page.evaluate(() => S.tab)}`);
+  ok('…and the tab bar shows it', await page.evaluate(() =>
+    document.querySelector('nav.tabs button.active')?.dataset.tab) === 'jobs');
+
+  // A PASTED URL survives a reload — the whole point
+  await page.goto(BASE + '/#/usage', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('nav.tabs button', { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  ok('a pasted hash decides the view after a reload',
+    await page.evaluate(() => S.tab) === 'usage', await page.evaluate(() => S.tab));
+
+  // THE QUEUE'S FILTER AND PAGE are what make "look at page 2, filtered to done"
+  // sendable — and the page number is what the earlier pagination work asked for
+  await page.goto(BASE + '/#/admin/queue?status=done&page=2', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#qcard', { timeout: 25000 });
+  await page.waitForTimeout(800);
+  ok('a hash carries the queue filter and page',
+    await page.evaluate(() => (S.qFilter || {}).status) === 'done'
+    && await page.evaluate(() => S.qOffset) === 25,
+    JSON.stringify(await page.evaluate(() => ({ f: S.qFilter, o: S.qOffset }))));
+
+  // AN UNREACHABLE HASH FALLS BACK rather than painting a tab that is not in
+  // the bar: `visibleTabs()` is decided by permissions and feature switches, and
+  // a link may come from somebody who holds more than the reader does.
+  await page.goto(BASE + '/#/not-a-tab', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('nav.tabs button', { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  ok('an unreachable hash falls back to a real view',
+    (await page.evaluate(() => visibleTabs())).includes(await page.evaluate(() => S.tab)),
+    await page.evaluate(() => S.tab));
+  ok('…and the address bar is put back rather than left lying',
+    await page.evaluate(() => location.hash) !== '#/not-a-tab',
+    await page.evaluate(() => location.hash));
+
+  // A CREDENTIAL MUST NEVER REACH THE URL. `S.newToken`/`S.wkToken` hold a
+  // freshly minted token shown once, and a URL is pasted into chat, logged by
+  // proxies and kept in history — which is why /activate already strips its own.
+  ok('a minted token never appears in the route',
+    await page.evaluate(() => {
+      const keep = S.newToken, keepW = S.wkToken, keepTab = S.tab;
+      S.newToken = { token: 'SECRET-API-TOKEN' }; S.wkToken = { token: 'SECRET-WORKER-TOKEN' };
+      S.tab = 'team';
+      const r = routeFromState();
+      S.newToken = keep; S.wkToken = keepW; S.tab = keepTab;
+      return !/SECRET/.test(r);
+    }));
+  ok('…nor does unsaved editor text',
+    await page.evaluate(() => {
+      const keep = S.noteEdit, keepTab = S.tab;
+      S.noteEdit = { body: 'UNSAVED-DRAFT' }; S.tab = 'notes';
+      const r = routeFromState();
+      S.noteEdit = keep; S.tab = keepTab;
+      return !/UNSAVED/.test(r);
+    }));
+
+  // the funnel's own shareable param must still survive a hash being written
+  await page.goto(BASE + '/?login=1#/jobs', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('nav.tabs button', { timeout: 20000 });
+  await page.waitForTimeout(900);
+  ok('an existing query string survives the hash',
+    (await page.evaluate(() => location.search)).includes('login=1'),
+    await page.evaluate(() => location.search + location.hash));
+
+  // ── 3k. two usability reports: the prompt bar and the run duration ──────────
+  // "For the chat screen, we should have an expanding chat bar." The prompts
+  // were rows="3" and fixed, which is the one place in this console where people
+  // paste a lot of text.
+  step('chat: the prompt bar grows with what you type');
+  await goTab(page, 'chat', '#cp');
+  const h0 = await page.evaluate(() => document.getElementById('cp').getBoundingClientRect().height);
+  await page.fill('#cp', Array.from({length: 9}, (_, i) => 'line ' + (i + 1)).join('\n'));
+  await page.waitForTimeout(500);
+  const h1 = await page.evaluate(() => document.getElementById('cp').getBoundingClientRect().height);
+  ok('typing nine lines grows the bar', h1 > h0 + 30, `${Math.round(h0)} -> ${Math.round(h1)}`);
+  // …and it is CAPPED, or Send is pushed off the bottom of the screen on a paste
+  await page.fill('#cp', Array.from({length: 400}, (_, i) => 'line ' + i).join('\n'));
+  await page.waitForTimeout(500);
+  const h2 = await page.evaluate(() => document.getElementById('cp').getBoundingClientRect().height);
+  ok('…and 400 lines do NOT grow it without bound', h2 < 600, `${Math.round(h2)}px`);
+  ok('…so the Send button is still on screen', await page.evaluate(() => {
+    const r = document.getElementById('cpsend').getBoundingClientRect();
+    return r.top > 0 && r.bottom < window.innerHeight + 400;   // in the document, not pushed miles down
+  }));
+  ok('…and it scrolls once it is capped', await page.evaluate(() =>
+    getComputedStyle(document.getElementById('cp')).overflowY === 'auto'));
+  await page.fill('#cp', 'Hello team');
+
+  // "Jobs page should have durations for the run, or duration so far if not
+  // complete." The first version answered only for a FINISHED job, so the column
+  // was blank for exactly the rows a person is staring at.
+  step('jobs: a running job shows how long it has been going');
+  ok('a running job reports elapsed time, a queued one does not',
+    await page.evaluate(() => {
+      const now = Math.floor(Date.now() / 1000);
+      const running = jobTook({ started_epoch: now - 42, finished_epoch: null, status: 'running' });
+      const done    = jobTook({ started_epoch: now - 42, finished_epoch: now - 30, status: 'done' });
+      const queued  = jobTook({ started_epoch: null, finished_epoch: null, status: 'queued' });
+      return /4[0-9]s/.test(running) && running !== done && done.length > 0 && queued === '';
+    }),
+    await page.evaluate(() => {
+      const now = Math.floor(Date.now() / 1000);
+      return JSON.stringify({ running: jobTook({started_epoch:now-42,finished_epoch:null}),
+                              queued: jobTook({started_epoch:null,finished_epoch:null}) });
+    }));
+  // the two must be DISTINGUISHABLE, or a stalled job reads as a fast one
+  ok('…and the running figure is marked as still going',
+    await page.evaluate(() => {
+      const now = Math.floor(Date.now() / 1000);
+      const r = jobTook({ started_epoch: now - 42, finished_epoch: null });
+      const d = jobTook({ started_epoch: now - 42, finished_epoch: now - 42 + 42 });
+      return r !== d && r.length > d.length;
+    }));
 
   // ── 4. documents: create, then EDIT — the write path that was broken ────────
   step('documents: create and edit');
@@ -456,6 +842,77 @@ try {
   }, pngB64);
   ok('object listed via the API', roundTrip.found);
   if (roundTrip.found) ok('download is byte-identical to the upload', roundTrip.same, `got ${roundTrip.size} bytes`);
+
+  // ── 5b. repository: Details takes you to the panel ──────────────────────────
+  // Placed AFTER §5, because it needs an object to open: at §3k the repository
+  // is still empty and the assertion failed for a reason with nothing to do
+  // with the scroll it is about.
+  // "When you click on details it seems like nothing happens. It's true,
+  // something happens way at the bottom of the screen." `#rdetail` sits AFTER
+  // the object table, so on a repository of any size the panel paints below the
+  // fold and the click produces no visible change. A scroll, not a modal: the
+  // panel is a detail of the row you came from, read alongside the list, with
+  // its own Close — a modal would mean an overlay, `Hk()`, and Esc ordered
+  // against the palette's and the help overlay's.
+  step('repository: Details takes you to the panel');
+  await goTab(page, 'repository', 'table');
+  // THE VIEWPORT IS SHRUNK, AND THAT IS WHAT MAKES THIS TEST MEAN ANYTHING.
+  // The gate's repository holds one object, so at 1000px the whole page fits and
+  // the panel is in view whether or not anything scrolled — the first version of
+  // this assertion passed against code with the scroll REMOVED, which is a test
+  // that agrees with any change. A short viewport puts the panel genuinely below
+  // the fold, the way a real repository of any size does.
+  const vp = page.viewportSize();
+  await page.setViewportSize({ width: vp.width, height: 320 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(300);
+  const detailBtn = page.locator('table button', { hasText: /details/i }).first();
+  ok('there is a Details button to click', await detailBtn.count() > 0);
+  // …and it is WIRED, which is the click path
+  ok('…and it is bound', await page.evaluate(() => {
+    const b = [...document.querySelectorAll('table button')].find(x => /details/i.test(x.textContent));
+    return !!b && typeof HANDLERS[+b.getAttribute('data-h-click')] === 'function';
+  }));
+  // THE PANEL IS OPENED PROGRAMMATICALLY, not by clicking, and that is the only
+  // way this can test OUR code: Playwright's `click()` scrolls its target into
+  // view first, so the click's own auto-scroll brings the panel along with it
+  // and the assertion passes with `repoRevealDetail()` REMOVED. Measured — the
+  // first version of this did exactly that. A real person clicking a Details
+  // button half way down a long list does not get that favour.
+  const objId = await page.evaluate(async () => {
+    const r = await api('/api/repo?limit=1');
+    return r.ok && r.json.objects && r.json.objects[0] ? r.json.objects[0].id : null;
+  });
+  ok('an object to open', !!objId);
+  if (objId) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(200);
+    const before = await page.evaluate(() => {
+      const el = document.getElementById('rdetail');
+      return el ? Math.round(el.getBoundingClientRect().top) : null;
+    });
+    ok('…and the panel starts BELOW the fold', before !== null && before >= 320,
+      `top ${before} of 320`);
+    await page.evaluate((id) => repoOpenDetail(id), objId);
+    await page.waitForTimeout(1800);
+    ok('the detail panel is filled', await page.evaluate(() =>
+      !!document.getElementById('rdetail') && !!document.getElementById('rdetail').firstChild));
+    ok('…and it is ON SCREEN afterwards', await page.evaluate(() => {
+      const r = document.getElementById('rdetail').getBoundingClientRect();
+      return r.top >= -2 && r.top < window.innerHeight;
+    }), await page.evaluate(() => Math.round(document.getElementById('rdetail').getBoundingClientRect().top)
+      + ' of ' + window.innerHeight));
+    // a RE-open while it is already in view must not jump again: the panel is
+    // re-rendered after a visibility change, a share and a revoke
+    const y1 = await page.evaluate(() => window.scrollY);
+    await page.evaluate(() => repoRevealDetail());
+    await page.waitForTimeout(600);
+    ok('…and revealing it again while visible does not jump',
+      Math.abs(await page.evaluate(() => window.scrollY) - y1) < 4,
+      `${y1} -> ${await page.evaluate(() => window.scrollY)}`);
+  }
+  await page.setViewportSize(vp);
+  await page.waitForTimeout(300);
 
   // ── 6. search reaches document content ──────────────────────────────────────
   step('search');

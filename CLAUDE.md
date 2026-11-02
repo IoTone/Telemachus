@@ -33,6 +33,24 @@ an image spelling Telemachus is worse than an old label.
   the end of the window. Redirect to a file and echo `$?` — the same shape as
   this file's note about a smoke helper that silently never ran.
 
+**DO NOT USE "claim" AS A WORD FOR AN ASSERTION.** Reported from outside as
+LLM speak, and it was: sixty-odd sentences across the design documents, the
+decision log, the runbooks and the book said "the claim is narrow", "every claim
+about what exists", "an export with no consumer is a claim", "overclaiming here
+would be #119's shape". Say what it actually is — what it **protects**,
+**promises**, **detects**, **guarantees**, **reports**, **says** or **states**.
+`scripts/check-config-reference.sh` gates the unambiguous phrasings over `docs/`
+and both READMEs, and it caught three I had missed on its first run.
+
+**The word itself STAYS where it names the protocol**, and that is why the gate
+lists phrases rather than the word: a worker CLAIMS a job, `claim-job!` is the
+one atomic claim (#17), `claim_token` fences an attempt (#24),
+`POST /api/workers/claim` is a route, `?status=claimed` is a stored enum value
+in the feed queue, and an extractor plugin claims a content type (LAY-7).
+Renaming any of those would break the wire, the schema, or the prose explaining
+them. A claim has no "to", no "whose" and no "about", and nothing in the queue is
+ever "overclaimed" — which is what makes the two separable by grep.
+
 TMach is a clean-MIT, team-oriented, self-hosted, privacy-first, Racket-first
 platform for hosting AI tools & apps (the successor to the Python "Odysseus"). Pure
 OSS: no open-core, no held-back tier. Concepts may be reused from Odysseus; **only
@@ -1189,13 +1207,13 @@ numbered so the load order is in the filename.
   changed lines, which is the churn the "do not tidy a catalog by sorting it"
   rule exists to prevent. The `hash` is `sha1` of the English, no salt.
 
-## An export is a claim; a kit's export is its API (#110 r4)
+## An export is a promise; a kit's export is its API (#110 r4)
 
 89 bindings were `provide`d with no consumer anywhere in the tree — not another
 module, not a test, not a plugin. 84 are narrowed out and five are deliberately
 kept, and the line between them is the useful part:
 
-- **`domain/`, `server/`, `surface/` — narrow it.** An export there is a claim
+- **`domain/`, `server/`, `surface/` — narrow it.** An export there is a statement
   about this application's internal structure, and one nothing imports is a
   thing the next reader has to assume is load-bearing.
 - **`pkgs/` — leave it.** `db-kit`, `web-kit`, `sha2-kit` are reusable kits;
@@ -2747,7 +2765,7 @@ raco test test/embed-tests.rkt   # 17 cases, seven controls, all biting
   shape refusals beside it (count, duplicate index, out-of-range index,
   unusable vector, differing widths), because every one of them is silent.
 - **A ZERO VECTOR HAS NO DIRECTION, so `cosine` answers `#f`, not 0.** Zero would
-  make it the WORST match, which is a claim; `#f` lets the caller say it could
+  make it the WORST match, which states something; `#f` lets the caller say it could
   not compare. Providers really do return one for empty input.
 - **A MODEL CHANGE INVALIDATES EVERYTHING; A LABEL EDIT INVALIDATES ONE**
   (EMB‑8). Vectors from two checkpoints are not comparable and mixing them does
@@ -3440,7 +3458,7 @@ racket cli/telemachus-help.rkt status                      # and what it holds, 
   matched. The first chunk of a document has no heading above it — nothing
   precedes offset 0 — which is the second reason the title is in the composition.
 - **THE LOCALE IS AN EXACT SQL FILTER WITH A NAMED FALLBACK** (HELP‑12), and
-  cross-lingual retrieval is NOT claimed: whether `nomic-embed-text` puts a
+  cross-lingual retrieval is NOT promised: whether `nomic-embed-text` puts a
   Japanese question near its English answer is unmeasured. The report says which
   locale answered, because a silent English fallback in a Japanese page is worse
   than an obviously untranslated one. The locale of a document comes from a closed
@@ -5115,7 +5133,7 @@ bash test/s3-smoke.sh                 # the presign round trip: issuance + redem
   console download and the API GET, S3 GetObject / HeadObject / CopyObject
   source, LAY‑6's `repo.get`, PULL‑9's worker read, the indexer, `doc_text` in a
   workflow step. Nine call sites would be nine chances to forget and the tenth
-  would be silent. `current-read-context` says WHICH door; the claim is tested,
+  would be silent. `current-read-context` says WHICH door; it is tested,
   not asserted — a read through a door taught nothing about auditing still
   appears.
 - **A metadata GET is NOT a content read**, and the absence is asserted (the
@@ -5245,7 +5263,7 @@ racket cli/telemachus-anchor.rkt verify receipts.jsonl --public-key <hex>
   measures, so whoever can rewrite those can delete from here too. It exists to
   continue the sequence and to hold what has not yet been retained. **The
   retained copy is the anchor**, which is why the status read reports what was
-  EMITTED and never claims anything was retained — the platform cannot verify
+  EMITTED and never says anything was retained — the platform cannot verify
   that somebody else kept something (PULL‑11e's withdrawn-field rule).
 - **The heads are read AFTER a seal** (ANCHOR‑8). The audit chain is sealed by a
   sweep, so a head read mid-window is a value the next sweep legitimately
@@ -5517,7 +5535,7 @@ racket cli/telemachus-blobs.rkt plan   # then `migrate --verify`, then `verify`
   the scheduler in for `current-plugin`. Same seam `#:conn`/`#:migrations` use.
 - **Both checks run.** The path check still gives the better message for a
   missing or root-owned data directory; the probe is the one that exercises the
-  store. The path one is no longer the thing that claims to cover a bucket.
+  store. The path one is no longer the thing said to cover a bucket.
 - **`register-blob-store!` refuses a name another plugin owns** (#120), naming
   both plugins and telling the integrator to pick another name and select it with
   `TMACH_BLOB_STORE`. It was a bare `hash-set`, and the reported direction is
@@ -5770,7 +5788,7 @@ Built 15 Oct 2026. `POST /api/executors/:id/drain` and `/resume`,
   it is a healthy machine held back, which is what a drain creates. NULL reads
   as `active`; nothing is backfilled.
 - **Intent is NOT withdrawn when the row goes stale**, unlike `worker_state`
-  (PULL‑11e). A reported state is a claim the worker can no longer stand behind;
+  (PULL‑11e). A reported state is something the worker can no longer stand behind;
   intent is a standing instruction that does not decay. Withdrawing it would let
   a host return to rotation by going offline and coming back.
 - **A drained worker keeps polling and is answered 204.** It therefore keeps
@@ -5997,7 +6015,7 @@ bash test/e2e/validate.sh          # §7b — the one check that it RENDERS
   route that is `instance:read` and must not write. The existing signal is
   stronger: **startup refuses to serve on a failed probe, so an instance that is
   ANSWERING has already proven its store once.** Asserting that from this module
-  would be a claim about main.rkt made elsewhere (#119's shape), so the console
+  would be a statement about main.rkt made elsewhere (#119's shape), so the console
   says it in prose. What it cannot tell you is whether the store has gone away
   SINCE boot, and that is stated rather than implied. The smoke `refute`s the
   field, so it cannot quietly appear.
@@ -6326,6 +6344,439 @@ re-running against them.
   Postgres pays ~8 ms for a round of 30 idle polls where SQLite pays 0.6: a local
   socket round trip per query, under 1% of a core at one poll a second, recorded
   rather than acted on.
+
+## The sweep killed the tab bar (SWEEP‑1…3, reported from outside)
+
+PERF‑2/‑3 bounded the delegated-handler table and **broke every tab button after
+two clicks**. Reported from outside: "once I click on a few of the tabs (try
+agents, then translate), none of the tabs stay responsive."
+
+```sh
+raco test test/console-tests.rkt   # 42 cases; the two new ones are controlled
+bash test/e2e/validate.sh          # §3g — real CLICKS on the tab bar, five of them
+```
+
+- **THE SWEEP'S PREMISE IS FALSE FOR THE SHELL, AND THE SHELL IS THE BIGGEST
+  THING ON SCREEN.** `01-base.js` says entries are freed "once two further
+  passes have completed, so the DOM on screen and the two passes behind it are
+  always live". True of a tab's markup, which `renderTab()` replaces wholesale
+  every pass. False of `appShell()`: **`go()` calls only `renderTab()`**, so one
+  shell paint stays on screen across every later tab change while its handlers
+  sat inside `render()`'s bracket. After H_KEEP further passes the range was
+  swept and the tab buttons, logout, ⌘K and Ask all went dead.
+- **IT FAILS SILENTLY, WHICH IS WHY IT SURVIVED A FULL GREEN SUITE.** A swept
+  slot is a hole, so a click reaches the dispatcher's `typeof fn !== 'function'`
+  guard and returns: no error, no request, no console warning, and a page that
+  looks perfectly healthy. The e2e gate fails on any console error and there was
+  none to fail on.
+- **AND THE COMMENT ABOVE THE DEFECT DESCRIBED IT.** `Hk()` exists for "an
+  overlay that the shell keeps on screen while render passes run behind it", and
+  the shell itself — the largest instance of that class — was not given it. The
+  one risk the design wrote down is the one it then took.
+- **`Hk()` WOULD STILL HAVE BEEN WRONG HERE.** The shell is REPAINTED on every
+  `render()` (a language switch, a brand apply, a sign-in), so keeping each paint
+  for ever leaks a set per render with nothing freeing the shell it replaced.
+  `hShell()` is a SINGLE SLOT: the shell on screen is kept, the shell it replaces
+  is freed in the same breath, bounded at one shell's worth. The ranges cannot
+  overlap, because the new indices are all above the old range's end.
+- **THE BRACKETS NEST AND WERE NOT DEPTH-COUNTED** (SWEEP‑2). `render()` opens
+  one and then awaits `renderTab()`, which opens its own — so the inner
+  `hPassEnd()` closed the OUTER range and the outer `finally` became a no-op,
+  leaving anything registered after `await renderTab()` outside every bracket.
+  Nothing is registered there today, which is exactly why it needed fixing now
+  rather than when something was.
+- **§3f COULD NOT HAVE SEEN IT, AND THAT IS THE TESTING LESSON.** That case
+  proves an OVERLAY survives passes behind it — the design's own stated risk —
+  and nobody had asked whether the SHELL is swept, because the shell is not an
+  overlay. A positive control written against the real page is what settled it:
+  §3g clicks the tabs by **dispatching on the button**, never by calling `go()`,
+  which would work fine against the broken version. The control reports
+  `DEAD:chat,agent,translate,…` **before any click at all**, because the gate has
+  already run many passes by then — so the live reach was wider than the report:
+  any three render passes from any source, not specifically three tab clicks.
+- **A `\\s` IN A PYTHON STRING IS AN `\s` IN THE FILE IT WRITES.** A quoted
+  heredoc stops bash touching the text and does nothing about Python's own
+  escapes, so every `#px"\\s*"` landed as `#px"\s*"` and the test file would not
+  `read` at all. Use a raw string, or `[(]`-style character classes.
+
+## A refresh is not a re-render (CARD‑1‑6, reported from outside)
+
+"The queue on the admin page should stream in updates, not full page refresh …
+its pagination should have a numbered pagination, not just left and right, and
+shouldn't reload the entire page."
+
+```sh
+raco test test/console-tests.rkt   # 46 cases; three new blocks, controlled
+bash test/e2e/validate.sh          # §3i — the pager's arithmetic, in the browser
+```
+
+- **`renderTab()` PAINTS A `…` PLACEHOLDER BEFORE IT AWAITS, so using it as a
+  refresh blanks the screen.** That is right for a tab CHANGE and wrong for
+  everything else, and three things were using it as a refresh: the queue's
+  filter, its pager, and — **mine, from one slice earlier** — the 2-second jobs
+  poll, which therefore flashed the whole tab on every tick. On Admin it is worse
+  than a flash: that tab opens with EIGHT requests, so changing page re-read the
+  metrics, the session policy, the executors, the fleet and the instance features
+  to show twenty-five different rows of one table.
+- **`cardSwap(id, build)` IS BRACKETED, AND THAT IS NOT OPTIONAL** (CARD‑2). The
+  markup it paints registers handlers through `H()`, and a registration made
+  outside a bracket is NEVER swept — so a card refreshing every 2.5s would
+  accumulate closures for the life of the session, which is the leak #185
+  bounded, reintroduced by the thing meant to be cheaper than a render. With the
+  bracket the card's handlers live two further passes, by which time this card's
+  DOM has been replaced by a later refresh or by a tab render.
+- **THE ELEMENT IS LOOKED UP AGAIN AFTER THE AWAIT.** The tab may have changed
+  under it, and writing into a card that is no longer on screen paints over
+  whatever replaced it — `renderTab`'s own `renderSeq` lesson, one layer down.
+- **THE PAGE SIZE HAS ONE HOME** (CARD‑4). `queueQuery` asks the server for
+  `QPAGE` and the pager computes the page count from it; two literals would
+  disagree the day one changed and the symptom is a pager offering a page the
+  listing never fills — LIVE‑IN's shape. `const QPAGE` is declared ABOVE its
+  first use: it does not hoist, and while nothing calls these during script
+  evaluation, #110 r6 paid for that assumption once already.
+- **FIRST AND LAST ARE ALWAYS REACHABLE AND THE ELLIPSIS IS NOT A BUTTON**
+  (CARD‑5). A control whose destination a reader cannot predict is worse than
+  none. A page number out of range is CLAMPED rather than refused: the only way
+  to produce one is to type it, and the useful answer to "page 900 of 6" is page
+  6.
+- **THE PAGER'S EDGES ARE TESTED IN THE BROWSER, not by a source assertion**
+  (§3i). The window, the two ellipses and the clamp are a pure function with
+  interesting edges, so the gate CALLS the real one with fabricated totals —
+  §3c's rule for the Markdown sanitiser: a question about what code COMPUTES
+  cannot be answered by grepping it.
+- **AND THE PROPERTY THE REPORT WAS ABOUT IS ASSERTED DIRECTLY**: `renderSeq`
+  before and after a filter change. Controlled — put `renderTab()` back in
+  `qSet` and the gate fails with `renderSeq 27 -> 28`.
+- **A CONTROL WHOSE PATCH DID NOT APPLY IS NOT A CONTROL, for the second time in
+  these notes.** `sed` refused the substitution (`bad flag in substitute
+  command: '{'` — the replacement contained `{}`), printed its complaint, and
+  the gate then passed against UNCHANGED code, which reads exactly like a control
+  that did not bite. Patch with something that ASSERTS the old text was found.
+- **TRUE STREAMING IS STILL NOT THIS, and the reason is the idle clock.** There
+  is no event channel for job or queue state, and an SSE stream would be worse
+  than a poll here rather than better: it holds a connection open by design,
+  which is QVIZ‑6's objection in its strongest form. Both tickers therefore run
+  only while there is live work — queued, running or canceling — and a settled
+  queue schedules nothing, so an idle console really does go idle.
+
+## Three usability reports (UX‑1‑4, reported from outside)
+
+```sh
+raco test test/console-tests.rkt   # 48 cases; the Hk scan now reads CODE
+bash test/e2e/validate.sh          # §3k and §5b — nine assertions, all controlled
+```
+
+- **"WHEN YOU CLICK ON DETAILS IT SEEMS LIKE NOTHING HAPPENS"** (UX‑1), and it
+  was true: `#rdetail` sits AFTER the object table, so on a repository of any
+  size the panel is painted below the fold and the click produces no visible
+  change at all. The work happened; the result was off screen.
+  **A scroll rather than a modal**, for two reasons: the panel is not a dialog
+  (it is a detail of the row you came from, read alongside the list, with its own
+  Close), and a modal means an overlay — `Hk()`, a focus trap, and Esc ordered
+  against the palette's and the help overlay's (#182/#183). It scrolls only when
+  the panel is NOT already in view, because `repoOpenDetail` is re-called after a
+  visibility change, a share and a revoke, and a jump on every checkbox is its
+  own annoyance. `prefers-reduced-motion` is honoured: the point is to arrive.
+- **AND PLAYWRIGHT'S `click()` SCROLLS ITS TARGET INTO VIEW FIRST, WHICH MADE THE
+  FIRST TEST MEASURE PLAYWRIGHT.** The control passed with `repoRevealDetail()`
+  REMOVED: the click's own auto-scroll brought the panel along with it. The test
+  calls `repoOpenDetail(id)` directly now and the control fails by name
+  (`681 of 320`). **A real person clicking Details half way down a long list does
+  not get that favour** — which is the case the report is about.
+- **THE VIEWPORT IS SHRUNK TO 320px FOR THAT TEST, and without it the assertion
+  is vacuous.** The gate's repository holds ONE object, so at full height the
+  whole page fits and the panel is in view whether anything scrolled or not. The
+  comment claiming `window.scrollTo(0,0)` guarded against this was wrong —
+  scrolling to the top does nothing when the page does not overflow. The guard
+  that makes it mean something is an assertion that the panel **starts** below
+  the fold.
+- **AN EXPANDING PROMPT BAR** (UX‑2). Chat and Agent were `rows="3"` and fixed,
+  in the one place in this console where people paste a lot of text. `growTA`
+  measures `scrollHeight`, and that is **not** the editor's `edRows`, which
+  counts newlines: ED‑6 turns soft wrap OFF so the line gutter stays aligned,
+  which makes a line count exact there and wrong here, because a wrapped line
+  occupies several visual rows no newline count can see. Two functions with
+  different contracts are not `executor-can-run?`'s drift — that is two copies of
+  ONE rule — and a shared implementation would have to be the wrong one for one
+  of them.
+- **IT IS CAPPED AT 14 ROWS, and the control shows why**: uncapped, 400 lines
+  grow the bar to **9,018px** and push Send off the bottom of the screen, which
+  is worse than a scrollbar. The control to keep is that the button you are
+  reaching for stays reachable.
+- **`growAll()` RUNS AFTER A RENDER**, because both prompts ship with example
+  text and a grow-on-input handler never sees a prefilled value.
+- **A DURATION FOR A JOB THAT HAS NOT FINISHED** (UX‑3). CARD‑3's version
+  answered only for a settled job, so the column was blank for exactly the rows
+  somebody is staring at. A running job's second end is NOW, and it is MARKED —
+  "14s" and "14s so far" are different facts, and a reader who cannot tell them
+  apart reads a stalled job as a fast one. A QUEUED job still gets nothing: it
+  has no duration, and showing its age there would duplicate the `when` column
+  while looking like a run time. The jobs card's live poll re-renders every 2s,
+  so the figure ticks without a second timer.
+- **A TEXT SCAN OVER THE CONSOLE READS ITS OWN COMMENTS — FOURTH APPEARANCE, AND
+  IT IS FIXED IN ONE PLACE NOW** (UX‑4). `repoRevealDetail`'s header explains in
+  prose why a modal would mean `Hk()`, and the sweep test reported `09-repo.js`
+  as using `Hk(` outside the two overlay files. The fix is the SCAN, not the
+  wording: `console-code` strips comment lines and both askers share it — the Hk
+  test and ROUTE‑3's one-seam count, which had the same defect against the
+  router's own header. Controlled: a real `Hk(` in code still fails by name, so
+  the stripper is not a hole.
+
+## Linkable URLs: the hash mirrors the view (ROUTE‑1‑8, issue #230)
+
+`static/console/19-route.js`. **No route, no permission, no migration, no server
+change at all** — which is the whole argument for a fragment.
+
+```sh
+raco test test/console-tests.rkt   # 48 cases; the one-seam rule is controlled
+bash test/e2e/validate.sh          # §3j — 12 behaviour assertions in a browser
+```
+
+- **NOTHING WAS LINKABLE AND IT WAS AN OMISSION, NOT A DECISION.** `history` was
+  touched ONCE in the whole console — `bxSetLang`, which keeps `?lang=` in the
+  funnel's URL because ONB‑8 decided a funnel is a page people are LINKED to —
+  plus one `replaceState` to strip the activation token from the bar. Everything
+  else lived in `S` alone, so a reload always landed on Chat and Back did
+  nothing. The exceptions show the need had been met one case at a time:
+  `?lang=`, `?login=1`, the `/login` route, `/activate?token=`.
+- **HASH, NOT PATHS, FOR A SERVER-SIDE REASON** (ROUTE‑1). `routes.rkt` has four
+  HTML entry points and **no catch-all**, so `/jobs` would 404 rather than serve
+  the console. A catch-all turns every typo into the console instead of a 404 and
+  has to be reconciled with `/console/*path`,
+  `/beta/bundle/:plugin/*path` and `/api/x/:plugin/bundle/*path`.
+- **THE HASH IS A MIRROR OF STATE, AND THE ASYMMETRY IS THE DESIGN** (ROUTE‑2).
+  `navigate()` writes it FROM `S`; a hash that DISAGREES with `S` is an inbound
+  navigation. Nothing else reads the URL, so there is no write/read loop to
+  guard — and `pushState` fires no event, which is why this needs no re-entrancy
+  flag at all.
+- **ONE SEAM, AND IT IS `renderTab()`** (ROUTE‑3). Every view change passes
+  through it — `go()`, `wfOpen`, `repoOpenDetail`, `qSet`, `qGo`, the palette —
+  so not one call site had to learn about the address bar. **Controlled**: adding
+  a second writer in `go()` fails the test by name. A second writer is how a view
+  and its URL start disagreeing.
+- **AN UNCHANGED ROUTE WRITES NOTHING, and that is load-bearing** (ROUTE‑4). A
+  live run re-renders every 1.5s, so an unconditional push leaves a history entry
+  per tick and Back needs a hundred presses. The control measures it:
+  `30 -> 35` over five re-renders, **and Back then breaks too** — which is the
+  real-world consequence a count alone would not show.
+- **THE FIRST WRITE REPLACES.** Booting must not leave an entry you press Back
+  through to leave the page.
+- **AN UNREACHABLE HASH FALLS BACK AND THE BAR IS PUT BACK** (ROUTE‑5).
+  `visibleTabs()` is decided by permissions AND feature switches, so a link may
+  come from somebody who holds more than the reader does; painting a tab that is
+  not in the bar is worse than landing on the default. Leaving the URL describing
+  a view that is not on screen is worse again, so `routeChanged` rewrites it.
+- **THE ROUTE IS APPLIED AFTER `S.me` AND `S.features`** (ROUTE‑6), because the
+  tab list is not knowable until both have arrived. Earlier and every pasted link
+  would be judged against an empty tab list.
+- **NO CREDENTIAL AND NO UNSAVED TEXT, BY CONSTRUCTION** (ROUTE‑7).
+  `routeFromState` reads five fields and none is a token: `S.newToken` and
+  `S.wkToken` hold a credential shown ONCE, and a URL is pasted into chat, logged
+  by proxies and kept in history — which is why `/activate` already strips its
+  own. Unsaved editor text is out for a different reason: a link promising
+  content that was never saved is a link that lies, and `go()` already abandons
+  an edit on leaving a tab (#180). Asserted over the function's own source AND in
+  the browser against a state carrying a fake token.
+- **BOTH EVENTS, deliberately**: Back and Forward fire `popstate`, a hash typed
+  into the bar fires `hashchange`, and some engines fire both. The handler
+  compares and returns early, so a duplicate costs nothing.
+- **A SHARED LINK CANNOT LEAK**, which is why encoding a FILTER is safe: every
+  list in the console is already `can?`-filtered per row, so the recipient sees
+  their own view of it rather than the sender's.
+- **A SOURCE ASSERTION THAT COUNTS A LITERAL MUST SKIP COMMENTS.** The one-seam
+  check first counted `navigate()` across the tree and got 4 against an expected
+  2 — one was this router's own header prose, and there are legitimately two
+  CALLS (the seam, and the put-the-bar-back path). Third appearance of that trap;
+  the check now strips comment lines and asserts WHICH file calls it.
+
+## A PARTIAL UPDATE IS NOT A PASS EITHER (SWEEP‑4‑6, reported from outside)
+
+"If I click on refresh, I can no longer submit a chat from the jobs page."
+
+```sh
+raco test test/console-tests.rkt   # 47 cases
+bash test/e2e/validate.sh          # §3h2 — four real Refresh clicks
+```
+
+- **THE SWEEP'S PREMISE FAILS FOR ANY PARTIAL UPDATE, and `cardSwap` was one.**
+  It opened a render-pass bracket, so every refresh counted as a pass — and the
+  UN-SWAPPED siblings, painted by the tab render and then left alone, were swept
+  two refreshes later. The Jobs tab's submit form was the victim. **A live poll
+  makes ONE click enough**, because the tick is the second pass: reproduced in a
+  harness, the submit handler dies on refresh #2.
+- **This is the SHELL bug one layer down**, found three slices after it. The
+  shell survives because `go()` only re-renders the tab; a sibling card survives
+  because a refresh only replaces its neighbour. Both outlive the pass that
+  painted them, and the fix is the same — so `hShell` is now the first instance
+  of a general `hKeepSlot(key, html)` and a card swap is the second.
+- **THE KEPT SET IS READ OFF THE MARKUP, not off a range of the table.** A tab
+  render completing while a swap awaits its fetch registers handlers that would
+  fall inside a naive `[start, end)` and be wrongly kept — or freed on the next
+  swap. `hIndicesIn` scans for `data-h-*` indices, so a slot can only ever keep
+  or free what its own markup names.
+- **`H_EVENTS` IS ONE HOME, because two lists would drift silently.** The
+  dispatcher installs one listener per name and `hIndicesIn` scans for the same
+  set; a fifth event added to one and not the other is a region whose handlers
+  are quietly not kept. LIVE‑IN's shape in the dispatcher.
+- **§3g COULD NOT HAVE SEEN THIS, for the same reason §3f could not see §3g.**
+  Each assertion covered the region the previous bug was in: §3f the overlays,
+  §3g the shell, and the victim here is an ordinary sibling card inside the
+  tab's own pass. **Three bugs, one root cause, three separate assertions** —
+  the lesson is that "which regions outlive a pass?" is the question to enumerate
+  rather than to discover one report at a time.
+- **What a slot does NOT free, stated:** the last generation in a slot whose
+  region was replaced by a TAB render rather than by another swap of the same
+  card. One card's worth per card id, freed the next time that card is swapped.
+  Clearing every card slot on a tab render would be wrong — the shell's slot must
+  survive exactly that.
+
+## A button has to share the form controls' box (CSS‑1/‑2)
+
+"On every page, there are some issues with buttons alignment with the content.
+Buttons are staggered oddly."
+
+- **MEASURED BEFORE CHANGING ANYTHING, across every tab**: 12 of 22 control rows
+  misaligned, the worst by 23px. `input,textarea,select` carry
+  **`margin:4px 0 10px`** and a **1px border**; `.btn` had NEITHER — so in a
+  `.row` a button sat **10px below** the field beside it and was **2px shorter**.
+  The transparent border is what makes the heights match. After:
+  **7 of 22, worst 13px.**
+- **MY FIRST TWO HYPOTHESES WERE BOTH WRONG AND THE MEASUREMENT SAID SO.** I
+  read the rule as `margin:4px` (a wrapped line truncated by grep — it is
+  `4px 0 10px`) and guessed `.row{align-items:end}` would help, which it could
+  not: the rows that stagger ALREADY set it inline, where a stylesheet cannot
+  reach. Injecting a candidate and re-measuring is what settled it — 32→28 for
+  the wrong fix, 23→13 for the right one.
+- **AND THE METRIC ITSELF OVER-REPORTED BY ~20px** until it stopped counting
+  CHECKBOXES. A 13px checkbox inside its label cannot share a 43px text-field
+  box, so every row containing one looked catastrophically broken. A measurement
+  that flags something unfixable will send you looking for a cause that is not
+  there.
+- **`.btn.sm` NEEDED THE OPPOSITE RULE IN TWO PLACES**: no margin in a table cell
+  or the pager, which set their own spacing, and the control margin when it
+  really is in a form row (`.row > * > .btn.sm`). Zeroing it everywhere left the
+  small buttons 10px low; the pager opts back out by name, or its own `gap` is
+  doubled.
+- **WHAT IS LEFT, AND IT IS NOT CSS:** a `select` is 3px shorter than an `input`
+  because Chromium forces `line-height:normal` on it and ignores the author's;
+  and a `.btn.sm` beside a full-size field is genuinely 11px shorter, which is a
+  per-view MARKUP choice (use `.btn`, not `.btn.sm`, next to a full input) rather
+  than a rule. Stated rather than claimed as fixed.
+- **The shell is cached at startup, so a CSS change needs a RESTART** — unlike
+  `static/console/*.js`, which is read per request.
+
+## A timestamp has to come from the EPOCH (CARD‑3)
+
+"Jobs screen needs a timestamp and still doesn't show what worker handled the
+job."
+
+- **THE TEXT COLUMNS CANNOT BE PARSED BY THE CONSOLE.**
+  `created_at`/`started_at`/`finished_at` are TEXT `CURRENT_TIMESTAMP` and the
+  format differs by dialect (`2026-08-21 04:16:09` against
+  `2026-08-21 10:12:10.225696-07`) — but the sharper problem is that
+  **`new Date("2026-11-01 05:15:17")` is read as LOCAL time by most engines while
+  the value is UTC**, so a parsed timestamp is silently out by the viewer's own
+  offset with nothing anywhere to catch it. `created_epoch`, `started_epoch` and
+  `finished_epoch` (0041/0038/0066) exist for exactly this and each migration
+  records the trap; the age is arithmetic on integers and the absolute time is
+  formatted by the browser in the viewer's own zone.
+- **RELATIVE IS THE TEXT AND ABSOLUTE IS THE TITLE.** "4m ago" is what answers
+  "is this moving?", which is why somebody is looking at the column; the
+  wall-clock time is one hover away for when it is not. `{age} ago` is a sentence,
+  so the word order is the catalog's — `ja` is `{age}前`.
+- **The duration is a separate fact and is only shown once there is one**:
+  `finished_epoch - started_epoch`, both from the same clock, so it is a duration
+  and not a difference between two differently-formatted strings.
+- **"STILL DOESN'T SHOW THE WORKER" WAS A BARE DASH BEING READ AS MISSING DATA,
+  AND THAT IS A FAIR READING.** The column was correct — 50 of 50 rows carried a
+  name — and the two cases with no worker rendered `–` with the explanation in a
+  `title`. A tooltip is invisible, so under a column headed `worker` it reads as
+  broken rather than as "no worker was involved, by design". Both cases say so in
+  WORDS now (`unclaimed`, `in process`), which is the same argument #178 made for
+  the fleet figures.
+- **AND THE KINDS ON THAT TAB'S OWN FORM CANNOT HAVE A WORKER AT ALL.** `chat`
+  and `translate` are in-process scheduler kinds, so a job submitted there runs
+  in the pool and reports none; work that reaches a GPU host is `infer.chat`,
+  which a chat routed to the fleet creates as a SUB-JOB. The form now says so,
+  because otherwise the honest answer looks like the defect.
+
+## Only one worker showed a model (FLEET‑5, reported from outside)
+
+"Why does only one model show up in the workers page, and not for all workers,
+only for red5buntu?" Because **there are TWO records of a worker's model and the
+card read the one that governs nothing.**
+
+```sh
+raco test test/console-tests.rkt   # 43 cases; the new one is controlled
+```
+
+- **`executors.model` IS SET ONCE AND NEVER AGAIN.** It is a static column filled
+  from a value an operator typed at create time (`executor-create! #:model`),
+  nothing updates it, and **`executor-can-run?` does not read it** — matching is
+  against `capabilities.models`, which `observe-capabilities!` rewrites on EVERY
+  claim. So the card was rendering intent and ignoring observation.
+- **FLEET‑2 ADDED THE OBSERVED RECORD FOR EXACTLY THIS REASON AND THE CONSOLE
+  WAS NEVER MOVED OVER.** Its own note says `capabilities` "was written once at
+  create and was usually `{}` while the worker told us its kinds and models on
+  every poll — an aspirational record cannot answer the question above". It fixed
+  the DATA and left `05-fleet.js` reading the field it had replaced. #113's shape
+  with the halves swapped: the right value was being recorded and nothing showed
+  it.
+- **WHAT MADE IT VISIBLE WAS A FLEET BUILT THE DOCUMENTED WAY.** The GPU-fleet
+  runbook creates a worker and sets its models in the UNIT
+  (`TMACH_WORKER_MODELS`), because that is what governs matching and what the
+  worker declares; it never passes `#:model`. So all three oddriggo workers had a
+  NULL column and a correct declaration, while red5-ollama — created by hand,
+  earlier, with a model typed in — had both. One worker with a model and three
+  with dashes, on a fleet where all four were declaring correctly every poll.
+- **OBSERVED FIRST, THE COLUMN AS A MARKED FALLBACK.** A value nobody has
+  confirmed and one observed on the last claim are different claims about the
+  world, so the fallback renders muted with a `*` and says in its title that it
+  governs no matching — PULL‑11e's rule that a field a reader learns to distrust
+  is worse than an honest absence. It is only reachable for a worker that has
+  never claimed, which is the one state in which it is the only thing there is.
+- **THE DECLARED LIST IS JOINED AS DECLARED, NEVER SORTED.** The FIRST entry is
+  what the worker answers with when a job names no model — the GPU-fleet runbook
+  calls `TMACH_WORKER_MODELS` "the setting that fails QUIETLY" for that reason —
+  so the order carries information and `json-out`'s sort rule would be actively
+  wrong here, as it is for the judge wire.
+- **A PUSH BACKEND IS THE EXCEPTION AND NOT A SPECIAL CASE:** we CALL it, so it
+  never claims and has nothing to declare. Its own column is the answer, and the
+  helper branches on `mode` rather than on whether capabilities happen to be
+  empty — which would have made a push row's correct value look like a fallback.
+- **The header is `models`, plural.** A worker may declare several and the column
+  said "model", which is how a reader concludes the first of two is the only one.
+
+## The jobs list names its worker, and refreshes only while work is live
+
+- **"WHICH WORKER RAN THIS" IS THE FIRST QUESTION ASKED OF A FLEET, and the
+  listing answered with a uuid.** `executor_id` was projected and the NAME was
+  not, so on a multi-host fleet the column was unreadable. `JSELECT` LEFT JOINs
+  `executors` now. It discloses nothing new: `executor-list` already shows every
+  own-org and every shared (NULL-org) executor's name to any authenticated
+  caller, so this joins a name the caller can already read to a job that is
+  already theirs.
+- **THE JOIN MUST BE A `LEFT` JOIN AND THE TABLE MUST BE ALIASED.** An inner join
+  drops every in-process job, which on a single-box instance is all of them —
+  controlled, and the control names it. And `executors` has a `team_id` column of
+  its own, so an unqualified `WHERE team_id = ?` becomes ambiguous the moment the
+  join exists; both call sites qualify.
+- **AN ABSENT NAME MEANS TWO DIFFERENT THINGS and the console says which.** A
+  queued job has not been claimed by anybody; a job that has RUN with no holder
+  ran in the server's own pool, because an in-process claim leaves `executor_id`
+  NULL by design (the pool mints no executor row). Rendering one dash for both
+  reads as "unknown" for a case that is perfectly well known.
+- **THE REFRESH TICKS ON LIVE WORK, NOT ON A CLOCK** — QVIZ‑6's objection is
+  what rules out an interval: the idle clock counts from the last REQUEST (#38),
+  so a screen refreshing itself for as long as it is left open holds a session
+  alive indefinitely, which is a security control switched off by a convenience.
+  This is `wfRunView`'s live-run poll: it ticks only while some job is queued,
+  running or canceling, and the last settling job stops it, so an idle console
+  really does go idle. A generation counter (`S.jobPoll`, bumped by `go()`) stops
+  two polls overlapping after a tab change.
+- **True STREAMING is not this** and would be a platform slice: there is no event
+  channel for job status, and a persistent stream makes QVIZ‑6's problem worse
+  rather than better, since it holds the connection open by design.
 
 ## Research over a knowledge graph (RG‑1…14, issue #191) — DESIGNED, NOT BUILT
 
@@ -7787,7 +8238,7 @@ raco test test/build-identity-tests.rkt                 # 8 cases, the no-litera
   is `telemachus-0.4.0`, `share/telemachus/VERSION` is in the store, and
   `app-version` out of that store path answers `0.4.0`. That is the whole of
   REL‑2's claim, and an assertion about it from inside the tree would have been
-  a claim about the packaging made elsewhere (#119's shape).
+  a statement about the packaging made elsewhere (#119's shape).
 - **The paths are anchored at the test file with `define-runtime-path`, never at
   `current-directory`** — the first version used `path->complete-path` and
   resolved against `test/`, two levels off.

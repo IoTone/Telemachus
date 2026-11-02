@@ -17,7 +17,7 @@ Three secrets cannot be hashed, because they are not compared — they are *used
 
 ## Sealing the rest
 
-They are sealed with AES-256-GCM, keyed from the environment and never from the database. The claim is deliberately narrow, and worth stating precisely because the earlier note in the code got it half right: this defends a **dump** and does nothing for a **host**. An attacker running as the server reads the key out of its own environment. But a dump travels without that environment, and a dump is the thing that ends up somewhere it should not.
+They are sealed with AES-256-GCM, keyed from the environment and never from the database. What this protects is deliberately narrow, and worth stating precisely because the earlier note in the code got it half right: this defends a **dump** and does nothing for a **host**. An attacker running as the server reads the key out of its own environment. But a dump travels without that environment, and a dump is the thing that ends up somewhere it should not.
 
     enc:v1:<key-id>:<nonce>:<ciphertext+tag>
 

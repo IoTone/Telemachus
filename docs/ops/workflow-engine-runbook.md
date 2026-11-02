@@ -323,7 +323,7 @@ raco test test/*-tests.rkt           # everything: 137 cases
 Covers the validator (including that unknown fields and newer spec versions are
 *rejected*), the binding sublanguage, fan-out ordering and failure, `max_steps`,
 retries, cross-org refusal, and a run resumed **by a second database connection**
-after the first is closed — the durability claim, tested rather than asserted.
+after the first is closed — durability, tested rather than asserted.
 
 > **Never** run `raco test test/*.rkt`. That glob pulls in `test/mock-*.rkt`, which
 > are mock *servers* that block forever. Always `test/*-tests.rkt`.

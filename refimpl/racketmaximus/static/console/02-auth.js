@@ -164,9 +164,15 @@ function go(tab){ S.tab=tab; S.newToken=null;
   // #180: leaving a tab abandons an edit in progress, the same way it drops a
   // run poll. Keeping it would show a Save button on a card whose note is no
   // longer on screen.
-  if(tab!=='notes'){ S.noteEdit=null; edReset('note','', 'nb'); }
+  if(tab!=='notes'){ S.noteEdit=null; S.noteShow=null; edReset('note','', 'nb'); }
   if(tab!=='documents'){ S.docEdit=null; edReset('doc','', 'dc'); }
   S.wfPoll++;
+  // leaving the Jobs tab drops its live poll, the same way it drops a run poll
+  S.jobPoll++;
+  // …and leaving Admin or Health drops the queue card's. The tick also checks
+  // that #qcard is still on screen, which covers a render that removed it; this
+  // covers the one it does not, a tick already scheduled when the tab changed.
+  S.qPoll++;
   document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
   renderTab(); }
 

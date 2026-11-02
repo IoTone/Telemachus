@@ -14,11 +14,16 @@
          "registry.rkt"                 ; tool-by-name, tool-enabled?, enabled-tool-schemas, tool-*
          "tools.rkt"                    ; side effect: registers the built-in tools
          "../authz/authz.rkt"           ; can?, exn:fail:forbidden, principal-*
-         "../ai/executor.rkt"           ; model-exchange, response-tokens, model-configured?
+         "../ai/executor.rkt"           ; model-exchange, response-tokens, model-configured?,
+                                        ; max-input-chars/model-context — #231's budget
          "../exec/federation.rkt")      ; executor-exists? — is a name a push backend?
 (require (only-in "../ai/content.rkt" content->text))
 
-(provide run-agent-flow agent-configured? make-exec parse-agent-response dispatch-tool)
+(provide run-agent-flow agent-configured? make-exec parse-agent-response dispatch-tool
+         ;; exported FOR test/agent-tools-tests.rkt: every caller of the flow
+         ;; needs a live model, so the fitting rule is only reachable directly.
+         ;; An export with a test behind it is not an over-wide export (#110 r4).
+         fit-tools tool-schema-name withheld-tools-message)
 
 (define SYSTEM
   (string-append
@@ -27,6 +32,78 @@
    "calling a tool over guessing. After the tools run, reply with a short natural-language summary."))
 
 (define (agent-configured?) (model-configured?))
+
+;; ---- THE TOOL LIST HAS TO FIT THE WINDOW, AND IT DID NOT ---------------------
+;;
+;; Reported from outside: the agent tab's own shipped example prompt — "create a
+;; private note titled Q3 goals … then list my notes" — created SIX notes, the
+;; first correct and five degenerate, two of them with no body at all. The model
+;; was not at fault and neither was the parser; both were measured.
+;;
+;; WHAT WAS WRONG IS THAT THE PROMPT WAS FULL BEFORE THE USER TYPED ANYTHING.
+;; `enabled-tool-schemas` offers every registered tool, which on this build is
+;; 24 of them at **21,538 characters** of JSON schema — roughly 5,600 tokens
+;; into ollama's 4,096-token default window. Measured against the live model:
+;;
+;;     tools offered   schema chars   prompt_tokens   what came back
+;;     4 (the notes
+;;        and usage)          1,130             408   one correct create + list
+;;     24 (all of them)      22,599           4,095   "the tools provided do not
+;;                                                     include functionality for
+;;                                                     creating notes" — while
+;;                                                     calling create_note
+;;
+;; Past the window the prompt is discarded OLDEST FIRST, and the oldest message
+;; is the system prompt; next is the user's instruction. So the model is left
+;; holding a tool list with no task, invents a plausible call from the tool
+;; NAMES, is handed a result it cannot relate to anything, and calls again. The
+;; live `model_requests` rows for the reported run read `prompt_tokens` 4,095 on
+;; every one of six rounds while the MESSAGES were 356 characters.
+;;
+;; THE REMEDY IS TO OFFER WHAT FITS AND SAY WHAT DID NOT. Refusing the whole run
+;; would be defensible and is the wrong trade: an instance on the documented
+;; default would have no agent at all, where four tools in the window is a
+;; working agent. Silently dropping tools is the other wrong trade — so the
+;; names of what was withheld ride on the run's own `done` event and the console
+;; says them. It is `truncated`'s posture (CLS-27, VEC-29) and
+;; `content_search: false`'s: report what did not run, keep what did.
+;;
+;; THE ORDER IS THE REGISTRY'S, which puts the built-ins first and is the order a
+;; plugin's tools were loaded in — not sorted, because the order decides what
+;; survives and sorting by name would make that arbitrary. A tool whose schema
+;; does not fit the remaining budget is SKIPPED rather than ending the walk, so
+;; one fat schema (`doc_classify` is 3,140 characters by itself) cannot shut out
+;; the small ones behind it.
+;;
+;; THE BUDGET IS HALF THE WINDOW'S CHARACTERS — `max-input-chars`, #231's one
+;; number, reused rather than re-derived. What the other half pays for is the
+;; system prompt, the user's text, the transcript (which GROWS every round as
+;; tool results are fed back) and the completion. An operator who needs a tool
+;; this budget excludes has the lever already: `tool_settings` disables the ones
+;; a team does not use, per team, and what is left then fits.
+(define (tool-schema-name sch)
+  (with-handlers ([exn:fail? (lambda (_) "?")])
+    (hash-ref (hash-ref sch 'function (hasheq)) 'name "?")))
+
+;; -> (values kept withheld-names)
+(define (fit-tools schemas [budget (max-input-chars)])
+  (let loop ([rest schemas] [left budget] [kept '()] [out '()])
+    (cond
+      [(null? rest) (values (reverse kept) (reverse out))]
+      [else
+       (define sch (car rest))
+       (define cost (string-length (jsexpr->string sch)))
+       (if (<= cost left)
+           (loop (cdr rest) (- left cost) (cons sch kept) out)
+           (loop (cdr rest) left kept (cons (tool-schema-name sch) out)))])))
+
+(define (withheld-tools-message withheld)
+  (format (string-append
+           "~a tool(s) were not offered to the model because the whole tool list does not fit"
+           " its context window (~a tokens): ~a. Disable the tools this team does not need"
+           " (Usage > Tools), or raise the window on the model server itself (for ollama,"
+           " OLLAMA_CONTEXT_LENGTH) and set TMACH_MODEL_CONTEXT to match.")
+          (length withheld) (model-context) (string-join withheld ", ")))
 
 ;; ---- native model adapter (tool-calling) ------------------------------------
 ;; The request itself goes through model-exchange, so this module no longer builds
@@ -146,7 +223,10 @@
            (string-append "the agent runs on a push backend; ~a is not one. A pull executor "
                           "answers infer.chat, which carries a reply rather than tool calls.")
            executor))
-  (define tools (enabled-tool-schemas conn (principal-team-id p)))
+  (define-values (tools withheld) (fit-tools (enabled-tool-schemas conn (principal-team-id p))))
+  (unless (null? withheld)
+    (on-event (hasheq 'type "tools_withheld" 'names withheld
+                      'message (withheld-tools-message withheld))))
   (define usage (box 0))
   (define base-llm (make-llm tools executor usage))
   (define llm
@@ -161,5 +241,10 @@
   (on-event (hasheq 'type "done" 'reply (last-assistant-text result)
                     'rounds (agent-result-rounds result)
                     'tokens_used (unbox usage)
+                    'tools_offered (length tools)
+                    ;; QUOTA-3's rule: the key says something only when there is
+                    ;; something to say, so an instance whose whole tool list
+                    ;; fits carries no `tools_withheld` at all.
+                    'tools_withheld withheld
                     'status (symbol->string (agent-result-status result))))
   (values result (unbox usage)))

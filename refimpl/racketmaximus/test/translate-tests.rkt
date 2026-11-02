@@ -7,6 +7,11 @@
 (require rackunit db-kit/portable
          db-kit/migrate
          "../domain/apps/translate.rkt"
+         ;; #231: the context budget and the truncation detector live at the
+         ;; model seam, because the backstop belongs where the response is.
+         (only-in "../domain/ai/executor.rkt"
+                  model-context max-input-chars prompt-chars prompt-truncated?
+                  truncation-message)
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt")
@@ -57,3 +62,140 @@
     (translate-catalog! conn alice #:catalog (hasheq 'greeting "hello" 'bye "bye") #:target-lang "ja" #:chat json-chat))
   (check-equal? (hash-ref out 'greeting) "こんにちは")
   (check-equal? (hash-ref out 'bye) "さようなら"))
+
+;; ---- #231: too long to translate is a REFUSAL, not a summary ----------------
+;;
+;; The report, twice, with the input attached: a Wikipedia article pasted into
+;; the Translate tab came back as a short English summary and the platform stored
+;; that as the Japanese translation. The measurement behind these numbers is in
+;; `domain/ai/executor.rkt`; what is pinned here is that the platform refuses
+;; rather than returning it, and that the refusal arrives BEFORE anything is
+;; spent.
+
+(define (with-env name value thunk)
+  (define saved (getenv name))
+  (dynamic-wind (lambda () (putenv name value))
+                thunk
+                (lambda () (putenv name (or saved "")))))
+
+(test-case "#231: the budget is derived from the declared window, and 0 is never honoured"
+  ;; THE DEFAULT IS OLLAMA'S OWN DEFAULT, which is what makes it right for the
+  ;; ordinary deployment with nothing set — the demo box this was reported from
+  ;; serves exactly 4,096 while the model itself supports 32,768.
+  (with-env "TMACH_MODEL_CONTEXT" ""
+    (lambda ()
+      (check-equal? (model-context) 4096)
+      ;; 4 * (4096 - 256) / 2 = 7680 — and the measurement either side of it is
+      ;; what says it is in the right place: 8,000 characters came back wrong,
+      ;; 2,000 and 8,000... (8,000 was the last correct one, 24,000 was not).
+      (check-equal? (max-input-chars) 7680)))
+  (with-env "TMACH_MODEL_CONTEXT" "32768"
+    (lambda () (check-equal? (max-input-chars) (quotient (* 4 (- 32768 256)) 2))))
+  ;; An unparseable or non-positive value falls back to the DEFAULT, never to 0 —
+  ;; a 0 window would refuse every prompt ever sent.
+  (for ([bad (in-list '("nonsense" "0" "-5" "4096.5"))])
+    (with-env "TMACH_MODEL_CONTEXT" bad
+      (lambda () (check-equal? (model-context) 4096 (format "~a must fall back" bad))))))
+
+(test-case "#231: the detector is the PIN, and it does not fire on a healthy call"
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define (msgs chars) (list (hasheq 'role "user" 'content (make-string chars #\x))))
+      ;; The four rows measured against the live model. A ratio against our own
+      ;; estimate CANNOT separate these — the healthy 8,000 call reports 73% of
+      ;; its chars/4 estimate and the truncated 24,000 one reports 68% — which is
+      ;; the whole reason the test is "it read a windowful and we sent more".
+      (check-false (prompt-truncated? 390  (msgs 2000))  "2,000 chars / 390 tokens is healthy")
+      (check-false (prompt-truncated? 1470 (msgs 8000))  "8,000 chars / 1,470 tokens is healthy")
+      (check-true  (prompt-truncated? 4095 (msgs 24000)) "24,000 chars pinned at the window")
+      (check-true  (prompt-truncated? 4095 (msgs 45000)) "45,000 chars pinned at the window")
+      ;; ABOVE the band is a window declared too small, not a truncation: a
+      ;; server really serving 32,768 reports 5,000 tokens for a complete
+      ;; prompt, and a bare `>=` would refuse it.
+      (check-false (prompt-truncated? 5000 (msgs 45000))
+                   "a report above the declared window means the declaration is wrong")
+      ;; A provider that reports nothing cannot be judged, and must not be.
+      (check-false (prompt-truncated? #f (msgs 45000)))
+      ;; Pinned at the window with a SHORT prompt is not truncation — it is a
+      ;; declared window far below the real one, where every prompt would look
+      ;; pinned. A token covers at least one character, so the character count
+      ;; is the sound bound that rules it out.
+      (check-false (prompt-truncated? 4095 (msgs 100)))
+      ;; THE CASE A RATIO CANNOT SEE, and it is the one CHUNK-2 predicted. A
+      ;; control that swapped the pin for `prompt_tokens < 0.70 * estimate`
+      ;; passed every English row above, because the measured ratios (73.5%
+      ;; healthy, 68% truncated) straddle 0.70 — so the comment claiming a ratio
+      ;; cannot separate them was WRONG about English and is right here instead.
+      ;; Japanese runs near ONE token per character where `estimate-tokens`
+      ;; assumes four, so 8,000 characters of Japanese is ~8,000 real tokens, the
+      ;; estimate says 2,000, and the reported 4,095 is ABOVE the estimate: every
+      ;; ratio test reads a truncated call as comfortably healthy. The pin does
+      ;; not estimate, so it fires.
+      (define ja (list (hasheq 'role "user" 'content (make-string 8000 #\u3042))))
+      (check-true (prompt-truncated? 4095 ja)
+                  "a truncated Japanese prompt: the pin must fire where a ratio cannot")
+      ;; THE GAP, PINNED RATHER THAN IMPLIED. An operator who declares a window
+      ;; LARGER than the server really serves is protected by neither layer: the
+      ;; cap grows to fit the declaration and the detector looks for a pin at
+      ;; the declared number, so a prompt truncated at the real 4,096 reports
+      ;; 4,095 and sails under a band centred on 16,384. Verified on the live
+      ;; box — 32,256 characters came back in English with CJK 0.0 and nothing
+      ;; fired. There is no sound test that separates it from a complete prompt
+      ;; on a window bigger than we were told, so the contract is that the
+      ;; declaration is truthful, and this case exists so that nobody reads the
+      ;; detector as covering more than it does.
+      (check-false (parameterize () (with-env "TMACH_MODEL_CONTEXT" "16384"
+                                      (lambda () (prompt-truncated? 4095 (msgs 32256)))))
+                   "an OVER-declared window is caught by neither layer — by contract")
+      ;; THE EXTRAS ARE PART OF THE PROMPT, AND THEY WERE NOT COUNTED. This is
+      ;; the regression for the agent's six empty notes: the tool schemas ride in
+      ;; `#:extras`, not in `messages`, so on that path the detector was blind
+      ;; to 22,599 characters of what it was judging and the live rows — six
+      ;; rounds, `prompt_tokens: 4095` against 356 characters of messages — went
+      ;; through as `ok`. The character bound is sound only if it counts
+      ;; everything that is sent.
+      (define tools (hasheq 'tools (for/list ([i 24])
+                                     (hasheq 'name (format "t~a" i)
+                                             'description (make-string 900 #\y)))))
+      (check-true (> (prompt-chars (msgs 356) tools) 20000)
+                  "the extras are counted as the JSON they are serialized into")
+      (check-false (prompt-truncated? 4095 (msgs 356))
+                   "messages alone cannot explain a windowful — this is the OLD blindness")
+      (check-true (prompt-truncated? 4095 (msgs 356) tools)
+                  "…and with the tool list counted, the agent's own case fires")
+      ;; The message names the numbers and both remedies, and never the text.
+      (define m (truncation-message 'translate 4095))
+      (check-true (regexp-match? #rx"4095" m))
+      (check-true (regexp-match? #rx"4096" m))
+      (check-true (regexp-match? #rx"OLLAMA_CONTEXT_LENGTH" m))
+      (check-true (regexp-match? #rx"TMACH_MODEL_CONTEXT" m)))))
+
+(test-case "#231: translate! refuses an over-long text BEFORE it spends anything"
+  (with-env "TMACH_MODEL_CONTEXT" "4096"
+    (lambda ()
+      (define conn (fresh))
+      (define-values (uid tid) (bootstrap! conn #:username "alice"))
+      (define alice (user-principal conn uid tid))
+      (define called (box 0))
+      (define (counting-chat text sys) (set-box! called (add1 (unbox called))) (values text 7))
+      (define long (make-string (+ 1 (max-input-chars)) #\x))
+      ;; A 400 the caller sees, not a 500 (#123).
+      (check-exn exn:fail:user?
+                 (lambda () (translate! conn alice #:text long #:target-lang "ja" #:chat counting-chat)))
+      ;; THE MODEL WAS NEVER CALLED, which is the point of doing it pre-flight:
+      ;; a refusal after the wait has already spent the budget and the minute.
+      (check-equal? (unbox called) 0 "the model must not be called for a text that cannot fit")
+      ;; …and nothing was stored. The live row this was reported from is 39,462
+      ;; characters in and 1,187 out, kept as though it were the translation.
+      (check-equal? (length (translate-list conn alice)) 0)
+      ;; One character under the limit still goes through.
+      (define-values (job _t)
+        (translate! conn alice #:text (make-string (max-input-chars) #\x)
+                    #:target-lang "ja" #:chat counting-chat))
+      (check-equal? (unbox called) 1)
+      (check-equal? (length (translate-list conn alice)) 1)
+      ;; The refusal says the length, the limit and why longer comes back wrong.
+      (define m (with-handlers ([exn:fail:user? exn-message])
+                  (translate! conn alice #:text long #:target-lang "ja" #:chat counting-chat)))
+      (check-true (regexp-match? #rx"7680" m) m)
+      (check-true (regexp-match? #rx"7681" m) m))))

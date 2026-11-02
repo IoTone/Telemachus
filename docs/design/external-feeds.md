@@ -6,8 +6,8 @@ FEED‑4 as #142, FEED‑5/‑6/‑12/‑13 as the feed configuration plane, and
 FEED‑14…22 as the first adapter — GitHub issues, 23 Oct 2026). Slices 5 (the
 ranked queue) and 6 (proposals) remain, and FEED‑8 says both are the plugin's.
 Decisions FEED‑1…22.
-Every claim about what exists was checked against the code and carries a
-reference; where a claim in an earlier comment of mine turned out to be wrong,
+Every statement about what exists was checked against the code and carries a
+reference; where something I wrote in an earlier comment turned out to be wrong,
 the correction is marked.*
 
 The ask, restated as a capability: **pull work items from systems the customer

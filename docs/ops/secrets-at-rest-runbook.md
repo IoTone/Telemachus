@@ -32,7 +32,7 @@ The key lives in the environment (`TMACH_SECRET_KEY`), never in the database.
   sealed rows are AES-256-GCM ciphertext.
 - **It does not defend a host.** An attacker who is running as the server reads the
   key out of its own environment. Nothing here changes that, and nothing here
-  should be read as claiming otherwise.
+  should be read as saying otherwise.
 - **It does not replace encrypting the volume, or keeping backups out of reach.**
   It means that when a backup *does* end up somewhere it should not, the credentials
   in it are not usable.
@@ -44,7 +44,7 @@ reach.
 
 ## 2b. Volume encryption is necessary, and it is not sufficient
 
-The two claims point in opposite directions and both are true, so it is worth
+The two statements point in opposite directions and both are true, so it is worth
 being plain about which does what.
 
 RDS encryption, an encrypted EBS volume or LUKS under the data directory defends

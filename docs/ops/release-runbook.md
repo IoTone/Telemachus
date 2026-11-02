@@ -51,9 +51,9 @@ is also why `flake.nix` passes `self.rev or "dev"` rather than `dirtyRev`.
 4. **Re-render the generated reference, in BOTH locales.** The version IS in a
    generated document — `docs/reference/README.md` line 3 reads "Version
    `<version>`", from the generator's `app-version` — so a bump that does not
-   re-render fails CI's drift gate. **This page first claimed the opposite and
+   re-render fails CI's drift gate. **This page first said the opposite and
    CI corrected it on the first run**, which is the same shape as the
-   `telemachus-docs check --locale` claim asserted three times without testing
+   `telemachus-docs check --locale` assertion made three times without testing
    and then disproved by its own control:
 
    ```sh

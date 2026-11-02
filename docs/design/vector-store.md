@@ -9,7 +9,7 @@ forced to decide rather than inherit an answer nobody made on purpose.
 
 Everything below was measured on this box (aarch64‑darwin, Racket 9.3,
 SQLite 3.53.3, PostgreSQL 18.6, pgvector 0.8.7) on 28 Oct 2026. The scripts are
-throwaway; the numbers are not, and every claim that decides something here is
+throwaway; the numbers are not, and every statement that decides something here is
 one of them rather than an opinion about one.
 
 ## What exists, and where it stops

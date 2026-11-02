@@ -18,6 +18,9 @@
 ;; the per-team concurrency cap exactly like the simulated job did.
 
 (require racket/string
+         ;; `jsexpr->string` — `prompt-chars` counts the EXTRAS as the JSON they
+         ;; are serialized into, which is literally what crosses the wire.
+         json
          "../agent/llm.rkt"             ; http-post-json / http-post-data, sanitize-wire-messages
                                         ; + exn:fail:model-retryable's reason, which
                                         ; is what makes the log's error kind honest
@@ -37,6 +40,14 @@
          model-request-logger log-model-request! transport-error-kind
          egress-policy egress-refusal
          model-exchange response-tokens
+         ;; #231: the context budget and the truncation detector. Exported
+         ;; because `translate!` enforces the budget on its own input before it
+         ;; spends anything, the endpoint reports it so the console can show it,
+         ;; and the detector is only reachable directly (every caller of it
+         ;; needs a live socket) — an export with a test behind it is not an
+         ;; over-wide export (#110 r4).
+         model-context max-input-chars prompt-chars prompt-truncated? truncation-message
+         CONTEXT-DEFAULT CONTEXT-RESERVE
          embed-exchange embed-configured? embed-model embedding-vectors embedding-tokens
          ;; #192: the THIRD seam. Audio in, text out, over the OpenAI-compatible
          ;; `/v1/audio/transcriptions` shape — its own endpoint and its own model
@@ -207,6 +218,198 @@
          (format "the configured model (~a) declares it cannot do ~a — see TMACH_MODEL_CAPS"
                  (model-name) k))))
 
+;; ---- the context window, and the two layers that keep a prompt inside it -----
+;;
+;; #231. THE FAILURE THIS EXISTS FOR IS A WRONG ANSWER PRESENTED AS A RIGHT ONE,
+;; which is the one shape this platform refuses everywhere else it can see it.
+;; Measured against the demo box's own ollama, `qwen2.5:7b`, one system prompt
+;; asking for a Japanese translation and plain English prose as the user turn:
+;;
+;;     input chars   usage.prompt_tokens   finish_reason   the reply
+;;         2,000             390               stop        Japanese, correct
+;;         8,000           1,470               stop        Japanese, correct
+;;        24,000           4,095               stop        ENGLISH, a summary
+;;        45,000           4,095               stop        ENGLISH, "your message
+;;                                                         was cut off at the end"
+;;
+;; `GET /api/ps` reports `context_length: 4096` while `/api/show` reports the
+;; model's own `qwen2.context_length: 32768` — the SERVER serves a window eight
+;; times smaller than the model's, which is ollama's default and therefore the
+;; ordinary deployment. Past the window the prompt is discarded OLDEST FIRST,
+;; and the oldest message is the SYSTEM PROMPT: so the instruction to translate
+;; is exactly what gets dropped, the model is left holding a bare document with
+;; no task, and it does the reasonable thing with it — it chats about it, in
+;; English. Every row above reports `finish_reason: "stop"`, so the provider
+;; calls it a clean and complete success, and the platform stored it as the
+;; translation.
+;;
+;; AND IT CANNOT BE FIXED BY SENDING A FIELD, which was the first thing I tried
+;; and is the fix a reader will reach for. `num_ctx` is an OLLAMA option, not an
+;; OpenAI one, and the compatibility endpoint drops it: `{"options":{"num_ctx":
+;; 16384}}` and a top-level `{"num_ctx":16384}` both came back `prompt_tokens:
+;; 4095`, unchanged. The window is the SERVER's to set
+;; (`OLLAMA_CONTEXT_LENGTH`, or a Modelfile `PARAMETER num_ctx`), so the only
+;; honest thing a client can do is know the number and stay inside it — which is
+;; why this is a declared budget and a detector rather than a header.
+(define CONTEXT-DEFAULT 4096)   ; ollama's own default, so it is right unchanged for the common case
+(define CONTEXT-RESERVE 256)    ; the system prompt, a glossary, and the wire's own overhead
+
+;; An unparseable or non-positive value falls back to the default, NEVER to 0 —
+;; every default-bearing knob here follows that rule, and a 0 would refuse every
+;; prompt ever sent.
+(define (model-context)
+  (define n (string->number (string-trim (or (tmach-env "MODEL_CONTEXT") ""))))
+  (if (and (exact-integer? n) (> n 0)) n CONTEXT-DEFAULT))
+
+;; THE BUDGET IS IN CHARACTERS, and that is a deliberate choice of unit: a
+;; character count is what a caller can check before it sends anything, what a
+;; person can see ticking beside an input field, and what the server can refuse
+;; on — one number in one place rather than a token estimate computed twice and
+;; disagreeing by a browser.
+;;
+;; Where the number comes from: a translation's OUTPUT is about as long as its
+;; input (measured above — 1,470 prompt tokens against 1,483 completion ones, a
+;; ratio of 1.01), so the window has to hold the input TWICE. `estimate-tokens`
+;; is four characters to the token, so
+;;
+;;     max chars = 4 * (context - reserve) / 2
+;;
+;; which is 7,680 for a 4,096 window. What says that is in the right PLACE
+;; rather than merely arithmetically derived is the measurement either side of
+;; it: 8,000 characters translated correctly and 24,000 did not.
+;;
+;; IT IS AN ENGLISH NUMBER, AND THAT IS THE LIMITATION TO READ FIRST. CHUNK-2's
+;; finding applies here unchanged: Japanese runs near ONE token per character
+;; where English runs near four, so 7,680 characters of Japanese is ~7,680
+;; tokens and overruns a window the same count of English sits comfortably
+;; inside. A per-language ratio nobody has measured would be the confident wrong
+;; answer, so this layer does not guess at one — what catches that case is the
+;; BACKSTOP below, which does not estimate anything and asks the provider what
+;; it actually read.
+(define (max-input-chars)
+  (max 1000 (quotient (* 4 (- (model-context) CONTEXT-RESERVE)) 2)))
+
+;; `usage.prompt_tokens` is the free truncation detector and this platform threw
+;; it away: `response-tokens` reads `total_tokens` alone, and until now the
+;; EMBEDDING path was the only reader of the prompt count anywhere in the tree.
+;;
+;; THE TEST IS THE PIN, NOT A RATIO AGAINST OUR OWN ESTIMATE — and A CONTROL IS
+;; WHAT CORRECTED ME ABOUT WHY. My first reason was that the measured ratios
+;; straddle any threshold: a healthy 8,000-character call reports 73.5% of its
+;; chars/4 estimate and the truncated 24,000-character one reports 68%. That is
+;; a thin margin and it is NOT the argument, because substituting
+;; `prompt_tokens < 0.70 * estimate` for the pin passed every English row —
+;; 0.70 sits between 68 and 73.5 and separates them perfectly.
+;;
+;; THE REASON A RATIO FAILS IS THE LANGUAGE, which is CHUNK-2's finding arriving
+;; where it does real damage. `estimate-tokens` is four characters to the token,
+;; an ENGLISH figure; Japanese runs near ONE. So 8,000 characters of Japanese is
+;; ~8,000 real tokens, the estimate says 2,000, and a prompt truncated at 4,095
+;; reports MORE tokens than we estimated we sent — every ratio test reads it as
+;; comfortably healthy and the detector goes quiet on exactly the input the
+;; pre-flight cap is also weakest on. The two layers would then have the SAME
+;; blind spot, which is the one thing a backstop must not share with the thing
+;; it backs up.
+;;
+;; AND MY FIRST VERSION OF THE PIN HAD THE SAME BLIND SPOT, which the Japanese
+;; case found one commit after I wrote that paragraph. It read "it reported a
+;; windowful AND our estimate of what we sent exceeds it" — and for 8,000
+;; characters of Japanese the estimate is 2,000 against a reported 4,095, so the
+;; second half is false and the detector went quiet on the very input it had
+;; just been argued to cover. A guard phrased in estimated TOKENS cannot escape
+;; the estimate.
+;;
+;; What it is phrased in now is CHARACTERS, because a token covers at least one
+;; character in every tokenizer — so a character count is a sound upper bound on
+;; the token count of what we sent, which is all the guard needs and is
+;; language-independent. The test is: the provider reported a token count equal
+;; to the window we believe it has, and we sent at least that many characters.
+;; `test/translate-tests.rkt` carries the Japanese case, and the ratio control
+;; fails it.
+;;
+;; WHAT IT DOES NOT CATCH, AND I CLAIMED IT DID. The first version of this
+;; paragraph said that raising `TMACH_MODEL_CONTEXT` without raising the
+;; server's real window leaves the pre-flight cap useless "while this catches
+;; the overrun and says so by name — that is what makes the cap safe to raise".
+;; That is FALSE, and running it on the live box is what said so: declared
+;; 16,384 against an ollama serving 4,096, a 32,256-character input came back in
+;; English with `prompt_tokens: 4095` and nothing fired, because 4,095 is far
+;; BELOW the declared band.
+;;
+;; The band's upper bound is what makes an under-declaration safe and its lower
+;; bound is what makes an over-declaration invisible, and the two cannot both be
+;; had, because at realistic sizes the observation is the same: a token count
+;; below the declared window, over characters that could have produced it. There
+;; is no sound language-independent test that separates "a complete prompt on a
+;; bigger window than we were told" from "a truncated prompt on a smaller one".
+;; A pin on the power-of-two boundaries below the declared window WOULD separate
+;; them — real windows are powers of two and ollama reports window minus one —
+;; and it is rejected as a REFUSAL rather than overlooked: a genuinely complete
+;; ~4,096-token prompt on a 32,768 server would be refused by it, which is on
+;; the order of one request in a thousand, and refusing a good answer that often
+;; is worse than this gap.
+;;
+;; So the contract is that the DECLARATION MUST BE TRUTHFUL, which is why the
+;; default is the one ollama itself ships and `docs/ops/configuration.md` says
+;; to raise this only together with the server's real window.
+;; `test/translate-tests.rkt` pins the gap so the coverage cannot be mistaken,
+;; and the stateful version — the highest `prompt_tokens` ever seen from a
+;; backend being far under its declared window, which the model-request log
+;; already holds the data for — is the honest way to close it and is its own
+;; piece of work.
+
+;; EVERYTHING THAT GOES INTO THE PROMPT, IN CHARACTERS — and the second argument
+;; is why this is its own function rather than a `for/sum` inside the detector.
+;;
+;; The first version counted `messages` and nothing else, and `#:extras` is
+;; where the TOOL SCHEMAS ride. So on the agent's path the detector was blind to
+;; 22,599 characters of the prompt — measured, on the shipped tool set — and
+;; went quiet on the one caller whose prompt is mostly not messages. That is the
+;; same silent truncation #231 was filed about, in the same function, found one
+;; session later from the other side: the agent's six rounds each reported
+;; `prompt_tokens: 4095` against 356 characters of messages, `(<= 4095 356)` was
+;; false, and nothing fired.
+;;
+;; A token covers at least one character in every tokenizer and every language,
+;; so a character count is a SOUND upper bound on the token count of what was
+;; sent — which is the only property the guard needs, and the only one an
+;; estimate cannot give. The extras are counted as the JSON they are serialized
+;; into, because that is literally what crosses the wire.
+(define (prompt-chars messages [extras (hasheq)])
+  (+ (for/sum ([m (in-list messages)])
+       (let ([c (hash-ref m 'content "")])
+         (if (string? c) (string-length c) 0)))
+     (if (or (not (hash? extras)) (zero? (hash-count extras)))
+         0
+         (with-handlers ([exn:fail? (lambda (_) 0)])
+           (string-length (jsexpr->string extras))))))
+
+(define (prompt-truncated? prompt-tokens messages [extras (hasheq)])
+  (define ctx (model-context))
+  (define chars (prompt-chars messages extras))
+  (and (number? prompt-tokens)
+       ;; IT READ A NUMBER OF TOKENS EQUAL TO THE WINDOW WE THINK IT HAS. The
+       ;; band is narrow in both directions on purpose. Below it, nothing is
+       ;; wrong. ABOVE it the declared window is simply too small — a server
+       ;; serving 32,768 while `TMACH_MODEL_CONTEXT` says 4,096 would report
+       ;; 5,000 tokens for a perfectly complete prompt, and a bare `>=` would
+       ;; refuse it. ollama reports the window minus one.
+       (<= (- ctx 2) prompt-tokens (+ ctx 1))
+       ;; …AND THE TEXT WAS LONG ENOUGH FOR THAT TO MEAN ANYTHING. Without this
+       ;; a declared window far below the real one makes every short prompt look
+       ;; pinned. It is the sound bound above, so it holds in any language.
+       (<= prompt-tokens chars)))
+
+(define (truncation-message who prompt-tokens)
+  (format (string-append
+           "the model read only ~a tokens of this prompt, which is its whole context window"
+           " (~a) — the rest was DISCARDED before it was read, oldest first, which drops the"
+           " instructions and leaves an answer about nothing. The reply has been refused rather"
+           " than returned. Send less text (the limit is about ~a characters of English at this"
+           " window), or raise the window on the model server itself (for ollama,"
+           " OLLAMA_CONTEXT_LENGTH) and set TMACH_MODEL_CONTEXT to match.")
+          prompt-tokens (model-context) (max-input-chars)))
+
 ;; ---- EMB-1: the embedding endpoint is its OWN, and that is forced ------------
 ;; An embedding model is a DIFFERENT model from the chat model — `nomic-embed-text`
 ;; or `bge-m3`, never `qwen2.5:7b` — so the model NAME cannot be shared with
@@ -248,6 +451,12 @@
   (hasheq 'configured (model-configured?)
           'url (or (model-url) 'null)
           'model (model-name)
+          ;; #231's two numbers, so a prompt field can count against the SERVER's
+          ;; limit rather than a literal of its own — `GET /api/translate` already
+          ;; reports `max_chars` for the same reason, and two console copies of
+          ;; one budget is LIVE-IN's shape.
+          'context (model-context)
+          'max_chars (max-input-chars)
           'capabilities (model-caps)))
 
 ;; total_tokens as the provider reported it, or #f. The agent needs the count
@@ -378,6 +587,26 @@
   (unless (= code 200)
     (log! "error" #:kind "http" #:http code)
     (error who "model endpoint returned HTTP ~a: ~a" code (provider-detail resp)))
+  ;; #231 — THE BACKSTOP, and it is here for RED-16's reason: this is the one
+  ;; place a push request leaves, so every caller gets it rather than whichever
+  ;; one remembered. A silently truncated prompt is a wrong answer for an
+  ;; extraction, a classification and a knowledge-graph pass exactly as much as
+  ;; for a translation; it was only ever REPORTED for the translation because
+  ;; that is the one whose output a person reads in full.
+  ;;
+  ;; It is a `raise-user-error`, so a 400 rather than a 500 (#123): the caller
+  ;; or their operator sent more than the window holds, and the message names
+  ;; both numbers and both remedies. Refusing is the point — the alternative is
+  ;; the thing #231 was filed about, an answer about a document with its
+  ;; instructions missing, stored as though it were the answer.
+  ;;
+  ;; It is logged as a request that FAILED, with its own error kind, because an
+  ;; operator looking at `GET /api/model-requests` to find out why answers went
+  ;; strange should find the reason there rather than an unbroken run of `ok`.
+  (let ([pt (hash-ref (hash-ref resp 'usage (hasheq)) 'prompt_tokens #f)])
+    (when (prompt-truncated? pt messages extras)
+      (log! "error" #:kind "truncated" #:http 200 #:tokens (response-tokens resp))
+      (raise-user-error who "~a" (truncation-message who pt))))
   (log! "ok" #:http 200 #:tokens (response-tokens resp))
   (values resp url mdl))
 

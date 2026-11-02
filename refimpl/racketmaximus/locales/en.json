@@ -23,6 +23,14 @@
       "text": "Update password",
       "hash": "350c355e16e3d9376089bcc83dc5a8a964d9a748"
     },
+    "doc.workflow.process-upload": {
+      "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
+      "hash": "41dfd3404a1fc0ec4a33fc8dbf03232097d86cbb"
+    },
+    "ui.jobago": {
+      "text": "{age} ago",
+      "hash": "1ebef83b6f3881bed47f04d4eabef9ee2108c73d"
+    },
     "doc.route.get.api.repo-obj.id.form-fields": {
       "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
       "hash": "73c99d2a62d3623714b2ff633415089de4ebc3f5"
@@ -58,6 +66,10 @@
     "doc.tool.doc_set_type.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
+    },
+    "ui.wkmodelsobs": {
+      "text": "Declared by this worker on its last claim. The first is what it answers with when a job names no model at all.",
+      "hash": "4df91b5e52dd3e0e22f4bd941c947f799d07c3ca"
     },
     "doc.route.post.api.beta.experience.publish": {
       "text": "Publish the saved draft; it then wins over the ENV-seeded default.",
@@ -163,6 +175,10 @@
       "text": "holding",
       "hash": "329bb6c3b55346c25bd3f35339f2942b972a5966"
     },
+    "ui.jobinproc": {
+      "text": "ran in the server itself — an in-process job has no worker",
+      "hash": "2690f8ab63bf161e9f8f4644dcb9ba2c579f1109"
+    },
     "ui.kg_mentions": {
       "text": "mentions",
       "hash": "e2aee0fb859bc1f04b25c2de06f5fd64a66759f3"
@@ -194,6 +210,10 @@
     "doc.perm.team:delete": {
       "text": "Delete a team.",
       "hash": "14603661fd2e4c3e08ed7237c3bb12048ac9ea97"
+    },
+    "ui.trfailed": {
+      "text": "the translation failed.",
+      "hash": "4961cdf5d2a505275ce6e0f2a88745122cd09099"
     },
     "doc.tool.doc_text.object": {
       "text": "The repository object id",
@@ -231,10 +251,6 @@
       "text": "Enqueue a scheduler job of a registered kind.",
       "hash": "fff845878822c59c97eb52e16eb48498503ff750"
     },
-    "doc.workflow.process-upload": {
-      "text": "Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance.",
-      "hash": "41dfd3404a1fc0ec4a33fc8dbf03232097d86cbb"
-    },
     "doc.route.put.api.org.branding": {
       "text": "Set the company's title, tagline, logo and theme: what the console wears on the company's hostname and for its signed-in users. Theme tokens are validated and contrast-gated exactly as the instance's are.",
       "hash": "999005b24f8ad5bf7e9099934d4fedd77ee9f5af"
@@ -251,13 +267,17 @@
       "text": "Knowledge",
       "hash": "dec1fccaba73443d77f5cfc48dacf9d496399f53"
     },
-    "ui.documents": {
-      "text": "Documents",
-      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
-    },
     "doc.route.get.api.model-requests": {
       "text": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count and outcome. Never the prompt text. Filter with ?executor=, page with ?limit= and ?offset=.",
       "hash": "f4d9c40d182ca8e0cc0c1b974759a9dfdfabfc98"
+    },
+    "ui.jobrunninghint": {
+      "text": "How long this job has been running. It has not finished, so the figure moves on every refresh.",
+      "hash": "46a8b01e1546910fd55451722e05da0556835373"
+    },
+    "ui.documents": {
+      "text": "Documents",
+      "hash": "687c82861c956e47456186f6522cfc8dbadb8ef6"
     },
     "ui.content": {
       "text": "Content",
@@ -370,6 +390,10 @@
     "ui.reviewrevise": {
       "text": "Send back",
       "hash": "0aa2a5cc3f18a3fdca8547cbf066e131c1c06469"
+    },
+    "ui.error": {
+      "text": "error",
+      "hash": "11f9578d05e6f7bb58a3cdd00107e9f4e3882671"
     },
     "doc.route.post.api.2fa.enable": {
       "text": "Enable TOTP two-factor authentication for the caller; returns the secret and a set of single-use recovery codes, once.",
@@ -638,6 +662,10 @@
     "doc.route.post.api.l10n.import": {
       "text": "Pull the catalogs on disk into the Manager's tables.",
       "hash": "ee1a9aa18b893d69cccefe0369bcdf203aa1ee28"
+    },
+    "ui.jobkindhint": {
+      "text": "chat and translate run in the server's own pool, so they report no worker. Work that goes to a GPU host is kind infer.chat, which a chat routed to the fleet creates as a sub-job.",
+      "hash": "d6de0198fba5acbe003ee38e5e13d4ee851828c2"
     },
     "ui.heldbycap": {
       "text": "held: team at {limit} concurrent",
@@ -1087,13 +1115,21 @@
       "text": "Target language code, e.g. es, nl, is",
       "hash": "65a2dc8534dbb74382739ccfe647a20a6fc032bf"
     },
+    "ui.wkconfig": {
+      "text": "from file",
+      "hash": "9b86f93c66562c2612bd5a911294e5d3d931fa4c"
+    },
+    "ui.qprev": {
+      "text": "previous page",
+      "hash": "a2cd197c60374befa6edb04fd2e92376b59d7c97"
+    },
     "ui.thbg": {
       "text": "Background",
       "hash": "64dd60fe1a049fe6db3eb1369dec2e42bf428e21"
     },
-    "ui.wkconfig": {
-      "text": "from file",
-      "hash": "9b86f93c66562c2612bd5a911294e5d3d931fa4c"
+    "ui.jobunclaimedshort": {
+      "text": "unclaimed",
+      "hash": "4f24d75496e51eddcda170d8fa47b49f5034a85d"
     },
     "ui.featallow": {
       "text": "Allow",
@@ -1102,6 +1138,14 @@
     "ui.l10nall": {
       "text": "All statuses",
       "hash": "6405179d241bf89ae6303c61e7e618b36c53a096"
+    },
+    "doc.workflow.feed-propose": {
+      "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
+      "hash": "273f8add79363523aa57b166f84d1a852c876324"
+    },
+    "ui.jobinprocshort": {
+      "text": "in process",
+      "hash": "99fc8f91a50120270b90e2468c6536e073b4bea9"
     },
     "ui.resets": {
       "text": "Resets",
@@ -1319,10 +1363,6 @@
       "text": "Purge a settled job's payload and result, keeping the row. Your own; somebody else's needs jobs:purge. For `infer.chat` and the document pipeline the payload IS the document's text and the result is the model's reply, so this is the lever a caller honouring a deletion request needs. Refused on a queued, running or canceling job — cancel it first, because its payload is the input a handler is about to read. Status, timings, attempt counts and the audit trail all survive; `purged_at` is reported on the job so an empty payload and a purged one can be told apart.",
       "hash": "9d189ecf693750416b1c4e3cb6036348589dbe1c"
     },
-    "doc.workflow.feed-propose": {
-      "text": "An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch.",
-      "hash": "273f8add79363523aa57b166f84d1a852c876324"
-    },
     "doc.perm.instance:read": {
       "text": "Read-only instance operations: status, metrics, the worker fleet, the queue, and verifying the audit chain. Not the audit EXPORT, which hands over the log itself.",
       "hash": "8b3e4319de14d9acdc7262dc02ad685abd3332c6"
@@ -1351,6 +1391,10 @@
       "text": "One chunk, as the raw request body, at part number `n` (1 or above). A retry of the same number REPLACES it, which is the point of numbering them: a chunk whose request failed costs that chunk rather than the whole recording. Each part is staged as its own content-addressed blob and charged against storage.bytes on arrival, so an upload that is never completed is visible in usage rather than free; aborting or reaping refunds it. `TMACH_MAX_UPLOAD` caps one part.",
       "hash": "e66e4b56e88d682ad88695df5d79c0366bedbab8"
     },
+    "ui.jobunclaimed": {
+      "text": "not claimed by a worker yet",
+      "hash": "6f95f4a2ea37bc775f17f763215c1567f8d20b2c"
+    },
     "doc.workflow.process-upload.name": {
       "text": "Process an uploaded document",
       "hash": "f6fb6d41104b1ef190eb930f261edccc501993de"
@@ -1374,6 +1418,10 @@
     "ui.reviewapprove": {
       "text": "Approve",
       "hash": "7b2c7f146abaceddea3a325e15cfbbf2fa9b976e"
+    },
+    "ui.jobwhen": {
+      "text": "when",
+      "hash": "30603fa9e0f620c305cd627ab0ff138a960c48bd"
     },
     "doc.workflow.classify-eval.name": {
       "text": "Evaluate the classifier",
@@ -1703,6 +1751,10 @@
       "text": "The team's outbound webhook subscriptions, plus the closed list of event names a subscription may filter on and how many delivery attempts a dead letter takes. A secret is never in a listing.",
       "hash": "7d1abec01a54f3310bb4e0bde1714d3995790c4b"
     },
+    "ui.wkmodels": {
+      "text": "models",
+      "hash": "5ba2688dffd71df813a468578a87c653e1575e1e"
+    },
     "doc.route.get.api.webhooks.id.deliveries": {
       "text": "This subscription's delivery attempts, newest first: status (`pending`/`delivered`/`dead`), attempt count, the last response code, the last error, the latency, and when the next attempt is due. `?status=dead` is the dead-letter list.",
       "hash": "3dfcd8b9e0f8246de6afe75e7ba7529869337e0e"
@@ -1735,6 +1787,10 @@
       "text": "The console, on the magic-link activation screen (hosted mode).",
       "hash": "0e6d2b90bf3be361bf26ba391a9b59f5b6fa617b"
     },
+    "ui.jobwhenhint": {
+      "text": "When the job was created, and for a finished job how long it took to run. Hover for the wall-clock time in your own timezone.",
+      "hash": "e8b6f2e17afe0771ace7070f117e7bb32d4ef599"
+    },
     "ui.kg_entities": {
       "text": "entities",
       "hash": "9d88f3cc176f53090e9fd457c305bbeb86126bcd"
@@ -1742,6 +1798,10 @@
     "ui.stepsused": {
       "text": "steps used",
       "hash": "43659d0462ecc7a900d33dbeb34414497ccfe633"
+    },
+    "ui.trdone": {
+      "text": "translated in {s}s",
+      "hash": "fa2b3cefb8c4bbb9d8065bb953518d72fefe0aa9"
     },
     "doc.route.post.api.beta.signup": {
       "text": "Submit the onboarding form: validated against the published experience, anti-abuse gated, judged by the model when configured.",
@@ -1790,6 +1850,10 @@
     "doc.route.post.api.profile": {
       "text": "Update the caller's own durable preferences: `locale` and `timezone` (an IANA zone name, e.g. \"Europe/London\"). Either may be sent alone. An unknown timezone is refused rather than silently substituted — somebody quietly given UTC for a typo finds out from a report that arrives at the wrong hour. The reply carries the effective timezone and which layer answered it.",
       "hash": "99fb02766ee54f83b68c9ffe525bf3b592fcbcb6"
+    },
+    "ui.trcount": {
+      "text": "{n} / {max} characters",
+      "hash": "37992f8af2be4f932bbc75295200d6fef95ad76f"
     },
     "doc.tool.doc_redact.detectors": {
       "text": "Which detectors to run: \"email\", \"date\", \"id_number\", \"dictionary\", \"phone\" (default: all but dictionary, which needs terms)",
@@ -1847,6 +1911,10 @@
       "text": "operator",
       "hash": "fe96dd39756ac41b74283a9292652d366d73931f"
     },
+    "ui.queued": {
+      "text": "queued",
+      "hash": "efcc77141dbfd3ab9c9315b5d04cb462de5bb921"
+    },
     "doc.perm.files:write": {
       "text": "Upload documents and new versions.",
       "hash": "e5297c6ea126b16479b1f9c5061614283b0a5e65"
@@ -1863,6 +1931,14 @@
       "text": "Output",
       "hash": "4bed336194a9a5c86b6a734f03b3570d2aae1a68"
     },
+    "ui.qjump": {
+      "text": "page",
+      "hash": "767013ce0ee0f6d7a07587912eba3104cfaabc15"
+    },
+    "doc.route.get.api.x.plugin.bundle.path": {
+      "text": "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.",
+      "hash": "bf8d94c14199e90c07c97c82400f54b2317e8fea"
+    },
     "ui.nodefs": {
       "text": "No workflows are published for this team yet. A plugin that ships one appears here on first use; otherwise POST a spec to /api/workflows.",
       "hash": "a326f7ace2f357a8bc110f10e47a258716abbf40"
@@ -1871,13 +1947,21 @@
       "text": "Call tools from the agent or a workflow step; each tool then checks its own permission.",
       "hash": "44b342c7a46bbf0734fb7a29be9cfa4d39ff2df0"
     },
-    "doc.route.get.api.x.plugin.bundle.path": {
-      "text": "A file from a loaded plugin's AUTHENTICATED bundle (plugins/<id>/bundle/): a bearer token is required — or a ticket from bundle-ticket, in ?ticket= or the cookie it sets — and the response is never cached by a shared cache.",
-      "hash": "bf8d94c14199e90c07c97c82400f54b2317e8fea"
-    },
     "ui.tools": {
       "text": "Tools",
       "hash": "4fa8cc860c52b268dc6a3adcde7305e9415db5bb"
+    },
+    "ui.sharedwithme": {
+      "text": "Shared with me",
+      "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
+    },
+    "ui.jobtookhint": {
+      "text": "How long the job ran — from the moment a worker or the pool claimed it to the moment it settled.",
+      "hash": "2406714fa2e5b377f8d62150682a932f2d3b54c9"
+    },
+    "ui.created": {
+      "text": "Created",
+      "hash": "accf40c89baa4fa88e6a7ff11e1f805beecafd3f"
     },
     "ui.wkconfigured": {
       "text": "configured",
@@ -1931,10 +2015,6 @@
       "text": "Only documents whose key starts with this (default: every document in the team)",
       "hash": "d6113e6bde134e7d4d62d2f7e4818576583878bb"
     },
-    "ui.sharedwithme": {
-      "text": "Shared with me",
-      "hash": "f40ca84f04474455cba711b1643a006b59aa1210"
-    },
     "doc.route.post.api.workers.claim": {
       "text": "A pull worker claims the next remote job it can run: {kinds, models, max_wait}; 204 when nothing. The job carries a lease and a claim_token, which every later write about it must carry back.",
       "hash": "5aa8b491c64d543c3c4b253ae91cc850a8b12a77"
@@ -1960,8 +2040,8 @@
       "hash": "2053377e7a863ef6782341d2a4d8cd30cd23b8aa"
     },
     "ui.helpuncited": {
-      "text": "The answer cited no passage, which usually means it is declining to answer.",
-      "hash": "f869c22eef29a6400b7755a6b927bc33551e1e0e"
+      "text": "The answer named no source, so these are the passages it was read from.",
+      "hash": "e6894a8a4971beab7ef1ac3c6a99db22adfb6ae3"
     },
     "doc.route.get.api.repo-obj.id.content": {
       "text": "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.",
@@ -1992,8 +2072,8 @@
       "hash": "2d2c2cefc85e8b0a3d5c1f4c72c2c9d192e573b5"
     },
     "doc.route.delete.api.repo-obj.id": {
-      "text": "Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing claims to come from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one.",
-      "hash": "8a77253fbf22577e5150fca5bfb06840b75f9d6b"
+      "text": "Delete an object. Bytes are released when nothing in the ORG still references them — another version, another object, or an IN-FLIGHT upload's staged part. `?cascade=1` also deletes everything derived from it, transitively (the extracted JSON, the filled form, each translation), as ONE audited act; `?detach=1` with it keeps those objects and removes the derivation rows instead, so nothing is left saying it came from something that is gone. `?dry_run=1` reports what would go and changes nothing. A cascade is ALL-OR-NOTHING on permission: an object in the tree you may not delete refuses the whole operation by name, because a half-cascaded tree cannot be told apart from a finished one.",
+      "hash": "c5216fd00a418af2efb1a94a9c62acd57e0202b7"
     },
     "doc.route.delete.api.org.branding": {
       "text": "Drop the company's branding; its users see the instance's again.",
@@ -2122,6 +2202,10 @@
     "ui.paltab": {
       "text": "tab",
       "hash": "e974602114f14fbf55401c109937e173b1b23220"
+    },
+    "ui.qlast": {
+      "text": "last page",
+      "hash": "f300bdd18781a463f3ac5666b1b21281ca55b12a"
     },
     "ui.agent": {
       "text": "Agent",
@@ -2271,6 +2355,18 @@
       "text": "Read every team-visible resource; no AI spend, no mutation.",
       "hash": "b4b905e1f8563427da3e415c721f45d732072ab5"
     },
+    "doc.tool.doc_render.engine": {
+      "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with `src=\"repo:<object id>\"`; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.",
+      "hash": "6fa73480e15fbd0e370e16f1e6f34b65cc8a3e34"
+    },
+    "ui.canceled": {
+      "text": "canceled",
+      "hash": "140e7351379dcf91c8a2461ed5cf53e1b9d1414b"
+    },
+    "ui.wkmodelnone": {
+      "text": "Nothing declared. A job that names a model will not be offered to this worker; a job that names none can be.",
+      "hash": "25670df38c28a356eac44f2fcc45cef65f4b7153"
+    },
     "ui.thbrandink": {
       "text": "Text on brand",
       "hash": "f6248b16f2f73b99ad6b63c1dde8532e45e6e548"
@@ -2419,10 +2515,6 @@
       "text": "active",
       "hash": "2bb6b986c5d6fb26dd9dd1054b545ce022371b0c"
     },
-    "doc.tool.doc_render.engine": {
-      "text": "Which PDF engine, when format is \"pdf\": \"latex\" (the default — pandoc and tectonic, good for text-heavy documents), \"weasyprint\", which renders the HTML template's own CSS including @page margins, running headers and footers, and \"Page X of Y\", or \"libreoffice\", which converts a filled DOCX template. The HTML engine needs an HTML template and can inline a repository document as an image with `src=\"repo:<object id>\"`; the LibreOffice engine needs a DOCX template, is off unless soffice is on the server's PATH, and refuses a template that declares an external reference.",
-      "hash": "6fa73480e15fbd0e370e16f1e6f34b65cc8a3e34"
-    },
     "doc.route.get.api.doc-triggers.id": {
       "text": "One trigger with its fire history (which version, which run, or why not).",
       "hash": "f351018c0ba1737951a95253228ade2d07223e3c"
@@ -2450,6 +2542,10 @@
     "doc.perm.audit:read": {
       "text": "Read the audit trail.",
       "hash": "87c1c4a7b67d30455fcce098e19ad429a1808b91"
+    },
+    "ui.worker": {
+      "text": "worker",
+      "hash": "10f5ebe6acb4467b71602be4c4fdb44c44fa26b6"
     },
     "ui.brandreset": {
       "text": "Reset to default",
@@ -2486,6 +2582,10 @@
     "doc.perm.org:read": {
       "text": "See the company, its teams, members and audit trail.",
       "hash": "05279417b614668317d0b96f13b779958ddfcdda"
+    },
+    "ui.trworking": {
+      "text": "translating… {s}s",
+      "hash": "9556fa9dee7834f8de0a91f7ceacb1cb2f66e058"
     },
     "doc.route.post.api.admin.seed-tenants": {
       "text": "Seed Acme and Globex with known dev passwords — demo fixture only.",
@@ -2598,6 +2698,10 @@
     "ui.logout": {
       "text": "Sign out",
       "hash": "dc1649a16c1496db3e4073be6a73faf5121aeae7"
+    },
+    "ui.helpread": {
+      "text": "Read from",
+      "hash": "5e83f1b69dcc7f3a46ff0f3234d2808a352e9d91"
     },
     "doc.route.get.api.features": {
       "text": "The team's feature flags.",
@@ -2879,13 +2983,17 @@
       "text": "Members",
       "hash": "1cb449c1126609b4b41e1d87f65f0d7cd19b49b9"
     },
-    "doc.route.patch.api.annotations.id": {
-      "text": "Change your own annotation's `body`, `page`, `bbox`, `start` or `end`. ONLY THE AUTHOR may: a correction to somebody else's observation is your own annotation, not a rewrite of theirs — the grants table's superseding-record rule and the review queue's terminal decision. Somebody else's is a 403, because the request is fine and the person is wrong for it. Validated as the annotation would be, so a patch cannot reach a state a create could not.",
-      "hash": "514eb0beb628064fd184ad122b809b2cbb522b39"
-    },
     "ui.s3off": {
       "text": "The S3 endpoint is not enabled on this instance (set TELEMACHUS_S3_PORT).",
       "hash": "5c2e33d5d944b2c8eaf0e207473c8f61b6ca91f2"
+    },
+    "ui.qnext": {
+      "text": "next page",
+      "hash": "f9875a4acc75704ac77125a94a2519c274a49d62"
+    },
+    "doc.route.patch.api.annotations.id": {
+      "text": "Change your own annotation's `body`, `page`, `bbox`, `start` or `end`. ONLY THE AUTHOR may: a correction to somebody else's observation is your own annotation, not a rewrite of theirs — the grants table's superseding-record rule and the review queue's terminal decision. Somebody else's is a 403, because the request is fine and the person is wrong for it. Validated as the annotation would be, so a patch cannot reach a state a create could not.",
+      "hash": "514eb0beb628064fd184ad122b809b2cbb522b39"
     },
     "doc.route.post.api.documents": {
       "text": "Create a text document (a repository object with content_type text/markdown).",
@@ -2946,6 +3054,10 @@
     "ui.qvinproc": {
       "text": "in process",
       "hash": "99fc8f91a50120270b90e2468c6536e073b4bea9"
+    },
+    "ui.qlive": {
+      "text": "updating while the queue moves",
+      "hash": "106d131ad089dd7f653e80871e7673b51bd161c7"
     },
     "doc.route.delete.api.beta.asset.id": {
       "text": "Delete an onboarding asset.",
@@ -3044,8 +3156,8 @@
       "hash": "b658bbb3bc5f374f75c095db243bfd4e36f99f04"
     },
     "doc.route.get.api.admin.anchor": {
-      "text": "Anchor status (#66): whether receipt emission is configured, the public key receipts are signed with, the instance's series id, how many receipts exist and the latest sequence and hash. It reports what was EMITTED and deliberately never claims anything was RETAINED — the retained copy is the anchor, and the platform cannot verify that somebody else kept it.",
-      "hash": "ec1afd17a430e4a2de6727a7bc4afdda7899c300"
+      "text": "Anchor status (#66): whether receipt emission is configured, the public key receipts are signed with, the instance's series id, how many receipts exist and the latest sequence and hash. It reports what was EMITTED and deliberately never says anything was RETAINED — the retained copy is the anchor, and the platform cannot verify that somebody else kept it.",
+      "hash": "8c750227cdf6c09ce987e52d3579b692bca37515"
     },
     "doc.tool.create_note.visibility": {
       "text": "Who can see it; defaults to team",
@@ -3111,6 +3223,10 @@
       "text": "Count the number of words in a piece of text.",
       "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
     },
+    "ui.empty": {
+      "text": "Nothing to translate — type or paste some text first.",
+      "hash": "c708ee18187cefb1105ec22dde71430e74570d05"
+    },
     "doc.tool.doc_classify_eval.rules": {
       "text": "The rule set to evaluate — the same rules the pipeline would run",
       "hash": "54b026958d4e9749b448857ea4e6137b4cd2a6d9"
@@ -3130,6 +3246,10 @@
     "doc.tool.create_note.title": {
       "text": "Short note title",
       "hash": "54eab342b7a6b5c2b941aee1458cffe618ffcdbe"
+    },
+    "ui.jobsofar": {
+      "text": "{age} so far",
+      "hash": "2a79c7d17d5a6f7f74afcaff6ad9591d3d10a7e1"
     },
     "ui.createop": {
       "text": "Create operator",
@@ -3151,13 +3271,17 @@
       "text": "Theme",
       "hash": "a797e30923ac1be590300ce6b08e63b4e6dc6688"
     },
-    "doc.tool.doc_extract_fields.schema": {
-      "text": "A JSON schema the extracted object must conform to",
-      "hash": "83e904382cbf96b6d364748cb9688696e3f88a3d"
-    },
     "doc.perm.org:*": {
       "text": "Everything at the company tier. Never reaches instance:*.",
       "hash": "52de0860cce2504961d6406e8975a750db44984c"
+    },
+    "ui.troverlimit": {
+      "text": "too long: this will come back as a summary in the wrong language, and will be refused",
+      "hash": "7cf175fbfb31f4d7d4063eaf6dc921e0470463fd"
+    },
+    "doc.tool.doc_extract_fields.schema": {
+      "text": "A JSON schema the extracted object must conform to",
+      "hash": "83e904382cbf96b6d364748cb9688696e3f88a3d"
     },
     "ui.thcontrast": {
       "text": "Low contrast",
@@ -3235,6 +3359,14 @@
       "text": "Set a team's model roles: {roles: {utility: <executor name> | @fleet | null}}. The executor must exist; `@fleet` (#173) sends the role's work to whichever pull worker is free instead of pinning it to one host; null returns to the instance default, then the local model.",
       "hash": "7a4ccddc61b39393a950680b329dc5a572eb16a3"
     },
+    "ui.helpfailed": {
+      "text": "Help could not be asked — the request failed.",
+      "hash": "2ba52721ce4ab534a4a6e990585d52ff9fd1042a"
+    },
+    "ui.input": {
+      "text": "Input",
+      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
+    },
     "ui.palfoot": {
       "text": "↑↓ to move · Enter to run · Esc to close",
       "hash": "37c078ff1df1e11f304b0fc305068c9919f1144c"
@@ -3246,10 +3378,6 @@
     "doc.route.get.api.i18n.catalog": {
       "text": "The console's strings for ?locale=, resolved through the fallback chain server-side. Public: the sign-in screen needs them.",
       "hash": "80282f87d17426ec9fcc94a64519d2691104a001"
-    },
-    "ui.input": {
-      "text": "Input",
-      "hash": "b568d47f2e244743b1fd7472db836ef9769c21f8"
     },
     "doc.route.get.api.usage": {
       "text": "The team's quota dimensions with used, limit, remaining and the window's reset time, plus `held` naming the limit that is currently holding the team's queued jobs (null when none is).",
@@ -3318,6 +3446,10 @@
     "ui.qvstuckhint": {
       "text": "these four add up to the queued jobs, and each has a different remedy",
       "hash": "8265e71543d6a540d3933a6acf590be421be6574"
+    },
+    "ui.qfirst": {
+      "text": "first page",
+      "hash": "ef4f67bfcef05127f3df77ceb287d8535a8b1975"
     },
     "ui.l10ntarget": {
       "text": "Translating into",
@@ -3779,13 +3911,17 @@
       "text": "The company's audit trail.",
       "hash": "c709a0e57ace017ced6c3b073c4d646da3787214"
     },
-    "doc.workflow.embed-documents.name": {
-      "text": "Embed Documents",
-      "hash": "3b526c6a6ba4894126caa893f960536848f10b58"
-    },
     "ui.bxtouch": {
       "text": "We’ll be in touch.",
       "hash": "e80cc1a93e2885f7a48aa24cfce846a0da155cf2"
+    },
+    "ui.joblive": {
+      "text": "refreshing while work is live",
+      "hash": "dd4691f5c465820eda94f5891e23a4a31a788bb7"
+    },
+    "doc.workflow.embed-documents.name": {
+      "text": "Embed Documents",
+      "hash": "3b526c6a6ba4894126caa893f960536848f10b58"
     },
     "doc.tool.doc_fill_form.object": {
       "text": "The form document's object id — a PDF carrying AcroForm fields",
@@ -3799,9 +3935,17 @@
       "text": "sub",
       "hash": "5d85613a56c124e3a3ff8ce6fc95d10cdcb5001e"
     },
+    "ui.wkmodelunconfirmed": {
+      "text": "Typed in when this worker was created and confirmed by nothing — it has not claimed yet, so it has declared nothing. This value governs no matching.",
+      "hash": "4616091308ba95a423c76f00735240609d5f8f7d"
+    },
     "ui.hdrainnow": {
       "text": "immediate",
       "hash": "f1d16437085ae1e36539a5328125cec05a91bada"
+    },
+    "ui.wkmodelshint": {
+      "text": "What each worker can serve. For a pull worker this is what it DECLARED on its last claim, which is what the platform matches a job's requested model against — not a value typed in when it was created.",
+      "hash": "a40c160642d3ffb1c8f4288d57c19c78db0bc01f"
     },
     "ui.brandthemehint": {
       "text": "The palette this console wears — the same tokens the beta funnel uses. Changes preview live; Save applies them for everyone.",
@@ -3867,6 +4011,10 @@
       "text": "One feed. Another team's id is a 404, not a 403.",
       "hash": "7cbf68872016efd24eec9befddf94a66fe1a34ad"
     },
+    "ui.jobscope": {
+      "text": "This list is the SCHEDULER queue. Chat streams its answer, and Translate and Ask are answered in the request itself — none of the three creates a job, so using them leaves nothing here. What appears: what you submit above, a workflow's steps, a trigger's run, and any work a fleet worker claims.",
+      "hash": "027c00bf23be5832dadfa4da5d3bca8fe122a132"
+    },
     "doc.route.get.api.reviews": {
       "text": "The team's review queue, newest first. ?status=pending (the default), decided, canceled or all.",
       "hash": "0d91dd0215b151859baa579e596907d41f41211a"
@@ -3902,6 +4050,10 @@
     "ui.kg_entity": {
       "text": "Entity",
       "hash": "c7fb3177257942197ffaf1f26b2e8b00b4f667b2"
+    },
+    "ui.view": {
+      "text": "View",
+      "hash": "69bd4ef9fbd0894a22759c3766b859defbdedbc8"
     },
     "doc.tool.doc_classify_eval.step": {
       "text": "The workflow step id, for provenance",

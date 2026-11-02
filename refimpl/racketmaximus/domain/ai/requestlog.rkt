@@ -56,7 +56,13 @@
 ;; Short labels, never an exception message (RED-19). #83 r4 sealed four `error`
 ;; columns because this platform's own refusals quote what they choked on by
 ;; design, and the diagnostic already has a sealed home on the job row.
-(define ERROR-KINDS '("http" "timeout" "unreachable" "capability" "policy" "transport"))
+;; `truncated` (#231) is the one member that is not a failure of the TRANSPORT:
+;; the request went, the provider answered 200 and called it `stop`, and what it
+;; read was a windowful of a prompt we sent more than a windowful of — so the
+;; answer was refused rather than returned. It earns a kind of its own precisely
+;; because an operator reading this log to find out why answers went strange
+;; would otherwise see an unbroken run of `ok`.
+(define ERROR-KINDS '("http" "timeout" "unreachable" "capability" "policy" "transport" "truncated"))
 
 ;; EMB-5: WHAT was asked for, where `transport` says by which route it left. A
 ;; third closed vocabulary, enforced here for the same reason the other two are:

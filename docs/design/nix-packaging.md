@@ -218,8 +218,8 @@ now in the runbook's failure table.
 was real: fixed in `domain/mcp/client.rkt` and `domain/oop/host.rkt` by resolving a
 relative `.rkt` argument against `impl-root`, which also fixes running the server
 from another directory in a checkout. Constraint #4 held: the packaged server
-reports `pbkdf2_sha1`, exactly as a checkout does — argon2id remains an unclaimed
-upgrade, not a regression.
+reports `pbkdf2_sha1`, exactly as a checkout does — argon2id remains an upgrade
+nobody has promised, not a regression.
 
 **Unlocked immediately.** `nix develop` ships **PostgreSQL 18.6**, so the live
 dialect gate (slice 50) is now blocked on nothing but the work itself — no root, no

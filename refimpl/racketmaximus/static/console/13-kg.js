@@ -166,10 +166,19 @@ async function render(){
   // cannot disagree with itself.
   S.featRows = fr.ok ? fr.json.features : [];
   S.features = Object.fromEntries(S.featRows.map(x=>[x.feature,x.enabled]));
+  // #230: a pasted URL decides the first view — applied HERE and not earlier
+  // because `visibleTabs()` is decided by permissions AND feature switches, so
+  // the tab list is not knowable until both have arrived. An unreachable hash
+  // falls through to the default rather than painting a tab that is not in the
+  // bar.
+  if(!routeInit) applyRoute(location.hash);
   if(S.features[S.tab]===false) S.tab='team';
   if(!S.me) return;                      // signed out while we were awaiting
   const wasAuth=!!document.getElementById('lu');
-  app.innerHTML=appShell();
+  // hShell, not a bare appShell(): the shell stays on screen across every later
+  // `renderTab()` pass, so its handlers must not be swept with the pass that
+  // painted them. See hShell in 01-base.js — this is the call site that bug was.
+  app.innerHTML=hShell(appShell);
   if(wasAuth) fadeIn(app);                // sign-in → shell is a transition, not a cut
   // AWAITED, and it was not. `renderTab()` paints a `…` placeholder and then
   // awaits its view, so a fire-and-forget call here made `render()` resolve at

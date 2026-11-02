@@ -81,9 +81,17 @@ const H_KEPT = new Set();
 // pass's start, or -1 when no pass is painting.
 const H_PASSES = [];
 let H_OPEN = -1;
+// The brackets NEST — `render()` opens one and then awaits `renderTab()`, which
+// opens its own — so they are depth-counted. Without this the inner `hPassEnd()`
+// closed the OUTER range and the outer `finally` became a no-op, which left any
+// registration made after `await renderTab()` outside every bracket. Nothing is
+// registered there today; the counter is what stops that from being load-bearing.
+let H_DEPTH = 0;
 const H_KEEP = 2;                       // completed passes kept beyond the open one
-function hPassStart(){ if (H_OPEN < 0) H_OPEN = HANDLERS.length; }
+function hPassStart(){ if (H_DEPTH++ === 0) H_OPEN = HANDLERS.length; }
 function hPassEnd(){
+  if (H_DEPTH > 0) H_DEPTH--;
+  if (H_DEPTH > 0) return;              // an inner bracket closing: not the pass
   if (H_OPEN >= 0 && HANDLERS.length > H_OPEN) H_PASSES.push([H_OPEN, HANDLERS.length]);
   H_OPEN = -1;
   while (H_PASSES.length > H_KEEP) {
@@ -94,7 +102,177 @@ function hPassEnd(){
     for (let i = a; i < z; i++) if (!H_KEPT.has(i)) HANDLERS[i] = undefined;
   }
 }
-for (const evname of ['click','input','change','keydown']) {
+
+// A REGION THAT OUTLIVES THE PASS THAT PAINTED IT NEEDS A SLOT, NOT A BRACKET.
+//
+// The sweep's premise is that "the DOM on screen and the two passes behind it
+// are always live". That holds for a whole tab, which `renderTab()` replaces
+// wholesale. It is FALSE for any region that is painted once and then left
+// alone while passes run — and there are two kinds:
+//
+//   the SHELL, because `go()` calls only `renderTab()`, so one `appShell()`
+//   paint stays on screen across every later tab change; and
+//
+//   the UN-SWAPPED SIBLINGS OF A PARTIAL UPDATE. This is the one that bit
+//   twice. `cardSwap` opened a bracket, so every refresh counted as a pass —
+//   and the Jobs tab's submit form, painted by the tab render and never
+//   swapped, was swept after two refreshes. Reported from outside: "if I click
+//   on refresh, I can no longer submit a chat from the jobs page". A live poll
+//   makes one click enough, because the tick is the second pass.
+//
+// So a long-lived region goes in a NAMED SLOT: its handlers are kept out of the
+// sweep, and the generation it replaces is freed in the same breath. One slot
+// holds at most one generation, so this is bounded — `hShell` was the first
+// instance and `cardSwap` is the general one.
+//
+// What it does NOT free, stated: the last generation in a slot whose region has
+// been replaced by a TAB render rather than by another swap of the same card.
+// That is one card's worth of closures per card id, freed the next time that
+// card is swapped. Making a tab render clear every card slot would be wrong —
+// the shell's slot must survive exactly that.
+// The delegated event types, in ONE place: the listener loop below installs one
+// per name, and `hIndicesIn` scans markup for the same set. Two lists would
+// disagree the day a fifth event was added, and the failure would be a region
+// whose handlers are silently not kept.
+const H_EVENTS = ['click','input','change','keydown'];
+
+// Which handler indices a piece of MARKUP actually references. Reading them off
+// the markup rather than off a range of the table is what makes a slot immune to
+// interleaving: a tab render that completes while a swap is awaiting its fetch
+// registers handlers that would fall inside a naive [start, end) range and be
+// wrongly kept — or, worse, freed on the next swap.
+function hIndicesIn(html){
+  const out = [];
+  const re = new RegExp('data-h-(?:' + H_EVENTS.join('|') + ')="(\\d+)"', 'g');
+  let m; while ((m = re.exec(html))) out.push(+m[1]);
+  return out;
+}
+
+const H_SLOTS = new Map();              // key -> the indices currently kept
+function hKeepSlot(key, html){
+  const prev = H_SLOTS.get(key) || [];
+  const now = hIndicesIn(html);
+  // the new generation is kept BEFORE the old is freed, so an index that appears
+  // in both (nothing produces one today, but a future painter might reuse one)
+  // survives rather than being freed out from under the markup that names it.
+  for (const i of now) H_KEPT.add(i);
+  for (const i of prev) if (!now.includes(i)) { H_KEPT.delete(i); HANDLERS[i] = undefined; }
+  H_SLOTS.set(key, now);
+  return html;
+}
+// the shell is just the first slot
+function hShell(paint){ return hKeepSlot('shell', paint()); }
+
+// A PROMPT BAR THAT GROWS WITH WHAT YOU TYPE.
+//
+// The chat and agent prompts were `rows="3"` and fixed, so anything longer than
+// three lines was typed into a slot you could not see the top of — and the one
+// place in this console where people paste a lot of text.
+//
+// It measures `scrollHeight`, and that is NOT the same rule as the editor's
+// `edRows`, which counts newlines. The editor turns soft wrap OFF so its line
+// gutter can stay aligned (ED-6), which makes a line count exact there and
+// wrong here: a prompt bar wraps, so a wrapped line occupies several visual rows
+// that no newline count can see. Two functions with different contracts are not
+// `executor-can-run?`'s drift — that is about two copies of ONE rule — and a
+// shared implementation would have to be the wrong one for one of them.
+//
+// It is CAPPED. An unbounded bar pushes Send off the bottom of the screen on a
+// long paste, which is worse than a scrollbar: the control you are reaching for
+// has to stay reachable.
+const GROW_MAX_ROWS = 14;
+function growTA(el){
+  if(!el) return;
+  try {
+    const cs = getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 20;
+    const pad = (parseFloat(cs.paddingTop)||0) + (parseFloat(cs.paddingBottom)||0)
+              + (parseFloat(cs.borderTopWidth)||0) + (parseFloat(cs.borderBottomWidth)||0);
+    const max = Math.round(line * GROW_MAX_ROWS + pad);
+    // height must be released before scrollHeight is read, or it only ever grows
+    el.style.height = 'auto';
+    const want = el.scrollHeight;
+    el.style.height = Math.min(want, max) + 'px';
+    el.style.overflowY = want > max ? 'auto' : 'hidden';
+  } catch(e){}
+}
+// Called after a render so a PREFILLED prompt is sized on arrival — the console
+// ships both prompts with example text, which is exactly the case a grow-on-input
+// handler never sees.
+function growAll(){ document.querySelectorAll('textarea.grow').forEach(growTA); }
+
+// A CHARACTER COUNT BESIDE A PROMPT FIELD, AGAINST THE SERVER'S OWN LIMIT.
+//
+// #231 built this for Translate, where past the limit the answer comes back
+// WRONG rather than failing, so the number has to be visible before the button
+// is pressed. Reported from outside that Chat wants it too — and it does, for
+// the same reason and not a cosmetic one: a chat prompt over the window is
+// truncated oldest-first by the model server, which silently drops the
+// instruction and answers about what is left.
+//
+// ONE implementation, three fields. Two copies of a budget is LIVE-IN's shape,
+// and the limit is never a literal here: it is whatever the server reported on
+// the read the tab already makes (`max_chars` on `/api/translate` and on
+// `/api/ai/model`), so the count in the browser cannot disagree with the rule
+// that refuses.
+function charCountText(n, max){
+  if (!max) return '';
+  return t('trcount').replace('{n}', n.toLocaleString()).replace('{max}', max.toLocaleString());
+}
+function charCount(srcId, outId, max){
+  const el = document.getElementById(srcId), out = document.getElementById(outId);
+  if (!el || !out) return;
+  const n = el.value.length;
+  out.textContent = charCountText(n, max) + (max && n > max ? ' — ' + t('troverlimit') : '');
+  out.style.color = (max && n > max) ? 'var(--bad)' : '';
+}
+// Called after a render for the same reason `growAll` is: both prompts ship
+// with example text, which a count-on-input handler never sees.
+function countAll(){
+  const m = (S.model && S.model.max_chars) || 0;
+  charCount('trsrc', 'trcount', S.trMax || 0);
+  charCount('cp', 'cpcount', m);
+  charCount('ap', 'apcount', m);
+}
+
+// REFRESH ONE CARD IN PLACE, WITHOUT A TAB RE-RENDER.
+//
+// `renderTab()` paints a `…` placeholder BEFORE it awaits its view, which is
+// right for a tab change and wrong for a refresh: using it as one makes the
+// whole tab blank and repaint on every tick, and on Admin it also re-fires the
+// eight requests that tab opens with. That is what a 2s jobs poll and a queue
+// page click both did — the "reloads the entire page" this replaces.
+//
+// It is BRACKETED, and that is not optional: the markup it paints registers
+// handlers through `H()`, and a registration made outside a bracket is never
+// swept, so a card refreshing every 2.5s would accumulate closures for the life
+// of the session — the leak #185 bounded, reintroduced by the thing meant to be
+// cheaper than a render. With the bracket the card's handlers live for two
+// further passes, by which time this card's DOM has been replaced by a later
+// refresh or by a tab render.
+//
+// `build()` may answer null to decline the swap (a failed fetch), and the
+// element is looked up AGAIN after the await: the tab may have changed under it,
+// and writing into a card that is no longer on screen would be painting over
+// whatever replaced it.
+async function cardSwap(id, build){
+  if(!document.getElementById(id)) return false;
+  // NOT a bracket. A bracket makes every refresh a render pass, and the
+  // un-swapped parts of the tab — the Jobs tab's submit form, the filters above
+  // a table — were painted by the tab render and are swept two refreshes later.
+  // That is the bug this function shipped with, reported as "if I click on
+  // refresh, I can no longer submit a chat from the jobs page". A slot keeps
+  // only what this card's own markup names, so a refresh cannot reach anything
+  // it did not paint.
+  const html = await build();
+  if(html == null) return false;                // a failed fetch leaves the card alone
+  const cur = document.getElementById(id);      // the tab may have changed under us
+  if(!cur) return false;
+  cur.outerHTML = hKeepSlot('card:' + id, html);
+  return true;
+}
+
+for (const evname of H_EVENTS) {
   document.addEventListener(evname, (ev) => {
     // #182: the command palette and the `?` overlay are GLOBAL shortcuts, so
     // they are not about an element and an element-scoped dispatch cannot
@@ -121,7 +299,7 @@ for (const evname of ['click','input','change','keydown']) {
 }
 
 const S = { token: localStorage.getItem('tmx_token')||null, lang: localStorage.getItem('tmx_lang')||'en',
-  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0,
+  i18n: {enabled:true, default:'en', available:['en']}, me:null, tab:'chat', model:null, features:{}, featRows:[], instFeat:null, newToken:null, home:'login', forceLogin:false, betaChallenge:null, betaSub:'prospects', exp:null, wfSel:null, wfSpec:null, wfRun:null, wfPoll:0, jobPoll:0, qPoll:0, qTotal:0, qKinds:[],
   // the AbortController of a stream in flight, or null: the guard and the
   // pending state in one, as S.signingIn is for the sign-in button (#174)
   chatAbort:null, agentAbort:null,

@@ -13,6 +13,21 @@
 
 (define-runtime-path console-html "../static/index.html")
 (define-runtime-path console-dir "../static/console")
+;; anchored at this FILE, never at `current-directory`, which is `test/`
+;; when raco runs from there — the "anchor at definition, never at use" rule
+(define-runtime-path scheduler-rkt "../domain/sched/scheduler.rkt")
+
+;; A TEXT SCAN OVER THE CONSOLE READS ITS OWN COMMENTS, and that has now cost
+;; four separate assertions in these notes. A check for a code construct must
+;; look at CODE: `09-repo.js` explains in prose why a modal would mean `Hk()`
+;; and the Hk test below reported that as a sweep violation, while the one-seam
+;; check for `navigate()` counted the router's own header three times.
+(define (console-code f)
+  (string-join
+   (for/list ([ln (in-list (string-split (file->string (build-path console-dir f)) "\n"))]
+              #:unless (regexp-match? #px"^\\s*(//|\\*|/\\*)" ln))
+     ln)
+   "\n"))
 (define shell (file->string console-html))
 
 ;; #110 r6 moved the console's 2,295 lines of inline script into
@@ -688,6 +703,380 @@
   (define others
     (for/list ([p (in-list script-files)]
                #:unless (member p '("01-base.js" "16-palette.js" "17-help.js"))
-               #:when (regexp-match? #rx"Hk\\(" (file->string (build-path console-dir p))))
+               #:when (regexp-match? #rx"Hk\\(" (console-code p)))
       p))
   (check-equal? others '() "Hk is for the shell-resident overlays only"))
+
+(test-case "the SHELL is kept across passes, and freed when it is replaced"
+  ;; THE BUG THIS PINS KILLED THE TAB BAR AFTER TWO CLICKS, and was reported
+  ;; from outside: "once I click on a few of the tabs, none of the tabs stay
+  ;; responsive". The sweep's premise is that the DOM on screen and the two
+  ;; passes behind it are always live — true of a tab's markup, which
+  ;; `renderTab()` replaces wholesale every pass, and FALSE of the shell, because
+  ;; `go()` calls only `renderTab()` and one `appShell()` paint therefore stays
+  ;; on screen across every later tab change. Its handlers sat inside
+  ;; `render()`'s bracket, so after H_KEEP further passes the range was swept and
+  ;; every tab button, logout, ⌘K and Ask went dead — silently, because a hole
+  ;; reaches the dispatcher's `typeof fn !== 'function'` guard and returns.
+  (check-true (and (regexp-match? #rx"function hShell" base) #t))
+  ;; the shell paint goes THROUGH it — this is the call site that was the bug
+  (define kg (file->string (build-path console-dir "13-kg.js")))
+  (check-true (and (regexp-match? #px"innerHTML\\s*=\\s*hShell[(]appShell[)]" kg) #t)
+              "render() must paint the shell through hShell, not call appShell() bare")
+  (check-false (and (regexp-match? #px"innerHTML\\s*=\\s*appShell[(][)]" kg) #t)
+               "a bare appShell() paint is the defect")
+  ;; …and it is a SLOT, not a second Hk: the shell is repainted on every
+  ;; `render()` (a language switch, a brand apply, a sign-in), so keeping each
+  ;; paint for ever would leak a set per render with nothing freeing the shell it
+  ;; replaced. The previous range is freed from H_KEPT in the same breath.
+  (check-true (and (regexp-match? #rx"H_KEPT.delete" base) #t)
+              "the shell it replaces must leave H_KEPT, or the bound drains away")
+  ;; the shell is now the FIRST instance of a general mechanism: `cardSwap`
+  ;; needed the same thing, because the un-swapped siblings of a partial update
+  ;; outlive the pass that painted them exactly as the shell does. One slot per
+  ;; key, holding at most one generation.
+  (check-true (and (regexp-match? #rx"const H_SLOTS" base) #t))
+  (check-true (and (regexp-match? #px"function hShell[^\n]*hKeepSlot[(]'shell'" base) #t)
+              "hShell delegates to the slot rather than keeping its own range"))
+
+(test-case "the Workers card reads the OBSERVED models, not the typed-in column"
+  ;; Reported from outside: "why does only one model show up in the workers page,
+  ;; and not for all workers, only for red5buntu?" Because there are TWO records
+  ;; and the card read the wrong one. `executors.model` is set ONCE at create
+  ;; from a value an operator typed and governs no matching;
+  ;; `capabilities.models` is what the worker DECLARES on every claim, recorded
+  ;; by `observe-capabilities!`, and is what `executor-can-run?` matches a job's
+  ;; `requirements.model` against.
+  ;;
+  ;; FLEET-2 added the second for exactly this reason — "an aspirational record
+  ;; cannot answer the question" — and this card went on rendering the field it
+  ;; replaced, so a four-worker fleet showed one model and three dashes while all
+  ;; four were declaring correctly on every poll.
+  (define fl (file->string (build-path console-dir "05-fleet.js")))
+  (check-true (and (regexp-match? #px"capabilities\\s*&&\\s*e[.]capabilities[.]models" fl) #t)
+              "the pull row must read the observed capabilities")
+  ;; …and the static column may only be a FALLBACK. A row that renders it
+  ;; unconditionally is the defect, so the cell must go through the helper.
+  (check-true (and (regexp-match? #px"<td>\\$\\{wkModels\\(e\\)\\}</td>" fl) #t)
+              "the pull/push row renders the helper, not e.model directly")
+  ;; the fallback is MARKED, because a value nobody has confirmed and one observed
+  ;; on the last claim are different claims about the world (PULL-11e's rule)
+  (check-true (and (regexp-match? #rx"wkmodelunconfirmed" fl) #t))
+  ;; a PUSH backend is called by us, never claims, and has nothing to declare —
+  ;; its own column IS the answer, so the helper must branch on the mode
+  (check-true (and (regexp-match? #px"e[.]mode\\s*!==\\s*.pull." fl) #t)
+              "a push backend keeps its configured model")
+  ;; the declared list is joined AS DECLARED and never sorted: the first entry is
+  ;; what the worker answers with when a job names no model
+  (check-true (and (regexp-match? #px"models\\)[.]join|obs[.]join" fl) #t)))
+
+(test-case "a refresh swaps ONE card and never re-renders the tab"
+  ;; Reported from outside: "the queue on the admin page should stream in
+  ;; updates, not full page refresh ... shouldn't reload the entire page."
+  ;;
+  ;; `renderTab()` paints a `…` placeholder BEFORE it awaits its view, so using
+  ;; it as a refresh blanks and repaints the whole tab — and on Admin it also
+  ;; re-fires the eight requests that tab opens with, to show twenty-five
+  ;; different rows of one table. The jobs poll added one slice earlier had the
+  ;; same defect: a 2s tick that flashed the entire screen.
+  (define fl (file->string (build-path console-dir "05-fleet.js")))
+  (define rv (file->string (build-path console-dir "08-reviews.js")))
+  (check-true (and (regexp-match? #rx"async function cardSwap" base) #t))
+  ;; A PARTIAL UPDATE MUST NOT BE A RENDER PASS, and the first version was one.
+  ;; `cardSwap` opened a bracket, so every refresh counted as a pass — and the
+  ;; UN-SWAPPED parts of the tab, painted by the tab render and left alone, were
+  ;; swept two refreshes later. Reported from outside: "if I click on refresh, I
+  ;; can no longer submit a chat from the jobs page". A live poll makes ONE click
+  ;; enough, because the tick is the second pass. Reproduced in a harness: the
+  ;; submit handler dies on refresh #2.
+  (let ([body (car (regexp-match #px"async function cardSwap.*?\n[}]" base))])
+    (check-false (and (regexp-match? #rx"hPassStart" body) #t)
+                 "a card swap is NOT a render pass — that is the bug")
+    (check-true (and (regexp-match? #rx"hKeepSlot" body) #t)
+                "it keeps only what its own markup names")
+    ;; the element is re-found after the await: the tab may have changed under it
+    (check-true (>= (length (regexp-match* #rx"getElementById" body)) 2)))
+  ;; the slot reads its indices from the MARKUP, not from a range of the table:
+  ;; a render completing while a swap awaits its fetch would otherwise be caught
+  ;; up in the range and wrongly kept — or freed on the next swap
+  (check-true (and (regexp-match? #rx"function hIndicesIn" base) #t))
+  (check-true (and (regexp-match? #rx"data-h-" base) #t))
+  ;; ONE home for the delegated event list: the listener loop and the markup
+  ;; scan must not drift, or a region's handlers are silently not kept
+  (check-true (and (regexp-match? #rx"const H_EVENTS" base) #t))
+  (check-true (and (regexp-match? #px"for [(]const evname of H_EVENTS[)]" base) #t)
+              "the dispatcher installs from the same list the scan reads")
+  ;; neither poller nor any pager control may reach for a tab render
+  (for ([nm (in-list '("qRefresh" "jobsRefresh"))]
+        [src (in-list (list fl rv))])
+    (define body (car (regexp-match (pregexp (string-append "function " nm "\\(\\)\\s*\\{.*?\n\\}")) src)))
+    (check-true (and (regexp-match? #rx"cardSwap" body) #t)
+                (format "~a goes through cardSwap" nm))
+    (check-false (and (regexp-match? #rx"renderTab" body) #t)
+                 (format "~a must not re-render the tab" nm)))
+  (check-false (and (regexp-match? #px"S\\.jobPoll===gen\\) renderTab" rv) #t)
+               "the jobs poll must not re-render the tab")
+  (check-false (and (regexp-match? #px"S\\.qPoll===gen[^;]*renderTab" fl) #t)
+               "nor the queue tick")
+  ;; a filter or a page change is the same rule
+  (check-true (and (regexp-match? #px"function qSet[^\n]*qRefresh\\(\\)" fl) #t)
+              "changing a filter swaps the card")
+  (check-false (and (regexp-match? #px"function qSet[^\n]*renderTab" fl) #t)
+               "…and does not re-render the tab")
+  (check-true (and (regexp-match? #px"function qGo[^}]*qRefresh\\(\\)" fl) #t)
+              "so does changing page"))
+
+(test-case "linkable URLs: one seam writes the hash, and no credential is in it"
+  ;; #230. Nothing in the console was linkable: no URL for a job, a run, a
+  ;; document or a filtered queue page, a reload always landed on Chat, and Back
+  ;; did nothing. HASH and not paths, because `server/routes.rkt` has four HTML
+  ;; entry points and NO catch-all — `/jobs` would 404 rather than serve the
+  ;; console, and adding a catch-all turns every typo into the console and has to
+  ;; be reconciled with three `*path` bundle routes.
+  (define rt (file->string (build-path console-dir "19-route.js")))
+  (define rend (file->string (build-path console-dir "07-render.js")))
+  (check-true (and (regexp-match? #rx"function routeFromState" rt) #t))
+  (check-true (and (regexp-match? #rx"function applyRoute" rt) #t))
+  ;; ONE SEAM. `renderTab()` is what every view change passes through — `go()`,
+  ;; `wfOpen`, `repoOpenDetail`, `qSet`, `qGo` and the palette all end there — so
+  ;; the URL is written in exactly one place and no call site had to learn about
+  ;; the address bar. A second writer is how a view and its URL start disagreeing.
+  (check-true (and (regexp-match? #rx"navigate[(][)];" rend) #t)
+              "renderTab mirrors the URL")
+  ;; …and the count is of CODE, not of prose: this file's own header says
+  ;; `navigate()` three times, and an assertion that greps a literal must not run
+  ;; against a comment mentioning it — the trap CLAUDE.md records twice already.
+  (define callers
+    (for/list ([f (in-list script-files)]
+               #:unless (member f '("19-route.js"))
+               #:when (regexp-match? #px"(?<![A-Za-z_.])navigate[(][)]" (console-code f)))
+      f))
+  (check-equal? callers '("07-render.js")
+                "renderTab is the ONLY place outside the router that writes the URL")
+  ;; a re-render with unchanged state must write nothing, or a live run's 1.5s
+  ;; poll leaves a history entry per tick and Back needs a hundred presses
+  (check-true (and (regexp-match? #px"location[.]hash === want[)] return" rt) #t)
+              "an unchanged route writes nothing")
+  ;; the first write REPLACES: booting must not leave an entry you press Back
+  ;; through to leave the page
+  (check-true (and (regexp-match? #rx"replaceState" rt) #t))
+  (check-true (and (regexp-match? #rx"pushState" rt) #t))
+  ;; an unreachable hash falls back rather than painting a tab that is not in the
+  ;; bar — `visibleTabs()` is decided by permissions AND feature switches, and a
+  ;; link may come from somebody who holds more than the reader does
+  (check-true (and (regexp-match? #rx"visibleTabs[(][)][.]indexOf" rt) #t))
+  ;; BOTH events: Back and Forward fire popstate, a typed hash fires hashchange
+  (check-true (and (regexp-match? #rx"'popstate'" rt) #t))
+  (check-true (and (regexp-match? #rx"'hashchange'" rt) #t))
+  ;; NO CREDENTIAL AND NO UNSAVED TEXT, by construction rather than by review:
+  ;; `S.newToken`/`S.wkToken` hold a token shown once, and a URL is pasted into
+  ;; chat, logged by proxies and kept in history — which is why /activate already
+  ;; strips its own. Unsaved editor text is out because a link promising content
+  ;; that was never saved is a link that lies.
+  (define state-reader
+    (car (regexp-match #px"function routeFromState[(][)][{].*?\n[}]" rt)))
+  (for ([forbidden (in-list '("newToken" "wkToken" "noteEdit" "docEdit" "token"))])
+    (check-false (and (regexp-match? (regexp forbidden) state-reader) #t)
+                 (format "routeFromState must not read S.~a" forbidden))))
+
+(test-case "a button shares the form controls' box"
+  ;; "On every page, there are some issues with buttons alignment with the
+  ;; content. Buttons are staggered oddly." Measured across the console: 12 of 22
+  ;; control rows were misaligned, the worst by 23px. `input,textarea,select`
+  ;; carry `margin:4px 0 10px` and a 1px border; `.btn` had NEITHER, so a button
+  ;; sat 10px below the field beside it and was 2px shorter. The transparent
+  ;; border is what makes the heights match.
+  (define css (file->string console-html))
+  (check-true (and (regexp-match? #px"[.]btn[{][^}]*margin:4px 0 10px" css) #t)
+              "a button carries the controls' vertical margin")
+  (check-true (and (regexp-match? #px"[.]btn[{][^}]*border:1px solid transparent" css) #t)
+              "…and a transparent border, or it is 2px short of an input")
+  ;; a small button lives in a table cell or a pager, which set their own
+  ;; spacing — and gains the control margin when it is really in a form row
+  (check-true (and (regexp-match? #px"[.]row > [*] > [.]btn[.]sm" css) #t))
+  (check-true (and (regexp-match? #rx"qpager" css) #t)
+              "the pager opts out, or its own gap is doubled"))
+
+(test-case "the queue pager is numbered, bounded and jumpable"
+  (define fl (file->string (build-path console-dir "05-fleet.js")))
+  (check-true (and (regexp-match? #rx"function qPager" fl) #t))
+  ;; ONE home for the page size: `queueQuery` asks the server for it and the
+  ;; pager computes the page count from it. Two literals would disagree the day
+  ;; one changed, and the symptom is a pager offering a page the listing never
+  ;; fills — LIVE-IN's shape.
+  (check-true (and (regexp-match? #rx"const QPAGE" fl) #t))
+  (check-true (and (regexp-match? #px"limit='\\+QPAGE" fl) #t)
+              "the request uses the constant, not a second literal")
+  (check-false (and (regexp-match? #px"limit=25" fl) #t) "…and no literal 25 is left in the query")
+  ;; first and last are always reachable, and there is a jump box
+  (check-true (and (regexp-match? #rx"qJump" fl) #t))
+  (check-true (and (regexp-match? #rx"function qPages" fl) #t))
+  ;; the ellipsis is NOT a control: a button whose destination a reader cannot
+  ;; predict is worse than none
+  (check-false (and (regexp-match? #px"data-h-click=\"[$][{]H[(][^\"]*…" fl) #t)
+               "the ellipsis must not be clickable"))
+
+(test-case "the jobs timestamp comes from the EPOCH, never from the text column"
+  ;; `created_at` is TEXT `CURRENT_TIMESTAMP` and its format differs by dialect;
+  ;; worse, `new Date("2026-11-01 05:15:17")` is read as LOCAL time by most
+  ;; engines while the value is UTC, so a parsed timestamp is silently out by the
+  ;; viewer's own offset with nothing to catch it. The epoch columns exist for
+  ;; exactly this (0038/0041/0066, each of which records the trap).
+  (define rv (file->string (build-path console-dir "08-reviews.js")))
+  (check-true (and (regexp-match? #rx"created_epoch" rv) #t))
+  (check-false (and (regexp-match? #px"new Date\\([^)]*created_at" rv) #t)
+               "parsing the dialect-dependent text column is the defect")
+  ;; …and the server must actually send it, or the column renders a dash forever
+  (define sch (file->string scheduler-rkt))
+  (check-true (and (regexp-match? #rx"'created_epoch" sch) #t)
+              "JSELECT/row->job must project the epoch")
+  ;; an in-process job says so IN WORDS. A bare dash with the explanation in a
+  ;; `title` was the first version and was reported as the column not working:
+  ;; a tooltip is invisible, and "–" under `worker` reads as missing data.
+  (check-true (and (regexp-match? #rx"jobinprocshort" rv) #t))
+  (check-true (and (regexp-match? #rx"jobunclaimedshort" rv) #t)))
+
+(test-case "the pass brackets NEST, so an inner close is not the pass"
+  ;; `render()` opens a bracket and then awaits `renderTab()`, which opens its
+  ;; own. Undepth-counted, the inner `hPassEnd()` closed the OUTER range and the
+  ;; outer `finally` became a no-op — so any registration made after
+  ;; `await renderTab()` fell outside every bracket. Nothing is registered there
+  ;; today; the counter is what stops that from being load-bearing.
+  (check-true (and (regexp-match? #rx"H_DEPTH" base) #t))
+  (check-true (and (regexp-match? #px"H_DEPTH\\s*>\\s*0[)]\\s*return" base) #t)
+              "an inner bracket closing must return before the sweep runs"))
+
+(test-case "api() answers a WRAPPER, and a reply has to be unwrapped before it is read"
+  ;; `doHelpAsk` assigned the wrapper — {ok, status, json} — where the BODY
+  ;; belongs, so `helpBody` read `reason`, `answer` and `citations` off an object
+  ;; with none of them and the panel rendered the empty string for every
+  ;; question ever asked. Reported from outside as "Help is broken, doesn't
+  ;; respond to chat", with the server answering correctly throughout: probed in
+  ;; process against the live corpus, "why do my jobs stay queued" came back
+  ;; "your team has exceeded its AI budget" in 0.9 s.
+  ;;
+  ;; THE E2E GATE COULD NOT HAVE SEEN IT, which is the lesson rather than the
+  ;; bug: §3e asserts the HIDDEN half, because a fresh install has no embedder
+  ;; and no corpus, so the branch CI can reach was covered and the branch a
+  ;; person meets was not. §3e2 now stubs `api` and drives the real `doHelpAsk`.
+  ;; This case is the cheap guard beside it.
+  (define help (console-code "17-help.js"))
+  (check-true (and (regexp-match? #px"S\\.help\\.rep\\s*=\\s*r\\.json" help) #t)
+              "the BODY is what gets stored, never the wrapper")
+  (check-false (regexp-match? #px"S\\.help\\.rep\\s*=\\s*r\\s*;" help)
+               "assigning the wrapper is the defect")
+  ;; A REFUSAL HAS TO LAND SOMEWHERE TOO. The old code could not tell a 403 from
+  ;; an answer — both became a wrapper with no `answer` — so a quota refusal was
+  ;; silence as well.
+  (check-true (and (regexp-match? #px"r\\.ok" help) #t) "the status has to be read")
+  (check-true (and (regexp-match? #rx"toast" help) #t) "…and a failure says so"))
+
+(test-case "#231: the Translate field grows, counts, and shows its clock"
+  (define rv (console-code "07-render.js"))
+  ;; the field was `rows="4"` and fixed, in the one place in this console where
+  ;; people paste a document
+  (check-true (and (regexp-match? #px"id=\"trsrc\"[^>]*class=\"grow\"" rv) #t)
+              "the source field must grow")
+  (check-true (and (regexp-match? #rx"growTA" rv) #t))
+  ;; ONE home for the limit — the server's, reported on the read the tab already
+  ;; makes — so the count in the browser cannot disagree with the rule that
+  ;; refuses. A literal here would be LIVE-IN's shape.
+  (check-true (and (regexp-match? #rx"max_chars" rv) #t))
+  (check-false (regexp-match? #rx"7680" rv) "the limit must not be spelled in the console")
+  ;; #174's shape, which this call never had: one send, the flag IS the guard
+  ;; and the pending state, and a `finally` so one network error cannot leave it
+  ;; dead.
+  (check-true (and (regexp-match? #px"if\\s*\\(S\\.trBusy\\)\\s*return" rv) #t))
+  (check-true (and (regexp-match? #rx"finally" rv) #t))
+  ;; a refusal goes in the OUTPUT pane, not a toast that scrolls away in 2.6s —
+  ;; #231's message is the several sentences the person needs to read
+  (check-true (and (regexp-match? #px"out\\.textContent\\s*=\\s*\\(r\\.json" rv) #t)
+              "the refusal has to be readable")
+  ;; and the English literals the old version toasted are gone (doSearch's defect)
+  (check-false (regexp-match? #px"toast\\('empty'\\)" rv)))
+
+(test-case "the outcome figures are explained in the column HEADER"
+  ;; Reported from outside: "what is the meaning of the numbers 73 ✓ 0 ✗ 0 ⧖ —
+  ;; this needs a table header or something." #178 had given each figure its own
+  ;; tooltip and put a legend under the window selector, and that was not
+  ;; enough for the plain reason that it was in the wrong PLACE: a tooltip is
+  ;; invisible until you suspect there is something to hover, and a muted line
+  ;; above a table is not what somebody reading a cell looks at.
+  (define fleet (console-code "05-fleet.js"))
+  ;; the legend is in the `<th>` with the window, and the figures are the cell
+  ;; below it
+  (check-true (and (regexp-match? #px"<th[^>]*>[^<]*wkwindow[\\s\\S]{0,200}wklegend" fleet) #t)
+              "the legend belongs in the header of the column it describes")
+  ;; …and is NOT also printed above the table. The search card's lesson, where
+  ;; the heading said "Search" three times on one screen.
+  (check-equal? (length (regexp-match* #rx"wklegend" fleet)) 1
+                "said once, in the header"))
+
+(test-case "the chat and agent prompts count characters against the SERVER's limit"
+  ;; Reported from outside: "on the translate screen and the chat screen, add a
+  ;; character count to the chat window." #231 built it for Translate, where
+  ;; past the limit the answer comes back WRONG rather than failing; a chat
+  ;; prompt over the window is truncated oldest-first by the model server, which
+  ;; drops the instruction and answers about what is left — the same failure,
+  ;; so the same warning belongs beside the same kind of field.
+  (define base (console-code "01-base.js"))
+  (define tabs (console-code "03-tabs.js"))
+  (define rv (console-code "07-render.js"))
+  ;; ONE implementation, three fields. Two copies of the arithmetic is the drift
+  ;; this console has paid for before (LIVE-IN's shape).
+  (check-true (and (regexp-match? #px"function charCount\\(" base) #t)
+              "the counter lives once, beside growTA")
+  (check-equal? (length (regexp-match* #px"function charCountText\\(" (string-append base tabs rv))) 1
+                "…and is spelled once in the whole console")
+  (check-true (and (regexp-match? #rx"cpcount" tabs) #t) "the chat prompt has a count")
+  (check-true (and (regexp-match? #rx"apcount" tabs) #t) "…and so does the agent prompt")
+  ;; THE LIMIT IS THE SERVER'S, reported on the read each tab already makes, so
+  ;; the number in the browser cannot disagree with the rule that refuses.
+  (check-true (and (regexp-match? #rx"max_chars" tabs) #t))
+  (check-false (regexp-match? #rx"7680" tabs) "the limit must not be spelled in the console")
+  ;; a prefilled prompt is counted on arrival — both prompts ship with example
+  ;; text, which a count-on-input handler never sees (growAll's own reason)
+  (check-true (and (regexp-match? #rx"countAll\\(\\)" rv) #t)
+              "counted after a render, as the fields are sized after a render"))
+
+(test-case "a note can be READ, not only edited"
+  ;; Reported from outside: "the notes view should have a view button, not just
+  ;; edit." The list has rendered each body since #180, so what was missing is a
+  ;; place to read ONE note — with the facts about it, and no editor and no
+  ;; delete button under the cursor.
+  (define tabs (console-code "03-tabs.js"))
+  (check-true (and (regexp-match? #px"noteShow\\(" tabs) #t))
+  (check-true (and (regexp-match? #px"function noteViewCard\\(" tabs) #t))
+  (check-true (and (regexp-match? #px"t\\('view'\\)" tabs) #t) "the button says so in the catalogs")
+  ;; VIEWING AND EDITING ARE ONE SLOT: opening either closes the other, or two
+  ;; cards claim the top of the tab and a reader has to work out which is live.
+  (check-true (and (regexp-match? #px"function noteEdit\\([^)]*\\)\\s*\\{[^}]*S\\.noteShow\\s*=\\s*null" tabs) #t)
+              "editing closes the view")
+  (check-true (and (regexp-match? #px"function noteShow\\([^)]*\\)\\s*\\{[^}]*S\\.noteEdit\\s*=\\s*null" tabs) #t)
+              "…and viewing closes the editor")
+  ;; THE TIMESTAMPS ARE NOT PARSED. `notes.created_at` is TEXT
+  ;; `CURRENT_TIMESTAMP` and `new Date("2026-11-01 05:15:17")` is read as LOCAL
+  ;; time by most engines while the value is UTC — silently out by the viewer's
+  ;; own offset, with nothing to catch it (CARD-3's trap). This table has no
+  ;; epoch columns, so the string is shown as stored and labelled.
+  (check-false (regexp-match? #px"new Date\\(n\\.created_at" tabs)
+               "a UTC string must not be parsed as local time")
+  (check-true (and (regexp-match? #rx"UTC" tabs) #t) "…so it is labelled instead")
+  ;; a tab change drops the view, beside the editor's own reset
+  (check-true (and (regexp-match? #rx"S.noteShow=null" (console-code "02-auth.js")) #t)))
+
+(test-case "HELP-23: with no citations to show, the panel shows what the answer was READ FROM"
+  ;; Reported from outside as "ask the documentation is still broken". The panel
+  ;; and the endpoint were both working: measured over ten real questions
+  ;; against the live corpus, FOUR came back flagged while carrying a good
+  ;; answer, because on this model `uncited` usually means the model answered
+  ;; and did not bracket anything. So the reader met a correct answer under an
+  ;; orange warning saying it was a refusal, and nothing under Sources at all.
+  (define help (console-code "17-help.js"))
+  (check-true (and (regexp-match? #px"rep\\.citations \\|\\| \\[\\]\\)\\.length && \\(rep\\.passages" help) #t)
+              "the passages are shown whenever there are no citations, not only for no-model")
+  (check-true (and (regexp-match? #px"t\\('helpread'\\)" help) #t)
+              "…under a heading that says what they are, rather than claiming they are sources")
+  ;; the citation carries its passage NUMBER, so a `[2]` in the prose resolves
+  ;; to a line the reader can see
+  (check-true (and (regexp-match? #rx"c.index" help) #t)))

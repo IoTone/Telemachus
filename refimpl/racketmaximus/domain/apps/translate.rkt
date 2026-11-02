@@ -16,7 +16,7 @@
          json
          "../db/id.rkt"
          "../authz/authz.rkt"
-         "../ai/executor.rkt"      ; run-chat, model-info
+         "../ai/executor.rkt"      ; run-chat, model-info, max-input-chars
          ;; issue #83 r1: these two columns hold derived document content whenever
          ;; the pipeline translates
          (only-in "../authz/sealed.rkt" define-sealed-column))
@@ -25,7 +25,11 @@
 (define-sealed-column "translations.result_text" (seal-result unseal-result) (id))
 
 (provide translate! translate-list translate-catalog!
-         glossary-add! glossary-list lang-label)
+         glossary-add! glossary-list lang-label
+         ;; #231: the endpoint reports it so the console can show the limit
+         ;; beside the field, rather than a person discovering it by being
+         ;; refused. ONE number, the server's.
+         translate-max-chars)
 
 ;; ---- language labels --------------------------------------------------------
 (define lang-names
@@ -70,10 +74,54 @@
 
 (define (default-chat text sys) (run-chat text #:system sys))
 
+;; ---- #231: too long to translate is a REFUSAL, not a summary -----------------
+;;
+;; Reported from outside, twice, with the input attached: a Wikipedia article
+;; pasted in came back as a short English summary, and the platform stored that
+;; as the Japanese translation. The live row is 39,462 characters in and 1,187
+;; out. WHY it happens is in `executor.rkt` beside the budget — the model server
+;; serves a 4,096-token window, the overflow is discarded oldest first, and the
+;; oldest message is the system prompt that said "translate".
+;;
+;; THE PRE-FLIGHT CHECK IS HERE RATHER THAN AT THE SEAM, and the reason is
+;; coverage in the one direction the seam has none: `model-exchange`'s backstop
+;; reads what the provider says it read, and a translation routed to a PULL
+;; worker never goes through `model-exchange` at all — the worker calls its own
+;; model on another host and answers with a reply and a token count, so there is
+;; no `prompt_tokens` to read. This check is on the text, before anything is
+;; enqueued or dispatched, so it holds for every backend this platform has.
+;;
+;; It is also the half a PERSON meets. A refusal that arrives before the wait,
+;; naming the limit and the length they sent, is the difference between "this is
+;; too long" and twenty seconds of spinner followed by a wrong answer.
+;;
+;; `#:max-chars` is an argument because the budget is derived from a window the
+;; operator declares, and a test of anything else here must not depend on
+;; today's value (`help-answer`'s `#:floor`, for its reason).
+(define (translate-max-chars) (max-input-chars))
+
+(define (translate-problem text #:max-chars [cap (translate-max-chars)])
+  (define n (string-length text))
+  (and (> n cap)
+       (format (string-append
+                "this text is ~a characters and the limit is ~a. Longer than that does not fail —"
+                " it comes back WRONG: the model server's context window is ~a tokens, the text"
+                " past it is discarded before the model reads it, and what gets discarded first"
+                " is the instruction to translate, so the reply is a summary or a comment in the"
+                " wrong language. Translate it in sections, or raise the window on the model"
+                " server (for ollama, OLLAMA_CONTEXT_LENGTH) and set TMACH_MODEL_CONTEXT to"
+                " match.")
+               n cap (model-context))))
+
+
 ;; returns (values job-hash tokens-used)
 (define (translate! conn p #:text text #:target-lang tgt
                     #:source-lang [src "auto"] #:use-glossary [gl? #t] #:chat [chat default-chat])
   (require-perm conn p "chat:use")
+  ;; #231. BEFORE the glossary read, before anything is spent, and
+  ;; `raise-user-error` so it is a 400 the caller sees rather than a 500 whose
+  ;; message only ever reached them through the leak #123 closed.
+  (let ([bad (translate-problem text)]) (when bad (raise-user-error 'translate "~a" bad)))
   (define terms (if gl? (glossary-list conn p #:target-lang tgt) '()))
   (define-values (reply tokens) (chat text (system-prompt tgt src terms)))
   (define id (new-id))

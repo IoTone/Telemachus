@@ -995,8 +995,8 @@ backup, a replica, a <code>pg_dump</code> pasted into a ticket, a stolen
 volume snapshot — enough to replay every one of them.</p>
 <h2 data-number="14.3" id="sealing-the-rest"><span class="header-section-number">14.3</span> Sealing the rest</h2>
 <p>They are sealed with AES-256-GCM, keyed from the environment and
-never from the database. The claim is deliberately narrow, and worth
-stating precisely because the earlier note in the code got it half
+never from the database. What this protects is deliberately narrow, and
+worth stating precisely because the earlier note in the code got it half
 right: this defends a <strong>dump</strong> and does nothing for a
 <strong>host</strong>. An attacker running as the server reads the key
 out of its own environment. But a dump travels without that environment,

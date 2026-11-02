@@ -11,7 +11,7 @@
 
 (require web-kit
          (only-in "../../domain/authz/authz.rkt" principal-team-id require-perm)
-         (only-in "../../domain/apps/translate.rkt" glossary-add! glossary-list translate! translate-catalog! translate-list)
+         (only-in "../../domain/apps/translate.rkt" glossary-add! glossary-list translate! translate-catalog! translate-list translate-max-chars)
          (only-in "../../domain/orgs/orgs.rkt" tenant-quota-check tenant-quota-record!)
          (only-in "../../domain/quota/quota.rkt" get-limit)
          (only-in "../../domain/sched/governor.rkt" with-slot)
@@ -49,8 +49,14 @@
               (tenant-quota-record! db-conn p "ai.tokens.total" tokens)
               (json-response (hash-set (hash-set job 'tokens_used tokens) 'concurrent inflight))))])]))))
 
+;; `max_chars` rides on the LIST read because that is the call the tab already
+;; makes before anybody types (#231): the console shows the limit beside the
+;; field and counts against it, so a long paste is refused by a number the
+;; person can see rather than by a surprise after the wait. ONE home for it —
+;; the server's — so the count in the browser cannot disagree with the rule.
 (define (ep-translate-list req)
-  (with-auth req (lambda (p) (json-response (hasheq 'translations (translate-list db-conn p))))))
+  (with-auth req (lambda (p) (json-response (hasheq 'translations (translate-list db-conn p)
+                                                    'max_chars (translate-max-chars))))))
 
 (define (ep-translate-catalog req)
   (with-auth req (lambda (p)

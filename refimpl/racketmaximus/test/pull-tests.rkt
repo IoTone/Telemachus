@@ -159,6 +159,22 @@
   (check-equal? (length jobs) 1)
   (check-equal? (hash-ref (car jobs) 'kind) "infer.chat")
   (check-equal? (hash-ref (car jobs) 'status) "done")
+  ;; WHICH WORKER RAN IT. The team-tier listing carried `executor_id` — a uuid,
+  ;; which answers nothing a person can act on — and on a fleet of several GPU
+  ;; hosts "which worker ran my job" is the first question asked of it. The name
+  ;; is joined in JSELECT; this is the only level it can be pinned at, because
+  ;; an in-process job leaves `executor_id` NULL by design and the e2e gate runs
+  ;; nothing but in-process jobs.
+  (check-equal? (hash-ref (car jobs) 'executor) "box"
+                "the listing names the executor, not just its id")
+  (check-true (string? (hash-ref (car jobs) 'executor_id))
+              "…and the id is still there for anything that joined on it")
+  ;; the join must not drop a job that no executor ran, which is every job on a
+  ;; single-box instance — a LEFT join, and this is the control for it
+  (let* ([loc (enqueue-job! c #:team tid #:user uid #:kind "local.echo" #:payload (hasheq 'x "hi"))]
+         [row (findf (lambda (x) (equal? (hash-ref x 'id) loc)) (list-jobs c tid))])
+    (check-true (hash? row) "an in-process job is still listed")
+    (check-equal? (hash-ref row 'executor) 'null "…and reports no worker rather than vanishing"))
   (check-exn #rx"no executor named" (lambda () (pull-dispatch! c #:team tid #:user uid #:executor "nope" #:messages '())))
   (disconnect c))
 
