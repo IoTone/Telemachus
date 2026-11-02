@@ -6,7 +6,7 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 
 | Tool | Agent | Permission | Source | Description |
 |---|---|---|---|---|
-| `chat_message` | yes | `chat:use` | translate-chat | モデルにチャットメッセージを1つ送り、その返答を返す。 |
+| `chat_message` | — | `chat:use` | translate-chat | モデルにチャットメッセージを1つ送り、その返答を返す。 |
 | `create_note` | yes | `notes:write` | built-in | 現在のユーザーのチームにメモを作成します。 |
 | `doc_classify` | — | `files:write` | built-in | この文書がどの種類かを、呼び出し側が与えるラベル集合から判定する。ラベル一つと確信度、一行の根拠を返します。決定的なキーワード／コンテンツタイプのルールを先に試し、次にモデルを使います。`backends` で順序を変更でき、`embed`（最近傍ラベルによる埋め込みバックエンド）を指定することもできます。これには埋め込みエンドポイントの設定が必要で、既定の連鎖には含まれません。結果は doc_type / doc_type_confidence / doc_type_source として文書に書き込まれるため、後続のステップ — あるいはトリガー — が種類に応じてスキーマを選べます。また <key>.classification.json として文書の隣に保存されます。 |
 | `doc_classify_eval` | — | `files:read` | built-in | ラベル付きのフィクスチャ集合に対して分類器を測定する: キー接頭辞配下で doc_type_expected 属性を持つ文書が対象です。バックエンドごと、かつラベルごとの正解率とカバレッジ、各ラベルが何と誤認されたか、そして正答と誤答それぞれの平均確信度 — レビューのしきい値で両者を切り分けられるかを示す数値 — を報告します。各バックエンドは連鎖させずに個別に実行するため rules と llm を比較でき、連鎖自体の答えも並べて報告します。何も書き込みません: 種別は記録されず、トリガーも起動しません。 |

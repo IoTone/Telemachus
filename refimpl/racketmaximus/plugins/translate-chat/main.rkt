@@ -76,7 +76,13 @@
   (hash-ref tr 'result))
 
 (define tools
-  (list (list "chat_message"   chat-message-schema   "chat:use" chat-message)
+  ;; The optional FIFTH element is `agent?` (registry.rkt), absent meaning #t.
+  ;; `chat_message` is this workflow's first STEP — a conversational agent calling
+  ;; it is a model asking a model — so it is declared off that surface and leaves
+  ;; the window to tools somebody asks for. `translate_text` stays: "translate
+  ;; this into Spanish" is a whole sentence and its arguments are text and a
+  ;; target.
+  (list (list "chat_message"   chat-message-schema   "chat:use" chat-message #f)
         (list "translate_text" translate-text-schema "chat:use" translate-text)))
 
 ;; ---- the workflow -----------------------------------------------------------

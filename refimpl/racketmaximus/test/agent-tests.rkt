@@ -165,6 +165,14 @@
 ;; than silently pushing somebody else's tool out of the window on a box running
 ;; ollama's documented default. The remedy when it fails is `#:agent? #f` if the
 ;; tool's required arguments are spec-authored, and a smaller schema if not.
+;;
+;; ITS SCOPE IS THE CORE TOOLS, and that is deliberate: no plugin is loaded here,
+;; so what this pins is that the platform's own surface leaves room rather than
+;; filling the window by itself. A plugin's tools legitimately contend for what is
+;; left — measured with all eleven shipped plugins loaded, 13 of 15 agent-facing
+;; tools are offered — and the levers for that are the budget walk, which NAMES
+;; what went, the per-team `tool_settings` switch, and a plugin declaring
+;; `agent?` #f for a tool only its own workflow calls.
 (test-case "the whole agent-facing surface fits the shipped window"
   (define agentable (filter tool-agent? (all-tools)))
   (define-values (kept withheld) (fit-tools (map tool-schema agentable)))

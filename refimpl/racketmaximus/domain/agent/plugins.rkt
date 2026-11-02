@@ -4,7 +4,7 @@
 ;; out-of-tree (not compiled into the core). Each plugin is a folder:
 ;;
 ;;   plugins/<id>/plugin.json   {id, name, version, description, entry}
-;;   plugins/<id>/<entry>.rkt   (provide tools)  ; tools = (list (list name schema perm handler) …)
+;;   plugins/<id>/<entry>.rkt   (provide tools)  ; tools = (list (list name schema perm handler [agent?]) …)
 ;;                              ; handler : (conn principal args) -> string
 ;;                              (provide workflows) ; workflows = (listof spec-jsexpr)
 ;;                              (provide routes)    ; routes = (list (list method path perm handler doc) …)
@@ -208,7 +208,13 @@
           (define job-kinds (job-kinds-of-plugin id))
           (define names
             (for/list ([t (in-list tools)])
-              (register-tool! (list-ref t 0) (list-ref t 1) (list-ref t 2) (list-ref t 3) #:source id)
+              ;; A FIFTH ELEMENT IS OPTIONAL AND IS `agent?` (registry.rkt), absent
+              ;; meaning #t — so every plugin written before it is unchanged, and a
+              ;; plugin whose tool is a workflow STEP can say so rather than
+              ;; competing for the agent's window with a tool nobody will ask for.
+              (register-tool! (list-ref t 0) (list-ref t 1) (list-ref t 2) (list-ref t 3)
+                              #:source id
+                              #:agent? (if (> (length t) 4) (and (list-ref t 4) #t) #t))
               (list-ref t 0)))
           ;; authenticated HTTP routes the plugin contributes (slice 63), checked
           ;; here so a malformed one fails the PLUGIN's load, not a request later

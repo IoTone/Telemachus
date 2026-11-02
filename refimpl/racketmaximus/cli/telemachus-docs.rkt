@@ -455,7 +455,7 @@
                   (L (string-append "doc.plugin." (hash-ref p 'id)) (hash-ref p 'description)))))
    "\n## The seams a plugin may fill\n\n"
    "| Seam | How | Where it lands |\n|---|---|---|\n"
-   "| Tools | `(provide tools)` — a list of `(name schema permission handler)`; the handler is `(conn principal args) -> result` | the same registry as built-ins: per-tool RBAC and per-team activation apply |\n"
+   "| Tools | `(provide tools)` — a list of `(name schema permission handler [agent?])`; the handler is `(conn principal args) -> result`, and the optional fifth element is `#f` for a tool only a workflow step should call | the same registry as built-ins: per-tool RBAC and per-team activation apply |\n"
    "| Workflows | `(provide workflows)` — specs from `define-workflow`, or `workflows/*.json` | validated like an API-published spec; materialized into a team on first lookup |\n"
    "| HTTP routes | `(provide routes)` — a list of `(method path permission handler doc)`; the handler is `(conn principal args) -> jsexpr or response` with `args` = `{params, query, body, headers}` | mounted at `/api/x/<plugin>/<path>`, always authenticated, permission checked first; listed in [api.md](api.md) |\n"
    "| Job kinds | `(provide init!)` calling `register-job-kind!`; the kind must be named `x.<plugin-id>.<name>` | the same queue as core kinds: per-team cap, quota admission, the org gate, cancel and the lease |\n"

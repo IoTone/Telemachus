@@ -6,7 +6,7 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 
 | Tool | Agent | Permission | Source | Description |
 |---|---|---|---|---|
-| `chat_message` | yes | `chat:use` | translate-chat | Send one chat message to the model and return its reply. |
+| `chat_message` | — | `chat:use` | translate-chat | Send one chat message to the model and return its reply. |
 | `create_note` | yes | `notes:write` | built-in | Create a note for the current user's team. |
 | `doc_classify` | — | `files:write` | built-in | Decide which KIND of document this is, from a label set the caller gives: one label plus a confidence and a one-line rationale. Deterministic keyword/content-type rules are tried first and the model second; `backends` reorders them and may also name `embed`, a nearest-label embedding backend that needs an embedding endpoint configured and is not in the default chain. The answer is written onto the document as doc_type / doc_type_confidence / doc_type_source, so a later step — or a trigger — can choose a schema by type, and kept beside it as <key>.classification.json. |
 | `doc_classify_eval` | — | `files:read` | built-in | Measure the classifier against a labelled fixture set: the documents under a key prefix that carry a doc_type_expected attribute. Reports accuracy and coverage per backend AND per label, what each label was confused for, and the mean confidence of right and wrong answers — the figure that tells you whether a review threshold can separate them. Each backend is run SEPARATELY, so rules and llm are compared rather than chained, and the chain's own answer is reported beside them. Writes nothing: no type is recorded and no trigger fires. |
