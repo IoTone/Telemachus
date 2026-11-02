@@ -5248,3 +5248,115 @@ The dry run found **HELP‑15** — a chunk the embedder cannot place used to fa
 operator's entire ingest — and the `--sizes`/`--overlaps` narrowing exists
 because a MODEL comparison wants one cell per model rather than eighteen, which
 would confound the model with the chunking. Neither was in the plan.
+
+## A child's error, and what it does to its siblings (WF‑11…WF‑17, issue #236)
+
+Decided and built 1 Nov 2026. `on_error` on a `map` step; `exn:fail:misconfigured`
+in `domain/tools/faults.rkt`; the per-child report on the fan-out's parent. **No
+migration, no route, no permission, no environment variable.**
+
+**#236 asked for a decision rather than a patch, and it was right to**: the
+knowledge-graph extractor's refusal is CORRECT — KG‑3's rule is that nothing
+enters the graph without a verbatim snippet — so the question was never whether
+to refuse, it was what a refused child should do to the twelve documents behind
+it.
+
+| | | |
+|---|---|---|
+| WF‑11 | the tolerance lives in the **step kind**, as `on_error` on a `map` | ✅ decided |
+| WF‑12 | `on_error` is a **closed vocabulary** (`fail`, `continue`), defaulting to `fail` | ✅ decided |
+| WF‑13 | `results` stays **positional**, with the jsexpr null where a child failed | ✅ decided |
+| WF‑14 | a **misconfiguration** is fatal to the first child whatever the policy says | ✅ decided |
+| WF‑15 | a fan-out where **nothing** succeeded is not a success | ✅ decided |
+| WF‑16 | a plugin materializes **per version**, so it can ship a second one | ✅ decided — found here |
+| WF‑17 | a **drain** tolerates an awkward item; a fan-out over a **named list** does not | ✅ decided |
+
+- **WF‑11 — THE TOLERANCE WAS ALREADY CHOSEN AND LIVED IN THE WRONG PLACE.**
+  `index-documents` over thirteen documents completed 7 of 7 and `index-knowledge`
+  over the same thirteen completed 0 of 5, and the only difference is that the
+  text indexer's extractor records an unreadable file as processed-with-nothing
+  rather than raising — hand-written inside one tool, with CLAUDE.md stating the
+  reason for a year. Writing it into each fan-out tool was the cheap option and is
+  wrong in the way this project has paid for twice: a rule written N times gains
+  an N+1th copy that forgets it. **It is in the step kind, so the SPEC says which
+  behaviour it has** and a reader of `docs/reference/workflows.md` can see it.
+- **WF‑12 — AND IT IS NOT THE SPEC-VERSION CHANGE IT LOOKS LIKE.** WF‑10 refuses
+  a spec naming a field THIS BUILD lacks — a v2 spec on a v1 engine, the forward
+  direction, and that stays refused. An older spec on a newer engine validates
+  exactly as before, because `on_error` is optional and absent means `"fail"`. So
+  every spec published in the field means precisely what it meant, which is
+  asserted rather than assumed. The vocabulary is CLOSED for `READ-DOORS`' reason:
+  a value invented in passing would arrive at the engine as something nothing
+  explains.
+- **WF‑13 — A HOLE, NEVER A SPLICE.** `results` is what a later step binds through
+  `${steps.<map>.output.results}`, and the index is the identity: it is what
+  `${item}` was bound from and what `failures` names. Compacting the list would
+  silently re-align every downstream binding by however many items happened to
+  fail — the same call the staged uploads and the delegated-handler sweep each made
+  for the same reason. The counts are `truncated`'s shape (CLS‑27): `count`,
+  `succeeded`, `failed`, and `failures` carrying an index, a step id and a reason
+  per failure. **`failures` is absent when there were none**, so a reader cannot
+  learn to distrust it (QUOTA‑3's withdrawn-field rule).
+- **WF‑14 — THE ONE DISTINCTION A FAN-OUT CANNOT MAKE FOR ITSELF.** A document a
+  model cannot extract verifiably is awkward and its siblings are innocent;
+  `TMACH_EMBED_URL` being unset is wrong about the whole run, and thirteen copies
+  of that message are not more informative than one — they are thirteen model
+  requests, thirteen error rows and a buried signal. **So the engine is TOLD
+  rather than guessing**: there is no sound way to read "no embedding model
+  configured" out of a message string that register sweeps rewrite and the
+  localizer translates. `exn:fail:misconfigured` is the shape `exn:fail:unavailable`
+  (PULL‑14), `exn:fail:feed-store` (FEED) and `exn:fail:model-retryable` each chose
+  for exactly this question. It lives in a module with **no dependencies at all**,
+  because a tool must raise it without requiring the engine and the engine must
+  catch it without requiring a tool — `executor.rkt` was the obvious home and is
+  wrong, since `'missing-tool` is about `pdftotext` rather than a model. **The
+  catch clauses' ORDER is load-bearing** (it is a subtype of `exn:fail`), which is
+  PULL‑14's lesson met in a third file.
+- **WF‑15 — `succeeded: 0` MUST NOT GO GREEN.** That is the one outcome worse than
+  failing on the first child: the operator is told the backlog was drained. The
+  step errors, naming the count and the first child's message — a fan-out had N
+  chances to say something more useful and said the same thing N times — and the
+  `failures` output is KEPT on the error path, because one message about N
+  documents is not what anybody needs.
+- **WF‑16 — A PLUGIN COULD NEVER SHIP A SECOND VERSION OF A WORKFLOW, and both
+  halves of that were independently wrong.** `materialize-plugin-defs!` asked
+  whether the team had a row for the SLUG at any version, and its INSERT hardcoded
+  `version 1` whatever `#:version` said. So `define-workflow #:version 2` was inert
+  for every team that had ever opened the Workflows tab — which is every team that
+  has used the feature — and `workflow_defs` is UNIQUE(team, slug, version), so the
+  hardcoded 1 could not have landed beside the old row even if the guard had let
+  it. **Found as #236's delivery mechanism, not as a separate defect**: WF‑11's
+  whole point is that the shipped spec declares the policy, and without this the
+  fix reached a brand-new team and nobody else — #113's shape, where the platform
+  records the right thing and nothing serves it. The old row SURVIVES a bump, which
+  is deliberate: #90 r3 put `version` on a run so that a run of a since-superseded
+  definition is distinguishable, and rewriting the old row's spec in place would
+  make every finished run's recorded version a lie.
+- **WF‑17 — WHICH FAN-OUTS GET IT, AND THE LINE IS NOT "ALL OF THEM".** The five
+  **drains** declare `continue`: `index-documents`, `index-knowledge`,
+  `embed-documents`, `transcribe-documents`, `classify-backfill`. Each walks a
+  BACKLOG the platform found, where one awkward document must not stop the others.
+  `process-upload`'s translation fan-out and `translate-chat`'s keep `fail`,
+  because they fan out over a list the CALLER named — somebody asked for three
+  locales, and two of three arriving is a different thing from a drain that got
+  through most of a queue. **`classify-backfill`'s own description was already
+  promising `continue`**: CLS‑24's note has said "a document no rule describes is
+  then refused BY NAME on that one document while every other document still
+  lands" since the backfill shipped, and it was not true. Second place in this tree
+  where the tolerance was documented before it existed; the indexer's carve-out was
+  the first.
+
+**Eight positive controls, all biting and each naming the right case**: the policy
+forced off, the `fatal?` override ignored, the catch clauses reversed, the
+nothing-succeeded branch disabled, `results` compacted, completion counting only
+`done` (which HANGS the fan-out — the failure a naive fix produces), the
+materializer keyed on the slug again, and `on_error` left unvalidated. The
+baseline was re-run green afterwards, because a harness that restores files must
+invalidate the bytecode or the restored tree runs the control's code.
+
+**And the generated reference was not showing a map's `retry` at all** —
+`MAP-STEP-KEYS` puts it on the TEMPLATE and the generator read it off the step, so
+every shipped drain rendered without the retry it asks for. Found while surfacing
+`on_error`, which the page now carries for the fan-outs that tolerate a failure
+and leaves unsaid for the ones that do not: a column that is only ever one value
+tells a reader nothing (#178).

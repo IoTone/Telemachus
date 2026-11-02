@@ -16,7 +16,9 @@
 ;; stored output. The agent surface JSON-encodes non-string results at its boundary
 ;; (dispatch-tool), so a model that calls this tool sees a JSON array in text form.
 
-(require db-kit/portable racket/string
+(require db-kit/portable
+         racket/string
+         (only-in "../tools/faults.rkt" raise-misconfigured)   ; WF-14
          "../tools/dsl.rkt"
          "../agent/registry.rkt"
          "../authz/authz.rkt"
@@ -88,8 +90,11 @@
      ;; a real error, so the step FAILS and the run says why — an operator installs
      ;; poppler and re-runs, rather than discovering months later that no PDF was
      ;; ever searchable
-     (error 'repo_extract_text
-            "pdftotext is not installed — PDF text extraction needs poppler-utils")]
+     ;; WF-14: and it is fatal to a fan-out whatever `on_error` says, which is
+     ;; this carve-out finally being readable BY the engine rather than only by
+     ;; whoever read this branch.
+     (raise-misconfigured 'repo_extract_text
+       "pdftotext is not installed — PDF text extraction needs poppler-utils")]
     [else
      ;; A document that CANNOT be read — corrupt, or mislabeled as a type it is not —
      ;; is recorded as processed-with-nothing rather than raised. Raising would fail

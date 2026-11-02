@@ -22,6 +22,9 @@
          ;; derived document content for the pipeline
          (only-in "../authz/sealed.rkt" define-sealed-column)
          (only-in "../audit/reads.rkt" read-context with-read-context)
+         ;; WF-14: the one distinction a fan-out cannot make for itself —
+         ;; "this item is awkward" against "an operator must change something"
+         (only-in "../tools/faults.rkt" exn:fail:misconfigured?)
          racket/list
          racket/string
          json
@@ -38,6 +41,10 @@
 (provide flow-publish! flow-defs flow-def-get flow-def-by-slug
          flow-run-start! flow-run-get flow-runs flow-run-cancel!
          register-plugin-workflow! plugin-workflows
+         ;; exported FOR the test (WF-16): a bump has to be observable without a
+         ;; live plugin loader, and an export with a test behind it is not an
+         ;; over-wide export (#110 r4's own exception)
+         materialize-plugin-defs!
          )
 
 ;; ---- sealing a run's bindings (issue #83 r1, slice 3) -----------------------------
@@ -145,19 +152,42 @@
   (for/list ([e (in-list (unbox *plugin-workflows*))])
     (hasheq 'plugin (car e) 'slug (spec-slug (cdr e)) 'spec (cdr e))))
 
+;; WF-16. A PLUGIN COULD NEVER SHIP A SECOND VERSION OF A WORKFLOW, and the two
+;; halves of that were independently wrong: the guard asked whether the team had
+;; a row for the SLUG at any version, and the INSERT hardcoded `version 1`
+;; whatever `#:version` said. So `define-workflow #:version 2` was inert for
+;; every team that had ever opened the Workflows tab — which is every team that
+;; has used the feature — and `workflow_defs` is UNIQUE(team, slug, version), so
+;; the hardcoded 1 could not have landed beside the old row even if the guard
+;; had let it.
+;;
+;; FOUND WHILE FIXING #236, as its delivery mechanism rather than as a separate
+;; defect: WF-11's whole point is that `index-knowledge` stops taking the run
+;; down with it, and the shipped spec is where that is declared. Without this
+;; the fix reaches a brand-new team and nobody else — the shape #113 is about,
+;; where the platform records the right thing and nothing serves it.
+;;
+;; The version is the SPEC's own, and `flow-def-by-slug` already takes the
+;; highest active version of a slug, so a bump supersedes without touching the
+;; old row. That is deliberate and not merely convenient: #90 r3 put `version`
+;; on a run precisely so a run of a since-superseded definition is
+;; distinguishable, and rewriting the old row's spec in place would make every
+;; finished run's recorded version a lie.
 (define (materialize-plugin-defs! conn team)
   (for ([e (in-list (unbox *plugin-workflows*))])
     (define spec (cdr e))
-    (unless (query-maybe-value conn "SELECT id FROM workflow_defs WHERE team_id = ? AND slug = ?"
-                               team (spec-slug spec))
+    (define ver (spec-version spec))
+    (unless (query-maybe-value conn
+              "SELECT id FROM workflow_defs WHERE team_id = ? AND slug = ? AND version = ?"
+              team (spec-slug spec) ver)
       ;; Two requests can reach this line together — the console fires the
       ;; Workflows tab's list and a "Run workflow…" lookup in parallel on a team
       ;; that has never looked — and both see no row. The UNIQUE(team_id, slug,
       ;; version) makes the second insert a no-op rather than a 500.
       (query-exec conn
-        (string-append "INSERT INTO workflow_defs (id, team_id, slug, version, source, spec) VALUES (?, ?, ?, 1, ?, ?) "
+        (string-append "INSERT INTO workflow_defs (id, team_id, slug, version, source, spec) VALUES (?, ?, ?, ?, ?, ?) "
                        "ON CONFLICT (team_id, slug, version) DO NOTHING")
-        (new-id) team (spec-slug spec) (string-append "plugin:" (car e)) (jsexpr->string spec)))))
+        (new-id) team (spec-slug spec) ver (string-append "plugin:" (car e)) (jsexpr->string spec)))))
 
 (define (flow-defs conn p)
   (require-perm conn p "workflows:read")
@@ -498,19 +528,75 @@
           (define kids (for/list ([r (in-list (query-rows conn
                           (string-append SSELECT " WHERE parent_id = ? ORDER BY seq ASC") parent-id))])
                          (row->step r)))
-          (when (>= (length (filter (lambda (k) (equal? (hash-ref k 'status) "done")) kids)) expected)
-            (define out (hasheq 'results (for/list ([k (in-list kids)]) (hash-ref k 'output))))
-            (query-exec conn
-              "UPDATE workflow_steps SET status = 'done', output = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-              (seal-step-output parent-id (jsexpr->string out)) parent-id)
+          ;; UNDER `"fail"` an errored child never reaches here — the run was
+          ;; finished before this is called. Under `"continue"` it does, so the
+          ;; "was I the last one?" test counts every SETTLED child rather than
+          ;; every successful one, or a fan-out with one failure would wait for
+          ;; a sibling that is never coming and hang `running` for ever.
+          (define (settled? k) (member (hash-ref k 'status) '("done" "error")))
+          (define done? (lambda (k) (equal? (hash-ref k 'status) "done")))
+          (when (>= (length (filter settled? kids)) expected)
+            (define failed (filter (lambda (k) (equal? (hash-ref k 'status) "error")) kids))
+            (define nsucc (length (filter done? kids)))
+            ;; WF-13. `results` STAYS POSITIONAL, with the jsexpr null where a
+            ;; child failed. The index is the identity — it is what `${item}`
+            ;; was bound from and what `failures` names — so compacting the
+            ;; list would silently re-align every downstream binding of
+            ;; `${steps.<map>.output.results}` by however many items happened
+            ;; to fail. A hole, never a splice, which is the rule the staged
+            ;; uploads and the handler sweep each settled for the same reason.
+            ;;
+            ;; And the counts are `truncated`'s shape (CLS-27): say how many
+            ;; and why, rather than a flag that is only ever true. `failures`
+            ;; is absent when there were none, so a reader cannot learn to
+            ;; distrust it (QUOTA-3's withdrawn-field rule).
+            (define base (hasheq 'results (for/list ([k (in-list kids)]) (hash-ref k 'output))
+                                 'count expected
+                                 'succeeded nsucc
+                                 'failed (length failed)))
+            (define out
+              (if (null? failed)
+                  base
+                  (hash-set base 'failures
+                            (for/list ([k (in-list failed)])
+                              (hasheq 'index (hash-ref (hash-ref k 'input) 'index 'null)
+                                      'step (hash-ref k 'step_id)
+                                      'error (let ([e (hash-ref k 'error 'null)])
+                                               (if (string? e) e 'null)))))))
             (define rrow (run-row conn run-id))
-            (when rrow
-              (define run (row->run rrow))
-              (define nxt (step-next (spec-of conn run) (step-ref (spec-of conn run) (hash-ref parent 'step_id))))
-              (query-exec conn "UPDATE workflow_runs SET cursor_json = ? WHERE id = ?"
-                          (seal-run-cursor run-id
-                                (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq)))) run-id)
-              (flow-advance! conn run-id))))))))
+            (cond
+              ;; WF-15. A FAN-OUT THAT ACHIEVED NOTHING IS NOT A SUCCESS. With
+              ;; `continue` the step would otherwise report `succeeded: 0` and
+              ;; go green, which is the one outcome worse than failing on the
+              ;; first child: the operator is told the backlog was drained. It
+              ;; errors, naming the count, and the first child's message — the
+              ;; fan-out had N chances to say something more useful and said
+              ;; the same thing N times.
+              [(and (positive? expected) (zero? nsucc))
+               (define first-msg (let ([e (and (pair? failed) (hash-ref (car failed) 'error 'null))])
+                                   (if (string? e) e "no child succeeded")))
+               (define msg (format "all ~a item(s) of step '~a' failed: ~a"
+                                   expected (hash-ref parent 'step_id) first-msg))
+               (query-exec conn
+                 (string-append "UPDATE workflow_steps SET status = 'error', output = ?, error = ?, "
+                                "finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                 ;; the output is kept even on the error path: `failures` is the
+                 ;; whole diagnostic and discarding it would leave an operator
+                 ;; with one message about N documents
+                 (seal-step-output parent-id (jsexpr->string out))
+                 (seal-step-error parent-id msg) parent-id)
+               (finish! conn run-id "error" #:error msg)]
+              [else
+               (query-exec conn
+                 "UPDATE workflow_steps SET status = 'done', output = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
+                 (seal-step-output parent-id (jsexpr->string out)) parent-id)
+               (when rrow
+                 (define run (row->run rrow))
+                 (define nxt (step-next (spec-of conn run) (step-ref (spec-of conn run) (hash-ref parent 'step_id))))
+                 (query-exec conn "UPDATE workflow_runs SET cursor_json = ? WHERE id = ?"
+                             (seal-run-cursor run-id
+                                   (jsexpr->string (if nxt (hasheq 'next nxt) (hasheq)))) run-id)
+                 (flow-advance! conn run-id))])))))))
 
 (define (enqueue-step! conn run step-row-id)
   (define job (enqueue-job! conn #:team (hash-ref run 'team_id) #:user (hash-ref run 'user_id)
@@ -565,7 +651,13 @@
                            #:index (hash-ref (hash-ref st 'input) 'index 0))
               (context-for conn run)))
         (query-exec conn "UPDATE workflow_steps SET status = 'running', started_at = CURRENT_TIMESTAMP WHERE id = ?" srow-id)
-        (with-handlers ([exn:fail? (lambda (e) (step-failed! conn run st srow-id (exn-message e)))])
+        ;; THE ORDER IS LOAD-BEARING: `exn:fail:misconfigured` is a SUBTYPE of
+        ;; `exn:fail` and the first matching clause wins, so reversing these
+        ;; silently makes every misconfiguration tolerable — PULL-14's lesson,
+        ;; met in a third file.
+        (with-handlers ([exn:fail:misconfigured?
+                         (lambda (e) (step-failed! conn run st srow-id (exn-message e) #:fatal? #t))]
+                        [exn:fail? (lambda (e) (step-failed! conn run st srow-id (exn-message e)))])
           (define-values (output next)
             (cond
               ;; one item of a fan-out: the map's template, with ${item} bound
@@ -606,7 +698,7 @@
 ;; A step that raised is retried in place (a new job for the same step row) while
 ;; attempts remain; the job that failed still reports ok, because the *step* row is
 ;; where a run's truth lives and it says 'queued, attempt N+1'.
-(define (step-failed! conn run st srow-id message)
+(define (step-failed! conn run st srow-id message #:fatal? [fatal? #f])
   (define spec (spec-of conn run))
   (define step (step-ref spec (base-step-id (hash-ref st 'step_id))))
   (define retry (if (parent-of st)
@@ -624,16 +716,44 @@
      (query-exec conn
        "UPDATE workflow_steps SET status = 'error', error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
        (seal-step-error srow-id message) srow-id)
-     ;; one bad item fails the whole fan-out, and the fan-out fails the run: the
-     ;; siblings still in flight find the run no longer `running` and no-op
-     (when (parent-of st)
-       (query-exec conn
-         "UPDATE workflow_steps SET status = 'error', error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
-         ;; the AAD is the row being written, not the child that failed — a
-         ;; ciphertext moved between rows must not open (#19)
-         (seal-step-error (parent-of st) message) (parent-of st)))
-     (finish! conn (hash-ref run 'id) "error"
-              #:error (format "step '~a' failed: ~a" (hash-ref st 'step_id) message))
-     (hasheq 'failed (hash-ref st 'step_id) 'error message)]))
+     ;; WF-11. WHAT A CHILD'S EXHAUSTED ERROR DOES TO ITS SIBLINGS IS THE
+     ;; `map` STEP'S OWN DECLARATION, and this is the whole of #236.
+     ;;
+     ;; Observed on the demo: `index-knowledge` over thirteen documents, child
+     ;; `extract#1` errored, and children #2 through #11 were left `queued`
+     ;; carrying an error they never got to act on — the run red and the work
+     ;; not done, while `index-documents` over the same thirteen completed 7 of
+     ;; 7 because its extractor records an unreadable file rather than raising.
+     ;; The tolerance was already chosen; it just lived hand-written inside one
+     ;; tool instead of being available to a fan-out, which is the N+1th-copy
+     ;; shape this project has paid for twice.
+     ;;
+     ;; `fatal?` OVERRIDES THE POLICY and that ordering is load-bearing: a
+     ;; misconfiguration (WF-14) is wrong about every item, so `continue` would
+     ;; spend N model requests and N error rows to learn what the first child
+     ;; already said.
+     (define tolerate?
+       (and (parent-of st)
+            (not fatal?)
+            (equal? (map-on-error step) "continue")))
+     (cond
+       [tolerate?
+        ;; The child's row is the record — it keeps its own error — and the
+        ;; PARENT is left `running` for `complete-map!` to settle, which is
+        ;; what collects the counts and decides whether anything succeeded.
+        (complete-map! conn (hash-ref run 'id) (parent-of st))
+        (hasheq 'failed (hash-ref st 'step_id) 'error message 'tolerated #t)]
+       [else
+        ;; one bad item fails the whole fan-out, and the fan-out fails the run:
+        ;; the siblings still in flight find the run no longer `running` and no-op
+        (when (parent-of st)
+          (query-exec conn
+            "UPDATE workflow_steps SET status = 'error', error = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?"
+            ;; the AAD is the row being written, not the child that failed — a
+            ;; ciphertext moved between rows must not open (#19)
+            (seal-step-error (parent-of st) message) (parent-of st)))
+        (finish! conn (hash-ref run 'id) "error"
+                 #:error (format "step '~a' failed: ~a" (hash-ref st 'step_id) message))
+        (hasheq 'failed (hash-ref st 'step_id) 'error message)])]))
 
 (register-job-kind! FLOW-JOB-KIND flow-step-execute!)

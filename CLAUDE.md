@@ -1518,6 +1518,31 @@ contract (WF‑9), and `define-workflow` is a macro that emits it, the same move
   admission and the org gate are all inherited. Nothing lives in memory — a run
   survives a restart because the rows are the state.
 - Ships `tool:<name>`, `choice` and `map` (fan-out). `agent`/`job:`/`flow:` deferred.
+- **A `map` DECLARES what a child's error does to its siblings** (`on_error`,
+  WF‑11…WF‑17, issue #236). `"fail"` is the default and is what every `map` did
+  before the key existed; `"continue"` records the child's error and carries on,
+  and the parent's output then reports `count`, `succeeded`, `failed` and a
+  `failures` list with an index, a step id and a reason each. **`results` stays
+  POSITIONAL with a null where a child failed** — the index is what `${item}` was
+  bound from, so compacting would re-align every downstream binding. A fan-out
+  where NOTHING succeeded still fails the run (WF‑15). **A misconfiguration is
+  fatal on the first child whatever the policy says**: raise
+  `exn:fail:misconfigured` (`domain/tools/faults.rkt`, no dependencies, so a tool
+  and the engine can both require it) rather than `error` for "an operator must
+  change something" — the engine is TOLD, because no message string survives a
+  register sweep and a translation. **The clause order in `flow-step-execute!`'s
+  `with-handlers` is load-bearing**: it is a subtype of `exn:fail` and the first
+  match wins, so reversing them silently makes every misconfiguration tolerable.
+  The five DRAINS declare `continue`; `process-upload` and `translate-chat` do not,
+  because they fan out over a list the caller named (WF‑17).
+- **A PLUGIN CAN SHIP A SECOND VERSION OF A WORKFLOW NOW, AND COULD NOT** (WF‑16).
+  `materialize-plugin-defs!` keyed its guard on `(team, slug)` and hardcoded
+  `version 1` in the INSERT, so `define-workflow #:version 2` was inert for every
+  team that had ever opened the Workflows tab. It is keyed on `(team, slug,
+  version)` and inserts the spec's own version; `flow-def-by-slug` already takes
+  the highest, and the old row SURVIVES because #90 r3's `version` on a run must
+  not become a lie. **Bump `#:version` when you change a shipped spec**, or the
+  change reaches new teams only.
 - A plugin may `(provide workflows)` or drop `workflows/*.json`; those specs are
   **materialized** into a team's `workflow_defs` on first lookup (`source:
   'plugin:<id>'`) — a plugin has no team at load time. The insert is `ON

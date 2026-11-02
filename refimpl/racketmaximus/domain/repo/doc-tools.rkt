@@ -39,6 +39,9 @@
 ;;   inbox/acme.ja.txt             a translation of the SOURCE (text out of a PDF)
 
 (require db-kit/portable
+         ;; WF-14: "an operator must change something" is fatal to a fan-out
+         ;; whatever its `on_error` policy says
+         (only-in "../tools/faults.rkt" raise-misconfigured)
          racket/string racket/list racket/port racket/file racket/system
          file/unzip file/zip
          json
@@ -100,7 +103,11 @@
   ;; KG-7: bulk work goes to the team's `utility` executor when one is set
   (define ex (current-utility-executor))
   (unless (or ex (model-configured?))
-    (error 'doc-tools "no model configured — set TMACH_MODEL_URL, or a utility executor in Model roles"))
+    ;; WF-14: a fan-out must fail on its FIRST child for this, whatever its
+    ;; `on_error` says — the operator sets one variable, and thirteen copies of
+    ;; this message are thirteen buried signals rather than more information.
+    (raise-misconfigured 'doc-tools
+      "no model configured — set TMACH_MODEL_URL, or a utility executor in Model roles"))
   (run-chat prompt #:system sys #:temperature 0 #:executor ex))
 
 (define current-doc-chat (make-parameter default-chat))
@@ -284,7 +291,12 @@
      (unless version (repo-text-upsert! conn id (hash-ref o 'version_id) text #:spans spans))
      text]
     [(eq? reason 'missing-tool)
-     (error 'doc_text "pdftotext is not installed — PDF text extraction needs poppler-utils")]
+     ;; WF-14. The indexer's own carve-out, which has said for a year that
+     ;; `'missing-tool` fails hard "deliberately" while an unreadable file does
+     ;; not — those are the two sides of a fan-out's failure policy, and this is
+     ;; the hard one: an operator installs poppler and re-runs.
+     (raise-misconfigured 'doc_text
+       "pdftotext is not installed — PDF text extraction needs poppler-utils")]
     ;; the pipeline's most common real failure, and it used to arrive as an empty
     ;; document the model was asked to extract fields from
     [(eq? reason 'needs-ocr)

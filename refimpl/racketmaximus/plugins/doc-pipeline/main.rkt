@@ -256,19 +256,27 @@
   #:name "Classify a backlog"
   #:description "Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends [\"rules\"] to backfill without spending model budget."
   #:input ([prefix string] [labels array] [rules array] [backends array])
+  #:version 2
   #:max-steps 30                       ; find + the map parent + a full batch of 25, with room
 
   (step find (tool doc_list_unclassified #:prefix (in prefix)
                                          #:run (run-id) #:step "find"))
   ;; one retry, the pipeline's rule: a 7B model that answered with a fence or an
   ;; invented label usually gets it right when told so
+  ;;
+  ;; WF-17, and this spec's own description was already PROMISING it: "a document
+  ;; no rule describes is then refused BY NAME on that one document while every
+  ;; other document still lands" has been in CLS-24's notes since the backfill
+  ;; shipped, and it was not true — the first refusal failed the step and the
+  ;; step failed the run. Second place the tolerance was documented before it
+  ;; existed; the indexer's carve-out was the first.
   (step classify (map #:over (out find result ids)
                       (tool doc_classify #:object (item)
                                          #:labels (in labels)
                                          #:rules (in rules)
                                          #:backends (in backends)
                                          #:run (run-id) #:step "classify")
-                      #:retry 1)
+                      #:retry 1 #:on-error "continue")
         #:end))
 
 ;; ---- the evaluation (issue #87 req 6, CLS-29…33) ----------------------------------

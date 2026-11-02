@@ -2,7 +2,8 @@
 
 **Status:** slices 46 and 47 built. `map` fan-out, the plugin `workflows` export
 and `${principal.locale}` were pulled forward by the Translate Chat demo. Slices 48–49
-pending. All decisions settled (WF‑1…WF‑10).
+pending. All decisions settled (WF‑1…WF‑17 — WF‑11…WF‑17 are issue #236's,
+and are recorded in `decisions.md`).
 **Depends on:** the tool registry, the scheduler, `can?` + the org gate (TEN‑2).
 **Operators:** [../ops/workflow-engine-runbook.md](../ops/workflow-engine-runbook.md)
 — setup, the four test tiers, failure modes, CI.
@@ -375,6 +376,13 @@ and each can be dropped without stranding the one before it.
 | WF‑8 | Plugin steps run in process with platform privileges, as tools do | ✅ decided — out of scope; revisit as hardening |
 | WF‑9 | The spec is a **public contract** — documented, versioned, API-publishable | ✅ decided — Racket stays the documented way to write one |
 | WF‑10 | Unknown fields in a submitted spec are **rejected** | ✅ decided — a silent no-op on a step that takes action is worse than a refusal |
+| WF‑11 | A `map`'s per-child failure policy is **`on_error` on the step**, not hand-written into each tool | ✅ decided — #236; a rule written N times gains an N+1th copy that forgets it |
+| WF‑12 | `on_error` is a **closed vocabulary** (`fail`, `continue`) and defaults to `fail` | ✅ decided — every spec published before the key existed means what it meant |
+| WF‑13 | A partial fan-out's `results` stays **positional**, with null where a child failed | ✅ decided — the index is the identity; a hole, never a splice |
+| WF‑14 | A **misconfiguration** is fatal to the first child whatever the policy says | ✅ decided — `exn:fail:misconfigured`; the engine is told, never guesses from a message |
+| WF‑15 | A fan-out where **nothing** succeeded is not a success | ✅ decided — `succeeded: 0` going green tells an operator the backlog was drained |
+| WF‑16 | Plugin specs materialize **per version**, so a plugin can ship a second one | ✅ decided — found as #236's delivery mechanism |
+| WF‑17 | A **drain** tolerates an awkward item; a fan-out over a **caller's named list** does not | ✅ decided — two of three locales is not the same thing as most of a queue |
 
 ## Built (slice 46)
 

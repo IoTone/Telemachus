@@ -5,17 +5,17 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | Workflow | Plugin | Version | Steps | Description |
 |---|---|---|---|---|
 | `classify-and-extract` | doc-pipeline | 1 | 7 | この文書がどの種類かを判定し（まず決定的なルール、次にモデル）、その種類を文書に記録し、その種類に対応するスキーマに照らしてフィールドを抽出する。スキーマのない種類は、分類だけ行ってそのままにします。 |
-| `classify-backfill` | doc-pipeline | 1 | 2 | 接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。 |
+| `classify-backfill` | doc-pipeline | 2 | 2 | 接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。 |
 | `classify-eval` | doc-pipeline | 1 | 1 | チームのラベル付きフィクスチャ — 接頭辞配下で doc_type_expected 属性を持つ文書 — に対して分類器を測定する。各バックエンドを単独で、かつラベルごとに正解率とカバレッジを報告し、各ラベルが何と誤認されたか、正答と誤答がどれほど確信を持っていたかも併せて示します。何も書き込みません: 種別は記録されずトリガーも起動しないため、フィクスチャ集合は何度でも評価できます。 |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | この文書がどの種類かを判定し、分類器の確信度が `min_confidence` を下回る場合は、推測せずに実行を保留して人に尋ねる。その判断は文書に記録されます — そのまま承認、別の種類へ訂正、あるいはいずれでもないときは取り下げ — そのうえで、その種類に対応するスキーマに照らしてフィールドを抽出します。 |
-| `embed-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントの抽出済みテキストをチャンクに分割し、意味検索のためにチャンクごとの埋め込みベクトルを保存します。現在のバージョンのベクトルがないドキュメント（または別のモデルで作成されたベクトルを持つドキュメント）を見つけたら、それぞれを埋め込みます。TMACH_EMBED_URL が必要です。再実行しても安全で、1回につき最大25ドキュメントを処理し、チームの埋め込み予算を消費します。 |
+| `embed-documents` | doc-indexer | 2 | 2 | リポジトリのドキュメントの抽出済みテキストをチャンクに分割し、意味検索のためにチャンクごとの埋め込みベクトルを保存します。現在のバージョンのベクトルがないドキュメント（または別のモデルで作成されたベクトルを持つドキュメント）を見つけたら、それぞれを埋め込みます。TMACH_EMBED_URL が必要です。再実行しても安全で、1回につき最大25ドキュメントを処理し、チームの埋め込み予算を消費します。 |
 | `feed-propose` | feeds | 1 | 2 | エージェントが取得済みの項目 1 件を読み、その隣に提案を書き出します。その後、実行は人の判断を待って停止します。提案に対して何も実行されません — v1 に実行するツールはなく、将来できたとしても approve の分岐にのみ置かれます。 |
 | `feed-triage` | feeds | 1 | 1 | 取得済みの項目 1 件を、優先度・期限・スキルとともに作業キューに載せます。キューはインデックスであり、これはトリアージが決めた内容の記録です。 |
-| `index-documents` | doc-indexer | 1 | 2 | リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
-| `index-knowledge` | knowledge-graph | 1 | 2 | インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
+| `index-documents` | doc-indexer | 2 | 2 | リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
+| `index-knowledge` | knowledge-graph | 2 | 2 | インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。 |
 | `process-upload` | doc-pipeline | 1 | 6 | テキストを抽出し、JSON スキーマに照らして構造化フィールドを取り出し（適合しなければ拒否）、フォームテンプレートに埋め込み、結果をチームの言語に翻訳する。すべての出力は元文書の隣にあるリポジトリ文書で、由来が記録されます。 |
 | `redact-document` | doc-pipeline | 1 | 1 | 文書テキスト中の識別子を安定したトークンに置き換え、その結果を元文書の隣に <key>.redacted.txt として書き出す。モデルへの要求が何から組み立てられるのかを、そのまま読んで確認できます。検出器は名前で選び — email、date、id_number、dictionary、phone — トークンから値へ戻す対応表は、どのエンドポイントも返さない封緘済みの行に保存します。 |
-| `transcribe-documents` | doc-indexer | 1 | 2 | チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。 |
+| `transcribe-documents` | doc-indexer | 2 | 2 | チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。 |
 | `translate-chat` | translate-chat | 1 | 3 | 1回チャットし、返答をスペイン語・オランダ語・アイスランド語に展開してから、それぞれを戻す。 |
 
 ## `classify-and-extract` — 文書を分類してフィールドを抽出する
@@ -49,7 +49,7 @@ Steps:
 
 接頭辞配下の文書種別をバックフィルする。まだ種別のない文書を探し、1 回の実行で最大 25 件を分類します。すでに種別のある文書は飛ばされるため再実行は安全で、大きな滞留は見つからなくなるまで繰り返し実行して解消します。モデルの予算を使わずにバックフィルするには backends に ["rules"] を渡してください。
 
-Plugin: `doc-pipeline` · version 1 · max steps 30 · starts at `find`
+Plugin: `doc-pipeline` · version 2 · max steps 30 · starts at `find`
 
 Input:
 
@@ -65,7 +65,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:doc_list_unclassified` | `{"prefix":"${input.prefix}","run":"${run.id}","step":"find"}` | next in order |
-| `classify` | `map` | over `${steps.find.output.result.ids}` → `tool:doc_classify` with `{"backends":"${input.backends}","labels":"${input.labels}","object":"${item}","rules":"${input.rules}","run":"${run.id}","step":"classify"}` | end |
+| `classify` | `map` | over `${steps.find.output.result.ids}` → `tool:doc_classify` with `{"backends":"${input.backends}","labels":"${input.labels}","object":"${item}","rules":"${input.rules}","run":"${run.id}","step":"classify"}` | end · retry 1 · on a child's error, continue |
 
 ## `classify-eval` — 分類器を評価する
 
@@ -127,7 +127,7 @@ Steps:
 
 リポジトリのドキュメントの抽出済みテキストをチャンクに分割し、意味検索のためにチャンクごとの埋め込みベクトルを保存します。現在のバージョンのベクトルがないドキュメント（または別のモデルで作成されたベクトルを持つドキュメント）を見つけたら、それぞれを埋め込みます。TMACH_EMBED_URL が必要です。再実行しても安全で、1回につき最大25ドキュメントを処理し、チームの埋め込み予算を消費します。
 
-Plugin: `doc-indexer` · version 1 · max steps 35 · starts at `find`
+Plugin: `doc-indexer` · version 2 · max steps 35 · starts at `find`
 
 Takes no input.
 
@@ -136,7 +136,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:repo_list_unembedded` | `{}` | next in order |
-| `embed` | `map` | over `${steps.find.output.result}` → `tool:repo_embed_chunks` with `{"id":"${item}"}` | end |
+| `embed` | `map` | over `${steps.find.output.result}` → `tool:repo_embed_chunks` with `{"id":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `feed-propose` — フィード項目について何をすべきかを提案する
 
@@ -182,7 +182,7 @@ Steps:
 
 リポジトリのドキュメントから検索インデックスにテキストを抽出します。未インデックス化されたものや上書き後の古い情報を見つけたら、それぞれを抽出します。再実行しても安全で、1回につき最大40ドキュメントを処理します。
 
-Plugin: `doc-indexer` · version 1 · max steps 50 · starts at `find`
+Plugin: `doc-indexer` · version 2 · max steps 50 · starts at `find`
 
 Takes no input.
 
@@ -191,13 +191,13 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:repo_list_unindexed` | `{}` | next in order |
-| `extract` | `map` | over `${steps.find.output.result}` → `tool:repo_extract_text` with `{"id":"${item}"}` | end |
+| `extract` | `map` | over `${steps.find.output.result}` → `tool:repo_extract_text` with `{"id":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `index-knowledge` — 知識のインデックス作成
 
 インデキシングされたリポジトリドキュメントから知識グラフにエンティティや関係を抽出します。未抽出のもの（または上書き後に古いもの）を見つけ次第、それぞれのものをモデルを使用して抽出します；検証されない回答は拒否されます。再実行しても安全で、1回につき最大40ドキュメントを処理します。
 
-Plugin: `knowledge-graph` · version 1 · max steps 50 · starts at `find`
+Plugin: `knowledge-graph` · version 2 · max steps 50 · starts at `find`
 
 Takes no input.
 
@@ -206,7 +206,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:kg_list_unextracted` | `{}` | next in order |
-| `extract` | `map` | over `${steps.find.output.result}` → `tool:kg_extract` with `{"object":"${item}"}` | end |
+| `extract` | `map` | over `${steps.find.output.result}` → `tool:kg_extract` with `{"object":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `process-upload` — アップロードした文書を処理する
 
@@ -231,8 +231,8 @@ Steps:
 | `fields` | `tool:doc_extract_fields` | `{"object":"${input.object_id}","run":"${run.id}","schema":"${input.schema}","step":"fields","text":"${steps.text.output.result}"}` | next in order · retry 1 |
 | `has_form` | `choice` | when `{"empty":["${input.template}"]}` then `translate_source` else `form` | next in order |
 | `form` | `tool:doc_render` | `{"data":"${steps.fields.output.result.fields}","object":"${input.object_id}","run":"${run.id}","step":"form","template":"${input.template}"}` | next in order |
-| `translate_form` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${steps.form.output.result.object_id}","run":"${run.id}","step":"translate"}` | end |
-| `translate_source` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${input.object_id}","run":"${run.id}","step":"translate"}` | end |
+| `translate_form` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${steps.form.output.result.object_id}","run":"${run.id}","step":"translate"}` | end · retry 1 |
+| `translate_source` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${input.object_id}","run":"${run.id}","step":"translate"}` | end · retry 1 |
 
 ## `redact-document` — 文書の識別子を伏せる
 
@@ -258,7 +258,7 @@ Steps:
 
 チームの音声ドキュメントを検索インデックス内のテキストに変換します。まだ文字起こしのない録音を見つけ、一つずつ文字起こしします。TMACH_TRANSCRIBE_URL が必要です。再実行は安全で、一回の実行で最大20件の録音を処理し、チームの文字起こし予算を消費します。ボイスノートについては Index Documents と Embed Documents より前にこれを実行してください — これが済むまで、録音にはどちらが読むテキストもありません。
 
-Plugin: `doc-indexer` · version 1 · max steps 30 · starts at `find`
+Plugin: `doc-indexer` · version 2 · max steps 30 · starts at `find`
 
 Takes no input.
 
@@ -267,7 +267,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:voice_list_untranscribed` | `{}` | next in order |
-| `speak` | `map` | over `${steps.find.output.result}` → `tool:doc_transcribe` with `{"object":"${item}"}` | end |
+| `speak` | `map` | over `${steps.find.output.result}` → `tool:doc_transcribe` with `{"object":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `translate-chat` — 翻訳チャットワークフロー
 
@@ -286,6 +286,6 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `chat` | `tool:chat_message` | `{"text":"${input.message}"}` | next in order |
-| `to_all` | `map` | over `["es","nl","is"]` → `tool:translate_text` with `{"source":"${principal.locale}","target":"${item}","text":"${steps.chat.output.result}"}` | next in order |
-| `back_home` | `map` | over `${steps.to_all.output.results}` → `tool:translate_text` with `{"target":"${principal.locale}","text":"${item.result}"}` | end |
+| `to_all` | `map` | over `["es","nl","is"]` → `tool:translate_text` with `{"source":"${principal.locale}","target":"${item}","text":"${steps.chat.output.result}"}` | next in order · retry 1 |
+| `back_home` | `map` | over `${steps.to_all.output.results}` → `tool:translate_text` with `{"target":"${principal.locale}","text":"${item.result}"}` | end · retry 1 |
 

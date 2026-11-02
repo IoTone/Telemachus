@@ -24,11 +24,19 @@
 (define-workflow index-documents
   #:name "Index Documents"
   #:description "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run."
+  #:version 2
   #:max-steps 50                       ; find + map parent + a full batch of 40, with room
   (step find (tool repo_list_unindexed))
+  ;; WF-17. `on_error: "continue"` because this is a DRAIN over a backlog, not a
+  ;; fan-out over a list somebody named. One awkward document must not stop the
+  ;; other twelve — #236's whole complaint — and the step still reports
+  ;; `succeeded`, `failed` and a reason per failure, so a partial drain says so
+  ;; rather than reporting success. A drain where NOTHING succeeded still fails
+  ;; the run (WF-15), and a misconfiguration still fails on the first child
+  ;; (WF-14).
   (step extract (map #:over (out find result)
                      (tool repo_extract_text #:id (item))
-                     #:retry 1)
+                     #:retry 1 #:on-error "continue")
         #:end))
 
 
@@ -46,11 +54,15 @@
 (define-workflow embed-documents
   #:name "Embed Documents"
   #:description "Chunk the extracted text of repository documents and store an embedding per chunk, for semantic retrieval. Finds documents whose text has no vectors for the current version (or vectors from a different model), then embeds each one. Needs TMACH_EMBED_URL. Safe to re-run; processes up to 25 documents per run and spends the team's embedding budget."
+  #:version 2
   #:max-steps 35                       ; find + map parent + a full batch of 25, with room
   (step find (tool repo_list_unembedded))
+  ;; WF-17: a DRAIN tolerates one awkward item (`on_error: "continue"`); nothing
+  ;; succeeding still fails the run (WF-15), and an unset endpoint still fails on
+  ;; the first child (WF-14).
   (step embed (map #:over (out find result)
                    (tool repo_embed_chunks #:id (item))
-                   #:retry 1)
+                   #:retry 1 #:on-error "continue")
         #:end))
 
 
@@ -69,11 +81,15 @@
 (define-workflow transcribe-documents
   #:name "Transcribe Voice Notes"
   #:description "Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read."
+  #:version 2
   #:max-steps 30                       ; find + map parent + a full batch of 20, with room
   (step find (tool voice_list_untranscribed))
+  ;; WF-17: a DRAIN tolerates one awkward item (`on_error: "continue"`); nothing
+  ;; succeeding still fails the run (WF-15), and an unset endpoint still fails on
+  ;; the first child (WF-14).
   (step speak (map #:over (out find result)
                    (tool doc_transcribe #:object (item))
-                   #:retry 1)
+                   #:retry 1 #:on-error "continue")
         #:end))
 
 (define workflows (list index-documents embed-documents transcribe-documents))

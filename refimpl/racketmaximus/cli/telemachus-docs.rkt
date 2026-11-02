@@ -333,8 +333,24 @@
                       (define nxt (cond [(hash-ref st 'end #f) "end"]
                                         [(hash-ref st 'next #f) => (lambda (n) (code n))]
                                         [else "next in order"]))
-                      (define retry (let ([r (hash-ref st 'retry #f)]) (if (hash? r) (format " · retry ~a" (hash-ref r 'max 0)) "")))
-                      (list (code (hash-ref st 'id)) (code uses) binding (string-append nxt retry))))
+                      ;; A MAP'S RETRY LIVES ON THE TEMPLATE, not on the step —
+                      ;; `MAP-STEP-KEYS` is `(uses with retry)` — so reading it off
+                      ;; `st` showed nothing for exactly the fan-outs that ask for
+                      ;; one, which is every shipped drain. Found while surfacing
+                      ;; `on_error` below.
+                      (define tmpl (if (equal? uses "map") (hash-ref st 'step (hasheq)) st))
+                      (define retry (let ([r (hash-ref tmpl 'retry #f)])
+                                      (if (hash? r) (format " · retry ~a" (hash-ref r 'max 0)) "")))
+                      ;; WF-11: which fan-outs tolerate a failing child is part of
+                      ;; the public contract (WF-9), so the generated page says it.
+                      ;; `"fail"` is the default and is left unsaid — a column that
+                      ;; is only ever one value tells a reader nothing (#178).
+                      (define oe (let ([v (hash-ref st 'on_error #f)])
+                                   (if (and (equal? uses "map") (equal? v "continue"))
+                                       " · on a child's error, continue"
+                                       "")))
+                      (list (code (hash-ref st 'id)) (code uses) binding
+                            (string-append nxt retry oe))))
              "\n")))))
 
 (define (render-permissions model L)

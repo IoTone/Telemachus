@@ -36,7 +36,9 @@
 ;; the principal is. So transcription is a tool beside `doc_text`, and the
 ;; workflow that drives it is `transcribe-documents`.
 
-(require db-kit/portable racket/string racket/port
+(require db-kit/portable
+         racket/string racket/port
+         (only-in "../tools/faults.rkt" raise-misconfigured)   ; WF-14
          "../tools/dsl.rkt"
          "../agent/registry.rkt"
          "../authz/authz.rkt"
@@ -138,7 +140,7 @@
     ;; Refused BY NAME and before the document is read: failing at step one beats
     ;; failing once per recording for one unset variable (`require-embedder!`'s
     ;; rule).
-    (raise-user-error
+    (raise-misconfigured
      'doc_transcribe
      (string-append "no transcription model configured — set TMACH_TRANSCRIBE_URL (and "
                     "TMACH_TRANSCRIBE_MODEL) to an OpenAI-compatible "
