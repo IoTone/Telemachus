@@ -32,11 +32,33 @@ is also why `flake.nix` passes `self.rev or "dev"` rather than `dirtyRev`.
 
 ## The procedure
 
-1. **Decide the number.** Semver, and the project is pre-1.0: additive feature
-   work is a minor bump. **`1.0.0` is a compatibility promise** about the HTTP
-   API, the SDK contract and the plugin seams — the durable product, per the
-   layout notes — so it is a product decision and not a consequence of how much
-   landed.
+1. **Decide the number**, and the rule has two cases and no third:
+
+   - **A FEATURE worth announcing bumps the MINOR field** and resets the patch:
+     a new tab, a new subsystem, a new wire, a new workflow step kind — anything
+     a release note would be about. 0.4.0 → 0.5.0.
+   - **EVERYTHING ELSE BUMPS THE PATCH FIELD.** A bug fix, a console
+     correction, a prose sweep, a gate, a test, a refactor — however many of
+     them land together. 0.4.0 → 0.4.1.
+
+   **BUMP OFTEN AND IN SMALL STEPS.** The failure this project actually had was
+   not a wrong number, it was 442 commits under one: `git tag` read `v0.3.0`
+   while every publisher said `0.1.0`, so a bug report naming a version named
+   four months of unrelated work. A patch bump costs a one-line edit, a render
+   and a gate run, and it is what makes `version` useful in a report at all —
+   which is the whole reason the field is kept beside `commit` rather than
+   replaced by it. **Prefer a patch release per merged batch of fixes** to a
+   minor release per quarter.
+
+   The judgement call is only ever "is this a feature", and when it is genuinely
+   unclear, take the patch: a patch that should have been a minor understates
+   what landed, where a minor that should have been a patch spends a number that
+   cannot be re-used and makes the minor field stop meaning anything.
+
+   **`1.0.0` is a compatibility promise** about the HTTP API, the SDK contract
+   and the plugin seams — the durable product, per the layout notes — so it is a
+   product decision and not a consequence of how much landed. Pre-1.0, a minor
+   bump carries no compatibility claim either way.
 
 2. **Edit `refimpl/racketmaximus/VERSION`.** One semver line, no trailing
    content. `test/build-identity-tests.rkt` pins the shape, because the file is
@@ -131,7 +153,9 @@ is also why `flake.nix` passes `self.rev or "dev"` rather than `dirtyRev`.
   version decision — check `docs/ops/container.md` before going backwards.
 - **It does not change the `TELEMACHUS_*` environment aliases.** Dropping them is
   its own release decision (#204) and has no deadline by ENVN‑1.
-- **It does not re-render `docs/reference/`.** Those pages are generated from the
-  route table, the tool registry and the permission catalog, none of which carry
-  the version — so a release that changed no routes needs no render, and CI's
-  drift gate is what says so either way.
+- **It does not change what `docs/reference/` SAYS about the platform.** Those
+  pages are generated from the route table, the tool registry and the permission
+  catalog, none of which carry the version — so a release that changed no routes
+  changes no page but `README.md`, whose line 3 is the version. Step 4 is still
+  required, and an earlier draft of this page said it was not: the first bump
+  after #227 failed CI's drift gate on exactly that line.

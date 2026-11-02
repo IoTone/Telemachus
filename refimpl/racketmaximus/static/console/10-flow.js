@@ -149,7 +149,7 @@ function wfRunForm(){
   }).join(''):'<p class="muted">This workflow takes no input.</p>';
   const desc=(d.description&&d.description!=='null')?`<p class="muted" style="margin:0 0 10px">${esc(d.description)}</p>`:'';
   const chain=(spec.steps||[]).map(x=>esc(x.id)).join(' → ');
-  return `<div class="card" style="margin-top:14px">
+  return `<div class="card" id="wfform" style="margin-top:14px">
     <h3 style="margin:0 0 4px">${t('runwf')} — ${esc(d.name||d.slug)}</h3>${desc}
     <div class="muted mono" style="font-size:12px;margin-bottom:12px">${esc(d.slug)} v${esc(d.version)} · ${chain}</div>
     ${fields}
@@ -163,7 +163,10 @@ async function wfSelect(slug){
   const r=await api('/api/workflows/'+encodeURIComponent(slug));
   if(!r.ok) return toast(r.json.error||'error');
   S.wfSel=slug; S.wfSpec=r.json; S.wfKeys=Object.keys((r.json.spec||{}).input||{});
-  renderTab();
+  // AWAITED, because `revealEl` measures the element: the form does not exist
+  // until the pass has painted, and `renderTab` paints a `…` placeholder first.
+  await renderTab();
+  revealEl('wfform');
 }
 async function wfStart(){
   const d=S.wfSpec; if(!d) return;

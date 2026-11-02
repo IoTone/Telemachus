@@ -949,10 +949,44 @@ try {
     const invId = ((inv.json && inv.json.objects) || []).map(o => o.id)[0];
     ok('invoice id resolved', !!invId);
 
-    // "Run workflow…" from the document lands on the run form with it prefilled
-    await page.evaluate(id => window.repoRunWorkflow(id), invId);
+    // "RUN WORKFLOW…" FROM A DOCUMENT: the form is prefilled, AND the person is
+    // taken to it. Reported from outside as "the workflow UI doesn't seem to
+    // populate anything you enter from a document in the repository" — and the
+    // prefill assertion below has passed for as long as the feature has existed.
+    // What was wrong is UX-1 in the sibling surface: the form sits under a table
+    // of thirteen definitions, measured at y=1285 with `scrollY` 0 on a 900px
+    // viewport, so the click changed nothing anybody could see.
+    //
+    // THE GATE CALLED `repoRunWorkflow` PROGRAMMATICALLY, WHICH IS NOT WHAT A
+    // PERSON DOES. It opens the panel and CLICKS the real button now; the click
+    // auto-scrolls to the BUTTON, never to the form, which does not exist yet.
+    // The short viewport is what makes the assertion mean anything (UX-1's own
+    // lesson, where the first version passed with the scroll removed).
+    const vpw = page.viewportSize();
+    await page.setViewportSize({ width: vpw.width, height: 700 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(id => window.repoOpenDetail(id), invId);
+    ok('the detail panel opened', await until(page, () => {
+      const el = document.getElementById('rdetail'); return !!el && el.innerText.includes('Run workflow'); }, { timeout: 15000 }));
+    await page.locator('#rdetail button', { hasText: 'Run workflow' }).click();
     ok('run form opened on process-upload',
       await until(page, () => typeof S !== 'undefined' && S.wfSel === 'process-upload' && !!document.querySelector('#wfi_0'), { timeout: 15000 }));   // S is a top-level const, not window.S
+    await page.waitForTimeout(1800);                       // the reveal is a SMOOTH scroll
+    ok('…and the run form is ON SCREEN, not below the fold', await page.evaluate(() => {
+      const r = document.getElementById('wfform').getBoundingClientRect();
+      return r.top >= -2 && r.top < window.innerHeight;
+    }), await page.evaluate(() => Math.round(document.getElementById('wfform').getBoundingClientRect().top)
+      + ' of ' + window.innerHeight));
+    // …and revealing it again while it is visible must not jump: `wfSelect` runs
+    // on every re-render of this tab, and a jump per render is its own annoyance
+    const wy = await page.evaluate(() => window.scrollY);
+    await page.evaluate(() => revealEl('wfform'));
+    await page.waitForTimeout(600);
+    ok('…and revealing it again while visible does not jump',
+      Math.abs(await page.evaluate(() => window.scrollY) - wy) < 4,
+      `${wy} -> ${await page.evaluate(() => window.scrollY)}`);
+    await page.setViewportSize(vpw);
+    await page.waitForTimeout(300);
     const idx = await page.evaluate(() => ({ object_id: S.wfKeys.indexOf('object_id'), schema: S.wfKeys.indexOf('schema'),
                                               template: S.wfKeys.indexOf('template'), locales: S.wfKeys.indexOf('locales') }));
     eq('object_id is prefilled', await page.evaluate(i => document.getElementById('wfi_' + i).value, idx.object_id), invId);

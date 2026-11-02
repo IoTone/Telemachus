@@ -192,39 +192,9 @@ function repoCopyLink(){
                                                      ()=>toast('copy failed'));
 }
 
-// "WHEN YOU CLICK ON DETAILS IT SEEMS LIKE NOTHING HAPPENS."
-//
-// Reported from outside, and true: `#rdetail` sits AFTER the object table, so on
-// a repository of any size the panel is painted below the fold and the click
-// produces no visible change at all. The work was done; the result was off
-// screen.
-//
-// A scroll rather than a modal, for two reasons. The panel is not a dialog —
-// it is a detail of the row you came from, you read it alongside the list, and
-// it has its own Close; and a modal is an overlay, which means `Hk()`,
-// Esc-handling that has to be ordered against the palette's and the help
-// overlay's (#182/#183), and a focus trap. The panel already works; what was
-// missing was being taken to it.
-//
-// It only scrolls when the panel is NOT already in view, because
-// `repoOpenDetail` is also re-called after a visibility change, a share and a
-// revoke — and a jump each time somebody toggles a checkbox is its own
-// annoyance.
-//
-// `prefers-reduced-motion` is honoured: the point is to arrive, not to glide.
-function repoRevealDetail(){
-  const el = document.getElementById('rdetail');
-  if (!el || !el.firstChild) return;
-  try {
-    const r = el.getBoundingClientRect();
-    const seen = r.top >= 0 && r.top < (window.innerHeight || 0) * 0.75;
-    if (seen) return;
-    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
-  } catch(e) {
-    try { el.scrollIntoView(); } catch(e2) {}   // an engine without the options form
-  }
-}
+// The rule itself is `revealEl` in 01-base.js — the run form is its second
+// asker, and the same report is what added it.
+function repoRevealDetail(){ revealEl('rdetail'); }
 
 async function repoOpenDetail(id){
   const [m, g, tg, pr] = await Promise.all([
@@ -316,7 +286,12 @@ async function repoRunWorkflow(id){
   const r=await api('/api/workflows/process-upload');
   if(r.ok){ S.wfSel='process-upload'; S.wfSpec=r.json; S.wfKeys=Object.keys((r.json.spec||{}).input||{}); }
   else toast(r.json.error||'error');
-  renderTab();
+  // AWAITED and then revealed: the form lands under the definitions table, so
+  // on a build shipping thirteen workflows it is painted below the fold and the
+  // click appears to do nothing at all — which is what was reported, twice, as
+  // the form not being populated. It always was; it was off screen.
+  await renderTab();
+  revealEl('wfform');
 }
 
 async function repoDownloadVersion(id, versionId, key){
