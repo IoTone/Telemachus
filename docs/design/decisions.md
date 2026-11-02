@@ -5360,3 +5360,107 @@ every shipped drain rendered without the retry it asks for. Found while surfacin
 `on_error`, which the page now carries for the fan-outs that tolerate a failure
 and leaves unsaid for the ones that do not: a column that is only ever one value
 tells a reader nothing (#178).
+
+## A long document is translated in sections (TR‑1…TR‑8, issues #231 and #232)
+
+#231 decided and built 31 Oct 2026; #232 1 Nov 2026. `translate-chunk-chars`,
+`translate-plan` and the loop in `translate!`; the per-chunk metering seams filled
+by `server/api/translate.rkt`. **No migration, no route, no permission, no
+environment variable.**
+
+**#231 MADE THE FAILURE LOUD AND SAID IN AS MANY WORDS THAT IT DID NOT MAKE IT
+WORK.** A 39,462-character paste came back as a 1,187-character English summary
+and the platform stored that as the Japanese translation — the model server serves
+a 4,096-token window, the overflow is discarded oldest first, and what is
+discarded first is the system prompt that said "translate". So the answer was a
+refusal naming the limit. #232 is the half that works, and it **deliberately
+changes #231's contract**: past one windowful is now a sectioned translation
+rather than a 400.
+
+| | | |
+|---|---|---|
+| TR‑1 | a text past one window is **chunked**, not refused | ✅ decided — #232 supersedes #231's refusal |
+| TR‑2 | the overlap is **zero**: the sections tile | ✅ decided |
+| TR‑3 | the size is **solved for** from the declared window, never a constant | ✅ decided |
+| TR‑4 | the reply reserve is computed against the **target** language | ✅ decided — CHUNK‑2's trap |
+| TR‑5 | the system prompt and the glossary are **charged** to the window | ✅ decided |
+| TR‑6 | the glossary goes to **every** section | ✅ decided |
+| TR‑7 | **24 sections** is the cap, and past it is still a named refusal | ✅ decided |
+| TR‑8 | metering is **per section and before the section**; a refusal stores nothing | ✅ decided |
+
+- **TR‑2 — THE OVERLAP THAT RESCUES RECALL IS WRONG HERE.** 15% is what stops a
+  chunk ending mid-clause from costing recall; a translation cannot emit the
+  overlap twice, because the reader would see the seam sentence rendered once in
+  each direction. So the sections TILE and the boundary search carries the
+  quality on its own — `chunk-text` already walks back to a sentence end within a
+  quarter of the size, CJK enders included, which is the behaviour CHUNK‑3
+  settled for an unrelated reason. The test asserts every character of the source
+  is accounted for **exactly once**.
+- **TR‑3/TR‑4 — THE SIZE IS THE ANSWER TO AN INEQUALITY, AND THAT IS WHAT MAKES
+  IT RIGHT FOR A LANGUAGE NOBODY MEASURED.** The constraint is that the section,
+  its translation and the composed prompt fit the context at once:
+  `chars/cpt(source) + chars·expansion/cpt(target) + prompt ≤ window − reserve`.
+  **On a Latin target with a small glossary this reproduces `max-input-chars`
+  exactly — 7,680 at a 4,096-token window** — which is the number #231 measured
+  either side of (8,000 characters translated correctly, 24,000 did not), so the
+  existing behaviour is the arithmetic's own answer rather than a constant sitting
+  beside it. A CJK target gets **3,072**, and that gap is CHUNK‑2's trap priced
+  in: English runs near four characters to the token and Japanese near one, so an
+  English section sized against the window has its **Japanese reply** truncated by
+  the model — silently, which is a quietly worse translation and never an error.
+- **THE EXPANSION CONSTANT IS 1.0 AND THE MEASUREMENT SAYS 0.62.** One datum: a
+  book chapter is 3,342 characters in English and 2,079 in Japanese. It is pinned
+  at "the reply is no longer than the source" because that is conservative in the
+  direction that matters — too small a section costs an extra model call, too
+  large a one loses the end of somebody's translation to a truncation nothing
+  reports. Stated rather than presented as measured.
+- **TR‑6 — AN AGREED TERM IN HALF A DOCUMENT IS WORSE THAN NO GLOSSARY.** Nobody
+  reading the output can tell which half to trust. The prompt is composed once
+  and passed N times, and the test asserts the term reached **every** section
+  rather than that it reached one.
+- **TR‑7 — THE CAP IS CHUNK‑7's RULE FOR THIS CALLER'S REASON.** Each section is
+  a model request and `ai.requests` defaults to 200/day, so an unbounded fan-out
+  over a pasted novel would spend a team's allowance on one document. 24 sections
+  is ~180,000 characters of English at a 4,096-token window, about sixty pages.
+  Past it the refusal is pre-flight: the model is never called and nothing is
+  stored, asserted both ways.
+- **AND THE NUMBER THE CONSOLE COUNTS AGAINST IS THE WORST CASE.** The Translate
+  tab reports `max_chars` before anybody has chosen a target, so it is a CJK
+  target with no glossary. Conservative on purpose: being allowed MORE than the
+  counter showed is a pleasant surprise, being refused at a number below the one
+  on screen is the failure #231 was reported for. The server's per-target budget
+  is still the authority (#231's own "ONE home for it — the server's").
+- **TR‑8 — PER SECTION AND BEFORE THE SECTION (FEED‑9), AND THE SEAMS ARE THE
+  CALLER'S.** `#:admit` and `#:record!` default to admit-everything and
+  record-nothing, so every existing caller and test is unchanged, and the
+  ENDPOINT fills them — because only the caller knows which tier it bills at.
+  `ai.requests` counts scheduler jobs at the job tier and model calls at the tool
+  tier, which CLAUDE.md records and deliberately declines to change, so inside
+  the `translate` JOB kind the scheduler bills the job's own `tokens_used` and
+  the job passes neither seam. **A refusal mid-document stores nothing** — the
+  acceptance criterion is a named reason rather than a partial result — **but
+  what was already spent has already been recorded**, which is FEED‑9's honest
+  half: metering only successes makes a failing run free.
+- **The endpoint reads the glossary TWICE on this path**, once for the plan and
+  once inside `translate!`. Deliberate: one indexed query against N model calls
+  is noise, and a plan computed without the terms would size its sections larger
+  than the real prompt allows and so **under-admit**. The two call the same
+  `system-prompt`, so the count admitted cannot disagree with the count
+  performed.
+- **`ui.troverlimit` SAID SOMETHING THAT IS NOW FALSE** — "this will come back as
+  a summary in the wrong language, and will be refused" — so it changed, which
+  made its Japanese stale. Edited textually beside its neighbour and re-stamped
+  with the new sha1: six insertions, two deletions, no reordering, which is the
+  churn the "do not tidy a catalog by sorting it" rule exists to prevent.
+
+**Eight positive controls, all biting**: the reply reserve ignoring the target,
+the system prompt not charged, the glossary reaching only the first section, the
+sections overlapping, the cap removed, admission checked but not obeyed, spend
+before a refusal not recorded, and the minimum-section floor removed.
+
+**What is NOT built, and it is #233's**: a long translation is still N sequential
+model calls inside one synchronous request, so sixty pages is minutes of spinner.
+The non-blocking path already exists — `translate` has been a registered scheduler
+job kind since slice 17 — and whether the console should use it is #233's
+decision, not this slice's. #232's acceptance is about the translation being
+complete and correct, and it is.

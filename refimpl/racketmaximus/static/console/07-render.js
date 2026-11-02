@@ -101,7 +101,13 @@ async function doTranslate(){
     const secs=Math.round((Date.now()-t0)/1000);
     out.style.color = r.ok ? '' : 'var(--bad)';
     if(r.ok){ out.textContent=r.json.result; out.dataset.took=secs;
-              toast(t('trdone').replace('{s}', secs), true); }
+              // #232: a long text is translated in SECTIONS, and the count is
+              // what explains the longer wait. Only said when there was more
+              // than one — a message that always carries "in 1 sections" tells a
+              // reader nothing and is the shape #178 objects to.
+              const c=r.json.chunks||1;
+              toast(c>1 ? t('trsections').replace('{s}', secs).replace('{c}', c)
+                        : t('trdone').replace('{s}', secs), true); }
     else out.textContent=(r.json && r.json.error) || t('trfailed');
   } finally {
     clearInterval(tick);

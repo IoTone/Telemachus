@@ -2571,6 +2571,10 @@
       "text": "verification failed — reload the page",
       "hash": "e85f65e55efd349c5030eae9e315402cdc7571f4"
     },
+    "ui.trsections": {
+      "text": "translated in {s}s, in {c} sections",
+      "hash": "4397ad064bb9a0fbb1816f1495c689c55ad61f0e"
+    },
     "ui.wklocalhint": {
       "text": "the model this instance calls itself, in process — it claims nothing and cannot be drained",
       "hash": "86c4c4eb2c336125df1fcb5739eadf5cbd38b723"
@@ -3276,8 +3280,8 @@
       "hash": "52de0860cce2504961d6406e8975a750db44984c"
     },
     "ui.troverlimit": {
-      "text": "too long: this will come back as a summary in the wrong language, and will be refused",
-      "hash": "7cf175fbfb31f4d7d4063eaf6dc921e0470463fd"
+      "text": "past the limit: a long text is translated in sections, and longer than this is refused",
+      "hash": "ef80ea5709ee395aa2121cf277011c3c8c379fb6"
     },
     "doc.tool.doc_extract_fields.schema": {
       "text": "A JSON schema the extracted object must conform to",

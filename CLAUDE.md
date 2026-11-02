@@ -457,6 +457,56 @@ chat endpoint, the stream and the pull wire cannot disagree.
   worker forwards the format. The `pull-router` box is
   `(name msgs temp rf)` — a 3-arg test double will fail with an arity mismatch.
 
+## The Translation app: a long document is translated in SECTIONS (TR‑1…TR‑8)
+
+`domain/apps/translate.rkt`. Issues #231 (make the failure loud) and #232 (make
+it work); decisions TR‑1…TR‑8 in `docs/design/decisions.md`.
+
+```sh
+raco test test/translate-tests.rkt    # 13 cases, eight controls
+```
+
+- **A TEXT PAST ONE WINDOW IS CHUNKED, NOT REFUSED — #232 SUPERSEDES #231's
+  CONTRACT.** #231's symptom: a 39,462-character paste came back as a
+  1,187-character English summary and the platform stored it as the Japanese
+  translation, because the model server serves a 4,096-token window, the overflow
+  is discarded oldest first, and what goes first is the system prompt that said
+  "translate". #231's answer was a refusal; #232 chunks instead, and the old
+  refusal test is what caught the change.
+- **THE SIZE IS SOLVED FOR, NEVER A CONSTANT**: the section, its translation and
+  the composed prompt must fit at once. On a Latin target with a small glossary
+  the arithmetic **reproduces `max-input-chars` exactly (7,680 at a 4,096-token
+  window)**, the number #231 measured either side of — so do not replace it with
+  a literal. A CJK target gets **3,072**, which is CHUNK‑2's trap priced in:
+  English runs near four characters to the token and Japanese near one, so an
+  English section sized against the window has its JAPANESE reply truncated by the
+  model, silently. **The reserve is computed against the TARGET.**
+- **THE OVERLAP IS ZERO and the sections TILE.** Retrieval's 15% rescues recall at
+  a mid-clause seam; a translation cannot emit the overlap twice without the
+  reader seeing the seam sentence rendered in both directions. `chunk-text`'s
+  boundary search (sentence ends, CJK enders included) is what carries the
+  quality, and the test asserts every character of the source appears **exactly
+  once**.
+- **THE GLOSSARY AND THE INSTRUCTIONS GO TO EVERY SECTION.** An agreed term
+  applied to half a document is worse than no glossary, because nobody reading the
+  output can tell which half to trust.
+- **24 SECTIONS IS THE CAP and past it is still a pre-flight refusal** — each
+  section is a model request and `ai.requests` defaults to 200/day. The model is
+  never called and nothing is stored.
+- **METERING IS PER SECTION AND BEFORE THE SECTION** (FEED‑9), through `#:admit`
+  and `#:record!`, which default to today's behaviour so every existing caller is
+  unchanged. **The ENDPOINT fills them**, because only the caller knows its tier:
+  the `translate` JOB kind passes neither and the scheduler bills the job, which
+  is the existing job-tier/tool-tier split CLAUDE.md declines to change. A refusal
+  mid-document **stores nothing**; what was already spent **is** recorded.
+- **`max_chars` on `GET /api/translate` is the WORST case** (a CJK target, no
+  glossary), because the tab reports it before anybody has chosen a target. Being
+  allowed more than the counter showed is fine; being refused below it is the
+  failure #231 was reported for.
+- **Still synchronous, and that is #233's.** `translate` has been a registered
+  scheduler job kind since slice 17, so the non-blocking path exists; whether the
+  console should use it is a decision, not a gap in this slice.
+
 ## Multi-tenancy (several companies on one instance)
 
 Off by default. `TMACH_MULTITENANT=1` adds an **org** layer above teams plus two
