@@ -647,19 +647,14 @@
 ;; `doc_type` of its own — so without this the next run would fan out over the
 ;; records the last one wrote, classify them, write records about THOSE, and
 ;; never converge. The indexer's `extractable?` filter is the same guard against
-;; the same shape. The test is the derivation row rather than a key suffix:
-;; `.extracted.json`, the filled forms and the translations are all somebody's
-;; output too, and a suffix list would have to be kept in step with six tools.
-(define (derived-ids conn ids)
-  (cond
-    [(null? ids) (hasheq)]
-    [else
-     (define qs (string-join (for/list ([_ (in-list ids)]) "?") ","))
-     (for/hash ([r (in-list (apply query-rows conn
-                                   (string-append "SELECT DISTINCT object_id FROM repo_derivations "
-                                                  "WHERE object_id IN (" qs ")")
-                                   ids))])
-       (values (vector-ref r 0) #t))]))
+;; the same shape.
+;;
+;; THE TEST ITSELF LIVES IN `repo.rkt` NOW (#234), because the knowledge-graph
+;; lister is its third asker and two copies of a rule is the drift
+;; `repo-readable?`, `repo-derive!` and `repo-fields-declare!` were each
+;; consolidated to avoid. It is still a derivation row rather than a key suffix,
+;; for the reason recorded there.
+(define (derived-ids conn ids) (repo-derived-ids conn ids))
 
 ;; The scan pages through `repo-list`, the authorized listing, rather than a WHERE
 ;; clause of its own: visibility lives in one place (repo.rkt's own rule) and a

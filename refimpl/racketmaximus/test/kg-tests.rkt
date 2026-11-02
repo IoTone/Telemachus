@@ -200,3 +200,81 @@
   (check-equal? (unbox bad-calls) 2 "retried once")
   (check-equal? (kg-find conn alice "initech") '() "nothing was stored from the refused reply")
   (disconnect conn))
+
+;; ---- #235 / #234: what the lister must NOT offer -----------------------------
+;;
+;; Both defects had already been found and fixed once in the sibling lister, and
+;; neither fix reached this one. `repo-readable?` was added by #189 step 4 as "the
+;; ONE predicate both listers ask"; CLS-26 settled that a derived document is
+;; never listed. This is the third lister.
+
+(test-case "#235: a colleague's PRIVATE document is never listed into a run that cannot read it"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define bob-id (create-user! conn #:username "bob" #:password "pw"))
+  (add-member! conn #:user bob-id #:team tid #:role "member")
+  (define bob (user-principal conn bob-id tid))
+  (define (up! p key text #:vis [vis "team"])
+    (define o (repo-put! conn p #:key key #:port (open-input-bytes (string->bytes/utf-8 text))
+                         #:content-type "text/plain" #:filename key #:visibility vis))
+    (repo-text-upsert! conn (hash-ref o 'id) (hash-ref o 'version_id) text)
+    o)
+
+  ;; THE ORDER IS THE WHOLE TEST. The lister offers only what is UNEXTRACTED, so
+  ;; a private document that existed before an earlier run has already stopped
+  ;; being listed and the fault is invisible — which is why the first instance of
+  ;; this took a slice to find, and why the second one did too. The private
+  ;; document has to be created AFTER a run, or the case passes for the wrong
+  ;; reason. ("Exactly-once hides every later mistake", in a lister.)
+  (define shared (up! alice "reports/shared.txt" "Acme Robotics ships widgets."))
+  (check-equal? (kg-list-unextracted conn bob) (list (hash-ref shared 'id))
+                "bob can read the team document, so it IS listed")
+  (kg-mark-extracted! conn tid (hash-ref shared 'id) (hash-ref shared 'version_id) 1 0)
+  (check-equal? (kg-list-unextracted conn bob) '() "…and drops out once extracted")
+
+  ;; NOW alice adds something only she can read
+  (define secret (up! alice "hr/secret.txt" "Ada Lovelace earns 90000." #:vis "private"))
+  (check-equal? (kg-list-unextracted conn alice) (list (hash-ref secret 'id))
+                "its owner is offered it")
+  (check-equal? (kg-list-unextracted conn bob) '()
+                "…and bob is not — the run completes over what he can read")
+  ;; and the consequence the report was actually about: handed the id, the tool
+  ;; refuses, which failed the step and the whole run
+  (check-exn exn:fail:forbidden?
+             (lambda () (repo-get conn bob (hash-ref secret 'id)))
+             "the id would have reached a tool that cannot read it")
+  (disconnect conn))
+
+(test-case "#234: the pipeline's OWN output is never listed (CLS-26's rule, third asker)"
+  (define conn (fresh))
+  (define-values (uid tid) (bootstrap! conn #:username "alice"))
+  (define alice (user-principal conn uid tid))
+  (define (up! key text) (repo-put! conn alice #:key key
+                                    #:port (open-input-bytes (string->bytes/utf-8 text))
+                                    #:content-type "text/plain" #:filename key))
+  (define src (up! "inbox/invoice.txt" "Acme Robotics invoiced 1200 USD."))
+  (repo-text-upsert! conn (hash-ref src 'id) (hash-ref src 'version_id) "Acme Robotics invoiced 1200 USD.")
+
+  ;; the shape measured on the demo: nine of thirteen documents were outputs, and
+  ;; the "entities" came out of the renderer's own boilerplate
+  (define form (up! "inbox/invoice.txt.form.md" "Produced by the TMach document pipeline. Total: 1200 USD."))
+  (repo-text-upsert! conn (hash-ref form 'id) (hash-ref form 'version_id)
+                     "Produced by the TMach document pipeline. Total: 1200 USD.")
+  (check-equal? (sort (kg-list-unextracted conn alice) string<?)
+                (sort (list (hash-ref src 'id) (hash-ref form 'id)) string<?)
+                "before the derivation row exists, both are ordinary documents")
+
+  ;; …and the test is the DERIVATION ROW, not the `.form.md` suffix: the extracted
+  ;; JSON, the forms, the translations, the redactions and the proposals are all
+  ;; somebody's output, and a suffix list would have to track seven tools.
+  (repo-inherit! conn alice #:source (hash-ref src 'id) #:target (hash-ref form 'id)
+                 #:step-id "form")
+  (check-equal? (kg-list-unextracted conn alice) (list (hash-ref src 'id))
+                "only the source is offered")
+  ;; the exclusion is in the WINDOW, not applied after the LIMIT: a batch of
+  ;; derived documents must not consume slots and leave a page empty with real
+  ;; documents behind it
+  (check-equal? (kg-list-unextracted conn alice #:limit 1) (list (hash-ref src 'id))
+                "a window of one still reaches the source")
+  (disconnect conn))
