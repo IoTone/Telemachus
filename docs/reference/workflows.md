@@ -5,17 +5,17 @@ Workflows shipped by plugins. Each is a validated spec (the public contract, WF�
 | Workflow | Plugin | Version | Steps | Description |
 |---|---|---|---|---|
 | `classify-and-extract` | doc-pipeline | 1 | 7 | Decide which kind of document this is (deterministic rules first, then the model), record the type on the document, and extract fields against the schema for THAT type. A type with no schema is classified and left alone. |
-| `classify-backfill` | doc-pipeline | 1 | 2 | Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends ["rules"] to backfill without spending model budget. |
+| `classify-backfill` | doc-pipeline | 2 | 2 | Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends ["rules"] to backfill without spending model budget. |
 | `classify-eval` | doc-pipeline | 1 | 1 | Measure the classifier against the team's labelled fixtures — the documents under a prefix carrying a doc_type_expected attribute. Reports accuracy and coverage for each backend on its own, per label, with what each label was confused for and how confident the right and wrong answers were. Writes nothing: no type is recorded and no trigger fires, so a fixture set can be evaluated as often as you like. |
 | `classify-review-extract` | doc-pipeline | 1 | 14 | Decide which kind of document this is; when the classifier is less sure than `min_confidence`, park the run and ask a person instead of guessing. Their decision is recorded on the document — approved as it stands, corrected to another type, or withdrawn when it is none of them — and the run then extracts fields against the schema for that type. |
-| `embed-documents` | doc-indexer | 1 | 2 | Chunk the extracted text of repository documents and store an embedding per chunk, for semantic retrieval. Finds documents whose text has no vectors for the current version (or vectors from a different model), then embeds each one. Needs TMACH_EMBED_URL. Safe to re-run; processes up to 25 documents per run and spends the team's embedding budget. |
+| `embed-documents` | doc-indexer | 2 | 2 | Chunk the extracted text of repository documents and store an embedding per chunk, for semantic retrieval. Finds documents whose text has no vectors for the current version (or vectors from a different model), then embeds each one. Needs TMACH_EMBED_URL. Safe to re-run; processes up to 25 documents per run and spends the team's embedding budget. |
 | `feed-propose` | feeds | 1 | 2 | An agent reads one pulled item and writes a proposal beside it; the run then parks on a person. Nothing acts on the proposal — v1 has no acting tool, and when it has one it goes on the approve branch. |
 | `feed-triage` | feeds | 1 | 1 | Put one pulled item on the work queue with a priority, a due date and skills. The queue is an index: this records what triage decided. |
-| `index-documents` | doc-indexer | 1 | 2 | Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run. |
-| `index-knowledge` | knowledge-graph | 1 | 2 | Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run. |
+| `index-documents` | doc-indexer | 2 | 2 | Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run. |
+| `index-knowledge` | knowledge-graph | 2 | 2 | Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run. |
 | `process-upload` | doc-pipeline | 1 | 6 | Extract text, pull structured fields against a JSON schema (refused if they do not conform), fill a form template, and translate the result into the team's languages. Every output is a repository document beside the source, with provenance. |
 | `redact-document` | doc-pipeline | 1 | 1 | Replace the identifiers in a document's text with stable tokens and write the result beside it as <key>.redacted.txt, so you can read exactly what a model request would be built from. Detectors are named — email, date, id_number, dictionary, phone — and the map from token back to value is kept in a sealed row no endpoint returns. |
-| `transcribe-documents` | doc-indexer | 1 | 2 | Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read. |
+| `transcribe-documents` | doc-indexer | 2 | 2 | Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read. |
 | `translate-chat` | translate-chat | 1 | 3 | Chat once, fan the reply out to Spanish, Dutch and Icelandic, then bring each back. |
 
 ## `classify-and-extract` — Classify a document, then extract its fields
@@ -49,7 +49,7 @@ Steps:
 
 Backfill document types over a prefix: find the documents that have no type yet and classify each one, up to 25 per run. Safe to re-run — a document that already has a type is skipped — so a large backlog is drained by running it until it finds nothing. Pass backends ["rules"] to backfill without spending model budget.
 
-Plugin: `doc-pipeline` · version 1 · max steps 30 · starts at `find`
+Plugin: `doc-pipeline` · version 2 · max steps 30 · starts at `find`
 
 Input:
 
@@ -65,7 +65,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:doc_list_unclassified` | `{"prefix":"${input.prefix}","run":"${run.id}","step":"find"}` | next in order |
-| `classify` | `map` | over `${steps.find.output.result.ids}` → `tool:doc_classify` with `{"backends":"${input.backends}","labels":"${input.labels}","object":"${item}","rules":"${input.rules}","run":"${run.id}","step":"classify"}` | end |
+| `classify` | `map` | over `${steps.find.output.result.ids}` → `tool:doc_classify` with `{"backends":"${input.backends}","labels":"${input.labels}","object":"${item}","rules":"${input.rules}","run":"${run.id}","step":"classify"}` | end · retry 1 · on a child's error, continue |
 
 ## `classify-eval` — Evaluate the classifier
 
@@ -127,7 +127,7 @@ Steps:
 
 Chunk the extracted text of repository documents and store an embedding per chunk, for semantic retrieval. Finds documents whose text has no vectors for the current version (or vectors from a different model), then embeds each one. Needs TMACH_EMBED_URL. Safe to re-run; processes up to 25 documents per run and spends the team's embedding budget.
 
-Plugin: `doc-indexer` · version 1 · max steps 35 · starts at `find`
+Plugin: `doc-indexer` · version 2 · max steps 35 · starts at `find`
 
 Takes no input.
 
@@ -136,7 +136,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:repo_list_unembedded` | `{}` | next in order |
-| `embed` | `map` | over `${steps.find.output.result}` → `tool:repo_embed_chunks` with `{"id":"${item}"}` | end |
+| `embed` | `map` | over `${steps.find.output.result}` → `tool:repo_embed_chunks` with `{"id":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `feed-propose` — Propose what to do about a feed item
 
@@ -182,7 +182,7 @@ Steps:
 
 Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.
 
-Plugin: `doc-indexer` · version 1 · max steps 50 · starts at `find`
+Plugin: `doc-indexer` · version 2 · max steps 50 · starts at `find`
 
 Takes no input.
 
@@ -191,13 +191,13 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:repo_list_unindexed` | `{}` | next in order |
-| `extract` | `map` | over `${steps.find.output.result}` → `tool:repo_extract_text` with `{"id":"${item}"}` | end |
+| `extract` | `map` | over `${steps.find.output.result}` → `tool:repo_extract_text` with `{"id":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `index-knowledge` — Index Knowledge
 
 Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.
 
-Plugin: `knowledge-graph` · version 1 · max steps 50 · starts at `find`
+Plugin: `knowledge-graph` · version 2 · max steps 50 · starts at `find`
 
 Takes no input.
 
@@ -206,7 +206,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:kg_list_unextracted` | `{}` | next in order |
-| `extract` | `map` | over `${steps.find.output.result}` → `tool:kg_extract` with `{"object":"${item}"}` | end |
+| `extract` | `map` | over `${steps.find.output.result}` → `tool:kg_extract` with `{"object":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `process-upload` — Process an uploaded document
 
@@ -231,8 +231,8 @@ Steps:
 | `fields` | `tool:doc_extract_fields` | `{"object":"${input.object_id}","run":"${run.id}","schema":"${input.schema}","step":"fields","text":"${steps.text.output.result}"}` | next in order · retry 1 |
 | `has_form` | `choice` | when `{"empty":["${input.template}"]}` then `translate_source` else `form` | next in order |
 | `form` | `tool:doc_render` | `{"data":"${steps.fields.output.result.fields}","object":"${input.object_id}","run":"${run.id}","step":"form","template":"${input.template}"}` | next in order |
-| `translate_form` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${steps.form.output.result.object_id}","run":"${run.id}","step":"translate"}` | end |
-| `translate_source` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${input.object_id}","run":"${run.id}","step":"translate"}` | end |
+| `translate_form` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${steps.form.output.result.object_id}","run":"${run.id}","step":"translate"}` | end · retry 1 |
+| `translate_source` | `map` | over `${input.locales}` → `tool:doc_translate` with `{"locale":"${item}","object":"${input.object_id}","run":"${run.id}","step":"translate"}` | end · retry 1 |
 
 ## `redact-document` — Redact a document
 
@@ -258,7 +258,7 @@ Steps:
 
 Turn the team's audio documents into text in the search index. Finds recordings with no transcript yet, then transcribes each one. Needs TMACH_TRANSCRIBE_URL. Safe to re-run; processes up to 20 recordings per run and spends the team's transcription budget. Run this BEFORE Index Documents and Embed Documents for a voice note — until it has, a recording has no text for either of them to read.
 
-Plugin: `doc-indexer` · version 1 · max steps 30 · starts at `find`
+Plugin: `doc-indexer` · version 2 · max steps 30 · starts at `find`
 
 Takes no input.
 
@@ -267,7 +267,7 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `find` | `tool:voice_list_untranscribed` | `{}` | next in order |
-| `speak` | `map` | over `${steps.find.output.result}` → `tool:doc_transcribe` with `{"object":"${item}"}` | end |
+| `speak` | `map` | over `${steps.find.output.result}` → `tool:doc_transcribe` with `{"object":"${item}"}` | end · retry 1 · on a child's error, continue |
 
 ## `translate-chat` — Translate Chat Workflow
 
@@ -286,6 +286,6 @@ Steps:
 | Step | Uses | Binding | Next |
 |---|---|---|---|
 | `chat` | `tool:chat_message` | `{"text":"${input.message}"}` | next in order |
-| `to_all` | `map` | over `["es","nl","is"]` → `tool:translate_text` with `{"source":"${principal.locale}","target":"${item}","text":"${steps.chat.output.result}"}` | next in order |
-| `back_home` | `map` | over `${steps.to_all.output.results}` → `tool:translate_text` with `{"target":"${principal.locale}","text":"${item.result}"}` | end |
+| `to_all` | `map` | over `["es","nl","is"]` → `tool:translate_text` with `{"source":"${principal.locale}","target":"${item}","text":"${steps.chat.output.result}"}` | next in order · retry 1 |
+| `back_home` | `map` | over `${steps.to_all.output.results}` → `tool:translate_text` with `{"target":"${principal.locale}","text":"${item.result}"}` | end · retry 1 |
 

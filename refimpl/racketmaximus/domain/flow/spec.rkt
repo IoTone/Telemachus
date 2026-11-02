@@ -28,8 +28,9 @@
 (provide SPEC-FORMAT-VERSION
          validate-spec spec-schema
          (struct-out exn:fail:spec)
-         spec-slug spec-max-steps spec-steps spec-start
+         spec-slug spec-version spec-max-steps spec-steps spec-start
          step-ref step-kind step-tool-name step-next map-template
+         map-on-error MAP-ERROR-POLICIES
          REVIEW-VERDICTS)
 
 (define SPEC-FORMAT-VERSION 1)
@@ -95,7 +96,18 @@
 ;; intended, not a gap.
 (define TOOL-KEYS   '(id uses with next end retry))
 (define CHOICE-KEYS '(id uses when then else))
-(define MAP-KEYS    '(id uses over step next end))
+(define MAP-KEYS    '(id uses over step next end on_error))
+
+;; WF-12. What a child's exhausted error does to its siblings, and it is a CLOSED
+;; vocabulary for `READ-DOORS`' reason: a value invented in passing would arrive
+;; at the engine as something nothing explains. `"fail"` is the DEFAULT, so every
+;; spec published before this key existed means exactly what it meant — which is
+;; also why adding the key is not the spec-version change it looks like. WF-10
+;; refuses a spec naming a field THIS BUILD lacks (a v2 spec on a v1 engine, the
+;; forward direction, and that stays refused); an older spec on a newer engine
+;; validates unchanged. A third member of this list needs a behavioural
+;; difference, not a synonym.
+(define MAP-ERROR-POLICIES '("fail" "continue"))
 (define REVIEW-KEYS '(id uses title of instructions checklist four_eyes on))
 (define MAP-STEP-KEYS '(uses with retry))            ; the per-item template: no id, no control
 
@@ -109,6 +121,11 @@
 
 ;; the tool template a `map` applies to each item
 (define (map-template s) (hash-ref s 'step (hasheq)))
+;; …and its per-child failure policy. Absent means `"fail"`, which is what every
+;; `map` did before the key existed.
+(define (map-on-error s)
+  (define v (hash-ref s 'on_error "fail"))
+  (if (member v MAP-ERROR-POLICIES) v "fail"))
 
 ;; The verdicts a review may end in. Frozen on purpose, for the same reason the
 ;; binding sublanguage is: the console renders each one and a workflow that
@@ -188,6 +205,9 @@
        (define m (want r 'max exact-integer? "an integer" (format "~a.step.retry" where)))
        (unless (and (>= m 0) (<= m MAX-RETRIES))
          (bad "~a.step.retry: 'max' must be between 0 and ~a" where MAX-RETRIES)))
+     (define oe (opt s 'on_error nonempty-string? "a string" where #f))
+     (when (and oe (not (member oe MAP-ERROR-POLICIES)))
+       (bad "~a.on_error: must be one of ~a" where (string-join MAP-ERROR-POLICIES ", ")))
      (define nxt (opt s 'next nonempty-string? "a step id" where #f))
      (define end (opt s 'end boolean? "a boolean" where #f))
      (when (and nxt end) (bad "~a: 'next' and 'end' are mutually exclusive" where))
@@ -312,6 +332,7 @@
           'step_fields (hasheq 'tool (for/list ([k (in-list TOOL-KEYS)]) (symbol->string k))
                                'choice (for/list ([k (in-list CHOICE-KEYS)]) (symbol->string k))
                                'map (for/list ([k (in-list MAP-KEYS)]) (symbol->string k)))
+          'map_on_error MAP-ERROR-POLICIES
           'references '("input.*" "steps.<id>.output.*" "run.id"
                         "principal.team_id" "principal.user_id" "principal.locale" "principal.timezone"
                         "item" "item.*" "index")

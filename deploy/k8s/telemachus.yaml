@@ -95,7 +95,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: telemachus
-          image: telemachus:0.4.1
+          image: telemachus:0.5.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

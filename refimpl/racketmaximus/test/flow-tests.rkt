@@ -21,6 +21,8 @@
          "../domain/sched/scheduler.rkt"
          "../domain/agent/registry.rkt"
          "../domain/agent/tools.rkt"          ; side effect: the built-in tool catalog
+         ;; WF-14: the fault a fan-out must treat as fatal whatever its policy
+         "../domain/tools/faults.rkt"
          "../domain/flow/spec.rkt"
          "../domain/flow/bind.rkt"
          "../domain/flow/dsl.rkt"
@@ -503,3 +505,205 @@
                             #:run-id "r" #:team-id "t" #:user-id "u"))
   (check-true (eval-predicate (hasheq 'gt (list "${steps.first.output.rating}" "${input.n}")) ctx))
   (check-false (eval-predicate (hasheq 'lt (list "${steps.first.output.rating}" "${input.n}")) ctx)))
+
+;; ---- WF-11…WF-17: a child's error, and what it does to its siblings (#236) ----
+;;
+;; Reported from outside, with the measurement: `index-knowledge` over thirteen
+;; documents, child `extract#1` errored, and children #2 through #11 were left
+;; `queued` carrying an error they never got to act on — the run red and the work
+;; not done. `index-documents` over the SAME thirteen completed 7 of 7, because
+;; its extractor records an unreadable file as processed-with-nothing rather than
+;; raising. The tolerance was already chosen; it lived hand-written inside one
+;; tool instead of being available to a fan-out.
+;;
+;; A test-only tool, because none of the built-in ones fails for SOME items and
+;; not others — and that is exactly the case the whole slice is about. `not_a_tool`
+;; (the case above) fails every child, which cannot distinguish "the fan-out
+;; carried on" from "nothing worked".
+(register-tool! "wf_item_probe"
+  (hasheq 'type "function"
+          'function (hasheq 'name "wf_item_probe" 'description "test fixture"
+                            'parameters (hasheq 'type "object"
+                                                'properties (hasheq 'x (hasheq 'type "string"))
+                                                'required '("x"))))
+  "notes:read"
+  (lambda (conn p args)
+    (define x (hash-ref args 'x ""))
+    (cond
+      ;; "an operator must change something" — fatal to a fan-out whatever its
+      ;; policy says (WF-14)
+      [(equal? x "misconfigured") (raise-misconfigured 'wf_item_probe "no model configured (fixture)")]
+      ;; "this item is awkward" — the twelve siblings are innocent
+      [(equal? x "bad") (error 'wf_item_probe "this item is awkward")]
+      [else (format "ok:~a" x)])))
+
+(define (probe-spec slug items #:on-error [oe #f] #:retry [retry 0])
+  (hasheq 'spec 1 'slug slug
+          'steps (list (let* ([h (hasheq 'id "fan" 'uses "map" 'over items
+                                         'step (hasheq 'uses "tool:wf_item_probe"
+                                                       'with (hasheq 'x "${item}")
+                                                       'retry (hasheq 'max retry)))]
+                              [h (if oe (hash-set h 'on_error oe) h)])
+                         h))))
+
+(define (run-probe conn p spec)
+  (define d (flow-publish! conn p spec))
+  (define run (flow-run-start! conn p d))
+  (drain! conn)
+  (flow-run-get conn p (hash-ref run 'id)))
+
+(define (step-named final id)
+  (findf (lambda (s) (equal? (hash-ref s 'step_id) id)) (hash-ref final 'steps)))
+
+(test-case "WF-12: `on_error` is a CLOSED vocabulary, and absent means today's behaviour"
+  ;; A value invented in passing would arrive at the engine as something nothing
+  ;; explains — READ-DOORS' rule, which is why the list is closed rather than
+  ;; free-form.
+  (check-equal? MAP-ERROR-POLICIES '("fail" "continue"))
+  (check-exn #rx"on_error: must be one of"
+             (lambda () (validate-spec (probe-spec "oe-bad" '("a") #:on-error "ignore"))))
+  (for ([v (in-list MAP-ERROR-POLICIES)])
+    (check-true (hash? (validate-spec (probe-spec "oe-ok" '("a") #:on-error v))) v))
+  ;; ABSENT is "fail", so every spec published before the key existed means
+  ;; exactly what it meant. This is also why adding the key is not the
+  ;; spec-version change it looks like: WF-10 refuses a spec naming a field THIS
+  ;; BUILD lacks (the forward direction), not an older spec on a newer engine.
+  (check-equal? (map-on-error (hasheq 'id "fan" 'uses "map")) "fail")
+  (check-equal? (map-on-error (hasheq 'id "fan" 'uses "map" 'on_error "continue")) "continue"))
+
+(test-case "WF-11: with no policy, one bad item still takes the run down — the control"
+  ;; The behaviour #236 reported, asserted deliberately: a `map` that says
+  ;; nothing must behave exactly as it did, or this slice is a silent change to
+  ;; every published spec in the field.
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define final (run-probe conn p (probe-spec "fan-fail" '("a" "bad" "c"))))
+  (check-equal? (hash-ref final 'status) "error")
+  (check-regexp-match #rx"awkward" (hash-ref final 'error))
+  (check-equal? (hash-ref (step-named final "fan") 'status) "error"))
+
+(test-case "WF-11: with `continue`, the siblings are indexed and the step still reports"
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define final (run-probe conn p (probe-spec "fan-cont" '("a" "bad" "c") #:on-error "continue")))
+  ;; THE ACCEPTANCE CRITERION: one document that cannot be processed does not
+  ;; prevent the others.
+  (check-equal? (hash-ref final 'status) "done")
+  (define parent (step-named final "fan"))
+  (check-equal? (hash-ref parent 'status) "done")
+  (define out (hash-ref parent 'output))
+  ;; …and a partially-successful fan-out SAYS SO, with the count and the reason
+  ;; per failure rather than a flag that is only ever true (CLS-27's shape)
+  (check-equal? (hash-ref out 'count) 3)
+  (check-equal? (hash-ref out 'succeeded) 2)
+  (check-equal? (hash-ref out 'failed) 1)
+  (define fs (hash-ref out 'failures))
+  (check-equal? (length fs) 1)
+  (check-equal? (hash-ref (car fs) 'index) 1)
+  (check-equal? (hash-ref (car fs) 'step) "fan#1")
+  (check-regexp-match #rx"awkward" (hash-ref (car fs) 'error))
+  ;; WF-13: `results` STAYS POSITIONAL, with the jsexpr null where a child
+  ;; failed. Compacting would silently re-align every downstream binding of
+  ;; `${steps.fan.output.results}` by however many items happened to fail — a
+  ;; hole, never a splice.
+  (define results (hash-ref out 'results))
+  (check-equal? (length results) 3)
+  (check-equal? (hash-ref (first results) 'result) "ok:a")
+  (check-equal? (second results) 'null)
+  (check-equal? (hash-ref (third results) 'result) "ok:c")
+  ;; the child keeps its own error — the row is the record
+  (check-equal? (hash-ref (step-named final "fan#1") 'status) "error"))
+
+(test-case "WF-15: a fan-out that achieved NOTHING is not a success"
+  ;; With `continue` this would otherwise report `succeeded: 0` and go green,
+  ;; which is worse than failing on the first child: the operator is told the
+  ;; backlog was drained.
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define final (run-probe conn p (probe-spec "fan-all-bad" '("bad" "bad") #:on-error "continue")))
+  (check-equal? (hash-ref final 'status) "error")
+  (check-regexp-match #rx"all 2 item\\(s\\)" (hash-ref final 'error))
+  (check-regexp-match #rx"awkward" (hash-ref final 'error))
+  (define parent (step-named final "fan"))
+  (check-equal? (hash-ref parent 'status) "error")
+  ;; the diagnostic is KEPT on the error path: one message about N documents is
+  ;; not what an operator needs
+  (check-equal? (hash-ref (hash-ref parent 'output) 'failed) 2))
+
+(test-case "WF-14: a MISCONFIGURATION is fatal on the first child, whatever the policy"
+  ;; The third acceptance criterion. `continue` would otherwise spend N model
+  ;; requests and N error rows to learn what the first child already said.
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define final (run-probe conn p (probe-spec "fan-misc" '("a" "misconfigured" "c")
+                                              #:on-error "continue")))
+  (check-equal? (hash-ref final 'status) "error")
+  (check-regexp-match #rx"no model configured" (hash-ref final 'error))
+  (check-equal? (hash-ref (step-named final "fan") 'status) "error")
+  ;; …and it is the exception TYPE that decides, not the message: there is no
+  ;; sound way to read "no model configured" out of a string the register sweeps
+  ;; and the localizer both rewrite.
+  (check-true (exn:fail:misconfigured? (exn:fail:misconfigured "x" (current-continuation-marks))))
+  (check-false (exn:fail:misconfigured? (make-exn:fail "x" (current-continuation-marks)))))
+
+(test-case "WF-11: a retry is still honoured per child under `continue`"
+  ;; `continue` must not short-circuit the retry the template asked for — the
+  ;; tolerance is about EXHAUSTED errors, which is where `step-failed!` decides.
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define final (run-probe conn p (probe-spec "fan-retry" '("a" "bad") #:on-error "continue" #:retry 1)))
+  (check-equal? (hash-ref final 'status) "done")
+  (check-equal? (hash-ref (step-named final "fan") 'output) (hash-ref (step-named final "fan") 'output))
+  (check-equal? (hash-ref (step-named final "fan#1") 'attempt) 2 "the child was retried before being tolerated"))
+
+(test-case "WF-11: the macro can spell the policy, and refuses an unknown one at COMPILE time"
+  ;; A step kind the macro cannot spell has to be hand-written JSON, which is
+  ;; what kept the `review` kind unreachable for a year (CLS-14).
+  (define emitted
+    (let ()
+      (define-workflow oe-demo
+        #:input ([xs array])
+        (step fan (map #:over (in xs) (tool list_notes) #:retry 1 #:on-error "continue") #:end))
+      oe-demo))
+  (check-equal? (hash-ref (car (hash-ref emitted 'steps)) 'on_error) "continue")
+  ;; …and the closed vocabulary is checked where the error can point at the source
+  (check-exn #rx"#:on-error must be one of"
+             (lambda ()
+               (convert-compile-time-error
+                (let ()
+                  (define-workflow oe-bad
+                    #:input ([xs array])
+                    (step fan (map #:over (in xs) (tool list_notes) #:on-error "ignore") #:end))
+                  oe-bad)))))
+
+(test-case "WF-16: a plugin can ship a SECOND version of a workflow"
+  ;; FOUND WHILE FIXING #236, as its delivery mechanism. The guard asked whether
+  ;; the team had a row for the SLUG at any version and the INSERT hardcoded
+  ;; `version 1` whatever `#:version` said, so a bump was inert for every team
+  ;; that had ever opened the Workflows tab — #113's shape, where the platform
+  ;; records the right thing and nothing serves it.
+  (define conn (fresh))
+  (define p (owner-of conn))
+  (define slug "wf16-demo")
+  (define (spec-at v)
+    (hasheq 'spec 1 'slug slug 'version v
+            'steps (list (hasheq 'id "only" 'uses "tool:list_notes"))))
+  ;; `register-plugin-workflow!` REPLACES by slug, which is what a plugin
+  ;; shipping a new version does at load — so the box holds one spec and the
+  ;; question is entirely what `materialize-plugin-defs!` does with it.
+  (register-plugin-workflow! "wf16-plugin" (spec-at 1))
+  (materialize-plugin-defs! conn (principal-team-id p))
+  (check-equal? (hash-ref (flow-def-by-slug conn p slug) 'version) 1)
+  ;; the plugin now ships v2 — the team has already looked, which is the state
+  ;; every team using the feature is in
+  (register-plugin-workflow! "wf16-plugin" (spec-at 2))
+  (materialize-plugin-defs! conn (principal-team-id p))
+  (check-equal? (hash-ref (flow-def-by-slug conn p slug) 'version) 2
+                "the newest active version of a slug is what a run uses")
+  ;; v1's row SURVIVES: #90 r3 put `version` on a run precisely so a run of a
+  ;; since-superseded definition is distinguishable, and rewriting the old row's
+  ;; spec in place would make every finished run's recorded version a lie
+  (check-equal? (length (for/list ([d (in-list (flow-defs conn p))]
+                                   #:when (equal? (hash-ref d 'slug) slug))
+                          d))
+                2 "a bump supersedes rather than rewrites"))

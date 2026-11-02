@@ -25,7 +25,9 @@
 ;; reach no model: these are model-backed, metered and quota-admitted, so the
 ;; requires of each module stay honest about what it needs.
 
-(require db-kit/portable racket/list
+(require db-kit/portable
+         racket/list
+         (only-in "../tools/faults.rkt" raise-misconfigured)   ; WF-14
          (only-in racket/string string-trim)
          "../tools/dsl.rkt"
          "../agent/registry.rkt"
@@ -74,7 +76,9 @@
 ;; times for one unset variable; failing at step one names it once.
 (define (require-embedder! who)
   (unless (embed-configured?)
-    (error who
+    ;; WF-14: fatal to a fan-out whatever its policy — the lister's "failing at
+    ;; step one names it once" argument, now enforceable per child as well.
+    (raise-misconfigured who
            (string-append "no embedding model configured — set TMACH_EMBED_URL "
                           "(and TMACH_EMBED_MODEL, e.g. nomic-embed-text). "
                           "Text indexing does not need it; chunk embeddings do."))))

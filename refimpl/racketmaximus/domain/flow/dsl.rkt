@@ -31,7 +31,14 @@
 ;; document at module instantiation. The macro has NO private fast path into the
 ;; runtime; if it did, the two definitions of "valid" would drift.
 
-(require (for-syntax racket/base racket/string syntax/parse)
+(require (for-syntax racket/base racket/string syntax/parse
+                     ;; the closed vocabularies this macro CHECKS live in
+                     ;; spec.rkt, which is normative (WF-9). A second copy
+                     ;; inside `begin-for-syntax` is LIVE-IN's shape, and
+                     ;; `PREDICATES` / `INPUT-TYPES` below are exactly that —
+                     ;; they predate this require and are left alone rather
+                     ;; than changed in a slice about `map`.
+                     (only-in "spec.rkt" MAP-ERROR-POLICIES))
          json
          "spec.rkt")
 
@@ -135,11 +142,27 @@
                 [h #,(if (attribute endflag) #'(hash-set h 'end #t) #'h)]
                 [h #,(if (attribute r) #`(hash-set h 'retry (hasheq 'max #,#'r)) #'h)])
            h)]
-      ;; (step <id> (map #:over <items> (tool <name> #:k v …) [#:retry n]) [#:next <id> | #:end])
+      ;; (step <id> (map #:over <items> (tool <name> #:k v …) [#:retry n]
+      ;;                  [#:on-error "continue"]) [#:next <id> | #:end])
+      ;;
+      ;; WF-11's authoring surface. It is spelled here as well as in the wire
+      ;; grammar because `define-workflow` is the documented way to write a
+      ;; workflow, and a step kind the macro cannot spell has to be hand-written
+      ;; JSON — which is what kept the `review` kind unreachable for a year
+      ;; (CLS-14). The value is a STRING rather than a flag, because the
+      ;; vocabulary is closed and open to a third member (WF-12); `#:on-error`
+      ;; with no value would have to be renamed the day one arrives.
       [(step sid:id (map (~seq #:over ovr) (tool tname:id (~seq k:keyword kv) ...)
-                         (~optional (~seq #:retry tr:exact-nonnegative-integer)))
+                         (~alt (~optional (~seq #:retry tr:exact-nonnegative-integer))
+                               (~optional (~seq #:on-error oe:str))) ...)
              (~alt (~optional (~seq #:next nxt:id))
                    (~optional (~and #:end endflag))) ...)
+       (when (attribute oe)
+         (unless (member (syntax-e #'oe) MAP-ERROR-POLICIES)
+           (raise-syntax-error 'define-workflow
+                               (format "#:on-error must be one of ~a"
+                                       (string-join MAP-ERROR-POLICIES ", "))
+                               #'oe)))
        (when (attribute nxt) (check-step! "#:next" #'nxt ids))
        (define items
          (syntax-parse #'ovr
@@ -149,6 +172,7 @@
        #`(let* ([tmpl #,(tool->js #'tname (syntax->list #'(k ...)) (syntax->list #'(kv ...)) ids)]
                 [tmpl #,(if (attribute tr) #`(hash-set tmpl 'retry (hasheq 'max #,#'tr)) #'tmpl)]
                 [h (hasheq 'id #,(id->string #'sid) 'uses "map" 'over #,items 'step tmpl)]
+                [h #,(if (attribute oe) #`(hash-set h 'on_error #,#'oe) #'h)]
                 [h #,(if (attribute nxt) #`(hash-set h 'next #,(id->string #'nxt)) #'h)]
                 [h #,(if (attribute endflag) #'(hash-set h 'end #t) #'h)])
            h)]

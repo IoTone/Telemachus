@@ -22,6 +22,7 @@
 ;; model-backed code rather than with the arithmetic.
 
 (require db-kit/portable
+         (only-in "../tools/faults.rkt" raise-misconfigured)   ; WF-14
          (only-in racket/string string-trim)
          "../authz/authz.rkt"
          (only-in "../ai/executor.rkt" embed-configured? embed-model)
@@ -69,7 +70,7 @@
   (require-perm conn p "files:read")
   (require-perm conn p "chat:use")
   (unless (embed-configured?)
-    (error 'passages-for
+    (raise-misconfigured 'passages-for                        ; WF-14
            (string-append "no embedding model configured — set TMACH_EMBED_URL "
                           "(and TMACH_EMBED_MODEL, e.g. nomic-embed-text). Keyword search "
                           "does not need it; searching by meaning does.")))
