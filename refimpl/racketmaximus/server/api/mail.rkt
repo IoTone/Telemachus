@@ -161,16 +161,15 @@
     (with-auth req (lambda (p)
       (require-perm db-conn p "org:read")
       (define org (principal-org-id p))
-      (if (not org)
-          (err "the caller belongs to no org" 409)
-      (json-response (hasheq 'categories (org-categories db-conn org)
-                             'known MAIL-CATEGORIES
-                             ;; The INSTANCE's document, read-only, because an org
-                             ;; admin cannot turn on what the instance has not
-                             ;; enabled and a card that offered it would be a
-                             ;; control whose only outcome is a refusal (FEAT-8's
-                             ;; locked row).
-                             'instance (instance-categories db-conn)))))))))
+      (cond
+        [(not org) (err "the caller belongs to no org" 409)]
+        [else
+         ;; `instance` rides along READ-ONLY, because an org admin cannot turn on
+         ;; what the instance has not enabled and a card that offered it would be
+         ;; a control whose only outcome is a refusal (FEAT-8's locked row).
+         (json-response (hasheq 'categories (org-categories db-conn org)
+                                'known MAIL-CATEGORIES
+                                'instance (instance-categories db-conn)))]))))))
 
 (define (ep-org-email-notify-put req)
   (with-mt req (lambda ()
