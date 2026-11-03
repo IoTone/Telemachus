@@ -289,6 +289,9 @@
    'email-address-verify ep-email-address-verify
    'email-deliveries ep-email-deliveries 'email-delivery-get ep-email-delivery-get
    'email-delivery-redeliver ep-email-delivery-redeliver
+   'admin-email-deliveries ep-admin-email-deliveries
+   'admin-email-delivery-get ep-admin-email-delivery-get
+   'admin-email-delivery-redeliver ep-admin-email-delivery-redeliver
    'session-policy-get ep-session-policy-get 'session-policy-put ep-session-policy-put
    'executor-policy-get ep-executor-policy-get 'executor-policy-put ep-executor-policy-put
    'executor-policy-clear ep-executor-policy-clear

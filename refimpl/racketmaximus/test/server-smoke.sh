@@ -2929,7 +2929,7 @@ MJOB=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
 MJID=$(printf '%s' "$MJOB" | grep -oP '"id":\s*"\K[^"]+' | head -1)
 if mail_wait "job ${MJID:0:8}" 60; then ok "email: a finished job really reached an inbox"
 else bad "email: no notification for a finished job"; fi
-MD=$(curl -s "$B/api/email-deliveries?scope=instance" -H "Authorization: Bearer $OP")
+MD=$(curl -s "$B/api/admin/email-deliveries" -H "Authorization: Bearer $OP")
 assert "email: the delivery is recorded as sent"   "$MD" '"status":"sent"'
 assert "email: …against the right category"        "$MD" '"category":"jobs"'
 assert "email: …naming the event"                  "$MD" '"event":"job.completed"'
@@ -2937,7 +2937,7 @@ assert "email: …naming the event"                  "$MD" '"event":"job.complet
 # why", and a page of message bodies is not that.
 refute "email: a listing carries no message body"  "$MD" '"body"'
 MDID=$(printf '%s' "$MD" | python3 -c 'import sys,json;d=json.load(sys.stdin);print([x["id"] for x in d["deliveries"] if x["event"]=="job.completed"][0])' 2>/dev/null)
-MONE=$(curl -s "$B/api/email-deliveries/$MDID?scope=instance" -H "Authorization: Bearer $OP")
+MONE=$(curl -s "$B/api/admin/email-deliveries/$MDID" -H "Authorization: Bearer $OP")
 assert "email: one delivery carries the message"   "$MONE" '"body":'
 # THE LINK IS A CONSOLE PATH. The payload's own `url` is an API path — right for
 # a webhook receiver, and a person clicking it gets JSON.
@@ -2950,12 +2950,12 @@ echo "== email: a person's own opt-out =="
 OPTOUT=$(curl -s -X PUT $B/api/email-prefs -H "Authorization: Bearer $OP" \
   -H 'Content-Type: application/json' -d '{"category":"jobs","enabled":false}')
 assert "email: the opt-out names the layer that decided" "$OPTOUT" '"disabled_by":"user"'
-BEFORE=$(curl -s "$B/api/email-deliveries?scope=instance" -H "Authorization: Bearer $OP" \
+BEFORE=$(curl -s "$B/api/admin/email-deliveries" -H "Authorization: Bearer $OP" \
   | grep -o '"event":"job.completed"' | wc -l | tr -d ' ')
 curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
   -H 'Content-Type: application/json' -d '{"kind":"chat","payload":{"prompt":"second"}}' >/dev/null
 sleep 6
-AFTER=$(curl -s "$B/api/email-deliveries?scope=instance" -H "Authorization: Bearer $OP" \
+AFTER=$(curl -s "$B/api/admin/email-deliveries" -H "Authorization: Bearer $OP" \
   | grep -o '"event":"job.completed"' | wc -l | tr -d ' ')
 if [ "$BEFORE" = "$AFTER" ]; then ok "email: an opt-out really stops the mail"
 else bad "email: opted out and still queued ($BEFORE -> $AFTER)"; fi
@@ -2964,6 +2964,33 @@ assert "email: turning it back on clears the objection" \
   "$(curl -s -X PUT $B/api/email-prefs -H "Authorization: Bearer $OP" \
      -H 'Content-Type: application/json' -d '{"category":"jobs","enabled":true}')" \
   '"category":"jobs","enabled":true'
+
+echo "== email: the monitoring credential the split exists for =="
+# THE WHOLE REASON THERE ARE TWO SETS OF ROUTES. The dispatcher pre-checks the
+# permission a role-scoped route DECLARES, so a single route declaring
+# `webhooks:manage` with a `?scope=instance` parameter would be refused for a
+# token scoped to `instance:read` BEFORE the handler could read the parameter —
+# making the operator's view unreachable for exactly the credential #124 split
+# that permission out for.
+#
+# AND A HUMAN OPERATOR WOULD NEVER HAVE NOTICED, which is why this is asserted
+# with a SCOPED TOKEN rather than with `$OP`: `can?` lets an operator past every
+# team-tier permission, so the only caller the old shape locked out was the
+# narrow one. HELP-7's lesson, in a third place.
+# `$MONTOK` IS #124's OWN TOKEN, minted 1,000 lines above and scoped
+# `instance:read`. Reused rather than re-minted: a second variable of the same
+# name would shadow it, and the first assertion somebody inserts between the two
+# would silently start using the wrong one — and reusing it means these
+# assertions are made against the very credential that slice established.
+assert "email: a monitoring token reads the instance's deliveries" \
+  "$(curl -s "$B/api/admin/email-deliveries" -H "Authorization: Bearer $MONTOK")" '"deliveries"'
+# …and is capped away from the team plane, and from the write
+assert "email: …and not the team's" \
+  "$(curl -s "$B/api/email-deliveries" -H "Authorization: Bearer $MONTOK")" 'Forbidden'
+assert "email: …nor the transport's password" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $MONTOK" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":25,"from_address":"a@b.test"}')" \
+  'Forbidden'
 
 echo "== email: a team's view and the operator's differ =="
 # The two transactional messages belong to NO team, so a team's listing excludes

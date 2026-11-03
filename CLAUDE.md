@@ -2125,6 +2125,18 @@ MOCK_SMTP_PORT=8928 MOCK_SMTP_OUT=/tmp/mail.txt racket test/mock-smtp.rkt
   relay's reply is KEPT (the most useful thing an operator has for a transport
   that will not answer) and BOUNDED at 400 characters saying it was cut, because
   many relays echo the message back inside a reply (FEED‑6, SEC‑8).
+- **TWO SETS OF DELIVERY ROUTES, NOT ONE WITH A `?scope=`, AND THE DISPATCHER IS
+  WHY.** #110 r2 has it pre-check the permission a role-scoped route DECLARES, so
+  one route declaring `webhooks:manage` is refused for a token scoped to
+  `instance:read` BEFORE the handler can read a query parameter — making the
+  operator's view unreachable for exactly the monitoring credential #124 split
+  that permission out for. **A human operator would never have noticed**, since
+  `can?` lets an operator past every team-tier permission, so the smoke asserts
+  it with a SCOPED token (HELP‑7's lesson, third place). **FLEET‑2a had already
+  decided this exact question in the decision table** — "its own route vs
+  `?scope=instance` on `GET /api/jobs`" — and this slice built the shape it
+  refuses and rediscovered why from the dispatcher. A decision table is only
+  consulted when somebody thinks to look.
 - **THE SWEEP IS FIVE SECONDS WHERE THE WEBHOOK SWEEP IS ONE.** A webhook's first
   retry is a minute away so a slower sweep would make its backoff a lie; an email
   is read minutes later, so a tick a second would spend connections on latency

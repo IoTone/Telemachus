@@ -35,6 +35,14 @@
       "text": "{age} ago",
       "hash": "1ebef83b6f3881bed47f04d4eabef9ee2108c73d"
     },
+    "doc.route.get.api.admin.email-deliveries": {
+      "text": "Every email delivery on the instance, newest first, including the two transactional messages — a confirmation and a transport test — which belong to no team. `?status=dead` is the dead-letter list an operator watches. `instance:read` rather than `:manage`, so a monitoring credential can see that mail is failing without being able to rewrite the relay's password.",
+      "hash": "63d99c2efddfbe3ad2701cf78784907188139f1a"
+    },
+    "ui.mltransport": {
+      "text": "Email delivery",
+      "hash": "3776c7a872f8ffc28af593480694373ad89025c0"
+    },
     "doc.route.get.api.repo-obj.id.form-fields": {
       "text": "The AcroForm fields a PDF carries — name, kind, current value and, for a choice field, its options — which is what a caller needs before sending `doc_fill_form` any values (#88 req 2). A document that is not a form answers an empty list, because whether it is one is the question being asked; a box without pdfcpu answers 501, since the question is fine and this instance cannot answer it. `can_flatten` says whether `flatten: true` will work here, flattening being a second binary.",
       "hash": "73c99d2a62d3623714b2ff633415089de4ebc3f5"
@@ -42,10 +50,6 @@
     "doc.workflow.index-documents": {
       "text": "Extract text from repository documents into the search index. Finds what is unindexed (or stale after an overwrite), then extracts each one. Safe to re-run; processes up to 40 documents per run.",
       "hash": "052a477b5c5281d01beb1f2e753550c25a1a7ed5"
-    },
-    "ui.mltransport": {
-      "text": "Email delivery",
-      "hash": "3776c7a872f8ffc28af593480694373ad89025c0"
     },
     "ui.edzenhint": {
       "text": "full width, Esc to leave",
@@ -1968,8 +1972,8 @@
       "hash": "02e8b32f35af9fafca11af11f096a74b5847347d"
     },
     "doc.route.get.api.email-deliveries": {
-      "text": "The team's email deliveries, newest first: recipient, category, event, status (`pending`/`sent`/`dead`), attempts, the relay's last reply and when the next attempt is due. `?status=dead` is the dead-letter list. `?scope=instance` is the operator's view (`instance:read`) and includes the two transactional messages — a confirmation and a transport test — which belong to no team. The BODY is not in a listing: a dead-letter list answers \"what is failing and why\", and a page of message bodies is not that.",
-      "hash": "0511f9bf494557fa038361191e4a8345777afa89"
+      "text": "The team's email deliveries, newest first: recipient, category, event, status (`pending`/`sent`/`dead`), attempts, the relay's last reply and when the next attempt is due. `?status=dead` is the dead-letter list. The BODY is not in a listing: a dead-letter list answers \"what is failing and why\", and a page of message bodies is not that. The two transactional messages — a confirmation and a transport test — belong to no team and are invisible here by construction; `GET /api/admin/email-deliveries` is the operator's view.",
+      "hash": "15030654c43b734e4af94f879ce60222e9c216a2"
     },
     "ui.nofires": {
       "text": "This trigger has not fired yet.",
@@ -2931,6 +2935,10 @@
       "text": "The team glossary.",
       "hash": "7986293803bb2029e37ce2d2f2e2c213446c48c7"
     },
+    "doc.route.get.api.admin.email-deliveries.id": {
+      "text": "One delivery on the instance, WITH the message exactly as it would go out. The transactional messages are reachable only here, because they have no team.",
+      "hash": "a4ebe627b542ff52d32952e90e846a0a1a39c212"
+    },
     "ui.quotaresets": {
       "text": "Resumes {when}.",
       "hash": "826fcc2fc0cc24a889c559c58c4e78c2d2a4e137"
@@ -3743,6 +3751,14 @@
       "text": "Translating into",
       "hash": "dae38f11269fd17ad122a3ec4e99cc99ca9fbc74"
     },
+    "doc.route.post.api.admin.email-deliveries.id.redeliver": {
+      "text": "Send any dead letter again, including one that belongs to no team. `instance:manage`, not `:read` — this one WRITES, which is the whole of #124's split.",
+      "hash": "5a61d855d6c6b6f1ca5bb0c907a991c29c89f52a"
+    },
+    "ui.helpsources": {
+      "text": "Sources",
+      "hash": "2eb56be3c2d93cdab0c52e677e3167dfddb30ac5"
+    },
     "ui.model": {
       "text": "Model",
       "hash": "68c2cc7f0ceaa3e499ecb4db331feb4debbbcc23"
@@ -3874,10 +3890,6 @@
     "ui.newdoc": {
       "text": "New document",
       "hash": "762b84690217181b9f127d2cfc1991e0892e844a"
-    },
-    "ui.helpsources": {
-      "text": "Sources",
-      "hash": "2eb56be3c2d93cdab0c52e677e3167dfddb30ac5"
     },
     "doc.tool.translate_text": {
       "text": "Translate text into a target language.",

@@ -296,14 +296,53 @@
                      "WHERE m.team_id = ? AND m.status = 'active' AND u.status = 'active' "
                      "AND u.email IS NOT NULL AND u.email_verified_epoch IS NOT NULL")
       team))
-  (for*/list ([r (in-list rows)]
-              #:do [(define uid (vector-ref r 0))
-                    (define addr (vector-ref r 1))]
-              #:when (and (string? addr)
-                          (not (mail-address-problem addr))
-                          (category-allows? conn category #:user uid #:team team)
-                          (may-read? conn uid team event data)))
-    (cons uid addr)))
+  ;; THE TWO UPPER LAYERS ARE ASKED ONCE AND THE USER LAYER IN ONE QUERY, and
+  ;; that is PERF-1's defect refused rather than repeated. `job-waiting`'s own
+  ;; comment said the window bounded the scan while the loop below it asked a
+  ;; question about the TEAM once per candidate — 60 ms a poll at the cap. Here
+  ;; the fan-out sits INLINE in the emitter's thread, on the upload path for
+  ;; `object.created`, so a query per member would put the team's membership
+  ;; between somebody and their own `PUT`.
+  ;;
+  ;; What is still per member is `repo-readable?`, and that one cannot be
+  ;; batched: `can?` admits an owner and a grant holder as well as a role, which
+  ;; VEC-28 and CLS-27 both record as the thing a SQL clause cannot express. It
+  ;; is bounded by the members who have a CONFIRMED address, which the window
+  ;; above has already narrowed to — and it is only asked at all for an event
+  ;; that names a document.
+  (define disabled (team-disabled-categories conn (map (lambda (r) (vector-ref r 0)) rows)))
+  (define upper (category-scope conn category #:team team))
+  (cond
+    [upper '()]
+    [else
+     (for*/list ([r (in-list rows)]
+                 #:do [(define uid (vector-ref r 0))
+                       (define addr (vector-ref r 1))]
+                 #:when (and (string? addr)
+                             (not (mail-address-problem addr))
+                             (not (member category (hash-ref disabled uid '())))
+                             (may-read? conn uid team event data)))
+       (cons uid addr))]))
+
+;; uid -> (listof category) the person has turned off, in ONE query. An empty
+;; list for a user with no row at all, because absence means "I have not
+;; objected" (MAIL-16).
+(define (team-disabled-categories conn uids)
+  (cond
+    [(null? uids) (hash)]
+    [else
+     ;; The placeholder list is built WITH the argument list — the mistake this
+     ;; codebase has made four times is a fixed argument list beside a
+     ;; conditional clause, which is not what this is. Every element is a uuid
+     ;; this process read out of its own `users` table a line ago.
+     (define holes (string-join (for/list ([_ uids]) "?") ", "))
+     (for/fold ([h (hash)])
+               ([r (in-list (apply query-rows conn
+                                   (string-append "SELECT user_id, category FROM email_prefs "
+                                                  "WHERE enabled = 0 AND user_id IN (" holes ")")
+                                   uids))])
+       (define u (vector-ref r 0))
+       (hash-set h u (cons (vector-ref r 1) (hash-ref h u '()))))]))
 
 ;; Whether this person may read the thing that happened. A subject this platform
 ;; cannot authorize — a job, a run, a review — is a TEAM fact and membership is
@@ -360,10 +399,16 @@
   (cond
     [(not category) 0]
     [(not (transport-configured? conn)) 0]
-    ;; Asked ONCE for the team before the membership is walked: the instance and
-    ;; org layers are a property of the team, not of a person, so asking them per
-    ;; member would be `job-waiting`'s per-row cost — PERF-1's own defect, where a
-    ;; question about a team was asked once per candidate.
+    ;; Asked ONCE for the team before the membership is even read: the instance
+    ;; and org layers are a property of the TEAM, not of a person. Asking them
+    ;; per member would be `job-waiting`'s per-row cost — PERF-1's own defect,
+    ;; where a question about a team was asked once per candidate and one poll
+    ;; at the cap ran 64 of them to return nothing.
+    ;;
+    ;; `notification-recipients` asks again, deliberately: it is exported and a
+    ;; caller may reach it directly, and two cheap single-row lookups are a
+    ;; better trade than an export that is only correct when something else
+    ;; checked first.
     [(not (category-allows? conn category #:team team)) 0]
     [else
      (define base (transport-base-url conn))

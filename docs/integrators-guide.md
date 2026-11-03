@@ -407,6 +407,58 @@ your own is fine, because the loader may run twice in one process.
 `GET /api/plugins` lists each plugin's `extractors`, so an operator can see who
 reads what. `plugins/example-tools/` ships an RTF reader as the worked example.
 
+## 7d. Notify people by email
+
+A plugin can send a notification without owning a transport, a template, a
+recipient list or a credential:
+
+```racket
+(require (only-in "../../domain/mail/mail.rkt" mail-notify!))
+
+;; one event in, N rows out — the layers resolved, the message composed,
+;; `can?` asked per recipient, and the sweep does the talking
+(void (mail-notify! conn "run.completed" team-id
+                    (hasheq 'run_id run-id 'status "done" 'workflow "my-pipeline")))
+```
+
+**You will usually not even need that.** `EVENTS` already carries
+`run.completed`, `run.failed`, `job.completed`, `object.created`,
+`object.deleted` and `review.decided`, and every one of them is emitted by the
+platform — so a workflow your plugin ships already notifies the people who asked
+to hear about it, with nothing added. Call `mail-notify!` only when your plugin
+knows something the platform's own emitters do not.
+
+**What it will and will not do, so you can design against it:**
+
+- It sends to **the team's own members who have CONFIRMED an address and have not
+  opted out** — nobody else, ever. There is no way to name a recipient, and that
+  is deliberate: an email API that takes an arbitrary address and arbitrary text
+  is a spam cannon with the instance's own reputation behind it, and
+  `from_address` is the instance's identity.
+- It composes the message itself: **ids, a status, a workflow slug and a link
+  back to the console**. Never content. Your `data` hash is read for the ids it
+  carries and nothing else — a key, a title or a body put in it is not sent,
+  which is asserted in `test/mail-tests.rkt`.
+- It asks **`can?` per recipient** for an event naming a document, so a member who
+  cannot read it is not told it exists.
+- It answers **how many rows it wrote**, and `0` is the ordinary answer: no
+  transport configured, the category not enabled at the instance, or nobody with
+  a confirmed address. It never raises into your code.
+- **It is not rate-limited yet.** Calling it in a loop meets the preference
+  layers and then the instance's mail reputation. A quota dimension is the next
+  thing to build; until it exists, call it when something happened, not on a
+  timer.
+
+The category your event belongs to is fixed by the platform —
+`workflows`, `jobs`, `documents`, `reviews` — because a category is what a PERSON
+subscribes to and a plugin inventing one would be a checkbox nobody can see. An
+event outside `EVENTS` is answered `0` and nothing is sent.
+
+**A transport of your own** (a vendor HTTP API — SES, Postmark, SendGrid) is a
+plugin's to ship and this is the seam for it: read the deliveries, send them your
+way, and leave the platform's SMTP transport unconfigured. What the platform will
+not do is let a TEAM choose where mail goes, for the reason above.
+
 ## 8. The worked example
 
 `plugins/integrator-demo/` is the whole of the above in one directory, and it is the

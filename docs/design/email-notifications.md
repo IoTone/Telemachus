@@ -113,6 +113,13 @@ is a retry; a 5xx *permanent* reply (a rejected recipient, a refused relay) is a
 dead letter on the first attempt, because nine more attempts are nine more
 identical refusals. Webhooks' own 4xx/5xx split, in SMTP's vocabulary.
 
+**The record is TWO sets of routes, not one with a `?scope=`** (MAIL‑25). The
+dispatcher pre-checks the permission a role-scoped route declares, so one route
+at `webhooks:manage` would be refused for an `instance:read` token before the
+handler could read a parameter — making the operator's view unreachable for the
+monitoring credential #124 exists for, and invisibly, because an operator passes
+every team-tier permission anyway.
+
 **A message carries ids, status and a link — never content** (MAIL‑9). MTX‑8, and
 it binds harder here: an inbox leaves the instance altogether, rests on a third
 party's server, is indexed by them, and is forwarded onwards by its reader. The

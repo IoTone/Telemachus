@@ -21,7 +21,9 @@
          ep-org-email-notify-get ep-org-email-notify-put
          ep-email-prefs-get ep-email-prefs-put
          ep-email-address-put ep-email-address-delete ep-email-address-verify
-         ep-email-deliveries ep-email-delivery-get ep-email-delivery-redeliver)
+         ep-email-deliveries ep-email-delivery-get ep-email-delivery-redeliver
+         ep-admin-email-deliveries ep-admin-email-delivery-get
+         ep-admin-email-delivery-redeliver)
 
 (require db-kit/portable
          web-kit
@@ -286,40 +288,84 @@
                               'verified a))]))))
 
 ;; ---- the record ----------------------------------------------------------------
-;; `?scope=instance` is the OPERATOR's view and includes the transactional
-;; categories, which belong to no team. Without it the listing is the caller's own
-;; team, scoped IN THE STATEMENT, so another team's id is a miss and not a
-;; refusal.
+;; TWO SETS OF ROUTES, NOT ONE WITH A `?scope=`, and that is forced rather than
+;; stylistic. The dispatcher pre-checks the permission a route DECLARES when it
+;; is role-scoped (#110 r2), so a single route declaring `webhooks:manage` is
+;; refused for a token scoped to `instance:read` BEFORE the handler can look at a
+;; query parameter — which makes the operator's view unreachable for exactly the
+;; monitoring credential #124 split that permission out for. A human operator
+;; would never have noticed: `can?` lets an operator past every team-tier
+;; permission, so the only caller it locks out is the narrow token.
+;;
+;; It is also FLEET-2's own argument arriving from the other side: a team-tier
+;; route widened to cross teams answers past the org gate, which is step 0 of
+;; `can?`. `/api/jobs` and `/api/admin/queue` are two routes for this reason.
+;;
+;; A LISTING CARRIES NO BODY. It is composed, not content (MAIL-9), so there is
+;; no disclosure in it — but a dead-letter list is read to answer "what is
+;; failing and why", and a page of message bodies is not that. The single read
+;; carries it, which is the "show me exactly what went out" case.
+;;
+;; `webhooks:manage` RATHER THAN A PERMISSION OF ITS OWN, which is MTX-9's call
+;; for the Matrix notifier: this is the same kind of thing — a team's record of
+;; what its subscriptions sent — and it is a steward's to read rather than a
+;; member's, because the listing carries colleagues' ADDRESSES and is therefore
+;; information about people (#84's rule, where who-read sits behind
+;; `files:manage` for the same reason).
+(define (deliveries-limit req)
+  (or (string->number (or (query-param req 'limit) "")) 50))
+(define (deliveries-status req)
+  (let ([s (query-param req 'status)]) (and (member s '("pending" "sent" "dead")) s)))
+
 (define (ep-email-deliveries req)
   (with-auth req (lambda (p)
-    (define inst? (equal? (query-param req 'scope) "instance"))
-    (when inst? (require-perm db-conn p "instance:read"))
-    (unless inst? (require-perm db-conn p "webhooks:manage"))
-    (define status (let ([s (query-param req 'status)]) (and (member s '("pending" "sent" "dead")) s)))
+    (require-perm db-conn p "webhooks:manage")
     (json-response
-     (hasheq 'deliveries (mail-deliveries db-conn
-                                          #:team (and (not inst?) (principal-team-id p))
-                                          #:status status
-                                          #:limit (or (string->number (or (query-param req 'limit) "")) 50))
-             'max_attempts MAX-ATTEMPTS))))) 
+     (hasheq 'deliveries (mail-deliveries db-conn #:team (principal-team-id p)
+                                          #:status (deliveries-status req)
+                                          #:limit (deliveries-limit req))
+             'max_attempts MAX-ATTEMPTS)))))
 
 (define (ep-email-delivery-get req id)
   (with-auth req (lambda (p)
-    (define inst? (equal? (query-param req 'scope) "instance"))
-    (when inst? (require-perm db-conn p "instance:read"))
-    (unless inst? (require-perm db-conn p "webhooks:manage"))
-    (define d (mail-delivery-get db-conn id #:team (and (not inst?) (principal-team-id p))))
+    (require-perm db-conn p "webhooks:manage")
+    (define d (mail-delivery-get db-conn id #:team (principal-team-id p)))
     (if d (json-response d) (err "no such delivery" 404)))))
 
 (define (ep-email-delivery-redeliver req id)
   (with-auth req (lambda (p)
-    (define inst? (equal? (query-param req 'scope) "instance"))
-    (when inst? (require-perm db-conn p "instance:manage"))
-    (unless inst? (require-perm db-conn p "webhooks:manage"))
-    (cond
-      [(mail-redeliver! db-conn id #:team (and (not inst?) (principal-team-id p)))
-       (audit! db-conn #:action "email.redeliver" #:actor-type "user" #:actor-id (principal-user-id p)
-               #:team-id (principal-team-id p) #:resource-type "email_delivery" #:resource-id id
-               #:result "ok")
-       (json-response (hasheq 'ok #t))]
-      [else (err "no such delivery, or it is already pending" 404)]))))
+    (require-perm db-conn p "webhooks:manage")
+    (redeliver req p id #:team (principal-team-id p)))))
+
+;; The operator's view. It includes the two transactional categories — a
+;; confirmation and a transport test — which belong to NO team and are therefore
+;; invisible to every team listing by construction.
+(define (ep-admin-email-deliveries req)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (json-response
+     (hasheq 'deliveries (mail-deliveries db-conn #:status (deliveries-status req)
+                                          #:limit (deliveries-limit req))
+             'max_attempts MAX-ATTEMPTS)))))
+
+(define (ep-admin-email-delivery-get req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:read")
+    (define d (mail-delivery-get db-conn id))
+    (if d (json-response d) (err "no such delivery" 404)))))
+
+;; `instance:manage`, not `:read` — this one WRITES. #124's split is about a
+;; monitoring credential watching the dead-letter count without being able to act.
+(define (ep-admin-email-delivery-redeliver req id)
+  (with-auth req (lambda (p)
+    (require-perm db-conn p "instance:manage")
+    (redeliver req p id #:team #f))))
+
+(define (redeliver req p id #:team team)
+  (cond
+    [(mail-redeliver! db-conn id #:team team)
+     (audit! db-conn #:action "email.redeliver" #:actor-type "user" #:actor-id (principal-user-id p)
+             #:team-id (principal-team-id p) #:resource-type "email_delivery" #:resource-id id
+             #:result "ok")
+     (json-response (hasheq 'ok #t))]
+    [else (err "no such delivery, or it is already pending" 404)]))
