@@ -52,6 +52,8 @@
          json racket/string racket/list
          (only-in "../../domain/db/id.rkt" new-id)
          (only-in "../../domain/events/events.rkt" EVENTS event? add-event-sink!)
+         ;; ONE phrasing of "what happened", shared with the email notifier
+         (only-in "../../domain/events/describe.rkt" event-phrase)
          (only-in "../../domain/sched/scheduler.rkt" register-job-kind! enqueue-job! current-job)
          (only-in "../../domain/authz/authz.rkt" audit! principal-team-id principal-user-id)
          (only-in "../../domain/net/fetch.rkt" fetch safe-url exn:fail:egress? exn:fail:egress-reason)
@@ -227,31 +229,18 @@
 ;; instance has never heard of. `data` already carries no content (events.rkt
 ;; says so) — this keeps it true if an emitter ever forgets.
 (define (event-line event data)
-  (define (id k) (let ([v (hash-ref data k #f)]) (and (string? v) v)))
-  (define (short s) (if (and (string? s) (> (string-length s) 12)) (substring s 0 8) s))
-  (define url (id 'url))
-  (define subject
-    (cond
-      [(id 'run_id) (format "run ~a" (short (id 'run_id)))]
-      [(id 'job_id) (format "job ~a" (short (id 'job_id)))]
-      [(id 'object_id) (format "document ~a" (short (id 'object_id)))]
-      [(id 'review_id) (format "review ~a" (short (id 'review_id)))]
-      [else "something"]))
-  (define verb
-    (cond
-      [(equal? event "run.completed") "finished"]
-      [(equal? event "run.failed") "FAILED"]
-      [(equal? event "job.completed") "finished"]
-      [(equal? event "object.created") "arrived"]
-      [(equal? event "object.deleted") "was deleted"]
-      [(equal? event "review.decided") (format "was decided: ~a" (or (id 'verdict) "?"))]
-      [(equal? event "ping") "— this is a test notification from Telemachus"]
-      [else event]))
-  ;; The workflow SLUG is a team's own word for a process and is not document
-  ;; content, so it earns its place: "run 3f2a finished" tells nobody which
-  ;; thing finished.
-  (define what (let ([s (id 'workflow)]) (if s (format " (~a)" s) "")))
-  (string-append event ": " subject what " " verb (if url (string-append " — " url) "")))
+  ;; DELEGATED. This function composed its own sentence for a year and the email
+  ;; notifier wanted the same one, so the mapping moved to
+  ;; `domain/events/describe.rkt` with two askers — `executor-can-run?`'s
+  ;; argument, in the place it is least visible: `EVENTS` is a closed vocabulary
+  ;; that grows, and an eighth member would otherwise get a Matrix line and no
+  ;; email subject, or the reverse, with nothing failing either way.
+  ;;
+  ;; The SHAPE is unchanged, deliberately — "<event>: <noun> (<slug>) <verb> —
+  ;; <url>" is what this plugin has sent since #133 and a room's history should
+  ;; stay greppable. A plugin may require a core module; core may not require a
+  ;; plugin, which is why the shared half came up rather than this one going out.
+  (event-phrase event data #:url (let ([u (hash-ref data 'url #f)]) (and (string? u) u))))
 
 ;; ---- the transport -------------------------------------------------------------------
 ;; `PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}` — the

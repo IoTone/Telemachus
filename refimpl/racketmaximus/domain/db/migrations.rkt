@@ -2094,6 +2094,192 @@
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_model_requests_job ON model_requests (job_id)"))))
 
 
+;; issue: email delivery and notifications. 0069 and not 0068: #245's
+;; `0068-note-tags` is in flight on its own branch, and two slices claiming one
+;; id collide in `schema_migrations` on whichever instance applied the other
+;; first — the collision 0054 records, for the third time. A GAP is harmless:
+;; `all-migrations` is an ordered list of names, not a contiguous sequence.
+(define m-0069-email
+  (migration "0069-email"
+    (lambda (conn)
+      ;; ---- the address somebody can actually be reached at (MAIL-4, MAIL-5) --
+      ;;
+      ;; `users.email` HAS EXISTED SINCE MIGRATION 0001 AND NOTHING IN THE TREE
+      ;; HAS EVER WRITTEN TO IT. `create-user!` does not take an address,
+      ;; `POST /api/profile` takes `locale` and `timezone`, `POST /api/members`
+      ;; takes a username, and `provision!` uses the address as the USERNAME and
+      ;; leaves this column NULL. So it is NULL on every row of every instance:
+      ;; #113's shape, a field declared and published in the schema and filled by
+      ;; nothing. A notification subsystem keyed on it would have sent nothing to
+      ;; nobody for ever, and the only symptom would have been silence.
+      ;;
+      ;; `users.email` NOW HOLDS A VERIFIED ADDRESS AND NOTHING ELSE, and the
+      ;; alternative was considered and rejected. Keeping the CLAIMED address
+      ;; there with this epoch as a flag is one place to read instead of two —
+      ;; and it makes `users.email` a column whose trustworthiness a reader has to
+      ;; know about, which is PULL-11e's rule: a field a reader learns to distrust
+      ;; is worse than no field, and every future consumer of it (a report, a
+      ;; console card, somebody's plugin) would have to remember the flag.
+      ;;
+      ;; So a PENDING address lives in `email_verifications.address` below and
+      ;; arrives here only once it has answered (MAIL-5). The failure that
+      ;; protects against is specific and silent: one transposed character and a
+      ;; colleague's notifications go to a stranger indefinitely, while the person
+      ;; who typed it concludes notifications are broken.
+      ;;
+      ;; This epoch records WHEN, which is what a profile card and an operator
+      ;; both want to see; it is also the cheap SQL filter in the notification
+      ;; fan-out, where it is belt-and-braces rather than the authority.
+      (exec* conn "ALTER TABLE users ADD COLUMN email_verified_epoch BIGINT")
+
+      ;; One outstanding verification per user, so the row is keyed by the user
+      ;; and a re-request REPLACES it — an older link stops working, which is the
+      ;; behaviour somebody who clicked "send it again" expects.
+      ;;
+      ;; THE TOKEN IS HASHED THROUGH `hash-token`, THE ONE TOKEN-HASHING RULE.
+      ;; SEC-3 found `activation_tokens` still on a pre-#13 bare SHA-1 over a
+      ;; compiled-in salt in a clean-MIT tree published on GitHub, and the finding
+      ;; was not the digest's strength — it was that there were TWO rules and the
+      ;; weaker one was the one nobody looked at. `address` is THE PENDING
+      ;; ADDRESS, and it lives here rather than in `users.email` for the reason
+      ;; above — so this row is the whole of "what am I waiting on", and a link
+      ;; that arrives after somebody changed their mind confirms the address it
+      ;; was issued for or nothing at all.
+      (exec* conn (string-append
+        "CREATE TABLE email_verifications ("
+        "  user_id TEXT PRIMARY KEY,"
+        "  address TEXT NOT NULL,"
+        "  token_hash TEXT NOT NULL,"
+        "  expires_epoch BIGINT NOT NULL,"
+        "  created_epoch BIGINT NOT NULL)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_verif_hash ON email_verifications (token_hash)")
+
+      ;; ---- the transport (MAIL-2, MAIL-3) -----------------------------------
+      ;;
+      ;; ONE ROW, and `id` is pinned to the literal 'default' so there can only
+      ;; ever be one: the `From` address is the INSTANCE's own identity, and a
+      ;; second row would be a second identity with no rule saying which answers.
+      ;;
+      ;; A TEAM CONFIGURES NOTHING HERE. A team-chosen SMTP host is an SSRF
+      ;; primitive, and a team able to set `from_address` could send mail as the
+      ;; instance. `instance:manage`, and no `team_id` column to tempt anybody.
+      ;;
+      ;; THE PASSWORD IS SEALED — `#:credential`, so it seals whenever a key is
+      ;; configured rather than waiting for the content switch (ENC-23's live
+      ;; defect) — and it is in `CREDENTIAL-SECRETS` in `cli/telemachus-secrets.rkt`
+      ;; IN THE SAME COMMIT AS THIS TABLE. VEC-19's rule, and here the cost of
+      ;; forgetting is specific: a sealed column `rewrap` does not walk is
+      ;; silently unrotatable, so every notification on the instance would stop
+      ;; for ever at the first key rotation, with the transport still reporting
+      ;; itself configured.
+      ;;
+      ;; Matrix put its credential in the ENVIRONMENT (MTX-3) because a plugin
+      ;; cannot own a sealed column (FEED-5) and had no other choice. This is
+      ;; core, and the requirement is that an ADMIN configures it — so it is a
+      ;; row: no restart, and no shell on the box.
+      (exec* conn (string-append
+        "CREATE TABLE email_transport ("
+        "  id TEXT PRIMARY KEY,"
+        "  host TEXT NOT NULL,"
+        "  port INTEGER NOT NULL,"
+        ;; none | starttls | tls — `net/smtp` takes the first two through
+        ;; `#:tls-encode` and the third through `#:tcp-connect`, so the mode is
+        ;; stored rather than guessed from the port: 587 with implicit TLS and
+        ;; 465 with STARTTLS both exist in the wild.
+        "  security TEXT NOT NULL DEFAULT 'starttls',"
+        "  username TEXT,"
+        "  password TEXT,"
+        ;; what a reader sees in their client, and what a bounce comes back to
+        "  from_address TEXT NOT NULL,"
+        "  from_name TEXT,"
+        ;; the console's own base URL, because a notification's whole usefulness
+        ;; is the link back and this process cannot know what hostname somebody
+        ;; reached it on — the Host header is the CALLER's, and a notification is
+        ;; composed by a sweep with no request in sight.
+        "  base_url TEXT,"
+        "  active INTEGER NOT NULL DEFAULT 1,"
+        ;; the probe's record (MAIL-12), so an operator can see that the last test
+        ;; worked without sending another
+        "  last_test_epoch BIGINT,"
+        "  last_test_ok INTEGER,"
+        "  last_test_error TEXT,"
+        "  updated_by TEXT,"
+        "  updated_epoch BIGINT NOT NULL)"))
+
+      ;; ---- the queue (MAIL-7) ------------------------------------------------
+      ;;
+      ;; Webhooks' table with the URL swapped for a recipient, and the shape is
+      ;; taken deliberately rather than by habit: claim-before-send (WHK-1),
+      ;; `attempts` compared as well as set so two senders cannot both win a row,
+      ;; and the due time moved out BEFORE the send so a sender that dies leaves a
+      ;; row that becomes due again on its own backoff with nothing to reap
+      ;; (WHK-2).
+      ;;
+      ;; EMAIL NEEDS THIS MORE THAN A WEBHOOK DOES. An SMTP server is routinely
+      ;; unavailable for minutes, so the retry curve is load-bearing rather than
+      ;; belt-and-braces; and a duplicate send is not an idempotent POST a
+      ;; receiver can dedupe on a delivery id, it is the same message in a
+      ;; person's inbox twice.
+      ;;
+      ;; `subject` and `body` are COMPOSED, not content (MAIL-9): ids, a status,
+      ;; a workflow slug and a link. That is what lets this column go unsealed
+      ;; where `jobs.payload` does not — the same argument `webhook_deliveries.payload`
+      ;; makes, and it binds harder here, because the destination is an inbox on
+      ;; somebody else's server.
+      (exec* conn (string-append
+        "CREATE TABLE email_deliveries ("
+        "  id TEXT PRIMARY KEY,"
+        ;; nullable: a verification message and a transport test belong to no team
+        "  team_id TEXT,"
+        ;; who it is for. The ADDRESS is copied onto the row rather than joined at
+        ;; send time, because a person who changes their address mid-queue must
+        ;; not have a pending notification redirected to the new one — it was
+        ;; composed for a reader at the address they held when it was queued.
+        "  user_id TEXT,"
+        "  recipient TEXT NOT NULL,"
+        ;; the notification category, or `verify` / `test` for the two
+        ;; transactional messages. A closed vocabulary, checked by the writer.
+        "  category TEXT NOT NULL,"
+        ;; the EVENTS member this came from, absent for the transactional two
+        "  event TEXT,"
+        "  subject TEXT NOT NULL,"
+        "  body TEXT NOT NULL,"
+        ;; pending | sent | dead
+        "  status TEXT NOT NULL DEFAULT 'pending',"
+        "  attempts INTEGER NOT NULL DEFAULT 0,"
+        "  next_attempt_epoch BIGINT,"
+        "  last_error TEXT,"
+        "  last_latency_ms INTEGER,"
+        "  created_epoch BIGINT NOT NULL,"
+        "  sent_epoch BIGINT)"))
+      ;; the sweep's own query: what is due, oldest first
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_due ON email_deliveries (status, next_attempt_epoch)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_team ON email_deliveries (team_id, created_epoch)")
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_email_user ON email_deliveries (user_id, created_epoch)")
+
+      ;; ---- a person's own answer (MAIL-15, MAIL-16) --------------------------
+      ;;
+      ;; ONLY THE EXPLICIT CHOICE IS STORED, and `enabled` is therefore only ever
+      ;; 0: at this layer absence means "I have not objected", so a stored `true`
+      ;; and no row at all would be the same state written two ways —
+      ;; `feature_settings`' rule, and the distinction session policy spells out
+      ;; with an explicit null where it really does have three states.
+      ;;
+      ;; NOT KEYED BY TEAM, and that is a stated limit rather than an oversight.
+      ;; An event is emitted FOR a team, so "workflow mail from this team but not
+      ;; that one" is a real want — and it is a refinement: a person is in one org
+      ;; and several teams, so a per-team preference makes "do I get these"
+      ;; depend on which team a run was in, which doubles the surface and the
+      ;; console card for a want nobody has stated yet. The resolution reports
+      ;; WHICH layer answered, so a team layer is additive.
+      (exec* conn (string-append
+        "CREATE TABLE email_prefs ("
+        "  user_id TEXT NOT NULL,"
+        "  category TEXT NOT NULL,"
+        "  enabled INTEGER NOT NULL DEFAULT 1,"
+        "  updated_epoch BIGINT NOT NULL,"
+        "  PRIMARY KEY (user_id, category))")))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2101,4 +2287,5 @@
                              m-0059-feed-items m-0060-trigger-attrs m-0061-redactions
                              m-0062-model-requests m-0063-model-request-operation
                              m-0064-chunk-vectors m-0065-help-corpus
-                             m-0066-job-finished-age m-0067-model-request-job))
+                             m-0066-job-finished-age m-0067-model-request-job
+                             m-0069-email))
