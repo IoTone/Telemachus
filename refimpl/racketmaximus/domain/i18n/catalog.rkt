@@ -13,6 +13,7 @@
 
 (require json
          file/sha1
+         racket/port
          racket/string
          cli-kit)                       ; jsexpr->pretty-string
 
@@ -21,6 +22,7 @@
          catalog-ref msg-text msg-hash
          read-catalog write-catalog catalog-exists?
          build-en-catalog sync-target
+         catalog-duplicate-keys
          diff coverage)
 
 ;; ---- model ------------------------------------------------------------------
@@ -34,6 +36,27 @@
 (define (make-catalog locale fallback messages) (catalog locale fallback messages))
 
 (define (source-hash text) (sha1 (open-input-string text)))
+
+;; A duplicate top-level key is INVISIBLE to `read-json`, which keeps the last
+;; one, so `diff` sees one message and the gate stays green while the file holds
+;; two texts for one id and every reader that is not this parser picks the other
+;; one. It happened: locales/en.json carried `ui.troverlimit` twice, the stale
+;; wording first and the current one second, and nothing failed. The check counts
+;; the id's own key token in the raw text, because the parsed catalog cannot say
+;; it appeared twice.
+(define (catalog-duplicate-keys path)
+  (define lines (string-split (call-with-input-file path port->string) "\n"))
+  (define messages (catalog-messages (read-catalog path)))
+  (for/list ([id (in-list (hash-keys messages))]
+             #:when (> (for/sum ([line (in-list lines)]
+                                 #:when (regexp-match?
+                                         (regexp (string-append
+                                                  "^[ \\t]*\"" (regexp-quote id)
+                                                  "\"[ \\t]*:[ \\t]*\\{"))
+                                         line))
+                          1)
+                       1))
+    id))
 
 ;; ---- io ---------------------------------------------------------------------
 (define (catalog-exists? path) (file-exists? path))

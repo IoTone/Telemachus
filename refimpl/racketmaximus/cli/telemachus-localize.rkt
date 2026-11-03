@@ -144,6 +144,14 @@
   (define dir (locales-dir opts))
   (define locales (locale-report dir base))
   (define en (en-report dir base))
+  ;; Every catalog file, not only en.json: a duplicate key in a TARGET file makes
+  ;; a translation ambiguous in the same way, and read-json cannot see either.
+  (define duplicate-files
+    (for/list ([f (in-list (cons (build-path dir "en.json") (target-files dir)))]
+               #:when (catalog-exists? f)
+               #:do [(define dups (catalog-duplicate-keys f))]
+               #:when (pair? dups))
+      (hasheq 'file (path->string (file-name-from-path f)) 'keys dups)))
   (define required-broken
     (for/or ([lr (in-list locales)])
       (and (member (hash-ref lr 'locale) required)
@@ -151,7 +159,8 @@
   ;; "en" names the SOURCE catalog rather than a target, so requiring it means
   ;; requiring the extract to be current.
   (define en-broken (and (member "en" required) (en-stale? en) #t))
-  (define blocking (or (pair? violations) (and required-broken #t) en-broken))
+  (define blocking (or (pair? violations) (and required-broken #t) en-broken
+                       (pair? duplicate-files)))
   (for ([v (in-list violations)])
     (eprintf "~a:~a:~a  unlocalized string literal ~s\n"
              (hash-ref v 'file) (hash-ref v 'line) (hash-ref v 'col) (hash-ref v 'text)))
@@ -165,6 +174,10 @@
           (void))
         (eprintf "en.json: not found in ~a\n" dir))
     (eprintf "run: telemachus-localize extract ~a\n" (string-join surface " ")))
+  (for ([d (in-list duplicate-files)])
+    (for ([id (in-list (hash-ref d 'keys))])
+      (eprintf "~a: DUPLICATE ~a — the key appears twice, so one text is unreachable\n"
+               (hash-ref d 'file) id)))
   (for ([lr (in-list locales)])
     (when (and (member (hash-ref lr 'locale) required)
                (pair? (hash-ref lr 'stale)))
@@ -176,6 +189,7 @@
                 'base_messages (hash-count (catalog-messages base))
                 'required required
                 'en en
+                'duplicates duplicate-files
                 'locales locales)
         #:pretty? #t)
   (exit (if blocking 1 0)))

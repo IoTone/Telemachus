@@ -69,3 +69,43 @@
    (define r (en-report dir (base-of (list "a.one" "One"))))
    (check-false (hash-ref r 'present))
    (check-true (en-stale? r) "a missing source catalog cannot be current")))
+
+;; ---- a key that appears TWICE in the file -----------------------------------
+;; `read-json` keeps the last copy, so `diff` saw a single message and the gate
+;; stayed green while locales/en.json carried two texts for `ui.troverlimit` —
+;; the stale wording first and the current one second. Any reader that is not
+;; this parser picks the other one.
+(with-locales-dir
+ (lambda (dir)
+   (define f (build-path dir "en.json"))
+   (display-to-file
+    (string-append
+     "{\n  \"meta\": {\"locale\": \"en\"},\n  \"messages\": {\n"
+     "    \"a.one\": {\"text\": \"One\", \"hash\": \"x\"},\n"
+     "    \"a.two\": {\"text\": \"Two\", \"hash\": \"y\"},\n"
+     "    \"a.one\": {\"text\": \"One, again\", \"hash\": \"z\"}\n"
+     "  }\n}\n")
+    f #:exists 'truncate)
+   (check-equal? (catalog-duplicate-keys f) '("a.one"))))
+
+;; ---- the same LEAF NAME in different messages is not a duplicate ------------
+;; Every message carries a `text` and a `hash` key. A scan that counted the leaf
+;; name rather than the message id would fail every catalog ever written.
+(with-locales-dir
+ (lambda (dir)
+   (define f (build-path dir "en.json"))
+   (write-en! dir (base-of (list "a.one" "One") (list "a.two" "Two")))
+   (check-equal? (catalog-duplicate-keys f) '())))
+
+;; ---- a target catalog is checked too ----------------------------------------
+(with-locales-dir
+ (lambda (dir)
+   (define f (build-path dir "ja.json"))
+   (display-to-file
+    (string-append
+     "{\n  \"meta\": {\"locale\": \"ja\", \"fallback\": \"en\"},\n  \"messages\": {\n"
+     "    \"a.one\": {\"text\": \"一\", \"hash\": \"x\"},\n"
+     "    \"a.one\": {\"text\": \"壱\", \"hash\": \"x\"}\n"
+     "  }\n}\n")
+    f #:exists 'truncate)
+   (check-equal? (catalog-duplicate-keys f) '("a.one"))))
