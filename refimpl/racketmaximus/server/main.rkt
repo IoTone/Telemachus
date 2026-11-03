@@ -46,6 +46,10 @@
          ;; #85: the event sink and the delivery sweep
          (only-in "../domain/hooks/webhooks.rkt" deliver-due! enqueue-event!)
          (only-in "../domain/events/events.rkt" add-event-sink!)
+         ;; email: the THIRD event subscriber, and the one the sink registry
+         ;; (#133) was made plural for. The sweep is its own thing on the reaper
+         ;; seam, beside the webhook one and for the same reason.
+         (only-in "../domain/mail/mail.rkt" mail-notify! mail-deliver-due!)
          (only-in "../domain/s3/server.rkt" make-s3-handler s3-region)
          ;; #192 slice 2: the staged-upload reaper lives with the tables now, not
          ;; in the listener — which is OFF BY DEFAULT, and the JSON plane stages
@@ -147,6 +151,7 @@
          "api/instance.rkt"
          "api/jobs.rkt"
          "api/webhooks.rkt"
+         "api/mail.rkt"
          "api/feeds.rkt"
          "api/annotations.rkt"
          "api/localization.rkt"
@@ -275,6 +280,15 @@
    'my-org ep-my-org 'my-org-teams ep-my-org-teams 'my-org-team-create ep-my-org-team-create
    'my-org-team-quota ep-my-org-team-quota
    'my-org-member-add ep-my-org-member-add 'my-org-member-role ep-my-org-member-role 'my-org-audit ep-my-org-audit
+   'email-transport-get ep-email-transport-get 'email-transport-put ep-email-transport-put
+   'email-transport-delete ep-email-transport-delete 'email-transport-test ep-email-transport-test
+   'email-notify-get ep-email-notify-get 'email-notify-put ep-email-notify-put
+   'org-email-notify-get ep-org-email-notify-get 'org-email-notify-put ep-org-email-notify-put
+   'email-prefs-get ep-email-prefs-get 'email-prefs-put ep-email-prefs-put
+   'email-address-put ep-email-address-put 'email-address-delete ep-email-address-delete
+   'email-address-verify ep-email-address-verify
+   'email-deliveries ep-email-deliveries 'email-delivery-get ep-email-delivery-get
+   'email-delivery-redeliver ep-email-delivery-redeliver
    'session-policy-get ep-session-policy-get 'session-policy-put ep-session-policy-put
    'executor-policy-get ep-executor-policy-get 'executor-policy-put ep-executor-policy-put
    'executor-policy-clear ep-executor-policy-clear
@@ -790,6 +804,19 @@
   ;; "within 2 seconds" acceptance needs.
   (define last-webhook-sweep (box 0))
   (define WEBHOOK-SWEEP-EVERY 1)
+  ;; The email sweep is the NINTH thing on this seam, and it is deliberately
+  ;; SLOWER than the webhook one. A webhook's first retry is a minute away, so a
+  ;; sweep slower than that would make its backoff a lie; an email is read by a
+  ;; person minutes or hours later, and an SMTP conversation is seconds rather
+  ;; than a ten-second POST — so a tick a second would spend the instance's
+  ;; connections on latency nobody can perceive. Five seconds bounds the delay on
+  ;; a confirmation message, which is the one somebody is actually waiting for.
+  ;;
+  ;; An instance with no transport configured does not scan at all:
+  ;; `mail-enqueue!` writes no row without one, so the query finds nothing — and
+  ;; it is one indexed lookup either way.
+  (define last-email-sweep (box 0))
+  (define EMAIL-SWEEP-EVERY 5)
   ;; The anchor receipt (#66) is the EIGHTH thing on this seam, and the longest
   ;; interval of the lot. It is OFF unless `TELEMACHUS_ANCHOR_KEY` is configured
   ;; (ANCHOR-7): a real default would start emitting a receipt series on every
@@ -817,6 +844,15 @@
   ;; `init!` and the two are wrapped separately, so a broken transport on one
   ;; cannot cost the other its delivery.
   (add-event-sink! "webhooks" (lambda (conn event team data) (void (enqueue-event! conn event team data))))
+  ;; The THIRD subscriber, and the one #133 made the registry plural for. Each
+  ;; sink is wrapped SEPARATELY by `emit!`, so a broken relay cannot cost a
+  ;; webhook its delivery or the other way round — which is the property that
+  ;; paragraph in events.rkt exists to promise.
+  ;;
+  ;; It only ENQUEUES: it runs inline in the emitter's thread, so sending from
+  ;; here would let a dead relay hold a workflow run open for the SMTP timeout.
+  ;; MTX-5's rule, and webhooks' own.
+  (add-event-sink! "email" (lambda (conn event team data) (void (mail-notify! conn event team data))))
   (set-reaper!
    (lambda (conn)
      (define n (reap-leases! conn))
@@ -867,6 +903,19 @@
                                     (eprintf "webhook sweep: ~a\n" (exn-message e)))])
          (define-values (sent _retried dead) (deliver-due! conn))
          (when (> dead 0) (printf "webhooks: ~a delivered, ~a dead-lettered\n" sent dead))))
+     (when (> (- (current-seconds) (unbox last-email-sweep)) EMAIL-SWEEP-EVERY)
+       (set-box! last-email-sweep (current-seconds))
+       ;; Its own handler, like every other sweep on this seam: a relay that is
+       ;; refusing connections must not take the lease reaper down with it.
+       (with-handlers ([exn:fail? (lambda (e)
+                                    (eprintf "email sweep: ~a\n" (exn-message e)))])
+         (define-values (sent _r dead) (mail-deliver-due! conn))
+         ;; A DEAD LETTER IS PRINTED AND A SUCCESS IS NOT. An operator wants to
+         ;; find out from the log that mail is failing; a line per delivered
+         ;; message on a busy instance is how a log stops being read — PULL-11e's
+         ;; rule, that a field (or a line) a reader learns to skip is worse than
+         ;; none.
+         (when (> dead 0) (printf "email: ~a sent, ~a dead-lettered\n" sent dead))))
      (when (> (- (current-seconds) (unbox last-audit-seal)) AUDIT-SEAL-EVERY)
        (set-box! last-audit-seal (current-seconds))
        ;; its own handler too, for the reason the other two have one
