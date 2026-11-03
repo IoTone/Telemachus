@@ -1,8 +1,9 @@
 # Email delivery and notifications
 
-> Status: **slice 1 built** (the address, the transport, the queue). Slices 2 and 3
-> — the preference layers and the plugin API — are specified here and not built.
-> Decisions **MAIL‑1…MAIL‑24** in `docs/design/decisions.md`.
+> Status: **built**, except the one thing named at the end — a quota dimension
+> for the API a plugin calls. Decisions **MAIL‑1…MAIL‑24** in
+> `docs/design/decisions.md`; the working notes are the "Email delivery and
+> notifications" section of `CLAUDE.md`.
 
 The ask, in the owner's words: *"We need a means of integrating with email
 delivery, email notifications. Notifications should be configurable by an admin,
@@ -48,7 +49,7 @@ nothing — and it is why the first slice is not the transport. A notification
 subsystem built on that column would have sent nothing, to nobody, for ever, and
 the only symptom would have been silence.
 
-## Slice 1 — an address, a transport, a queue
+## The address, the transport, the queue
 
 ### The address (MAIL‑4…6)
 
@@ -120,7 +121,7 @@ for a process is not document content, and without it "run 3f2a finished" tells
 nobody which thing finished. **The subject line goes through the same composer as
 the body**, so a subject cannot leak what a body refuses.
 
-## Slice 2 — who hears about it (MAIL‑13…19, NOT BUILT)
+## Who hears about it (MAIL‑13…19)
 
 A **category** is a group of events a person would want to hear about together,
 and it is a second closed vocabulary over the first: `EVENTS` is what the
@@ -133,7 +134,7 @@ which two matter.
     reviews     review.decided
     jobs        job.completed
 
-**Four layers, tighten-only**: instance → org → team → user. `features.rkt`'s
+**Three layers, tighten-only**: instance → org → user. `features.rkt`'s
 resolution order and SESS‑4's argument — an admin turning a category off for the
 instance must not be overridable from below, because that is the whole point of
 having an instance switch. A **person may always turn a category off**, including
@@ -142,8 +143,15 @@ switched back on: an opt-out is a standing instruction, exactly as a team's own
 feature row is.
 
 A person may **not** turn on a category their admin disabled. The resolution
-reports **which layer said no**, because "why am I not getting these" with four
+reports **which layer said no**, because "why am I not getting these" with three
 documents to diff by hand is a poor answer (`disabled_by`'s rule).
+
+**There is no TEAM layer, and that is a stated limit.** An event is emitted for a
+team, so "workflow mail from this team but not that one" is a real want — and it
+is a refinement: a person is in one org and several teams, so a per-team
+preference makes "do I get these" depend on which team a run was in, which
+doubles the surface and the console card for a want nobody has stated. Because
+the resolution reports which layer answered, a fourth layer is additive.
 
 **Absence means enabled at every layer**, so an instance that configures nothing
 behaves as it did. What stops an upgrade from mailing everybody is MAIL‑5 and
@@ -157,13 +165,17 @@ the subject — TAG‑6's rule, that a count is a count but somebody's words are
 somebody's. A member who cannot read the document must not learn from their inbox
 that it exists.
 
-## Slice 3 — the API a plugin may call (MAIL‑20…24, NOT BUILT)
+## The API a plugin may call (MAIL‑20…24)
 
-    (mail-notify! conn #:team t #:category c #:event e #:data d)
+    (mail-notify! conn event team data)      ; the sink's own entry point
+    (mail-enqueue! conn #:recipient … #:category … #:subject … #:body …)
 
-The same resolution, the same composer, the same queue. A plugin names a category
-and hands over ids; it does not compose a subject, choose a recipient, or reach
-the transport.
+The first is what a plugin wants and what the platform's own sink calls: it
+resolves the layers, composes the message, asks `can?` per recipient and writes
+the rows. A plugin names an event and hands over ids; it does not compose a
+subject, choose a recipient, or reach the transport. The second is the one INSERT
+everything goes through, including the two transactional messages, and is what a
+plugin would reach for only to send something that is not a notification.
 
 **That is the whole safety argument.** An email API a plugin can hand arbitrary
 text and an arbitrary recipient is a spam cannon with the instance's own
@@ -173,9 +185,16 @@ plugin may reach *the team's own verified members who have not opted out*, with
 asking for a different feature, and the honest answer is that it should ship a
 webhook receiver.
 
-Rate limiting is the one thing slice 3 adds that slice 1 does not have: a
-dimension in the quota ledger, charged per *message*, so a plugin in a loop meets
-a limit rather than the instance's mail reputation meeting it.
+**Rate limiting is the one thing NOT built, and it is the next thing to build.**
+A plugin calling `mail-notify!` in a loop meets the preference layers and `can?`
+and no quota dimension at all, so what it meets after that is the instance's own
+mail reputation. The shape is settled by four precedents — `ai.help.total`,
+`ai.transcriptions.total`, `ai.embeddings.total` and `ai.judgments.total` are
+each their own dimension for each one's own stated reason — and the argument here
+is the same: a message is not a token, so it cannot share a token budget. It
+belongs in `QUOTA-HOLD-DIMS` only if a limit should hold a team's job queue,
+which for mail it should not: a notification nobody can send is not work to
+defer.
 
 ## Deliberately not built, and said so rather than discovered
 

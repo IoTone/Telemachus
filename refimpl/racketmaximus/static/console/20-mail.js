@@ -35,7 +35,7 @@ function emailTransportCard(){
          T.last_test_ok === true ? `<span class="badge ok">${t('mlok')}</span>`
        : T.last_test_ok === false ? `<span class="badge bad">${esc(T.last_test_error||t('error'))}</span>` : '—'}</p>`
     : '';
-  return `<div class="card" style="margin-top:14px"><h3>${t('mltransport')}</h3>
+  return `<div class="card" id="mlcard" style="margin-top:14px"><h3>${t('mltransport')}</h3>
     <p class="muted" style="margin-top:0">${t('mltransporthint')}</p>
     ${T ? '' : `<p class="badge">${t('mlnone')}</p>`}
     <div class="row">
@@ -80,7 +80,7 @@ function emailNotifyCard(){
       <td><label style="display:flex;align-items:center;gap:8px;font-weight:normal">
         <input type="checkbox" data-cat="${esc(c)}"${doc[c]===true?' checked':''}> ${esc(catLabel(c))}</label></td>
       <td class="muted mono" style="font-size:12px">${(evs[c]||[]).map(esc).join(', ')}</td></tr>`).join('');
-  return `<div class="card" style="margin-top:14px"><h3>${t('mlnotify')}</h3>
+  return `<div class="card" id="mlncard" style="margin-top:14px"><h3>${t('mlnotify')}</h3>
     <p class="muted" style="margin-top:0">${t('mlnotifyhint')}</p>
     <table><thead><tr><th>${t('mlcategory')}</th><th>${t('mlevents')}</th></tr></thead><tbody>${rows}</tbody></table>
     <div style="margin-top:10px"><button class="btn" data-h-click="${H((el,ev)=>doMailNotifySave())}">${t('save')}</button></div></div>`;
@@ -110,7 +110,7 @@ function myNotifyCard(){
           : c.disabled_by==='user'
             ? `<button class="btn sm ghost" data-h-click="${H((el,ev)=>doMyNotify(c.category,true))}">${t('enable')}</button>`
             : ''}</td></tr>`).join('');
-  return `<div class="card" style="margin-top:14px"><h3>${t('mlmine')}</h3>
+  return `<div class="card" id="mlminecard" style="margin-top:14px"><h3>${t('mlmine')}</h3>
     <p class="muted" style="margin-top:0">${t('mlminehint')}</p>
     <p style="margin:0 0 8px">${state}</p>
     <div class="row" style="align-items:end">

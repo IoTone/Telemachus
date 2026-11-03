@@ -2884,14 +2884,30 @@ for m in re.finditer(r"=== MOCK-SMTP MESSAGE to ([^=]*) ===\n(.*?)\n=== MOCK-SMT
         txt = base64.b64decode(body[1].replace("\n", "")).decode("utf-8", "replace")
     except Exception:
         continue
-    t = re.search(r"token=(\S+)", txt)
+    # `?verify_email=<token>#/usage` — the token is in the SEARCH string and the
+    # destination in the fragment (the console strips the first and keeps the
+    # second), so the token stops at the `#`. This read `token=(\S+)` when the
+    # link had a different shape, and kept passing on a run that predated the
+    # change — a stale extractor is indistinguishable from a message that never
+    # arrived, which is why the failure branch now prints the spool.
+    t = re.search(r"verify_email=([^#\s]+)", txt)
     if t:
         best = t.group(1)
 print(best)
 PYEOF
 )
 if [ -n "$VTOK" ]; then ok "email: the confirmation carries a token"
-else bad "email: no token in the confirmation message"; fi
+else
+  # SAY WHY. "No token" has three causes that look identical from here — the
+  # message never arrived, it arrived with no link because `base_url` was
+  # refused, or the extractor could not read the base64 — and without the spool
+  # on screen the next person has to reproduce the whole run to tell them apart.
+  bad "email: no token in the confirmation message"
+  echo "       --- spool ($MS_OUT), first 40 lines ---"
+  head -40 "$MS_OUT" | sed 's/^/       /'
+  echo "       --- mock log ---"
+  tail -5 "$TMACH_DATA_DIR/mocksmtp.log" | sed 's/^/       /'
+fi
 # A BAD TOKEN AND AN EXPIRED ONE ARE ONE ANSWER: whether a token was ever real is
 # not a question to answer to somebody holding a guess.
 assert "email: a bad confirmation token is refused" \

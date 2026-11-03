@@ -5659,3 +5659,69 @@ the plugin names RCNT.
 | INBOX-9 | Not built: per-user read receipts, bulk acts, due dates, delivery to a channel, a screen, a webhook. | Each is a layer a host adds. State here is the team's. Who acted is in the events. |
 | INBOX-10 | A workflow tool, `inbox_raise`, wraps the route's own ingest. | A triage workflow and an alert adapter need to raise items without an HTTP hop. It calls `route-ingest`, so validation, the revision rule and the lost-race retry exist once. It is behind `inbox:write`. |
 | INBOX-11 | A batch route, `POST /items/batch`, is one transaction for up to 100 items: every item lands or none does. | A caller that raises a page of findings must not half-succeed. It is ingest, not a bulk act: a bulk acknowledge is still not built (INBOX-9). A lost insert race aborts the transaction, so the whole batch is attempted again and the second run reports what the winner's rows already are. |
+## MAIL: email delivery and notifications
+
+`domain/mail/{transport,mail,addresses}.rkt`, `domain/events/describe.rkt`,
+`server/api/mail.rkt`, migration `0069-email`. Design:
+`docs/design/email-notifications.md`. Tests `test/mail-tests.rkt` (28 cases,
+14 controls, both dialects) and `test/mock-smtp.rkt`; 48 assertions in
+`test/server-smoke.sh`.
+
+The finding that shaped the slicing, before any of the decisions below:
+**`users.email` has existed since migration 0001 and nothing in the tree has
+ever written to it.** `create-user!` does not take an address,
+`POST /api/profile` took `locale` and `timezone`, `POST /api/members` takes a
+username, and `provision!` uses the address as the *username*. So the column is
+NULL on every row of every instance — #113's shape — and a notification
+subsystem keyed on it would have sent nothing, to nobody, for ever.
+
+| ID | Decision | Why |
+|---|---|---|
+| MAIL‑1 | `net/smtp` from base Racket, not a vendor HTTP API. | No new dependency and no change to the Nix closure, and SMTP is what a self-hosted instance can point at its own Postfix. A vendor adapter is somebody else's credential and somebody else's wire, which is what the plugin seam is for. |
+| MAIL‑2 | One transport row with a SEALED password (`#:credential`), listed in `CREDENTIAL-SECRETS` in the same commit as its `CREATE TABLE`. | Matrix put its token in the environment (MTX‑3) because a plugin cannot own a sealed column (FEED‑5); this is core, and the requirement is that an **admin** configures it, so a row means no restart and no shell on the box. `#:credential` rather than the content gate is ENC‑23's live defect. A sealed column `rewrap` does not walk is silently unrotatable — here that means every notification stops for ever at the first key rotation while the transport still reports itself configured. |
+| MAIL‑3 | A team configures nothing about the transport. No `team_id` column. | A team-chosen SMTP host is an SSRF primitive, and `from_address` is the instance's own identity — a team able to set it could send mail as the instance. |
+| MAIL‑4 | `users.email` becomes writable, through `POST /api/profile` where a person's durable preferences already live. | See above: the column existed and nothing filled it. |
+| MAIL‑5 | An address is not used until it has answered. `users.email` holds a VERIFIED address and nothing else; a pending one lives in `email_verifications`. | The failure is specific and silent: one transposed character and a colleague's notifications go to a stranger indefinitely, while the person who typed it concludes notifications are broken. Keeping the claimed address in `users.email` with a flag beside it would make that column one whose trustworthiness every future reader has to know about — PULL‑11e's rule. |
+| MAIL‑6 | The verification token goes through `hash-token`. | SEC‑3's finding: `activation_tokens` was still on a pre-#13 bare SHA‑1 over a compiled-in salt, and the point was not the digest's strength but that there were TWO token-hashing rules and the weaker was the one nobody looked at. |
+| MAIL‑7 | The queue is webhooks' table and claim: claim-before-send, `attempts` compared as well as set, the due time moved out BEFORE the send. | Email needs it MORE than a webhook does, not less. A relay is routinely unavailable for minutes, so the retry curve is load-bearing; and a duplicate send is not an idempotent POST a receiver dedupes on a delivery id, it is the same message in a person's inbox twice. |
+| MAIL‑8 | A permanent SMTP refusal is a dead letter on the FIRST attempt; a transient one retries. Read off the reply code. | RFC 5321's own 5xx/4xx split. A rejected recipient will be rejected identically in eight hours, so nine more attempts are nine more identical refusals — and against a relay that counts them, a reputation cost. Webhooks' 4xx/5xx split in SMTP's vocabulary. |
+| MAIL‑9 | A message carries ids, a status, the workflow slug and a link — never content. The SUBJECT goes through the same composer as the body. | MTX‑8, and it binds harder: an inbox leaves the instance altogether, rests on a third party's server, is indexed by them and is forwarded onwards by its reader. One composer, so a subject cannot leak what a body refuses. The slug rides along for MTX‑8's own stated reason — a team's own word for a process is not document content, and without it "run 3f2a finished" tells nobody which thing finished. |
+| MAIL‑10 | Nothing is sent, and no row is written, unless a transport is configured. | A row on an instance that cannot send is a pending delivery retried ten times and then dead, for every event, for ever. This and MAIL‑5 are together what make an upgrade safe. |
+| MAIL‑11 | The security mode is STORED, not inferred from the port. | 587-with-implicit-TLS and 465-with-STARTTLS both exist in the wild, and guessing wrong fails as a hang or as a protocol error nobody can read. |
+| MAIL‑12 | `POST /api/email-transport/test` sends one message synchronously and answers 200 even when the relay refused. | #85's ping, for #85's reason: a transport nobody can test is one nobody trusts, and an operator who has just typed a password needs to know before anybody's notification depends on it. A 502 would be this instance claiming somebody else's failure as its own (FEED‑12). The outcome is recorded on the transport AND as a settled delivery, so a failed test is a dead letter with the relay's own words on it rather than a toast that scrolled away. |
+| MAIL‑13 | A CATEGORY, not a subscription to event names. Four of them, closed in both directions. | `EVENTS` is what the platform emits; a category is what a person subscribes to, and they are not the same list. `run.completed` and `run.failed` are one want — nobody asks to hear about their successes and not their failures — so a surface built on event names would be seven checkboxes of which two matter, and would grow one every time the platform learned to emit something. |
+| MAIL‑14 | **The instance layer is an OPT‑IN; absence means OFF.** The layers below it may only tighten. | The one real divergence from `features.rkt`, where absence means ENABLED at every layer. A feature switch governs whether an endpoint ANSWERS and the behaviour that already existed is "it answers"; this governs whether the instance SENDS MAIL TO PEOPLE, and the behaviour that already existed is sending none. `object.created` fires on every upload, so a features.rkt-shaped default would mail every member once per document the first time anybody verified an address — on an UPGRADE, to an operator who had configured nothing, and that is how an instance's own domain gets blocked. DEL‑9's and PULL‑15a's argument: a default that starts doing something on a timer is the wrong kind of default. |
+| MAIL‑15 | A person may always turn a category OFF, including one every layer above allows, and that choice survives the layer above being switched back on. Nobody below the instance may turn one ON. | An opt-out is a standing instruction, exactly as a team's own feature row is. SESS‑4's and FEAT‑1's rule for the other direction. |
+| MAIL‑16 | Only the explicit choice is stored, so `email_prefs.enabled` is only ever 0. | Absence already means "I have not objected", so a stored `true` and no row at all would be one state written two ways — `feature_settings`' rule, and FEAT‑9's normalization. |
+| MAIL‑17 | The fan-out is per recipient and `can?` is asked per recipient, through `repo-readable?`. | An event is emitted for a TEAM and a notification goes to PEOPLE. TAG‑6's rule: a count is a count, but somebody's words are somebody's — a member who cannot read a document must not learn from their inbox that it exists, and on a team with private documents that is the ordinary case. `repo-readable?` is the one predicate for that question (#189 step 4 named it, #234 found a third asker that had not asked it; this is the fourth). |
+| MAIL‑18 | The resolution reports WHICH layer said no. | `features.rkt`'s `disabled_by`: "why am I not getting these" with three documents to diff by hand is a poor answer, and a person seeing `instance` knows not to look in their own settings. |
+| MAIL‑19 | `POST /api/email-address/verify` is AUTHENTICATED. The link opens the console and the console posts the token. | The obvious shape is an unauthenticated GET on a link and it is wrong here twice: this platform has kept a no-cookie JSON API precisely so that no GET mutates anything (#27), and a token in a URL is logged by proxies and kept in browser history — which is why `/activate` already strips its own. The cost is stated: somebody must be signed in to confirm. What it buys is that holding the token is not enough; it has to be the account that asked. |
+| MAIL‑20 | The notification LINK is a console path, not the `url` in the `emit!` payload. Gated by `console-tests.rkt` against #230's router, in both directions. | #85 r2's model is that the payload carries ids and the RECEIVER fetches the rest, so `/api/runs/<id>` is right for a machine and answers JSON to a person. That makes the console path a second rule derived from JavaScript, and a rename in the router would silently break every link in every message already sent — #110 r6's `src`-tags rule applied to a link. |
+| MAIL‑21 | A relay's own reply text is KEPT and BOUNDED at 400 characters, saying it was cut. | It is the single most useful thing an operator has for a transport that will not answer, so dropping it makes a misconfiguration opaque — SEC‑8's `provider-detail`. What is bounded is its LENGTH, because many relays echo the message back inside a reply (FEED‑6). A sentence that merely stops is one a reader does not trust. |
+| MAIL‑22 | A refusal about an address keeps the value and strips its control characters. | The one input this subsystem refuses for containing a CRLF is the one whose refusal reaches `last_error` and the container log, where a newline forges log lines — the same primitive with a different reader. SEC‑6's line: the host and the database survive, the credential does not. |
+| MAIL‑23 | The sweep is on the reaper seam at five seconds, slower than the webhook sweep's one. | A webhook's first retry is a minute away, so a slower sweep would make its backoff a lie; an email is read by a person minutes later and an SMTP conversation is seconds rather than a ten-second POST, so a tick a second would spend the instance's connections on latency nobody can perceive. Five seconds bounds the delay on a confirmation message, which is the one somebody is actually waiting for. |
+| MAIL‑24 | `domain/events/describe.rkt` holds the event → phrase mapping, with Matrix as its second asker. | Matrix has composed its own line since #133 and this needed the same sentence. `EVENTS` is a closed vocabulary that grows, so two copies would mean an eighth member getting a Matrix line and no email subject, with nothing failing either way. A plugin may require a core module; core may not require a plugin, which is why the shared half came up rather than that one going out. |
+
+**Not built, and said so rather than discovered.** No bounce or complaint
+handling — it wants an inbound path and a suppression list, and a suppression
+list nothing populates is worse than none; a hard bounce today is a dead letter
+with the relay's reply on it. No HTML body: a notification is one line, a status
+and a link, and an HTML part doubles the composer and invites a template, which
+is where content starts to leak back in. No digest or batching — "four runs
+finished" needs a window, a schedule and a per-person cursor, and the categories
+are the seam it would hang off. No unsubscribe link in the message, because it
+would need a route that mutates a preference from an unauthenticated GET, which
+is MAIL‑19's objection. No per-team preference: an event is emitted for a team,
+so "workflow mail from this team but not that one" is a real want and a
+refinement — MAIL‑18's `disabled_by` is what makes a fourth layer additive. And
+**no rate limit of its own**: a plugin calling `mail-notify!` in a loop meets the
+preference layers and `can?` but no quota dimension, which is the one thing a
+plugin-facing mail API should gain next.
+
+**What the tests do NOT establish, stated rather than implied.** The STARTTLS
+and implicit-TLS branches are not exercised: both are the same
+`smtp-send-message` call with a different connector argument, and driving either
+end to end needs a certificate the mock would have to be given. `mock-smtp.rkt`
+has the hook (`mock-tls-encode`) and nothing calls it. The same rule as the
+LibreOffice branch, veraPDF and the SSE round trip — a gap named, not papered
+over.
