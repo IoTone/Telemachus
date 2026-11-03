@@ -26,6 +26,7 @@
          racket/string racket/list
          json
          "../db/id.rkt"
+         (only-in "../ai/requestlog.rkt" model-request-record!)
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
          (only-in "../ai/content.rkt" content->text)
@@ -106,7 +107,15 @@
 ;;                    hosts that let it go. A job no worker will run needs a
 ;;                    person, and saying so beats recycling it silently.
 (define RELEASE-BACKOFF 30)
-(define MAX-RELEASES 10)
+;; RAISED FROM 10 TO 60 on 2026-11-01. A release is blameless: the worker hands the job back because
+;; it cannot serve it (usually its model is loading or restarting) and the job stays claimable by every
+;; other host at once. Ten releases at the 30 s cool-off is five minutes, which a single model restart
+;; already spends, and on dev1 three document reads failed with "no executor would run it: released 10
+;; times (last by workstation-worker-2: busy)" while the model they needed was being restarted for
+;; reasons that had nothing to do with the job. Sixty releases is half an hour of "no host can take
+;; this", long enough for a fleet to come back, and a job no host will EVER run still ends as a
+;; failure rather than cycling for ever.
+(define MAX-RELEASES 60)
 
 ;; What an operator may intend for a host (FLEET-3). Two values, because the
 ;; question is binary: is this box in rotation or not. `retired` is deliberately
@@ -844,13 +853,55 @@
 
 ;; a result is accepted only from the current holder; it is validated by the
 ;; kind's #:validate (a bad shape is the WORKER's mistake and fails the job)
+
+;; ---- what a worker's call cost, recorded where the job is settled ----------
+;;
+;; The route that enqueued a pull job already logs a row, but it is written from
+;; the waiting side: its `ms` spans the queue wait as well as the call and it
+;; cannot know the tokens the model produced. This row is the other half — the
+;; job's own start and finish and the worker's reported token count. Both rows
+;; carry `job_id`, so the pair is one call and answers "how long did the model
+;; run" and "what did the team wait".
+;;
+;; A failure here NEVER fails the settle: losing a log line is an operational
+;; problem, losing a worker's completed job is somebody's answer (RED-17).
+(define (record-worker-call! conn ex job-id result status #:error-kind [error-kind #f])
+  (with-handlers ([exn:fail?
+                   (lambda (e)
+                     (eprintf "model request not recorded for job ~a: ~a\n" job-id (exn-message e)))])
+    (define r (query-row conn "SELECT team_id, user_id, kind, payload, started_epoch FROM jobs WHERE id = ?" job-id))
+    (define payload
+      (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+        (string->jsexpr (unseal-payload job-id (vector-ref r 3)))))
+    (define started (let ([v (vector-ref r 4)]) (and (number? v) v)))
+    (define model (let ([m (hash-ref payload 'model #f)]) (and (string? m) m)))
+    (model-request-record! conn
+      #:team (vector-ref r 0)
+      #:user (vector-ref r 1)
+      #:executor (hash-ref ex 'name #f)
+      #:transport "pull"
+      #:operation (if (regexp-match "embed" (format "~a" (vector-ref r 2))) "embed" "chat")
+      #:model model
+      #:messages (hash-ref payload 'messages '())
+      #:tokens (and (hash? result) (hash-ref result 'tokens_used #f))
+      #:status status
+      #:error-kind error-kind
+      #:job-id job-id
+      #:ms (and started (* 1000 (max 0 (- (current-seconds) started)))))))
+
+;; A job that ends without this instance seeing a model call: released, lapsed or canceled.
+;; The row is written rather than left out, so a reader can tell "no call happened" from
+;; "nobody recorded it". Failure to record never fails the settle (RED-17).
+(define (record-unserved! conn ex job-id kind)
+  (record-worker-call! conn (or ex (hasheq 'name #f)) job-id #f "unserved" #:error-kind kind))
+
 (define (worker-complete! conn ex job-id result #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
     ;; the worker has stopped — that is what this call proves — so the slot is
     ;; genuinely free now and the row can settle. The result is discarded: it
     ;; answers a question the caller withdrew.
-    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
+    [(eq? v 'canceled) (when (settle-canceling! conn job-id token) (record-unserved! conn ex job-id "canceled")) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (define kind (query-value conn "SELECT kind FROM jobs WHERE id = ?" job-id))
@@ -860,6 +911,10 @@
         (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
                                         (finished-set) " WHERE id = ?")
                     (seal-error job-id (string-append "worker returned a bad result: " problem)) job-id)
+        ;; the call happened and produced nothing usable, so it is logged as an
+        ;; error rather than left out: an invisible failed call is the one an
+        ;; operator cannot explain later
+        (record-worker-call! conn ex job-id result "error" #:error-kind "transport")
         'ok]
        [else
         (query-exec conn (string-append "UPDATE jobs SET status = 'done', result = ?, claim_token = NULL, "
@@ -867,18 +922,20 @@
                     (seal-result job-id (jsexpr->string result)) job-id)
         (define team (query-value conn "SELECT team_id FROM jobs WHERE id = ?" job-id))
         ((scheduler-record!) conn team result)
+        (record-worker-call! conn ex job-id result "ok")
         'ok])]))
 
 (define (worker-fail! conn ex job-id message #:token [token #f])
   (define v (holder-check conn ex job-id token))
   (cond
-    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
+    [(eq? v 'canceled) (when (settle-canceling! conn job-id token) (record-unserved! conn ex job-id "canceled")) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (query-exec conn (string-append "UPDATE jobs SET status = 'error', error = ?, claim_token = NULL, "
                                      (finished-set) " WHERE id = ?")
                  ;; the worker's own message, which may quote what it was handed
                  (seal-error job-id (format "executor ~a: ~a" (hash-ref ex 'name) message)) job-id)
+     (record-worker-call! conn ex job-id #f "error" #:error-kind "transport")
      'ok]))
 
 ;; Hand a job back without spending an attempt (issue #61).
@@ -894,10 +951,12 @@
 ;; one of the job's three lives for it retired jobs that nothing was wrong with.
 ;;
 ;; -> 'ok | 'failed (the ceiling) | whatever holder-check answered
+;; A release writes an `unserved` model-request row: the worker never asked a model, and the
+;; row says so with error_kind "released" rather than leaving a reader to infer it.
 (define (worker-release! conn ex job-id #:token [token #f] #:reason [reason #f])
   (define v (holder-check conn ex job-id token))
   (cond
-    [(eq? v 'canceled) (settle-canceling! conn job-id token) 'canceled]
+    [(eq? v 'canceled) (when (settle-canceling! conn job-id token) (record-unserved! conn ex job-id "canceled")) 'canceled]
     [(not (eq? v 'ok)) v]
     [else
      (define why (if (member reason RELEASE-REASONS) reason "other"))
@@ -923,6 +982,7 @@
             (format "no executor would run it: released ~a times (last by ~a: ~a)"
                     MAX-RELEASES (hash-ref ex 'name) why))
           n job-id)
+        (record-unserved! conn ex job-id "released")
         'failed]
        [else
         (query-exec conn
@@ -930,6 +990,7 @@
                          "claim_token = NULL, started_at = NULL, started_epoch = NULL, "
                          "releases = ?, released_by = ?, release_after = ? WHERE id = ?")
           n (hash-ref ex 'id) (+ (now) RELEASE-BACKOFF) job-id)
+        (record-unserved! conn ex job-id "released")
         'ok])]))
 
 ;; ---- PULL-9: a worker reads the documents ITS OWN job names ------------------
@@ -1118,7 +1179,8 @@
   ;; the slot of a handler that hung — see with-lease in the scheduler.
   (define stopping (query-list conn
     "SELECT id FROM jobs WHERE status = 'canceling' AND lease_until IS NOT NULL AND lease_until < ?" (now)))
-  (for ([id (in-list stopping)]) (settle-canceling! conn id))
+  (for ([id (in-list stopping)])
+    (when (settle-canceling! conn id) (record-unserved! conn #f id "canceled")))
   (for ([r (in-list expired)])
     (define id (vector-ref r 0)) (define attempt (vector-ref r 1))
     ;; straight through, not through `nz`: that answers the SYMBOL 'null for a
@@ -1143,6 +1205,7 @@
                                            'executor_id (or ex-id 'null)
                                            'executor (or ex-name 'null)
                                            'lease_seconds LEASE-SECONDS)))
+    (record-unserved! conn (hasheq 'name ex-name) id "expired")
     (if (not last?)
         (query-exec conn (string-append "UPDATE jobs SET status = 'queued', executor_id = NULL, lease_until = NULL, "
                                         "claim_token = NULL, attempt = ? WHERE id = ?")
@@ -1259,7 +1322,11 @@
        (define reply
          (cond [(string? (hash-ref res 'reply #f)) (hash-ref res 'reply)]
                [else (let-values ([(t _p) (content->text (hash-ref res 'content ""))]) t)]))
-       (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)))]
+       ;; A third value, the job's id, so the route's own request-log row can
+       ;; name the call the worker will report on. Without it the pair of rows a
+       ;; pull call writes could not be joined, and a count of rows would count
+       ;; one model call twice.
+       (values reply (let ([t (hash-ref res 'tokens_used #f)]) (if (number? t) t 0)) id)]
       [(member st '("error" "canceled"))
        (error 'run-chat "executor ~a: ~a" (if fleet? "the fleet" name)
               (let ([e (vector-ref r 2)]) (if (sql-null? e) st (unseal-error id e))))]

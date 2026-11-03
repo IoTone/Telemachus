@@ -382,12 +382,15 @@ DERIVED=$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ROOT" \
   -d '{"name":"Initech","owner_username":"admin@initech2.test"}')
 assert "derived slug suffixes" "$DERIVED" '"org_slug":"initech-1"'
 
-# plan changes are live: PATCH re-applies that plan's caps
-assert "starter cap" "$(g /api/orgs/initech $ROOT)" '"limit":1000000'
+# plan changes are live: PATCH re-applies that plan's caps. The numbers are the org plan
+# table's own (domain/orgs/orgs.rkt): a trial that allows 100000 is about twenty document
+# reads, so the plans were sized against a read. A test that hardcodes them is the only
+# place that notices when they move — that is why these two lines are here and not derived.
+assert "starter cap" "$(g /api/orgs/initech $ROOT)" '"limit":50000000'
 UP=$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"plan":"pro"}')
 assert "plan upgraded"   "$UP" '"plan":"pro"'
 assert "caps re-applied" "$UP" '"quotas_reapplied":true'
-assert "pro cap live"    "$(g /api/orgs/initech $ROOT)" '"limit":10000000'
+assert "pro cap live"    "$(g /api/orgs/initech $ROOT)" '"limit":500000000'
 assert "rename"          "$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"name":"Initech Holdings"}')" '"ok":true'
 assert "…name changed"   "$(g /api/orgs/initech $ROOT)" 'Initech Holdings'
 refute "…rename leaves the plan alone" "$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"name":"Initech Holdings"}')" '"quotas_reapplied":true'

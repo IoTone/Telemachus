@@ -135,6 +135,10 @@
       "text": "AI budget",
       "hash": "d8b28ed5e92646f6133b5e73ccac97d636e34dc9"
     },
+    "doc.perm.inbox:write": {
+      "text": "Raise an item into the team's inbox, and acknowledge, snooze, suppress, reopen or resolve one. A producer's service token needs this to raise items.",
+      "hash": "a328f2092c233cc127297e05c48c168df57276ed"
+    },
     "doc.perm.localization:translate": {
       "text": "Submit translations.",
       "hash": "a1215dd0d6f20b2a3094d0bf3dc04311146ba8b0"
@@ -158,6 +162,10 @@
     "ui.workershint": {
       "text": "the hosts that come and claim work",
       "hash": "908daf7804b4f9ebac0142fd35dce4c1fe0ed188"
+    },
+    "doc.tool.inbox_raise.scope": {
+      "text": "A label to filter and count by, not an access boundary",
+      "hash": "3f27a00edc5f3a3187e756d2de2910b3bc6d0788"
     },
     "ui.reviews": {
       "text": "Review",
@@ -268,8 +276,8 @@
       "hash": "dec1fccaba73443d77f5cfc48dacf9d496399f53"
     },
     "doc.route.get.api.model-requests": {
-      "text": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count and outcome. Never the prompt text. Filter with ?executor=, page with ?limit= and ?offset=.",
-      "hash": "f4d9c40d182ca8e0cc0c1b974759a9dfdfabfc98"
+      "text": "The team's model requests: executor, transport, model, backend host, whether it was off this box, what it declared about content logging, a keyed digest of the prompt, token count, whether it was a chat or an embedding call, the job it served and the outcome. Never the prompt text. A call served by a pull worker leaves two rows that join on job_id: the route that enqueued the job writes one from the waiting side, so its milliseconds span the queue wait, and the worker's completion writes the other from the job's own start with the tokens the worker reported. job_id is null on a push or stream call, and on a row written before the column existed. Filter with ?executor=, page with ?limit= and ?offset=.",
+      "hash": "87a0b38add3fa7cbe69a6b24f3e7f6229474ccb8"
     },
     "ui.jobrunninghint": {
       "text": "How long this job has been running. It has not finished, so the figure moves on every refresh.",
@@ -927,6 +935,10 @@
       "text": "try",
       "hash": "3240aa0fe3ca15051680641a59e8d7b61c286b23"
     },
+    "doc.route.post.api.x.inbox.items": {
+      "text": "Raise an item, or re-raise one. {source, key, title, severity?: critical|high|normal|low, kind?, scope?, body?, url?, data?, revision?}. One live row exists per (source, key): the same revision refreshes the evidence only, a different revision replaces the content and sends an acknowledged or snoozed item back to open, and a key that was resolved opens a new row. The answer says which: outcome is created, reopened, refreshed, revised or resurfaced.",
+      "hash": "3bab4fcb2285b11bceab0a185d25e3fd8c3c7379"
+    },
     "doc.tool.update_note": {
       "text": "Update a note's title and/or body by id.",
       "hash": "44491022a8c823f95545b85549b446db8e969998"
@@ -1102,6 +1114,10 @@
     "ui.all": {
       "text": "All",
       "hash": "6a72085653e4c5be8c7640c868ef787cbcf063d1"
+    },
+    "doc.tool.inbox_raise.kind": {
+      "text": "The producer's own grouping label",
+      "hash": "30c66185696f12517665efece995d4635ce42db3"
     },
     "ui.steps": {
       "text": "Steps",
@@ -1443,6 +1459,10 @@
       "text": "Evaluate the classifier",
       "hash": "5c63fbf3c117397cfad5dd12e14921ddd3a14c1b"
     },
+    "doc.route.get.api.x.inbox.items": {
+      "text": "The team's inbox, most severe first then longest waiting. ?state= one or a comma list of open|acknowledged|snoozed|suppressed|resolved, or all (default: open and acknowledged), ?severity=, ?source=, ?kind=, ?scope= one exact scope label, ?scope_prefix= every label starting with it, ?limit=/?offset=. A snooze that has run out reads as open.",
+      "hash": "707335331468b07128edc96f65f50ffb22104ab0"
+    },
     "ui.role": {
       "text": "Role",
       "hash": "c3f104d1365744b538bfde9f4adb6a6df4b80355"
@@ -1462,6 +1482,10 @@
     "doc.tool.feed_queue_put.status": {
       "text": "Defaults to open",
       "hash": "ae650e1d3f893611c541c424ab66de9fd71dcafd"
+    },
+    "doc.tool.inbox_raise.key": {
+      "text": "The producer's id for the fact, stable across re-raises",
+      "hash": "e745c98e38d13180112846b4be5c11eb337fd877"
     },
     "ui.edcount": {
       "text": "{words} words · {chars} chars · {lines} lines",
@@ -1571,6 +1595,10 @@
       "text": "Size",
       "hash": "b7152342a267362add3c0d7f69f720f7a9c76c9e"
     },
+    "doc.tool.inbox_raise.data": {
+      "text": "At most 8 KiB of JSON",
+      "hash": "28975dbf6d9845e8f29f33fb4e31c8a93bec709c"
+    },
     "ui.editdoc": {
       "text": "Edit document",
       "hash": "ef6604a13d9d9962a59cf78c91b15a2a3dd1f437"
@@ -1667,6 +1695,10 @@
       "text": "The label set the decision was made against — the same one doc_classify was given",
       "hash": "8e03264f54aff7b19f2b84f775e26148159ff8a6"
     },
+    "doc.tool.inbox_raise.title": {
+      "text": "What a person reads first",
+      "hash": "44a8688a8fc73c93211767a7d651d36a57d11c77"
+    },
     "doc.workflow.index-knowledge": {
       "text": "Extract entities and relations from indexed repository documents into the knowledge graph. Finds what is unextracted (or stale after an overwrite), then extracts each one with the model; a reply that does not validate is refused. Safe to re-run; processes up to 40 documents per run.",
       "hash": "7c6d3770630d5cb263185cef132426d1bc816c41"
@@ -1679,13 +1711,17 @@
       "text": "Edit",
       "hash": "5301648dcf6b53cefc9ed52999aaa92d4603cae0"
     },
-    "doc.tool.kg_query.name": {
-      "text": "An entity name (matched case-insensitively) or an entity id",
-      "hash": "b1ce1930aefa3437d0b627497d2a49f116a75e64"
+    "doc.route.post.api.x.inbox.items.id.resolve": {
+      "text": "Close an item for good: {note?}. Resolved is terminal. The same (source, key) raised later is a new row with the next occurrence.",
+      "hash": "8793fb6f477d894d1d5b63f9e7cef7d0532a6b21"
     },
     "doc.perm.tokens:manage": {
       "text": "Issue and revoke API tokens for the team.",
       "hash": "57735f99f42f97b584f973ba150d37cf96b322e2"
+    },
+    "doc.tool.kg_query.name": {
+      "text": "An entity name (matched case-insensitively) or an entity id",
+      "hash": "b1ce1930aefa3437d0b627497d2a49f116a75e64"
     },
     "ui.edmono": {
       "text": "Mono",
@@ -2063,6 +2099,14 @@
       "text": "Download the bytes (?version= for history). Attachment + nosniff unless the type is on the inline allowlist.",
       "hash": "e3519b90c5108493988f2a53343a1245023dbe5c"
     },
+    "doc.route.options.api.beta.signup": {
+      "text": "CORS preflight for a sandboxed Tier-C template.",
+      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
+    },
+    "doc.tool.inbox_raise.source": {
+      "text": "Who raised it, in the producer's own words",
+      "hash": "6eda5b24c10569671ca663524e844d43c3defca4"
+    },
     "ui.qvpaused": {
       "text": "Held by a paused worker",
       "hash": "7aab3e1ffd64a96acc62ef87cf7c98864f16df8a"
@@ -2078,10 +2122,6 @@
     "ui.vis_private": {
       "text": "Private — only me",
       "hash": "ce5d97592d02df5ef8f88d1a118572f123833d86"
-    },
-    "doc.route.options.api.beta.signup": {
-      "text": "CORS preflight for a sandboxed Tier-C template.",
-      "hash": "d70feda9074098d4bbc55ad9af416c3bae4e298c"
     },
     "ui.wkcreated": {
       "text": "Worker created — copy its token now",
@@ -2138,6 +2178,10 @@
     "doc.route.post.api.deliveries.id.redeliver": {
       "text": "Send a dead or delivered event again. The attempt count is reset — an operator redelivering has made a decision, and one attempt out of ten already spent would make the lever useless. The delivery id does NOT change, so a receiver that already applied it recognises the idempotency key.",
       "hash": "b17affbdc8d6742b2e242a961b35b0b2ef2dd1d5"
+    },
+    "doc.tool.inbox_raise.severity": {
+      "text": "Defaults to normal",
+      "hash": "45a5ee2ffa65b805a0fdb1b71b15ef2afe22e6ca"
     },
     "doc.tool.chat_message": {
       "text": "Send one chat message to the model and return its reply.",
@@ -2226,6 +2270,10 @@
     "ui.agent": {
       "text": "Agent",
       "hash": "5ce2e6f40299204d94dfc0abf19fa8ab52d6c211"
+    },
+    "doc.route.post.api.x.inbox.items.id.ack": {
+      "text": "Acknowledge an open item: {note?}. Someone has seen it and is on it; it stays in the inbox and stops counting as needing attention. A new revision from the producer sends it back to open.",
+      "hash": "c5b22c683c6f370d4817a10444f237e70b62aa91"
     },
     "ui.kg_unextracted": {
       "text": "waiting",
@@ -2435,6 +2483,10 @@
       "text": "No entities match. Index documents first, then extract.",
       "hash": "5ee5c205ca2f45b582bae50160b2aa5c7ccd1ed8"
     },
+    "doc.route.post.api.x.inbox.items.id.reopen": {
+      "text": "Bring an acknowledged, snoozed or suppressed item back to open.",
+      "hash": "49a5b2e679535e43900f6cca129c941251e00366"
+    },
     "ui.automations": {
       "text": "Automations",
       "hash": "82542d6d0a0aa0c1e9afdbe2f29d3057618daec2"
@@ -2466,6 +2518,10 @@
     "ui.bytrigger": {
       "text": "trigger",
       "hash": "63d62d4aee9a5d4fe8539e53a9e3d05ffc210c9b"
+    },
+    "doc.route.get.api.x.inbox.digest": {
+      "text": "What to look at first, for the whole team or one scope: counts by state, open items by severity, how long the oldest open one has waited, and the top few. ?scope= one exact label, ?scope_prefix= a subtree. Resolved items are not counted.",
+      "hash": "9704a7af3a86e6e47f3e7d3e1058f4cea694c253"
     },
     "ui.bxrestart": {
       "text": "could not start — please reload",
@@ -2863,6 +2919,10 @@
       "text": "Processed by",
       "hash": "e46e1f2081914128a574b3c06686ccce4454d5b1"
     },
+    "doc.route.get.api.x.inbox.items.id": {
+      "text": "One item with its events, numbered in the order they happened: who acknowledged and when, the note they gave, every revision and wake.",
+      "hash": "972f95ddadc5f7960c11841dbb7e7215cd0e8e64"
+    },
     "ui.qualify": {
       "text": "Qualify",
       "hash": "d8be1dde249c69ada1a96d5946aed689468a43f2"
@@ -2998,6 +3058,10 @@
     "ui.localize": {
       "text": "Localize",
       "hash": "856ae94430567b78d47f89dd136d96687ff5caee"
+    },
+    "doc.route.post.api.x.inbox.items.id.snooze": {
+      "text": "Hide an item until a time: {until: epoch seconds, at most 90 days ahead, note?}. When the time passes it is open again.",
+      "hash": "0a6d9d3b62759637933847209ecec84c2a169353"
     },
     "ui.members": {
       "text": "Members",
@@ -3243,6 +3307,10 @@
       "text": "Count the number of words in a piece of text.",
       "hash": "09140c55d8eeedf636b4dc51074c3e68284e2cad"
     },
+    "doc.tool.inbox_raise": {
+      "text": "Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened.",
+      "hash": "42b3fa7eb80fd5f6e181c7d57cd01a1faafacc04"
+    },
     "ui.empty": {
       "text": "Nothing to translate — type or paste some text first.",
       "hash": "c708ee18187cefb1105ec22dde71430e74570d05"
@@ -3296,6 +3364,18 @@
       "hash": "52de0860cce2504961d6406e8975a750db44984c"
     },
     "ui.troverlimit": {
+      "text": "too long: this will come back as a summary in the wrong language, and will be refused",
+      "hash": "7cf175fbfb31f4d7d4063eaf6dc921e0470463fd"
+    },
+    "doc.route.delete.api.sessions": {
+      "text": "End every OTHER session of the caller — \"sign out everywhere else\". Not everywhere: a password change already ends them all, this one keeps the session you are using.",
+      "hash": "b3e9ec729c6cedf436582ffe64cf364774a2f0cd"
+    },
+    "doc.route.post.api.x.inbox.items.id.suppress": {
+      "text": "Keep an item quiet with no end time: {note?}. The producer can keep raising it, the evidence moves and nothing wakes it. Reopen it to bring it back.",
+      "hash": "a8f4b1957495f93b57fdd6bd3249a7b0cc3e8954"
+    },
+    "ui.troverlimit": {
       "text": "past the limit: a long text is translated in sections, and longer than this is refused",
       "hash": "ef80ea5709ee395aa2121cf277011c3c8c379fb6"
     },
@@ -3310,10 +3390,6 @@
     "ui.s3created": {
       "text": "Key created",
       "hash": "07e0345e1a38c941f5918f79a4f3e58c70f9cb76"
-    },
-    "doc.route.delete.api.sessions": {
-      "text": "End every OTHER session of the caller — \"sign out everywhere else\". Not everywhere: a password change already ends them all, this one keeps the session you are using.",
-      "hash": "b3e9ec729c6cedf436582ffe64cf364774a2f0cd"
     },
     "doc.route.get.api.retention.plan": {
       "text": "What the policy WOULD delete right now, and nothing else: the object trees, the derived objects, the job payloads, and how many objects a legal hold is protecting. A retention rule runs unattended, which makes it the one most in need of a dry run. An object under legal hold is absent from the plan rather than filtered later, so the plan never promises something a rule cannot touch.",
@@ -3455,6 +3531,10 @@
       "text": "Share notes one does not own.",
       "hash": "a2e2619888d3be8f3e7acdf9a16b78e93970602e"
     },
+    "doc.perm.inbox:read": {
+      "text": "See the team's inbox: the items waiting for a person, their events, and the digest.",
+      "hash": "65ece9af37a0b54667a4a135cedd69af586b83f6"
+    },
     "ui.wkwindowhint": {
       "text": "What this host finished, failed and dropped over the window selected above.",
       "hash": "a0192cdf52217ebb65dd6e2357fd5df35f75afd1"
@@ -3594,6 +3674,10 @@
     "ui.signin": {
       "text": "Sign in",
       "hash": "ada2e9e96fa9ce85430225b412068b5b62b79800"
+    },
+    "doc.tool.inbox_raise.revision": {
+      "text": "A different revision is a material change",
+      "hash": "7a91458914311ec629989310dbd1adefe608c709"
     },
     "ui.caphint": {
       "text": "View opens and downloads; edit also uploads new versions; manage also shares, revokes and changes visibility.",
@@ -3847,6 +3931,10 @@
       "text": "The answer named every passage it was shown, which distinguishes nothing — treat it as a refusal.",
       "hash": "df4aa7ee154db599d9cdba06e082c82a5478a2df"
     },
+    "doc.route.post.api.x.inbox.items.batch": {
+      "text": "Raise or re-raise up to 100 items in one transaction, all or none: {items: [{source, key, title, severity?, kind?, scope?, body?, url?, data?, revision?}]}. The answer lists {key, outcome} in order. A caller that raises a page of findings cannot half-succeed.",
+      "hash": "92e9b1c0f101471f761118b647d12e1193f21e12"
+    },
     "ui.palnewnote": {
       "text": "New note",
       "hash": "2b7b05c002d521157e8afcd92474276db36d1aa6"
@@ -3966,6 +4054,10 @@
     "ui.hdrainnow": {
       "text": "immediate",
       "hash": "f1d16437085ae1e36539a5328125cec05a91bada"
+    },
+    "doc.plugin.inbox": {
+      "text": "A team's inbox of items that something outside raised and a person has to answer: an idempotent ingest keyed by (source, key), a closed lifecycle (open, acknowledged, snoozed, suppressed, resolved), a free-form scope label, and a scope-aware digest. It decides nothing about what an item means and holds no opinion about where items come from.",
+      "hash": "961aec759538829d78299022a1bb5a278329ac50"
     },
     "ui.wkmodelshint": {
       "text": "What each worker can serve. For a pull worker this is what it DECLARED on its last claim, which is what the platform matches a job's requested model against — not a value typed in when it was created.",

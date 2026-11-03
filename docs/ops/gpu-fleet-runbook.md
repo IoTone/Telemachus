@@ -67,12 +67,32 @@ Settle the hardware before TMach is involved at all.
 - **The worker.** `nix profile install github:IoTone/Telemachus` puts
   `telemachus-worker` on the box. A worker-only host needs nothing else from
   this repository — no checkout, no build toolchain, no test suite.
-- **An inference server** — ollama, or llama.cpp's `server`, or anything else
-  that speaks OpenAI-compatible `/v1/chat/completions`.
+- **An inference server** — ollama, llama.cpp's `llama-server`, or anything else
+  that speaks OpenAI-compatible `/v1/chat/completions`. `deploy/gpu-fleet/`
+  carries a pinned template for each of the first two.
 - **Network reachability to the TMach server.** Outbound only: the worker
   connects out and nothing ever connects in, so this works through NAT, through
   a tailnet, and with no inbound firewall rule.
 - `python3` for the readiness probe (stdlib only).
+
+### llama.cpp instead of ollama
+
+`deploy/gpu-fleet/llama-server@.service` is the same shape as the ollama template: one
+server per card, one worker in front of it. Four things about llama.cpp fail quietly and
+none of them are llama.cpp's fault:
+
+- **`--alias` is the claim key.** Without it `llama-server` reports the model's FILE NAME, so a
+  worker declaring `qwen3.8-27b-it` never matches a job naming it and the card reads idle forever.
+  The alias must be exactly the string in `TMACH_WORKER_MODELS`, on every card.
+- **`/health` answers 503 while the model loads**, and again whenever the server is asleep. A
+  readiness gate pointed at it reports `paused` for a perfectly healthy box, and the worker claims
+  nothing until some other request wakes the model. Leave `--sleep-idle-seconds` unset, or point
+  `TMACH_WORKER_READY_URL` at something that answers 200 while the server sleeps.
+- **Nothing unloads on idle.** There is no keep-alive equivalent, so a loaded model holds its VRAM
+  until the unit stops.
+- **A model too big for one card is ONE server and ONE worker**, split with `--split-mode layer`
+  and `--tensor-split`. One worker runs one job at a time, so two workers behind one model just
+  queue against each other.
 
 ## 2. Decide the layout, and mind the VRAM
 
@@ -162,6 +182,12 @@ its kinds and models on **every claim** and the platform records what it
 declared. The authority is `TMACH_WORKER_MODELS` on the rig, not what was typed
 at create time.
 
+One consequence worth knowing, because it reads like the opposite rule: an empty
+declaration leaves the STORED one alone rather than clearing it. So a model typed
+into `capabilities` at create time outlives a worker that declares no models, and
+that host is then filtered to an alias it may not serve. Leave `capabilities` out,
+or make `TMACH_WORKER_MODELS` say what the rig really serves.
+
 **The worker token is in that 201 response and nowhere else, ever.** There is no
 second chance to read it; the way back from losing one is
 `POST /api/executors/<id>/rotate-token`. Write each straight to a mode-600 file
@@ -219,8 +245,15 @@ curl -s -X POST "$B/api/quota" -H "Authorization: Bearer $TOK" \
 
 - **`ai.concurrency` defaults to 2 per team**, so four workers would still run
   two jobs at once. This is the single setting that wastes the hardware.
-- **`ai.tokens.total` defaults to 2,000/day** — one real conversation crosses it.
-- **`ai.requests` defaults to 200/day**, and raising tokens does nothing for it.
+- **The two budget dimensions are no longer the gate.** A team's default is
+  100,000,000 tokens and 100,000 requests a day, sized against a document read
+  rather than a chat turn (`domain/quota/quota.rkt`), so the raise above is belt
+  and braces. An org's plan cap is lower and IS enforced before the team's:
+  5,000,000 tokens and 5,000 requests on `trial` (`domain/orgs/orgs.rkt`), so a
+  rig under a trial org stalls on the org row even with the team raised.
+- `ai.concurrency` is read from the TEAM row only: `with-slot` asks `get-limit`
+  for `team`, and nothing walks up to the org, so an org's concurrency figure is
+  a plan ceiling that nothing enforces yet.
 
 `GET /api/jobs` reports a held job's reason, and the Usage tab carries a card for
 it, so you can tell "over budget" from "no host can run this" without guessing.

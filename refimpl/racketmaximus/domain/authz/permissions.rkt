@@ -81,6 +81,8 @@
               "documents:read" "documents:write" "documents:delete"
               "notes:read" "notes:write" "notes:delete"
               "tasks:read" "tasks:write" "tasks:delete"
+              ;; inbox:* (INBOX-6): the team's inbox of things that need a person.
+              "inbox:read" "inbox:write"
               "memory:read" "memory:write"
               ;; files:manage (DSH-1): change visibility, share, revoke — the
               ;; stewardship of a document. An owner holds it by owner-ok; a team
@@ -107,6 +109,7 @@
               "documents:read" "documents:write"
               "notes:read" "notes:write"
               "tasks:read" "tasks:write"
+              "inbox:read" "inbox:write"
               "memory:read" "memory:write"
               ;; files:delete is granted here too — a member may delete their OWN
               ;; documents (owner-ok), and resource-reachability still stops them
@@ -194,6 +197,9 @@
    "tasks:read"     "Read tasks."
    "tasks:write"    "Create and edit tasks."
    "tasks:delete"   "Delete tasks."
+   ;; INBOX-6. Kept apart from tasks:* because an inbox item is something a producer outside the platform raised, and a deployment may want a service token that can raise items without being able to touch anything tasks mean. Reading and writing are separate so a viewer (through *:read) sees the queue and cannot move it.
+   "inbox:read"     "See the team's inbox: the items waiting for a person, their events, and the digest."
+   "inbox:write"    "Raise an item into the team's inbox, and acknowledge, snooze, suppress, reopen or resolve one. A producer's service token needs this to raise items."
    "memory:read"    "Read the agent's memory."
    "memory:write"   "Write to the agent's memory."
    "files:read"     "Open, download and search repository documents; read provenance and the knowledge graph."

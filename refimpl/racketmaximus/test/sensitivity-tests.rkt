@@ -294,10 +294,10 @@
      (lambda ()
        (set-box! pull-router (lambda (name msgs temp rf)
                                (set-box! asked (add1 (unbox asked)))
-                               (cons "pulled: ok" 7)))
+                               (list "pulled: ok" 7 #f)))
        (set-box! model-request-logger
                  (lambda (#:executor e #:transport t #:model m #:endpoint u #:messages msgs
-                          #:tokens tok #:status st #:error-kind ek #:http-status hs #:operation [op "chat"] #:ms ms)
+                          #:tokens tok #:status st #:error-kind ek #:http-status hs #:job-id [jid #f] #:operation [op "chat"] #:ms ms)
                    (set-box! rows (cons (list e t st ek) (unbox rows)))))
        (set-box! egress-policy
                  (lambda (#:executor e #:endpoint u #:document d)
@@ -406,10 +406,10 @@
      (set-box! egress-policy (make-egress-policy conn))
      (set-box! pull-router (lambda (name msgs temp rf)
                              (set-box! asked (add1 (unbox asked)))
-                             (cons (jsexpr->string
+                             (list (jsexpr->string
                                     (hasheq 'label "letter" 'confidence 0.9
                                             'rationale "it opens with Dear"))
-                                   11)))
+                                   11 #f)))
      (define labels (list (hasheq 'name "letter" 'description "a letter")))
      (define (classify! #:redact [redact #f] #:executor ex)
        (parameterize ([current-doc-chat
@@ -474,9 +474,9 @@
    (lambda ()
      (set-box! egress-policy (make-egress-policy conn))
      (set-box! pull-router (lambda (name msgs temp rf)
-                             (cons (jsexpr->string (hasheq 'label "letter" 'confidence 0.9
+                             (list (jsexpr->string (hasheq 'label "letter" 'confidence 0.9
                                                            'rationale "Dear Sir"))
-                                   3)))
+                                   3 #f)))
      (define r
        (parameterize ([current-doc-chat
                        (lambda (prompt #:system [sys #f])
@@ -520,9 +520,9 @@
      (set-box! egress-policy (make-egress-policy conn))
      (set-box! pull-router
                (lambda (name msgs temp rf)
-                 (cons (jsexpr->string (hasheq 'label "letter" 'confidence 0.9
+                 (list (jsexpr->string (hasheq 'label "letter" 'confidence 0.9
                                                 'rationale "it opens with Dear"))
-                       5)))
+                       5 #f)))
      (define r
        (parameterize ([current-doc-chat
                        (lambda (prompt #:system [sys #f])

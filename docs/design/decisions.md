@@ -5639,3 +5639,23 @@ The non-blocking path already exists — `translate` has been a registered sched
 job kind since slice 17 — and whether the console should use it is #233's
 decision, not this slice's. #232's acceptance is about the translation being
 complete and correct, and it is.
+
+## INBOX: a team's inbox as a plugin
+
+`plugins/inbox/`, tests in `test/inbox-tests.rkt` (42 cases, both dialects). Written to be used by any
+host: the first consumer is RCNT, which raises regulatory and monitoring items into it, and nothing in
+the plugin names RCNT.
+
+| ID | Decision | Why |
+|---|---|---|
+| INBOX-1 | A plugin, with its own two tables, on seams that have shipped. | Plugin migrations (#121), plugin routes and job kinds are enough. A core tab would be a platform change nobody has to wait on. |
+| INBOX-2 | The plugin is an index and not a policy. It does not know the source, derive a severity or a scope, or own accounts. | The feed queue's QUEUE-2: a plugin that guessed at someone else's conventions would be wrong quietly. |
+| INBOX-3 | Five states, closed: open, acknowledged, snoozed, suppressed, resolved. Resolved is terminal. | The transition table is the one place the lifecycle is read from, so the routes, the offered actions and the test cannot disagree. |
+| INBOX-4 | One live item per (team, source, key), enforced by a partial unique index. A different `revision` is material and the producer decides that. | Same revision refreshes evidence only, so an hourly poll never wakes anyone. A new revision returns an acknowledged or snoozed item to open, because the person answered the old fact. |
+| INBOX-5 | Every transition is an event, numbered per item, written in the same transaction as the state change. | Who acknowledged, when and why must survive the next acknowledgement. |
+| INBOX-6 | Permissions are `inbox:read` and `inbox:write`, held by admin and member. | An item is raised by a producer outside the platform, so a service token can hold `inbox:write` and nothing that tasks mean. Owner holds both through `*:*` and a viewer reads through `*:read`. Reading and writing are separate so a viewer sees the queue and cannot move it. (Rewritten 2026-10-31: the first version rode on `tasks:*` to avoid a core change, and the owner chose the exact permissions instead.) |
+| INBOX-7 | No platform event is emitted. Transitions a person makes are audited; an automatic wake is an item event and not an audit row. | `EVENTS` is a closed vocabulary a plugin cannot extend. An `inbox.item.*` event is the upstream ask. A wake is the clock acting and not a person, so it is in the item's own history, where the next person to read the item looks. |
+| INBOX-8 | `scope` is a label to filter and count by, not an access boundary. A prefix filter uses `substr()`. | A host that needs per-scope visibility enforces it in front of the plugin. LIKE needs `%` and `_` escaped and the escape clause differs by dialect. |
+| INBOX-9 | Not built: per-user read receipts, bulk acts, due dates, delivery to a channel, a screen, a webhook. | Each is a layer a host adds. State here is the team's. Who acted is in the events. |
+| INBOX-10 | A workflow tool, `inbox_raise`, wraps the route's own ingest. | A triage workflow and an alert adapter need to raise items without an HTTP hop. It calls `route-ingest`, so validation, the revision rule and the lost-race retry exist once. It is behind `inbox:write`. |
+| INBOX-11 | A batch route, `POST /items/batch`, is one transaction for up to 100 items: every item lands or none does. | A caller that raises a page of findings must not half-succeed. It is ingest, not a bulk act: a bulk acknowledge is still not built (INBOX-9). A lost insert race aborts the transaction, so the whole batch is attempted again and the second run reports what the winner's rows already are. |

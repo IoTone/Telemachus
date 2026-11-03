@@ -50,10 +50,13 @@
 ;; plan table (saas/onboarding.rkt) but applied to the ORG subject, so it is a
 ;; cap the company then divides across its teams.
 (define org-plan-quotas
-  (hash "trial"      (list (cons "ai.tokens.total" 100000)   (cons "ai.requests" 1000)   (cons "ai.concurrency" 2))
-        "starter"    (list (cons "ai.tokens.total" 1000000)  (cons "ai.requests" 10000)  (cons "ai.concurrency" 4))
-        "pro"        (list (cons "ai.tokens.total" 10000000) (cons "ai.requests" 100000) (cons "ai.concurrency" 8))
-        "enterprise" (list (cons "ai.tokens.total" 99000000) (cons "ai.requests" 990000) (cons "ai.concurrency" 16))))
+  ;; Sized against a read, not against an invoice: one six-page specification costs several thousand
+  ;; tokens, so a trial that allows 100000 can read about twenty documents and a starter plan about two
+  ;; hundred. The earlier numbers were about a document each. Same reason as default-policy!'s comment.
+  (hash "trial"      (list (cons "ai.tokens.total" 5000000)   (cons "ai.requests" 5000)   (cons "ai.concurrency" 2))
+        "starter"    (list (cons "ai.tokens.total" 50000000)  (cons "ai.requests" 50000)  (cons "ai.concurrency" 4))
+        "pro"        (list (cons "ai.tokens.total" 500000000) (cons "ai.requests" 500000) (cons "ai.concurrency" 8))
+        "enterprise" (list (cons "ai.tokens.total" 5000000000) (cons "ai.requests" 5000000) (cons "ai.concurrency" 16))))
 
 ;; A plan the instance actually sells. Checked at the edge rather than left to
 ;; `hash-ref`'s default, which would quietly sell a typo'd "enterprize" the trial

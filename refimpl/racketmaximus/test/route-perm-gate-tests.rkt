@@ -278,6 +278,11 @@
    "tasks:read"      "no task subsystem is built"
    "tasks:write"     "no task subsystem is built"
    "tasks:delete"    "no task subsystem is built"
+   ;; INBOX-6. Enforced by the routes of plugins/inbox, which are mounted at load time
+   ;; and are not in the core ROUTES list this walk reads. test/inbox-tests.rkt pins
+   ;; each inbox route to one of these two permissions.
+   "inbox:read"      "enforced by plugins/inbox routes, which the core ROUTES walk does not see (pinned in test/inbox-tests.rkt)"
+   "inbox:write"     "enforced by plugins/inbox routes, which the core ROUTES walk does not see (pinned in test/inbox-tests.rkt)"
    "memory:read"     "no memory subsystem is built"
    "memory:write"    "no memory subsystem is built"
    "research:use"    "no research surface is built; chat:use gates the model paths"

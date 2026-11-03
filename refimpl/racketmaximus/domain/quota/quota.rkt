@@ -93,10 +93,20 @@
     "INSERT INTO usage_ledger (id, subject_type, subject_id, dimension, amount) VALUES (?, ?, ?, ?, ?)"
     (new-id) subject-type subject-id dimension amount))
 
-;; conservative starter policy for a team
+;; The starter budget for a team.
+;;
+;; These were 2000 tokens and 200 requests a day, and that is below ONE document read: a six-page
+;; specification is several thousand prompt tokens plus the extraction reply, so a second document was
+;; refused on the budget while the first was still finishing. Measured on dev1, 2026-11-01, where the
+;; Engineering team held exactly that row and the page warned that the daily allowance might be used up.
+;; A quota is a guard against runaway spend, not a price list, so the default has to sit far above what
+;; ordinary work costs and below what a runaway job would burn. Concurrency is a capacity knob and stays
+;; close to what a single worker serves — and it stays at the trial plan's own cap, because the governor
+;; reads the TEAM row only (`get-limit` does not walk up to the org), so a larger team default would let
+;; a trial org run double the concurrency it is allowed.
 (define (default-policy! conn team-id
-                         #:tokens-per-day [tokens 2000]
-                         #:requests-per-day [requests 200]
+                         #:tokens-per-day [tokens 100000000]
+                         #:requests-per-day [requests 100000]
                          #:concurrency [concurrency 2])
   (set-limit! conn "team" team-id "ai.tokens.total" tokens #:window "day")
   (set-limit! conn "team" team-id "ai.requests"     requests #:window "day")

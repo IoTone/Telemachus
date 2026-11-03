@@ -37,7 +37,7 @@
   ;; a pull executor answers through the router box; no server, no model URL
   (define seen (box #f))
   ;; the router takes the response format too (issue #18); this call asks for none
-  (set-box! pull-router (lambda (name msgs temp rf) (set-box! seen name) (cons "{\"title\":\"t\"}" 4)))
+  (set-box! pull-router (lambda (name msgs temp rf) (set-box! seen name) (list "{\"title\":\"t\"}" 4 #f)))
   ;; three values since #91 req 2 — the third is the unknown-token list
   (define-values (fields tokens _unknown)
     (parameterize ([current-utility-executor "util-box"])

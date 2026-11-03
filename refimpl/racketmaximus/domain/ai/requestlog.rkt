@@ -20,6 +20,41 @@
 ;; `server/main.rkt` fills (RED-17): `domain/ai/executor.rkt` knows nothing of
 ;; the database, the same reason `pull-router` is a box in that module.
 
+;; ---- which calls get a row, and which do not ---------------------------------
+;;
+;; A row means a model was asked something and this instance knows the outcome. So:
+;;
+;;   push / stream (executor.rkt)  one row, written from the waiting side, no job
+;;   pull dispatch (executor.rkt)  one row, written when the router hands the call to
+;;                                 a worker: the waiting side, its ms spanning the queue
+;;                                 wait, and the job_id so it joins the row below
+;;   pull completion (pull.rkt)    one row, written at settle, from the JOB's start,
+;;                                 with the tokens the worker reported and its job_id
+;;   pull failure (pull.rkt)       one row, status error, error-kind transport
+;;
+;; A pull call therefore writes TWO `ok` rows that share a job_id, because neither
+;; side can answer both questions: the route knows the wait and not the tokens, the
+;; settle knows the run and not the wait. Count calls, not rows — `COUNT(DISTINCT
+;; job_id)` plus the rows whose job_id is null.
+;;
+;; and these write one row with status `unserved`, which is the vocabulary's way of
+;; saying "no call was observed, and here is why", with the reason in error_kind:
+;;
+;;   worker-release!   kind "released": the worker handed the job back without asking
+;;                     a model anything.
+;;   lease expiry      kind "expired": the worker stopped answering, so nothing here
+;;                     saw a result. The row does not claim the call did not run, only
+;;                     that this instance observed none, which is the limit of what it
+;;                     can know. The job's own audit rows (job.lease.expired,
+;;                     job.attempts.exhausted) carry the attempt count and the holder.
+;;   cancel            kind "canceled": the result was discarded before it was read.
+;;
+;; A row with status ok or error means a model was asked and this instance knows the
+;; outcome. A row with status unserved means exactly the opposite, and the two cannot be
+;; confused by a reader or by a count. That is why the absence is written rather than
+;; inferred: an empty result set cannot say whether nothing happened or nothing was
+;; recorded.
+
 (require racket/string
          db-kit/portable
          (only-in "../authz/secretbox.rkt" secret-digest)
@@ -51,7 +86,7 @@
 ;;   ok      — the backend answered
 ;;   error   — it was asked and did not answer usefully
 ;;   refused — this platform would not ask (RED-19/RED-20)
-(define REQUEST-STATUSES '("ok" "error" "refused"))
+(define REQUEST-STATUSES '("ok" "error" "refused" "unserved"))
 
 ;; Short labels, never an exception message (RED-19). #83 r4 sealed four `error`
 ;; columns because this platform's own refusals quote what they choked on by
@@ -62,7 +97,13 @@
 ;; answer was refused rather than returned. It earns a kind of its own precisely
 ;; because an operator reading this log to find out why answers went strange
 ;; would otherwise see an unbroken run of `ok`.
-(define ERROR-KINDS '("http" "timeout" "unreachable" "capability" "policy" "transport" "truncated"))
+;;
+;; `released`, `expired` and `canceled` (#236, added on main) are the other three
+;; that are not transport failures: the platform took the work back before a
+;; backend could answer. The vocabulary is one list because it is read as one
+;; list, and a kind added on either line has to be added here.
+(define ERROR-KINDS '("http" "timeout" "unreachable" "capability" "policy" "transport" "truncated"
+                      "released" "expired" "canceled"))
 
 ;; EMB-5: WHAT was asked for, where `transport` says by which route it left. A
 ;; third closed vocabulary, enforced here for the same reason the other two are:
@@ -118,6 +159,7 @@
 (define (model-request-record! conn
                                #:team team #:user [user #f] #:org [org #f]
                                #:executor [executor #f]
+                               #:job-id [job-id #f]
                                #:transport transport
                                #:model [model #f]
                                #:endpoint [endpoint #f]
@@ -146,8 +188,8 @@
      "INSERT INTO model_requests (id, org_id, team_id, user_id, executor, transport, operation,"
      " model, endpoint,"
      " hosted, content_logging, prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
-     " tokens_used, status, error_kind, http_status, ms, created_epoch)"
-     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+     " tokens_used, status, error_kind, http_status, ms, created_epoch, job_id)"
+     " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
     id
     (or org sql-null) (or team sql-null) (or user sql-null)
     (or executor sql-null) transport operation (or model sql-null) (or host sql-null)
@@ -159,7 +201,8 @@
     status (or error-kind sql-null)
     (if (number? http-status) http-status sql-null)
     (if (number? ms) (inexact->exact (round ms)) sql-null)
-    (current-seconds))
+    (current-seconds)
+    (or job-id sql-null))
   id)
 
 ;; ---- reading it (RED-22) ----------------------------------------------------
@@ -178,7 +221,7 @@
                           "SELECT id, executor, transport, model, endpoint, hosted, content_logging,"
                           " COALESCE(operation, 'chat') AS operation,"
                           " prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
-                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id"
+                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id, job_id"
                           " FROM model_requests WHERE team_id = ? AND executor = ?"
                           " ORDER BY created_epoch DESC, id DESC LIMIT ? OFFSET ?")
                     team executor (min 500 (max 1 limit)) (max 0 offset))
@@ -186,7 +229,7 @@
                           "SELECT id, executor, transport, model, endpoint, hosted, content_logging,"
                           " COALESCE(operation, 'chat') AS operation,"
                           " prompt_digest, digest_alg, digest_key_id, messages, prompt_chars,"
-                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id"
+                          " tokens_used, status, error_kind, http_status, ms, created_epoch, user_id, job_id"
                           " FROM model_requests WHERE team_id = ?"
                           " ORDER BY created_epoch DESC, id DESC LIMIT ? OFFSET ?")
                     team (min 500 (max 1 limit)) (max 0 offset))))
@@ -213,4 +256,7 @@
             'http_status (nz (vector-ref r 16))
             'ms (nz (vector-ref r 17))
             'at (vector-ref r 18)
-            'user_id (nz (vector-ref r 19)))))
+            'user_id (nz (vector-ref r 19))
+            ;; OBSV: the job a pull call served, so a row joins to its executor, its
+            ;; attempts and its start and finish instead of standing alone.
+            'job_id (nz (vector-ref r 20)))))

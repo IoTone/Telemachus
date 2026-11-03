@@ -152,7 +152,14 @@
 ;; explaining the fallback is legitimate — which is why `code-lines` strips
 ;; them rather than this pattern trying to.
 (define OLD-LITERAL #px"TELEMACHUS_[A-Z0-9_]+")
-(define BAD-READ #px"\\((?:getenv|env\\*|env|env-num|env-int|pos-env) \\\"(?:TELEMACHUS|TMACH)_")
+;; `key-for` is in the alternation because it is the one CALL SHAPE that got past
+;; this gate. secretbox.rkt read the literal TMACH_SECRET_KEY through a local helper
+;; named key-for, so the old-name-only deployment this rename exists to keep working
+;; started, reported "secrets":"plaintext" and sealed nothing. A helper that takes a
+;; variable name has to be named here the day it is written, or "no module reads an
+;; operator variable by its literal name" is only true of the helpers somebody
+;; remembered.
+(define BAD-READ #px"\\((?:getenv|env\\*|env|env-num|env-int|pos-env|key-for) \\\"(?:TELEMACHUS|TMACH)_")
 
 (test-case "no module spells an operator variable's full OLD name (R1)"
   (define offenders
@@ -201,3 +208,79 @@
                             (not (regexp-match? #rx"env-names-tests" (path->string f)))))
       (format "~a: ~a" (file-name-from-path f) (string-trim l))))
   (check-equal? offenders '()))
+
+;; ---- R3 and R4: the two shapes R1 and R2 could not see ----------------------------------------------------
+;;
+;; R2 looks for a call to a KNOWN helper with a literal name. Two reads got past it:
+;;   - domain/ai/roles.rkt built the name at the call site, (getenv (string-append "TMACH_MODEL_" ...)),
+;;     so a deployment that set only the old TELEMACHUS_MODEL_UTILITY had the role's default ignored.
+;;   - plugins/s3blobs read TMACH_S3_BLOB_REQUIRE_ENCRYPTION and TMACH_S3_BLOB_PATH_STYLE through env-bool,
+;;     a helper R2 had never heard of, so an operator's old-name "0" was ignored and every PUT was refused.
+;; R3 forbids composing a variable name from a prefix at all. R4 forbids ANY call, whatever the helper is
+;; called, whose argument is exactly a prefixed variable name: the only legitimate reader is tmach-env, which
+;; takes the suffix. A message that names a variable is a longer string and is not matched.
+(define COMPOSED-READ #px"string-append\\s+\\\"(?:TELEMACHUS|TMACH)_[A-Z0-9_]*\\\"")
+(define NAME-ARG #px"\\((?!tmach-env\\b|putenv\\b)[^\\s()\\\"]+\\s+\\\"(?:TELEMACHUS|TMACH)_[A-Z0-9_]+\\\"[\\s)]")
+
+(test-case "no module composes an operator variable's name from its prefix (R3)"
+  (define offenders
+    (for*/list ([f (in-list (rkt-files))]
+                #:unless (regexp-match? EXEMPT (path->string f))
+                [l (in-list (code-lines f))]
+                #:when (regexp-match? COMPOSED-READ l))
+      (format "~a: ~a" (file-name-from-path f) (string-trim l))))
+  (check-equal? offenders '() "compose the suffix and call (tmach-env suffix)"))
+
+;; Test files are exempt from R4 only: their helpers (with-env and kin) SET a variable, which is the point
+;; of a test, and R1 already keeps the old spelling out of them.
+(test-case "no call, by any helper's name, takes a prefixed variable name as its argument (R4)"
+  (define offenders
+    (for*/list ([f (in-list (rkt-files))]
+                #:unless (regexp-match? EXEMPT (path->string f))
+                #:unless (regexp-match? #rx"/test/" (path->string f))
+                [l (in-list (code-lines f))]
+                #:when (regexp-match? NAME-ARG l))
+      (format "~a: ~a" (file-name-from-path f) (string-trim l))))
+  (check-equal? offenders '()))
+
+(test-case "R3 and R4 can see the two reads that got past R2"
+  (check-true (regexp-match? COMPOSED-READ "(getenv (string-append \"TMACH_MODEL_\" (string-upcase role)))"))
+  (check-false (regexp-match? COMPOSED-READ "(tmach-env (string-append \"MODEL_\" (string-upcase role)))"))
+  (check-true (regexp-match? NAME-ARG "   (env-bool \"TMACH_S3_BLOB_PATH_STYLE\" #t)"))
+  (check-true (regexp-match? NAME-ARG "(some-new-helper \"TELEMACHUS_PORT\")"))
+  (check-false (regexp-match? NAME-ARG "(tmach-env \"S3_BLOB_PATH_STYLE\")"))
+  (check-false (regexp-match? NAME-ARG "(putenv \"TMACH_LOGIN_LOCK_FAILURES\" \"5\")") "a test setting a variable")
+  (check-false (regexp-match? COMPOSED-READ "(string-append \"TMACH_BLOB_STORE names a store that is not registered\")")
+               "a message that happens to begin with a name")
+  (check-false (regexp-match? NAME-ARG "(error 's3blobs \"TMACH_S3_BLOB_BUCKET is required\")")
+               "a message longer than the name is not a read"))
+
+;; ---- the two reads, behaviourally: only the OLD name is set --------------------------------------------------
+;; (This file may spell the old prefix; no other module or suite may, R1.)
+(require (only-in "../domain/ai/roles.rkt" env-default)
+         (only-in "../plugins/s3blobs/main.rkt" s3-blob-config)
+         (only-in "../domain/s3/client.rkt" s3-config-require-encryption? s3-config-path-style?))
+
+(test-case "a role's instance default answers to the old variable name alone"
+  (with-env '(("TMACH_MODEL_UTILITY" . "") ("TELEMACHUS_MODEL_UTILITY" . "old-box"))
+            (lambda () (check-equal? (env-default "utility") "old-box")))
+  (with-env '(("TMACH_MODEL_UTILITY" . "new-box") ("TELEMACHUS_MODEL_UTILITY" . "old-box"))
+            (lambda () (check-equal? (env-default "utility") "new-box" "the new name wins")))
+  (with-env '(("TMACH_MODEL_UTILITY" . "") ("TELEMACHUS_MODEL_UTILITY" . ""))
+            (lambda () (check-false (env-default "utility")))))
+
+(test-case "the blob store's boolean switches answer to the old variable names alone"
+  (define base '(("TMACH_S3_BLOB_ENDPOINT" . "http://127.0.0.1:9000") ("TMACH_S3_BLOB_BUCKET" . "b")
+                 ("TMACH_S3_BLOB_ACCESS_KEY" . "k") ("TMACH_S3_BLOB_SECRET_KEY" . "s")
+                 ("TMACH_S3_BLOB_REQUIRE_ENCRYPTION" . "") ("TMACH_S3_BLOB_PATH_STYLE" . "")
+                 ("TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION" . "") ("TELEMACHUS_S3_BLOB_PATH_STYLE" . "")))
+  (define (with extra thunk) (with-env (append base extra) thunk))
+  (with '() (lambda ()
+              (check-true (s3-config-require-encryption? (s3-blob-config)) "on by default")
+              (check-true (s3-config-path-style? (s3-blob-config)) "on by default")))
+  (with '(("TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION" . "0") ("TELEMACHUS_S3_BLOB_PATH_STYLE" . "no"))
+        (lambda ()
+          (check-false (s3-config-require-encryption? (s3-blob-config)) "only the OLD name says off")
+          (check-false (s3-config-path-style? (s3-blob-config)) "only the OLD name says off")))
+  (with '(("TELEMACHUS_S3_BLOB_REQUIRE_ENCRYPTION" . "0") ("TMACH_S3_BLOB_REQUIRE_ENCRYPTION" . "1"))
+        (lambda () (check-true (s3-config-require-encryption? (s3-blob-config)) "the new name wins"))))

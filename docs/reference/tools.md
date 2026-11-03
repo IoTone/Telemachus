@@ -23,6 +23,7 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 | `feed_queue_put` | yes | `files:read` | feeds | Put a pulled feed item on the team's work queue, or update it: priority (0-100), an optional due date in epoch seconds, a status and a list of skills. The queue is an INDEX over the documents, so this records what triage decided rather than deciding it. |
 | `feed_queue_status` | yes | `files:read` | feeds | Move a queued item to another status: open, claimed, done or dropped. |
 | `get_usage` | yes | `chat:use` | built-in | Report the team's current AI usage against its quota. |
+| `inbox_raise` | yes | `inbox:write` | inbox | Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened. |
 | `kg_extract` | — | `files:read` | built-in | Extract entities (people, organizations, products, places, events, concepts) and the relations between them from one repository document into the knowledge graph, every mention with a verbatim snippet. Refuses a reply that does not validate. |
 | `kg_list_unextracted` | — | `files:read` | built-in | List repository documents whose text has not been extracted into the knowledge graph yet (or is stale after an overwrite). Returns object ids, capped at a batch; run the index-knowledge workflow again to continue. |
 | `kg_query` | yes | `files:read` | built-in | What the team's documents say about an entity: its relations and the documents that mention it, with snippets. Give a name (or an entity id); hops 1 returns its neighbours, hops 2 their neighbours too. |
@@ -269,6 +270,25 @@ Permission: `chat:use` · source: built-in
 
 No parameters.
 
+
+## `inbox_raise`
+
+Raise an item into the team's inbox, or re-raise one. One live item exists per (source, key): the same revision only refreshes the evidence, a different revision replaces the content and sends an acknowledged or snoozed item back to open. The answer's outcome says which happened.
+
+Permission: `inbox:write` · source: inbox
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `body` | string | no |  |
+| `data` | object | no | At most 8 KiB of JSON |
+| `key` | string | yes | The producer's id for the fact, stable across re-raises |
+| `kind` | string | no | The producer's own grouping label |
+| `revision` | string | no | A different revision is a material change |
+| `scope` | string | no | A label to filter and count by, not an access boundary |
+| `severity` | string (critical, high, normal, low) | no | Defaults to normal |
+| `source` | string | yes | Who raised it, in the producer's own words |
+| `title` | string | yes | What a person reads first |
+| `url` | string | no |  |
 
 ## `kg_extract`
 

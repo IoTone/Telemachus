@@ -251,10 +251,18 @@ curl -s -X PATCH localhost:8835/api/orgs/acme -H "Authorization: Bearer $ROOT" \
 
 | plan | `ai.tokens.total` / day | `ai.requests` / day | `ai.concurrency` |
 |---|---|---|---|
-| `trial` | 100 000 | 1 000 | 2 |
-| `starter` | 1 000 000 | 10 000 | 4 |
-| `pro` | 10 000 000 | 100 000 | 8 |
-| `enterprise` | 99 000 000 | 990 000 | 16 |
+| `trial` | 5 000 000 | 5 000 | 2 |
+| `starter` | 50 000 000 | 50 000 | 4 |
+| `pro` | 500 000 000 | 500 000 | 8 |
+| `enterprise` | 5 000 000 000 | 5 000 000 | 16 |
+
+The two budget dimensions are sized against a read and not against an invoice: one six-page
+specification costs several thousand tokens, so a trial that allows 100 000 was about twenty documents
+and is now about a thousand. `ai.concurrency` is a capacity knob and did not move.
+
+The governor reads the TEAM row for `ai.concurrency`, so an org's row is a plan ceiling that nothing
+enforces yet: a team's own limit is the one that holds. The two budget dimensions are checked at both
+tiers, org first, because `tenant-quota-check` asks the org and then the team.
 
 > **A bespoke cap survives until the next plan change, then it does not.** Setting
 > `ai.tokens.total` by hand on an `enterprise` customer and later `PATCH`ing

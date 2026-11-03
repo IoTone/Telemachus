@@ -150,10 +150,14 @@
                                              #:token (hash-ref job 'claim_token))
                            (semaphore-post done)]
                       [(< n 400) (sleep 0.05) (loop (add1 n))])))))
-  (define-values (reply tokens)
+  (define-values (reply tokens jid)
     (pull-dispatch! c #:team tid #:user uid #:executor "box" #:messages (list (hasheq 'role "user" 'content "hi")) #:temperature 0))
   (check-equal? reply "echo: hi")
   (check-equal? tokens 3)
+  ;; the job id comes back with the reply, because the route's request-log row
+  ;; must name the call the worker reports — the pair is one call
+  (check-true (string? jid) "a dispatch answers the job it queued")
+  (check-equal? jid (query-value c "SELECT id FROM jobs WHERE kind = 'infer.chat'"))
   (semaphore-wait done)
   (define jobs (list-jobs c tid))
   (check-equal? (length jobs) 1)
@@ -203,7 +207,7 @@
                                    #:token (hash-ref job 'claim_token))
                  (semaphore-post done)]
             [(< n 400) (sleep 0.05) (loop (add1 n))])))))
-  (define-values (reply tokens)
+  (define-values (reply tokens _jid)
     (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
                     #:messages (list (hasheq 'role "user" 'content "hi")) #:temperature 0))
   (check-equal? reply "from B" "a host that was not named answered")
@@ -242,8 +246,8 @@
                                    #:token (hash-ref job 'claim_token))
                  (semaphore-post done)]
             [(< n 400) (sleep 0.05) (loop (add1 n))])))))
-  ;; two values, so a single-value context is an arity error
-  (define-values (_r _t2) (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
+  ;; three values, so a single-value context is an arity error
+  (define-values (_r _t2 _j) (pull-dispatch! c #:team tid #:user uid #:executor FLEET-EXECUTOR
                                           #:messages (list (hasheq 'role "user" 'content "hi"))
                                           #:model "qwen2.5:3b"))
   (semaphore-wait done)
@@ -866,11 +870,12 @@
     v)
   (for ([_ (in-range MAX-RELEASES)]) (check-equal? (claim-release! "busy") 'ok))
   (check-equal? (hash-ref (get-job c j tid) 'attempt) 1
-                "ten releases later it has still never spent an attempt")
+                "every release so far, and it has still never spent an attempt")
   (check-equal? (claim-release! "unsupported") 'failed "the next one gives up on it")
   (define done (get-job c j tid))
   (check-equal? (hash-ref done 'status) "error")
-  (check-true (regexp-match? #rx"released 10 times" (hash-ref done 'error)))
+  (check-true (regexp-match? (pregexp (format "released ~a times" MAX-RELEASES)) (hash-ref done 'error))
+              "the message counts the releases rather than naming a constant somebody could change")
   (check-true (regexp-match? #rx"fussy" (hash-ref done 'error))
               "…and names the host, so an operator knows where to look")
   ;; every release is in the trail, for FLEET-1's reason: the re-queue clears
@@ -1067,3 +1072,101 @@
     (check-false (resolve-token c a-raw))
     (check-false (resolve-token c b-raw) "…and the current one too")
     (disconnect c))))
+
+;; OBSV: a worker's model call is on the record, joined to the job it served.
+;;
+;; The route that enqueued the job writes a row too (executor.rkt), but that one
+;; is written from the waiting side: its `ms` includes the queue wait, it cannot
+;; see the tokens the model produced, and it has no job to name. This test covers
+;; the row the settle writes, which is the half that answers "how long did the
+;; model run" and "which job was it".
+(test-case "a worker's call is recorded against its job, ok and failed"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "rig-a" #:model "qwen2.5:7b"))
+  (define (rows) (query-rows c "SELECT job_id, executor, model, status, tokens_used, ms, transport, operation FROM model_requests"))
+  (define job (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                            #:payload (hasheq 'messages (list (hasheq 'role "user" 'content "read this"))
+                                              'model "qwen2.5:7b")))
+  (define claim (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+  (check-equal? (hash-ref claim 'id) job)
+  (check-equal? (worker-complete! c ex job (hasheq 'reply "ok" 'tokens_used 42)
+                                  #:token (hash-ref claim 'claim_token)) 'ok)
+  (define r (rows))
+  (check-equal? (length r) 1 "one completion, one row")
+  (define row (car r))
+  (check-equal? (vector-ref row 0) job "the row names the job it served")
+  (check-equal? (vector-ref row 1) "rig-a")
+  (check-equal? (vector-ref row 2) "qwen2.5:7b" "the alias the payload asked for")
+  (check-equal? (vector-ref row 3) "ok")
+  (check-equal? (vector-ref row 4) 42 "the tokens the worker reported, not the route's estimate")
+  (check-true (integer? (vector-ref row 5)) "a duration, from the job's own start")
+  (check-equal? (vector-ref row 6) "pull")
+  (check-equal? (vector-ref row 7) "chat")
+  ;; a worker that reports a failure is on the record too: an invisible failed
+  ;; call is the one nobody can explain afterwards
+  (define job2 (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                             #:payload (hasheq 'messages '() 'model "qwen2.5:7b")))
+  (define claim2 (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+  (check-equal? (worker-fail! c ex job2 "model server returned 500" #:token (hash-ref claim2 'claim_token)) 'ok)
+  (define failed (for/first ([x (in-list (rows))] #:when (equal? (vector-ref x 0) job2)) x))
+  (check-true (vector? failed) "the failed call has a row")
+  (check-equal? (vector-ref failed 3) "error")
+  (disconnect c))
+
+;; OBSV: a job that ends without a call is still on the record, and says so.
+;;
+;; The absence of a row cannot distinguish "no model was asked" from "nobody wrote it down".
+;; These are the paths where a job ends without a result, and each leaves a row with status
+;; `unserved` and the reason in error_kind.
+(define (unserved-row c job)
+  (for/first ([r (in-list (query-rows c "SELECT job_id, status, error_kind, tokens_used, executor FROM model_requests"))]
+              #:when (equal? (vector-ref r 0) job)) r))
+
+(define (unserved-setup)
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "root"))
+  (define p (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c p #:name "rig-b" #:model "qwen2.5:7b"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                          #:payload (hasheq 'messages (list (hasheq 'role "user" 'content "x"))
+                                            'model "qwen2.5:7b")))
+  (define claim (worker-claim! c ex #:kinds '("infer.chat") #:models '("qwen2.5:7b")))
+  ;; one job per test: a claim takes the OLDEST queued job, so a leftover from an earlier
+  ;; step in the same database would be claimed instead of this one
+  (check-equal? (hash-ref claim 'id) j)
+  (values c tid ex j (hash-ref claim 'claim_token)))
+
+(test-case "a released job leaves an unserved row"
+  (define-values (c tid ex j token) (unserved-setup))
+  (check-equal? (worker-release! c ex j #:reason "no-model" #:token token) 'ok)
+  (define r (unserved-row c j))
+  (check-true (vector? r) "a release is on the record")
+  (check-equal? (vector-ref r 1) "unserved")
+  (check-equal? (vector-ref r 2) "released")
+  (check-equal? (vector-ref r 3) sql-null "no call, so no token count")
+  (check-equal? (vector-ref r 4) "rig-b" "the row names the host that let it go")
+  (disconnect c))
+
+(test-case "an expired lease leaves an unserved row"
+  (define-values (c tid ex j token) (unserved-setup))
+  (query-exec c "UPDATE jobs SET lease_until = ? WHERE id = ?" (- (current-seconds) 1) j)
+  (check-equal? (reap-leases! c) 1)
+  (define r (unserved-row c j))
+  (check-true (vector? r) "an expiry is on the record")
+  (check-equal? (vector-ref r 1) "unserved")
+  (check-equal? (vector-ref r 2) "expired")
+  (check-equal? (vector-ref r 3) sql-null "nothing saw a result, so there is no token count")
+  (disconnect c))
+
+(test-case "a canceled job leaves an unserved row"
+  (define-values (c tid ex j token) (unserved-setup))
+  (check-true (and (cancel-job! c j tid) #t))
+  (check-equal? (worker-complete! c ex j (hasheq 'reply "too late" 'tokens_used 7) #:token token) 'canceled)
+  (define r (unserved-row c j))
+  (check-true (vector? r) "a cancellation is on the record")
+  (check-equal? (vector-ref r 1) "unserved")
+  (check-equal? (vector-ref r 2) "canceled")
+  (check-equal? (vector-ref r 3) sql-null "a discarded result is not a token count")
+  (disconnect c))

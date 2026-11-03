@@ -13,16 +13,20 @@
 ;; before". Opt-in per team, exactly the precedent the Localization Manager set.
 
 (require racket/string
+         (only-in "../../config.rkt" tmach-env)
          "../settings/settings.rkt")
 
-(provide model-role-executor model-roles-get model-roles-set! current-utility-executor)
+(provide model-role-executor model-roles-get model-roles-set! current-utility-executor
+         env-default)
 
 (define ROLES '("utility"))
 
 (define (role-key team) (string-append "model-roles:" team))
 (define (env-default role)
-  (define v (getenv (string-append "TMACH_MODEL_" (string-upcase role))))
-  (and v (not (string=? v "")) v))
+  ;; the operator variable is MODEL_<ROLE>, read through the accessor like every other so the old
+  ;; spelling still answers; the name is composed here, which the literal-name gate cannot see, and
+  ;; env-names-tests.rkt R3 now forbids composing one any other way
+  (tmach-env (string-append "MODEL_" (string-upcase role))))
 
 ;; -> an executor name, or #f for the local model
 (define (model-role-executor conn team role)

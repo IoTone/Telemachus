@@ -36,6 +36,18 @@
   (check-equal? tok 500)
   (check-equal? conc 3))
 
+;; The default budget has to clear ordinary work, not sit below it. A six-page specification read costs
+;; several thousand tokens, so a default of 2000 refused the second document of a product while the
+;; first was still running (measured on dev1, 2026-11-01). Pinned here because the number is invisible
+;; in the product until somebody's queue stops.
+(test-case "quota: the default budget clears a working day of document reads"
+  (define c (fresh))
+  (default-policy! c "teamDefault")
+  (define-values (tok _w1) (get-limit c "team" "teamDefault" "ai.tokens.total"))
+  (define-values (req _w2) (get-limit c "team" "teamDefault" "ai.requests"))
+  (check-true (>= tok 50000000) "a hundred reads of 25k tokens is 2.5M, and a day is more than that")
+  (check-true (>= req 50000) "a request is one model call, so this must be far above a document batch"))
+
 (test-case "governor: concurrency cap is never exceeded under load"
   (define g (make-governor))
   (define max-seen (box 0))
