@@ -346,6 +346,12 @@ async function usageView(){
   const tr=await api('/api/tools'); const tools=tr.ok?tr.json.tools:[];
   const pr=await api('/api/plugins'); const plugins=pr.ok?pr.json.plugins:[];
   const op=await api('/api/oop'); const oops=op.ok?op.json.plugins:[];
+  // A person's own notification address and opt-outs. No permission — their own
+  // rows, the rule `GET /api/sessions` already follows — and it lives on Usage
+  // because that tab is in the base list, so it is the one screen every member
+  // can reach. There is no account tab, and inventing one for two controls would
+  // be a tab most people never open.
+  const mpr=await api('/api/email-prefs'); if(mpr.ok) S.mailP=mpr.json;
   const manage=canManage();
   const rows=q.map(d=>`<tr><td class="mono">${esc(d.dimension)}</td><td>${d.used}</td><td>${d.limit}</td><td>${d.remaining}</td>
       <td class="muted">${d.resets_at?esc(new Date(d.resets_at*1000).toLocaleString()):'—'}</td></tr>`).join('');
@@ -369,7 +375,8 @@ async function usageView(){
     <div class="card"><table><thead><tr><th>${t('dimension')}</th><th>used</th><th>limit</th><th>remaining</th><th>${t('resets')}</th></tr></thead><tbody>${rows}</tbody></table></div>${opForm}
     <div class="card" style="margin-top:14px"><h3>${t('tools')} <span class="muted" style="font-size:13px">— agent capabilities</span></h3>
       ${plugLine}${oopLine}
-      <table><thead><tr><th>${t('tool')}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>`;
+      <table><thead><tr><th>${t('tool')}</th><th>permission</th><th>source</th><th>status</th><th></th></tr></thead><tbody>${toolRows}</tbody></table></div>
+    ${myNotifyCard()}`;
 }
 async function doSetQuota(){ const r=await api('/api/quota',{method:'POST',body:{dimension:val('qd'),limit:parseInt(val('ql'),10),window:'day'}});
   if(r.ok){ toast('updated',true); renderTab(); } else toast(r.json.error||'error'); }

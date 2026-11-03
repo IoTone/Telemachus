@@ -207,3 +207,40 @@
   (make-parameter
    (lambda (in out) (error 'mock-smtp "this mock was not given a TLS encoder"))))
 (provide mock-tls-encode)
+
+;; ---- runnable, for the HTTP smoke ---------------------------------------------
+;; A `main` submodule rather than a top-level script, because this file is BOTH a
+;; library the unit suite requires and a server the smoke boots:
+;; `racket test/mock-smtp.rkt` runs this, `(require "mock-smtp.rkt")` does not.
+;; `test/mock-llm.rkt` is a top-level script and could not be both.
+;;
+;;   MOCK_SMTP_PORT=8928 MOCK_SMTP_OUT=/tmp/mail.txt racket test/mock-smtp.rkt
+;;   MOCK_SMTP_FAIL=rcpt:550 … (a stage and a reply code, so the smoke can drive
+;;                              the permanent/transient split over HTTP)
+;;
+;; Each message is APPENDED to `MOCK_SMTP_OUT` between markers, so bash can grep
+;; it. A file rather than stdout: the smoke needs to assert on a message AFTER
+;; the request that caused it has returned, and reading a live pipe from bash is
+;; the kind of thing that makes a suite flap.
+(module+ main
+  (define port (string->number (or (getenv "MOCK_SMTP_PORT") "8928")))
+  (define out-file (getenv "MOCK_SMTP_OUT"))
+  (define fail
+    (let ([raw (getenv "MOCK_SMTP_FAIL")])
+      (and raw (regexp-match #px"^([a-z]+):([0-9]{3})$" raw)
+           (let ([m (regexp-match #px"^([a-z]+):([0-9]{3})$" raw)])
+             (cons (string->symbol (cadr m)) (string->number (caddr m)))))))
+  (start-mock-smtp! #:port port #:fail fail)
+  (printf "mock-smtp on 127.0.0.1:~a (out ~a, fail ~a)\n" port (or out-file "-") (or fail "-"))
+  (flush-output)
+  (let loop ([seen 0])
+    (sleep 0.25)
+    (define n (mock-message-count))
+    (when (and out-file (> n seen))
+      (with-handlers ([(lambda (_) #t) (lambda (_) (void))])
+        (call-with-output-file out-file #:exists 'append
+          (lambda (o)
+            (for ([m (in-list (list-tail (mock-messages) seen))])
+              (fprintf o "=== MOCK-SMTP MESSAGE to ~a ===\n~a\n=== MOCK-SMTP END ===\n"
+                       (string-join (mock-msg-to m) ",") (mock-msg-data m)))))))
+    (loop n)))

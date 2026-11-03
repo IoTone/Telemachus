@@ -120,6 +120,11 @@ async function render(){
   }
   const atok=new URLSearchParams(location.search).get('token');
   if(atok && location.pathname.replace(/\/$/,'').endsWith('/activate')){ app.innerHTML=activateView(atok); return; }
+  // An address confirmation arrives as `?verify_email=` and is taken out of the
+  // address bar AT ONCE — `/activate`'s pattern, for its reason: a URL is pasted
+  // into chat, logged by proxies and kept in history. It is stashed in `S`, so it
+  // survives the sign-in that may be needed first, and spent below.
+  claimVerifyToken();
   // Two rounds, not five. These three are independent: branding and the instance
   // config are public, and whoami reads neither. Running them one after another
   // made every sign-in five sequential round trips — ~2.3s at 300ms each, which
@@ -138,6 +143,11 @@ async function render(){
   // header. Do not move a locale-SENSITIVE call into this round.
   await Promise.all([loadBranding(), loadI18n(), refreshMe()]);
   if(stale()) return;
+  // AFTER `refreshMe()` and before the tab renders: it needs a principal, and
+  // the card that shows the result is painted by the pass below. It is spent
+  // ONCE whatever happens — a token that failed is not worth retrying on every
+  // render pass.
+  if(S.verifyEmail && S.me){ await spendVerifyToken(); if(stale()) return; await refreshMe(); if(stale()) return; }
   if(!S.me){
     await loadCatalog(); if(stale()) return;   // the sign-in screen's own copy
     const cfg = S.cfg ? {ok:true, json:S.cfg} : await api('/api/config');   // loadI18n() already fetched it

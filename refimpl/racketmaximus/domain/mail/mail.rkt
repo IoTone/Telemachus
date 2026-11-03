@@ -387,7 +387,13 @@
 ;; `notification-recipients`, which demands `email_verified_epoch`.
 (define (mail-enqueue-verification! conn #:user user #:address address #:token token)
   (define base (transport-base-url conn))
-  (define link (and base (format "~a/#/verify-email?token=~a"
+  ;; THE TOKEN IS IN THE SEARCH STRING AND THE FRAGMENT IS THE DESTINATION, which
+  ;; is not a cosmetic choice: the console reads `?verify_email=` and STRIPS it
+  ;; from the address bar at once (`/activate`'s own pattern), and it cannot strip
+  ;; what is in the fragment without fighting #230's router, whose whole design is
+  ;; that the hash mirrors state and nothing else writes it. `#/usage` is where
+  ;; the card that shows the result lives.
+  (define link (and base (format "~a/?verify_email=~a#/usage"
                                  (string-trim base "/" #:left? #f) token)))
   (define body
     (string-join

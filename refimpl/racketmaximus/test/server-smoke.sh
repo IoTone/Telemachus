@@ -74,6 +74,17 @@ differ(){
   if [ "$2" != "$3" ]; then echo "  ok   $1"; else echo "  FAIL $1 — both were: $2"; fail=1; fi
 }
 
+# <label>: pass / fail outright, for a property no grep over one response can
+# express — "a message really arrived in the relay's spool", "the count did not
+# move". The FOURTH appearance of this shape: `refute` was missing once, `differ`
+# was missing once, and the email block below was written with these two and they
+# were missing as well. The lesson is in `differ`'s own comment and it is still
+# the right one — GREP FOR A HELPER'S DEFINITION BEFORE USING IT, because an
+# unknown command here prints to stderr, sets nothing, and leaves the suite
+# reporting PASS with the assertion silently absent.
+ok(){  echo "  ok   $1"; }
+bad(){ echo "  FAIL $1"; fail=1; }
+
 # #85/#142: the webhook block below runs a receiver on loopback, and the fetcher
 # refuses private address space unless the OPERATOR allowed that network. Setting
 # it here is the operator's decision, made explicitly, which is the whole shape
@@ -2716,6 +2727,246 @@ assert "paths: a traversal key is refused" \
   "$(curl -s -X POST "$B/api/documents" -H "Authorization: Bearer $OP" \
      -H 'Content-Type: application/json' -d '{"title":"bad","key":"../escape.md","content":"x"}')" \
   'error'
+
+# ---- email delivery and notifications --------------------------------------------
+# THE BLOCK IS LAST, and this file's own notes are why: a fixture that changes
+# GLOBAL state breaks a distant block, and this one configures an INSTANCE-wide
+# transport and turns notification categories on instance-wide. With it here the
+# only thing downstream is the verdict — and it clears up after itself anyway,
+# because RED-34 was exactly this shape: an empty executor policy left behind
+# changed what a knowledge-graph block 150 lines later was testing.
+#
+# 8929 WAS GREPPED FOR FIRST. `MX_PORT=8899` collided with the webhook receiver's
+# once, and the collision did not look like one — the POSTs landed on a handler
+# implementing PUT only, so six assertions in a block with nothing to do with
+# Matrix failed with a 501.
+MS_PORT=8929
+MS_OUT="$TMACH_DATA_DIR/mail.txt"
+# `$B` IS "localhost:<port>" WITH NO SCHEME, which curl tolerates and `base_url`
+# correctly does not — a notification's link has to be a URL somebody can click
+# out of an inbox, so the validator wants a scheme. The first run of this block
+# failed eleven assertions on one `{"error":"base_url must be an http(s) URL"}`,
+# which is the validator working.
+: > "$MS_OUT"
+if port_busy "$MS_PORT"; then
+  echo "FAIL email: port $MS_PORT is in use"; fail=1
+else
+MOCK_SMTP_PORT="$MS_PORT" MOCK_SMTP_OUT="$MS_OUT" racket test/mock-smtp.rkt \
+  >"$TMACH_DATA_DIR/mocksmtp.log" 2>&1 &
+MS_PID=$!
+for i in $(seq 1 60); do port_busy "$MS_PORT" && break; sleep 0.25; done
+
+# `mail_wait <needle> [tries]` — the sweep is on the reaper seam at five seconds,
+# so a message is not in the file the instant the request returns. It polls the
+# FILE rather than sleeping a fixed interval, which is what stops this block from
+# flapping on a loaded CI runner.
+mail_wait(){ local n="$1" t="${2:-40}" i=0
+  while [ $i -lt $t ]; do grep -qF -- "$n" "$MS_OUT" 2>/dev/null && return 0; i=$((i+1)); sleep 0.5; done
+  return 1; }
+
+echo "== email: the transport (operator) =="
+assert "email: no transport is configured to begin with" \
+  "$(curl -s $B/api/email-transport -H "Authorization: Bearer $OP")" '"transport":null'
+# The closed vocabularies ride on the read, so a console card holds no second
+# copy of a list core owns.
+assert "email: the read carries the security modes" \
+  "$(curl -s $B/api/email-transport -H "Authorization: Bearer $OP")" '"starttls"'
+assert "email: …and the notification categories" \
+  "$(curl -s $B/api/email-transport -H "Authorization: Bearer $OP")" '"workflows"'
+
+MT=$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' \
+  -d "{\"host\":\"127.0.0.1\",\"port\":$MS_PORT,\"security\":\"none\",\"username\":\"postmaster\",\"password\":\"s3cret\",\"from_address\":\"tmach@example.test\",\"from_name\":\"TMach\",\"base_url\":\"http://$B\"}")
+assert "email: the transport is configured"        "$MT" '"host":"127.0.0.1"'
+assert "email: a stored credential is reported"    "$MT" '"has_password":true'
+# THE PASSWORD IS NEVER IN A READ — #19's rule for a token, and `webhook-list`'s.
+refute "email: …and never the password itself"     "$MT" 's3cret'
+refute "email: nor a password field at all"        "$MT" '"password"'
+
+# An ABSENT password leaves the stored one alone, or editing the port would
+# silently clear the credential and the operator would find out from a dead letter.
+MT2=$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' \
+  -d "{\"host\":\"127.0.0.1\",\"port\":$MS_PORT,\"security\":\"none\",\"username\":\"postmaster\",\"from_address\":\"tmach@example.test\",\"base_url\":\"http://$B\"}")
+assert "email: an absent password leaves the stored one alone" "$MT2" '"has_password":true'
+
+echo "== email: what the transport refuses =="
+assert "email: an unknown field is refused, not dropped" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":25,"from_address":"a@b.test","wat":1}')" \
+  "unknown field 'wat'"
+# A newline in the FROM address is a header injection this instance would compose
+# itself, which an operator could not see in the console.
+assert "email: a From address with a newline is refused" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":25,"from_address":"a@b.test\nBcc: x@y.test"}')" \
+  'error'
+assert "email: a port outside 1-65535 is refused" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":0,"from_address":"a@b.test"}')" \
+  'port must be'
+assert "email: an unknown security mode is refused" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":25,"security":"ssl","from_address":"a@b.test"}')" \
+  'security must be'
+# ASSERTED WITH A VIEWER, and that is the point: a MEMBER would be refused too,
+# but so would a correct server that checked nothing team-tier — HELP-7's lesson,
+# where the first version of a permission assertion passed against a member who
+# held the permission and said nothing.
+assert "email: a viewer cannot configure the transport" \
+  "$(curl -s -X PUT $B/api/email-transport -H "Authorization: Bearer $VERA" \
+     -H 'Content-Type: application/json' -d '{"host":"h","port":25,"from_address":"a@b.test"}')" \
+  'Forbidden'
+
+echo "== email: the probe (#85's ping) =="
+# IT ANSWERS 200 EVEN WHEN THE RELAY REFUSED — the test ran, and whether the
+# relay answered is in the body. A 502 would be this instance claiming somebody
+# else's failure as its own (FEED-12).
+TST=$(curl -s -X POST $B/api/email-transport/test -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"to":"ops@example.test"}')
+assert "email: the test send reports ok"        "$TST" '"ok":true'
+assert "email: …and no error"                   "$TST" '"error":null'
+if mail_wait "To: ops@example.test"; then ok "email: the test message really arrived"
+else bad "email: the test message never arrived"; fi
+assert "email: the message is MIME with a charset" \
+  "$(cat "$MS_OUT")" 'Content-Type: text/plain; charset=utf-8'
+# A notification is not something to auto-reply to, and a relay that is handed no
+# Message-ID generates one — so the id an operator reads in a mail log would have
+# nothing to do with the row in `email_deliveries`.
+assert "email: …and carries Auto-Submitted"     "$(cat "$MS_OUT")" 'Auto-Submitted: auto-generated'
+assert "email: …and its own Message-ID"         "$(cat "$MS_OUT")" 'Message-ID: <'
+assert "email: a bad recipient is refused before anything is sent" \
+  "$(curl -s -X POST $B/api/email-transport/test -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"to":"not-an-address"}')" \
+  'error'
+
+echo "== email: the notification layers =="
+# ABSENCE MEANS OFF at the instance layer, which is the one real divergence from
+# a feature switch: this governs whether the instance SENDS MAIL TO PEOPLE, and
+# the behaviour that already existed is sending none.
+PREFS=$(curl -s $B/api/email-prefs -H "Authorization: Bearer $OP")
+assert "email: a category is off until an operator names it" "$PREFS" '"disabled_by":"instance"'
+# A person's own prefs need NO permission — their own rows, the rule
+# `GET /api/sessions` already follows.
+assert "email: a viewer may read their own preferences" \
+  "$(curl -s -o /dev/null -w '%{http_code}' $B/api/email-prefs -H "Authorization: Bearer $VERA")" '200'
+assert "email: an unknown category is refused" \
+  "$(curl -s -X PUT $B/api/email-notify -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"categories":{"wat":true}}')" \
+  "unknown category 'wat'"
+NOT=$(curl -s -X PUT $B/api/email-notify -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"categories":{"workflows":true,"jobs":true}}')
+assert "email: the operator enables two categories" "$NOT" '"jobs":true'
+
+echo "== email: an address answers for itself =="
+ADDR=$(curl -s -X PUT $B/api/email-address -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"address":"alice@example.test"}')
+assert "email: the address is pending, not in use" "$ADDR" '"pending":"alice@example.test"'
+assert "email: …and a confirmation was queued"     "$ADDR" '"queued":true'
+# THE TOKEN IS NOT IN THE REPLY. It goes to the address, which is the whole point
+# — returning it would let anyone who can set an address confirm it without
+# holding the mailbox.
+refute "email: the token is not in the reply"      "$ADDR" 'tk_'
+if mail_wait "To: alice@example.test"; then ok "email: the confirmation message arrived"
+else bad "email: the confirmation message never arrived"; fi
+# The body is base64, so the token is extracted by decoding rather than grepping.
+VTOK=$(python3 - "$MS_OUT" <<'PYEOF'
+import base64, re, sys
+blob = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+best = ""
+for m in re.finditer(r"=== MOCK-SMTP MESSAGE to ([^=]*) ===\n(.*?)\n=== MOCK-SMTP END ===", blob, re.S):
+    if "alice@example.test" not in m.group(1):
+        continue
+    body = m.group(2).split("\n\n", 1)
+    if len(body) < 2:
+        continue
+    try:
+        txt = base64.b64decode(body[1].replace("\n", "")).decode("utf-8", "replace")
+    except Exception:
+        continue
+    t = re.search(r"token=(\S+)", txt)
+    if t:
+        best = t.group(1)
+print(best)
+PYEOF
+)
+if [ -n "$VTOK" ]; then ok "email: the confirmation carries a token"
+else bad "email: no token in the confirmation message"; fi
+# A BAD TOKEN AND AN EXPIRED ONE ARE ONE ANSWER: whether a token was ever real is
+# not a question to answer to somebody holding a guess.
+assert "email: a bad confirmation token is refused" \
+  "$(curl -s -X POST $B/api/email-address/verify -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"token":"tk_nonsense"}')" \
+  'not valid'
+VER=$(curl -s -X POST $B/api/email-address/verify -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d "{\"token\":\"$VTOK\"}")
+assert "email: the address is confirmed"           "$VER" '"verified":"alice@example.test"'
+assert "email: …and is now the one in use"         "$VER" '"address":"alice@example.test"'
+assert "email: the same token a second time is refused" \
+  "$(curl -s -X POST $B/api/email-address/verify -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d "{\"token\":\"$VTOK\"}")" \
+  'not valid'
+
+echo "== email: a notification, end to end =="
+MJOB=$(curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"kind":"chat","payload":{"prompt":"mail probe"}}')
+MJID=$(printf '%s' "$MJOB" | grep -oP '"id":\s*"\K[^"]+' | head -1)
+if mail_wait "job ${MJID:0:8}" 60; then ok "email: a finished job really reached an inbox"
+else bad "email: no notification for a finished job"; fi
+MD=$(curl -s "$B/api/email-deliveries?scope=instance" -H "Authorization: Bearer $OP")
+assert "email: the delivery is recorded as sent"   "$MD" '"status":"sent"'
+assert "email: …against the right category"        "$MD" '"category":"jobs"'
+assert "email: …naming the event"                  "$MD" '"event":"job.completed"'
+# A LISTING CARRIES NO BODY: a dead-letter list answers "what is failing and
+# why", and a page of message bodies is not that.
+refute "email: a listing carries no message body"  "$MD" '"body"'
+MDID=$(printf '%s' "$MD" | python3 -c 'import sys,json;d=json.load(sys.stdin);print([x["id"] for x in d["deliveries"] if x["event"]=="job.completed"][0])' 2>/dev/null)
+MONE=$(curl -s "$B/api/email-deliveries/$MDID?scope=instance" -H "Authorization: Bearer $OP")
+assert "email: one delivery carries the message"   "$MONE" '"body":'
+# THE LINK IS A CONSOLE PATH. The payload's own `url` is an API path — right for
+# a webhook receiver, and a person clicking it gets JSON.
+assert "email: …with a console link, not an API one" "$MONE" '#/jobs'
+# IDS, A STATUS AND A LINK — NEVER CONTENT (MTX-8). The prompt went into the job
+# payload; it must not be anywhere near the message.
+refute "email: the message carries no prompt"      "$MONE" 'mail probe'
+
+echo "== email: a person's own opt-out =="
+OPTOUT=$(curl -s -X PUT $B/api/email-prefs -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"category":"jobs","enabled":false}')
+assert "email: the opt-out names the layer that decided" "$OPTOUT" '"disabled_by":"user"'
+BEFORE=$(curl -s "$B/api/email-deliveries?scope=instance" -H "Authorization: Bearer $OP" \
+  | grep -o '"event":"job.completed"' | wc -l | tr -d ' ')
+curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"kind":"chat","payload":{"prompt":"second"}}' >/dev/null
+sleep 6
+AFTER=$(curl -s "$B/api/email-deliveries?scope=instance" -H "Authorization: Bearer $OP" \
+  | grep -o '"event":"job.completed"' | wc -l | tr -d ' ')
+if [ "$BEFORE" = "$AFTER" ]; then ok "email: an opt-out really stops the mail"
+else bad "email: opted out and still queued ($BEFORE -> $AFTER)"; fi
+# Turning it back on REMOVES the row rather than storing a positive.
+assert "email: turning it back on clears the objection" \
+  "$(curl -s -X PUT $B/api/email-prefs -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' -d '{"category":"jobs","enabled":true}')" \
+  '"category":"jobs","enabled":true'
+
+echo "== email: a team's view and the operator's differ =="
+# The two transactional messages belong to NO team, so a team's listing excludes
+# them and the operator's includes them.
+TEAMV=$(curl -s "$B/api/email-deliveries" -H "Authorization: Bearer $OP")
+refute "email: a team's view has no confirmation message" "$TEAMV" '"category":"verify"'
+assert "email: the operator's view does"                 "$MD" '"category":"verify"'
+assert "email: …and the transport test"                  "$MD" '"category":"test"'
+
+echo "== email: the only way off =="
+curl -s -X DELETE $B/api/email-transport -H "Authorization: Bearer $OP" >/dev/null
+assert "email: the transport can be removed entirely" \
+  "$(curl -s $B/api/email-transport -H "Authorization: Bearer $OP")" '"transport":null'
+# AND THE QUEUE STOPS AS `dead` RATHER THAN LINGERING `pending` for ever, so
+# somebody can see what was not sent.
+curl -s -X PUT $B/api/email-notify -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"categories":{}}' >/dev/null
+kill $MS_PID 2>/dev/null
+fi
 
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail
