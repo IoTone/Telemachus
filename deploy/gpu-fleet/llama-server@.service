@@ -1,0 +1,54 @@
+# One llama.cpp server per GPU, pinned with CUDA_VISIBLE_DEVICES.
+#
+#   systemctl --user enable --now llama-server@0 llama-server@1
+#
+# The ollama template beside this one explains the shape, which is the same: one
+# inference server per card, one TMach worker in front of it, and "split the
+# fleet across the cards" is N of each with no TMach configuration at all.
+# What differs is llama.cpp's own four traps, each of which fails QUIETLY:
+#
+#   1. --alias IS THE CLAIM KEY. llama-server reports the model's file name when
+#      no alias is set, so a worker declaring "qwen3.8-27b-it" never matches the
+#      jobs naming it and the card looks idle forever. Set --alias to exactly
+#      the string the workers declare in TMACH_WORKER_MODELS, on every card.
+#   2. /health answers 503 WHILE THE MODEL LOADS and, once loaded, whenever the
+#      server is asleep. A readiness gate pointed at /health therefore reports
+#      "paused" for a box that is perfectly well, and the worker claims nothing
+#      until the model wakes. Either leave --sleep-idle-seconds unset (llama.cpp
+#      keeps the model resident and never sleeps) or point
+#      TMACH_WORKER_READY_URL somewhere that answers 200 while asleep.
+#   3. NOTHING UNLOADS ON IDLE. There is no OLLAMA_KEEP_ALIVE equivalent: a
+#      loaded model holds its VRAM until the unit stops, so a card given a model
+#      it cannot also give to the next request is a card wasted.
+#   4. A MODEL TOO BIG FOR ONE CARD IS ONE SERVER, NOT TWO. Split it with
+#      --split-mode layer and --tensor-split 7,6 (proportions, not sizes) and
+#      put ONE worker in front of the pair: one worker runs one job at a time,
+#      so two workers behind one model would queue against each other.
+#
+# Install as ~/.config/systemd/user/llama-server@.service, point LLAMA_MODEL at
+# a GGUF on the box (the paths below are the ones the RCNT reader lane uses),
+# and run `loginctl enable-linger $USER` or the unit stops when you log out.
+[Unit]
+Description=llama.cpp server pinned to GPU %i
+After=network-online.target
+
+[Service]
+# %i is the GPU index and the port's last digit: 1143%i leaves ollama's own
+# 11434 free, exactly as the ollama template's port scheme does.
+Environment=CUDA_VISIBLE_DEVICES=%i
+Environment=LLAMA_MODEL=%h/models/gguf/Qwen3.8-27B/Qwen3.8-27B-Q4_K_M.gguf
+Environment=LLAMA_ALIAS=qwen3.8-27b-it
+Environment=LLAMA_CTX=32768
+Environment=LLAMA_PARALLEL=1
+Environment=LLAMA_EXTRA=
+ExecStart=/usr/local/bin/llama-server \
+  --model ${LLAMA_MODEL} \
+  --alias ${LLAMA_ALIAS} \
+  --host 127.0.0.1 --port 1143%i \
+  --ctx-size ${LLAMA_CTX} --parallel ${LLAMA_PARALLEL} \
+  --jinja --n-gpu-layers 999 ${LLAMA_EXTRA}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
