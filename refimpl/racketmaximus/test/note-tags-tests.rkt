@@ -16,12 +16,14 @@
 ;; `ON CONFLICT (note_id, tag) DO NOTHING` and on a transaction, and neither is
 ;; something to take on trust from one engine.
 
-(require rackunit db-kit/portable racket/list
+(require rackunit db-kit/portable racket/list racket/string
          db-kit/migrate
          "../domain/db/migrations.rkt"
          "db-fixture.rkt"
          "../domain/authz/authz.rkt"
-         "../domain/notes/notes.rkt")
+         "../domain/notes/notes.rkt"
+         "../domain/notes/note-tools.rkt"
+         (only-in "../domain/quota/quota.rkt" quota-used set-limit!))
 
 (define (fresh) (define c (fresh-db #:migrate? #f)) (migrate! c all-migrations) c)
 (define (setup)
@@ -166,3 +168,83 @@
   (check-equal? (notes-tag-list c p) '())
   (check-equal? (query-value c "SELECT COUNT(*) FROM note_tags") 0
                 "the rows are gone, not merely unreachable"))
+
+
+;; ---- TAG-6/TAG-7: what the model is allowed to do ---------------------------------
+;; The model is a PARAMETER, so these run with no endpoint and no budget. The
+;; scripted reply is the whole fixture: a tool that only works against a live
+;; model is a tool whose refusals nobody has read.
+(define (scripted reply [tokens 11])
+  (lambda (prompt #:system [sys #f]) (values reply tokens)))
+
+(test-case "a proposal ADDS, is normalized, and never removes what somebody typed"
+  (define-values (c p tid) (setup))
+  (define id (hash-ref (notes-create c p #:title "Levee 7" #:body "survey due" #:tags '("mine")) 'id))
+  (define-values (n added dropped)
+    (note-autotag! c p id #:chat (scripted "{\"tags\": [\"Survey\", \"  LEVEE 7 \"]}")))
+  (check-equal? (hash-ref n 'tags) '("levee 7" "mine" "survey") "added to, not replaced")
+  (check-equal? added '("levee 7" "survey") "and it reports only what it added")
+  (check-equal? dropped '()))
+
+(test-case "a tag the model invents that cannot be cleaned is DROPPED and REPORTED"
+  ;; the other four may be perfectly good; a tag that silently vanishes is
+  ;; indistinguishable from a model that said nothing
+  (define-values (c p tid) (setup))
+  (define id (hash-ref (notes-create c p #:title "n" #:body "b") 'id))
+  (define-values (n added dropped)
+    (note-autotag! c p id #:chat (scripted "{\"tags\": [\"good\", \"\", 7, \"also good\"]}")))
+  (check-equal? added '("also good" "good"))
+  (check-equal? (length dropped) 2 "the empty one and the number")
+  (check-true (for/or ([d (in-list dropped)]) (regexp-match? #px"7" d))))
+
+(test-case "a reply that is not an object, or carries no tags, is reported and writes nothing"
+  (define-values (c p tid) (setup))
+  (define id (hash-ref (notes-create c p #:title "n" #:body "b" #:tags '("kept")) 'id))
+  (define-values (n1 a1 d1) (note-autotag! c p id #:chat (scripted "I could not say.")))
+  (check-equal? a1 '())
+  (check-equal? (hash-ref n1 'tags) '("kept") "the note is untouched")
+  (check-equal? (length d1) 1)
+  ;; the model declining is a legitimate answer, not a failure
+  (define-values (n2 a2 d2) (note-autotag! c p id #:chat (scripted "{\"tags\": []}")))
+  (check-equal? a2 '())
+  (check-equal? d2 '() "declining is not a dropped tag")
+  (check-equal? (hash-ref n2 'tags) '("kept")))
+
+(test-case "an extra key does not throw the tags away"
+  ;; OPEN schema, JUDGE-6's call — the prompt is ours and every tag is checked
+  (define-values (c p tid) (setup))
+  (define id (hash-ref (notes-create c p #:title "n" #:body "b") 'id))
+  (define-values (n added dropped)
+    (note-autotag! c p id #:chat (scripted "{\"reasoning\": \"it is about budgets\", \"tags\": [\"budget\"]}")))
+  (check-equal? added '("budget")))
+
+(test-case "the proposal is capped, and the RESULT is still held to MAX-TAGS"
+  (define-values (c p tid) (setup))
+  (define id (hash-ref (notes-create c p #:title "n" #:body "b") 'id))
+  (define many (string-join (for/list ([i 9]) (format "\"t~a\"" i)) ", "))
+  (define-values (n added dropped)
+    (note-autotag! c p id #:chat (scripted (string-append "{\"tags\": [" many "]}"))))
+  (check-equal? (length added) TAG-PROPOSAL-MAX "five at most per call"))
+
+(test-case "it is metered, and a note the caller cannot read is #f"
+  (define-values (c p tid) (setup))
+  (set-limit! c "team" tid "ai.tokens.total" 1000000 #:window "day")
+  (define id (hash-ref (notes-create c p #:title "n" #:body "b") 'id))
+  (note-autotag! c p id #:chat (scripted "{\"tags\": [\"x\"]}" 42))
+  (check-equal? (quota-used c "team" tid "ai.tokens.total" "day") 42
+                "the provider's own token count, recorded whatever the reply was")
+  (check-false (note-autotag! c p "no-such-note" #:chat (scripted "{\"tags\": []}"))))
+
+(test-case "the model is shown only the tags the CALLER can see"
+  ;; a proposal must not be steered by a word that exists only on somebody's
+  ;; private note — the same reason the derived list is authorized
+  (define-values (c p tid) (setup))
+  (define bob (member-of c tid "bob"))
+  (notes-create c p #:title "mine" #:visibility "private" #:tags '("confidential-codename"))
+  (define bobs (hash-ref (notes-create c bob #:title "bobs" #:body "b") 'id))
+  (define seen (box ""))
+  (note-autotag! c bob bobs
+                 #:chat (lambda (prompt #:system [sys #f])
+                          (set-box! seen prompt)
+                          (values "{\"tags\": []}" 1)))
+  (check-false (regexp-match? #px"confidential-codename" (unbox seen))))
