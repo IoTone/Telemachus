@@ -265,8 +265,10 @@ A row with status `ok` or `error` means a model was asked and this instance know
 row with status `unserved` means the opposite and says why in `error_kind`: `released` (the worker
 handed the job back without asking a model), `expired` (the worker stopped answering, so no result
 was seen) or `canceled` (the result was discarded before it was read). `tokens_used` is null on all
-three, because there is no call to count. Count model calls as rows where status is `ok` or `error`,
-never as rows.
+three, because there is no call to count. Count CALLS, not rows: a push or stream call is one row, and
+a pull call is two that share a `job_id` (below), so `COUNT(DISTINCT job_id)` plus the rows whose
+`job_id` is null is the count that matches the ledger. Counting rows where the status is `ok` or
+`error` counts every remote call twice.
 
 A pull call leaves two rows, and they join on `job_id`. The route that enqueued
 the job writes one from the waiting side, so its `ms` covers the queue wait as
