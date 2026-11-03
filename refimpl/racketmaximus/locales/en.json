@@ -1428,8 +1428,8 @@
       "hash": "cdb91dd313c4c647ddd892ce2786897c54e061d7"
     },
     "doc.route.get.api.admin.workers": {
-      "text": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that.",
-      "hash": "57debe14263c6fd7babde28e1412f4fbe9492a1f"
+      "text": "The worker fleet (FLEET-2): every executor with its health, what the worker reports, the job it holds, its outcomes and lease expiries over a window (?hours=, default 24), its recent failures — plus the queue: depth by kind, the oldest queued job's age, and how many queued remote jobs NO live executor can run. That last figure is the one a deep queue cannot otherwise explain: a stalled fleet and a busy one look the same from a count. Every number is derived, and a job held by a quota is NOT counted unclaimable — GET /api/jobs already says `waiting` for that. Beside it is `held_by_paused`: queued remote work a matching host could run but has said it is not taking any. It is counted apart from unclaimable because nothing needs buying or clearing, since the host may resume on its own. The two are ordered rather than exclusive, so work nothing can run stays unclaimable however many hosts are paused, and each report names up to twenty of its jobs.",
+      "hash": "56d5c588b781ff4f6f0650b70b7545936d5908cf"
     },
     "ui.instfeathint": {
       "text": "Turn a feature off for the whole instance. No company and no team can turn it back on — they may only tighten further.",
