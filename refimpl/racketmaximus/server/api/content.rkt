@@ -9,12 +9,17 @@
 (provide ep-notes-create ep-notes-list ep-documents-create ep-documents-list
          ep-documents-get ep-documents-update ep-documents-delete
          ep-notes-get ep-notes-update ep-notes-delete ep-notes-share
+         ep-note-tags ep-notes-autotag
          ep-search ep-kg-entities ep-kg-entity ep-kg-extract)
 
 (require racket/string
          web-kit
          (only-in "../../config.rkt" content-encryption-enabled?)
-         (only-in "../../domain/notes/notes.rkt" notes-create notes-delete notes-get notes-list notes-share notes-update)
+         (only-in "../../domain/notes/notes.rkt"
+                  notes-create notes-delete notes-get notes-list notes-share notes-update
+                  notes-tag-list)
+         (only-in "../../domain/notes/note-tools.rkt" note-autotag!)
+         (only-in "../../domain/tools/faults.rkt" exn:fail:misconfigured?)
          (only-in "../../domain/documents/documents.rkt" documents-create documents-delete documents-get documents-list documents-update)
          ;; #239: a project is a key prefix, so the folder list is derived there
          (only-in "../../domain/repo/repo.rkt" repo-prefixes)
@@ -29,11 +34,29 @@
   (with-auth req (lambda (p)
     (define b (read-json-body req))
     (json-response (notes-create db-conn p #:title (hash-ref b 'title "")
-                                 #:body (hash-ref b 'body "") #:visibility (hash-ref b 'visibility "team"))
+                                 #:body (hash-ref b 'body "")
+                                 #:visibility (hash-ref b 'visibility "team")
+                                 #:tags (hash-ref b 'tags '()))
                    #:code 201))))
 
+;; #245: `?tag=` is repeatable, so it reads through `query-params` (plural) and
+;; not `query-param`, which answers with the FIRST value — right for a scalar and
+;; wrong for a filter you are meant to stack. LAY-4's `?attr=` paid for that
+;; distinction already.
 (define (ep-notes-list req)
-  (with-auth req (lambda (p) (json-response (hasheq 'notes (notes-list db-conn p #:scope (scope-of req)))))))
+  (with-auth req (lambda (p)
+    (json-response
+     (hasheq 'notes (notes-list db-conn p #:scope (scope-of req)
+                                #:tags (query-params req 'tag)))))))
+
+;; TAG-1 — the team's tag list is DERIVED, so there is nothing to store and
+;; nothing to keep in step. It is its own route rather than a field on the
+;; listing because the console wants it to build a filter it can offer BEFORE a
+;; filter has been chosen, and because `?tag=` narrows the listing it would
+;; otherwise be derived from — a list that shrank as you used it.
+(define (ep-note-tags req)
+  (with-auth req (lambda (p)
+    (json-response (hasheq 'tags (notes-tag-list db-conn p #:scope (scope-of req)))))))
 
 ;; ---- documents (offset-paginated) -------------------------------------------
 ;; #239: `key` files the document into a project. Absent, it composes
@@ -79,9 +102,35 @@
 (define (ep-notes-update req id)
   (with-auth req (lambda (p)
     (define b (read-json-body req))
+    ;; a MISSING `tags` key leaves the set alone; `[]` CLEARS it. Those have to
+    ;; be different or the last tag could never be removed, which is the one
+    ;; place this differs from #239's "blank is absent".
     (define n (notes-update db-conn p id #:title (hash-ref b 'title #f)
-                            #:body (hash-ref b 'body #f) #:visibility (hash-ref b 'visibility #f)))
+                            #:body (hash-ref b 'body #f) #:visibility (hash-ref b 'visibility #f)
+                            #:tags (hash-ref b 'tags #f)))
     (if n (json-response n) (err "not found" 404)))))
+
+;; TAG-7 — synchronous, and HELP-23 is the reasoning. One note is ONE model call,
+;; so the wire is not a job and seconds fit any request budget; what would force
+;; a job is a page of notes, which is the backfill and is its own slice. The
+;; answer carries `added` and `dropped` separately because "it proposed nothing"
+;; and "it proposed four things I could not use" have different remedies.
+(define (ep-notes-autotag req id)
+  (with-auth req (lambda (p)
+    ;; "no model configured" is raised as `exn:fail:misconfigured`, which is
+    ;; right where it comes from — WF-14 makes a fan-out fail on its FIRST child
+    ;; for it, rather than reporting it once per note — and wrong on a
+    ;; synchronous endpoint, where #123 classifies anything that is not a user
+    ;; error as a 500 and answers `{"error":"internal error"}`. An operator
+    ;; one variable away from a working feature must not be told that. So it is
+    ;; translated HERE, where the caller is a person, and nowhere else: the
+    ;; workflow path keeps its own semantics.
+    (with-handlers ([exn:fail:misconfigured?
+                     (lambda (e) (err (exn-message e) 400))])
+      (define-values (n added dropped) (note-autotag! db-conn p id))
+      (if n
+          (json-response (hasheq 'note n 'added added 'dropped dropped))
+          (err "not found" 404))))))
 
 (define (ep-notes-delete req id)
   (with-auth req (lambda (p)

@@ -2093,6 +2093,43 @@
       (exec* conn "ALTER TABLE model_requests ADD COLUMN job_id TEXT")
       (exec* conn "CREATE INDEX IF NOT EXISTS idx_model_requests_job ON model_requests (job_id)"))))
 
+(define m-0068-note-tags
+  (migration "0068-note-tags"
+    (lambda (conn)
+      ;; TAG-1 — TAGS ON A NOTE (issue #245). A tag is a ROW BINDING a word to a
+      ;; note. There is deliberately no table saying which tags EXIST: the team's
+      ;; tag list is DERIVED from the tags in use (SELECT DISTINCT), which is
+      ;; #239's PATH-1 decided for the other table and the same rule `available`
+      ;; locales live by. So a tag cannot be empty, and it stops existing when
+      ;; its last note drops it.
+      ;;
+      ;; TAG-2 — A JOIN TABLE, NOT A DELIMITED COLUMN ON `notes`. The feed
+      ;; queue's `,racket,ops,` with a LIKE (QUEUE-6) is the other precedent in
+      ;; this tree, and it earned that shape by needing to ORDER and compare on
+      ;; the row's own columns. The two things #245 implies are "list this team's
+      ;; tags" and "filter notes by tag", and a delimited column answers the
+      ;; first with a full scan plus a split in Racket, and the second with
+      ;; `LIKE '%,x,%'` — a LEADING wildcard, which PERF-5 measured as unable to
+      ;; use its index at all (a key search costs as much as a content search at
+      ;; 20,000 rows for exactly that reason).
+      ;;
+      ;; `team_id` is denormalized onto the row so the derived list and the
+      ;; filter are one indexed read rather than a join back to `notes` — the
+      ;; move `audit_log.org_id` already makes, and for the same reason: the
+      ;; listing must not depend on a join to a row that may be gone.
+      ;;
+      ;; The PRIMARY KEY is what makes a tag idempotent per note: tagging twice
+      ;; is one row, so the write path needs no "already there?" read.
+      (exec* conn
+       (string-append
+        "CREATE TABLE note_tags ("
+        "  note_id TEXT NOT NULL,"
+        "  team_id TEXT NOT NULL,"
+        "  tag TEXT NOT NULL,"                  ; normalized: trimmed, collapsed, lower-cased
+        "  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "  PRIMARY KEY (note_id, tag))")
+       "CREATE INDEX idx_note_tags_team_tag ON note_tags(team_id, tag)"
+       "CREATE INDEX idx_note_tags_note ON note_tags(note_id)"))))
 
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
@@ -2101,4 +2138,5 @@
                              m-0059-feed-items m-0060-trigger-attrs m-0061-redactions
                              m-0062-model-requests m-0063-model-request-operation
                              m-0064-chunk-vectors m-0065-help-corpus
-                             m-0066-job-finished-age m-0067-model-request-job))
+                             m-0066-job-finished-age m-0067-model-request-job
+                             m-0068-note-tags))

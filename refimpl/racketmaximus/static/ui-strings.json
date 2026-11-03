@@ -523,7 +523,16 @@
   "ui.qvreleases": "{n} handed back",
   "ui.allpaths": "All paths",
   "ui.nohereobjects": "Nothing filed here yet.",
-  "ui.foldercut": "More paths than fit one listing \u2014 open one to narrow it.",
+  "ui.foldercut": "More paths than fit one listing — open one to narrow it.",
   "ui.dockeyhint": "A path ending in / files it into a project; the filename comes from the title. Blank means documents/.",
-  "ui.docmovehint": "Filed here. A document keeps its path \u2014 its versions, shares and links all point at it."
+  "ui.docmovehint": "Filed here. A document keeps its path — its versions, shares and links all point at it.",
+  "ui.tags": "Tags",
+  "ui.tagsph": "survey, levee 7",
+  "ui.tagshint": "Comma separated. Tags are lower-cased and trimmed, so Invoice and invoice are one tag.",
+  "ui.tagclear": "Clear filter",
+  "ui.autotag": "Auto-tag",
+  "ui.autotaghint": "Ask the model for tags for this note, in the note's own language. Existing tags are kept.",
+  "ui.autotagging": "Tagging…",
+  "ui.autotagged": "Added",
+  "ui.autotagnone": "The model proposed no usable tag"
 }
