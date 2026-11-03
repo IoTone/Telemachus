@@ -382,10 +382,10 @@ DERIVED=$(curl -s -X POST $B/api/orgs -H "Authorization: Bearer $ROOT" \
   -d '{"name":"Initech","owner_username":"admin@initech2.test"}')
 assert "derived slug suffixes" "$DERIVED" '"org_slug":"initech-1"'
 
-# plan changes are live: PATCH re-applies that plan's caps. The numbers are the org plan
-# table's own (domain/orgs/orgs.rkt): a trial that allows 100000 is about twenty document
-# reads, so the plans were sized against a read. A test that hardcodes them is the only
-# place that notices when they move — that is why these two lines are here and not derived.
+# plan changes are live: PATCH re-applies that plan's caps. The two figures below are
+# `org-plan-quotas` in domain/orgs/orgs.rkt and must be edited WITH it; why they are sized as
+# they are belongs at that definition, not here. A test that hardcodes them is the only place
+# that notices when they move — that is why these two lines are here and not derived from it.
 assert "starter cap" "$(g /api/orgs/initech $ROOT)" '"limit":50000000'
 UP=$(curl -s -X PATCH $B/api/orgs/initech -H "Authorization: Bearer $ROOT" -d '{"plan":"pro"}')
 assert "plan upgraded"   "$UP" '"plan":"pro"'

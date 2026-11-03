@@ -51,8 +51,12 @@
 ;; cap the company then divides across its teams.
 (define org-plan-quotas
   ;; Sized against a read, not against an invoice: one six-page specification costs several thousand
-  ;; tokens, so a trial that allows 100000 can read about twenty documents and a starter plan about two
-  ;; hundred. The earlier numbers were about a document each. Same reason as default-policy!'s comment.
+  ;; tokens between the prompt and the extraction reply. The EARLIER caps were 100000 / 1000000 /
+  ;; 10000000 / 99000000 — a trial that could read about twenty documents a day and a starter plan
+  ;; about two hundred, which is close enough to ordinary work that a team met its cap while working
+  ;; normally. These are about 50x those, so an ordinary day sits far below the cap and the cap is
+  ;; left doing what a quota is for: stopping a runaway job rather than pricing the work. Same reason
+  ;; as default-policy!'s comment.
   (hash "trial"      (list (cons "ai.tokens.total" 5000000)   (cons "ai.requests" 5000)   (cons "ai.concurrency" 2))
         "starter"    (list (cons "ai.tokens.total" 50000000)  (cons "ai.requests" 50000)  (cons "ai.concurrency" 4))
         "pro"        (list (cons "ai.tokens.total" 500000000) (cons "ai.requests" 500000) (cons "ai.concurrency" 8))
