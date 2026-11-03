@@ -4305,8 +4305,8 @@
       "hash": "dafd53646715d9c486c0ca047c287a923ac21c9b"
     },
     "doc.route.put.api.email-transport": {
-      "text": "送信経路を設定します: `host`、`port`、`security`（`none`/`starttls`/`tls`）、`from_address`。任意で `username`、`password`、`from_name`、`base_url`、`active`。パスワードを省略すると保存済みのものがそのまま残るため、ポートを直したときに認証情報が黙って消えることはありません。明示的な null は消去します。`base_url` はこのコンソール自身の外部URLで、通知のリンクを機能させるものです。推測はできません。Hostヘッダは呼び出し元のものであり、通知はリクエストのない定期処理が組み立てるからです。暗号化モードはポートから推測せず保存します。587で暗黙TLS、465でSTARTTLSという構成はどちらも実在し、推測を誤ると応答が返らない形で失敗します。",
-      "hash": "073e9a9467ee048a1a17fe5bfa1abcece73c1908"
+      "text": "送信経路を設定します: `host`、`port`、`security`（`none`/`starttls`/`tls`）、`from_address`。任意で `username`、`password`、`from_name`、`base_url`、`active`。文書全体の書き込みなので、維持したい項目はすべて送ってください。`host`、`port`、`from_address` だけを載せたリクエストは `from_name` と `base_url` を消去し、`base_url` を失うとそれ以降すべての通知のリンクが黙って機能しなくなります。例外はパスワードだけです。省略すると保存済みのものがそのまま残ります。呼び出し元が読み戻せない唯一の項目であり、したがって往復させられないからです。明示的な null は消去します。`base_url` はこのコンソール自身の外部URLで、通知のリンクを機能させるものです。推測はできません。Hostヘッダは呼び出し元のものであり、通知はリクエストのない定期処理が組み立てるからです。暗号化モードはポートから推測せず保存します。587で暗黙TLS、465でSTARTTLSという構成はどちらも実在し、推測を誤ると応答が返らない形で失敗します。",
+      "hash": "48cd9b352b4508ee89479c3d8290df592cc6b958"
     },
     "doc.route.put.api.org.email-notify": {
       "text": "この会社向けにカテゴリを無効にします（`{\"documents\": false}`）。意味を持つのは `false` のみです。不在は「この層は反対しない」という意味です。",
