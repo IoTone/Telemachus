@@ -28,6 +28,7 @@ Every tool a workflow step may use, from `define-tool` declarations and plugin r
 | `kg_list_unextracted` | — | `files:read` | built-in | テキストがまだ知識グラフに抽出されていない（または上書き後に古くなった）リポジトリ文書を一覧する。オブジェクト ID をバッチ上限まで返します；続けるには index-knowledge ワークフローを再実行してください。 |
 | `kg_query` | yes | `files:read` | built-in | チームの文書がエンティティについて述べていること：その関係と、それに言及する文書を抜粋付きで。名前（またはエンティティ ID）を指定；hops 1 は近傍を、hops 2 はその近傍まで返します。 |
 | `list_notes` | yes | `notes:read` | built-in | 現在のユーザーのメモ（タイトルと表示設定）を一覧表示します。 |
+| `note_autotag` | yes | `notes:write` | built-in | Suggest topic tags for a note and add them to it, in the note's own language. |
 | `repo_embed_chunks` | — | `files:write` | built-in | 1つのリポジトリドキュメントの抽出済みテキストをチャンクに分割し、チャンクごとに埋め込みベクトルを保存します。そのバージョンの既存のベクトルは全体が置き換えられます。 |
 | `repo_extract_text` | — | `files:write` | built-in | 1つのリポジトリドキュメントのテキストを検索インデックスに抽出します。 |
 | `repo_list_unembedded` | — | `files:read` | built-in | 現在のバージョンのチャンク埋め込みベクトルがまだない、または別のモデルで作成されたベクトルを持つリポジトリドキュメントをリストします。オブジェクトIDを返し、バッチ分まで；続行するにはワークフローを再実行してください。 |
@@ -329,6 +330,16 @@ Permission: `notes:read` · source: built-in
 
 No parameters.
 
+
+## `note_autotag`
+
+Suggest topic tags for a note and add them to it, in the note's own language.
+
+Permission: `notes:write` · source: built-in
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | The note id |
 
 ## `repo_embed_chunks`
 

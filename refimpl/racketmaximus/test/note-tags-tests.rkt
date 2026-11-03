@@ -233,7 +233,13 @@
   (note-autotag! c p id #:chat (scripted "{\"tags\": [\"x\"]}" 42))
   (check-equal? (quota-used c "team" tid "ai.tokens.total" "day") 42
                 "the provider's own token count, recorded whatever the reply was")
-  (check-false (note-autotag! c p "no-such-note" #:chat (scripted "{\"tags\": []}"))))
+  ;; three values ALWAYS, including for a note that is not there — a bare #f here
+  ;; is a result arity mismatch at every call site that destructures it
+  (define-values (missing m-added m-dropped)
+    (note-autotag! c p "no-such-note" #:chat (scripted "{\"tags\": []}")))
+  (check-false missing)
+  (check-equal? m-added '())
+  (check-equal? m-dropped '()))
 
 (test-case "the model is shown only the tags the CALLER can see"
   ;; a proposal must not be steered by a word that exists only on somebody's

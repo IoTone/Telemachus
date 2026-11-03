@@ -120,7 +120,9 @@ Path segments written `:name` are parameters; `*name` takes the rest of the path
 | GET | `/api/documents/:id` | bearer | `files:read` | resource | — | 一つのテキストドキュメントとその本文。 |
 | PUT | `/api/documents/:id` | bearer | `files:write` | resource | — | テキスト文書のタイトル・本文・公開範囲を更新する（新しいバージョン）。 |
 | DELETE | `/api/documents/:id` | bearer | `files:delete` | resource | — | テキストドキュメントを削除します。 |
+| GET | `/api/note-tags` | bearer | `notes:read` | role | — | Every tag in use in the team, with how many notes the caller can read carry it. The list is DERIVED from the tags on those notes (#245) — nothing stores which tags exist, so a tag cannot be empty and stops existing when its last note drops it. ?scope=org spans the company. |
 | POST | `/api/notes/:id/share` | bearer | `notes:manage` | resource | — | ユーザー（所有者、またはnotes:manage）とメモを共有します。与えられた権限はnotes:*のものでなければなりません。 |
+| POST | `/api/notes/:id/autotag` | bearer | `notes:write` | resource | — | Ask the model for topic tags for one note, in the note's own language, and ADD them to it (#245). Existing tags are never removed. Answers `added` and, separately, `dropped` — a tag the model proposed that is not a usable tag. One model call, metered against the team. |
 | GET | `/api/notes/:id` | bearer | `notes:read` | resource | — | 1件のノート。 |
 | PUT | `/api/notes/:id` | bearer | `notes:write` | resource | — | ノートを更新します。 |
 | DELETE | `/api/notes/:id` | bearer | `notes:delete` | resource | — | ノートを削除します。 |

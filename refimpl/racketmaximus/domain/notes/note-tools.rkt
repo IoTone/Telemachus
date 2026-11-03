@@ -117,12 +117,25 @@
 ;; does" has a single home and the two surfaces cannot drift — which is the shape
 ;; `record-type!` already holds for the two classification tools.
 ;;
-;; Answers (values note added dropped), or #f when there is no such note the
-;; caller can read.
+;; ALWAYS three values — (values note-or-#f added dropped). Returning a bare #f
+;; for "no such note" and three values otherwise is a result arity mismatch at
+;; every call site that destructures it, which is a trap this tree has recorded
+;; five times and which the HTTP smoke caught here as a 500 on all three autotag
+;; assertions.
 (define (note-autotag! conn p id #:chat [chat #f])
   (define existing (notes-get conn p id))          ; notes:read, and 403/404 as ever
-  (and existing
-       (let ()
+  (if (not existing)
+      (values #f '() '())
+      (let ()
+         ;; THE WRITE PERMISSION IS CHECKED BEFORE THE MODEL IS CALLED. The call
+         ;; sits between a read and a write, so without this a caller who may
+         ;; read the note and not write it spends a model request and the team's
+         ;; budget and is only then refused — and the refusal they see is about
+         ;; the model rather than about their permission. Found by the HTTP
+         ;; smoke, asserted with a VIEWER: a member holds both permissions, so
+         ;; the same assertion against one passes against a server that checks
+         ;; nothing at all.
+         (notes-require-write! conn p id)
          ;; the model is shown the tags THIS CALLER can see (TAG-1/PATH-6), never
          ;; the whole team's: a proposal must not be steered by a word that only
          ;; exists on a colleague's private note

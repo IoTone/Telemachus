@@ -12,7 +12,7 @@
 
 (provide notes-create notes-list notes-get notes-update notes-delete notes-share
          ;; tags (#245) — exported for the tool, the endpoint and their tests
-         notes-set-tags! notes-tag-list note-tags
+         notes-set-tags! notes-tag-list note-tags notes-require-write!
          tag-normalize tag-problem tags-clean MAX-TAGS MAX-TAG-CHARS)
 
 ;; ---- tags (#245) ------------------------------------------------------------
@@ -198,6 +198,19 @@
                  (query-exec conn "DELETE FROM note_tags WHERE note_id = ?" id)
                  (write-tags! conn id (hash-ref n 'team_id) clean))))
            (with-tags conn (row->note (get-row conn id))))))
+
+;; "May this caller write this note?", asked on its own so a caller can find out
+;; BEFORE doing something expensive. `notes-set-tags!` asks it too — this is not
+;; a second copy of the rule, it is the same `require-perm` on the same resource,
+;; reachable one step earlier. #245's auto-tagger needs it because the model call
+;; sits between the read and the write, and without this a viewer spent the
+;; team's AI budget and was then refused: the HTTP smoke's viewer assertion is
+;; what found that.
+(define (notes-require-write! conn p id)
+  (define r (get-row conn id))
+  (and r (let ([n (row->note r)])
+           (require-perm conn p "notes:write" #:resource (note->resource n))
+           #t)))
 
 ;; TAG-4 — the one write path a caller reaches for tags alone. `'replace` is the
 ;; editor's save; `'add` is what the AI tool uses, because TAG-6 says a proposal
