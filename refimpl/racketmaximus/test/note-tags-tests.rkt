@@ -254,3 +254,23 @@
                           (set-box! seen prompt)
                           (values "{\"tags\": []}" 1)))
   (check-false (regexp-match? #px"confidential-codename" (unbox seen))))
+
+(test-case "a caller who may not WRITE is refused before the model is called"
+  ;; TAG-8, and this case exists because a positive control did not bite: the
+  ;; rule was covered only by the HTTP smoke, so nothing here would have noticed
+  ;; the check being removed. The model call sits between a read and a write, so
+  ;; what must be asserted is not merely the refusal but that NOTHING WAS SPENT —
+  ;; the seam was never reached. EMB-9's shape: the case asserts the seams were
+  ;; never called, which is the only way a "declines before spending" claim means
+  ;; anything.
+  (define-values (c p tid) (setup))
+  (define vera (member-of c tid "vera" #:role "viewer"))
+  (define id (hash-ref (notes-create c p #:title "team note" #:tags '("kept")) 'id))
+  (define called (box 0))
+  (define counting (lambda (prompt #:system [sys #f])
+                     (set-box! called (add1 (unbox called)))
+                     (values "{\"tags\": [\"sneaked\"]}" 5)))
+  (check-exn exn:fail:forbidden?
+             (lambda () (note-autotag! c vera id #:chat counting)))
+  (check-equal? (unbox called) 0 "the model was never called, so nothing was spent")
+  (check-equal? (note-tags c id) '("kept") "and the note is untouched"))
