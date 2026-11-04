@@ -30,11 +30,13 @@
          "../domain/mail/transport.rkt"
          "../domain/mail/addresses.rkt"
          "../domain/mail/mail.rkt"
+         (only-in "../domain/quota/quota.rkt" set-limit! quota-used)
+         racket/runtime-path
          (only-in "../domain/repo/blobs.rkt" current-blob-root)
          (only-in racket/file make-directory*)
          (only-in racket/system system*/exit-code)
          (only-in racket/port open-output-nowhere)
-         (only-in racket/file make-temporary-file)
+         (only-in racket/file make-temporary-file file->string)
          openssl
          "mock-smtp.rkt")
 
@@ -338,6 +340,179 @@
     (define rcpts (notification-recipients c tid "documents" "object.created"
                                            (hasheq 'object_id oid)))
     (check-equal? (map car rcpts) (list alice)))
+  (close-db! c))
+
+;; ---- what a team may spend on telling people (MAIL-25) --------------------------------
+;; The dimension exists so that a plugin calling `mail-notify!` in a loop meets a
+;; limit rather than this instance's standing with the relays meeting it. Every
+;; case below is about WHERE the bound sits, because that is the whole of the
+;; design: at the fan-out, so the four transactional messages are outside it by
+;; construction and not by a flag somebody can forget.
+
+(define-runtime-path test-dir ".")
+(define ADMISSION-RKT (build-path test-dir ".." "server" "admission.rkt"))
+
+;; A text scan, because `server/admission.rkt` requires `kit.rkt`, which
+;; instantiates the connection pool at module instantiation and reads
+;; `DATABASE_URL` — and CI's sqlite leg sets that to the EMPTY STRING, which
+;; `db-connector` refuses. #123 paid for exactly that: a unit test must not
+;; require kit. Comment lines are stripped, which is the fourth-appearance rule
+;; for a scan that would otherwise read the prose explaining what it looks for.
+(define (admission-code)
+  (string-join
+   (for/list ([ln (in-list (string-split (file->string ADMISSION-RKT) "\n"))]
+              #:unless (regexp-match? #px"^[ \t]*;" ln))
+     ln)
+   "\n"))
+
+(test-case "MAIL-25: it is NOT a hold dimension, and that is load-bearing"
+  ;; A hold stops a team's SCHEDULER QUEUE until the window resets. A
+  ;; notification is emitted FROM a job — a workflow run completing is what fires
+  ;; `run.completed` — so holding on this dimension would stop a team's actual
+  ;; work because it had sent too much mail. And a delivery is not a job at all:
+  ;; it is a row swept on the reaper seam, so there is no queue of deliveries for
+  ;; a hold to govern. The refusal belongs at the fan-out, where the other cases
+  ;; here assert it is.
+  (check-false (regexp-match? (regexp (regexp-quote MAIL-QUOTA-DIM)) (admission-code))
+               (string-append MAIL-QUOTA-DIM " must not reach QUOTA-HOLD-DIMS: holding on it"
+                              " stops the jobs that EMIT notifications")))
+
+(test-case "MAIL-25: a fan-out is metered per mailbox, and no limit refuses nothing"
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (define bob (create-user! c #:username "bob"))
+  (add-member! c #:user bob #:team tid #:role "member")
+  (verify-address! c bob "bob@example.test")
+  (instance-categories-set! c (hasheq 'jobs #t))
+  ;; ONE EVENT TO TWO MEMBERS IS TWO, because the resource is spent per mailbox.
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 2)
+  ;; `quota-check` reports `used: 0` where no limit is set, so the ledger is what
+  ;; has to be read — this file's fourth asker of that rule.
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 2)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 2)
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 4
+                "with no limit configured nothing is refused, and the figure still accrues")
+  (close-db! c))
+
+(test-case "MAIL-25: a reached limit refuses the next event and writes no row"
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 2 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 1)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 1)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j3")) 0
+                "the third is refused")
+  ;; A refusal is not a pending row: nothing was written, so nothing will be
+  ;; retried ten times and die. MAIL-10's rule, arriving through a second door.
+  (check-equal? (query-value c "SELECT COUNT(*) FROM email_deliveries") 2)
+  (close-db! c))
+
+(test-case "MAIL-25: the check asks for ONE unit, not for the whole fan-out"
+  ;; THE POSITIVE CONTROL FOR THE SHARPEST DECISION IN THIS SLICE. Asking for N
+  ;; and refusing the lot means a team of two under a limit of one is refused
+  ;; EVERY event for ever while its ledger stays at `used: 0` — a bound that
+  ;; silences a team and reports that it was never reached. Swap the `1` in
+  ;; `mail-notify!` for `(length recips)` and the first assertion here answers 0
+  ;; and the second 0, which is that state exactly.
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (define bob (create-user! c #:username "bob"))
+  (add-member! c #:user bob #:team tid #:role "member")
+  (verify-address! c bob "bob@example.test")
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 1 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 2
+                "both members are told, because there was budget for a message")
+  ;; THE OVERSHOOT IS REAL AND IS STATED RATHER THAN IMPLIED: the window ends
+  ;; over the limit, by at most one team's membership — the same overshoot every
+  ;; AI dimension accepts between an admission estimate and a metered actual.
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 2)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 0
+                "and the next event is refused, with the figure saying why")
+  (close-db! c))
+
+(test-case "MAIL-25: a TRANSACTIONAL message is outside the bound"
+  ;; RESET-5 with a number in front of it. The preference layers exist so a
+  ;; person can stop this instance mailing them and a person who has turned
+  ;; every category off must still be able to recover their account; a quota
+  ;; that could refuse a reset would be that defect again. The bound sits at the
+  ;; fan-out, so this holds by construction — there is no keyword here saying
+  ;; "do not count this one", which is what a check inside `mail-enqueue!` would
+  ;; have needed and what the one caller that forgot it would have broken.
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 1 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 1)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 0
+                "the notification budget really is exhausted")
+  ;; …and all four transactional messages still go out.
+  (check-true (string? (mail-enqueue-password-reset! c #:user alice
+                                                     #:address "alice@example.test"
+                                                     #:token "rtok"))
+              "a password reset cannot be refused by a mail quota")
+  (check-true (string? (mail-enqueue-verification! c #:user alice
+                                                   #:address "alice2@example.test"
+                                                   #:token "vtok")))
+  (check-true (string? (mail-enqueue-invitation! c #:user alice
+                                                 #:address "new@example.test"
+                                                 #:token "itok"
+                                                 #:team-name "Acme" #:inviter "alice")))
+  ;; and they do not move the dimension either, so the figure keeps meaning
+  ;; "notifications" rather than "mail"
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 1)
+  (close-db! c))
+
+(test-case "MAIL-25: a refusal is audited, with a count and not the addresses"
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (define bob (create-user! c #:username "bob"))
+  (add-member! c #:user bob #:team tid #:role "member")
+  (verify-address! c bob "bob@example.test")
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 0 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 0)
+  ;; `audit-list` does not project `meta` — #59's rule, and asserting over an API
+  ;; that never carried the field is how an assertion passes for the wrong
+  ;; reason — so the row is read directly.
+  (define row (query-maybe-row c
+                (string-append "SELECT team_id, result, meta FROM audit_log "
+                               "WHERE action = 'email.notify.refused'")))
+  (check-true (and row #t) "a notification nobody received is otherwise pure silence")
+  (check-equal? (vector-ref row 0) tid
+                "the team whose members were not told, or audit-list cannot see it")
+  (check-equal? (vector-ref row 1) "refused")
+  (define meta (string->jsexpr (vector-ref row 2)))
+  (check-equal? (hash-ref meta 'recipients) 2)
+  (check-equal? (hash-ref meta 'dimension) MAIL-QUOTA-DIM)
+  (check-equal? (hash-ref meta 'scope) "team")
+  ;; THE LOG IS CHAINED, EXPORTED AND KEPT THROUGH AN ERASURE (DEL-7), so it
+  ;; outlives every other copy — and a list of the mailboxes of everybody on a
+  ;; team is the one thing here most worth not writing into it.
+  (check-false (regexp-match? #px"alice@|bob@" (vector-ref row 2)))
+  (close-db! c))
+
+(test-case "MAIL-25: an event nobody was going to hear about spends nothing"
+  ;; The recipients are resolved before anything is spent. On a team where every
+  ;; member has turned the category off — or may not read the subject (MAIL-17) —
+  ;; that is the ordinary case rather than a corner, so a check and an audit
+  ;; entry per such event would be a ledger and a log full of nothing.
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (user-pref-set! c alice "jobs" #f)
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 0 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 0)
+  (check-equal? (query-value c
+                  "SELECT COUNT(*) FROM audit_log WHERE action = 'email.notify.refused'") 0
+                "nothing was refused, because nothing was going to be sent")
   (close-db! c))
 
 ;; ---- what a message says -------------------------------------------------------------

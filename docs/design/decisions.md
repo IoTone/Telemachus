@@ -5892,3 +5892,43 @@ scale, since redeeming the link verifies the address; existing members have to
 add one from the Usage tab. That ordering is the honest reading of why both
 halves had to land together.
 
+## What a team may spend on telling people (MAIL‑25)
+
+The last item `email-notifications.md` named as not built: *"a quota dimension —
+which is the one thing a plugin-facing `mail-notify!` should gain next, so a
+plugin in a loop meets a limit rather than the instance's mail reputation meeting
+it."* One dimension, no migration, no route, no new permission.
+
+| # | Decision | Why |
+|---|---|---|
+| MAIL‑25a | **`mail.notifications`, counting MESSAGES QUEUED TO A MAILBOX** — one event to five members is five. | The resource being protected is this instance's standing with the relays, and that is spent per mailbox, not per event. EMB‑6's and VOICE‑11's shape: the dimension counts the thing somebody else is counting. **A retry is not counted**: the retry curve is the platform's own business, and charging a team for the relay having been down would make its budget a function of somebody else's uptime. |
+| MAIL‑25b | **The bound is at the FAN-OUT, not in `mail-enqueue!`** — which is what makes the four transactional messages safe by construction. | `mail-enqueue!` is also the one INSERT for a verification, a reset, an invitation and the transport test, so a check there would need a keyword saying "do not count this one" — a per-caller exemption list, where the one caller that forgot it would silently make a password reset refusable. RESET‑5 is that a reset must work for somebody who has turned every category off, because the alternative is a screen that locks you out permanently; a quota that could refuse one is that defect with a number in front of it. |
+| MAIL‑25c | **No default limit.** | DEL‑9's and PULL‑15a's rule, and here it is doubly true: the instance layer is already an opt-in (MAIL‑14), so the operator who turned notifications on is the one person placed to say how many is too many. An upgrade refuses nothing. |
+| MAIL‑25d | **Deliberately NOT in `QUOTA-HOLD-DIMS`**, and this is the sharpest decision here. | A hold stops a team's SCHEDULER QUEUE until the window resets — right for every AI dimension, because those are spent *inside* a job and holding the job is holding the spend. A notification is emitted FROM a job: a workflow run completing is what fires `run.completed`. So holding on this dimension would stop a team's actual work because it had sent too much mail — the tail wagging the dog, and an outage with no obvious cause. A delivery is not a job either; it is a row swept on the reaper seam, so there is no queue of deliveries for a hold to govern. **Gated by a source scan over `server/admission.rkt`**, because that module requires `kit.rkt` and a unit test that requires kit fails in CI's sqlite leg alone (#123). |
+| MAIL‑25e | **The check asks for ONE unit, not for the whole fan-out**, and the overshoot is stated. | Asking for N and refusing the lot means a team of five under a limit of three is refused EVERY event for ever while its ledger stays at `used: 0` — a bound that silences a team and reports that it was never reached, which is a day of somebody's time. Asking "is there any budget left" and metering what was queued lets the figure reach and pass the limit, which is what says plainly what happened. The cost: a window may end OVER the limit by at most one team's membership — the same overshoot every AI dimension accepts between an admission estimate and a metered actual. |
+| MAIL‑25f | **A refusal is AUDITED** (`email.notify.refused`), one entry per refusal and NOT deduped per window. | A notification that was not sent is otherwise invisible: `mail_deliveries` is where an operator looks and a refused message writes no row there, so the symptom is silence and the diagnosis is "email is broken". `ai.egress.refused` (RED‑24) is the precedent and so is its shape. `quota.exhausted`'s dedup exists because every pool tick re-asks the same question about the same queued job; here each entry is about a DIFFERENT event, the rate is the team's own event rate, and collapsing them would throw away the only record of which events nobody was told about. |
+| MAIL‑25g | The entry carries **how many recipients there were and not who they are**. | The log is chained, exported off the box and deliberately kept through an erasure (DEL‑7), so it outlives every other copy — and a list of the mailboxes of everybody on a team is the one thing in this subsystem most worth not writing into it. MTX‑8's line, applied to the audit trail rather than to a message. |
+| MAIL‑25h | **The recipients are resolved BEFORE anything is spent.** | An event nobody was going to hear about must cost neither a quota check nor an audit entry. On a team where every member has turned the category off, or may not read the subject (MAIL‑17), that is the ordinary case rather than a corner — so the alternative is a ledger and a log full of nothing. Positive-controlled by moving the check above the resolution. |
+| MAIL‑25i | **Enforced and reported at BOTH tiers**, so `mail.notifications` joins `ORG-DIMENSIONS` and `org-usage` as well as `GET /api/usage`. | What a company is protecting is its own domain's reputation with the relays, which is one resource however many teams are spending it, so the company cap is the one that actually matters. And orgs.rkt's own line: a limit that is enforced and not reported is worse than one that is neither — which is the defect `storage.bytes` had there for a year. Because it is not a hold dimension, `held` can never name it, so the usage figure is the ONLY place a team learns it has stopped telling people things. |
+| MAIL‑25j | `tenant-quota-check/team` and `tenant-quota-record!/team` — **one rule, two spellings of its subject.** | The principal-keyed pair is what every metered endpoint asks, because a request has a caller. A notification does not: `mail-notify!` is handed a team and an event, and the event belongs to the team rather than to any one person, so building a principal to satisfy the signature would mean choosing a user the event does not have. A second copy of the ordering — the org decision first, and let it refuse — would be `executor-can-run?`'s drift in the one place where getting it wrong lets a team spend a company's budget after the company has run out. |
+
+**STATED RATHER THAN IMPLIED, and a control is what established it.** The record
+site charges the count of rows that were WRITTEN, and today that is provably the
+same number as the recipient list's length: `mail-enqueue!` answers `#f` on two
+conditions only — no transport, which `mail-notify!`'s own second arm has already
+refused, and an address `mail-address-problem` rejects, which
+`notification-recipients` filters out *before* the loop. So nothing reachable
+from there can make the two differ, substituting one for the other fails no test,
+and a case written to pin it passed for the wrong reason until the control showed
+it. It is still the written count, because if `mail-enqueue!` ever gains a third
+refusal that stays the honest figure while the intended one quietly starts
+billing a team for messages nobody sent. The LibreOffice branch's and VEC‑13's
+shape: a reason to write the rule down, not a reason it is covered.
+
+**Not built, deliberately.** A console control for the dimension — the Usage tab
+renders every dimension the endpoint reports, so the figure is already there and
+`POST /api/quota` already sets it; a *per-category* budget, which would be five
+numbers where the thing being protected is one; and a rate limit as distinct from
+a windowed budget, which is what `window: "minute"` already is for anybody who
+wants it.
+

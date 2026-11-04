@@ -58,11 +58,16 @@
          (only-in "../events/describe.rkt" event-subject event-console-path short-id)
          (only-in "../settings/settings.rkt" setting-ref setting-set!)
          (only-in "../authz/authz.rkt" team-org user-principal audit!)
+         ;; the team-keyed half of the tenant admission pair (MAIL-25). orgs.rkt
+         ;; requires authz, quota and db and nothing of this subsystem, so this
+         ;; direction is the only one there is.
+         (only-in "../orgs/orgs.rkt" tenant-quota-check/team tenant-quota-record!/team)
          ;; the ONE predicate for "may this principal read this document"
          (only-in "../repo/repo.rkt" repo-readable?)
          "transport.rkt")
 
 (provide MAIL-CATEGORIES CATEGORY-EVENTS TRANSACTIONAL-CATEGORIES MAX-ATTEMPTS
+         MAIL-QUOTA-DIM
          category-of-event category? backoff-seconds
          ;; the layers
          instance-categories instance-categories-set! org-categories org-categories-set!
@@ -400,6 +405,81 @@
        ;; in the one place where getting it wrong discloses rather than fails.
        (and (repo-readable? conn (user-principal conn uid team) oid) #t))]))
 
+;; ---- what a team may spend on telling people -----------------------------------
+;; `mail.notifications`, COUNTING MESSAGES QUEUED TO A MAILBOX (MAIL-25) — one
+;; event to five members is five, because the resource being protected is this
+;; instance's standing with the relays and that is spent per mailbox, not per
+;; event. A RETRY IS NOT COUNTED: the retry curve is the platform's own business,
+;; and charging a team for the relay having been down would make a team's budget
+;; a function of somebody else's uptime.
+;;
+;; THE BOUND IS ON THE FAN-OUT AND NOT ON `mail-enqueue!`, AND THAT IS WHAT MAKES
+;; THE TRANSACTIONAL MESSAGES SAFE BY CONSTRUCTION. `mail-enqueue!` is also the
+;; one INSERT for a verification, a reset, an invitation and the transport test,
+;; so a check there would need a keyword saying "do not count this one" — a
+;; per-caller exemption list, where the one caller that forgot it would silently
+;; make a password reset refusable. RESET-5 is that a reset must work for somebody
+;; who has turned every category off, because the alternative is a screen that
+;; locks you out permanently; a quota that could refuse one would be the same
+;; defect with a number in front of it. Charging here puts the bound on exactly
+;; the discretionary half, by construction rather than by a flag.
+;;
+;; THERE IS NO DEFAULT LIMIT, so on an instance nobody configured this refuses
+;; nothing — DEL-9's and PULL-15a's rule, and here it is doubly true, since the
+;; instance layer is already an opt-in (MAIL-14) and the operator who turned
+;; notifications on is the one person placed to say how many is too many.
+;;
+;; IT IS DELIBERATELY NOT IN `QUOTA-HOLD-DIMS`, and that is the sharpest decision
+;; here. A hold means a team's SCHEDULER QUEUE stops until the window resets —
+;; right for every AI dimension, because those are spent inside a job and holding
+;; the job is holding the spend. A notification is emitted FROM a job (a workflow
+;; run completing is what fires `run.completed`), so holding on this dimension
+;; would stop a team's actual work because it had sent too much mail — the tail
+;; wagging the dog, and an outage with no obvious cause. A delivery is not a job
+;; either: it is a row swept on the reaper seam, so there is no queue of
+;; deliveries for a hold to govern. The refusal belongs at the fan-out, which is
+;; where it is.
+(define MAIL-QUOTA-DIM "mail.notifications")
+
+;; A REFUSAL IS AUDITED, because a notification that was not sent is otherwise
+;; invisible: `mail_deliveries` is where an operator looks and a refused message
+;; writes no row there, so the symptom is silence and the diagnosis is "email is
+;; broken". `ai.egress.refused` is the precedent (RED-24) and so is its shape —
+;; one entry per refusal, NOT deduped per window like `quota.exhausted`. That
+;; dedup exists because every pool tick re-asks the same question about the same
+;; queued job and would write thousands of identical rows; here each entry is
+;; about a DIFFERENT event, the rate is the team's own event rate, and collapsing
+;; them would throw away the only record of which events nobody was told about.
+;;
+;; `#:team-id` is the team whose members were not told — the ninth appearance of
+;; that shape in these notes, and the reason is unchanged: `audit-list` filters
+;; by team, so an entry carrying the org instead would be invisible to exactly
+;; the people who stopped hearing.
+;;
+;; THE ADDRESSES ARE NOT IN IT, only how many there were. The log is chained,
+;; exported off the box and deliberately kept through an erasure (DEL-7), so it
+;; outlives every other copy — and a list of the mailboxes of everybody on a team
+;; is the one thing in this subsystem most worth not writing there.
+(define (note-mail-refused! conn team event category n decision)
+  (with-handlers ([(lambda (_) #t)
+                   ;; A failed audit write must not rescue the request, and must
+                   ;; not raise into the emitter either — RED-24's rule, and this
+                   ;; runs inline in whatever thread emitted the event.
+                   (lambda (e)
+                     (eprintf "email: could not audit a refused notification: ~a\n"
+                              (if (exn? e) (exn-message e) e))
+                     (void))])
+    (audit! conn #:action "email.notify.refused" #:actor-type "system"
+            #:team-id team #:resource-type "quota" #:resource-id MAIL-QUOTA-DIM
+            #:result "refused"
+            #:meta (jsexpr->string
+                    (hasheq 'event event 'category category 'recipients n
+                            'dimension MAIL-QUOTA-DIM
+                            'scope (hash-ref decision 'subject "team")
+                            'used (hash-ref decision 'used 'null)
+                            'limit (hash-ref decision 'limit 'null)
+                            'window (hash-ref decision 'window 'null))))))
+
 ;; THE SINK. One event in, N rows out. It runs inline in the emitter's thread —
 ;; `events.rkt` swallows whatever it raises, and webhooks' sink writes a row for
 ;; the same reason — so it must not send anything: it composes and INSERTs, and
@@ -421,13 +501,60 @@
     ;; checked first.
     [(not (category-allows? conn category #:team team)) 0]
     [else
-     (define base (transport-base-url conn))
-     (define team-name (team-label conn team))
-     (define-values (subject body) (compose-notification event data #:base base #:team-name team-name))
-     (for/sum ([ua (in-list (notification-recipients conn team category event data))])
-       (if (mail-enqueue! conn #:recipient (cdr ua) #:category category #:subject subject
-                          #:body body #:team team #:user (car ua) #:event event)
-           1 0))]))
+     ;; THE RECIPIENTS ARE RESOLVED BEFORE ANYTHING IS SPENT, so an event nobody
+     ;; was going to hear about costs neither a quota check nor an audit entry.
+     ;; On a team where every member has turned the category off — or may not read
+     ;; the subject (MAIL-17) — that is the ordinary case rather than a corner.
+     (define recips (notification-recipients conn team category event data))
+     (define decision (and (pair? recips)
+                           (tenant-quota-check/team conn team MAIL-QUOTA-DIM 1)))
+     (cond
+       [(null? recips) 0]
+       ;; ASKED FOR ONE UNIT, NOT FOR THE WHOLE FAN-OUT, and the difference is a
+       ;; pathology rather than a nicety. Asking for N and refusing the lot would
+       ;; mean a team of five under a limit of three is refused EVERY event for
+       ;; ever while its ledger stays at `used: 0` — a bound that silences a team
+       ;; and reports that it was never reached, which is the broken-meter reading
+       ;; an operator would spend a day on. Asking "is there any budget left" and
+       ;; then metering what was actually queued lets the figure reach and pass
+       ;; the limit, which is what says plainly what happened.
+       ;;
+       ;; The cost is stated rather than implied: the window may end OVER the
+       ;; limit, by at most one team's membership. That is the same overshoot
+       ;; every AI dimension already accepts between an admission estimate and a
+       ;; metered actual, and it is bounded by what a team is.
+       [(not (hash-ref decision 'allowed))
+        (note-mail-refused! conn team event category (length recips) decision)
+        0]
+       [else
+        (define base (transport-base-url conn))
+        (define team-name (team-label conn team))
+        (define-values (subject body)
+          (compose-notification event data #:base base #:team-name team-name))
+        (define n
+          (for/sum ([ua (in-list recips)])
+            (if (mail-enqueue! conn #:recipient (cdr ua) #:category category #:subject subject
+                               #:body body #:team team #:user (car ua) #:event event)
+                1 0)))
+        ;; THE COUNT OF ROWS THAT WERE WRITTEN — which today is provably the
+        ;; same number as `(length recips)`, and a control is what established
+        ;; that rather than a reading of the code. `mail-enqueue!` answers #f on
+        ;; two conditions only: no transport, which the arm at the top of this
+        ;; `cond` has already refused, and an address `mail-address-problem`
+        ;; rejects, which `notification-recipients` filters out BEFORE the loop.
+        ;; So nothing reachable from here can make the two differ, substituting
+        ;; one for the other fails no test, and the rule is STATED rather than
+        ;; pinned — the LibreOffice branch's and VEC-13's shape.
+        ;;
+        ;; It is still `n`, for the reason the equality is worth writing down: if
+        ;; `mail-enqueue!` ever gains a third refusal, this stays the honest
+        ;; figure and `(length recips)` quietly starts billing a team for
+        ;; messages that were never written. The `positive?` guard is the same
+        ;; unreachable branch seen from the other side — it only matters if some
+        ;; future refusal empties the fan-out, and a zero-amount ledger row says
+        ;; nothing to anybody.
+        (when (positive? n) (tenant-quota-record!/team conn team MAIL-QUOTA-DIM n))
+        n])]))
 
 ;; The team's NAME in the subject, because a person is in several teams and
 ;; "run 3f2a finished" in an inbox does not say whose. A team's own name for

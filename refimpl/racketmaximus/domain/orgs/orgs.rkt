@@ -29,6 +29,7 @@
          org-teams org-audit org-add-team! org-attach-member!
          set-org-limit! org-quota
          tenant-quota-check tenant-quota-record!
+         tenant-quota-check/team tenant-quota-record!/team
          org-plan-quotas)
 
 ;; ---- helpers ----------------------------------------------------------------
@@ -329,7 +330,14 @@
 ;; operator could set a company storage cap, see it nowhere, and reasonably
 ;; conclude it had not taken. A limit that is enforced and not reported is worse
 ;; than one that is neither.
-(define ORG-DIMENSIONS '("ai.requests" "ai.tokens.total" "ai.concurrency" "storage.bytes"))
+;;
+;; `mail.notifications` joins them for the same reason it is enforced at both
+;; tiers (MAIL-25): the thing a company is protecting is its own domain's
+;; reputation with the relays, which is one resource however many teams are
+;; spending it — so a company cap on outgoing notifications is the one that
+;; actually matters, and an operator who sets it must be able to read it back.
+(define ORG-DIMENSIONS '("ai.requests" "ai.tokens.total" "ai.concurrency" "storage.bytes"
+                         "mail.notifications"))
 
 (define (org-quota conn org-id)
   (for/list ([dim (in-list ORG-DIMENSIONS)])
@@ -341,14 +349,25 @@
 ;; `storage.bytes` is a GAUGE: its window is "total", which `quota-check` takes
 ;; from the stored limit, so nothing special is needed here.
 (define (org-usage conn org-id)
-  (for/list ([dim (in-list '("ai.requests" "ai.tokens.total" "storage.bytes"))])
+  (for/list ([dim (in-list '("ai.requests" "ai.tokens.total" "storage.bytes"
+                             "mail.notifications"))])
     (hash-set (quota-check conn "org" org-id dim 0) 'dimension dim)))
 
 ;; Admission requires BOTH to pass: a team under its own limit but inside a
 ;; company that has burned its budget is refused. Returns the FAILING decision
 ;; (with 'subject naming which tier said no), else the team decision.
-(define (tenant-quota-check conn p dimension amount)
-  (define team-id (principal-team-id p))
+;;
+;; ONE RULE, TWO SPELLINGS OF ITS SUBJECT (MAIL-25). The principal-keyed pair is
+;; what every metered endpoint and tool asks, because a request has a caller. A
+;; NOTIFICATION does not: `mail-notify!` is handed a team and an event, and the
+;; event belongs to the team rather than to any one person — so building a
+;; principal to satisfy the signature would mean choosing a user the event does
+;; not have. The team-keyed pair takes the subject as its argument instead, and
+;; the ORDER — the org decision first, and let it refuse — is written once in
+;; each direction. A second copy of that order would be `executor-can-run?`'s
+;; drift in the one place where getting it wrong lets a team spend a company's
+;; budget after the company has run out.
+(define (tenant-quota-check/team conn team-id dimension amount)
   (define org-id (team-org conn team-id))
   (define od (and org-id (quota-check conn "org" org-id dimension amount)))
   (define td (quota-check conn "team" team-id dimension amount))
@@ -357,8 +376,13 @@
     [else (hash-set td 'subject "team")]))
 
 ;; meter at both tiers, so the company's ledger is the sum of its teams'
-(define (tenant-quota-record! conn p dimension amount)
-  (define team-id (principal-team-id p))
+(define (tenant-quota-record!/team conn team-id dimension amount)
   (quota-record! conn "team" team-id dimension amount)
   (define org-id (team-org conn team-id))
   (when org-id (quota-record! conn "org" org-id dimension amount)))
+
+(define (tenant-quota-check conn p dimension amount)
+  (tenant-quota-check/team conn (principal-team-id p) dimension amount))
+
+(define (tenant-quota-record! conn p dimension amount)
+  (tenant-quota-record!/team conn (principal-team-id p) dimension amount))

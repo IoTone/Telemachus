@@ -3042,6 +3042,64 @@ assert "email: turning it back on clears the objection" \
      -H 'Content-Type: application/json' -d '{"category":"jobs","enabled":true}')" \
   '"category":"jobs","enabled":true'
 
+echo "== email: what a team may spend on telling people (MAIL-25) =="
+# THE DIMENSION IS REPORTED THOUGH IT IS NOT A HOLD DIMENSION. `held` can never
+# name it — holding on it would stop the jobs that EMIT notifications — so this
+# figure is the only place a team learns it has stopped telling people things.
+assert "email: mail.notifications is on the team's usage" \
+  "$(curl -s $B/api/usage -H "Authorization: Bearer $OP")" '"dimension":"mail.notifications"'
+# A team steward sets it, not the instance operator: `POST /api/quota` is
+# `quota:manage` (#113), and how much mail a team sends is the steward's call.
+assert "email: a team can bound its own notifications" \
+  "$(curl -s -X POST $B/api/quota -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' \
+     -d '{"dimension":"mail.notifications","limit":0,"window":"total"}')" \
+  '"dimension":"mail.notifications"'
+QBEFORE=$(curl -s "$B/api/admin/email-deliveries" -H "Authorization: Bearer $OP" \
+  | grep -o '"event":"job.completed"' | wc -l | tr -d ' ')
+curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"kind":"chat","payload":{"prompt":"third"}}' >/dev/null
+sleep 6
+QAFTER=$(curl -s "$B/api/admin/email-deliveries" -H "Authorization: Bearer $OP" \
+  | grep -o '"event":"job.completed"' | wc -l | tr -d ' ')
+if [ "$QBEFORE" = "$QAFTER" ]; then ok "email: an exhausted mail budget really stops the fan-out"
+else bad "email: over budget and still queued ($QBEFORE -> $QAFTER)"; fi
+# AND THE JOB ITSELF STILL RAN, which is the whole reason this is not a hold
+# dimension: a team over its MAIL budget must not have its work stopped.
+assert "email: …and the job that emitted it still completed" \
+  "$(curl -s "$B/api/jobs" -H "Authorization: Bearer $OP")" '"status":"done"'
+# A refusal is otherwise pure silence: no delivery row is written, so the audit
+# log is where an operator finds out which events nobody was told about.
+assert "email: a refused notification is audited" \
+  "$(curl -s "$B/api/audit?limit=50" -H "Authorization: Bearer $OP")" 'email.notify.refused'
+# RESET-5 WITH A NUMBER IN FRONT OF IT. A person who has stopped this instance
+# mailing them must still be able to recover their account, so a transactional
+# message is outside the bound by construction — the check is at the fan-out and
+# not in `mail-enqueue!`, which is the one INSERT all four of them share.
+assert "email: a password reset is not refused by a mail quota" \
+  "$(curl -s -X POST $B/api/password-reset -H 'Content-Type: application/json' \
+     -d '{"address":"alice@example.test"}')" \
+  '"ok":true'
+if mail_wait "To: alice@example.test"; then ok "email: …and the reset really went out"
+else bad "email: the reset was not sent while over the notification budget"; fi
+# PUT THE WORLD BACK, or every later block silently stops being notified — this
+# file's own repeated lesson about a fixture that changes global state.
+assert "email: the bound is lifted again" \
+  "$(curl -s -X POST $B/api/quota -H "Authorization: Bearer $OP" \
+     -H 'Content-Type: application/json' \
+     -d '{"dimension":"mail.notifications","limit":100000,"window":"total"}')" \
+  '"limit":100000'
+# …AND THE COUNT REALLY MOVES AGAIN, or the refusal assertion above is vacuous:
+# a before/after count is also unchanged on an instance where notifications are
+# broken outright, and this is what tells the two apart.
+curl -s -X POST $B/api/jobs -H "Authorization: Bearer $OP" \
+  -H 'Content-Type: application/json' -d '{"kind":"chat","payload":{"prompt":"fourth"}}' >/dev/null
+sleep 6
+QLIFTED=$(curl -s "$B/api/admin/email-deliveries" -H "Authorization: Bearer $OP" \
+  | grep -o '"event":"job.completed"' | wc -l | tr -d ' ')
+if [ "$QLIFTED" -gt "$QAFTER" ]; then ok "email: …and the fan-out resumes, so the refusal meant something"
+else bad "email: the bound was lifted and nothing was notified ($QAFTER -> $QLIFTED)"; fi
+
 echo "== email: the monitoring credential the split exists for =="
 # THE WHOLE REASON THERE ARE TWO SETS OF ROUTES. The dispatcher pre-checks the
 # permission a role-scoped route DECLARES, so a single route declaring

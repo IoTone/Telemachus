@@ -2173,9 +2173,8 @@ MOCK_SMTP_PORT=8928 MOCK_SMTP_OUT=/tmp/mail.txt racket test/mock-smtp.rkt
 suppression list, and one nothing populates is worse than none), an HTML body, a
 digest, a vendor HTTP API (SES/Postmark — a plugin's, and the notification API is
 what makes that possible), an unsubscribe link (it would need a GET that mutates
-a preference), a per-team preference, and **a quota dimension** — which is the
-one thing a plugin-facing `mail-notify!` should gain next, so a plugin in a loop
-meets a limit rather than the instance's mail reputation meeting it.
+a preference), and a per-team preference. **The quota dimension IS built** — see
+the section below.
 
 **STATED RATHER THAN IMPLIED**: the STARTTLS and implicit-TLS branches are not
 exercised by any test. Both are the same `smtp-send-message` call with a
@@ -2287,6 +2286,117 @@ bash test/server-smoke.sh                                        # the invite + 
   `jsexpr->string: unbound identifier` plus a server that would not boot — which
   reads exactly like a real defect in a module that compiles cleanly a minute
   later. Both failures were the race and neither was real.
+
+## What a team may spend on telling people (MAIL‑25)
+
+`mail.notifications` — the one thing `email-notifications.md` named as not built.
+`domain/mail/mail.rkt`'s fan-out plus `tenant-quota-check/team` in orgs.rkt.
+**No migration, no route, no new permission, no new environment variable.**
+
+```sh
+raco test test/mail-tests.rkt                              # 37 cases, five controls, all biting
+DATABASE_URL="postgres://…" raco test test/mail-tests.rkt  # the whole file, both dialects
+bash test/server-smoke.sh                                  # the "MAIL-25" block, 9 assertions
+```
+
+- **IT COUNTS MESSAGES QUEUED TO A MAILBOX, so one event to five members is
+  five** (MAIL‑25a) — the resource being protected is this instance's standing
+  with the relays, and that is spent per mailbox, not per event. **A RETRY IS NOT
+  COUNTED**: the retry curve is the platform's own business, and charging a team
+  for the relay having been down would make its budget a function of somebody
+  else's uptime.
+- **THE BOUND IS AT THE FAN-OUT AND NOT IN `mail-enqueue!`, WHICH IS WHAT MAKES
+  THE FOUR TRANSACTIONAL MESSAGES SAFE BY CONSTRUCTION** (MAIL‑25b).
+  `mail-enqueue!` is also the one INSERT for a verification, a reset, an
+  invitation and the transport test, so a check there would need a keyword saying
+  "do not count this one" — a per-caller exemption list, where the one caller
+  that forgot it would silently make a password reset refusable. RESET‑5 is that
+  a reset must work for somebody who has turned every category off, because the
+  alternative is a screen that locks you out permanently; a quota that could
+  refuse one is that defect with a number in front of it.
+- **DELIBERATELY NOT IN `QUOTA-HOLD-DIMS`, and that is the sharpest decision
+  here** (MAIL‑25d). A hold stops a team's SCHEDULER QUEUE until the window
+  resets — right for every AI dimension, because those are spent *inside* a job
+  and holding the job is holding the spend. **A notification is emitted FROM a
+  job**: a workflow run completing is what fires `run.completed`. So a hold here
+  would stop a team's actual work because it had sent too much mail, which is an
+  outage with no obvious cause. A delivery is not a job either; it is a row swept
+  on the reaper seam, so there is no queue of deliveries for a hold to govern.
+  **Gated by a SOURCE SCAN over `server/admission.rkt`**, because that module
+  requires `kit.rkt` and #123 records what a unit test that requires kit costs:
+  it passes everywhere and fails in CI's sqlite leg alone, where `DATABASE_URL`
+  is the empty string. Comment lines are stripped — the fourth-appearance rule
+  for a scan that would otherwise read the prose explaining what it looks for.
+- **THE CHECK ASKS FOR ONE UNIT, NOT FOR THE WHOLE FAN-OUT, AND THE OVERSHOOT IS
+  STATED** (MAIL‑25e). Asking for N and refusing the lot means a team of five
+  under a limit of three is refused EVERY event for ever **while its ledger stays
+  at `used: 0`** — a bound that silences a team and reports that it was never
+  reached, which is a day of somebody's time. Asking "is there any budget left"
+  and metering what was queued lets the figure reach and pass the limit, which is
+  what says plainly what happened. The cost: a window may end OVER the limit by
+  at most one team's membership, the same overshoot every AI dimension already
+  accepts between an admission estimate and a metered actual.
+- **A REFUSAL IS AUDITED** (`email.notify.refused`), one entry per refusal and
+  **not deduped per window** (MAIL‑25f). A notification that was not sent is
+  otherwise pure silence: `mail_deliveries` is where an operator looks and a
+  refused message writes no row there, so the symptom is silence and the
+  diagnosis is "email is broken". `ai.egress.refused` (RED‑24) is the precedent
+  and so is its shape — `quota.exhausted`'s dedup exists because every pool tick
+  re-asks the same question about the same queued job, where here each entry is
+  about a DIFFERENT event. The entry carries **how many recipients there were and
+  not who they are** (MAIL‑25g): the log is chained, exported and kept through an
+  erasure (DEL‑7), so a list of the mailboxes of everybody on a team is the one
+  thing here most worth not writing into it. `#:team-id` is the team whose
+  members were not told — **the ninth appearance of that shape**.
+- **THE RECIPIENTS ARE RESOLVED BEFORE ANYTHING IS SPENT** (MAIL‑25h). On a team
+  where every member has turned the category off, or may not read the subject
+  (MAIL‑17), that is the ordinary case rather than a corner, so a check and an
+  audit entry per such event would be a ledger and a log full of nothing.
+  Positive-controlled by moving the check above the resolution.
+- **ENFORCED AND REPORTED AT BOTH TIERS** (MAIL‑25i): `ORG-DIMENSIONS`,
+  `org-usage` and `GET /api/usage`. What a company protects is its own domain's
+  reputation, which is one resource however many teams spend it, so the company
+  cap is the one that matters — and orgs.rkt's own line is that a limit enforced
+  and not reported is worse than one that is neither, which is the defect
+  `storage.bytes` had there for a year. **Because it is not a hold dimension
+  `held` can never name it**, so the usage figure is the ONLY place a team learns
+  it has stopped telling people things.
+- **`tenant-quota-check/team` / `tenant-quota-record!/team` — one rule, two
+  spellings of its subject** (MAIL‑25j). The principal-keyed pair is what every
+  metered endpoint asks, because a request has a caller; a notification does not,
+  since `mail-notify!` is handed a team and an event that belongs to the team
+  rather than to any one person — so building a principal to satisfy the
+  signature would mean choosing a user the event does not have. A second copy of
+  the ordering (the org decision first, and let it refuse) would be
+  `executor-can-run?`'s drift in the one place where getting it wrong lets a team
+  spend a company's budget after the company has run out.
+
+**A CONTROL THAT DID NOT BITE FOUND A VACUOUS TEST, and the honest answer was to
+delete the test rather than to strengthen it.** The record site charges the count
+of rows that were WRITTEN, and a case was written to pin "the actual, not the
+intended" — it passed, and substituting `(length recips)` for it passed too.
+`mail-enqueue!` answers `#f` on two conditions only: no transport, which
+`mail-notify!`'s own second arm has already refused, and an address
+`mail-address-problem` rejects, which `notification-recipients` filters out
+BEFORE the loop. **So nothing reachable from there can make the two differ**, the
+rule is unfalsifiable on this path, and it is STATED at the definition rather
+than pinned — the LibreOffice branch's and VEC‑13's shape. It is still the
+written count, because if `mail-enqueue!` ever gains a third refusal that stays
+the honest figure while the intended one quietly starts billing a team for
+messages nobody sent.
+
+**A SMOKE BLOCK THAT COUNTS BEFORE AND AFTER IS VACUOUS ON A BROKEN INSTANCE.**
+"An exhausted budget stops the fan-out" is also satisfied where notifications are
+broken outright, so the block LIFTS the bound and asserts the count moves again.
+It also puts the limit back, or every later block silently stops being
+notified — this file's own repeated lesson about a fixture that changes global
+state.
+
+**Not built, deliberately**: a console control (the Usage tab renders every
+dimension the endpoint reports, and `POST /api/quota` already sets it); a
+per-CATEGORY budget, which would be five numbers where the thing protected is
+one; and a rate limit as distinct from a windowed budget, which `window:
+"minute"` already is.
 
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 

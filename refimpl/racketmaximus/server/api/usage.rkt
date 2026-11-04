@@ -25,9 +25,16 @@
              ;; the Usage tab can say why work has stopped without reading the
              ;; queue — and `resets_at` is when it starts again (issue #55).
              'held (or (quota-hold-reason db-conn sid) 'null)
+             ;; `mail.notifications` is reported although it is NOT a hold
+             ;; dimension (MAIL-25): it is refused at the fan-out rather than by
+             ;; holding the queue, so `held` can never name it and this figure is
+             ;; the only place a team learns it has stopped telling people
+             ;; things. A limit that is enforced and not reported is worse than
+             ;; one that is neither — orgs.rkt's own line, on the other tier.
              'quota (for/list ([dim (in-list '("ai.tokens.total" "ai.requests" "ai.judgments.total" "ai.embeddings.total"
                                                  "ai.help.total" "ai.transcriptions.total"
-                                                 "ai.concurrency" "feed.fetches"))])
+                                                 "ai.concurrency" "feed.fetches"
+                                                 "mail.notifications"))])
                       (define d (quota-check db-conn "team" sid dim 0))
                       (hasheq 'dimension dim 'used (hash-ref d 'used)
                               'limit (hash-ref d 'limit) 'remaining (hash-ref d 'remaining)
