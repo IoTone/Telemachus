@@ -3669,9 +3669,28 @@ row in `configuration.md` before the swap, as ENVN‑10 did.
   the refusal NAMES THAT FILE — a gate that fails without saying where is a gate
   somebody disables.
 
-**What is left of #128 is a release decision, not a code change**: when the
-`TELEMACHUS_*` aliases are dropped. That has no deadline by ENVN‑1 and is tracked
-on #204, so the rebrand closes on the documents.
+**#128 IS CLOSED, AND SO IS THE QUESTION IT LEFT OPEN.** What remained was a
+release decision rather than a code change — when the `TELEMACHUS_*` aliases are
+dropped — tracked on #204 and answered there on 4 Nov 2026: **they are not
+dropped. The dual read is PERMANENT.** Which is the answer ENVN‑1 argued for in
+the first place ("a deprecation with a date is a promise to break somebody
+later, and two reads cost one `cond` arm"), now with the owner's own reason
+behind it: TMach is the marketing name and the alias is a convenience, so
+nothing is gained by taking it away and every untouched compose file, systemd
+unit and reverse proxy keeps working.
+
+Three things follow and none of them is work. `legacy-env-warning`'s one-time
+boot `NOTE:` stays as information rather than becoming a deprecation warning, so
+an operator reading an old name learns which variables to rename without
+anything being taken away. The compatibility section in
+`docs/ops/configuration.md` **stays gated to exist** (ENVN‑11's second
+direction), which is now a permanent guarantee rather than a holding position —
+deleting it would leave a gate enforcing silence about a dual read every existing
+deployment depends on. And the surfaces #128 deliberately left alone are
+untouched and separate decisions if anybody ever wants them: the
+`X-Telemachus-*` request headers (where the CLIENT picks the spelling, so it is a
+different dual-read question), `tmx_*` in the browser, `cli/telemachus-*.rkt`,
+`data/telemachus.db`, `refimpl/racketmaximus/` and the Racket module namespace.
 
 
 ### What the gate found, three times

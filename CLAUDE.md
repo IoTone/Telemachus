@@ -4686,8 +4686,15 @@ bash scripts/check-config-reference.sh      # now covers the book and the guide 
 - **The gate covers the book's chapter sources in both languages**, `TRANSLATING.md`
   and `docs/integrators-guide.md`. Controlled in all four: the refusal must NAME
   THE FILE, or a reader who cannot find the offending line disables the gate.
-- **What is left of #128 is a release decision** — when the `TELEMACHUS_*`
-  aliases are dropped — which has no deadline by ENVN‑1 and is #204.
+- **#204 ANSWERED THE ONE THING #128 LEFT OPEN: THE ALIASES ARE NEVER DROPPED.**
+  The dual read is **permanent** (decided 4 Nov 2026) — TMach is the marketing
+  name and the alias is a convenience, so dropping it would break every untouched
+  compose file, unit and reverse proxy to gain one fewer thing to explain. Which
+  is ENVN‑1's own argument, now settled rather than deferred. So: the boot
+  `NOTE:` stays information and does not become a deprecation warning, and the
+  compatibility section in `docs/ops/configuration.md` stays **gated to exist**
+  as a permanent guarantee rather than a holding position. The surfaces #128 left
+  alone are untouched and each its own decision if anybody ever wants it.
 
 ## The feed work queue, and a proposal that does not act (QUEUE‑1…9, #114 slices 5–6)
 
