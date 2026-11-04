@@ -122,7 +122,7 @@
      (feed-item
       ;; A snowflake is unique across every channel and guild by construction,
       ;; so unlike GitHub's issue number there is nothing to compose it with.
-      (safe-id-part sid)
+      (safe-key-part sid)
       (let ([head (first-line content)])
         (cond [(and (string=? who "") (string=? head "")) (format "message ~a" sid)]
               [(string=? head "") (format "~a in ~a" who chan)]

@@ -2347,6 +2347,92 @@
        "UPDATE activation_tokens SET purpose = 'activate' WHERE purpose IS NULL"
        "CREATE INDEX idx_activation_purpose ON activation_tokens(user_id, purpose)"))))
 
+(define m-0071-research-sources
+  (migration "0071-research-sources"
+    (lambda (conn)
+      ;; RG-1 — A BOOKMARK IS A REPOSITORY DOCUMENT, AND A TYPED ROW HOLDS THE
+      ;; URL (issue #191 slice 1). The BYTES go to the repository under
+      ;; `research/<host>/<slug>-<id8>`, which buys visibility, grants and
+      ;; sharing, keyword search over extracted text, `?semantic=1`, retention,
+      ;; the cascade delete, "Processed by", `storage.bytes`, the read audit and
+      ;; the put-hook trigger seam — every one of them with no new code, which
+      ;; is the call FEED-1 made for a pulled item and `0022-fold-documents`
+      ;; settled in general.
+      ;;
+      ;; The URL needs a ROW for QUEUE-1's reason: "have we already got this",
+      ;; "which are stale", "did it change" and "did the last fetch fail" are SQL
+      ;; questions over a unique index and an epoch, and a LAY-4 attribute is a
+      ;; string compared for equality. It is the feed row's shape — a typed row
+      ;; for the thing watched, repository objects for what came back — with ONE
+      ;; deliberate difference: there is NO CREDENTIAL COLUMN. A feed has one
+      ;; because an operator configures it against an API; a bookmark is a public
+      ;; page a member was reading, and a sealed credential on a member-writable
+      ;; row would borrow FEED-5's machinery into a surface where its trust
+      ;; argument does not hold (RG-3).
+      ;;
+      ;; `user_id` is NOT NULL for 0051's and 0056's reason: there is no system
+      ;; principal here. Every fetch is somebody's, judged by their `can?` and
+      ;; billed to their team — which is also the whole answer to "who can see
+      ;; what this archived".
+      (exec* conn (string-append
+        "CREATE TABLE research_sources ("
+        "  id TEXT PRIMARY KEY,"
+        "  team_id TEXT NOT NULL,"
+        "  user_id TEXT NOT NULL,"
+        ;; AS GIVEN, so the person can see what they pasted…
+        "  url TEXT NOT NULL,"
+        ;; …and the CANONICAL form is the identity. RG-1: lower-case the scheme
+        ;; and host, drop a default port, drop the fragment, and NOTHING ELSE.
+        "  url_canon TEXT NOT NULL,"
+        "  title TEXT,"
+        "  note TEXT,"
+        ;; RG-2 — THE KEY IS COMPUTED ONCE AND REUSED FOR EVERY LATER FETCH, and
+        ;; that is the whole of the permanence story: a re-fetch is a new VERSION
+        ;; of the same key, so the old bytes stay addressable and "what did this
+        ;; page say when I bookmarked it" is a version read. A new object per
+        ;; fetch would be N documents nobody can diff and N search hits for one
+        ;; page. It is stored rather than recomputed because the extension comes
+        ;; from the content type the first fetch was SERVED, and a page that
+        ;; later answers as a PDF must not start a second key.
+        "  object_key TEXT,"
+        "  object_id TEXT,"
+        "  active INTEGER NOT NULL DEFAULT 1,"
+        "  created_by TEXT,"
+        ;; epochs throughout, never TEXT CURRENT_TIMESTAMP, whose format differs
+        ;; by dialect — the trap 0038/0039/0041/0066 each name.
+        "  created_epoch BIGINT NOT NULL,"
+        "  fetched_epoch BIGINT,"
+        "  last_ok_epoch BIGINT,"
+        "  last_status INTEGER,"
+        ;; SEALED (RG-3), `#:forgiving`, under the CONTENT switch. #83 r4 sealed
+        ;; four `error` columns because this platform's own code quotes what it
+        ;; choked on; a fetch failure is somebody else's server's words about a
+        ;; URL a member chose. `safe-url` has already dropped the query on the
+        ;; way into the exception, and the seal is what covers the rest.
+        "  last_error TEXT,"
+        ;; what the last fetch was: the three questions "did it change?" needs
+        "  content_type TEXT,"
+        "  content_sha256 TEXT,"
+        "  content_bytes BIGINT,"
+        ;; the conditional-request headers, stored as served so a re-fetch can
+        ;; offer them. Not used in slice 1 — RG-12's scheduled re-fetch is what
+        ;; wants them — and here because they arrive with the fetch that is
+        ;; already happening, and a column added later cannot backfill them.
+        "  etag TEXT,"
+        "  last_modified TEXT,"
+        "  fetches INTEGER NOT NULL DEFAULT 0)"))
+      (exec* conn "CREATE INDEX IF NOT EXISTS idx_research_team ON research_sources (team_id)")
+      ;; "Have we already bookmarked this?" — and it is per TEAM, because the
+      ;; archive is the team's. Two teams bookmarking one page get two rows and
+      ;; two archives, which is the same answer DOC-5's org-scoped blob dedup
+      ;; gives: the BYTES are shared, the documents are not.
+      (exec* conn (string-append "CREATE UNIQUE INDEX IF NOT EXISTS idx_research_team_url "
+                                 "ON research_sources (team_id, url_canon)"))
+      ;; "Which are stale?" is `ORDER BY fetched_epoch ASC`, and slice 2's
+      ;; `research_list_stale` is the reader.
+      (exec* conn (string-append "CREATE INDEX IF NOT EXISTS idx_research_stale "
+                                 "ON research_sources (team_id, fetched_epoch)")))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2356,4 +2442,4 @@
                              m-0064-chunk-vectors m-0065-help-corpus
                              m-0066-job-finished-age m-0067-model-request-job
                              m-0068-note-tags m-0069-email
-                             m-0070-token-purpose))
+                             m-0070-token-purpose m-0071-research-sources))

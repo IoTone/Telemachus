@@ -3319,5 +3319,118 @@ curl -s -X PUT $B/api/email-notify -H "Authorization: Bearer $OP" \
 kill $MS_PID 2>/dev/null
 fi
 
+
+echo "== research: the archive (#191 slice 1) =="
+# RG-11: `research:use` HAS TEETH NOW. It was granted to member, admin and owner,
+# its description said "Use the research surfaces", and nothing read it — the
+# shape #113 was filed about, sitting in the permission gate's own allowlist
+# reasoned "no research surface is built". That entry is deleted in this commit,
+# which is the gate working rather than being worked around.
+#
+# Asserted with a VIEWER, who does NOT hold it. A member does, so the same
+# assertion made against one would pass against a server that checks nothing —
+# HELP-7's lesson, and the third place in this file it applies.
+assert "research: a viewer may not use the archive" \
+  "$(curl -s $B/api/research -H "Authorization: Bearer $VERA")" 'Forbidden: research:use'
+assert "research: …and a stranger gets 401" \
+  "$(curl -s $B/api/research)" 'Authentication required'
+assert "research: a member sees an empty archive" \
+  "$(curl -s $B/api/research -H "Authorization: Bearer $BOB")" '"sources":[]'
+
+# RG-1: what a bookmark refuses at the write.
+assert "research: a credential in the URL is refused — this row has nowhere to keep one" \
+  "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"https://user:pass@example.com/x"}')" 'take the credential out of'
+assert "research: a non-http URL is refused" \
+  "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"ftp://example.com/x"}')" 'must be an http(s) URL'
+
+# RG-3 — THE CASE THIS SURFACE EXISTS TO GET RIGHT, over HTTP. A bookmark is the
+# first URL an ordinary MEMBER makes this server fetch, so the egress policy is
+# `'untrusted` and there is NO way to ask for anything else. Note that
+# TMACH_EGRESS_ALLOW is set for this whole suite (the webhook receiver needs it)
+# and it makes NO DIFFERENCE here: the allowlist belongs to `'trusted`, which
+# this surface never asks for. A version that grew a trusted mode "for
+# operators" fails the next three assertions.
+RS=$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"http://169.254.169.254/latest/meta-data/","title":"metadata"}')
+RSID=$(printf '%s' "$RS" | grep -oP '"id":"\K[^"]+')
+assert "research: the cloud metadata address is refused by policy" "$RS" '"reason":"refused-address"'
+assert "research: …and the bookmark SURVIVES, because the URL is still one somebody meant to keep" \
+  "$RS" '"url":"http://169.254.169.254/latest/meta-data/"'
+assert "research: …with nothing archived behind it" "$RS" '"object_id":null'
+RLOOP=$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d "{\"url\":\"http://127.0.0.1:$PORT/api/admin/status\"}")
+assert "research: this instance's OWN address is refused too, allowlist or not" \
+  "$RLOOP" '"reason":"refused-address"'
+refute "research: …and the refusal does not quote the query string" "$RLOOP" 'token='
+
+# The canonical URL is the identity (RG-1), and a duplicate is a 409 rather than
+# a converging create — which would silently re-point somebody else's bookmark,
+# with its note and its whole version history, at a title this caller supplied.
+assert "research: the same page under another spelling is the same bookmark" \
+  "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"HTTP://169.254.169.254:80/latest/meta-data/#frag","fetch":false}')" \
+  'already bookmarked'
+assert "research: …while a trailing slash is a different URL and a second row" \
+  "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"http://169.254.169.254/latest/meta-data","fetch":false}')" '"source":'
+assert "research: fetch:false records the bookmark and makes no request" \
+  "$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+      -d '{"url":"https://example.invalid/later","fetch":false}')" '"fetched":null'
+
+assert "research: one bookmark reads back" \
+  "$(curl -s $B/api/research/$RSID -H "Authorization: Bearer $OP")" '"fetches":1'
+assert "research: another team's id is a 404, not a 403" \
+  "$(curl -s $B/api/research/00000000-0000-0000-0000-000000000000 -H "Authorization: Bearer $OP")" \
+  'no such bookmark'
+assert "research: the listing carries the team's bookmarks" \
+  "$(curl -s $B/api/research -H "Authorization: Bearer $OP")" '"url_canon"'
+# `research.fetches` is charged per REQUEST and BEFORE it, so a fetch this
+# instance refused to make still cost its unit (FEED-9's rule). Read off the
+# usage endpoint, which is where an operator would look.
+assert "research: the fetch budget is reported, so a team can see it" \
+  "$(curl -s $B/api/usage -H "Authorization: Bearer $OP")" '"dimension":"research.fetches"'
+
+# Forgetting a bookmark is not retracting the page.
+assert "research: a bookmark can be forgotten" \
+  "$(curl -s -X DELETE $B/api/research/$RSID -H "Authorization: Bearer $OP")" '"ok":true'
+assert "research: …and forgetting it twice is a 404 rather than a second success" \
+  "$(curl -s -X DELETE $B/api/research/$RSID -H "Authorization: Bearer $OP")" 'no such bookmark'
+
+# THE ARCHIVE ITSELF CANNOT BE DRIVEN OVER HTTP IN CI, AND THAT IS THE POLICY
+# WORKING RATHER THAN A GAP TO PAPER OVER. `'untrusted` refuses every address a
+# test can listen on — loopback, private, link-local — and the allowlist does not
+# apply to it, so there is no socket this suite can stand up that a research
+# fetch is allowed to reach. The store path, the same-key rule, the dedup and the
+# budget are covered in `test/research-tests.rkt` through `research-fetch!`'s
+# `#:fetch` seam, which DEFAULTS to the real fetcher; the assertions above are
+# what establish that the default really is the real one.
+#
+# Set RESEARCH_TEST_URL to a public page to drive the whole thing end to end —
+# `S3_TEST_ENDPOINT`'s shape, and vendor-neutral for its reason. THE SKIP IS
+# LOUD, because a silent one is how a path goes unexercised for a year.
+if [ -n "${RESEARCH_TEST_URL:-}" ]; then
+  RE=$(curl -s -X POST $B/api/research -H "Authorization: Bearer $OP" -H 'Content-Type: application/json' \
+        -d "{\"url\":\"$RESEARCH_TEST_URL\",\"title\":\"a real page\"}")
+  REID=$(printf '%s' "$RE" | grep -oP '"id":"\K[^"]+')
+  assert "research: a real page archives" "$RE" '"ok":true'
+  assert "research: …under research/<host>/…" "$RE" '"key":"research/'
+  assert "research: …and the row names the document" "$RE" '"archived":true'
+  RE2=$(curl -s -X POST $B/api/research/$REID/fetch -H "Authorization: Bearer $OP")
+  assert "research: a re-fetch is a new version of the SAME key" "$RE2" \
+    "$(printf '%s' "$RE" | grep -oP '"key":"\K[^"]+')"
+  RKEY=$(printf '%s' "$RE" | grep -oP '"object_id":"\K[^"]+')
+  # `GET /api/repo-obj/:id` carries the object's versions; there is no /versions
+  # route of its own. A re-fetch of a STABLE page dedups to one blob, so the
+  # version count is what says the archive kept both looks at it.
+  assert "research: …one document, two versions" \
+    "$(curl -s $B/api/repo-obj/$RKEY -H "Authorization: Bearer $OP")" '"version":2'
+else
+  echo "  note RESEARCH_TEST_URL is unset — the end-to-end ARCHIVE is not driven here."
+  echo "  note   'untrusted egress refuses every address this suite can listen on, which is"
+  echo "  note   the policy working; the store path is test/research-tests.rkt's."
+fi
+
 if [ $fail -eq 0 ]; then echo "server-smoke: PASS"; else echo "server-smoke: FAIL"; fi
 exit $fail

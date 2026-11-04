@@ -34,7 +34,7 @@
              'quota (for/list ([dim (in-list '("ai.tokens.total" "ai.requests" "ai.judgments.total" "ai.embeddings.total"
                                                  "ai.help.total" "ai.transcriptions.total"
                                                  "ai.concurrency" "feed.fetches"
-                                                 "mail.notifications"))])
+                                                 "mail.notifications" "research.fetches"))])
                       (define d (quota-check db-conn "team" sid dim 0))
                       (hasheq 'dimension dim 'used (hash-ref d 'used)
                               'limit (hash-ref d 'limit) 'remaining (hash-ref d 'remaining)

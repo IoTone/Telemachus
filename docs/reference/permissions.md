@@ -46,7 +46,7 @@ Permissions are `resource:action` strings; roles are named sets of them. `instan
 | `org:read-data` | org | Read team-visible notes, documents and search results across every team in the company (TEN-2h). Never private ones; never a write; never AI spend. Held by the org_reader role. |
 | `quota:manage` | team | Set quotas. |
 | `quota:read` | team | See quotas. |
-| `research:use` | team | Use the research surfaces. |
+| `research:use` | team | Bookmark a URL and keep an archived copy of the page behind it. Also required, with chat:use, to ask a question of what has been collected — this one is about the surface, that one about the model spend, so a team may have the archive without the answers. |
 | `reviews:decide` | team | Approve, send back or reject an item waiting for review, with a rationale. |
 | `reviews:read` | team | See the team's review queue and the decisions already recorded. |
 | `roles:manage` | team | Reserved for team-defined roles, which are not in v1 — the four built-in roles are the vocabulary. Granted, but nothing reads it yet. |

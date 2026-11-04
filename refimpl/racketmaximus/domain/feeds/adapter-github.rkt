@@ -117,7 +117,7 @@
                       (format "~a" (hash-ref l 'name ""))))
      (define updated (hash-ref it 'updated_at #f))
      (feed-item
-      (format "~a-~a-~a" (safe-id-part (car or*)) (safe-id-part (cdr or*)) n)
+      (format "~a-~a-~a" (safe-key-part (car or*)) (safe-key-part (cdr or*)) n)
       (let ([t (format "~a" (hash-ref it 'title ""))])
         (if (string=? t "") (format "~a#~a" repo n) (format "~a#~a ~a" repo n t)))
       it

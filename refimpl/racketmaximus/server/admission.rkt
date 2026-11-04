@@ -70,7 +70,15 @@
                           ;; rather than failing a transcription pass halfway
                           ;; through a batch of recordings.
                           "ai.transcriptions.total"
-                          "feed.fetches"))
+                          "feed.fetches"
+                          ;; #191 (RG-12's half of it). FEED-9's argument, for
+                          ;; the same kind of resource: the dimension protects
+                          ;; somebody ELSE's site as much as this instance, so a
+                          ;; team over its fetch budget must have its re-fetches
+                          ;; STOP rather than keep asking. There is no default
+                          ;; limit, so on an instance nobody configured this
+                          ;; holds nothing.
+                          "research.fetches"))
 
 ;; PURE, deliberately: the job listing calls this on every read (`team-hold` in
 ;; scheduler.rkt). The audit entry is `note-deferred!`'s business, and fires only

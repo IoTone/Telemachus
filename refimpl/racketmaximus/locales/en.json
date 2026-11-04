@@ -503,6 +503,10 @@
       "text": "Version",
       "hash": "2da600bf9404843107a9531694f654e5662959e0"
     },
+    "doc.route.get.api.research.id": {
+      "text": "One bookmark. Another team's id is a 404, not a 403.",
+      "hash": "6b045981f04733515898799e4ae5f94cf27fdfc0"
+    },
     "doc.route.get.api.org.executor-policy": {
       "text": "The company's own executor policy, the instance's, the EFFECTIVE one and `sources` naming which tiers mentioned each label. Where both tiers name a label the permitted executors are the INTERSECTION and both flags are ANDed, so a company narrows what the instance allows and can never widen it; a label only one tier names is that tier's to decide.",
       "hash": "13f8727033ea1d8a035caa2bbdab9e744013e37b"
@@ -2083,6 +2087,10 @@
       "text": "Set a quota limit for the caller's team (dimension, limit, window). `quota:manage` and NOT `instance:manage` (issue #113): a team owner sets their own team's limit, and an org admin may too, because the company's own limit still caps whatever a team asks for (admission takes the org decision first). A team ADMIN deliberately does not hold it — spending is the steward's call.",
       "hash": "3584da118f2eee5a87c1b3e613127645d2ba0269"
     },
+    "doc.route.delete.api.research.id": {
+      "text": "Forget the bookmark. The ARCHIVED DOCUMENT is untouched — deleting the bookmark is not a retraction of the page, exactly as deleting a feed is not a retraction of its items. Somebody who wants the bytes gone deletes the document, which is where the cascade, the blob release and the storage refund live.",
+      "hash": "d0c899e14d4210071879accc3452fd1296e88f7c"
+    },
     "doc.route.get.api.repo-obj.id.traces": {
       "text": "What is LEFT of an object: versions, extracted text, derived documents, derivation rows, grants, blobs still present, and jobs whose payload or result still quotes its id. The verification read for a deletion request (#86) — \"I called DELETE and got a 200\" is not evidence, and this is. `audit` is reported and is NOT a trace to drive to zero: the audit log is deliberately what survives an erasure.",
       "hash": "fc6d2a1c147f3c42059faa9fa59964a8e8e002c6"
@@ -2146,6 +2154,10 @@
     "ui.output": {
       "text": "Output",
       "hash": "4bed336194a9a5c86b6a734f03b3570d2aae1a68"
+    },
+    "doc.route.post.api.research.id.fetch": {
+      "text": "Fetch the page again, now, and store it as a NEW VERSION OF THE SAME KEY. That is the whole of the permanence answer: blobs are keyed by SHA-256 and an object is a sequence of versions, so the bytes from every earlier fetch stay addressable and \"what did this page say when I bookmarked it\" is a version read. Identical bytes dedup to the same blob, so re-fetching a stable page costs a version row and no storage; `unchanged` says which happened, computed against the digest held before this fetch. The key is composed once, on the first fetch, and reused for ever — a page that later answers as a PDF becomes a new version under the key it already had rather than starting a second archive nobody can diff against the first. `research.fetches` is charged per REQUEST and BEFORE the request, so a source that hangs or refuses still costs what it cost: metering only successes would make a failing bookmark free to hammer somebody's site.",
+      "hash": "3ceb14b5fef282afd603e04d2e240d631ad30d44"
     },
     "ui.qjump": {
       "text": "page",
@@ -2579,6 +2591,10 @@
       "text": "Work is paused by a budget",
       "hash": "9f7fd9b635a7534b53af9a169cb1579259318514"
     },
+    "doc.route.get.api.research": {
+      "text": "The team's bookmarked URLs: the URL as pasted and its canonical form, the archived document's key and id, what the last fetch was (status, content type, digest, bytes) and when it last worked. `archived` is derived from whether there is a document behind the row, never stored. A fetch failure is reported as the host, the path and the status — never the query string, a header or the body.",
+      "hash": "424c70f1d79ff24d4fef8a30a5694bec7cf63a54"
+    },
     "doc.tool.doc_translate.run": {
       "text": "The workflow run id, for provenance",
       "hash": "daea71d87ba8c2fbe6bae738e43df16e85d1b2cc"
@@ -2738,6 +2754,10 @@
     "doc.route.get.api.executors": {
       "text": "The local executor, the env-configured push ones, and the API-created ones (push, or pull with a worker) with health.",
       "hash": "0f04e37ff8172fa65a013f7e48e9af6fa319c0f8"
+    },
+    "doc.route.post.api.research": {
+      "text": "Bookmark a URL and archive the page behind it: `url`, and optionally `title` and `note`. The bytes become a repository document under `research/<host>/<slug>-<id8>`, so visibility, sharing, keyword search, `?semantic=1`, retention and the cascade delete all apply to it with no further work. The fetch happens NOW unless `fetch: false` — #191's motive is that links rot, and a bookmark whose page was never read is a bookmark of nothing. **A FAILED FETCH STILL LEAVES THE ROW**, with the reason on it, so the bookmark is recorded even when the site is down and a re-fetch can be tried later. Identity is the canonical URL (lower-cased scheme and host, no default port, no fragment, and nothing else normalized) and a duplicate is a 409 rather than a converging create. A credential in the URL is refused: a bookmark is a public page and this row has nowhere to keep one — a page that needs a credential is a FEED. The fetch is `'untrusted` egress and there is no way to ask for anything else, not even as an operator, so private address space is refused by name.",
+      "hash": "80b0cfe35188f7ad6da81841f9f23d0597e6cecf"
     },
     "ui.wkunclaimablewhy": {
       "text": "nothing in the fleet matches these — check a worker's models, or start one",
@@ -3260,8 +3280,8 @@
       "hash": "6b5353cf5f53470b1607d48ce68bf0a9d6adf6e6"
     },
     "doc.perm.research:use": {
-      "text": "Use the research surfaces.",
-      "hash": "6d420b192207e30421fbf467ede788c78bab2e61"
+      "text": "Bookmark a URL and keep an archived copy of the page behind it. Also required, with chat:use, to ask a question of what has been collected — this one is about the surface, that one about the model spend, so a team may have the archive without the answers.",
+      "hash": "69d7a04b034affd6910c610ce3aca89e951e985e"
     },
     "ui.qrecentorder": {
       "text": "newest first",

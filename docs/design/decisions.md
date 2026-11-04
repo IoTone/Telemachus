@@ -1693,12 +1693,14 @@ fresh one. The claim path's SEMAPHORE is also unexamined as a contention point �
 these figures are one process polling serially, which is the serialized cost but
 not the queueing behaviour of thirty real hosts.
 
-## Research over a knowledge graph (RG) — **proposed 30 Oct 2026** (issue #191)
+## Research over a knowledge graph (RG) — **proposed 30 Oct 2026; SLICE 1 BUILT 4 Nov 2026** (issue #191)
 
 Bookmarked URLs, archived against link rot, distilled into the knowledge graph
-this platform already has, drawn, and asked questions of. **None of it is built.**
-Full reasoning and the slice plan are in
-[research-graph-rag.md](research-graph-rag.md); this is the record.
+this platform already has, drawn, and asked questions of. **Slice 1 — the
+bookmark and its archive — is built** (RG‑15…23 below); slices 2 onward are not,
+and **slice 3 still waits on RG‑14, which is the owner's**. Full reasoning and
+the slice plan are in [research-graph-rag.md](research-graph-rag.md); this is the
+record.
 
 **RG‑0 is the finding and it is good news.** The RSCH block two sections above
 closed by saying *"RSCH‑3 is the expensive one, because an SSRF-safe fetcher is
@@ -1712,13 +1714,14 @@ TLS verification and SNI (EGR‑3). Add #189's whole retrieval stack, #183's
 citation verifier, #135/#140's schedule and `repo-derive!`, and #191 is
 **assembly plus one table, one renderer and one retrieval seam**.
 
-**And RSCH‑5 is now a standing debt with a gate behind it.** `research:use` is
-granted to member, admin and owner, its description says "Use the research
-surfaces", nothing reads it, and `test/route-perm-gate-tests.rkt` carries it in
-`UNREACHABLE-BY-DESIGN` reasoned *"no research surface is built"*. That list
-fails in BOTH directions, so the first slice that enforces it must delete the
-entry in the same commit. #113's shape, with the gate #113 produced now pointed
-at it.
+**And RSCH‑5 WAS a standing debt with a gate behind it; slice 1 paid it.**
+`research:use` was granted to member, admin and owner, its description said "Use
+the research surfaces", nothing read it, and `test/route-perm-gate-tests.rkt`
+carried it in `UNREACHABLE-BY-DESIGN` reasoned *"no research surface is built"*.
+That list fails in BOTH directions, so the entry is deleted in the same commit
+that enforces the permission — which is the gate working rather than being worked
+around — and the description now says what the permission actually admits. #113's
+shape, closed by the gate #113 produced.
 
 | # | Decision | Recommendation · alternatives | Why it matters |
 |---|---|---|---|
@@ -1736,6 +1739,44 @@ at it.
 | **RG‑12** | `robots.txt` and re-fetching | **Not consulted for a person-initiated fetch; a per-host delay and a rate cap on the SCHEDULED re-fetch, which is OFF unless configured** · vs always honouring robots · vs never | A person bookmarking a page they are reading is not a crawler, and a robots check there would refuse pages they can open in a browser. A scheduled re-fetch is different in kind — automated, repeated, unattended — so that is where the courtesy belongs. Off by default for every default-bearing knob's reason here (DEL‑9, PULL‑15a, ANCHOR‑7): an instance that quietly began crawling the web on a timer after an upgrade is #119's shape at its worst. Copyright and terms are the operator's; the platform fetches what it is told, archives what it received, and records who asked. |
 | **RG‑13** | Out of scope | **Declined: web SEARCH (stays RSCH‑1's plugin tool), a headless browser, a whole-graph canvas, a second graph store, wiki-links, OpenMetrics** · vs a fuller first cut | The second graph store is the one with a measurement behind it: #189 measured a full scan over `repo_chunks` at 8 ms for 1,000 chunks and 759 ms for 100,000, and says to revisit at 50,000 for one team — a team's bookmarks are an order of magnitude under that, so a property graph or a triple store buys nothing and costs a service. Web search stays a plugin because the backend is deployment-specific, and RSCH's Think → Search → Extract → Synthesize loop is **easier** after this slice: it is this retrieval seam with a different source of URLs. |
 | **RG‑14** | The fork, and it is the owner's | **Slices 1–2 unambiguous; slice 3 is EITHER the reading tool (RG‑9 + a bookmarks screen) OR the question-answering tool (RG‑6 + RG‑10), and nothing starts on a guess** | #191 names Obsidian and orgmode in the same sentence as graph‑RAG, and those are two products. A reading tool's value is the neighbourhood view and the provenance; a question-answering tool's is the cited answer, with the drawing as a debugging aid. Both are in the plan, the order changes what slice 3 costs, and slices 1 and 2 are useful under either — an archived, searchable, extracted set of pages with per-version provenance is the permanence requirement met, picked up for free by keyword search, `?semantic=1`, `repo_retrieve`, the knowledge graph and the document pipeline. |
+
+
+### What slice 1 settled that the design did not (RG‑15…23, built 4 Nov 2026)
+
+Migration `0071-research-sources`; `domain/research/research.rkt`;
+`server/api/research.rkt`; five routes behind `research:use`. **No new
+permission, no new environment variable, no console code.**
+
+| # | Decision | Recommendation · alternatives | Why it matters |
+|---|---|---|---|
+| **RG‑15** | How the key stays the same across fetches | **STORED on the row (`object_key`), composed once on the first successful fetch** · vs recomputed from the row each time | RG‑2 requires the same key for ever and the EXTENSION comes from the content type the first fetch was SERVED, so a recomputed key changes the day a page starts answering as a PDF — and a changed key is a second object, which is exactly the "N documents nobody can diff" failure RG‑2 exists to prevent. The cost is stated at the definition: a page that becomes a PDF gets a new version with its own `content_type` under a key still ending `.html`, which reads oddly and is the right trade, because the alternative breaks the version chain at the moment it became interesting. Positive-controlled — recomputing fails the type-change case by name. |
+| **RG‑16** | Whether a create fetches | **YES, unless `fetch: false`** · vs configure-then-fetch, as a feed does | The one place this surface deliberately differs in SHAPE from the feed plane. A feed is configuration an operator probes once and then polls on a timer; a bookmark exists because somebody is reading a page NOW and #191's whole motive is that the page will not keep. A create that only wrote a row would make the archive a second call, and the one case this feature is for — capture it before it rots — would depend on somebody remembering to make it. **A FAILED FETCH STILL LEAVES THE ROW**, with the reason on it: a site that is down today is the ordinary case, and losing the bookmark over it is the one outcome nobody asked for. |
+| 🔑 **RG‑17** | The fetch budget | **`research.fetches`, charged PER REQUEST and BEFORE it, inside `research-fetch!`** · vs no dimension · vs at the two endpoints | FEED‑9's rule for the same kind of resource: the dimension protects somebody ELSE's site as much as this instance, and metering only successes would make a bookmark pointed at a refusing host free to retry for ever. It is in `QUOTA-HOLD-DIMS` (no default limit, so an instance nobody configured holds nothing) because RG‑12's scheduled re-fetch will be an ordinary job, and holding the queue is all that takes. In the DOMAIN rather than at the two endpoints, so there is one place to forget rather than two — and the one that forgot would be the cheap-looking one. The endpoint renders the 429 and its `resets_at`, because the domain has no HTTP in it; a test can then assert the refusal with no server. |
+| **RG‑18** | The reporting gap it exposed | **`feed.fetches` AND `research.fetches` added to `ORG-DIMENSIONS` and `org-usage`** · vs leaving both out, as `feed.fetches` was | `tenant-quota-record!/team` meters at both tiers and `tenant-quota-check/team` lets the ORG decision refuse first, so every dimension anything meters is already ENFORCEABLE at the company tier. `feed.fetches` was therefore a limit an operator could set, that bit, and that they could then see nowhere — the defect `storage.bytes` had for a year and MAIL‑25i named. Found by wiring the second one and asking where the first was reported. |
+| 🔑 **RG‑19** | How the store path is tested at all | **A `#:fetch` seam on `research-fetch!` that DEFAULTS to the real fetcher** · vs a loopback listener · vs no unit coverage of the store | **`'untrusted` refuses every address a test can listen on** — loopback, private, link-local — and the allowlist belongs to `'trusted`, which this surface never asks for. So there is no socket any suite can stand up that a research fetch is allowed to reach, and that is the POLICY WORKING rather than a gap. The seam carries the store, the same-key rule, the dedup and the budget with no socket; the egress cases pass NO seam and are refused by name, which is what establishes that the default really is the real one. **Stated rather than implied**, the LibreOffice branch's and the SSE round trip's rule — and `RESEARCH_TEST_URL` drives the whole thing end to end against a public page (`S3_TEST_ENDPOINT`'s shape), with a LOUD skip when it is unset. Verified by hand on 4 Nov 2026 against `https://example.com/`: a real page archives under `research/example.com/…`, a re-fetch is a new version of the same key, one document and two versions. |
+| **RG‑20** | The canonicalization's own test | **Assert what it does AND what it deliberately does not** · vs asserting only the normalizations | Each thing RG‑1 declines — stripping tracking parameters, normalizing a trailing slash, sorting the query — merges two pages that differ on some real site, and the failure is SILENT in the worst direction: the second page's bytes land as a VERSION of the first, so the version chain then says a page changed when what changed was which page was fetched. A test that only pinned the three normalizations would pass against every one of those. |
+| **RG‑21** | `safe-key-part`'s home | **Hoisted to `domain/repo/keyparts.rkt`, with no dependencies** · vs a second copy · vs requiring the feed adapters from the research module | The rule was written for FEED‑16, where a repository's name becomes part of a pulled item's key; a bookmark's HOST and the slug from its PATH are the second asker. Two copies of a key-safety rule is `executor-can-run?`'s drift where the consequence is a traversal — the move `repo-fields-declare!` and `repo-readable?` already made. The new module has no dependencies on purpose: `adapters.rkt` promises in its own header that an adapter never fetches and never writes, so it must be able to ask without requiring the repository. ONE NAME, not an alias beside it. |
+| **RG‑23** | `archived` and `object_id` on a read | **JOINED to `repo_objects` with `deleted_at IS NULL`, never read off the stored `object_id`** · vs reporting the column · vs clearing the column from a delete hook | The archive is an ordinary repository document, so #86's retention sweep and an ordinary `DELETE /api/repo-obj/<id>` can both take it away — and a row still carrying a non-NULL `object_id` would then report `archived: true` with nothing behind it, which is PULL‑11e's withdrawn field in its most literal form (a dangling id). A delete HOOK would be a second consumer of a seam that has one, and would still leave every row written before it was installed wrong. **`deleted_at IS NULL` is not optional and the test is what said so**: a repository delete is a SOFT delete, so a join on the id alone goes on matching. What is NOT withdrawn is `object_key` — it is what makes a re-fetch land on the same key (RG‑15), so after a retention delete the bookmark re-archives where it always was. |
+| **RG‑22** | Five routes, not the plan's three | **list, create, get, delete, fetch** · vs the three the build plan named | Indicative rather than binding, and a row nobody can delete is a defect. `DELETE` removes the ROW only: the archived document is an ordinary repository object, so deleting the bookmark is not a retraction of the page — exactly as deleting a feed is not a retraction of its items — and the cascade, the blob release and the storage refund all live where the document does. |
+
+**TWO CONTROLS THAT DID NOT BITE EACH FOUND A REAL TEST GAP, and both were in
+the same rule.** Patching `safe-key-part` out of the HOST changed nothing,
+because the hostile-path case exercises the PATH; patching it out of the SLUG
+changed nothing either, because `../../etc/passwd` is harmless once the segments
+are joined with dashes — Racket answers `'up` for `..`, so the raw slug is
+already `up-up-etc-passwd`. What `valid-key?` actually refuses besides a `..`
+segment is a BACKSLASH and a control character, and both arrive percent-encoded
+in a perfectly well-formed URL (`/a%5Cb%0Ac`); and a HOST of `..` passes
+`research-problem`'s "non-empty host, http(s) scheme" test, so `http://../x` is
+bookmarkable and would have reached `repo-put!` as `research/../x-…` and
+surfaced as a 500 on a URL somebody typed. Both are cases now, and both controls
+bite. **Nine controls, all nine biting.**
+
+**AND A `..` SEGMENT IS A SYMBOL, NOT A STRING — the trap this tree records from
+the day the public bundle route answered 500 instead of its intended 404.**
+Racket's URL parser answers `'up` for `..` and `'same` for `.`, so
+`(string=? (path/param-path seg) "")` is a contract violation rather than a wrong
+answer. Format first, then compare. Its own test is what caught it.
 
 ## External feeds and a prioritised work queue (FEED) — **proposed 22 Oct 2026** (issue #114)
 
