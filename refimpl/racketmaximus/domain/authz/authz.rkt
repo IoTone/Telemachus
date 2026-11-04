@@ -55,7 +55,7 @@
          hash-token legacy-hash-token token-pepper-is-default?
          grant! revoke!
          audit! audit-list
-         set-password! change-password! authenticate enable-2fa! reset-2fa! first-team-for
+         set-password! change-password! authenticate has-second-factor? enable-2fa! reset-2fa! first-team-for
          member-role team-owner-count set-member-role! deactivate-member!
          revoke-user-sessions!
          issue-recovery-codes! recovery-codes-remaining RECOVERY-CODE-COUNT
@@ -354,6 +354,15 @@
   (query-maybe-value conn
     "SELECT team_id FROM memberships WHERE user_id = ? AND status = 'active' ORDER BY created_at LIMIT 1"
     user-id))
+
+;; Does this account have a second factor? Asked by anything that mints a session
+;; WITHOUT going through `authenticate` — which is where TOTP is enforced, so a
+;; path that skips it and issues a token anyway is a second-factor bypass. It
+;; lives here, beside the one check it exists to protect, so the two cannot drift
+;; into disagreeing about what "has 2FA" means.
+(define (has-second-factor? conn user-id)
+  (define v (query-maybe-value conn "SELECT totp_secret FROM users WHERE id = ?" user-id))
+  (and v (not (sql-null? v)) (not (equal? (format "~a" v) "")) #t))
 
 ;; verify username + password (+ TOTP code if 2FA is enabled) → user-id or #f
 (define (authenticate conn username password #:code [code #f])

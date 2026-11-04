@@ -38,8 +38,9 @@
          (only-in "./transport.rkt" mail-address-problem printable))
 
 (provide VERIFY-TTL
-         user-address user-address-state
-         address-claim! address-verify! address-clear! address-pending)
+         user-address user-address-state user-by-verified-address
+         address-claim! address-verify! address-verify-by-redemption!
+         address-clear! address-pending)
 
 ;; A day. Long enough for somebody who asked at the end of the afternoon, short
 ;; enough that a link in an inbox somebody else later reads has expired — and the
@@ -61,6 +62,31 @@
        (not (sql-null? (vector-ref r 0)))
        (not (sql-null? (vector-ref r 1)))
        (vector-ref r 0)))
+
+;; The reverse lookup, for a caller holding an address and no user: a password
+;; reset, where the address IS the identifier somebody typed.
+;;
+;; IT MATCHES ONLY A VERIFIED ADDRESS AND ONLY AN ACTIVE ACCOUNT, and both halves
+;; are the rule rather than caution. MAIL-5 is that nothing is sent to an address
+;; that has not answered, so an unverified one is not a place this instance will
+;; mail a credential; and `authenticate` admits `status = 'active'` alone, so
+;; offering a reset to a SUSPENDED account would mail a link that sets a password
+;; nobody can then use — and would tell whoever holds that mailbox that the
+;; account exists and was suspended.
+;;
+;; The comparison is case-folded on the way in, because an address typed into a
+;; sign-in screen is typed by a person. The domain is case-insensitive by RFC and
+;; the local part is not, in theory — in practice no mail system anybody deploys
+;; distinguishes them, and treating `Alice@` as a different person from `alice@`
+;; would make the reset silently find nothing for the commonest possible typo.
+(define (user-by-verified-address conn address)
+  (define a (string-downcase (string-trim (format "~a" address))))
+  (and (not (string=? a ""))
+       (let ([v (query-maybe-value conn
+                  (string-append "SELECT id FROM users WHERE LOWER(email) = ? "
+                                 "AND email_verified_epoch IS NOT NULL AND status = 'active'")
+                  a)])
+         (and v (not (sql-null? v)) (format "~a" v)))))
 
 ;; What a profile card renders: the verified address if there is one, the pending
 ;; one if a verification is outstanding, and when each happened. The TOKEN is
@@ -103,6 +129,52 @@
                    "expires_epoch, created_epoch) VALUES (?, ?, ?, ?, ?)")
     user-id a (hash-verify-token tok) (+ (now) VERIFY-TTL) (now))
   (values tok a))
+
+;; THE OTHER WAY AN ADDRESS IS PROVED (INVITE-4): somebody redeemed a token this
+;; instance MAILED to it. Receiving the link is the same proof the verification
+;; token carries, arriving through a different envelope — so an invitation does
+;; not need a second confirmation message, and asking for one would mean sending
+;; two links in two messages for one mailbox.
+;;
+;; IT TAKES NO TOKEN, and that is the whole of what makes it dangerous to export
+;; carelessly: the caller is asserting that proof already happened. There is
+;; exactly one caller — the activation redemption, immediately after
+;; `claim-mailed-token!` has spent a token minted for this user — and the
+;; condition is stated here rather than implied, because anything else calling
+;; this would verify an address on no evidence at all.
+;;
+;; It is keyed on the user and not on the address: `email_verifications` has
+;; `user_id` as its primary key, so there is at most one pending address per
+;; person and no way to promote the wrong one. A person with no pending address
+;; is left alone rather than raising — an ordinary activation on an instance with
+;; no mail has nothing to promote, and that is not a failure.
+(define (address-verify-by-redemption! conn user-id)
+  (define r (query-maybe-row conn
+              (string-append "DELETE FROM email_verifications WHERE user_id = ? "
+                             "RETURNING address")
+              user-id))
+  (cond
+    [(not r) #f]
+    [else
+     (define addr (vector-ref r 0))
+     (query-exec conn
+       (string-append "UPDATE users SET email = ?, email_verified_epoch = ?, "
+                      "updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+       addr (now) user-id)
+     ;; `#:team-id` absent, for `address-verify!`'s reason one definition below:
+     ;; an address belongs to a PERSON, not to one of their teams.
+     (audit! conn #:action "user.email.verified" #:actor-type "user" #:actor-id user-id
+             #:resource-type "user" #:resource-id user-id
+             #:meta "{\"via\":\"redemption\"}")
+     addr]))
+
+;; THE EXPIRY IS DELIBERATELY NOT CHECKED ABOVE, and the reason is which clock
+;; governs. `VERIFY-TTL` is a day and bounds a CONFIRMATION link somebody asked
+;; for; an invitation's own token carries its own, longer horizon, and
+;; `claim-mailed-token!` has already refused an expired one by the time this is
+;; reached. Checking a second, shorter clock here would make an invitation that
+;; is still valid promote nothing — an account activated with its address
+;; silently unconfirmed, which is the one outcome worse than either.
 
 ;; -> the address on success, #f on a miss. A BAD TOKEN AND AN EXPIRED ONE ARE ONE
 ;; ANSWER: whether a given token was ever real is not a question this should

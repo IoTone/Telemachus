@@ -13,38 +13,22 @@
          racket/string
          file/sha1
          "../db/id.rkt"
-         "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!/hash-token
+         "../authz/authz.rkt"       ; create-user!/create-team!/add-member!/seed-builtin-roles!/set-password!/issue-token!/first-team-for/audit!
+         "../authz/mailed-tokens.rkt" ; mint-mailed-token!/claim-mailed-token! — the ONE rule for a token we mail
+         (only-in "../mail/addresses.rkt" address-verify-by-redemption!)
          "../quota/quota.rkt")      ; set-limit!
 
 (provide provision! activate! suspend! resume! team-suspended?
          provisioned-team set-tenant-quota!)
 
-;; ---- how an activation token is stored (#186) --------------------------------
+;; ---- how an activation token is stored --------------------------------------
 ;;
-;; THIS KEPT THE PRE-#13 PROTOTYPE SCHEME, and its own comment said so: bare
-;; SHA-1 over a COMPILED-IN salt, which is public — this is clean MIT on GitHub.
-;; #13 replaced exactly that for `api_tokens` with a peppered HMAC-SHA-256 under
-;; `TMACH_TOKEN_PEPPER`, and this one credential family was left behind, so the
-;; tree had two token-hashing rules and the weaker one was the one nobody looked
-;; at. `hash-token` is now the only rule.
-;;
-;; WHAT THIS WAS AND WAS NOT, stated precisely, because overclaiming a security
-;; finding is its own failure: a `random-token` is 24 bytes of
-;; `crypto-random-bytes`, so 192 bits — guessing one over the network was never
-;; feasible and neither was recovering one from a leaked hash, whatever the
-;; digest. What the pepper actually buys here is what it buys there: **rotating
-;; `TMACH_TOKEN_PEPPER` retires every outstanding activation link**, which the
-;; compiled-in salt could not do, and the scheme no longer depends on the token's
-;; entropy for its safety margin. That is defence in depth and a one-home rule,
-;; not a hole that was being walked through.
-;;
-;; THE LEGACY READ IS #13's, FOR #13's REASON: an unclaimed activation link in
-;; somebody's inbox must keep working across the upgrade. The lookup tries the
-;; current scheme, then the old 40-hex one, and REWRITES the row on a hit — so a
-;; link is migrated the moment it is used and the legacy path drains by itself.
-(define LEGACY-ACTIVATION-SALT "telemachus-activation-v0")
-(define (legacy-hash-tok t) (sha1 (open-input-string (string-append LEGACY-ACTIVATION-SALT t))))
-(define (hash-tok t) (hash-token t))
+;; IT MOVED. The hashing (#186/SEC-3, with #13's legacy read), the single
+;; outstanding slot and the guarded spend are `domain/authz/mailed-tokens.rkt`
+;; now, because the password reset is their second asker and a credential rule
+;; kept in two places is the one kind of drift nobody sees until it matters.
+;; This module is one of the two things that REDEEM such a token; what makes an
+;; activation different from a reset is below, in `activate!`.
 
 ;; plan → limits applied at provision
 (define plan-quotas
@@ -63,16 +47,7 @@
   (if (string=? trimmed "") "team" trimmed))
 
 (define (mint-activation! conn uid ttl-hours)
-  (query-exec conn "UPDATE activation_tokens SET used_at = CURRENT_TIMESTAMP WHERE user_id = ? AND used_at IS NULL" uid)
-  (define raw (random-token))
-  ;; store expiry as an epoch-seconds string (portable across sqlite/postgres —
-  ;; no dialect-specific datetime() arithmetic).
-  (define expires (+ (current-seconds) (* ttl-hours 3600)))
-  (query-exec conn
-    (string-append "INSERT INTO activation_tokens (id, user_id, token_hash, prefix, expires_at) "
-                   "VALUES (?, ?, ?, ?, ?)")
-    (new-id) uid (hash-tok raw) (substring raw 0 (min 11 (string-length raw))) (number->string expires))
-  raw)
+  (mint-mailed-token! conn uid ttl-hours #:purpose "activate"))
 
 ;; Idempotent seed. Returns (values activation-token owner-user-id team-id state)
 ;; state: 'seeded (new or token re-issued) | 'active (already claimed → token #f).
@@ -101,44 +76,43 @@
      (audit! conn #:action "provision" #:actor-type "system" #:actor-id "provision" #:team-id tid)
      (values (mint-activation! conn uid ttl) uid tid 'seeded)]))
 
-(define (expired? conn expires-at)
-  (and (not (sql-null? expires-at))
-       (let ([e (string->number (format "~a" expires-at))])
-         (and e (> (current-seconds) e)))))
-
-;; Claim an activation token: set the owner's password + activate. Returns
-;; (values owner-user-id team-id session-token) or #f on bad/used/expired token.
-(define ACTIVATION-SELECT
-  "SELECT id, user_id, used_at, expires_at FROM activation_tokens WHERE token_hash = ?")
-
-;; the row for an activation token: the current hash first, then the legacy one —
-;; and a legacy hit is rewritten to the current scheme before it is used, which
-;; is `token-row`'s shape in authz.rkt and the reason an outstanding link
-;; survives the upgrade (#186).
-(define (activation-row conn raw)
-  (define h (hash-tok raw))
-  (or (query-maybe-row conn ACTIVATION-SELECT h)
-      (let* ([lh (legacy-hash-tok raw)]
-             [r (query-maybe-row conn ACTIVATION-SELECT lh)])
-        (and r
-             (begin (query-exec conn "UPDATE activation_tokens SET token_hash = ? WHERE token_hash = ?" h lh)
-                    r)))))
-
+;; Claim an activation token: set the owner's first password and make the account
+;; real. Answers (values user-id team-id session-token-or-#f), or #f when the
+;; token is unknown, spent, expired, or a token for some other purpose.
+;;
+;; THE SESSION IS WITHHELD WHEN THE ACCOUNT HAS A SECOND FACTOR (RESET-2), and
+;; that rule is here rather than only in the reset because it costs one condition
+;; and removes a whole class permanently. TOTP is enforced in `authenticate`;
+;; this path does not go through it, so handing out a `*:*` session on a redeemed
+;; link is a second-factor bypass for anybody who can read the mailbox. It is
+;; unreachable from an invitation TODAY — nothing can enrol a seed before
+;; activation — and "unreachable today" is exactly the kind of argument that
+;; stops being true without anybody noticing. With a seed the caller is told the
+;; password was set and sends them to sign in, where the code is demanded.
 (define (activate! conn #:token raw #:password pw)
-  (define row (activation-row conn raw))
+  (define uid (claim-mailed-token! conn raw #:purpose "activate"))
   (cond
-    [(not row) #f]
-    [(not (sql-null? (vector-ref row 2))) #f]                 ; already used
-    [(expired? conn (vector-ref row 3)) #f]
+    [(not uid) #f]
     [else
-     (define uid (vector-ref row 1))
      (set-password! conn uid pw)
      (query-exec conn "UPDATE users SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?" uid)
-     (query-exec conn "UPDATE activation_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?" (vector-ref row 0))
      (query-exec conn "UPDATE provisioning SET status = 'activated', updated_at = CURRENT_TIMESTAMP WHERE owner_user_id = ?" uid)
+     ;; RECEIVING THE LINK PROVED THE MAILBOX (INVITE-4), so a pending address is
+     ;; promoted here and the invitation needs no second confirmation message.
+     ;; THIS IS THE ONE CALLER, and it is the condition that function states: a
+     ;; token minted for this user has just been spent, one line above. A person
+     ;; with nothing pending is left alone, which is every activation on an
+     ;; instance with no mail.
+     (address-verify-by-redemption! conn uid)
      (define tid (first-team-for conn uid))
-     (define-values (tok _t) (issue-token! conn #:user uid #:team tid #:name "login" #:scopes '("*:*") #:kind SESSION-KIND))
-     (audit! conn #:action "activate" #:actor-type "user" #:actor-id uid #:team-id tid)
+     (define tok
+       (and (not (has-second-factor? conn uid))
+            (let-values ([(t _t) (issue-token! conn #:user uid #:team tid
+                                               #:name "login" #:scopes '("*:*")
+                                               #:kind SESSION-KIND)])
+              t)))
+     (audit! conn #:action "activate" #:actor-type "user" #:actor-id uid #:team-id tid
+             #:resource-type "user" #:resource-id uid)
      (values uid tid tok)]))
 
 ;; ---- lifecycle --------------------------------------------------------------

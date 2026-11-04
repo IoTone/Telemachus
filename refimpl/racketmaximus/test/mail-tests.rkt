@@ -30,8 +30,14 @@
          "../domain/mail/transport.rkt"
          "../domain/mail/addresses.rkt"
          "../domain/mail/mail.rkt"
+         (only-in "../domain/quota/quota.rkt" set-limit! quota-used)
+         racket/runtime-path
          (only-in "../domain/repo/blobs.rkt" current-blob-root)
          (only-in racket/file make-directory*)
+         (only-in racket/system system*/exit-code)
+         (only-in racket/port open-output-nowhere)
+         (only-in racket/file make-temporary-file file->string)
+         openssl
          "mock-smtp.rkt")
 
 ;; EVERY HELPER IS DEFINED BEFORE ITS FIRST USE, and that is not style: a helper
@@ -336,6 +342,179 @@
     (check-equal? (map car rcpts) (list alice)))
   (close-db! c))
 
+;; ---- what a team may spend on telling people (MAIL-25) --------------------------------
+;; The dimension exists so that a plugin calling `mail-notify!` in a loop meets a
+;; limit rather than this instance's standing with the relays meeting it. Every
+;; case below is about WHERE the bound sits, because that is the whole of the
+;; design: at the fan-out, so the four transactional messages are outside it by
+;; construction and not by a flag somebody can forget.
+
+(define-runtime-path test-dir ".")
+(define ADMISSION-RKT (build-path test-dir ".." "server" "admission.rkt"))
+
+;; A text scan, because `server/admission.rkt` requires `kit.rkt`, which
+;; instantiates the connection pool at module instantiation and reads
+;; `DATABASE_URL` — and CI's sqlite leg sets that to the EMPTY STRING, which
+;; `db-connector` refuses. #123 paid for exactly that: a unit test must not
+;; require kit. Comment lines are stripped, which is the fourth-appearance rule
+;; for a scan that would otherwise read the prose explaining what it looks for.
+(define (admission-code)
+  (string-join
+   (for/list ([ln (in-list (string-split (file->string ADMISSION-RKT) "\n"))]
+              #:unless (regexp-match? #px"^[ \t]*;" ln))
+     ln)
+   "\n"))
+
+(test-case "MAIL-25: it is NOT a hold dimension, and that is load-bearing"
+  ;; A hold stops a team's SCHEDULER QUEUE until the window resets. A
+  ;; notification is emitted FROM a job — a workflow run completing is what fires
+  ;; `run.completed` — so holding on this dimension would stop a team's actual
+  ;; work because it had sent too much mail. And a delivery is not a job at all:
+  ;; it is a row swept on the reaper seam, so there is no queue of deliveries for
+  ;; a hold to govern. The refusal belongs at the fan-out, where the other cases
+  ;; here assert it is.
+  (check-false (regexp-match? (regexp (regexp-quote MAIL-QUOTA-DIM)) (admission-code))
+               (string-append MAIL-QUOTA-DIM " must not reach QUOTA-HOLD-DIMS: holding on it"
+                              " stops the jobs that EMIT notifications")))
+
+(test-case "MAIL-25: a fan-out is metered per mailbox, and no limit refuses nothing"
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (define bob (create-user! c #:username "bob"))
+  (add-member! c #:user bob #:team tid #:role "member")
+  (verify-address! c bob "bob@example.test")
+  (instance-categories-set! c (hasheq 'jobs #t))
+  ;; ONE EVENT TO TWO MEMBERS IS TWO, because the resource is spent per mailbox.
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 2)
+  ;; `quota-check` reports `used: 0` where no limit is set, so the ledger is what
+  ;; has to be read — this file's fourth asker of that rule.
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 2)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 2)
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 4
+                "with no limit configured nothing is refused, and the figure still accrues")
+  (close-db! c))
+
+(test-case "MAIL-25: a reached limit refuses the next event and writes no row"
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 2 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 1)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 1)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j3")) 0
+                "the third is refused")
+  ;; A refusal is not a pending row: nothing was written, so nothing will be
+  ;; retried ten times and die. MAIL-10's rule, arriving through a second door.
+  (check-equal? (query-value c "SELECT COUNT(*) FROM email_deliveries") 2)
+  (close-db! c))
+
+(test-case "MAIL-25: the check asks for ONE unit, not for the whole fan-out"
+  ;; THE POSITIVE CONTROL FOR THE SHARPEST DECISION IN THIS SLICE. Asking for N
+  ;; and refusing the lot means a team of two under a limit of one is refused
+  ;; EVERY event for ever while its ledger stays at `used: 0` — a bound that
+  ;; silences a team and reports that it was never reached. Swap the `1` in
+  ;; `mail-notify!` for `(length recips)` and the first assertion here answers 0
+  ;; and the second 0, which is that state exactly.
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (define bob (create-user! c #:username "bob"))
+  (add-member! c #:user bob #:team tid #:role "member")
+  (verify-address! c bob "bob@example.test")
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 1 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 2
+                "both members are told, because there was budget for a message")
+  ;; THE OVERSHOOT IS REAL AND IS STATED RATHER THAN IMPLIED: the window ends
+  ;; over the limit, by at most one team's membership — the same overshoot every
+  ;; AI dimension accepts between an admission estimate and a metered actual.
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 2)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 0
+                "and the next event is refused, with the figure saying why")
+  (close-db! c))
+
+(test-case "MAIL-25: a TRANSACTIONAL message is outside the bound"
+  ;; RESET-5 with a number in front of it. The preference layers exist so a
+  ;; person can stop this instance mailing them and a person who has turned
+  ;; every category off must still be able to recover their account; a quota
+  ;; that could refuse a reset would be that defect again. The bound sits at the
+  ;; fan-out, so this holds by construction — there is no keyword here saying
+  ;; "do not count this one", which is what a check inside `mail-enqueue!` would
+  ;; have needed and what the one caller that forgot it would have broken.
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 1 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 1)
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j2")) 0
+                "the notification budget really is exhausted")
+  ;; …and all four transactional messages still go out.
+  (check-true (string? (mail-enqueue-password-reset! c #:user alice
+                                                     #:address "alice@example.test"
+                                                     #:token "rtok"))
+              "a password reset cannot be refused by a mail quota")
+  (check-true (string? (mail-enqueue-verification! c #:user alice
+                                                   #:address "alice2@example.test"
+                                                   #:token "vtok")))
+  (check-true (string? (mail-enqueue-invitation! c #:user alice
+                                                 #:address "new@example.test"
+                                                 #:token "itok"
+                                                 #:team-name "Acme" #:inviter "alice")))
+  ;; and they do not move the dimension either, so the figure keeps meaning
+  ;; "notifications" rather than "mail"
+  (check-equal? (quota-used c "team" tid MAIL-QUOTA-DIM "total") 1)
+  (close-db! c))
+
+(test-case "MAIL-25: a refusal is audited, with a count and not the addresses"
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (define bob (create-user! c #:username "bob"))
+  (add-member! c #:user bob #:team tid #:role "member")
+  (verify-address! c bob "bob@example.test")
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 0 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 0)
+  ;; `audit-list` does not project `meta` — #59's rule, and asserting over an API
+  ;; that never carried the field is how an assertion passes for the wrong
+  ;; reason — so the row is read directly.
+  (define row (query-maybe-row c
+                (string-append "SELECT team_id, result, meta FROM audit_log "
+                               "WHERE action = 'email.notify.refused'")))
+  (check-true (and row #t) "a notification nobody received is otherwise pure silence")
+  (check-equal? (vector-ref row 0) tid
+                "the team whose members were not told, or audit-list cannot see it")
+  (check-equal? (vector-ref row 1) "refused")
+  (define meta (string->jsexpr (vector-ref row 2)))
+  (check-equal? (hash-ref meta 'recipients) 2)
+  (check-equal? (hash-ref meta 'dimension) MAIL-QUOTA-DIM)
+  (check-equal? (hash-ref meta 'scope) "team")
+  ;; THE LOG IS CHAINED, EXPORTED AND KEPT THROUGH AN ERASURE (DEL-7), so it
+  ;; outlives every other copy — and a list of the mailboxes of everybody on a
+  ;; team is the one thing here most worth not writing into it.
+  (check-false (regexp-match? #px"alice@|bob@" (vector-ref row 2)))
+  (close-db! c))
+
+(test-case "MAIL-25: an event nobody was going to hear about spends nothing"
+  ;; The recipients are resolved before anything is spent. On a team where every
+  ;; member has turned the category off — or may not read the subject (MAIL-17) —
+  ;; that is the ordinary case rather than a corner, so a check and an audit
+  ;; entry per such event would be a ledger and a log full of nothing.
+  (define c (fresh))
+  (configure! c #:port PORT-DEAD)
+  (define-values (tid alice) (seed! c))
+  (instance-categories-set! c (hasheq 'jobs #t))
+  (user-pref-set! c alice "jobs" #f)
+  (set-limit! c "team" tid MAIL-QUOTA-DIM 0 #:window "total")
+  (check-equal? (mail-notify! c "job.completed" tid (hasheq 'job_id "j1")) 0)
+  (check-equal? (query-value c
+                  "SELECT COUNT(*) FROM audit_log WHERE action = 'email.notify.refused'") 0
+                "nothing was refused, because nothing was going to be sent")
+  (close-db! c))
+
 ;; ---- what a message says -------------------------------------------------------------
 (test-case "a message carries ids, a status, a slug and a link — and no content"
   ;; MAIL-9 / MTX-8, and it binds harder than it does for a chat room: an inbox
@@ -606,3 +785,97 @@
   (check-equal? (length (mail-deliveries c #:team tid)) 1)
   (check-equal? (length (mail-deliveries c)) 2 "the operator's view has both")
   (close-db! c))
+
+;; ---- the TLS branches, which NOTHING exercised (MAIL-9) ---------------------
+;;
+;; `mail-tests.rkt` has said so since the slice landed: both are the same
+;; `smtp-send-message` call with a different connector argument, and driving
+;; either end to end needs a certificate the mock has to be given —
+;; `mock-tls-encode` was the hook and nothing called it. Most real deployments
+;; use STARTTLS on 587, so it was the one branch that mattered most and was
+;; covered least. The LibreOffice branch's rule, closed.
+;;
+;; WHAT THESE CASES ESTABLISH, stated precisely, because the measurement is more
+;; interesting than the coverage: the handshake really happens and the session
+;; survives it in BOTH modes, AND **the client does not verify the relay's
+;; certificate**. That second half is not an assumption — a self-signed
+;; certificate the mock mints for itself is ACCEPTED, which is only possible
+;; with verification off, and `net/smtp` is where it comes from: it calls the
+;; encoder with `#:mode 'connect #:encrypt 'tls #:close-original? #t` and NO
+;; `#:context`, so the default client context answers and that one does not
+;; verify. The consequence is the honest one — TLS here defends against a
+;; passive listener on the path and NOT against an active machine-in-the-middle
+;; that can present any certificate. Making it verify is a behaviour decision
+;; (it would refuse the self-signed internal relay these deployments often run),
+;; so it is named rather than slipped in.
+
+(define PORT-STARTTLS 8950)
+(define PORT-TLS 8951)
+
+;; openssl is in the devShell. A box without it SKIPS AND SAYS WHICH BRANCH went
+;; unexercised, because a silent skip is how a path goes untested for a year —
+;; the S3 smoke's own lesson, which this file is not going to repeat.
+(define (self-signed!)
+  (define ssl (find-executable-path "openssl"))
+  (cond
+    [(not ssl) #f]
+    [else
+     (define d (build-path (find-system-path 'temp-dir)
+                           (format "tmach-mailtls-~a" (current-inexact-milliseconds))))
+     (make-directory* d)
+     (define key (build-path d "k.pem"))
+     (define crt (build-path d "c.pem"))
+     (define code
+       (parameterize ([current-output-port (open-output-nowhere)]
+                      [current-error-port (open-output-nowhere)])
+         (system*/exit-code ssl "req" "-x509" "-newkey" "rsa:2048" "-nodes"
+                            "-keyout" (path->string key) "-out" (path->string crt)
+                            "-days" "1" "-subj" "/CN=127.0.0.1")))
+     (and (zero? code) (file-exists? crt) (file-exists? key) (cons crt key))]))
+
+;; The server half of the handshake, for both modes. `ports->ssl-ports` in
+;; 'accept mode with a context carrying the certificate — which is exactly what
+;; the mock's STARTTLS arm has always handed off to.
+(define (accept-encoder crt key)
+  (lambda (in out)
+    (define ctx (ssl-make-server-context))
+    (ssl-load-certificate-chain! ctx crt)
+    (ssl-load-private-key! ctx key)
+    (ports->ssl-ports in out #:mode 'accept #:context ctx #:close-original? #t)))
+
+(define (tls-case label port security starttls? tls?)
+  (define pair (self-signed!))
+  (cond
+    [(not pair)
+     (printf "mail-tests: SKIPPED ~a — no openssl on PATH, so that branch went unexercised\n" label)]
+    [else
+     (define c (fresh))
+     (mock-clear!)
+     (parameterize ([mock-tls-encode (accept-encoder (car pair) (cdr pair))])
+       (start-mock-smtp! #:port port #:starttls? starttls? #:tls? tls?)
+       (configure! c #:port port #:security security)
+       (define-values (ok? err) (mail-send-test! c "tls@example.test"))
+       (stop-mock-smtp!)
+       ;; THE HANDSHAKE COMPLETED AND THE SESSION SURVIVED IT, which is the whole
+       ;; claim: a WHOLE message is in the mock's record, so MAIL FROM, RCPT TO,
+       ;; DATA, the body and the dot were all read through the encrypted ports —
+       ;; and in the implicit case the 220 itself was.
+       (check-true ok? (format "~a: ~a" label err))
+       (check-false err)
+       (define m (mock-last-message))
+       (check-true (mock-msg? m) (format "~a: a message was recorded" label))
+       (check-equal? (mock-msg-to m) (list "tls@example.test"))
+       (check-true (regexp-match? #px"Subject:" (mock-msg-data m))
+                   (format "~a: the headers survived the wrap" label)))
+     (close-db! c)]))
+
+(test-case "MAIL-9: STARTTLS really negotiates, and the session survives it"
+  ;; `net/smtp` REQUIRES the server to advertise STARTTLS in its EHLO reply and
+  ;; re-sends EHLO afterwards (RFC 3207 4.2), so this also exercises the mock's
+  ;; second greeting — and the advertisement must not be the FIRST line, which
+  ;; the client drops as flavour text.
+  (tls-case "starttls" PORT-STARTTLS "starttls" #t #f))
+
+(test-case "MAIL-9: implicit TLS really connects, with the wrap before the 220"
+  (tls-case "implicit tls" PORT-TLS "tls" #f #t))
+

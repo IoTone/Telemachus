@@ -12,7 +12,11 @@
          ep-admin-status ep-login ep-password ep-2fa-reset ep-admin-2fa-reset
          ep-2fa-enable ep-2fa-codes-new ep-2fa-codes-get
          ;; issue #118: a person's own sessions
-         ep-sessions-list ep-logout ep-session-revoke ep-sessions-revoke-others)
+         ep-sessions-list ep-logout ep-session-revoke ep-sessions-revoke-others
+         ;; the self-service way back in, which needed a mail transport to exist
+         ep-password-reset-request ep-password-reset-confirm
+         ;; onboarding by address, which is what a transport makes possible
+         ep-member-resend-invite)
 
 (require db-kit/portable
          json
@@ -21,6 +25,8 @@
          "../../domain/authz/authz.rkt"
          (only-in "../../domain/authz/passwords.rkt" kdf-name)
          (only-in "../../domain/beta/antispam.rkt" make-limiter limiter-allow?)
+         "../../domain/accounts/reset.rkt"
+         "../../domain/accounts/invite.rkt"
          racket/string
          web-server/http
          (only-in "../../domain/authz/secretbox.rkt" secret-key-id secrets-enabled?)
@@ -191,6 +197,94 @@
                                               'username (vector-ref r 1)
                                               'role (vector-ref r 2))))))))
 
+;; The team's display name and the inviter's, for the message. An invitation that
+;; will not say who sent it or what it is for is one a careful person is right to
+;; throw away, which is the ONE place this subsystem relaxes "ids, never content"
+;; — see the composer.
+(define (team-display-name team-id)
+  (define v (query-maybe-value db-conn "SELECT name FROM teams WHERE id = ?" team-id))
+  (if (and v (not (sql-null? v))) (format "~a" v) "your team"))
+
+(define (person-display-name uid)
+  (define r (query-maybe-row db-conn "SELECT display_name, username FROM users WHERE id = ?" uid))
+  (cond
+    [(not r) "An administrator"]
+    [(and (not (sql-null? (vector-ref r 0))) (not (equal? (format "~a" (vector-ref r 0)) "")))
+     (format "~a" (vector-ref r 0))]
+    [else (format "~a" (vector-ref r 1))]))
+
+;; THE INVITATION ANSWERS WITH NO TOKEN (INVITE-1). The username form hands the
+;; CALLER a `*:*` session for somebody else's account, which is fine for a script
+;; and is not how a person is onboarded: the invitee proves the mailbox and
+;; chooses their own password. The one exception is an instance that cannot send
+;; mail, where the link comes back so it can be handed over — `provision!`'s
+;; precedent, and the alternative is an invitation nobody can act on.
+(define (invite-branch req p body email username role)
+  (define team (principal-team-id p))
+  (define addr (format "~a" email))
+  (define uname (if (and username (not (equal? (format "~a" username) ""))) (format "~a" username) addr))
+  (cond
+    [(invite-problem addr) => (lambda (m) (err m 400))]
+    ;; Usernames are instance-global (TEN-2b), so the check is not team-scoped —
+    ;; and the same 409 the username form answers, because #123 established that
+    ;; a duplicate must not reach the INSERT and become a 500 carrying the SQL.
+    [(query-maybe-value db-conn "SELECT id FROM users WHERE username = ?" uname)
+     (err "username already exists on this instance" 409)]
+    [else
+     (define res (call-with-values
+                  (lambda ()
+                    (invite-member! db-conn #:team team #:role role #:address addr
+                                    #:username username
+                                    #:inviter (principal-user-id p)
+                                    #:inviter-name (person-display-name (principal-user-id p))
+                                    #:team-name (team-display-name team)))
+                  list))
+     (define uid (car res))
+     (define outcome (cadr res))
+     (define link (caddr res))
+     (json-response
+      (hasheq 'user_id uid 'role role 'username uname 'status "invited"
+              'invited #t
+              'queued (eq? outcome 'queued)
+              ;; The note is what stops "no transport" reading as success — the
+              ;; verification endpoint's own posture.
+              'note (if (eq? outcome 'queued)
+                        "An invitation is on its way. The account cannot sign in until it is accepted."
+                        "This instance has no email transport configured, so nothing was sent. Hand this link over yourself; it is shown once.")
+              'activation_token (or link 'null))
+      #:code 201)]))
+
+;; Send it again (INVITE-6). Without it an expired invitation leaves somebody
+;; unreachable except through an operator's password reset, and re-posting the
+;; invitation is a 409 because the username now exists.
+(define (ep-member-resend-invite req id)
+  (define p (current-principal req))
+  (cond
+    [(not p) (unauthorized)]
+    [else
+     (require-perm db-conn p "members:manage")
+     (define res (call-with-values
+                  (lambda ()
+                    (resend-invitation! db-conn (format "~a" id)
+                                        #:inviter (principal-user-id p)
+                                        #:inviter-name (person-display-name (principal-user-id p))
+                                        #:team-name (team-display-name (principal-team-id p))))
+                  list))
+     (cond
+       [(equal? res '(#f)) (err "no such member" 404)]
+       [(equal? res '(not-invited))
+        ;; A REFUSAL RATHER THAN A CONVENIENCE: on an active account this would
+        ;; mint a link that sets a password, which is a password reset — and that
+        ;; has its own route, its own throttle, its own shorter horizon and an
+        ;; enumeration-safe answer. Offering it here would be a second way to do
+        ;; it with none of those.
+        (err "that member has already accepted — a password reset is the other route" 409)]
+       [(equal? res '(no-address)) (err "that invitation has no address to send to" 409)]
+       [else
+        (json-response (hasheq 'ok #t
+                               'queued (eq? (car res) 'queued)
+                               'activation_token (or (cadr res) 'null)))])]))
+
 (define (ep-add-member req)
   (define p (current-principal req))
   (cond
@@ -199,9 +293,16 @@
      (require-perm db-conn p "members:manage")           ; → localized 403 on failure
      (define body (read-json-body req))
      (define username (hash-ref body 'username #f))
+     (define email (hash-ref body 'email #f))
      (define role (hash-ref body 'role "member"))
      (cond
-       [(not username) (err "username required" 400)]
+       ;; AN `email` ASKS FOR AN INVITATION; its absence is today's behaviour,
+       ;; byte for byte. Every fixture, smoke block and demo in this tree creates
+       ;; members by username and is answered with a token, and a flag day for
+       ;; them buys nothing — so the two forms live side by side and the branch
+       ;; is one field.
+       [email (invite-branch req p body email username role)]
+       [(not username) (err "username or email required" 400)]
        ;; #123: this went straight to `create-user!`, so a username that exists
        ;; raised the UNIQUE violation and the dispatcher turned it into a 500
        ;; carrying the INSERT. `POST /api/org/members` has always checked first
@@ -318,6 +419,106 @@
           #:team-id (or team sql-null)
           #:result result
           #:meta (jsexpr->string (hash-set* extra 'username (format "~a" u) 'ip ip))))
+
+;; ---- "I cannot sign in" -----------------------------------------------------
+;;
+;; TWO LIMITERS, AND NEITHER IS THE LOGIN'S (RESET-12). They are separate because
+;; what they protect is different: this endpoint makes THIS INSTANCE SEND MAIL to
+;; an address a stranger typed, so it is an amplification primitive aimed at a
+;; third party's mailbox as well as a guessing surface. The login's allowance of
+;; 20 a minute is far too generous for that.
+;;
+;; THE PER-ADDRESS ONE IS WHAT STOPS SOMEBODY BEING MAILBOMBED by repeated
+;; requests for an address that is not theirs, and the per-source one bounds a
+;; run across many addresses. Both in memory, for the reason the login's own note
+;; gives: a restart clearing a throttle costs nothing and an attacker changes
+;; address anyway. Neither is a control, so neither needs a row.
+;;
+;; The numbers are deliberately small. A real person asks once, reads their mail,
+;; and asks again only if it did not arrive.
+(define reset-ip-limiter (make-limiter))
+(define reset-addr-limiter (make-limiter))
+(define RESET-IP-MAX 5)
+(define RESET-ADDR-MAX 3)
+(define RESET-WINDOW 900)
+
+;; ONE ANSWER, WHATEVER HAPPENED (RESET-8). `request-password-reset!` reports the
+;; truth — queued, no transport, or no such account — and this is where it is
+;; flattened, which is `mail-send-test!`'s split: the domain says what occurred so
+;; a test and the audit log can assert on it, and the route says the same thing
+;; either way so a stranger cannot ask whether an address has an account. #117
+;; closed a 168-millisecond timing oracle on that exact question one route along;
+;; answering it in words here would be worse, because it needs no measurement.
+;;
+;; THE THROTTLE IS THE ONE THING THAT ANSWERS DIFFERENTLY, and it has to: a 429
+;; tells the caller to wait rather than silently dropping a request a real person
+;; is waiting on. It says nothing about the address, because it is reached before
+;; the address is looked up at all.
+;;
+;; THE WORDING IS THE MITIGATION for what the flattening costs — a person who
+;; mistypes their address is told the same as one who did not, so the message is
+;; conditional ("if that address has an account") rather than a claim that
+;; something was sent.
+(define (ep-password-reset-request req)
+  (define body (read-json-body req))
+  (define address (hash-ref body 'address #f))
+  (define ip (client-ip-of req))
+  (define now (current-seconds))
+  (define (same-answer)
+    (json-response (hasheq 'ok #t
+                           'message "if that address has an account, a reset link is on its way")))
+  (cond
+    [(not address) (err "address required" 400)]
+    [(not (limiter-allow? reset-ip-limiter ip now #:max RESET-IP-MAX #:window RESET-WINDOW))
+     (err "too many reset requests from this address — wait a few minutes" 429)]
+    [(not (limiter-allow? reset-addr-limiter (string-downcase (format "~a" address)) now
+                          #:max RESET-ADDR-MAX #:window RESET-WINDOW))
+     ;; Deliberately the SAME refusal as the per-source one. Two distinguishable
+     ;; 429s would turn the throttle itself into the oracle the body refuses to
+     ;; be: "you are being limited on this ADDRESS" says the address is known.
+     (err "too many reset requests from this address — wait a few minutes" 429)]
+    [else
+     (define outcome (request-password-reset! db-conn (format "~a" address)))
+     ;; Recorded on the instance's own trail whatever happened, because "somebody
+     ;; asked and nothing was sent" is the case an operator is asked about — and
+     ;; it is the one place the outcome is kept, since the caller is not told.
+     ;; The ADDRESS is not in the meta: it is a string a stranger supplied, and
+     ;; the audit log is chained, exported and kept through an erasure.
+     (audit! db-conn #:action "user.password.reset.asked" #:actor-type "system"
+             #:actor-id "password-reset" #:result (format "~a" outcome)
+             #:meta (jsexpr->string (hasheq 'ip ip)))
+     (same-answer)]))
+
+;; Redeeming is public and carries no bearer, and it cannot be otherwise: the
+;; person asking is by definition one who cannot sign in. That is the whole
+;; difference from MAIL-19's verification, which IS authenticated because the
+;; caller there already holds a session.
+;;
+;; THE SESSION MAY BE WITHHELD, and the body says which. With a second factor
+;; enrolled no token is issued — TOTP is enforced in `authenticate` and this path
+;; does not go through it — so `signed_in` is false and the console sends the
+;; person to sign in, where the code is demanded.
+(define (ep-password-reset-confirm req)
+  (define body (read-json-body req))
+  (define tok (hash-ref body 'token #f))
+  (define pw (hash-ref body 'password #f))
+  (cond
+    [(not tok) (err "token required" 400)]
+    [(reset-password-problem (and (string? pw) pw)) => (lambda (p) (err p 400))]
+    [else
+     (define res (call-with-values
+                  (lambda () (reset-password! db-conn #:token (format "~a" tok) #:password pw))
+                  list))
+     (if (equal? res '(#f))
+         ;; ONE REFUSAL FOR EVERY WAY IT CAN FAIL — unknown, spent, expired,
+         ;; minted for another purpose, or an account suspended since it was
+         ;; asked for. Distinguishing them tells whoever holds a stale link
+         ;; something about the account it belongs to.
+         (err "this reset link is no longer valid — ask for a new one" 400)
+         (json-response (hasheq 'ok #t
+                                'token (or (caddr res) 'null)
+                                'signed_in (and (caddr res) #t)
+                                'sessions_revoked (cadr res))))]))
 
 (define (ep-login req)
   (define body (read-json-body req))

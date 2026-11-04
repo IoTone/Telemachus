@@ -1,7 +1,7 @@
 # Email delivery and notifications
 
-> Status: **built**, except the one thing named at the end — a quota dimension
-> for the API a plugin calls. Decisions **MAIL‑1…MAIL‑24** in
+> Status: **built**, including the quota dimension this document named as the
+> next thing to build. Decisions **MAIL‑1…MAIL‑25** in
 > `docs/design/decisions.md`; the working notes are the "Email delivery and
 > notifications" section of `CLAUDE.md`.
 
@@ -192,16 +192,31 @@ plugin may reach *the team's own verified members who have not opted out*, with
 asking for a different feature, and the honest answer is that it should ship a
 webhook receiver.
 
-**Rate limiting is the one thing NOT built, and it is the next thing to build.**
-A plugin calling `mail-notify!` in a loop meets the preference layers and `can?`
-and no quota dimension at all, so what it meets after that is the instance's own
-mail reputation. The shape is settled by four precedents — `ai.help.total`,
+**Rate limiting is BUILT, as `mail.notifications` (MAIL‑25).** A plugin calling
+`mail-notify!` in a loop used to meet the preference layers and `can?` and no
+quota dimension at all, so what it met after that was the instance's own mail
+reputation. The shape was settled by four precedents — `ai.help.total`,
 `ai.transcriptions.total`, `ai.embeddings.total` and `ai.judgments.total` are
 each their own dimension for each one's own stated reason — and the argument here
-is the same: a message is not a token, so it cannot share a token budget. It
-belongs in `QUOTA-HOLD-DIMS` only if a limit should hold a team's job queue,
-which for mail it should not: a notification nobody can send is not work to
-defer.
+was the same: a message is not a token, so it cannot share a token budget.
+
+Three things this document predicted and one it got wrong. It counts **messages
+queued to a mailbox**, so one event to five members is five, because the resource
+is spent per mailbox. It has **no default limit**, so an upgrade refuses nothing.
+It is **not in `QUOTA-HOLD-DIMS`**, and the reason turned out to be stronger than
+the one guessed here: not merely that a notification nobody can send is not work
+to defer, but that a notification is emitted FROM a job — a workflow run
+completing is what fires `run.completed` — so a hold would stop a team's actual
+work because it had sent too much mail.
+
+What this document did not anticipate is **where** the check goes. It reads as a
+property of `mail-notify!`, which is right, and the reason is sharper than
+convenience: `mail-enqueue!` is the one INSERT that the fan-out and all four
+transactional messages share, so a check there would need a per-caller exemption
+list — and the one caller that forgot it would silently make a password reset
+refusable, which is RESET‑5's defect with a number in front of it. At the fan-out
+the bound covers exactly the discretionary half, by construction rather than by a
+flag.
 
 ## Deliberately not built, and said so rather than discovered
 

@@ -125,6 +125,12 @@ async function render(){
   // into chat, logged by proxies and kept in history. It is stashed in `S`, so it
   // survives the sign-in that may be needed first, and spent below.
   claimVerifyToken();
+  // A reset link arrives as `?reset_token=` and is stripped the same way, for
+  // the same reason. It differs in one respect that decides where this call
+  // goes: the person following it CANNOT SIGN IN, so unlike the verification it
+  // must be claimed before `S.me` exists and is spent from the sign-in screen
+  // rather than from a tab.
+  claimResetToken();
   // Two rounds, not five. These three are independent: branding and the instance
   // config are public, and whoami reads neither. Running them one after another
   // made every sign-in five sequential round trips — ~2.3s at 300ms each, which

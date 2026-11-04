@@ -2173,15 +2173,230 @@ MOCK_SMTP_PORT=8928 MOCK_SMTP_OUT=/tmp/mail.txt racket test/mock-smtp.rkt
 suppression list, and one nothing populates is worse than none), an HTML body, a
 digest, a vendor HTTP API (SES/Postmark — a plugin's, and the notification API is
 what makes that possible), an unsubscribe link (it would need a GET that mutates
-a preference), a per-team preference, and **a quota dimension** — which is the
-one thing a plugin-facing `mail-notify!` should gain next, so a plugin in a loop
-meets a limit rather than the instance's mail reputation meeting it.
+a preference), and a per-team preference. **The quota dimension IS built** — see
+the section below.
 
 **STATED RATHER THAN IMPLIED**: the STARTTLS and implicit-TLS branches are not
 exercised by any test. Both are the same `smtp-send-message` call with a
 different connector argument, and driving either end to end needs a certificate
 the mock would have to be given; `mock-smtp.rkt` has the hook
 (`mock-tls-encode`) and nothing calls it. The LibreOffice branch's rule.
+
+## The transactional mail a service needs: a reset, and an invitation (RESET, INVITE)
+
+`domain/authz/mailed-tokens.rkt` (the token rules), `domain/accounts/reset.rkt`,
+`domain/accounts/invite.rkt`; migration `0070-token-purpose`; four routes.
+Decisions RESET‑1…12 and INVITE‑1…8.
+
+```sh
+raco test test/password-reset-tests.rkt test/invite-tests.rkt   # 33 cases, 13 controls
+bash test/server-smoke.sh                                        # the invite + reset blocks, 43 assertions
+```
+
+- **MOST OF IT ALREADY EXISTED AND WAS STUBBED OUT BECAUSE THERE WAS NO
+  TRANSPORT**, which is the finding rather than the work.
+  `POST /api/admin/users/:id/password`'s own route doc said *"there is no mail
+  transport to send a reset link"*; `users.status` has carried `'invited'` since
+  0006; `activation_tokens` has stored a peppered-HMAC token with an expiry and a
+  single-use marker since the same migration; and **`POST /api/activate` has been
+  a public, no-bearer "set this password" endpoint** since hosted onboarding. So
+  a reset is a composition — which is why reading what it would compose WITH came
+  first.
+- **TWO GATING DEFECTS IN `activate!`, FOUND BY READING IT RATHER THAN FROM A
+  FAILING TEST.** It bypasses `authenticate`, which is where TOTP is enforced, so
+  a mailed link redeemed through it mints a `*:*` session **with no second
+  factor** — a complete 2FA bypass for anybody who can read the mailbox. And its
+  `UPDATE users SET status = 'active'` is unconditional, with a
+  `provisioning … 'activated'` beside it, so on an account somebody SUSPENDED a
+  redemption is a **privilege restoration reachable from the mailbox**. Three
+  smaller ones: it revokes no session (#54's rule, and the case a reset exists
+  for is an account somebody else holds a session on), clears no login lock
+  (#116's way back from a lock is an operator, which is what this exists to stop
+  needing), and audits as `"activate"`, making a reset and an onboarding one
+  event in a chained, exported log.
+- **`purpose` IS NOT COSMETIC** (migration 0070). `mint-mailed-token!` retires a
+  user's prior unused token — right per purpose, wrong across them: asking for a
+  reset would silently retire a pending invitation, and accepting an invitation
+  would retire a reset link the same person had just asked for. And the two
+  redemptions are different WRITES, so a token must name which it authorizes.
+- **ONE ANSWER WHATEVER HAPPENED.** The domain reports `queued` / `no-transport`
+  / `unknown` and the endpoint flattens all three — `mail-send-test!`'s split, so
+  a test and the audit log can assert on the outcome and a stranger cannot ask
+  whether an address has an account. #117 closed a 168-ms TIMING oracle on that
+  question one route along; answering it in words would be worse, because it
+  needs no measurement. **The order inside the domain is load-bearing**: unknown
+  is decided BEFORE the transport is consulted, or removing the transport would
+  make the two distinguishable. What it costs is stated — a mistyped address is
+  answered identically, so the wording is conditional rather than a claim.
+- **TWO LIMITERS AND NEITHER IS THE LOGIN'S.** This endpoint makes the instance
+  SEND MAIL to an address a stranger typed, so it is an amplification primitive
+  aimed at a third party's mailbox as well as a guessing surface; 20 a minute is
+  far too generous. **The two 429s are deliberately identical**, or the throttle
+  becomes the oracle the body refuses to be.
+- **A RESET IS TRANSACTIONAL, AND HERE THAT IS A SECURITY PROPERTY.** The
+  preference layers let a person stop this instance mailing them, and a person
+  who turned every category off must still recover their account — otherwise a
+  preference screen is a way to lock yourself out permanently, from a screen
+  that does not warn you.
+- **AN INVITATION ANSWERS WITH NO TOKEN; the `username` form still does.**
+  `POST /api/members` mints a `*:*` session for the new account and hands it to
+  the CALLER — fine for a script, and not onboarding. An `email` in the body asks
+  for an invitation instead; the existing form is untouched because every
+  fixture, smoke block and demo here uses it. **With no transport the link comes
+  back once** so it can be handed over (`provision!`'s precedent): an invitation
+  nobody can act on is worse than one delivered by hand.
+- **REDEEMING THE INVITATION VERIFIES THE ADDRESS**, so no second confirmation is
+  sent — receiving the link is the same proof a verification token carries. The
+  pending address waits in `email_verifications` and is NEVER written to
+  `users.email` before it answers (MAIL‑5/PULL‑11e). `address-verify-by-redemption!`
+  **takes no token**, which is what makes it dangerous to export carelessly: the
+  caller asserts the proof already happened, so it has exactly one caller,
+  immediately after a token minted for that user has been spent.
+- **AN INVITATION NAMES THE INVITER AND THE TEAM; A RESET NAMES NOTHING.** The
+  one place this subsystem relaxes MTX‑8, and the relaxation is the point: a
+  message that will not say who sent it or what it is for is one a careful person
+  is right to discard as phishing. A reset goes to an address typed into a PUBLIC
+  endpoint, so it says only that somebody asked — which tells the holder all they
+  need and an attacker nothing they did not supply.
+- **STATED RATHER THAN IMPLIED: a reset is useless until somebody has a VERIFIED
+  address, and on an existing instance nobody has one** — `users.email` was NULL
+  on every row until the MAIL slice. The invitation is what fills it at scale;
+  existing members add one from the Usage tab. That is the honest reading of why
+  both halves had to land together.
+
+**Four traps paid again, all already in this file:**
+
+- **BACKTICKS INSIDE A DOUBLE-QUOTED BASH STRING ARE COMMAND SUBSTITUTION.** An
+  assertion label reading ``"invite: …as `invited`, so…"`` ran `invited` as a
+  command and printed with a hole in it. Recorded here for an `echo` heading
+  (`@fleet`); this was a label.
+- **`assert` IS A CASE-SENSITIVE `grep -F`.** A needle of `no account is` cannot
+  match `No account is` at the start of a sentence.
+- **A SMOKE ASSERTION CAN PASS AGAINST A STEP THAT FAILED.** "The address is
+  confirmed" grepped `/api/email-prefs` for the address — which that endpoint
+  reports as `pending` too, so it matched while the verification had not
+  happened. Assert `verified_epoch`, or refute the pending form beside it.
+- **THE TRANSPORT SENDS `Content-Transfer-Encoding: base64`**, so a grep over a
+  captured message finds neither the link nor a word of the prose. That read as
+  "no reset message arrived" while the message sat in the file, and two body
+  assertions beside it PASSED VACUOUSLY. `mail_body` in `server-smoke.sh` decodes
+  and the existing verification extractor is its second asker, not a second copy.
+- **DO NOT EDIT THE TREE WHILE A SUITE IS RUNNING.** A Postgres leg running in
+  the background read `addresses.rkt` mid-edit and failed with
+  `jsexpr->string: unbound identifier` plus a server that would not boot — which
+  reads exactly like a real defect in a module that compiles cleanly a minute
+  later. Both failures were the race and neither was real.
+
+## What a team may spend on telling people (MAIL‑25)
+
+`mail.notifications` — the one thing `email-notifications.md` named as not built.
+`domain/mail/mail.rkt`'s fan-out plus `tenant-quota-check/team` in orgs.rkt.
+**No migration, no route, no new permission, no new environment variable.**
+
+```sh
+raco test test/mail-tests.rkt                              # 37 cases, five controls, all biting
+DATABASE_URL="postgres://…" raco test test/mail-tests.rkt  # the whole file, both dialects
+bash test/server-smoke.sh                                  # the "MAIL-25" block, 9 assertions
+```
+
+- **IT COUNTS MESSAGES QUEUED TO A MAILBOX, so one event to five members is
+  five** (MAIL‑25a) — the resource being protected is this instance's standing
+  with the relays, and that is spent per mailbox, not per event. **A RETRY IS NOT
+  COUNTED**: the retry curve is the platform's own business, and charging a team
+  for the relay having been down would make its budget a function of somebody
+  else's uptime.
+- **THE BOUND IS AT THE FAN-OUT AND NOT IN `mail-enqueue!`, WHICH IS WHAT MAKES
+  THE FOUR TRANSACTIONAL MESSAGES SAFE BY CONSTRUCTION** (MAIL‑25b).
+  `mail-enqueue!` is also the one INSERT for a verification, a reset, an
+  invitation and the transport test, so a check there would need a keyword saying
+  "do not count this one" — a per-caller exemption list, where the one caller
+  that forgot it would silently make a password reset refusable. RESET‑5 is that
+  a reset must work for somebody who has turned every category off, because the
+  alternative is a screen that locks you out permanently; a quota that could
+  refuse one is that defect with a number in front of it.
+- **DELIBERATELY NOT IN `QUOTA-HOLD-DIMS`, and that is the sharpest decision
+  here** (MAIL‑25d). A hold stops a team's SCHEDULER QUEUE until the window
+  resets — right for every AI dimension, because those are spent *inside* a job
+  and holding the job is holding the spend. **A notification is emitted FROM a
+  job**: a workflow run completing is what fires `run.completed`. So a hold here
+  would stop a team's actual work because it had sent too much mail, which is an
+  outage with no obvious cause. A delivery is not a job either; it is a row swept
+  on the reaper seam, so there is no queue of deliveries for a hold to govern.
+  **Gated by a SOURCE SCAN over `server/admission.rkt`**, because that module
+  requires `kit.rkt` and #123 records what a unit test that requires kit costs:
+  it passes everywhere and fails in CI's sqlite leg alone, where `DATABASE_URL`
+  is the empty string. Comment lines are stripped — the fourth-appearance rule
+  for a scan that would otherwise read the prose explaining what it looks for.
+- **THE CHECK ASKS FOR ONE UNIT, NOT FOR THE WHOLE FAN-OUT, AND THE OVERSHOOT IS
+  STATED** (MAIL‑25e). Asking for N and refusing the lot means a team of five
+  under a limit of three is refused EVERY event for ever **while its ledger stays
+  at `used: 0`** — a bound that silences a team and reports that it was never
+  reached, which is a day of somebody's time. Asking "is there any budget left"
+  and metering what was queued lets the figure reach and pass the limit, which is
+  what says plainly what happened. The cost: a window may end OVER the limit by
+  at most one team's membership, the same overshoot every AI dimension already
+  accepts between an admission estimate and a metered actual.
+- **A REFUSAL IS AUDITED** (`email.notify.refused`), one entry per refusal and
+  **not deduped per window** (MAIL‑25f). A notification that was not sent is
+  otherwise pure silence: `mail_deliveries` is where an operator looks and a
+  refused message writes no row there, so the symptom is silence and the
+  diagnosis is "email is broken". `ai.egress.refused` (RED‑24) is the precedent
+  and so is its shape — `quota.exhausted`'s dedup exists because every pool tick
+  re-asks the same question about the same queued job, where here each entry is
+  about a DIFFERENT event. The entry carries **how many recipients there were and
+  not who they are** (MAIL‑25g): the log is chained, exported and kept through an
+  erasure (DEL‑7), so a list of the mailboxes of everybody on a team is the one
+  thing here most worth not writing into it. `#:team-id` is the team whose
+  members were not told — **the ninth appearance of that shape**.
+- **THE RECIPIENTS ARE RESOLVED BEFORE ANYTHING IS SPENT** (MAIL‑25h). On a team
+  where every member has turned the category off, or may not read the subject
+  (MAIL‑17), that is the ordinary case rather than a corner, so a check and an
+  audit entry per such event would be a ledger and a log full of nothing.
+  Positive-controlled by moving the check above the resolution.
+- **ENFORCED AND REPORTED AT BOTH TIERS** (MAIL‑25i): `ORG-DIMENSIONS`,
+  `org-usage` and `GET /api/usage`. What a company protects is its own domain's
+  reputation, which is one resource however many teams spend it, so the company
+  cap is the one that matters — and orgs.rkt's own line is that a limit enforced
+  and not reported is worse than one that is neither, which is the defect
+  `storage.bytes` had there for a year. **Because it is not a hold dimension
+  `held` can never name it**, so the usage figure is the ONLY place a team learns
+  it has stopped telling people things.
+- **`tenant-quota-check/team` / `tenant-quota-record!/team` — one rule, two
+  spellings of its subject** (MAIL‑25j). The principal-keyed pair is what every
+  metered endpoint asks, because a request has a caller; a notification does not,
+  since `mail-notify!` is handed a team and an event that belongs to the team
+  rather than to any one person — so building a principal to satisfy the
+  signature would mean choosing a user the event does not have. A second copy of
+  the ordering (the org decision first, and let it refuse) would be
+  `executor-can-run?`'s drift in the one place where getting it wrong lets a team
+  spend a company's budget after the company has run out.
+
+**A CONTROL THAT DID NOT BITE FOUND A VACUOUS TEST, and the honest answer was to
+delete the test rather than to strengthen it.** The record site charges the count
+of rows that were WRITTEN, and a case was written to pin "the actual, not the
+intended" — it passed, and substituting `(length recips)` for it passed too.
+`mail-enqueue!` answers `#f` on two conditions only: no transport, which
+`mail-notify!`'s own second arm has already refused, and an address
+`mail-address-problem` rejects, which `notification-recipients` filters out
+BEFORE the loop. **So nothing reachable from there can make the two differ**, the
+rule is unfalsifiable on this path, and it is STATED at the definition rather
+than pinned — the LibreOffice branch's and VEC‑13's shape. It is still the
+written count, because if `mail-enqueue!` ever gains a third refusal that stays
+the honest figure while the intended one quietly starts billing a team for
+messages nobody sent.
+
+**A SMOKE BLOCK THAT COUNTS BEFORE AND AFTER IS VACUOUS ON A BROKEN INSTANCE.**
+"An exhausted budget stops the fan-out" is also satisfied where notifications are
+broken outright, so the block LIFTS the bound and asserts the count moves again.
+It also puts the limit back, or every later block silently stops being
+notified — this file's own repeated lesson about a fixture that changes global
+state.
+
+**Not built, deliberately**: a console control (the Usage tab renders every
+dimension the endpoint reports, and `POST /api/quota` already sets it); a
+per-CATEGORY budget, which would be five numbers where the thing protected is
+one; and a rate limit as distinct from a windowed budget, which `window:
+"minute"` already is.
 
 ## A feed, its credential, and what a failure may say (FEED, issue #114 slice 3)
 

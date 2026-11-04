@@ -2317,6 +2317,36 @@
         "  updated_epoch BIGINT NOT NULL,"
         "  PRIMARY KEY (user_id, category))")))))
 
+;; 0070 — what a mailed token is FOR (RESET-1).
+;;
+;; `activation_tokens` has held one kind of token since 0006: an invitation, for
+;; a person who has never had a password. A reset is the same mechanism pointed
+;; at somebody who already has one, and sharing the column without saying which
+;; is which would be wrong twice over.
+;;
+;; THE FIRST REASON IS THE SLOT. `mint-activation!` invalidates a user's prior
+;; unused token, which is the right rule for one outstanding link per person and
+;; the wrong one for two kinds at once: asking for a reset would silently retire
+;; a pending invitation, and accepting an invitation would retire a reset link
+;; the same person had just asked for. One slot per purpose is one line here and
+;; cannot be got wrong later.
+;;
+;; THE SECOND IS WHAT REDEEMING ONE DOES. Activation sets `users.status` to
+;; 'active' — which is how an invited person becomes real, and is also, on an
+;; account somebody SUSPENDED, a privilege restoration reachable from the
+;; mailbox. A reset deliberately touches neither `users.status` nor
+;; `provisioning`, so the two redemptions are different writes and a token must
+;; name which one it authorizes rather than being accepted by both.
+;;
+;; The backfill is not a guess: every row that exists predates the reset flow.
+(define m-0070-token-purpose
+  (migration "0070-token-purpose"
+    (lambda (conn)
+      (exec* conn
+       "ALTER TABLE activation_tokens ADD COLUMN purpose TEXT"
+       "UPDATE activation_tokens SET purpose = 'activate' WHERE purpose IS NULL"
+       "CREATE INDEX idx_activation_purpose ON activation_tokens(user_id, purpose)"))))
+
 (define all-migrations (list m-0001-core m-0002-notes m-0003-quota m-0004-tools m-0005-translate m-0006-saas m-0007-features m-0008-documents m-0009-jobs m-0010-prospects m-0011-prospect-signals m-0012-prospect-company m-0013-prospect-attributes m-0014-onboarding-experiences m-0015-onboarding-assets m-0016-orgs
                              m-0017-workflows m-0018-user-locale m-0019-repo m-0020-s3 m-0021-repo-text m-0022-fold-documents
                              m-0023-instance-settings m-0024-l10n m-0025-sharing m-0026-doc-triggers m-0027-kg m-0028-executors m-0029-org-domain m-0030-recovery-codes m-0031-claim-token m-0032-session-policy m-0033-audit-seq m-0034-reviews m-0035-quota-bigint m-0036-object-metadata m-0037-review-chain m-0038-job-runtime m-0039-upload-age
@@ -2325,4 +2355,5 @@
                              m-0062-model-requests m-0063-model-request-operation
                              m-0064-chunk-vectors m-0065-help-corpus
                              m-0066-job-finished-age m-0067-model-request-job
-                             m-0068-note-tags m-0069-email))
+                             m-0068-note-tags m-0069-email
+                             m-0070-token-purpose))

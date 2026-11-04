@@ -454,5 +454,41 @@
          ;; error nobody can read, which is why the mode is stored (MAIL-11) and
          ;; not guessed from the port.
          #:tcp-connect (if (equal? security "tls") ssl-connect tcp-connect)
-         #:tls-encode (if (equal? security "starttls") ports->ssl-ports #f)))
+         #:tls-encode (if (equal? security "starttls") starttls-encode #f)))
       (void))))
+
+;; THE STARTTLS ENCODER EXISTS BECAUSE `ports->ssl-ports` PASSED STRAIGHT IN IS
+;; BROKEN AGAINST EVERY MODERN RELAY, and nothing found that for as long as the
+;; branch had no test.
+;;
+;; `net/smtp` calls the encoder with `#:encrypt 'tls` hardcoded, and in Racket's
+;; openssl binding `'tls` does not mean "TLS" — it means **TLS 1.0 exactly**.
+;; OpenSSL 3.x disables that at its default security level, so the handshake dies
+;; with `no protocols available` before a byte of mail moves. Measured against
+;; OpenSSL 3.6.4: the implicit-TLS branch works, because `ssl-connect` defaults
+;; to `'auto` and net/smtp never touches it, and the STARTTLS branch — the one
+;; nearly every real relay uses, on 587 — could never have worked.
+;;
+;; So the encoder takes the keywords net/smtp sends and OVERRIDES that one,
+;; leaving the rest as given. It is a wrapper rather than a patch to the argument
+;; because the argument is not ours to pass: the version negotiated is between
+;; our context and the relay, and `'auto` is what lets them agree on the best
+;; both support.
+;;
+;; WHAT IT DOES NOT DO IS VERIFY THE RELAY'S CERTIFICATE, and that is stated
+;; rather than implied. net/smtp passes no `#:context`, so the default client
+;; context answers and that one does not verify — a self-signed certificate is
+;; accepted, which `test/mail-tests.rkt` establishes by handing it one rather
+;; than by assuming. The honest reading: TLS here defends against a PASSIVE
+;; listener on the path and not against an active machine-in-the-middle that can
+;; present any certificate. Making it verify is a behaviour decision, because it
+;; would refuse the self-signed internal relay these deployments often run, so it
+;; wants an operator-visible switch rather than a quiet change of posture.
+(define (starttls-encode in out
+                         #:mode [mode 'connect]
+                         #:encrypt [_encrypt 'tls]
+                         #:close-original? [close-original? #t])
+  (ports->ssl-ports in out
+                    #:mode mode
+                    #:encrypt 'auto
+                    #:close-original? close-original?))
