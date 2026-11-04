@@ -633,6 +633,90 @@
   (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
                                 #:key "x.txt" #:bytes-b64 (b64 "x")) 'not-running))
 
+;; ---- SEC-9 (#186): the derivation bounds the WRITE, not only the read --------
+(test-case "worker-derive! may not overwrite a document that does not derive from its source"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define-values (ex tok) (executor-create! c alice #:name "ocr-box" #:model "m"))
+  ;; An ordinary team document with nothing to do with any job — a form template,
+  ;; a contract, a published page. This is what a claim must not be a licence to
+  ;; replace.
+  (define contract (repo-put! c alice #:key "documents/contract.md"
+                              #:port (open-input-string "the agreed terms")
+                              #:content-type "text/markdown" #:filename "Contract"))
+  (define src (repo-put! c alice #:key "scans/levee.pdf" #:port (open-input-string "scanned bytes")
+                         #:content-type "application/pdf"))
+  (define j (enqueue-job! c #:team tid #:user uid #:kind "infer.chat"
+                          #:payload (hasheq 'messages '() 'object_id (hash-ref src 'id))))
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j))
+  (define b64 (lambda (str) (bytes->string/utf-8 (base64-encode (string->bytes/utf-8 str) #""))))
+
+  ;; THE ATTACK, AND IT WORKED — measured, not supposed. With the bound removed
+  ;; this call answers `ok: #t, key: documents/contract.md, version: 2,
+  ;; derived_from: <the levee scan>`: a claim on ANY job of this team, naming a
+  ;; source the document has nothing to do with, pointed at the document's own
+  ;; key. The job's user may write it, so `repo-put!` takes it, and the
+  ;; derivation row then says the new version came from a scan of a levee.
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "documents/contract.md" #:bytes-b64 (b64 "the OTHER terms"))
+                'key-not-derived)
+  ;; …and the bytes are untouched, which is the half that matters. Asserted over
+  ;; the CONTENT and the version count, because a check on the refusal alone
+  ;; would pass against a version that refused after writing.
+  (define-values (co cin) (repo-open c alice (hash-ref contract 'id)))
+  (check-equal? (port->string cin) "the agreed terms") (close-input-port cin)
+  (check-equal? (length (repo-versions c alice (hash-ref contract 'id))) 1)
+
+  ;; A NEW key is still free — the bound is only ever about an overwrite.
+  (define made (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                               #:key "scans/levee.pdf.ocr.txt" #:bytes-b64 (b64 "levee 7 sound")))
+  (check-true (hash? made) (format "~a" made))
+  ;; …AND THE RE-RUN CASE STILL WORKS, which is the only overwrite anybody has
+  ;; asked for: a worker writing a later version of its OWN output, which does
+  ;; derive from this source.
+  (define again (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "scans/levee.pdf.ocr.txt" #:bytes-b64 (b64 "levee 7 sound, revised")))
+  (check-true (hash? again) (format "~a" again))
+  (check-equal? (hash-ref again 'object_id) (hash-ref made 'object_id) "the same document")
+  (check-equal? (length (repo-versions c alice (hash-ref made 'object_id))) 2))
+
+;; THE OTHER HALF WAS ALREADY SAFE, and saying so is the point of having
+;; measured it: where the key holds a document the job's USER may not write,
+;; `repo-put!` has always refused it (`forbidden: files:write`, checked against
+;; the prior resource). So the bound above is not what stops a worker reaching a
+;; colleague's private document — that was never reachable — and the severity of
+;; SEC-9 is bounded by what the job's user may write, with no privilege
+;; escalation beyond that user. What this case pins is that the two now collapse
+;; to ONE answer, so the key cannot be used to tell "something is there that you
+;; may not touch" from "something is there that does not derive from your
+;; source".
+(test-case "worker-derive!: a key holding a document the job's user cannot READ is the same refusal, not an oracle"
+  (define c (fresh))
+  (define-values (uid tid) (bootstrap! c #:username "alice"))
+  (define alice (user-principal c uid tid))
+  (define bob (create-user! c #:username "bob"))
+  (void (add-member! c #:team tid #:user bob #:role "member"))
+  (define-values (ex tok) (executor-create! c alice #:name "ocr-box" #:model "m"))
+  ;; alice's PRIVATE document, in a job of BOB's. Whether anything sits at that
+  ;; key is not a question a worker gets to ask.
+  (define hidden (repo-put! c alice #:key "private/plan.md" #:port (open-input-string "the plan")
+                            #:content-type "text/markdown" #:visibility "private"))
+  (define src (repo-put! c (user-principal c bob tid) #:key "scans/s.pdf"
+                         #:port (open-input-string "scan") #:content-type "application/pdf"))
+  (define j (enqueue-job! c #:team tid #:user bob #:kind "infer.chat"
+                          #:payload (hasheq 'messages '() 'object_id (hash-ref src 'id))))
+  (void (worker-claim! c ex #:kinds '("infer.chat") #:models '("m")))
+  (define fence (query-value c "SELECT claim_token FROM jobs WHERE id = ?" j))
+  (define b64 (lambda (str) (bytes->string/utf-8 (base64-encode (string->bytes/utf-8 str) #""))))
+  (check-equal? (worker-derive! c ex j #:token fence #:source (hash-ref src 'id)
+                                #:key "private/plan.md" #:bytes-b64 (b64 "x"))
+                'key-not-derived
+                "one answer for both, so the key is not an existence oracle")
+  (define-values (ho hin) (repo-open c alice (hash-ref hidden 'id)))
+  (check-equal? (port->string hin) "the plan") (close-input-port hin))
+
 (test-case "worker-derive! writes as the JOB'S user, so can? and the quotas decide"
   (define c (fresh))
   (define-values (uid tid) (bootstrap! c #:username "alice"))

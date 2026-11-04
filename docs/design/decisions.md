@@ -1588,6 +1588,104 @@ formatting something in.** Four defects fixed, two standing examples corrected.
   enumeration — parameters, then refusals — which is what a threat model would
   have told us to do in a planned order.
 
+## The security sweep, third pass: the METHOD (SEC‑9…11) — **built 4 Nov 2026** (issue #186)
+
+The first two passes were each ONE enumeration — the request-scoped parameters,
+then the refusals that quote a value — and each was chosen from the previous
+one's leftovers. Both found real defects and neither was a method. #186 asked for
+*"threat-model per surface, then a positive control for every claim"*, and this
+pass is that: `docs/design/threat-model.md`, ten surfaces, plus a gate that makes
+it fail when a surface grows.
+
+**AND THE ARGUMENT FOR IT IS A MEASUREMENT, NOT A PREFERENCE.** The public
+surface grew from **23 routes to 25** between the first pass and this one, and
+**the two new ones are in the exact class the first pass had flagged and left
+open** — a public endpoint that redeems a mailed token with no throttle
+(`POST /api/password-reset/confirm`, beside the already-recorded
+`POST /api/activate`). Nothing re-ran the survey, because nothing said when to.
+
+| | |
+|---|---|
+| 🔑 **SEC‑9** | `/derive`'s derivation warranted the READ and bounded NOTHING about the write — fixed, and the severity stated narrowly |
+| **SEC‑10** | The two surfaces that grow by accident are PINNED, so growing one cannot be silent |
+| **SEC‑11** | `style-src 'unsafe-inline'` re-priced by measuring the thing underneath it — declined, with the numbers |
+
+- 🔑 **SEC‑9 — THE WRITE TARGET WAS UNCONSTRAINED, AND IT WAS MEASURED RATHER
+  THAN SUPPOSED.** PULL‑9's rule is that *"a worker token is not a key to the
+  team's repository"* and PULL‑13's is that *"the derivation IS the warrant for
+  the write"*. The warrant was only ever checked against the SOURCE: `key` was
+  whatever the worker said. So a worker holding a claim on **any** job of a team
+  could name the key of **any** document that job's user may write and replace
+  its current version with bytes of its choosing. The positive control answers
+  `ok: #t, key: documents/contract.md, version: 2, derived_from: <an unrelated
+  levee scan>` — and the derivation row then says the new version came from that
+  scan, which "Processed by" renders. **The bound is narrow on purpose**: an
+  EXISTING object at that key must already derive from THIS source, so the
+  re-run case — a worker writing a later version of its own output, the only
+  overwrite anybody has asked for — still works, and a NEW key is still free,
+  because an object a worker creates at an odd key costs storage it is charged
+  for, is visible, is deletable and is audited. The wider bound (`key` must sit
+  under the SOURCE's key, which is what every in-tree deriver does) was
+  considered and **declined**: it would refuse a third-party worker's own naming
+  scheme to prevent untidiness rather than harm.
+  **AND THE SEVERITY IS BOUNDED, WHICH THE SAME CONTROL ESTABLISHED.**
+  `repo-put!` has always checked an overwrite against the PRIOR resource, so a
+  document the job's user may NOT write was never reachable — the control's
+  second case comes back `forbidden: files:write` with the check removed. There
+  is no privilege escalation beyond the job's user; what was broken is the
+  module's own contract, and the mitigations are real (versioning keeps the
+  earlier bytes, the entry names the executor). An unreadable clash now collapses
+  into the SAME refusal so the key is not an existence oracle either.
+- **SEC‑10 — A SURFACE THAT GROWS BY ACCIDENT IS PINNED WHOLE.**
+  `test/threat-model-tests.rkt` holds the 25 public routes, the 10 worker-facing
+  ones and the single route that authenticates itself, as LITERALS — never
+  re-derived from `ROUTES`, because a test that rebuilt either list would agree
+  with any change whatsoever (`vocabulary-tests.rkt`'s own note: the point of a
+  closed vocabulary is that adding to it is a decision somebody makes on
+  purpose). It fails in BOTH directions and names what was added or removed, and
+  it checks the DOCUMENT still carries a section per pinned surface, because
+  otherwise the lists are a pin with nothing behind them — ENVN‑11's second
+  direction, which keeps the configuration reference's compatibility section in
+  existence for the same reason. **Four controls, all four biting**: a new public
+  route, a new worker route, a deleted surface section, and the document removed
+  outright. The fourth did not bite on its first attempt, because the patch
+  changed the document's TITLE rather than deleting the file — a control that
+  tests the wrong property, which is a different failure from one that does not
+  bite.
+- **SEC‑11 — THE FIRST PASS'S OWN FRAMING OF `style-src` WAS WRONG BY MEASUREMENT
+  AND THE REAL QUESTION WAS ONE LAYER DOWN.** It listed "~250 style attributes";
+  there are **392, of which exactly FIVE interpolate anything at all** — a
+  rounded number, a percentage, two CSS variable NAMES and the funnel's theme.
+  So the work was never "sanitize the dynamic ones", it is "move 392 static
+  attributes to classes", since CSP blocks the style ATTRIBUTE wholesale while
+  `element.style.setProperty` from script is not blocked at all.
+  **What re-prices it is that CSS injection needs HTML injection first**, so this
+  pass enumerated that instead: **1,499 interpolations across nineteen console
+  files — 373 through `esc()`, 550 a known-safe shape, and of the 576 left, the
+  ones touching a server-supplied string are almost all inside `H(…)`**, which
+  returns an INDEX and keeps the value in a closure. That is #27's
+  delegated-handler change paying off exactly as its own notes predicted
+  ("arguments are real values instead of escaped strings, which also killed a
+  quoting-bug class"). The three helpers that really do put server data in markup
+  are `esc`, `iv` (`value="${esc(…)}"`) and `mdRender`, which escapes FIRST and
+  runs its rules over escaped text (ED‑4). **No path to HTML injection was
+  found**, which makes `style-src 'unsafe-inline'` defence in depth on top of a
+  control that holds — so a 392-site mechanical edit across nineteen files, on a
+  console whose coverage is source assertions plus one browser gate, buys that
+  depth at a real regression risk. **Measured and declined with the numbers**,
+  #110 r7's shape; and what would change the answer is an HTML-injection path
+  turning up, which means the ENUMERATION is the thing to re-run rather than the
+  attribute count.
+
+**What the three passes between them did NOT reach, and it is now a ranked list
+rather than a pile**: the `GET /api/i18n/catalog` cap (a decision about a public
+read the sign-in screen depends on, and the owner's), `provider-detail`'s fourth
+asker in `domain/mcp/client.rkt` (one home across two subsystems — a refactor),
+and throttling the two token-redemption endpoints (defence in depth at 192 bits,
+cheap now the limiter exists). The threat model's last section carries that list,
+which is the difference between an issue with leftovers and a document with a
+next step.
+
 ## The measured performance sweep (PERF) — **built 30 Oct 2026** (issue #185)
 
 #185 is a tracking issue with a method rather than a conclusion: *"measure first and

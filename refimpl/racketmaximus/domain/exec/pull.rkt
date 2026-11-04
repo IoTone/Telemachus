@@ -30,7 +30,7 @@
          "../authz/authz.rkt"
          "../sched/scheduler.rkt"
          (only-in "../ai/content.rkt" content->text)
-         (only-in "../repo/repo.rkt" repo-open repo-get repo-put! repo-inherit!)
+         (only-in "../repo/repo.rkt" repo-open repo-get repo-put! repo-inherit! repo-derivations)
          (only-in "../repo/extract.rkt" extract-text)
          (only-in "../audit/reads.rkt" read-context with-read-context)
          (only-in "../../config.rkt" max-upload-bytes)
@@ -1124,8 +1124,50 @@
            ;; answer, so a payload id can never be used as an existence oracle
            (define src (with-handlers ([exn:fail? (lambda (_) #f)])
                          (repo-get conn p source-id)))
+           ;; SEC-9 — THE DERIVATION WARRANTS THE READ AND MUST ALSO BOUND THE
+           ;; WRITE, AND UNTIL NOW IT BOUNDED NOTHING. PULL-9's rule is that "a
+           ;; worker token is not a key to the team's repository" and PULL-13's
+           ;; is that "the derivation IS the warrant for the write" — but the
+           ;; warrant was only ever checked against the SOURCE, while `key` was
+           ;; whatever the worker said. So a worker holding a claim on ANY job of
+           ;; a team could name the key of ANY document that job's user may
+           ;; write — a form template, a contract, a published document — and
+           ;; replace its current version with bytes of its choosing, from a
+           ;; source with nothing to do with it. The derivation row then said the
+           ;; new version came from that unrelated source, and "Processed by"
+           ;; rendered it.
+           ;;
+           ;; The bound is narrow on purpose: an EXISTING object at that key must
+           ;; already derive from THIS source. So the re-run case — a worker
+           ;; writing its own earlier output again, which is the only overwrite
+           ;; anybody has asked for — still works, and a worker may still create
+           ;; a NEW object wherever it likes, which costs storage it is charged
+           ;; for, is visible, is deletable and is audited. The wider bound
+           ;; (`key` must sit under the SOURCE's key, which is what every
+           ;; in-tree deriver does) was considered and declined: it would refuse
+           ;; a third-party worker's own naming scheme to prevent untidiness
+           ;; rather than harm, and the harm here is clobbering something that
+           ;; was already there.
+           ;;
+           ;; An object the job's user cannot READ collapses into the same answer
+           ;; rather than raising, so the key cannot be used as an existence
+           ;; oracle either — the rule the source lookup two lines up already
+           ;; follows.
+           (define clash
+             (and src
+                  (with-handlers ([exn:fail? (lambda (_) 'unreadable)])
+                    (repo-get conn p key #:by-key (vector-ref r 0)))))
+           (define clash-ok?
+             (cond
+               [(not clash) #t]                       ; nothing there: a create
+               [(eq? clash 'unreadable) #f]
+               [else (let ([ds (with-handlers ([exn:fail? (lambda (_) '())])
+                                 (or (repo-derivations conn p (hash-ref clash 'id)) '()))])
+                       (for/or ([d (in-list ds)])
+                         (equal? (hash-ref d 'source_object_id) source-id)))]))
            (cond
              [(not src) 'no-such-document]
+             [(not clash-ok?) 'key-not-derived]
              [else
               ;; a refusal from the write itself — files:write, an invalid key, a
               ;; storage quota — is the JOB USER's refusal and comes back verbatim:
